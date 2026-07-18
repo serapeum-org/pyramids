@@ -23,7 +23,8 @@ from pyramids.feature import (
     has_lazy_backend,
     is_lazy_fc,
 )
-from tests._marks import HAS_DASK_GEOPANDAS as HAS_DASK_GP, requires_dask_geopandas
+from tests._marks import HAS_DASK_GEOPANDAS as HAS_DASK_GP
+from tests._marks import requires_dask_geopandas
 
 pytestmark = pytest.mark.parquet_lazy
 

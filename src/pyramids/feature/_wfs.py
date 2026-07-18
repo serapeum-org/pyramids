@@ -77,7 +77,9 @@ def _get_capabilities(
             payload = resp.read()
     except OSError as exc:
         # urllib.error.URLError / HTTPError both derive from OSError.
-        raise WFSError(f"WFS GetCapabilities request failed for {endpoint!r}: {exc}") from exc
+        raise WFSError(
+            f"WFS GetCapabilities request failed for {endpoint!r}: {exc}"
+        ) from exc
 
     try:
         root = ET.fromstring(payload)
@@ -87,7 +89,9 @@ def _get_capabilities(
         ) from exc
 
     if _localname(root.tag) in ("ExceptionReport", "ServiceExceptionReport"):
-        raise WFSError(f"WFS server returned an exception for {endpoint!r}: {_exception_text(root)}")
+        raise WFSError(
+            f"WFS server returned an exception for {endpoint!r}: {_exception_text(root)}"
+        )
 
     versions = {root.attrib["version"]} if root.attrib.get("version") else set()
     for el in root.iter():
@@ -131,7 +135,7 @@ def _wfs_connection(endpoint: str, version: str | None) -> str:
 
 
 def from_wfs(
-    featurecollection_cls: type["FeatureCollection"],
+    featurecollection_cls: type[FeatureCollection],
     endpoint: str,
     *,
     typename: str,
@@ -142,7 +146,7 @@ def from_wfs(
     version: str | None = None,
     auth: tuple[str, str] | None = None,
     timeout: float = 60.0,
-) -> "FeatureCollection":
+) -> FeatureCollection:
     """Fetch a WFS feature-type subset and return a :class:`FeatureCollection`.
 
     This is the private implementation; the public API is the
@@ -155,7 +159,9 @@ def from_wfs(
         WFSError: The server could not be reached or returned an error / a
             non-feature body.
     """
-    read_kwargs = _read_kwargs(bbox, where, max_features)  # validate inputs before any network call
+    read_kwargs = _read_kwargs(
+        bbox, where, max_features
+    )  # validate inputs before any network call
 
     # Fetch capabilities unpinned so the advertised version set is authoritative.
     versions, typenames = _get_capabilities(endpoint, None, auth, timeout)
@@ -176,7 +182,9 @@ def from_wfs(
     with gdal.config_options(config):
         try:
             gdf = gpd.read_file(connection, layer=typename, **read_kwargs)
-        except Exception as exc:  # noqa: BLE001 — normalise any read failure to WFSError
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — normalise any read failure to WFSError
             raise WFSError(f"WFS GetFeature failed for {typename!r}: {exc}") from exc
 
     fc = featurecollection_cls(gdf)

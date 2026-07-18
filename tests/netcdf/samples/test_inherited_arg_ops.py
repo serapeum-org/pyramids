@@ -33,8 +33,14 @@ def _points(v):
 def _box(v):
     xmin, ymin, xmax, ymax = v.total_bounds
     return gpd.GeoDataFrame(
-        geometry=[box(xmin + (xmax - xmin) * 0.2, ymin + (ymax - ymin) * 0.2,
-                      xmin + (xmax - xmin) * 0.6, ymin + (ymax - ymin) * 0.6)],
+        geometry=[
+            box(
+                xmin + (xmax - xmin) * 0.2,
+                ymin + (ymax - ymin) * 0.2,
+                xmin + (xmax - xmin) * 0.6,
+                ymin + (ymax - ymin) * 0.6,
+            )
+        ],
         crs=v.epsg or 4326,
     )
 
@@ -48,7 +54,9 @@ def test_rowcol_and_xy_roundtrip(tos):
     x, y = _inside_xy(tos)
     row, col = tos.rowcol(x, y)
     bx, by = tos.xy(row, col)
-    assert abs(bx - x) <= abs(tos.geotransform[1]) and abs(by - y) <= abs(tos.geotransform[5])
+    assert abs(bx - x) <= abs(tos.geotransform[1]) and abs(by - y) <= abs(
+        tos.geotransform[5]
+    )
 
 
 def test_map_to_array_coordinates(tos):
@@ -121,8 +129,9 @@ def test_change_no_data_value_guarded_on_variable_view(tos):
 
 def _classes(v):
     """A single-band integer classification raster aligned to the variable view."""
-    return Dataset.create_from_array(np.ones((v.rows, v.columns), "int32"),
-                                     geo=v.geotransform, epsg=v.epsg or 4326)
+    return Dataset.create_from_array(
+        np.ones((v.rows, v.columns), "int32"), geo=v.geotransform, epsg=v.epsg or 4326
+    )
 
 
 def test_overlay_with_classes(tos):

@@ -31,5 +31,7 @@ def test_combine_kerchunk_across_files(sample, tmp_path):
     shutil.copy(sample(AIR), a)
     shutil.copy(sample(AIR), b)
     out = tmp_path / "combined.json"
-    combined = NetCDF.combine_kerchunk([str(a), str(b)], str(out), concat_dims=("time",))
+    combined = NetCDF.combine_kerchunk(
+        [str(a), str(b)], str(out), concat_dims=("time",)
+    )
     assert isinstance(combined, dict) and combined

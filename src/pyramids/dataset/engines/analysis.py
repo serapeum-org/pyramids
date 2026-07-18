@@ -491,16 +491,22 @@ class Analysis(_Engine["Dataset"]):
         """
         if isinstance(points, FeatureCollection):
             verts = points.with_coordinates()
-            return cast(np.typing.NDArray, verts.loc[:, ["x", "y"]].to_numpy(dtype=float))
+            return cast(
+                np.typing.NDArray, verts.loc[:, ["x", "y"]].to_numpy(dtype=float)
+            )
         if isinstance(points, GeoDataFrame):
             verts = FeatureCollection(points).with_coordinates()
-            return cast(np.typing.NDArray, verts.loc[:, ["x", "y"]].to_numpy(dtype=float))
+            return cast(
+                np.typing.NDArray, verts.loc[:, ["x", "y"]].to_numpy(dtype=float)
+            )
         if isinstance(points, DataFrame):
             if not all(col in points.columns for col in ("x", "y")):
                 raise ValueError(
                     "If the input is a DataFrame, it must have 'x' and 'y' columns."
                 )
-            return cast(np.typing.NDArray, points.loc[:, ["x", "y"]].to_numpy(dtype=float))
+            return cast(
+                np.typing.NDArray, points.loc[:, ["x", "y"]].to_numpy(dtype=float)
+            )
         raise TypeError(
             "points must be a FeatureCollection, GeoDataFrame, or DataFrame with "
             f"x/y columns - given {type(points)}."
@@ -1329,7 +1335,9 @@ class Analysis(_Engine["Dataset"]):
         return np.asarray(val)
 
     @staticmethod
-    def _rescale(array: np.ndarray, min_value: float, max_value: float) -> np.typing.NDArray:
+    def _rescale(
+        array: np.ndarray, min_value: float, max_value: float
+    ) -> np.typing.NDArray:
         val = (array - min_value) / (max_value - min_value)
         return val
 
@@ -1806,7 +1814,7 @@ class Analysis(_Engine["Dataset"]):
         kwargs:
                 | Parameter                   | Type                | Description |
                 |-----------------------------|---------------------|-------------|
-                | `points`                    | array \| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
+                | `points`                    | array \\| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
                 | `figsize`                   | tuple, optional     | Figure size. Default is `(8, 8)`. |
                 | `title`                     | str, optional       | Title of the plot. Default is `'Total Discharge'`. |
                 | `title_size`                | int, optional       | Title size. Default is `15`. |

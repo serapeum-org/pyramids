@@ -24,7 +24,9 @@ def test_dimension_names_match_sizes(sample_name, sample):
         sizes = nc.dimension_sizes
         names = nc.dimension_names
         assert isinstance(sizes, dict) and sizes
-        assert set(names) == set(sizes), f"{sample_name}: names {names} vs sizes keys {list(sizes)}"
+        assert set(names) == set(
+            sizes
+        ), f"{sample_name}: names {names} vs sizes keys {list(sizes)}"
         assert all(isinstance(v, int) and v > 0 for v in sizes.values())
     finally:
         nc.close()
@@ -37,9 +39,9 @@ def test_dimension_sizes_match_metadata(sample_name, sample):
         meta = nc.get_all_metadata()
         for name, size in nc.dimension_sizes.items():
             dim_info = meta.get_dimension(name)
-            assert dim_info is not None and dim_info.size == size, (
-                f"{sample_name}: dimension {name} size {size} != metadata {getattr(dim_info, 'size', None)}"
-            )
+            assert (
+                dim_info is not None and dim_info.size == size
+            ), f"{sample_name}: dimension {name} size {size} != metadata {getattr(dim_info, 'size', None)}"
     finally:
         nc.close()
 
@@ -53,7 +55,9 @@ def test_time_values_decode_when_named_time(sample_name, sample):
             pytest.skip(f"{sample_name}: time dimension is not named 'time'")
         values = nc.get_time_values("time")
         if values is None:
-            pytest.skip(f"{sample_name}: 'time' dimension has no coordinate values to decode")
+            pytest.skip(
+                f"{sample_name}: 'time' dimension has no coordinate values to decode"
+            )
         assert isinstance(values, np.ndarray)
         assert len(values) == nc.dimension_sizes["time"]
     finally:

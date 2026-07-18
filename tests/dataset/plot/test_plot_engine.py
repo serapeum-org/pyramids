@@ -380,9 +380,7 @@ class TestStyleHillshadePresets:
         )
         assert isinstance(glyph, ArrayGlyph)
 
-    @pytest.mark.skipif(
-        not _supports_style, reason="cleopatra < 0.24 has no hillshade"
-    )
+    @pytest.mark.skipif(not _supports_style, reason="cleopatra < 0.24 has no hillshade")
     def test_hillshade_renders(self):
         """A ``hillshade`` blend renders end to end."""
         rng = np.random.default_rng(738)
@@ -558,7 +556,10 @@ class TestStyleHillshadePresets:
         with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
             with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
                 render_array(
-                    arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", style="topography"
+                    arr=arr,
+                    extent=[0.0, 0.0, 1.0, 1.0],
+                    mode="plot",
+                    style="topography",
                 )
 
     def test_no_preset_kwargs_unaffected_on_old_cleopatra(self):
@@ -597,7 +598,9 @@ class TestStyleHillshadePresets:
         glyph = dataset.plot(band=0, style="flow_accumulation")
         assert glyph.style == "flow_accumulation"
         glyph.apply_style("topography")
-        assert glyph.style == "topography", "apply_style must restyle the glyph in place"
+        assert (
+            glyph.style == "topography"
+        ), "apply_style must restyle the glyph in place"
 
 
 class TestMeshRenderHelper:
@@ -751,9 +754,7 @@ class TestMeshRenderHelper:
         ), f"`source` must equal the basemap string; got {kwargs}"
 
 
-@pytest.mark.skipif(
-    PointOverlay is None, reason="cleopatra < 0.26 has no PointOverlay"
-)
+@pytest.mark.skipif(PointOverlay is None, reason="cleopatra < 0.26 has no PointOverlay")
 class TestPointOverlay:
     """The `points=` overlay reaches cleopatra from the plot facade (cleopatra 0.26).
 
@@ -839,4 +840,3 @@ class TestFrameLabel:
             frame_label=FrameLabel(location=(1, 3)),
         )
         assert isinstance(glyph, ArrayGlyph)
-

@@ -64,8 +64,8 @@ class TestWriteArrayWindow:
             [1.0, 1.0],
         ], f"Window not written: {arr}"
         assert arr[0, 0] == pytest.approx(0.0) and arr[4, 4] == pytest.approx(
-        0.0
-    ), "Cells outside the window changed"
+            0.0
+        ), "Cells outside the window changed"
 
     def test_top_left_corner_still_works(self, blank):
         """The legacy top_left_corner placement is unchanged.
@@ -129,8 +129,8 @@ class TestWriteArrayWindow:
         """
         blank_multiband.write_array(np.ones((2, 5, 5)))
         arr = blank_multiband.read_array()
-        assert (
-            arr[0].sum() == pytest.approx(25.0) and arr[1].sum() == pytest.approx(25.0)
+        assert arr[0].sum() == pytest.approx(25.0) and arr[1].sum() == pytest.approx(
+            25.0
         ), "Multiband write incomplete"
 
     def test_window_at_edge_is_allowed(self, blank):
@@ -140,8 +140,8 @@ class TestWriteArrayWindow:
             Window(3, 3, 2, 2) ends exactly at row/col 5 (the raster size).
         """
         blank.write_array(np.ones((2, 2)), window=Window(3, 3, 2, 2))
-        assert (
-            blank.read_array()[3:5, 3:5].sum() == pytest.approx(4.0)
+        assert blank.read_array()[3:5, 3:5].sum() == pytest.approx(
+            4.0
         ), "Edge-aligned window not written"
 
     def test_window_shape_mismatch_raises(self, blank):

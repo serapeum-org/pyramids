@@ -25,9 +25,9 @@ def test_opens_and_metadata_matches_name(sample_name, sample, structural):
             f"structural name encodes {expected_nvars}"
         )
         histogram = dict(Counter(len(info.shape) for info in meta.variables.values()))
-        assert histogram == expected_histogram, (
-            f"{sample_name}: rank histogram {histogram} != structural name {expected_histogram}"
-        )
+        assert (
+            histogram == expected_histogram
+        ), f"{sample_name}: rank histogram {histogram} != structural name {expected_histogram}"
         assert nc.variable_names, f"{sample_name}: variable_names is empty"
     finally:
         nc.close()
@@ -42,9 +42,9 @@ def test_every_root_variable_loads(sample_name, sample):
     nc = NetCDF.read_file(sample(sample_name))
     try:
         for name in nc.variable_names:
-            assert nc.get_variable(name) is not None, (
-                f"{sample_name}: get_variable({name!r}) returned None"
-            )
+            assert (
+                nc.get_variable(name) is not None
+            ), f"{sample_name}: get_variable({name!r}) returned None"
     finally:
         nc.close()
 

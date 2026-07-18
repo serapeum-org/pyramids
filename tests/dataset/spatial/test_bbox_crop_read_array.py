@@ -255,7 +255,10 @@ class TestDatasetCropBbox:
         arr = np.full((10, 10), -9999.0, dtype="float32")
         arr[0:5, 0:5] = 1.0  # valid only in the top-left quadrant
         ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326,
+            arr,
+            top_left_corner=(0.0, 10.0),
+            cell_size=1.0,
+            epsg=4326,
             no_data_value=-9999.0,
         )
         with pytest.raises(ValueError, match="no valid pixels"):
@@ -288,7 +291,9 @@ class TestAntimeridianCrop:
         arr, ds = self._global(top_left_x=0.0)
         strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
         assert strip.shape == (1, 20, 20), "20x20 strip"
-        assert strip.bbox == pytest.approx([170.0, -10.0, 190.0, 10.0]), "170..190 extent"
+        assert strip.bbox == pytest.approx(
+            [170.0, -10.0, 190.0, 10.0]
+        ), "170..190 extent"
         assert np.array_equal(strip.read_array(), arr[80:100, 170:190]), "0..360 values"
 
     def test_multiband_keeps_all_bands(self):

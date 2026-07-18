@@ -141,7 +141,10 @@ class TestToVsi:
 
     def test_dods_uppercase_scheme(self):
         # scheme match is case-insensitive; the slice uses the lower-cased length.
-        assert _to_vsi("DODS://test.opendap.org/data.nc") == 'NETCDF:"https://test.opendap.org/data.nc"'
+        assert (
+            _to_vsi("DODS://test.opendap.org/data.nc")
+            == 'NETCDF:"https://test.opendap.org/data.nc"'
+        )
 
     def test_dods_routed_through_parse_path(self):
         # The read path (read_file -> _parse_path -> _to_vsi) must yield the NETCDF: form.
@@ -677,6 +680,8 @@ class TestLiveOpenDAP:
     def test_read_opendap_schema(self):
         """A dods:// URL opens as a NetCDF and its variable schema is read without a full download."""
         nc = NetCDF.read_file(self.URL)
-        assert self.VAR in list(nc.variables), f"{self.VAR!r} not in {list(nc.variables)[:8]}"
+        assert self.VAR in list(
+            nc.variables
+        ), f"{self.VAR!r} not in {list(nc.variables)[:8]}"
         variable = nc.get_variable(self.VAR)
         assert variable.shape[0] >= 1

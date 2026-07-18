@@ -84,7 +84,9 @@ class TestGroupNeighbours:
         assert (
             len(position) == 9
         ), f"Expected 9 cells (8 neighbors + start), got {len(position)}"
-        assert all(v == pytest.approx(5.0) for v in values), f"All values should be 5.0, got {values}"
+        assert all(
+            v == pytest.approx(5.0) for v in values
+        ), f"All values should be 5.0, got {values}"
         visited = {(r, c) for r, c in position}
         expected = {(r, c) for r in range(3) for c in range(3)}
         assert visited == expected, f"Expected all 9 cells, got {visited}"

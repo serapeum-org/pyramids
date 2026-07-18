@@ -83,7 +83,9 @@ class TestReadMdArray1D:
         str_dtype = gdal.ExtendedDataType.CreateString()
         rg.CreateMDArray("label_data", [dim], str_dtype)
         nc = Container(src_ds)
-        result_src, result_md, result_rg, _ix, _iy, _yf, _xf = nc._read_md_array("label_data")
+        result_src, result_md, result_rg, _ix, _iy, _yf, _xf = nc._read_md_array(
+            "label_data"
+        )
         # For string type, src should be the md_arr itself (not a Dataset)
         assert (
             result_src is result_md

@@ -90,9 +90,9 @@ class TestCorrectnessAcrossStrategies:
                 tile_strategy=strategy,
             )
         )
-        assert len(feats) == 10, (
-            f"strategy={strategy} returned {len(feats)} features; expected 10"
-        )
+        assert (
+            len(feats) == 10
+        ), f"strategy={strategy} returned {len(feats)} features; expected 10"
 
     @pytest.mark.parametrize("strategy", ["auto", "rtree", "none"])
     def test_chunked_mode_counts(

@@ -341,9 +341,9 @@ class TestRootContainer4DSpatialOps:
         assert inner._band_dim_values_map["pressure_level"] == [500.0]
         # sel() across either axis still works on the cropped container.
         sub = inner.sel(pressure_level=500)
-        assert sub.read_array().shape[0] == 4, (
-            f"pin level should leave 4 time bands, got {sub.read_array().shape}"
-        )
+        assert (
+            sub.read_array().shape[0] == 4
+        ), f"pin level should leave 4 time bands, got {sub.read_array().shape}"
 
     def test_crop_root_container_synthetic_4d_round_trip(self):
         """Synthetic `(4, 3)` cube survives a no-op-style crop on the root.
@@ -415,9 +415,9 @@ class TestPreserveNetcdfMetadataSelfHeal:
         # Dataset of the same shape simulates a downstream spatial op
         # that doesn't refill afterwards.
         rewrapped = sub._preserve_netcdf_metadata(sub)
-        assert rewrapped._band_dim_values == TIME_VALUES, (
-            f"self-heal failed; values dropped to {rewrapped._band_dim_values!r}"
-        )
+        assert (
+            rewrapped._band_dim_values == TIME_VALUES
+        ), f"self-heal failed; values dropped to {rewrapped._band_dim_values!r}"
         assert (
             rewrapped._band_dim_name == "time"
         ), f"primary dim must stay 'time', got {rewrapped._band_dim_name!r}"
@@ -445,9 +445,9 @@ class TestPreserveNetcdfMetadataSelfHeal:
             "fake": [],
         }
         rewrapped = var._preserve_netcdf_metadata(var)
-        assert rewrapped._band_dim_values is None, (
-            f"self-heal injected a stale list: {rewrapped._band_dim_values!r}"
-        )
+        assert (
+            rewrapped._band_dim_values is None
+        ), f"self-heal injected a stale list: {rewrapped._band_dim_values!r}"
 
 
 def _make_4d_writable_nc():

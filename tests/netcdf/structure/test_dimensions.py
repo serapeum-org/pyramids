@@ -1,8 +1,8 @@
 import pytest
 
 from pyramids.netcdf.dimensions import (
-    DimensionsIndex,
     ClassicDimensionInfo,
+    DimensionsIndex,
     _coerce_scalar,
     _format_braced_list,
     _parse_values_list,
@@ -714,7 +714,9 @@ class TestToMetadataMethod:
         """
         idx = DimensionsIndex(
             {
-                "onlydef": ClassicDimensionInfo(name="onlydef", def_fields=(5, 1), size=5),
+                "onlydef": ClassicDimensionInfo(
+                    name="onlydef", def_fields=(5, 1), size=5
+                ),
                 "onlyvals": ClassicDimensionInfo(name="onlyvals", values=[10, 20]),
             }
         )

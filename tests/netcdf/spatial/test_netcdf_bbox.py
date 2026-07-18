@@ -356,10 +356,13 @@ class TestNetCDFReadArrayBbox:
         exp_rows = round((north - south) / abs(pixel_y))
         got = var.read_array(bbox=(west, south, east, north))
         got2d = got[got.shape[0] // 2] if got.ndim == 3 else got
-        assert got2d.shape == (exp_rows, exp_cols), (
-            f"transposed or mis-sized: got {got2d.shape}, expected {(exp_rows, exp_cols)}"
-        )
-        assert got2d.shape[1] > got2d.shape[0], "bbox spans more lon than lat; cols must exceed rows"
+        assert got2d.shape == (
+            exp_rows,
+            exp_cols,
+        ), f"transposed or mis-sized: got {got2d.shape}, expected {(exp_rows, exp_cols)}"
+        assert (
+            got2d.shape[1] > got2d.shape[0]
+        ), "bbox spans more lon than lat; cols must exceed rows"
 
     def test_bbox_rounding_forwarded_to_variable_read(self, root_nc: NetCDF):
         """Test ``bbox_rounding=`` is forwarded through the NetCDF override to the window resolver.
@@ -382,12 +385,12 @@ class TestNetCDFReadArrayBbox:
         nearest = root_nc.read_array(
             variable="Band1", bbox=(west, south, east, north), bbox_rounding="nearest"
         )
-        assert nearest.shape[-2] < cover.shape[-2], (
-            f"nearest rows should be fewer: cover={cover.shape[-2:]} nearest={nearest.shape[-2:]}"
-        )
-        assert nearest.shape[-1] < cover.shape[-1], (
-            f"nearest cols should be fewer: cover={cover.shape[-2:]} nearest={nearest.shape[-2:]}"
-        )
+        assert (
+            nearest.shape[-2] < cover.shape[-2]
+        ), f"nearest rows should be fewer: cover={cover.shape[-2:]} nearest={nearest.shape[-2:]}"
+        assert (
+            nearest.shape[-1] < cover.shape[-1]
+        ), f"nearest cols should be fewer: cover={cover.shape[-2:]} nearest={nearest.shape[-2:]}"
 
     def test_window_and_bbox_together_raises(self, root_nc: NetCDF):
         """Test ``window=`` + ``bbox=`` together raises ``ValueError``.

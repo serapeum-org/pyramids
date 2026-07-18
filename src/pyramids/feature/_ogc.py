@@ -30,7 +30,9 @@ def read_kwargs(
             raise ValueError(f"bbox must be (minx, miny, maxx, maxy), got {bbox!r}")
         minx, miny, maxx, maxy = (float(v) for v in bbox)
         if minx >= maxx or miny >= maxy:
-            raise ValueError(f"bbox must have minx < maxx and miny < maxy, got {bbox!r}")
+            raise ValueError(
+                f"bbox must have minx < maxx and miny < maxy, got {bbox!r}"
+            )
         kwargs["bbox"] = (minx, miny, maxx, maxy)
     if where is not None:
         kwargs["where"] = where

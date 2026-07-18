@@ -16,6 +16,8 @@ def test_wrap_longitude_returns_container(sample):
     try:
         result = nc.wrap_longitude()
         assert isinstance(result, NetCDF)
-        assert (result.lon < 0).any(), "expected negative longitudes after 0-360 → -180/180 wrap"
+        assert (
+            result.lon < 0
+        ).any(), "expected negative longitudes after 0-360 → -180/180 wrap"
     finally:
         nc.close()

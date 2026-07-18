@@ -1522,9 +1522,9 @@ class NetCDFPlot:
         """
         if data_shape is None:
             return False
-        return NetCDFPlot._matches_x_axis(x_arr, data_shape) and NetCDFPlot._matches_y_axis(
-            y_arr, data_shape
-        )
+        return NetCDFPlot._matches_x_axis(
+            x_arr, data_shape
+        ) and NetCDFPlot._matches_y_axis(y_arr, data_shape)
 
     def _cf_coordinates_pair(
         self,
@@ -1695,7 +1695,11 @@ class NetCDFPlot:
                 ```
         """
         finite = arr[np.isfinite(arr)]
-        return bool(finite.size) and float(finite.min()) >= -90.5 and float(finite.max()) <= 90.5
+        return (
+            bool(finite.size)
+            and float(finite.min()) >= -90.5
+            and float(finite.max()) <= 90.5
+        )
 
     @staticmethod
     def _looks_like_x_then_y(x_name: str, y_name: str) -> bool:

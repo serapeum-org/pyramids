@@ -44,7 +44,7 @@ def _oapif_connection(endpoint: str) -> str:
 
 
 def from_ogc_features(
-    featurecollection_cls: type["FeatureCollection"],
+    featurecollection_cls: type[FeatureCollection],
     endpoint: str,
     *,
     collection: str,
@@ -54,7 +54,7 @@ def from_ogc_features(
     max_features: int | None = None,
     auth: tuple[str, str] | None = None,
     timeout: float = 60.0,
-) -> "FeatureCollection":
+) -> FeatureCollection:
     """Fetch an OGC API – Features collection subset and return a :class:`FeatureCollection`.
 
     This is the private implementation; the public API is the
@@ -68,7 +68,9 @@ def from_ogc_features(
             non-feature body, or ``output_crs`` was requested but the result
             carries no CRS.
     """
-    read_kwargs = _read_kwargs(bbox, where, max_features)  # validate inputs before any network call
+    read_kwargs = _read_kwargs(
+        bbox, where, max_features
+    )  # validate inputs before any network call
 
     collections = _get_collections(endpoint, auth, timeout)
     if collections and collection not in collections:
@@ -83,8 +85,12 @@ def from_ogc_features(
     with gdal.config_options(config):
         try:
             gdf = gpd.read_file(connection, layer=collection, **read_kwargs)
-        except Exception as exc:  # noqa: BLE001 — normalise any read failure to OGCAPIError
-            raise OGCAPIError(f"OGC API items request failed for {collection!r}: {exc}") from exc
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — normalise any read failure to OGCAPIError
+            raise OGCAPIError(
+                f"OGC API items request failed for {collection!r}: {exc}"
+            ) from exc
 
     fc = featurecollection_cls(gdf)
     if output_crs is not None:

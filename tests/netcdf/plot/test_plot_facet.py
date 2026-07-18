@@ -369,7 +369,10 @@ class TestNetCDFPlotFacetingEdges:
         stack, _fkw = NetCDFPlot(sub)._build_facet_stack(
             sub, col="time", row="pressure_level", col_wrap=None
         )
-        assert stack.shape[:2] == (3, 2), f"expected (ncol=3, nrow=2) panels, got {stack.shape[:2]}"
+        assert stack.shape[:2] == (
+            3,
+            2,
+        ), f"expected (ncol=3, nrow=2) panels, got {stack.shape[:2]}"
 
         times = [0, 6, 12]
         levels = [1000, 500]

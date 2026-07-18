@@ -223,7 +223,9 @@ def focal_apply(
     return _apply_eager_or_lazy(_kernel, ds, radius, chunks, band, np.float64)
 
 
-def _gradient(arr: np.ndarray, cell_size: float) -> tuple[np.typing.NDArray, np.typing.NDArray]:
+def _gradient(
+    arr: np.ndarray, cell_size: float
+) -> tuple[np.typing.NDArray, np.typing.NDArray]:
     """Centered-difference gradient (dz/dx, dz/dy) at each cell."""
     dz_dy, dz_dx = np.gradient(arr, cell_size)
     return dz_dx, dz_dy

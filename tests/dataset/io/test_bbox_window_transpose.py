@@ -60,7 +60,10 @@ def multiband_non_square_raster() -> Dataset:
         can be checked against a full read without any transpose collapsing the band axis.
     """
     bands = np.stack(
-        [np.arange(10 * 40, dtype="float32").reshape(10, 40) + b * 1000 for b in range(3)],
+        [
+            np.arange(10 * 40, dtype="float32").reshape(10, 40) + b * 1000
+            for b in range(3)
+        ],
         axis=0,
     )
     return Dataset.create_from_array(
@@ -68,7 +71,9 @@ def multiband_non_square_raster() -> Dataset:
     )
 
 
-def _cover_window(dataset: Dataset, bbox: tuple[float, float, float, float]) -> list[int]:
+def _cover_window(
+    dataset: Dataset, bbox: tuple[float, float, float, float]
+) -> list[int]:
     """The expected `"cover"` window for `bbox`, by enumerating which cells the bbox overlaps.
 
     Deliberately shares no arithmetic with the production `floor`/`ceil` formula (Round-2 N1): it
@@ -91,7 +96,12 @@ def _cover_window(dataset: Dataset, bbox: tuple[float, float, float, float]) -> 
         if max(origin_y + r * pixel_y, origin_y + (r + 1) * pixel_y) > south
         and min(origin_y + r * pixel_y, origin_y + (r + 1) * pixel_y) < north
     ]
-    return [cols_in[0], rows_in[0], cols_in[-1] - cols_in[0] + 1, rows_in[-1] - rows_in[0] + 1]
+    return [
+        cols_in[0],
+        rows_in[0],
+        cols_in[-1] - cols_in[0] + 1,
+        rows_in[-1] - rows_in[0] + 1,
+    ]
 
 
 class TestBboxWindowNonSquare:
@@ -108,7 +118,9 @@ class TestBboxWindowNonSquare:
         fc = FeatureCollection.from_bbox(bbox, epsg=4326)
         xoff, yoff, x_size, y_size = non_square_raster.io._convert_polygon_to_window(fc)
         assert [xoff, yoff, x_size, y_size] == [10, 2, 20, 6]
-        assert x_size > y_size, "this bbox is wider than it is tall; x_size must exceed y_size"
+        assert (
+            x_size > y_size
+        ), "this bbox is wider than it is tall; x_size must exceed y_size"
 
     def test_wide_bbox_read_matches_independent_cover_slice(self, non_square_raster):
         """A wider-than-tall bbox reads the geotransform-derived sub-window, not its transpose.
@@ -122,8 +134,12 @@ class TestBboxWindowNonSquare:
         full = np.squeeze(np.asarray(non_square_raster.read_array()))
         expected = full[yoff : yoff + y_size, xoff : xoff + x_size]
         got = np.squeeze(np.asarray(non_square_raster.read_array(bbox=list(bbox))))
-        assert got.shape == expected.shape, f"transposed: got {got.shape}, expected {expected.shape}"
-        assert got.shape[0] < got.shape[1], "this bbox is wider than it is tall; rows must be < cols"
+        assert (
+            got.shape == expected.shape
+        ), f"transposed: got {got.shape}, expected {expected.shape}"
+        assert (
+            got.shape[0] < got.shape[1]
+        ), "this bbox is wider than it is tall; rows must be < cols"
         np.testing.assert_array_equal(got, expected)
 
     def test_tall_bbox_read_is_not_transposed(self, non_square_raster):
@@ -137,8 +153,12 @@ class TestBboxWindowNonSquare:
         full = np.squeeze(np.asarray(non_square_raster.read_array()))
         expected = full[yoff : yoff + y_size, xoff : xoff + x_size]
         got = np.squeeze(np.asarray(non_square_raster.read_array(bbox=list(bbox))))
-        assert got.shape == expected.shape, f"transposed: got {got.shape}, expected {expected.shape}"
-        assert got.shape[0] > got.shape[1], "this bbox is taller than it is wide; rows must be > cols"
+        assert (
+            got.shape == expected.shape
+        ), f"transposed: got {got.shape}, expected {expected.shape}"
+        assert (
+            got.shape[0] > got.shape[1]
+        ), "this bbox is taller than it is wide; rows must be > cols"
         np.testing.assert_array_equal(got, expected)
 
     def test_polygon_window_matches_bbox_and_oracle(self, non_square_raster):
@@ -209,7 +229,9 @@ class TestBboxRounding:
         """
         fc = FeatureCollection.from_bbox(self.WIDE_PARTIAL, epsg=4326)
         cover = non_square_raster.io._convert_polygon_to_window(fc, rounding="cover")
-        nearest = non_square_raster.io._convert_polygon_to_window(fc, rounding="nearest")
+        nearest = non_square_raster.io._convert_polygon_to_window(
+            fc, rounding="nearest"
+        )
         assert cover == [10, 2, 20, 6]
         assert nearest == [11, 3, 18, 4]
 
@@ -221,7 +243,9 @@ class TestBboxRounding:
         """
         default = np.asarray(non_square_raster.read_array(bbox=list(self.WIDE_PARTIAL)))
         cover = np.asarray(
-            non_square_raster.read_array(bbox=list(self.WIDE_PARTIAL), bbox_rounding="cover")
+            non_square_raster.read_array(
+                bbox=list(self.WIDE_PARTIAL), bbox_rounding="cover"
+            )
         )
         np.testing.assert_array_equal(default, cover)
 
@@ -235,7 +259,9 @@ class TestBboxRounding:
         full = np.squeeze(np.asarray(non_square_raster.read_array()))
         got = np.squeeze(
             np.asarray(
-                non_square_raster.read_array(bbox=list(self.WIDE_PARTIAL), bbox_rounding="nearest")
+                non_square_raster.read_array(
+                    bbox=list(self.WIDE_PARTIAL), bbox_rounding="nearest"
+                )
             )
         )
         assert got.shape == (4, 18)
@@ -376,12 +402,15 @@ class TestBboxWindowDegenerate:
             window and return a `(0, 0)` array. It now returns the single cell it falls in.
         """
         window = non_square_raster.io._convert_polygon_to_window(
-            FeatureCollection.from_bbox((5.1, 5.1, 5.3, 5.3), epsg=4326), rounding="nearest"
+            FeatureCollection.from_bbox((5.1, 5.1, 5.3, 5.3), epsg=4326),
+            rounding="nearest",
         )
         assert window[2] >= 1 and window[3] >= 1
         got = np.squeeze(
             np.asarray(
-                non_square_raster.read_array(bbox=[5.1, 5.1, 5.3, 5.3], bbox_rounding="nearest")
+                non_square_raster.read_array(
+                    bbox=[5.1, 5.1, 5.3, 5.3], bbox_rounding="nearest"
+                )
             )
         )
         assert got.size == 1
@@ -405,16 +434,22 @@ class TestBboxWindowFlippedGrid:
         """
         arr = np.arange(6 * 8, dtype="float32").reshape(6, 8)
         mem = gdal.GetDriverByName("MEM").Create("", 8, 6, 1, gdal.GDT_Float32)
-        mem.SetGeoTransform((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))  # origin bottom-left, y increases upward
+        mem.SetGeoTransform(
+            (0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+        )  # origin bottom-left, y increases upward
         srs = osr.SpatialReference()
         srs.ImportFromEPSG(4326)
         mem.SetProjection(srs.ExportToWkt())
         mem.GetRasterBand(1).WriteArray(arr)
         ds = Dataset(mem)
         bbox = (1.3, 1.3, 6.7, 3.7)
-        window = ds.io._convert_polygon_to_window(FeatureCollection.from_bbox(bbox, epsg=4326))
+        window = ds.io._convert_polygon_to_window(
+            FeatureCollection.from_bbox(bbox, epsg=4326)
+        )
         assert window == _cover_window(ds, bbox)
         xoff, yoff, x_size, y_size = window
         full = np.squeeze(np.asarray(ds.read_array()))
         got = np.squeeze(np.asarray(ds.read_array(bbox=list(bbox))))
-        np.testing.assert_array_equal(got, full[yoff : yoff + y_size, xoff : xoff + x_size])
+        np.testing.assert_array_equal(
+            got, full[yoff : yoff + y_size, xoff : xoff + x_size]
+        )

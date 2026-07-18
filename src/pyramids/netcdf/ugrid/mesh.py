@@ -328,7 +328,9 @@ class Mesh2d:
         coords = np.column_stack([self._node_x[nodes], self._node_y[nodes]])
         return coords
 
-    def get_edge_coords(self, edge_idx: int) -> tuple[np.typing.NDArray, np.typing.NDArray]:
+    def get_edge_coords(
+        self, edge_idx: int
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray]:
         """Return start and end coordinates for an edge.
 
         Args:

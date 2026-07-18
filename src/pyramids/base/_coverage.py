@@ -56,8 +56,8 @@ def resolution_pair(
 
 
 def resolve_native_srs(
-    src: "gdal.Dataset", coverage_crs: str | None
-) -> "osr.SpatialReference":
+    src: gdal.Dataset, coverage_crs: str | None
+) -> osr.SpatialReference:
     """Return the coverage's native CRS, applying the ``coverage_crs`` shim.
 
     GDAL reports no spatial reference when the server's advertised CRS is not in
@@ -91,7 +91,7 @@ def resolve_native_srs(
 def native_projwin(
     bbox: tuple[float, float, float, float],
     crs: str,
-    native_srs: "osr.SpatialReference",
+    native_srs: osr.SpatialReference,
 ) -> list[float]:
     """Transform a lon/lat-ordered `bbox` into a native-CRS ``projWin``.
 

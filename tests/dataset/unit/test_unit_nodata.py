@@ -186,7 +186,9 @@ class TestCheckNoDataValue:
             no_data_value=-3.4028230607370965e38,
         )
         ndv = ds.no_data_value[0]
-        assert ndv is not None, "overflowing no_data_value should fall back, not stay None"
+        assert (
+            ndv is not None
+        ), "overflowing no_data_value should fall back, not stay None"
 
 
 class TestFill:
@@ -320,8 +322,12 @@ class TestChangeNoDataValueNan:
         )
         new_ds = ds.change_no_data_value(-1.0, old_value=[-9999.0, -8888.0])
         result = new_ds.read_array()
-        assert np.allclose(result[0], [[-1.0, 2.0], [3.0, -1.0]]), "Band 0 replaced by its own sentinel"
-        assert np.allclose(result[1], [[1.0, -1.0], [-1.0, 4.0]]), "Band 1 replaced by its own sentinel"
+        assert np.allclose(
+            result[0], [[-1.0, 2.0], [3.0, -1.0]]
+        ), "Band 0 replaced by its own sentinel"
+        assert np.allclose(
+            result[1], [[1.0, -1.0], [-1.0, 4.0]]
+        ), "Band 1 replaced by its own sentinel"
 
     @pytest.mark.parametrize(
         ("kwargs", "expected"),
@@ -567,9 +573,9 @@ class TestSetNoDataValueBackendMocked:
         with patch.object(ds.raster, "GetRasterBand", mock_get_band):
             ds.bands._set_no_data_value_backend(0, -1234.0)
 
-        assert ds.no_data_value[0] == pytest.approx(-1234.0), (
-            "after the Fill retry the band nodata should hold the requested value"
-        )
+        assert ds.no_data_value[0] == pytest.approx(
+            -1234.0
+        ), "after the Fill retry the band nodata should hold the requested value"
 
     def test_backend_generic_error_raises(self):
         """_set_no_data_value_backend raises ValueError on unknown error."""
@@ -748,5 +754,7 @@ class TestFillGapsLessNodata:
         result = src_ds.fill_gaps(mask_ds, src_arr.copy())
         # Equal valid-cell counts, so no interpolation happens and the src gap
         # at (1, 1) is left untouched.
-        assert result[1, 1] == pytest.approx(nd), "equal valid counts should skip filling"
+        assert result[1, 1] == pytest.approx(
+            nd
+        ), "equal valid counts should skip filling"
         assert result[0, 0] == pytest.approx(10.0)

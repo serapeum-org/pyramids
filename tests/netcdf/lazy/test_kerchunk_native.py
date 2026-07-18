@@ -90,8 +90,8 @@ class TestParityWithKerchunk:
     @requires_kerchunk
     def test_same_keys_and_chunk_refs_on_fixture(self, tmp_path):
         """Native + kerchunk agree on every ref key and chunk byte-range/inline."""
-        from pyramids.netcdf._kerchunk_facade import to_kerchunk
         from pyramids.netcdf._kerchunk_builder import build_single_manifest
+        from pyramids.netcdf._kerchunk_facade import to_kerchunk
 
         kref = to_kerchunk(FIXTURE, tmp_path / "k.json", backend="kerchunk")["refs"]
         nref = build_single_manifest(FIXTURE)["refs"]
@@ -111,8 +111,8 @@ class TestParityWithKerchunk:
     @requires_kerchunk
     def test_zarray_codec_chain_matches(self, tmp_path):
         """Decoded codec chain matches kerchunk for the chunked compressed case."""
-        from pyramids.netcdf._kerchunk_facade import to_kerchunk
         from pyramids.netcdf._kerchunk_builder import build_single_manifest
+        from pyramids.netcdf._kerchunk_facade import to_kerchunk
 
         src = str(tmp_path / "chunked.nc")
         _make_chunked_file(src)
@@ -206,7 +206,7 @@ class TestMetadataSemantics:
         from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         refs = build_single_manifest(FIXTURE)["refs"]
-        url = refs["values/0.0.0"][0]   # values is a byte-range ref on this fixture
+        url = refs["values/0.0.0"][0]  # values is a byte-range ref on this fixture
         assert os.path.isabs(url), f"expected an absolute source path, got {url!r}"
         assert "\\" not in url, f"path must use forward slashes, got {url!r}"
 
@@ -374,8 +374,9 @@ class TestUnsupportedFeatures:
 
         src = str(tmp_path / "vlen.h5")
         with h5py.File(src, "w") as f:
-            f.create_dataset("s", data=np.array(["a", "bb"], dtype=object),
-                             dtype=h5py.string_dtype())
+            f.create_dataset(
+                "s", data=np.array(["a", "bb"], dtype=object), dtype=h5py.string_dtype()
+            )
         with pytest.raises(ValueError, match="vlen|object"):
             build_single_manifest(src)
 
@@ -477,8 +478,9 @@ class TestFilterMappingExtra:
 
         src = str(tmp_path / "fletcher.h5")
         with h5py.File(src, "w") as f:
-            f.create_dataset("v", data=np.ones((2, 4), dtype="f4"),
-                             chunks=(1, 4), fletcher32=True)
+            f.create_dataset(
+                "v", data=np.ones((2, 4), dtype="f4"), chunks=(1, 4), fletcher32=True
+            )
         zarray = json.loads(build_single_manifest(src)["refs"]["v/.zarray"])
         assert zarray["filters"] is None, f"fletcher32 should be dropped: {zarray}"
         assert zarray["compressor"] is None, "no compressor expected"

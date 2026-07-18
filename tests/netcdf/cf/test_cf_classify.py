@@ -111,7 +111,9 @@ class TestDetectAxis:
             case of the value, so ``axis="z"`` and ``axis="Z"`` both yield ``"Z"``.
         """
         result = detect_axis("foo", {"axis": axis_value})
-        assert result == expected, f"Expected {expected} for axis={axis_value!r}, got {result}"
+        assert (
+            result == expected
+        ), f"Expected {expected} for axis={axis_value!r}, got {result}"
 
     def test_units_passed_as_separate_parameter(self):
         """The standalone ``units=`` parameter is honored when attrs omit units.
@@ -171,7 +173,9 @@ class TestDetectAxis:
             is treated as ``"X"`` rather than falling through to the weaker heuristics.
         """
         result = detect_axis("foo", {"axis": axis_value})
-        assert result == expected, f"Expected {expected} for axis={axis_value!r}, got {result}"
+        assert (
+            result == expected
+        ), f"Expected {expected} for axis={axis_value!r}, got {result}"
 
     def test_explicit_axis_is_authoritative_over_standard_name(self):
         """An explicit ``axis`` wins over a conflicting ``standard_name`` (review M1 contract).

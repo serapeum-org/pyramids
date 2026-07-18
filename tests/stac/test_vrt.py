@@ -54,11 +54,11 @@ class TestBuildVrtFromStac:
         """
         ds = build_vrt_from_stac(adjacent_tiles, asset="data")
         arr = ds.read_array()
-        assert (
-            float(arr[0, 0]) == pytest.approx(10.0)
+        assert float(arr[0, 0]) == pytest.approx(
+            10.0
         ), f"left half should be tile A=10, got {arr[0, 0]}"
-        assert (
-            float(arr[0, 7]) == pytest.approx(20.0)
+        assert float(arr[0, 7]) == pytest.approx(
+            20.0
         ), f"right half should be tile B=20, got {arr[0, 7]}"
 
     def test_separate_stacks_bands(self, tmp_path):

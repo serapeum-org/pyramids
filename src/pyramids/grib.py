@@ -220,9 +220,7 @@ def _select_grib_band(
         )
     if isinstance(variable, int):
         if not 1 <= variable <= band_count:
-            raise ValueError(
-                f"band number {variable} out of range 1..{band_count}."
-            )
+            raise ValueError(f"band number {variable} out of range 1..{band_count}.")
         selected = variable - 1
     elif variable is None:
         if band_count > 1:
@@ -252,9 +250,7 @@ def _match_grib_element(metadata: list[dict[str, Any]], variable: str) -> int:
     """
     wanted = variable.strip().upper()
     if not wanted:
-        raise ValueError(
-            "variable must be a non-empty element name or band number."
-        )
+        raise ValueError("variable must be a non-empty element name or band number.")
     matches = [
         m for m in metadata if (m.get("element") or "").strip().upper() == wanted
     ]

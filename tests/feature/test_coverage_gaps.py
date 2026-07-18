@@ -26,9 +26,8 @@ from pathlib import Path
 
 import geopandas as gpd
 import pytest
-from shapely.geometry import LineString, Point, Polygon, box
-
 from pyogrio.errors import DataSourceError
+from shapely.geometry import LineString, Point, Polygon, box
 
 from pyramids.base._errors import CRSError
 from pyramids.base.crs import reproject_coordinates

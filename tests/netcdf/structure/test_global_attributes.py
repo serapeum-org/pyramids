@@ -35,9 +35,9 @@ class TestGlobalAttributesProperty:
         """
         nc = _make_nc()
         attrs = nc.global_attributes
-        assert attrs == {"Conventions": "CF-1.8"}, (
-            f"Expected {{'Conventions': 'CF-1.8'}}, got {attrs!r}"
-        )
+        assert attrs == {
+            "Conventions": "CF-1.8"
+        }, f"Expected {{'Conventions': 'CF-1.8'}}, got {attrs!r}"
 
     def test_returns_set_attributes(self):
         """After setting attributes, they should appear in the property.
@@ -100,7 +100,9 @@ class TestSetGlobalAttribute:
         """
         nc = _make_nc()
         nc.set_global_attribute("version", 2.5)
-        assert nc.global_attributes["version"] == pytest.approx(2.5), "Float not stored correctly"
+        assert nc.global_attributes["version"] == pytest.approx(
+            2.5
+        ), "Float not stored correctly"
 
     def test_int_value(self):
         """Setting an int attribute should store it correctly.

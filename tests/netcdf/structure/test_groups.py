@@ -10,7 +10,7 @@ from numpy.testing import assert_allclose
 from osgeo import gdal
 
 from pyramids.base._utils import numpy_to_gdal_dtype
-from pyramids.netcdf.netcdf import NetCDF, Container
+from pyramids.netcdf.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
 

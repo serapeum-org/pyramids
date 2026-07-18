@@ -13,7 +13,12 @@ from numpy.testing import assert_array_equal
 from pyramids.netcdf import Selectors
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_plot_3d_nc
-from tests.netcdf.plot._plot_helpers import _make_2d_nc, _make_3d_nc_anon_dim, _make_capture, _make_curvilinear_nc
+from tests.netcdf.plot._plot_helpers import (
+    _make_2d_nc,
+    _make_3d_nc_anon_dim,
+    _make_capture,
+    _make_curvilinear_nc,
+)
 
 pytestmark = pytest.mark.plot
 
@@ -55,9 +60,9 @@ class TestNetCDFPlotCoordAxes:
         """
         nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m", coords=("t2m", "t2m"))
-        assert isinstance(result, ArrayGlyph), (
-            f"Expected ArrayGlyph from valid-coords render, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Expected ArrayGlyph from valid-coords render, got {type(result).__name__}"
 
 
 class TestNetCDFPlotCoordAxesExtra:
@@ -136,7 +141,10 @@ class TestNetCDFPlotDimResolverFallbacks:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             nc.plot(variable="signal", selectors=Selectors(time=20))
         assert_array_equal(

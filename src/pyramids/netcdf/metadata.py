@@ -77,7 +77,7 @@ class MetadataBuilder:
         self,
         src: gdal.Dataset,
         open_options: dict[str, Any] | None = None,
-        start_group: "gdal.Group | None" = None,
+        start_group: gdal.Group | None = None,
     ) -> None:
         """Initialize MetadataBuilder.
 
@@ -136,7 +136,9 @@ class MetadataBuilder:
         # start_group so traversal is scoped to that sub-group (ARC-12);
         # otherwise traverse from the dataset's root group as before.
         driver_name = _get_driver_name(ds)
-        root_group = self.start_group if self.start_group is not None else _get_root_group(ds)
+        root_group = (
+            self.start_group if self.start_group is not None else _get_root_group(ds)
+        )
 
         groups_map: dict[str, GroupInfo] = {}
         variables_map: dict[str, VariableInfo] = {}
@@ -603,7 +605,7 @@ class GroupTraverser:
 
     def _resolve_child_groups(
         self, group: gdal.Group, group_full_name: str
-    ) -> list[tuple[str, "gdal.Group"]]:
+    ) -> list[tuple[str, gdal.Group]]:
         """Open the child groups of *group* and resolve their full names.
 
         Children that fail to open are skipped. For a child whose
@@ -618,7 +620,7 @@ class GroupTraverser:
             List of `(child_full_name, child_group)` pairs for every child
             that opened successfully, in traversal order.
         """
-        children: list[tuple[str, "gdal.Group"]] = []
+        children: list[tuple[str, gdal.Group]] = []
         for cn in _safe_group_names(group):
             try:
                 current_group = group.OpenGroup(cn)
@@ -649,9 +651,7 @@ class GroupTraverser:
                     exc,
                 )
                 current_group_full_name = (
-                    f"{group_full_name}/{cn}"
-                    if group_full_name != "/"
-                    else f"/{cn}"
+                    f"{group_full_name}/{cn}" if group_full_name != "/" else f"/{cn}"
                 )
 
             children.append((current_group_full_name, current_group))
@@ -661,7 +661,7 @@ class GroupTraverser:
 def get_metadata(
     source,
     open_options: dict[str, Any] | None = None,
-    start_group: "gdal.Group | None" = None,
+    start_group: gdal.Group | None = None,
 ) -> NetCDFMetadata:
     """Read and normalize all NetCDF MDIM metadata.
 

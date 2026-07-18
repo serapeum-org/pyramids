@@ -20,7 +20,6 @@ from typing import Any
 import numpy as np
 import shapely
 from shapely import STRtree
-from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from pyramids.netcdf.ugrid.connectivity import Connectivity

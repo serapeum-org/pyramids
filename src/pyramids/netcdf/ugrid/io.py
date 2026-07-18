@@ -483,10 +483,16 @@ def write_ugrid_topology(
 
     if mesh.has_face_coords:
         _write_coord_array(
-            rg, f"{mesh_name}_face_x", [n_face_dim], cast("np.typing.NDArray", mesh.face_x)
+            rg,
+            f"{mesh_name}_face_x",
+            [n_face_dim],
+            cast("np.typing.NDArray", mesh.face_x),
         )
         _write_coord_array(
-            rg, f"{mesh_name}_face_y", [n_face_dim], cast("np.typing.NDArray", mesh.face_y)
+            rg,
+            f"{mesh_name}_face_y",
+            [n_face_dim],
+            cast("np.typing.NDArray", mesh.face_y),
         )
 
     if crs_wkt is not None:

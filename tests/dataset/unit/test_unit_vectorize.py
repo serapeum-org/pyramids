@@ -65,13 +65,17 @@ class TestFootprint:
         )
         ds._no_data_value = [None]
         result = ds.footprint()
-        assert result is not None and len(result) > 0, "footprint should cover the non-NaN cells"
+        assert (
+            result is not None and len(result) > 0
+        ), "footprint should cover the non-NaN cells"
 
     @pytest.mark.filterwarnings("ignore:Geometry is in a geographic CRS")
     def test_footprint_float_nan_nodata_excludes_fill(self):
         """footprint with a float NaN nodata fill excludes the NaN cells, not the whole grid."""
         nd = float("nan")
-        arr = np.array([[nd, nd, 5.0], [nd, 7.0, 9.0], [nd, nd, 11.0]], dtype=np.float64)
+        arr = np.array(
+            [[nd, nd, 5.0], [nd, 7.0, 9.0], [nd, nd, 11.0]], dtype=np.float64
+        )
         ds = Dataset.create_from_array(
             arr,
             top_left_corner=(0.0, 0.0),
@@ -80,16 +84,24 @@ class TestFootprint:
             no_data_value=nd,
         )
         result = ds.footprint(band=0)
-        assert result is not None and len(result) > 0, "footprint should return polygons"
-        covered = round(result.geometry.area.sum())  # cell area is 1.0 (1x1 degree cells)
-        assert covered == 4, f"footprint should cover the 4 data cells only, got {covered}"
+        assert (
+            result is not None and len(result) > 0
+        ), "footprint should return polygons"
+        covered = round(
+            result.geometry.area.sum()
+        )  # cell area is 1.0 (1x1 degree cells)
+        assert (
+            covered == 4
+        ), f"footprint should cover the 4 data cells only, got {covered}"
 
     @pytest.mark.filterwarnings("ignore:Geometry is in a geographic CRS")
     def test_footprint_multiband_non_zero_band_positive_nodata(self):
         """footprint on band > 0 with a positive nodata fill excludes the nodata cells."""
         nd = 1e20
         band0 = np.full((3, 3), 5.0, dtype=np.float64)
-        band1 = np.array([[1.0, nd, 1.0], [1.0, 1.0, nd], [nd, 1.0, 1.0]], dtype=np.float64)
+        band1 = np.array(
+            [[1.0, nd, 1.0], [1.0, 1.0, nd], [nd, 1.0, 1.0]], dtype=np.float64
+        )
         ds = Dataset.create_from_array(
             np.stack([band0, band1]),
             top_left_corner=(0.0, 0.0),
@@ -98,10 +110,18 @@ class TestFootprint:
             no_data_value=nd,
         )
         result = ds.footprint(band=1)
-        assert result is not None and len(result) > 0, "band-1 footprint should return polygons"
-        assert result.columns[0] == ds.band_names[1], "column should carry the source band's name"
-        covered = round(result.geometry.area.sum())  # cell area is 1.0 (1x1 degree cells)
-        assert covered == 6, f"footprint should cover the 6 data cells only, got {covered}"
+        assert (
+            result is not None and len(result) > 0
+        ), "band-1 footprint should return polygons"
+        assert (
+            result.columns[0] == ds.band_names[1]
+        ), "column should carry the source band's name"
+        covered = round(
+            result.geometry.area.sum()
+        )  # cell area is 1.0 (1x1 degree cells)
+        assert (
+            covered == 6
+        ), f"footprint should cover the 6 data cells only, got {covered}"
 
 
 class TestBandToPolygon:
@@ -148,8 +168,12 @@ class TestToFeatureCollection:
             no_data_value=-9999.0,
         )
         full_vals = sorted(ds.to_feature_collection(tile=False).iloc[:, 0].tolist())
-        tiled_vals = sorted(ds.to_feature_collection(tile=True, tile_size=2).iloc[:, 0].tolist())
-        assert full_vals == tiled_vals, "tiled and non-tiled should extract the same values"
+        tiled_vals = sorted(
+            ds.to_feature_collection(tile=True, tile_size=2).iloc[:, 0].tolist()
+        )
+        assert (
+            full_vals == tiled_vals
+        ), "tiled and non-tiled should extract the same values"
 
     def test_to_feature_collection_all_nodata(self):
         """Test that a dataset with all no-data cells returns an empty DataFrame.
@@ -187,7 +211,9 @@ class TestToFeatureCollection:
         )
         df = ds.to_feature_collection()
         assert len(df) == 1, f"Expected 1 row, got {len(df)}"
-        assert df.iloc[0, 0] == pytest.approx(42.0), f"Expected value 42.0, got {df.iloc[0, 0]}"
+        assert df.iloc[0, 0] == pytest.approx(
+            42.0
+        ), f"Expected value 42.0, got {df.iloc[0, 0]}"
 
     def test_to_feature_collection_column_names_match_band_names(
         self, multi_band_dataset

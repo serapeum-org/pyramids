@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from osgeo import gdal
 
-from pyramids.netcdf import NetCDF, Container
+from pyramids.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
 

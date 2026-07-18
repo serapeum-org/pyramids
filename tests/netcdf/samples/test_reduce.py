@@ -27,7 +27,9 @@ def test_reduce_supports_common_reducers(sample, how):
     try:
         reduced = nc.reduce("level", how=how)
         assert isinstance(reduced, NetCDF)
-        assert reduced.get_variable("rhum").read_array().shape[0] == 12  # 12 time steps remain
+        assert (
+            reduced.get_variable("rhum").read_array().shape[0] == 12
+        )  # 12 time steps remain
     finally:
         nc.close()
 

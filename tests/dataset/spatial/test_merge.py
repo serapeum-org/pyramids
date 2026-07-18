@@ -139,7 +139,9 @@ class TestMergeMethod:
         out = tmp_path / "gappy.tif"
         merge_rasters([pa, pb], out, no_data_value=-1.0, method="sum")
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 0] == pytest.approx(5.0), f"Top-left should be A=5, got {arr[0, 0]}"
+        assert arr[0, 0] == pytest.approx(
+            5.0
+        ), f"Top-left should be A=5, got {arr[0, 0]}"
         assert arr[3, 3] == pytest.approx(
             7.0
         ), f"Bottom-right should be B=7, got {arr[3, 3]}"
@@ -185,8 +187,8 @@ class TestMergeMethod:
         out = tmp_path / "n_min.tif"
         merge_rasters([pa, pb], out, no_data_value=-1.0, n=20, method="min")
         arr = Dataset.read_file(str(out)).read_array()
-        assert (
-            arr[0, 2] == pytest.approx(10.0)
+        assert arr[0, 2] == pytest.approx(
+            10.0
         ), f"Overlap min ignoring 20 should be 10, got {arr[0, 2]}"
         assert (
             arr[0, 5] == -1.0
@@ -355,8 +357,8 @@ class TestDatasetCollectionMergeMethod:
         out = tmp_path / "coll_sum.tif"
         collection.merge(out, no_data_value=-9999.0, method="sum")
         arr = Dataset.read_file(str(out)).read_array()
-        assert (
-            arr[0, 2] == pytest.approx(30.0)
+        assert arr[0, 2] == pytest.approx(
+            30.0
         ), f"Collection sum overlap should be 30, got {arr[0, 2]}"
 
 

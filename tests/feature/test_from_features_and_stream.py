@@ -381,7 +381,9 @@ class TestIterFeaturesIncludeIndex:
             absolute row index.
         """
         feats = list(FeatureCollection.iter_features(small_geojson))
-        feats_indexed = list(FeatureCollection.iter_features(small_geojson, include_index=True))
+        feats_indexed = list(
+            FeatureCollection.iter_features(small_geojson, include_index=True)
+        )
         ids = [f.get("id") for f in feats]
         ids_indexed = [f["id"] for f in feats_indexed]
         # include_index=False must produce different ids than include_index=True

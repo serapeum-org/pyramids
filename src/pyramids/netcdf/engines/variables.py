@@ -124,9 +124,7 @@ class Variables(_Engine["NetCDF"]):
         coord_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
 
         # Build spatial dimensions from the geotransform
-        x_values = np.array(
-            nc.get_x_lon_dimension_array(gt[0], gt[1], dataset.columns)
-        )
+        x_values = np.array(nc.get_x_lon_dimension_array(gt[0], gt[1], dataset.columns))
         y_values = np.array(
             nc.get_y_lat_dimension_array(gt[3], abs(gt[5]), dataset.rows)
         )
@@ -172,9 +170,7 @@ class Variables(_Engine["NetCDF"]):
 
         nc._invalidate_caches()
 
-    def add_variable(
-        self, dataset: Dataset | NetCDF, variable_name: str | None = None
-    ):
+    def add_variable(self, dataset: Dataset | NetCDF, variable_name: str | None = None):
         """Copy MDArray variables from another NetCDF into this container.
 
         Args:
@@ -353,10 +349,10 @@ def _build_variable_mdarray(
     names, sizes, values_map = band["names"], band["sizes"], band["values_map"]
     if len(names) > 1 and arr.ndim == 3 and sizes:
         arr = arr.reshape(*sizes, arr.shape[-2], arr.shape[-1])
-        band_dims = _create_multi_band_dims(nc, rg, names, sizes, values_map, coord_dtype)
-        md_arr = rg.CreateMDArray(
-            variable_name, [*band_dims, dim_y, dim_x], data_dtype
+        band_dims = _create_multi_band_dims(
+            nc, rg, names, sizes, values_map, coord_dtype
         )
+        md_arr = rg.CreateMDArray(variable_name, [*band_dims, dim_y, dim_x], data_dtype)
     elif arr.ndim == 3:
         if band_dim_name is None:
             band_dim_name = "bands"
@@ -369,9 +365,7 @@ def _build_variable_mdarray(
             coord_dtype,
             gdal.DIM_TYPE_TEMPORAL,
         )
-        md_arr = rg.CreateMDArray(
-            variable_name, [dim_band, dim_y, dim_x], data_dtype
-        )
+        md_arr = rg.CreateMDArray(variable_name, [dim_band, dim_y, dim_x], data_dtype)
     else:
         md_arr = rg.CreateMDArray(variable_name, [dim_y, dim_x], data_dtype)
     md_arr.Write(arr)
@@ -915,7 +909,9 @@ def _create_netcdf_from_array(
     # BLOCKSIZE with the dask block shape so the streamed windows map onto whole
     # storage chunks. An explicit `chunk_sizes` always wins.
     if chunk_sizes is None and _is_dask_array(arr):
-        chunk_sizes = tuple(int(axis_chunks[0]) for axis_chunks in cast("Any", arr).chunks)
+        chunk_sizes = tuple(
+            int(axis_chunks[0]) for axis_chunks in cast("Any", arr).chunks
+        )
     md_arr = rg.CreateMDArray(
         variable_name,
         [*gdal_extra_dims, dim_y, dim_x],

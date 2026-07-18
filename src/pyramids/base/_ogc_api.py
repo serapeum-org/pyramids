@@ -29,7 +29,10 @@ from pyramids.base._errors import OGCAPIError
 # services that block the default ``Python-urllib`` agent, and ``Accept`` adds
 # JSON content negotiation alongside the ``f=json`` query so the pre-check is no
 # stricter than the GDAL driver it guards.
-DISCOVERY_HEADERS = {"User-Agent": "pyramids-gis OGC API client", "Accept": "application/json"}
+DISCOVERY_HEADERS = {
+    "User-Agent": "pyramids-gis OGC API client",
+    "Accept": "application/json",
+}
 
 # Fallback when an OGC API error document / HTTP error carries no usable message.
 NO_MESSAGE = "no message provided"
@@ -110,7 +113,9 @@ def get_collections(
         ) from exc
     except OSError as exc:
         # urllib.error.URLError and other transport errors derive from OSError.
-        raise OGCAPIError(f"OGC API /collections request failed for {endpoint!r}: {exc}") from exc
+        raise OGCAPIError(
+            f"OGC API /collections request failed for {endpoint!r}: {exc}"
+        ) from exc
 
     try:
         doc = json.loads(payload)

@@ -21,6 +21,7 @@ from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import mesh_render as _mesh_render
 from pyramids.feature import FeatureCollection
+from pyramids.netcdf._mdim import open_mdarray
 from pyramids.netcdf.cf import write_global_attributes
 from pyramids.netcdf.ugrid.connectivity import Connectivity
 from pyramids.netcdf.ugrid.interpolation import mesh_to_grid
@@ -41,7 +42,6 @@ from pyramids.netcdf.ugrid.spatial import (
     clip_mesh,
     subset_by_bounds,
 )
-from pyramids.netcdf._mdim import open_mdarray
 from pyramids.netcdf.utils import _dtype_to_str, _read_attributes
 
 
@@ -694,9 +694,7 @@ class UgridDataset:
             geometries = []
             for i in range(enc.n_elements):
                 nodes = enc.get_element(i)
-                coords = [
-                    (self._mesh.node_x[n], self._mesh.node_y[n]) for n in nodes
-                ]
+                coords = [(self._mesh.node_x[n], self._mesh.node_y[n]) for n in nodes]
                 geometries.append(LineString(coords))
         else:
             raise ValueError(f"Unknown location: {location}")

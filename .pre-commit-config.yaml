@@ -69,7 +69,7 @@ repos:
 #         name: "[py   - check] pydocstyle"
 #         files: ^hydrolib/.*\.py$
   - repo: https://github.com/pycqa/isort
-    rev: 9.0.0a3
+    rev: 9.0.0b1
     hooks:
       - id: isort
         name: "[py   - format] isort"
@@ -141,7 +141,7 @@ repos:
       - id: detect-secrets
         exclude: '\.(ipynb|drawio)$'
   - repo: https://github.com/bridgecrewio/checkov
-    rev: 3.3.1
+    rev: 3.3.8
     hooks:
       - id: checkov
 

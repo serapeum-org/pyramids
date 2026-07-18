@@ -30,7 +30,9 @@ QUADTREE_AGG: dict[str, Callable[..., Any]] = {**NAN_REDUCERS, "count": len}
 """Reducers usable as ``quadtree(agg=...)`` — the NaN-aware reducers plus ``"count"``."""
 
 
-def point_xy(geometry: Any) -> tuple[np.typing.NDArray, np.typing.NDArray, np.typing.NDArray]:
+def point_xy(
+    geometry: Any,
+) -> tuple[np.typing.NDArray, np.typing.NDArray, np.typing.NDArray]:
     """Return the finite ``(xs, ys, keep)`` of a point ``GeoSeries``.
 
     Points whose coordinates are non-finite are dropped, and ``keep`` holds the positional indices of the
@@ -131,7 +133,9 @@ def polygon_parts(geometry: Any) -> list:
     return parts
 
 
-def dedupe_xy(xs: np.ndarray, ys: np.ndarray) -> tuple[np.typing.NDArray, np.typing.NDArray, np.typing.NDArray]:
+def dedupe_xy(
+    xs: np.ndarray, ys: np.ndarray
+) -> tuple[np.typing.NDArray, np.typing.NDArray, np.typing.NDArray]:
     """Drop coincident points, keeping the first occurrence of each in input order.
 
     ``shapely.voronoi_polygons(..., ordered=True)`` raises ``GEOSException`` when two input points share a
@@ -203,7 +207,9 @@ def fishnet_cells(
     if cell_size <= 0:
         raise ValueError(f"fishnet: cell_size must be > 0, got {cell_size}")
     if not (minx < maxx and miny < maxy):
-        raise ValueError(f"fishnet: bounds must satisfy minx < maxx and miny < maxy, got {bounds}")
+        raise ValueError(
+            f"fishnet: bounds must satisfy minx < maxx and miny < maxy, got {bounds}"
+        )
     nx = math.ceil((maxx - minx) / cell_size)
     ny = math.ceil((maxy - miny) / cell_size)
     xs0 = minx + np.arange(nx) * cell_size
@@ -283,7 +289,11 @@ def resolve_clip(clip: Any, target_crs: Any) -> Any:
     if clip is not None:
         if hasattr(clip, "to_crs"):
             reprojected = clip.to_crs(target_crs)
-            geometry = reprojected.geometry if hasattr(reprojected, "geometry") else reprojected
+            geometry = (
+                reprojected.geometry
+                if hasattr(reprojected, "geometry")
+                else reprojected
+            )
             boundary = geometry.union_all()
         else:
             boundary = clip
@@ -327,7 +337,9 @@ def resolve_reducer(agg: Any) -> Callable[..., Any]:
     elif agg in QUADTREE_AGG:
         reducer = QUADTREE_AGG[agg]
     else:
-        raise ValueError(f"unknown agg {agg!r}; choose one of {sorted(QUADTREE_AGG)} or a callable")
+        raise ValueError(
+            f"unknown agg {agg!r}; choose one of {sorted(QUADTREE_AGG)} or a callable"
+        )
     return reducer
 
 
@@ -450,7 +462,9 @@ def quadtree_cells(
             continue
         quads = _split_quads(bounds, xs, ys, idx)
         nonempty = [q for q in quads if len(q[4]) > 0]
-        if len(nonempty) == 1 and len(nonempty[0][4]) == n:  # no progress (coincident points)
+        if (
+            len(nonempty) == 1 and len(nonempty[0][4]) == n
+        ):  # no progress (coincident points)
             _emit_cell(out, bounds, idx, agg_fn, nmin)
             continue
         for qx0, qy0, qx1, qy1, qidx in quads:

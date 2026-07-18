@@ -57,7 +57,9 @@ class TestPlotPhase3CrossCutting:
         )
 
     @pytest.mark.plot
-    def test_dataset_plot_returns_array_glyph_post_refactor(self, random_single_band_for_plot):
+    def test_dataset_plot_returns_array_glyph_post_refactor(
+        self, random_single_band_for_plot
+    ):
         """`Dataset.plot()` still returns an ArrayGlyph after D-2 collapse.
 
         Test scenario:
@@ -73,7 +75,9 @@ class TestPlotPhase3CrossCutting:
         ), f"Dataset.plot() must return ArrayGlyph after D-2, got: {type(result).__name__}"
 
     @pytest.mark.plot
-    def test_analysis_plot_returns_array_glyph_post_refactor(self, random_single_band_for_plot):
+    def test_analysis_plot_returns_array_glyph_post_refactor(
+        self, random_single_band_for_plot
+    ):
         """`Analysis.plot(band=N)` still returns an ArrayGlyph after D-2.
 
         Test scenario:
@@ -112,7 +116,9 @@ class TestPlotPhase3CrossCutting:
         )
 
     @pytest.mark.plot
-    def test_render_array_direct_call_matches_analysis_plot(self, random_single_band_for_plot):
+    def test_render_array_direct_call_matches_analysis_plot(
+        self, random_single_band_for_plot
+    ):
         """Calling `render_array(mode="plot")` directly produces the same array.
 
         Test scenario:
@@ -270,7 +276,9 @@ class TestPlotPR6Cleanups:
         """
         from pyramids.base._utils import require_cleopatra
 
-        assert callable(require_cleopatra), "require_cleopatra must be importable and callable"
+        assert callable(
+            require_cleopatra
+        ), "require_cleopatra must be importable and callable"
         require_cleopatra()
         require_cleopatra("optional override message")
 
@@ -366,7 +374,9 @@ class TestPR6CleanupGrepGuards:
         """
         from pyramids.base._utils import import_cleopatra
 
-        assert callable(import_cleopatra), "the legacy import_cleopatra symbol must stay importable"
+        assert callable(
+            import_cleopatra
+        ), "the legacy import_cleopatra symbol must stay importable"
         import_cleopatra("legacy back-compat call")
 
     def test_import_cleopatra_not_called_outside_definition(self):

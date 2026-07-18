@@ -58,9 +58,9 @@ class TestInvalidateCaches:
 
         nc._invalidate_caches()
 
-        assert nc._geostationary_gt_cache == {}, (
-            f"geostationary GT cache must be cleared, got {nc._geostationary_gt_cache}"
-        )
+        assert (
+            nc._geostationary_gt_cache == {}
+        ), f"geostationary GT cache must be cleared, got {nc._geostationary_gt_cache}"
         assert nc._cached_meta_data is None, "metadata cache must be cleared"
 
 
@@ -106,7 +106,9 @@ class TestNarrowedExceptionPropagation:
             `RuntimeError` from `GetGroupNames` yields `[]`, not a propagated error.
         """
         nc = self._nc_with_fake_root_group(RuntimeError("gdal driver error"))
-        assert nc.group_names == [], "RuntimeError should degrade to an empty group list"
+        assert (
+            nc.group_names == []
+        ), "RuntimeError should degrade to an empty group list"
 
 
 class TestSpatialOperationDelegates:

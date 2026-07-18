@@ -1157,7 +1157,9 @@ class TestGroupTraverserWalk:
             t.walk(root)
 
         # The child should still be traversed with a fallback name /child
-        assert "child" in groups, f"Expected child to be in the traversal, got {list(groups.keys())}"
+        assert (
+            "child" in groups
+        ), f"Expected child to be in the traversal, got {list(groups.keys())}"
 
     def test_child_group_info_fallback_non_root_parent(self):
         """Verify fallback path concatenation for non-root parent uses parent_path/child_name.

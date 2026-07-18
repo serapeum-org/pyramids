@@ -352,9 +352,9 @@ class TestReadVariableClassicMode:
             open_as_multi_dimensional=False,
         )
         result = nc._read_variable("completely_nonexistent_var_xyz")
-        assert result is None, (
-            f"Expected None for nonexistent var in classic mode, got {type(result)}"
-        )
+        assert (
+            result is None
+        ), f"Expected None for nonexistent var in classic mode, got {type(result)}"
 
 
 class TestSelChaining:
@@ -482,8 +482,12 @@ class TestSelReturnTypeAndMetadata:
         var._scale = 0.01
         var._offset = 273.15
         result = var.sel(time=12)
-        assert result._scale == pytest.approx(0.01), f"Expected scale=0.01, got {result._scale}"
-        assert result._offset == pytest.approx(273.15), f"Expected offset=273.15, got {result._offset}"
+        assert result._scale == pytest.approx(
+            0.01
+        ), f"Expected scale=0.01, got {result._scale}"
+        assert result._offset == pytest.approx(
+            273.15
+        ), f"Expected offset=273.15, got {result._offset}"
 
     def test_sel_result_supports_unpack(self):
         """read_array(unpack=True) works on a sel() result.
@@ -599,9 +603,9 @@ class TestReadVariableWindowBoundary:
             "no_such_var",
             window=[(0, 1)],
         )
-        assert result is None, (
-            f"Expected None for nonexistent var with window, got {type(result)}"
-        )
+        assert (
+            result is None
+        ), f"Expected None for nonexistent var with window, got {type(result)}"
 
     def test_window_returns_numpy_array_not_bytearray(self, nc_3d):
         """Windowed read returns np.ndarray, not raw bytearray.
@@ -674,9 +678,9 @@ class TestSelOnDiskFile:
         window = [(0, 1)] * full.ndim
         windowed = nc._read_variable(nc.variable_names[0], window=window)
         assert windowed is not None, "Windowed read on on-disk NC should succeed"
-        assert windowed.size == 1, (
-            f"Single-element window should return 1 value, got {windowed.size}"
-        )
+        assert (
+            windowed.size == 1
+        ), f"Single-element window should return 1 value, got {windowed.size}"
 
 
 class TestReadVariableWindowMultiDimFallback:

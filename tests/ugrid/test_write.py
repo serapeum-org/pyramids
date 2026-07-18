@@ -230,7 +230,9 @@ class TestCreateFromArrays:
         assert (
             "temperature" in ds.data_variable_names
         ), "Should have temperature variable"
-        assert ds["temperature"].data[0] == pytest.approx(20.0), "Temperature should be 20.0"
+        assert ds["temperature"].data[0] == pytest.approx(
+            20.0
+        ), "Temperature should be 20.0"
 
     def test_mixed_mesh(self):
         """Test creating a mixed mesh from arrays.

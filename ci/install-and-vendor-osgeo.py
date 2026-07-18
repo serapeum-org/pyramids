@@ -696,9 +696,7 @@ def _is_win_arm64() -> bool:
     if sys.platform == "win32":
         host_is_arm64 = platform.machine().upper() == "ARM64"
         requested = (
-            os.environ.get("CIBW_ARCHS_WINDOWS")
-            or os.environ.get("CIBW_ARCHS")
-            or ""
+            os.environ.get("CIBW_ARCHS_WINDOWS") or os.environ.get("CIBW_ARCHS") or ""
         ).upper()
         if "ARM64" in requested and not host_is_arm64:
             raise RuntimeError(
@@ -729,9 +727,7 @@ def _copy_dist_info_licenses(dist_info: Path, src_pyramids: Path) -> None:
         shutil.copy2(license_file, dst)
 
 
-def _copy_vector_stack_tree(
-    target: Path, src_pyramids: Path, vendor_dir: Path
-) -> list:
+def _copy_vector_stack_tree(target: Path, src_pyramids: Path, vendor_dir: Path) -> list:
     """Copy a pip --target tree's packages into `_vendor/`, licenses too.
 
     Returns the vendored top-level package names.
@@ -830,19 +826,32 @@ def vendor_vector_stack_into_package() -> None:
         )
         subprocess.run(
             [
-                sys.executable, "-m", "pip", "wheel",
-                "-r", str(requirements), "--require-hashes",
-                "--no-deps", "--no-binary", "shapely,pyogrio",
-                "-w", str(raw),
+                sys.executable,
+                "-m",
+                "pip",
+                "wheel",
+                "-r",
+                str(requirements),
+                "--require-hashes",
+                "--no-deps",
+                "--no-binary",
+                "shapely,pyogrio",
+                "-w",
+                str(raw),
             ],
             check=True,
             env=env,
         )
         subprocess.run(
             [
-                sys.executable, "-m", "pip", "install",
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
                 *(str(w) for w in sorted(raw.glob("*.whl"))),
-                "--no-deps", "--target", str(target),
+                "--no-deps",
+                "--target",
+                str(target),
             ],
             check=True,
             env=env,

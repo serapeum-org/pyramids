@@ -46,7 +46,10 @@ class TestSelSingleValue:
         result = var.sel(time=6)
         assert result.shape == (1, 3, 4), f"Expected (1, 3, 4), got {result.shape}"
         read = result.read_array()
-        assert read.shape == (3, 4), f"single-band read should squeeze to 2D, got {read.shape}"
+        assert read.shape == (
+            3,
+            4,
+        ), f"single-band read should squeeze to 2D, got {read.shape}"
 
     def test_data_matches_original_band(self):
         """Selected data should match the corresponding band in the original.

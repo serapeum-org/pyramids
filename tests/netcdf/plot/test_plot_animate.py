@@ -228,9 +228,11 @@ class TestNetCDFPlotAnimateEdges:
             f"mode={captured['kw'].get('mode')!r}"
         )
         labels = captured["kw"]["animation_axis_values"]
-        assert list(labels) == [0, 6, 12], (
-            f"animation labels must come from the time coord values, got {labels}"
-        )
+        assert list(labels) == [
+            0,
+            6,
+            12,
+        ], f"animation labels must come from the time coord values, got {labels}"
 
     def test_animate_with_isel_pin_animated_dim_raises(self):
         """``animate='time'`` rejects an ``isel`` pin on the same dim.

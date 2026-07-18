@@ -37,7 +37,9 @@ def _attr_f64(arr, name, value):
     arr.CreateAttribute(name, [], dt).Write(float(value))
 
 
-def _write_geostationary_mdim(path: str, ny: int = 120, nx: int = 150, n_time: int | None = None) -> None:
+def _write_geostationary_mdim(
+    path: str, ny: int = 120, nx: int = 150, n_time: int | None = None
+) -> None:
     """Write a minimal GOES-style geostationary NetCDF via the GDAL MDIM API.
 
     The ``x`` / ``y`` coordinates are packed ``int16`` scan angles in radians
@@ -53,7 +55,9 @@ def _write_geostationary_mdim(path: str, ny: int = 120, nx: int = 150, n_time: i
     i16 = gdal.ExtendedDataType.Create(gdal.GDT_Int16)
     if n_time is not None:
         dt = rg.CreateDimension("time", "", "", n_time)
-        tv = rg.CreateMDArray("time", [dt], gdal.ExtendedDataType.Create(gdal.GDT_Int32))
+        tv = rg.CreateMDArray(
+            "time", [dt], gdal.ExtendedDataType.Create(gdal.GDT_Int32)
+        )
         tv.Write(np.arange(n_time, dtype=np.int32))
         _attr_str(tv, "standard_name", "time")
         _attr_str(tv, "units", "days since 2024-01-01")
@@ -74,7 +78,9 @@ def _write_geostationary_mdim(path: str, ny: int = 120, nx: int = 150, n_time: i
     _attr_f64(y, "scale_factor", -2.8e-05)
     _attr_f64(y, "add_offset", 0.065)
 
-    gp = rg.CreateMDArray("goes_imager_projection", [], gdal.ExtendedDataType.Create(gdal.GDT_Int32))
+    gp = rg.CreateMDArray(
+        "goes_imager_projection", [], gdal.ExtendedDataType.Create(gdal.GDT_Int32)
+    )
     gp.Write(np.array(0, dtype=np.int32))
     _attr_str(gp, "grid_mapping_name", "geostationary")
     _attr_f64(gp, "perspective_point_height", 35786023.0)
@@ -87,7 +93,9 @@ def _write_geostationary_mdim(path: str, ny: int = 120, nx: int = 150, n_time: i
 
     cmi_dims = [dt, dy, dx] if n_time is not None else [dy, dx]
     cmi_shape = (n_time, ny, nx) if n_time is not None else (ny, nx)
-    cmi = rg.CreateMDArray("CMI_C02", cmi_dims, gdal.ExtendedDataType.Create(gdal.GDT_UInt16))
+    cmi = rg.CreateMDArray(
+        "CMI_C02", cmi_dims, gdal.ExtendedDataType.Create(gdal.GDT_UInt16)
+    )
     cmi.Write(np.zeros(cmi_shape, dtype=np.uint16))
     _attr_str(cmi, "grid_mapping", "goes_imager_projection")
     _attr_str(cmi, "coordinates", "y x")
@@ -178,11 +186,12 @@ class TestGeostationaryContainerOps:
         var.to_zarr(store)
         assert os.path.exists(store)
         # the geostationary CRS is preserved in the store's `spatial_ref` metadata
-        meta = glob.glob(os.path.join(store, "**", "*.json"), recursive=True) + glob.glob(
-            os.path.join(store, "**", ".z*"), recursive=True
+        meta = glob.glob(
+            os.path.join(store, "**", "*.json"), recursive=True
+        ) + glob.glob(os.path.join(store, "**", ".z*"), recursive=True)
+        assert any(
+            "Geostationary_Satellite" in open(f, encoding="utf-8").read() for f in meta
         )
-        assert any("Geostationary_Satellite" in open(f, encoding="utf-8").read() for f in meta)
-
 
     def test_set_variable_preserves_geostationary_crs(self, tmp_path):
         """`set_variable` carries the geostationary WKT instead of erasing it."""
@@ -218,11 +227,15 @@ class TestNonGeostationaryEpsgUnaffected:
     def test_latlon_epsg_stays_4326(self):
         """A plain lat/lon NetCDF still reports its EPSG code."""
         arr = np.zeros((5, 6), "f4")
-        nc = NetCDF.create_from_array(arr, geo=(0, 1, 0, 5, 0, -1), epsg=4326, variable_name="t")
+        nc = NetCDF.create_from_array(
+            arr, geo=(0, 1, 0, 5, 0, -1), epsg=4326, variable_name="t"
+        )
         assert nc.get_variable("t").epsg == 4326
 
     def test_latlon_container_resample_unchanged(self):
         """A plain lat/lon container still resamples and keeps its EPSG code."""
         arr = np.zeros((6, 7), "f4")
-        nc = NetCDF.create_from_array(arr, geo=(0, 1, 0, 6, 0, -1), epsg=4326, variable_name="t")
+        nc = NetCDF.create_from_array(
+            arr, geo=(0, 1, 0, 6, 0, -1), epsg=4326, variable_name="t"
+        )
         assert nc.resample(cell_size=2.0).get_variable("t").epsg == 4326

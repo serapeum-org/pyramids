@@ -10,7 +10,12 @@ from numpy.testing import assert_array_equal
 
 from pyramids.netcdf import Selectors
 from tests.netcdf.conftest import make_plot_3d_nc
-from tests.netcdf.plot._plot_helpers import _make_3d_nc_with_dates, _make_4d_nc, _make_capture, _make_ensemble_nc
+from tests.netcdf.plot._plot_helpers import (
+    _make_3d_nc_with_dates,
+    _make_4d_nc,
+    _make_capture,
+    _make_ensemble_nc,
+)
 
 pytestmark = pytest.mark.plot
 
@@ -97,7 +102,10 @@ class TestNetCDFPlotSelectors:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             var.plot(selectors=Selectors(time="2024-01-15"))
         assert_array_equal(
@@ -113,7 +121,10 @@ class TestNetCDFPlotSelectors:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             var.plot(selectors=Selectors(sel={"time": "2024-01-14"}))
         assert_array_equal(
@@ -130,7 +141,10 @@ class TestNetCDFPlotSelectors:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             nc.plot(variable="t2m", selectors=Selectors(isel={"time": 2}))
         assert_array_equal(
@@ -152,7 +166,10 @@ class TestNetCDFPlotSelectors:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             nc.plot(
                 variable="temperature",
@@ -427,7 +444,10 @@ class TestNetCDFPlotSelectorEdges:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             nc.plot(
                 variable="t2m",
@@ -455,7 +475,10 @@ class TestNetCDFPlotSelectorEdges:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             nc.plot(
                 variable="t2m",
@@ -547,7 +570,10 @@ class TestNetCDFPlotMemberSelector:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             nc.plot(variable="forecast", selectors=Selectors(member=1))
         assert_array_equal(

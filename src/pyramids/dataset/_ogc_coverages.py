@@ -88,7 +88,7 @@ def _coverage_connection(endpoint: str, coverage: str) -> str:
     return f"OGCAPI:{base}"
 
 
-def _open_coverage(connection: str, coverage: str) -> "gdal.Dataset":
+def _open_coverage(connection: str, coverage: str) -> gdal.Dataset:
     """Open an OGC API – Coverages coverage with GDAL, classifying failures.
 
     Raises:
@@ -104,7 +104,9 @@ def _open_coverage(connection: str, coverage: str) -> "gdal.Dataset":
     try:
         src = gdal.OpenEx(connection, gdal.OF_RASTER, open_options=_OPEN_OPTIONS)
     except RuntimeError as exc:
-        raise OGCAPIError(f"could not open OGC API coverage {coverage!r}: {exc}") from exc
+        raise OGCAPIError(
+            f"could not open OGC API coverage {coverage!r}: {exc}"
+        ) from exc
     if src is None:
         raise OGCAPIError(f"GDAL returned no dataset for OGC API coverage {coverage!r}")
     return src
@@ -136,10 +138,18 @@ def _read_size(
         height = max(1, round(span_y / y_res))
     elif span_x >= span_y:
         width = _DEFAULT_MAX_PX
-        height = max(1, round(_DEFAULT_MAX_PX * span_y / span_x)) if span_x else _DEFAULT_MAX_PX
+        height = (
+            max(1, round(_DEFAULT_MAX_PX * span_y / span_x))
+            if span_x
+            else _DEFAULT_MAX_PX
+        )
     else:
         height = _DEFAULT_MAX_PX
-        width = max(1, round(_DEFAULT_MAX_PX * span_x / span_y)) if span_y else _DEFAULT_MAX_PX
+        width = (
+            max(1, round(_DEFAULT_MAX_PX * span_x / span_y))
+            if span_y
+            else _DEFAULT_MAX_PX
+        )
     if width > _MAX_PX or height > _MAX_PX:
         raise ValueError(
             f"the requested window is {width}x{height} px (over the {_MAX_PX} px limit); "
@@ -149,8 +159,8 @@ def _read_size(
 
 
 def _translate_window(
-    src: "gdal.Dataset", projwin: list[float], size: tuple[int, int], coverage: str
-) -> "gdal.Dataset":
+    src: gdal.Dataset, projwin: list[float], size: tuple[int, int], coverage: str
+) -> gdal.Dataset:
     """Materialise the bounded, size-capped window via :func:`gdal.Translate` → MEM.
 
     The ``projWin`` bounds the fetched area and the explicit ``width``/``height``
@@ -169,14 +179,16 @@ def _translate_window(
     try:
         mem = gdal.Translate("", src, options=options)
     except RuntimeError as exc:
-        raise OGCAPIError(f"OGC API coverage read failed for {coverage!r}: {exc}") from exc
+        raise OGCAPIError(
+            f"OGC API coverage read failed for {coverage!r}: {exc}"
+        ) from exc
     if mem is None:
         raise OGCAPIError(f"OGC API coverage read returned no raster for {coverage!r}")
     return mem
 
 
 def from_ogc_coverages(
-    dataset_cls: type["Dataset"],
+    dataset_cls: type[Dataset],
     endpoint: str,
     *,
     coverage: str,
@@ -188,7 +200,7 @@ def from_ogc_coverages(
     resample: str = "nearest",
     auth: tuple[str, str] | None = None,
     timeout: float = 60.0,
-) -> "Dataset":
+) -> Dataset:
     """Fetch an OGC API – Coverages coverage subset and return a :class:`Dataset`.
 
     This is the private implementation; the public API is the

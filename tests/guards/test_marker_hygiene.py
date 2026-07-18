@@ -73,9 +73,9 @@ def _marker_names(value: ast.expr) -> set[str]:
 def _importorskip_dep(call: ast.Call) -> str | None:
     """Top-level module of a ``pytest.importorskip("x.y")`` / ``importorskip("x")`` call."""
     func = call.func
-    is_importorskip = (isinstance(func, ast.Attribute) and func.attr == "importorskip") or (
-        isinstance(func, ast.Name) and func.id == "importorskip"
-    )
+    is_importorskip = (
+        isinstance(func, ast.Attribute) and func.attr == "importorskip"
+    ) or (isinstance(func, ast.Name) and func.id == "importorskip")
     if (
         is_importorskip
         and call.args
@@ -143,7 +143,9 @@ _TEST_FILES = sorted(
 
 
 @pytest.mark.parametrize(
-    "path", _TEST_FILES, ids=lambda p: str(p.relative_to(_TESTS_ROOT)).replace("\\", "/")
+    "path",
+    _TEST_FILES,
+    ids=lambda p: str(p.relative_to(_TESTS_ROOT)).replace("\\", "/"),
 )
 def test_module_optional_dep_requires_extras_marker(path: Path):
     """A module pulling an optional dep at module scope must be collection-safe + marked."""

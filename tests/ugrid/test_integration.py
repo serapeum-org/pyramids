@@ -88,8 +88,8 @@ class TestFullLifecycle:
         )
         gdf = ds.to_geodataframe("depth", location="face")
         assert len(gdf) == 1, f"Expected 1 row, got {len(gdf)}"
-        assert (
-            gdf["depth"].iloc[0] == pytest.approx(5.5)
+        assert gdf["depth"].iloc[0] == pytest.approx(
+            5.5
         ), f"Expected depth 5.5, got {gdf['depth'].iloc[0]}"
         assert (
             gdf.geometry.iloc[0].geom_type == "Polygon"

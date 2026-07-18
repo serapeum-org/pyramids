@@ -16,7 +16,6 @@ is set, so normal CI stays offline.
 
 from __future__ import annotations
 
-
 import copy
 import io
 import pickle
@@ -25,8 +24,7 @@ import urllib.error
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.dataset import Dataset
-from pyramids.dataset import _wcs
+from pyramids.dataset import Dataset, _wcs
 from pyramids.errors import WCSError
 from tests.dataset.remote.wcs_mock_server import WcsMock
 from tests.http_mock import make_fixed_body_server
@@ -64,7 +62,9 @@ def _clear_caps_cache():
 
 def _make_server(body: str, content_type: str = "application/xml"):
     """Local HTTP server returning `body` for every GET; returns (url, counter, httpd)."""
-    return make_fixed_body_server(body, content_type, path="/mapserv?map=/map/nitrogen.map")
+    return make_fixed_body_server(
+        body, content_type, path="/mapserv?map=/map/nitrogen.map"
+    )
 
 
 @pytest.fixture
@@ -99,18 +99,27 @@ class TestPureHelpers:
             _wcs._resolution_pair(bad)
 
     def test_localname(self):
-        assert _wcs._localname("{http://www.opengis.net/wcs/2.0}CoverageId") == "CoverageId"
+        assert (
+            _wcs._localname("{http://www.opengis.net/wcs/2.0}CoverageId")
+            == "CoverageId"
+        )
         assert _wcs._localname("name") == "name"
 
     def test_capabilities_url_appends_correctly(self):
         with_q = _wcs._capabilities_url("https://h/mapserv?map=/m.map", None)
-        assert with_q == "https://h/mapserv?map=/m.map&SERVICE=WCS&REQUEST=GetCapabilities"
+        assert (
+            with_q == "https://h/mapserv?map=/m.map&SERVICE=WCS&REQUEST=GetCapabilities"
+        )
         no_q = _wcs._capabilities_url("https://h/wcs", "2.0.1")
         assert no_q == "https://h/wcs?SERVICE=WCS&REQUEST=GetCapabilities&VERSION=2.0.1"
 
     def test_service_descriptor(self):
         xml = _wcs._service_descriptor(
-            "https://h/mapserv?map=/m.map", "cov", "2.0.1", "GEOTIFF_INT16", {"FOO": "bar"}
+            "https://h/mapserv?map=/m.map",
+            "cov",
+            "2.0.1",
+            "GEOTIFF_INT16",
+            {"FOO": "bar"},
         )
         assert "<CoverageName>cov</CoverageName>" in xml
         assert "<Version>2.0.1</Version>" in xml
@@ -163,8 +172,12 @@ class TestNativeCrsShim:
 
     def test_native_projwin_reprojects_bbox(self):
         igh = osr.SpatialReference()
-        igh.ImportFromProj4("+proj=igh +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs")
-        ulx, uly, lrx, lry = _wcs._native_projwin((5.0, 51.0, 6.0, 52.0), "EPSG:4326", igh)
+        igh.ImportFromProj4(
+            "+proj=igh +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        )
+        ulx, uly, lrx, lry = _wcs._native_projwin(
+            (5.0, 51.0, 6.0, 52.0), "EPSG:4326", igh
+        )
         # Netherlands lands ~1.4-1.6 Mm east, ~5.6-5.7 Mm north in IGH metres
         assert 1.4e6 < ulx < 1.6e6
         assert 5.6e6 < uly < 5.8e6
@@ -254,7 +267,11 @@ class TestHttpGet:
 
         def boom(self, *args, **kwargs):
             raise urllib.error.HTTPError(
-                "https://wcs.invalid/x", 422, "Unprocessable Entity", {}, io.BytesIO(body)
+                "https://wcs.invalid/x",
+                422,
+                "Unprocessable Entity",
+                {},
+                io.BytesIO(body),
             )
 
         monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
@@ -266,7 +283,9 @@ class TestHttpGet:
         assert err.status_code == 422
         assert "DATE_OUT_OF_RANGE" in err.response_body
 
-    def test_http_error_body_truncated_in_message_but_full_on_attribute(self, monkeypatch):
+    def test_http_error_body_truncated_in_message_but_full_on_attribute(
+        self, monkeypatch
+    ):
         """A large error body is truncated in the message yet kept whole on response_body."""
         body = b"x" * 5000
 
@@ -283,7 +302,9 @@ class TestHttpGet:
         assert len(str(err)) < 1000  # message is bounded
         assert len(err.response_body) == 5000  # full body preserved on the attribute
 
-    def test_http_error_empty_body_reason_in_message_and_empty_response_body(self, monkeypatch):
+    def test_http_error_empty_body_reason_in_message_and_empty_response_body(
+        self, monkeypatch
+    ):
         """An empty-body HTTP error shows the reason phrase in the message; response_body is ''."""
 
         def boom(self, *args, **kwargs):
@@ -347,7 +368,9 @@ class TestFromWcsValidation:
     def test_unknown_coverage_raises_valueerror(self, caps_server):
         url, _ = caps_server
         with pytest.raises(ValueError, match="not advertised"):
-            Dataset.from_wcs(url, coverage="does_not_exist", bbox=(5.0, 51.0, 6.0, 52.0))
+            Dataset.from_wcs(
+                url, coverage="does_not_exist", bbox=(5.0, 51.0, 6.0, 52.0)
+            )
 
     def test_bad_bbox_raises_before_network(self):
         with pytest.raises(ValueError, match="minx < maxx"):
@@ -375,11 +398,21 @@ class TestDriverFullCycle:
     def test_1_0_0_returns_dataset_and_uses_bbox_shape(self):
         with WcsMock(version="1.0.0") as server:
             ds = Dataset.from_wcs(
-                server.url, coverage="test_cov", bbox=(2.0, 2.0, 4.0, 4.0), version="1.0.0"
+                server.url,
+                coverage="test_cov",
+                bbox=(2.0, 2.0, 4.0, 4.0),
+                version="1.0.0",
             )
             assert ds.shape == (1, 20, 20)
             assert ds.epsg == 4326
-            assert [round(v, 3) for v in ds.geotransform] == [2.0, 0.1, 0.0, 4.0, 0.0, -0.1]
+            assert [round(v, 3) for v in ds.geotransform] == [
+                2.0,
+                0.1,
+                0.0,
+                4.0,
+                0.0,
+                -0.1,
+            ]
             getcov = server.getcoverage_requests()[-1].lower()
             assert "bbox=" in getcov  # 1.0.0 call shape
             assert "subset=" not in getcov
@@ -387,7 +420,10 @@ class TestDriverFullCycle:
     def test_2_0_1_returns_dataset_and_uses_subset_shape(self):
         with WcsMock(version="2.0.1") as server:
             ds = Dataset.from_wcs(
-                server.url, coverage="test_cov", bbox=(2.0, 2.0, 4.0, 4.0), version="2.0.1"
+                server.url,
+                coverage="test_cov",
+                bbox=(2.0, 2.0, 4.0, 4.0),
+                version="2.0.1",
             )
             assert ds.shape == (1, 20, 20)
             getcov = server.getcoverage_requests()[-1].lower()
@@ -398,7 +434,10 @@ class TestDriverFullCycle:
     def test_returned_raster_is_readable(self):
         with WcsMock(version="2.0.1") as server:
             ds = Dataset.from_wcs(
-                server.url, coverage="test_cov", bbox=(2.0, 2.0, 4.0, 4.0), version="2.0.1"
+                server.url,
+                coverage="test_cov",
+                bbox=(2.0, 2.0, 4.0, 4.0),
+                version="2.0.1",
             )
             arr = ds.read_array()
             assert arr.shape == (20, 20)
@@ -441,7 +480,9 @@ class TestDriverFullCycle:
                 resolution=0.2,
             )
             assert ds.epsg == 4326
-            assert ds.shape[1] < 20 and ds.shape[2] < 20  # coarser than the 0.1deg native 20x20
+            assert (
+                ds.shape[1] < 20 and ds.shape[2] < 20
+            )  # coarser than the 0.1deg native 20x20
 
     def test_output_crs_reprojects_offline(self):
         """output_crs reprojects the fetched window into the requested CRS."""
@@ -500,8 +541,14 @@ class TestGetCoverageUrl:
 
     def test_2_0_x_builds_coverageid_subset_and_subsettingcrs(self):
         url = _wcs._getcoverage_url(
-            "https://x/mapserv?map=GDO_WCS", "spaST", "EPSG:4326",
-            (-10.0, 35.0, 5.0, 45.0), "2.0.0", "GEOTIFF", None, None,
+            "https://x/mapserv?map=GDO_WCS",
+            "spaST",
+            "EPSG:4326",
+            (-10.0, 35.0, 5.0, 45.0),
+            "2.0.0",
+            "GEOTIFF",
+            None,
+            None,
             {"TIME": "2024-06-01"},
         )
         assert "REQUEST=GetCoverage" in url and "COVERAGEID=spaST" in url
@@ -512,15 +559,29 @@ class TestGetCoverageUrl:
 
     def test_subset_axes_override_replaces_default_labels(self):
         url = _wcs._getcoverage_url(
-            "https://x", "c", "EPSG:4326", (0.0, 1.0, 2.0, 3.0), "2.0.1",
-            None, None, ("x", "y"), None,
+            "https://x",
+            "c",
+            "EPSG:4326",
+            (0.0, 1.0, 2.0, 3.0),
+            "2.0.1",
+            None,
+            None,
+            ("x", "y"),
+            None,
         )
         assert "SUBSET=x(0.0,2.0)" in url and "SUBSET=y(1.0,3.0)" in url
 
     def test_1_0_0_builds_bbox_and_resx_resy(self):
         url = _wcs._getcoverage_url(
-            "https://x/wcs", "c", "EPSG:4326", (-10.0, 35.0, 5.0, 45.0),
-            "1.0.0", "GEOTIFF", 0.1, None, None,
+            "https://x/wcs",
+            "c",
+            "EPSG:4326",
+            (-10.0, 35.0, 5.0, 45.0),
+            "1.0.0",
+            "GEOTIFF",
+            0.1,
+            None,
+            None,
         )
         assert "COVERAGE=c" in url and "BBOX=-10.0,35.0,5.0,45.0" in url
         assert "RESX=0.1" in url and "RESY=0.1" in url
@@ -528,42 +589,84 @@ class TestGetCoverageUrl:
     def test_1_0_0_without_resolution_raises_valueerror(self):
         with pytest.raises(ValueError, match="resolution"):
             _wcs._getcoverage_url(
-                "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "1.0.0",
-                None, None, None, None,
+                "https://x",
+                "c",
+                "EPSG:4326",
+                (0.0, 0.0, 1.0, 1.0),
+                "1.0.0",
+                None,
+                None,
+                None,
+                None,
             )
 
     def test_unsupported_version_raises_valueerror(self):
         with pytest.raises(ValueError, match="1.0.0 and 2.0.x"):
             _wcs._getcoverage_url(
-                "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "1.1.0",
-                None, None, None, None,
+                "https://x",
+                "c",
+                "EPSG:4326",
+                (0.0, 0.0, 1.0, 1.0),
+                "1.1.0",
+                None,
+                None,
+                None,
+                None,
             )
 
     def test_malformed_version_raises_valueerror(self):
         with pytest.raises(ValueError, match="x.y.z"):
             _wcs._getcoverage_url(
-                "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0",
-                None, None, None, None,
+                "https://x",
+                "c",
+                "EPSG:4326",
+                (0.0, 0.0, 1.0, 1.0),
+                "2.0",
+                None,
+                None,
+                None,
+                None,
             )
 
     def test_projected_crs_uses_x_y_subset_labels(self):
         url = _wcs._getcoverage_url(
-            "https://x", "c", "EPSG:3857", (0.0, 1.0, 2.0, 3.0), "2.0.0",
-            None, None, None, None,
+            "https://x",
+            "c",
+            "EPSG:3857",
+            (0.0, 1.0, 2.0, 3.0),
+            "2.0.0",
+            None,
+            None,
+            None,
+            None,
         )
         assert "SUBSET=X(0.0,2.0)" in url and "SUBSET=Y(1.0,3.0)" in url
 
     def test_extra_params_value_with_space_is_encoded(self):
         url = _wcs._getcoverage_url(
-            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
-            None, None, None, {"TIME": "2024-06-01 00:00"},
+            "https://x",
+            "c",
+            "EPSG:4326",
+            (0.0, 0.0, 1.0, 1.0),
+            "2.0.0",
+            None,
+            None,
+            None,
+            {"TIME": "2024-06-01 00:00"},
         )
         assert "TIME=2024-06-01%2000" in url  # the space is percent-encoded
 
     def test_extra_params_key_with_ampersand_is_encoded(self):
         url = _wcs._getcoverage_url(
-            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
-            None, None, None, {"a&b": "v"},
+            "https://x",
+            "c",
+            "EPSG:4326",
+            (0.0, 0.0, 1.0, 1.0),
+            "2.0.0",
+            None,
+            None,
+            None,
+            {"a&b": "v"},
         )
         assert "a%26b=v" in url  # '&' in the key cannot split the query
 
@@ -571,16 +674,30 @@ class TestGetCoverageUrl:
     def test_extra_params_protocol_key_raises(self, key):
         with pytest.raises(ValueError, match="fixed WCS protocol parameter"):
             _wcs._getcoverage_url(
-                "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
-                None, None, None, {key: "x"},
+                "https://x",
+                "c",
+                "EPSG:4326",
+                (0.0, 0.0, 1.0, 1.0),
+                "2.0.0",
+                None,
+                None,
+                None,
+                {key: "x"},
             )
 
     def test_extra_params_lowercase_coverageid_overrides_builtin(self):
         # A shim that is case-sensitive on the key (Copernicus EDO/GDO) needs the
         # lowercase spelling; the override replaces COVERAGEID, not duplicates it.
         url = _wcs._getcoverage_url(
-            "https://x", "spaST", "EPSG:4326", (10.0, 45.0, 15.0, 48.0), "2.0.0",
-            "GEOTIFF", None, None, {"coverageID": "spaST"},
+            "https://x",
+            "spaST",
+            "EPSG:4326",
+            (10.0, 45.0, 15.0, 48.0),
+            "2.0.0",
+            "GEOTIFF",
+            None,
+            None,
+            {"coverageID": "spaST"},
         )
         assert "coverageID=spaST" in url
         assert "COVERAGEID=spaST" not in url
@@ -589,8 +706,15 @@ class TestGetCoverageUrl:
         # WCS-1.x CRS= on a 2.0 request: the override replaces SUBSETTINGCRS and no
         # SUBSETTINGCRS token survives (the two share one CRS slot).
         url = _wcs._getcoverage_url(
-            "https://x", "c", "EPSG:4326", (10.0, 45.0, 15.0, 48.0), "2.0.0",
-            None, None, None, {"CRS": "EPSG:4326"},
+            "https://x",
+            "c",
+            "EPSG:4326",
+            (10.0, 45.0, 15.0, 48.0),
+            "2.0.0",
+            None,
+            None,
+            None,
+            {"CRS": "EPSG:4326"},
         )
         assert "&CRS=EPSG:4326" in url
         assert "SUBSETTINGCRS" not in url
@@ -600,10 +724,19 @@ class TestGetCoverageUrl:
         # lowercase coverageID + CRS= + WCS-2.0 SUBSET syntax, extras preserved.
         url = _wcs._getcoverage_url(
             "https://drought.emergency.copernicus.eu/api/wcs?map=DO_WCS",
-            "spaST", "EPSG:4326", (10.0, 45.0, 15.0, 48.0), "2.0.0", "GEOTIFF",
-            None, None,
-            {"coverageID": "spaST", "CRS": "EPSG:4326",
-             "TIME": "2023-06-01", "SELECTED_TIMESCALE": "01"},
+            "spaST",
+            "EPSG:4326",
+            (10.0, 45.0, 15.0, 48.0),
+            "2.0.0",
+            "GEOTIFF",
+            None,
+            None,
+            {
+                "coverageID": "spaST",
+                "CRS": "EPSG:4326",
+                "TIME": "2023-06-01",
+                "SELECTED_TIMESCALE": "01",
+            },
         )
         assert "coverageID=spaST" in url and "COVERAGEID=spaST" not in url
         assert "&CRS=EPSG:4326" in url and "SUBSETTINGCRS" not in url
@@ -615,8 +748,14 @@ class TestGetCoverageUrl:
         # input and must fail loud rather than silently drop one.
         with pytest.raises(ValueError, match="same GetCoverage parameter"):
             _wcs._getcoverage_url(
-                "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
-                None, None, None,
+                "https://x",
+                "c",
+                "EPSG:4326",
+                (0.0, 0.0, 1.0, 1.0),
+                "2.0.0",
+                None,
+                None,
+                None,
                 {"CRS": "EPSG:4326", "SUBSETTINGCRS": "EPSG:3857"},
             )
 
@@ -624,8 +763,15 @@ class TestGetCoverageUrl:
         # On a 1.0.0 request the built-in already emits CRS; an override must
         # replace it in place, leaving exactly one CRS token.
         url = _wcs._getcoverage_url(
-            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "1.0.0",
-            None, 0.1, None, {"CRS": "EPSG:3857"},
+            "https://x",
+            "c",
+            "EPSG:4326",
+            (0.0, 0.0, 1.0, 1.0),
+            "1.0.0",
+            None,
+            0.1,
+            None,
+            {"CRS": "EPSG:3857"},
         )
         assert url.count("CRS=") == 1 and "CRS=EPSG:3857" in url
 
@@ -633,8 +779,15 @@ class TestGetCoverageUrl:
         # The coverage id spelling collapses across versions: a 2.0 `coverageID`
         # override replaces the 1.0.0 built-in `COVERAGE`, not appends beside it.
         url = _wcs._getcoverage_url(
-            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "1.0.0",
-            None, 0.1, None, {"coverageID": "c"},
+            "https://x",
+            "c",
+            "EPSG:4326",
+            (0.0, 0.0, 1.0, 1.0),
+            "1.0.0",
+            None,
+            0.1,
+            None,
+            {"coverageID": "c"},
         )
         assert "coverageID=c" in url and "COVERAGE=c" not in url
 
@@ -642,8 +795,15 @@ class TestGetCoverageUrl:
         # Non-matching extras (and overridable-but-unmatched keys) append after the
         # built-ins in caller order; regression guard for the ordering guarantee.
         url = _wcs._getcoverage_url(
-            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
-            None, None, None, {"BB": "2", "coverageID": "c", "AA": "1"},
+            "https://x",
+            "c",
+            "EPSG:4326",
+            (0.0, 0.0, 1.0, 1.0),
+            "2.0.0",
+            None,
+            None,
+            None,
+            {"BB": "2", "coverageID": "c", "AA": "1"},
         )
         tail = url.split("REQUEST=GetCoverage", 1)[1]
         assert tail.index("BB=2") < tail.index("AA=1")  # caller order preserved
@@ -651,8 +811,15 @@ class TestGetCoverageUrl:
 
     def test_extra_params_non_matching_key_is_appended(self):
         url = _wcs._getcoverage_url(
-            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
-            None, None, None, {"SELECTED_TIMESCALE": "03"},
+            "https://x",
+            "c",
+            "EPSG:4326",
+            (0.0, 0.0, 1.0, 1.0),
+            "2.0.0",
+            None,
+            None,
+            None,
+            {"SELECTED_TIMESCALE": "03"},
         )
         assert "SELECTED_TIMESCALE=03" in url
         assert "COVERAGEID=c" in url  # built-ins untouched
@@ -661,8 +828,15 @@ class TestGetCoverageUrl:
         # A mixed-case override key still matches the built-in it targets ('/' is kept
         # literal in values, like CRS URIs, so the MIME type is not percent-encoded).
         url = _wcs._getcoverage_url(
-            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
-            "GEOTIFF", None, None, {"Format": "image/tiff"},
+            "https://x",
+            "c",
+            "EPSG:4326",
+            (0.0, 0.0, 1.0, 1.0),
+            "2.0.0",
+            "GEOTIFF",
+            None,
+            None,
+            {"Format": "image/tiff"},
         )
         assert "Format=image/tiff" in url
         assert "FORMAT=GEOTIFF" not in url
@@ -671,8 +845,15 @@ class TestGetCoverageUrl:
         # RESX is overridable but a 2.0 request emits no RESX built-in, so it must be
         # kept as a plain extra rather than silently dropped.
         url = _wcs._getcoverage_url(
-            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
-            None, None, None, {"RESX": "0.1"},
+            "https://x",
+            "c",
+            "EPSG:4326",
+            (0.0, 0.0, 1.0, 1.0),
+            "2.0.0",
+            None,
+            None,
+            None,
+            {"RESX": "0.1"},
         )
         assert "RESX=0.1" in url
 
@@ -723,8 +904,13 @@ class TestDirectGetCoverage:
     def test_direct_success_returns_dataset(self, monkeypatch, geotiff_bytes):
         monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: geotiff_bytes)
         ds = Dataset.from_wcs(
-            self.ENDPOINT, coverage="spaST", bbox=self.BBOX, crs="EPSG:4326",
-            version="2.0.0", wcs_format="GEOTIFF", direct=True,
+            self.ENDPOINT,
+            coverage="spaST",
+            bbox=self.BBOX,
+            crs="EPSG:4326",
+            version="2.0.0",
+            wcs_format="GEOTIFF",
+            direct=True,
         )
         assert ds.shape == (1, 3, 4)
         assert ds.epsg == 4326
@@ -736,7 +922,10 @@ class TestDirectGetCoverage:
         monkeypatch.setattr(_wcs, "_get_capabilities", boom)
         monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: geotiff_bytes)
         ds = Dataset.from_wcs(
-            self.ENDPOINT, coverage="anything", bbox=self.BBOX, direct=True,
+            self.ENDPOINT,
+            coverage="anything",
+            bbox=self.BBOX,
+            direct=True,
         )
         assert ds.epsg == 4326
 
@@ -746,14 +935,20 @@ class TestDirectGetCoverage:
         )
         with pytest.raises(WCSError, match="exception"):
             Dataset.from_wcs(
-                self.ENDPOINT, coverage="spaST", bbox=self.BBOX, direct=True,
+                self.ENDPOINT,
+                coverage="spaST",
+                bbox=self.BBOX,
+                direct=True,
             )
 
     def test_direct_non_raster_body_raises_wcserror(self, monkeypatch):
         monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: b"not a raster at all")
         with pytest.raises(WCSError, match="no raster|could not be read"):
             Dataset.from_wcs(
-                self.ENDPOINT, coverage="c", bbox=(0.0, 0.0, 1.0, 1.0), direct=True,
+                self.ENDPOINT,
+                coverage="c",
+                bbox=(0.0, 0.0, 1.0, 1.0),
+                direct=True,
             )
 
     def test_direct_coverage_crs_shim_sets_epsg_on_crsless_raster(
@@ -761,19 +956,29 @@ class TestDirectGetCoverage:
     ):
         monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: crsless_geotiff_bytes)
         ds = Dataset.from_wcs(
-            self.ENDPOINT, coverage="spaST", bbox=self.BBOX, direct=True,
+            self.ENDPOINT,
+            coverage="spaST",
+            bbox=self.BBOX,
+            direct=True,
             coverage_crs="EPSG:4326",
         )
         assert ds.epsg == 4326
 
-    def test_direct_1_0_0_end_to_end_no_client_resample(self, monkeypatch, geotiff_bytes):
+    def test_direct_1_0_0_end_to_end_no_client_resample(
+        self, monkeypatch, geotiff_bytes
+    ):
         # 1.0.0 sends RESX/RESY, so the server grids server-side and pyramids does
         # NOT resample again client-side. The mock returns the native-res fixture,
         # so the result is the fixture grid unchanged (not resampled to 1.0).
         monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: geotiff_bytes)
         ds = Dataset.from_wcs(
-            self.ENDPOINT, coverage="c", bbox=self.BBOX, crs="EPSG:4326",
-            version="1.0.0", resolution=1.0, direct=True,
+            self.ENDPOINT,
+            coverage="c",
+            bbox=self.BBOX,
+            crs="EPSG:4326",
+            version="1.0.0",
+            resolution=1.0,
+            direct=True,
         )
         assert ds.epsg == 4326
         assert ds.shape == (1, 3, 4)  # native fixture grid, no client resample
@@ -787,8 +992,13 @@ class TestDirectGetCoverage:
 
         monkeypatch.setattr(_wcs, "_http_get", capture)
         Dataset.from_wcs(
-            self.ENDPOINT, coverage="spaST", bbox=self.BBOX, crs="EPSG:4326",
-            version="2.0.1", direct=True, subset_axes=("x", "y"),
+            self.ENDPOINT,
+            coverage="spaST",
+            bbox=self.BBOX,
+            crs="EPSG:4326",
+            version="2.0.1",
+            direct=True,
+            subset_axes=("x", "y"),
             extra_params={"TIME": "2024-06-01"},
         )
         url = captured["url"]
@@ -802,15 +1012,22 @@ class TestDirectGetCoverage:
         monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: crsless_geotiff_bytes)
         with pytest.raises(WCSError, match="no CRS"):
             Dataset.from_wcs(
-                self.ENDPOINT, coverage="c", bbox=self.BBOX,
-                output_crs="EPSG:3857", direct=True,
+                self.ENDPOINT,
+                coverage="c",
+                bbox=self.BBOX,
+                output_crs="EPSG:3857",
+                direct=True,
             )
 
     def test_direct_resolution_resamples_output(self, monkeypatch, geotiff_bytes):
         monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: geotiff_bytes)
         ds = Dataset.from_wcs(
-            self.ENDPOINT, coverage="c", bbox=self.BBOX, version="2.0.0",
-            resolution=1.0, direct=True,
+            self.ENDPOINT,
+            coverage="c",
+            bbox=self.BBOX,
+            version="2.0.0",
+            resolution=1.0,
+            direct=True,
         )
         assert ds.cell_size == pytest.approx(1.0, abs=0.01)
 
@@ -820,7 +1037,10 @@ class TestDirectGetCoverage:
         monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: crsless_geotiff_bytes)
         with pytest.raises(WCSError, match="no CRS"):
             Dataset.from_wcs(
-                self.ENDPOINT, coverage="c", bbox=self.BBOX, resolution=1.0,
+                self.ENDPOINT,
+                coverage="c",
+                bbox=self.BBOX,
+                resolution=1.0,
                 direct=True,
             )
 
@@ -844,12 +1064,18 @@ class TestDirectGetCoverage:
         # extra_params. Proves the override reproduces the shim dialect without
         # regressing the compliant path.
         monkeypatch.setattr(
-            _wcs, "_http_get",
+            _wcs,
+            "_http_get",
             lambda url, *a, **k: _dialect_body(url, geotiff_bytes, dialect),
         )
         ds = Dataset.from_wcs(
-            self.ENDPOINT, coverage="spaST", bbox=self.BBOX, crs="EPSG:4326",
-            version="2.0.0", wcs_format="GEOTIFF", direct=True,
+            self.ENDPOINT,
+            coverage="spaST",
+            bbox=self.BBOX,
+            crs="EPSG:4326",
+            version="2.0.0",
+            wcs_format="GEOTIFF",
+            direct=True,
             extra_params=extra_params,
         )
         assert ds.shape == (1, 3, 4)

@@ -194,8 +194,7 @@ def _grouped_reduce(
     ]
     computed = dask.compute(*reductions)
     return {
-        label: np.asarray(reduced)
-        for label, reduced in zip(ordered_labels, computed)
+        label: np.asarray(reduced) for label, reduced in zip(ordered_labels, computed)
     }
 
 
@@ -1619,7 +1618,9 @@ class DatasetCollection:
         # _finalize_append_metadata with the concrete types cast here, never any
         # other JSON shape. The int() is kept (a cast is a no-op at runtime) so a
         # legacy store holding time_length as a JSON float/str still coerces.
-        time_length = int(cast("int | float | str", root.attrs.get("time_length", time_length)))
+        time_length = int(
+            cast("int | float | str", root.attrs.get("time_length", time_length))
+        )
 
         nodata_list = cast("list | None", data_attrs.get("nodata"))
         if nodata_list and any(v is not None for v in nodata_list):
@@ -2343,9 +2344,7 @@ class DatasetCollection:
                     f"{rgb!r} with {len(rgb)} entries."
                 )
             if min(rgb) < 0:
-                raise ValueError(
-                    f"rgb band indices must be non-negative, got {rgb!r}."
-                )
+                raise ValueError(f"rgb band indices must be non-negative, got {rgb!r}.")
             if exclude_value is not None:
                 warnings.warn(
                     "exclude_value is ignored for RGB animations; true-colour "
@@ -2360,9 +2359,7 @@ class DatasetCollection:
                     f"rgb={rgb} needs at least {needed} bands, but the "
                     f"collection's datasets have {self.base.band_count}."
                 )
-            data = np.stack(
-                [ds.read_array(band=None) for ds in self.datasets], axis=0
-            )
+            data = np.stack([ds.read_array(band=None) for ds in self.datasets], axis=0)
             return render_array(
                 arr=data,
                 rgb=rgb,

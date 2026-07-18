@@ -14,7 +14,7 @@ import pytest
 
 from pyramids.netcdf import ColorOpts, ColourOpts, LabeledArray, NetCDF
 from pyramids.netcdf._kerchunk_facade import _normalize_backend
-from pyramids.netcdf.labeled import _LabeledArray, _is_zarr_store
+from pyramids.netcdf.labeled import _is_zarr_store, _LabeledArray
 from pyramids.netcdf.models import CFInfo
 
 
@@ -183,7 +183,9 @@ class TestNormalizeBackend:
             The deprecated alias maps to legacy with a DeprecationWarning.
         """
         with pytest.warns(DeprecationWarning, match="backend='kerchunk'"):
-            assert _normalize_backend("kerchunk") == "legacy", "alias must map to legacy"
+            assert (
+                _normalize_backend("kerchunk") == "legacy"
+            ), "alias must map to legacy"
 
     def test_unknown_backend_raises(self):
         """An unrecognised backend raises ``ValueError``.
@@ -264,10 +266,14 @@ class TestDimensionModelConsolidation:
             name="time", size=2, values=[0, 31], attrs={"axis": "T"}
         )
         dim = DimensionInfo.from_classic_metadata(classic)
-        assert (dim.name, dim.size, dim.full_name) == ("time", 2, "/time"), (
-            f"unexpected canonical fields: {dim}"
-        )
-        assert dim.type is None and dim.indexing_variable is None, "MDIM fields should be None"
+        assert (dim.name, dim.size, dim.full_name) == (
+            "time",
+            2,
+            "/time",
+        ), f"unexpected canonical fields: {dim}"
+        assert (
+            dim.type is None and dim.indexing_variable is None
+        ), "MDIM fields should be None"
         assert dim.attrs["axis"] == "T", "classic attrs must carry over"
 
     def test_from_classic_metadata_coerces_missing_size_to_int_zero(self):
@@ -285,7 +291,9 @@ class TestDimensionModelConsolidation:
         classic = ClassicDimensionInfo(name="time", size=None, values=[], attrs={})
         dim = DimensionInfo.from_classic_metadata(classic)
         assert dim.size == 0, f"missing size should coerce to 0, got {dim.size!r}"
-        assert isinstance(dim.size, int), f"size must be int, got {type(dim.size).__name__}"
+        assert isinstance(
+            dim.size, int
+        ), f"size must be int, got {type(dim.size).__name__}"
 
     def test_to_dimension_info_round_trips_through_bridge(self):
         """``ClassicDimensionInfo.to_dimension_info`` yields the canonical model.
@@ -297,7 +305,9 @@ class TestDimensionModelConsolidation:
         from pyramids.netcdf.dimensions import ClassicDimensionInfo
         from pyramids.netcdf.models import DimensionInfo
 
-        classic = ClassicDimensionInfo(name="lat", size=4, attrs={"units": "degrees_north"})
+        classic = ClassicDimensionInfo(
+            name="lat", size=4, attrs={"units": "degrees_north"}
+        )
         dim = classic.to_dimension_info()
         assert isinstance(dim, DimensionInfo), "bridge must return the canonical model"
         assert dim.name == "lat" and dim.size == 4, f"fields not carried: {dim}"

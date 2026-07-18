@@ -69,11 +69,15 @@ class TestNetCDFPlotLazy:
         eager = np.asarray(nc.plot(variable="t2m", selectors=Selectors(time=2)).arr)
         lazy = np.asarray(
             nc.plot(
-                variable="t2m", selectors=Selectors(time=2), chunks={"cols": 2, "rows": 2}
+                variable="t2m",
+                selectors=Selectors(time=2),
+                chunks={"cols": 2, "rows": 2},
             ).arr
         )
         np.testing.assert_array_equal(
-            lazy, eager, err_msg="chunked plot drew a different slice than the eager plot"
+            lazy,
+            eager,
+            err_msg="chunked plot drew a different slice than the eager plot",
         )
         slice0 = np.asarray(nc.plot(variable="t2m", selectors=Selectors(time=0)).arr)
         assert not np.array_equal(
@@ -101,7 +105,9 @@ class TestNetCDFPlotLazy:
             ).arr
         )
         np.testing.assert_array_equal(
-            lazy, eager, err_msg="multi-dim chunked plot drew a different slice than eager"
+            lazy,
+            eager,
+            err_msg="multi-dim chunked plot drew a different slice than eager",
         )
         corner = np.asarray(
             nc.plot(

@@ -96,8 +96,12 @@ class TestMeshToGridNearest:
         """
         mesh, data = grid_mesh
         grid, _ = mesh_to_grid(mesh, data, "face", cell_size=1.0)
-        assert grid[1, 0] == pytest.approx(10.0), f"Expected 10.0 at face 0 region, got {grid[1, 0]}"
-        assert grid[1, 1] == pytest.approx(20.0), f"Expected 20.0 at face 1 region, got {grid[1, 1]}"
+        assert grid[1, 0] == pytest.approx(
+            10.0
+        ), f"Expected 10.0 at face 0 region, got {grid[1, 0]}"
+        assert grid[1, 1] == pytest.approx(
+            20.0
+        ), f"Expected 20.0 at face 1 region, got {grid[1, 1]}"
 
     def test_nodata_outside_mesh(self, grid_mesh):
         """Test nodata for cells far from mesh.

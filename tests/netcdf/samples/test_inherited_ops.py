@@ -16,30 +16,82 @@ pytestmark = pytest.mark.core
 
 # Inherited @property members that must return a non-None value on a real variable view.
 INHERITED_PROPERTIES_NONNULL = [
-    "access", "band_color", "band_count", "band_names", "band_units", "bbox", "block_size",
-    "bounds", "cell_size", "columns", "crs", "dtype", "epsg",
-    "gcp_count", "gdal_dtype", "has_gcps", "has_rpcs", "is_cog",
-    "numpy_dtype", "offset", "overview_count", "raster", "rows", "scale", "shape",
-    "total_bounds", "transform",
+    "access",
+    "band_color",
+    "band_count",
+    "band_names",
+    "band_units",
+    "bbox",
+    "block_size",
+    "bounds",
+    "cell_size",
+    "columns",
+    "crs",
+    "dtype",
+    "epsg",
+    "gcp_count",
+    "gdal_dtype",
+    "has_gcps",
+    "has_rpcs",
+    "is_cog",
+    "numpy_dtype",
+    "offset",
+    "overview_count",
+    "raster",
+    "rows",
+    "scale",
+    "shape",
+    "total_bounds",
+    "transform",
 ]
 
 # Inherited @property members that may legitimately return None (no GCPs/RPCs/colour table set,
 # or an in-memory variable view that carries no driver metadata).
 INHERITED_PROPERTIES_NULLABLE = [
-    "color_table", "driver_type", "gcps", "gcp_projection", "rpcs",
+    "color_table",
+    "driver_type",
+    "gcps",
+    "gcp_projection",
+    "rpcs",
 ]
 
 # Inherited zero-argument methods that should run on a variable view without raising.
 # (plot_histogram / plot_vector_field are exercised in the plot module; footprint has its own test below.)
 INHERITED_NOARG_METHODS = [
-    "aspect", "block_windows", "to_polygons", "wrap_longitude", "count_domain_cells",
-    "create_overviews", "extract", "focal_mean", "focal_std", "get_attribute_table",
-    "get_block_arrangement", "get_cell_coords", "get_cell_points", "get_cell_polygons",
-    "get_histogram", "get_mask", "get_overview", "get_tile", "hillshade", "iter_blocks",
-    "mask_flags", "preview", "proximity", "read_masks", "read_overview_array",
-    "slope", "stats", "to_bytes", "to_cog_bytes", "to_feature_collection",
+    "aspect",
+    "block_windows",
+    "to_polygons",
+    "wrap_longitude",
+    "count_domain_cells",
+    "create_overviews",
+    "extract",
+    "focal_mean",
+    "focal_std",
+    "get_attribute_table",
+    "get_block_arrangement",
+    "get_cell_coords",
+    "get_cell_points",
+    "get_cell_polygons",
+    "get_histogram",
+    "get_mask",
+    "get_overview",
+    "get_tile",
+    "hillshade",
+    "iter_blocks",
+    "mask_flags",
+    "preview",
+    "proximity",
+    "read_masks",
+    "read_overview_array",
+    "slope",
+    "stats",
+    "to_bytes",
+    "to_cog_bytes",
+    "to_feature_collection",
     # to_image renders via cleopatra (viz extra); skip it on a no-viz install.
-    pytest.param("to_image", marks=pytest.mark.plot), "to_xyz", "translate",
+    pytest.param("to_image", marks=pytest.mark.plot),
+    "to_xyz",
+    "translate",
 ]
 
 
@@ -80,7 +132,9 @@ def test_inherited_footprint(tos_view):
     assert fp is not None, "footprint should return a GeoDataFrame"
     gt = tos_view.geotransform
     covered = round(fp.geometry.area.sum() / abs(gt[1] * gt[5]))
-    assert covered == data_cells, f"footprint should cover {data_cells} data cells, got {covered}"
+    assert (
+        covered == data_cells
+    ), f"footprint should cover {data_cells} data cells, got {covered}"
 
 
 def test_recreate_overviews_requires_write(tos_view):

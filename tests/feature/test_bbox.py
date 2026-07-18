@@ -220,8 +220,8 @@ class TestToShapely:
         Test scenario:
             A 4x3 bbox has area 12.
         """
-        assert (
-            to_shapely((0.0, 0.0, 4.0, 3.0)).area == pytest.approx(12.0)
+        assert to_shapely((0.0, 0.0, 4.0, 3.0)).area == pytest.approx(
+            12.0
         ), "Area should be width*height"
 
 
@@ -426,7 +426,9 @@ class TestEstimatePixelDims:
         result = estimate_pixel_dims((0.0, 0.0, 0.0, 0.0), 1000.0)
         assert result == (1, 1), f"Expected (1, 1), got {result}"
 
-    @pytest.mark.parametrize("south, north", [(0.0, 1.0), (35.0, 60.0), (60.0, 89.0), (80.0, 89.0)])
+    @pytest.mark.parametrize(
+        "south, north", [(0.0, 1.0), (35.0, 60.0), (60.0, 89.0), (80.0, 89.0)]
+    )
     def test_height_is_true_upper_bound(self, south, north):
         """The estimated height never under-counts the true geodesic pixel span, incl. high latitudes.
 
@@ -442,7 +444,9 @@ class TestEstimatePixelDims:
         est_height = estimate_pixel_dims((0.0, south, 1.0, north), scale_m)[1]
         _, _, ground_m = Geod(ellps="WGS84").inv(0.0, south, 0.0, north)
         true_height = math.ceil(ground_m / scale_m)
-        assert est_height >= true_height, f"height {est_height} under-counts true {true_height} for {south}->{north}"
+        assert (
+            est_height >= true_height
+        ), f"height {est_height} under-counts true {true_height} for {south}->{north}"
 
     def test_width_is_true_upper_bound_at_equator(self):
         """The estimated width never under-counts the true geodesic E-W span at the equator (review L1/L2).
@@ -460,7 +464,9 @@ class TestEstimatePixelDims:
             est_width = estimate_pixel_dims((0.0, 0.0, lon_span, 0.0), scale_m)[0]
             _, _, ground_m = geod.inv(0.0, 0.0, lon_span, 0.0)
             true_width = math.ceil(ground_m / scale_m)
-            assert est_width >= true_width, f"width {est_width} under-counts true {true_width} at lon_span={lon_span}"
+            assert (
+                est_width >= true_width
+            ), f"width {est_width} under-counts true {true_width} at lon_span={lon_span}"
 
     @pytest.mark.parametrize(
         "bbox, axis",
@@ -479,7 +485,9 @@ class TestEstimatePixelDims:
         Test scenario:
             A zero-width (west==east) or zero-height (north==south) bbox floors that axis to 1 px.
         """
-        assert estimate_pixel_dims(bbox, 1000.0)[axis] == 1, f"collapsed axis {axis} should floor to 1"
+        assert (
+            estimate_pixel_dims(bbox, 1000.0)[axis] == 1
+        ), f"collapsed axis {axis} should floor to 1"
 
     def test_integer_scale_m_accepted(self):
         """An integer scale_m produces the same result as the equivalent float.
@@ -488,7 +496,9 @@ class TestEstimatePixelDims:
             estimate_pixel_dims accepts an int resolution (1000) identically to 1000.0.
         """
         bbox = (-10.0, 35.0, 30.0, 60.0)
-        assert estimate_pixel_dims(bbox, 1000) == estimate_pixel_dims(bbox, 1000.0), "int scale_m must match float"
+        assert estimate_pixel_dims(bbox, 1000) == estimate_pixel_dims(
+            bbox, 1000.0
+        ), "int scale_m must match float"
 
     @pytest.mark.parametrize("scale_m", [0.0, -1.0])
     def test_non_positive_scale_raises(self, scale_m):
@@ -571,7 +581,9 @@ class TestReadBboxDict:
         """
         result = read_bbox_dict({"minx": -10, "miny": 35, "maxx": 30, "maxy": 60})
         assert result == (-10.0, 35.0, 30.0, 60.0), f"Unexpected bbox: {result}"
-        assert all(isinstance(v, float) for v in result), f"Expected floats, got {result}"
+        assert all(
+            isinstance(v, float) for v in result
+        ), f"Expected floats, got {result}"
 
     @pytest.mark.parametrize(
         "bbox, edge",

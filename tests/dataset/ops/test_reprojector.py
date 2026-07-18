@@ -24,7 +24,9 @@ pytestmark = pytest.mark.core
 
 try:
     from dask.delayed import Delayed
-except ImportError:  # pragma: no cover - Delayed-using tests are @pytest.mark.lazy gated
+except (
+    ImportError
+):  # pragma: no cover - Delayed-using tests are @pytest.mark.lazy gated
     Delayed = None
 
 

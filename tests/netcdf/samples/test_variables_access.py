@@ -40,9 +40,9 @@ def test_get_variable_2d_plus_has_shape(sample_name, sample):
         twod_plus = [n for n in nc.variable_names if len(meta.variables[n].shape) >= 2]
         for name in twod_plus:
             var = nc.get_variable(name)
-            assert var.shape is not None and len(var.shape) >= 2, (
-                f"{sample_name}: get_variable({name!r}).shape = {var.shape!r}"
-            )
+            assert (
+                var.shape is not None and len(var.shape) >= 2
+            ), f"{sample_name}: get_variable({name!r}).shape = {var.shape!r}"
     finally:
         nc.close()
 
@@ -57,9 +57,9 @@ def test_get_variable_1d_does_not_raise(sample_name, sample):
         meta = nc.get_all_metadata()
         oned = [n for n in nc.variable_names if len(meta.variables[n].shape) == 1]
         for name in oned:
-            assert nc.get_variable(name) is not None, (
-                f"{sample_name}: get_variable({name!r}) (1-D) returned None"
-            )
+            assert (
+                nc.get_variable(name) is not None
+            ), f"{sample_name}: get_variable({name!r}) (1-D) returned None"
     finally:
         nc.close()
 

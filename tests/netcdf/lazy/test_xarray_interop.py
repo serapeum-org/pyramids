@@ -196,9 +196,11 @@ class TestToXarrayInMemory3D:
         """
         nc = _make_3d_nc()
         ds = nc.to_xarray()
-        assert ds["temperature"].dims == ("time", "y", "x"), (
-            f"Expected dims ('time', 'y', 'x'), got {ds['temperature'].dims}"
-        )
+        assert ds["temperature"].dims == (
+            "time",
+            "y",
+            "x",
+        ), f"Expected dims ('time', 'y', 'x'), got {ds['temperature'].dims}"
 
 
 class TestToXarrayInMemory2D:
@@ -665,9 +667,9 @@ class TestInteropEngineBranches:
         )
         nc = NetCDF.from_xarray(ds)
         out = nc.to_xarray()
-        assert out["t"].attrs.get("units") == "kelvin", (
-            f"units lost on round-trip: {out['t'].attrs}"
-        )
+        assert (
+            out["t"].attrs.get("units") == "kelvin"
+        ), f"units lost on round-trip: {out['t'].attrs}"
 
     def test_to_xarray_roundtrip_through_engine(self):
         """``nc.interop.to_xarray()`` and ``nc.to_xarray()`` agree.
@@ -679,6 +681,6 @@ class TestInteropEngineBranches:
         nc = _make_3d_nc()
         via_engine = nc.interop.to_xarray()
         via_facade = nc.to_xarray()
-        assert set(via_engine.data_vars) == set(via_facade.data_vars), (
-            "engine and façade disagree on variables"
-        )
+        assert set(via_engine.data_vars) == set(
+            via_facade.data_vars
+        ), "engine and façade disagree on variables"

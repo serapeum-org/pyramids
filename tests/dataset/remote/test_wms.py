@@ -12,8 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset
-from pyramids.dataset import _wms
+from pyramids.dataset import Dataset, _wms
 from pyramids.errors import WMSError
 
 pytestmark = pytest.mark.core
@@ -69,8 +68,14 @@ class TestLayersValue:
 class TestWmsDescriptor:
     def test_carries_service_and_window(self):
         xml = _wms._wms_descriptor(
-            "https://host/wms?", "L1,L2", "EPSG:4326", "image/png", "1.3.0",
-            BBOX, (512, 256), 4,
+            "https://host/wms?",
+            "L1,L2",
+            "EPSG:4326",
+            "image/png",
+            "1.3.0",
+            BBOX,
+            (512, 256),
+            4,
         )
         assert '<Service name="WMS">' in xml
         assert "<Version>1.3.0</Version>" in xml
@@ -88,8 +93,14 @@ class TestWmsDescriptor:
 
     def test_escapes_ampersand_in_url(self):
         xml = _wms._wms_descriptor(
-            "https://host/wms?token=a&b", "L", "EPSG:3857", "image/jpeg", "1.1.1",
-            BBOX, (10, 10), 3,
+            "https://host/wms?token=a&b",
+            "L",
+            "EPSG:3857",
+            "image/jpeg",
+            "1.1.1",
+            BBOX,
+            (10, 10),
+            3,
         )
         assert "token=a&amp;b" in xml
         assert "&b" not in xml.replace("&amp;", "")
@@ -98,15 +109,27 @@ class TestWmsDescriptor:
 class TestCrsElementTag:
     @pytest.mark.parametrize(
         "version, tag",
-        [("1.3.0", "CRS"), ("1.1.1", "SRS"), ("1.1.0", "SRS"), ("1.0.0", "SRS"),
-         ("bogus", "CRS")],
+        [
+            ("1.3.0", "CRS"),
+            ("1.1.1", "SRS"),
+            ("1.1.0", "SRS"),
+            ("1.0.0", "SRS"),
+            ("bogus", "CRS"),
+        ],
     )
     def test_tag_tracks_version(self, version, tag):
         assert _wms._crs_element_tag(version) == tag
 
     def test_descriptor_uses_srs_below_1_3_0(self):
         xml = _wms._wms_descriptor(
-            "https://x?", "L", "EPSG:4326", "image/png", "1.1.1", BBOX, (10, 10), 3,
+            "https://x?",
+            "L",
+            "EPSG:4326",
+            "image/png",
+            "1.1.1",
+            BBOX,
+            (10, 10),
+            3,
         )
         assert "<SRS>EPSG:4326</SRS>" in xml and "<CRS>" not in xml
 
@@ -118,8 +141,14 @@ class TestCrsElementTag:
         """
         for version in ("1.0.0", "1.1.1", "1.3.0"):
             xml = _wms._wms_descriptor(
-                "https://example.invalid/wms?", "L", "EPSG:4326", "image/png",
-                version, BBOX, (16, 16), 3,
+                "https://example.invalid/wms?",
+                "L",
+                "EPSG:4326",
+                "image/png",
+                version,
+                BBOX,
+                (16, 16),
+                3,
             )
             src = _wms.gdal.Open(xml)
             assert src is not None, f"GDAL rejected the {version} descriptor"
@@ -145,8 +174,11 @@ class TestFromWmsGuards:
         """size and resolution are mutually exclusive."""
         with pytest.raises(ValueError, match="not both"):
             Dataset.from_wms(
-                "https://host/wms?", layers="L", bbox=BBOX,
-                size=(10, 10), resolution=0.1,
+                "https://host/wms?",
+                layers="L",
+                bbox=BBOX,
+                size=(10, 10),
+                resolution=0.1,
             )
 
     @pytest.mark.parametrize("empty", ["", [], (), ["", "L"]])
@@ -160,7 +192,9 @@ class TestFromWmsGuards:
     def test_from_wms_rejects_malformed_bbox(self):
         with pytest.raises(ValueError, match="minx < maxx"):
             Dataset.from_wms(
-                "https://host/wms?", layers="L", bbox=(6.0, 51.0, 5.0, 52.0),
+                "https://host/wms?",
+                layers="L",
+                bbox=(6.0, 51.0, 5.0, 52.0),
                 size=(10, 10),
             )
 
@@ -168,6 +202,7 @@ class TestFromWmsGuards:
 class TestRenderWmsErrorWrapping:
     def test_translate_runtimeerror_becomes_wmserror(self, monkeypatch):
         """A GetMap server error (RuntimeError during Translate) surfaces as WMSError."""
+
         def boom(*_a, **_k):
             raise RuntimeError("HTTP error 500")
 
@@ -197,6 +232,7 @@ class TestReprojectTail:
 class TestAvailableWmtsLayers:
     def test_parses_layer_ids_from_subdatasets(self, monkeypatch):
         """Layer ids are extracted (and de-duplicated) from the WMTS subdatasets."""
+
         class _Caps:
             @staticmethod
             def GetMetadata(_key):
@@ -211,6 +247,7 @@ class TestAvailableWmtsLayers:
 
     def test_returns_empty_when_open_fails(self, monkeypatch):
         """A capabilities open failure yields [] (never masks the real error)."""
+
         def boom(_c):
             raise RuntimeError("offline")
 
@@ -242,7 +279,10 @@ class TestLiveWms:
 
     def test_wmts_crops_bbox_and_resolves_crs84(self):
         ds = Dataset.from_wmts(
-            self.GIBS, layer=self.TRUECOLOR, bbox=BBOX, resolution=0.01,
+            self.GIBS,
+            layer=self.TRUECOLOR,
+            bbox=BBOX,
+            resolution=0.01,
         )
         assert ds.shape[-2:] == (100, 100)
         assert ds.epsg == 4326  # CRS84 is unresolvable -> epsg_from_wkt default 4326
@@ -251,5 +291,8 @@ class TestLiveWms:
     def test_wmts_unknown_layer_lists_available(self):
         with pytest.raises(ValueError, match="not advertised"):
             Dataset.from_wmts(
-                self.GIBS, layer="NOT_A_REAL_LAYER", bbox=BBOX, resolution=0.1,
+                self.GIBS,
+                layer="NOT_A_REAL_LAYER",
+                bbox=BBOX,
+                resolution=0.1,
             )

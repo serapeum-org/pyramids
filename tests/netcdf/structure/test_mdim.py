@@ -160,7 +160,9 @@ class TestNeedsYFlip:
             probe returns False.
         """
         rg = root_group(mdim_dataset)
-        assert needs_y_flip(rg, open_mdarray(rg, "v")) is False, "north-up needs no flip"
+        assert (
+            needs_y_flip(rg, open_mdarray(rg, "v")) is False
+        ), "north-up needs no flip"
 
     def test_one_dimensional_array_never_flips(self):
         """A 1-D array short-circuits to ``False`` without probing orientation.

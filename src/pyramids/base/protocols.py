@@ -43,7 +43,15 @@ installed.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypeGuard, Union, cast, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Protocol,
+    TypeGuard,
+    Union,
+    cast,
+    runtime_checkable,
+)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -186,30 +194,40 @@ class RasterLike(SpatialObject, Protocol):
     crs: Any
     raster: Any
 
-    def read_array(self, *args: Any, **kwargs: Any) -> "ArrayLike":  # pragma: no cover - protocol stub
+    def read_array(
+        self, *args: Any, **kwargs: Any
+    ) -> ArrayLike:  # pragma: no cover - protocol stub
         """Read band data as a numpy or dask array (protocol stub; see concrete impls)."""
         ...
 
     @classmethod
     def create_from_array(  # pragma: no cover - protocol stub
         cls, *args: Any, **kwargs: Any
-    ) -> "RasterLike":
+    ) -> RasterLike:
         """Construct a raster from an array (protocol stub; see concrete impls)."""
         ...
 
-    def crop(self, *args: Any, **kwargs: Any) -> "RasterLike":  # pragma: no cover - protocol stub
+    def crop(
+        self, *args: Any, **kwargs: Any
+    ) -> RasterLike:  # pragma: no cover - protocol stub
         """Crop to a mask / bounds (protocol stub; see concrete impls)."""
         ...
 
-    def to_crs(self, *args: Any, **kwargs: Any) -> "RasterLike":  # pragma: no cover - protocol stub
+    def to_crs(
+        self, *args: Any, **kwargs: Any
+    ) -> RasterLike:  # pragma: no cover - protocol stub
         """Reproject to a target CRS (protocol stub; see concrete impls)."""
         ...
 
-    def overlay(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+    def overlay(
+        self, *args: Any, **kwargs: Any
+    ) -> Any:  # pragma: no cover - protocol stub
         """Zonal/overlay extraction against another object (protocol stub)."""
         ...
 
-    def extract(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+    def extract(
+        self, *args: Any, **kwargs: Any
+    ) -> Any:  # pragma: no cover - protocol stub
         """Extract cell values (protocol stub; see concrete impls)."""
         ...
 
@@ -219,7 +237,9 @@ class RasterLike(SpatialObject, Protocol):
         """Change the no-data sentinel (protocol stub; see concrete impls)."""
         ...
 
-    def create_overviews(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+    def create_overviews(
+        self, *args: Any, **kwargs: Any
+    ) -> Any:  # pragma: no cover - protocol stub
         """Build reduced-resolution overviews (protocol stub)."""
         ...
 
@@ -229,13 +249,15 @@ class RasterLike(SpatialObject, Protocol):
         """Rebuild overviews (protocol stub; see concrete impls)."""
         ...
 
-    def get_overview(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+    def get_overview(
+        self, *args: Any, **kwargs: Any
+    ) -> Any:  # pragma: no cover - protocol stub
         """Return an overview level (protocol stub; see concrete impls)."""
         ...
 
     def read_overview_array(  # pragma: no cover - protocol stub
         self, *args: Any, **kwargs: Any
-    ) -> "ArrayLike":
+    ) -> ArrayLike:
         """Read an overview level as an array (protocol stub)."""
         ...
 
@@ -359,7 +381,7 @@ class _ArrayLikeProto(Protocol):
         ...
 
 
-def is_lazy(x: Any) -> TypeGuard["da.Array"]:
+def is_lazy(x: Any) -> TypeGuard[da.Array]:
     """Return True if `x` is a dask-backed array, False if eager.
 
     The check is duck-typed rather than isinstance-based, so any

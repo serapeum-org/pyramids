@@ -205,9 +205,7 @@ def _normalize_backend(backend: str) -> str:
         )
         return "legacy"
     if backend not in ("native", "legacy"):
-        raise ValueError(
-            f"backend must be 'native' or 'legacy'; got {backend!r}"
-        )
+        raise ValueError(f"backend must be 'native' or 'legacy'; got {backend!r}")
     return backend
 
 

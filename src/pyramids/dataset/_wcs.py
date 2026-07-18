@@ -65,8 +65,18 @@ _ERROR_BODY_CHARS = 500
 # Request KVP keys pyramids sets itself in direct GetCoverage.
 _RESERVED_KVP_KEYS = frozenset(
     {
-        "SERVICE", "VERSION", "REQUEST", "COVERAGE", "COVERAGEID", "SUBSET",
-        "SUBSETTINGCRS", "CRS", "BBOX", "RESX", "RESY", "FORMAT",
+        "SERVICE",
+        "VERSION",
+        "REQUEST",
+        "COVERAGE",
+        "COVERAGEID",
+        "SUBSET",
+        "SUBSETTINGCRS",
+        "CRS",
+        "BBOX",
+        "RESX",
+        "RESY",
+        "FORMAT",
     }
 )
 
@@ -218,8 +228,8 @@ def _http_get(
 
 
 def _resolve_native_srs(
-    src: "gdal.Dataset", coverage_crs: str | None
-) -> "osr.SpatialReference":
+    src: gdal.Dataset, coverage_crs: str | None
+) -> osr.SpatialReference:
     """Resolve the coverage's native CRS, re-branding CoverageError as WCSError.
 
     Delegates to the shared, protocol-neutral resolver in
@@ -273,7 +283,9 @@ def _get_capabilities(
         ) from exc
 
     if _localname(root.tag) in ("ExceptionReport", "ServiceExceptionReport"):
-        raise WCSError(f"WCS server returned an exception for {endpoint!r}: {_exception_text(root)}")
+        raise WCSError(
+            f"WCS server returned an exception for {endpoint!r}: {_exception_text(root)}"
+        )
 
     versions = {root.attrib["version"]} if root.attrib.get("version") else set()
     for el in root.iter():
@@ -355,14 +367,10 @@ def _service_descriptor(
 
 def _xml_escape(text: str) -> str:
     """Minimal XML escaping for descriptor text nodes."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _open_service(descriptor: str, coverage: str) -> "gdal.Dataset":
+def _open_service(descriptor: str, coverage: str) -> gdal.Dataset:
     """Open a WCS service descriptor with GDAL, classifying failures.
 
     Raises:
@@ -480,7 +488,7 @@ def _getcoverage_url(
     return f"{endpoint}{sep}{query}"
 
 
-def _open_getcoverage_bytes(payload: bytes, coverage: str) -> "gdal.Dataset":
+def _open_getcoverage_bytes(payload: bytes, coverage: str) -> gdal.Dataset:
     """Read a direct ``GetCoverage`` response into an in-memory raster.
 
     A non-raster body (an ``<ows:ExceptionReport>``) is caught before it can be
@@ -533,7 +541,7 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> "gdal.Dataset":
 
 
 def _from_wcs_direct(
-    dataset_cls: type["Dataset"],
+    dataset_cls: type[Dataset],
     endpoint: str,
     coverage: str,
     bbox: tuple[float, float, float, float],
@@ -546,7 +554,7 @@ def _from_wcs_direct(
     auth: tuple[str, str] | None,
     timeout: float,
     extra_params: dict[str, str] | None,
-) -> tuple["Dataset", str | None]:
+) -> tuple[Dataset, str | None]:
     """Direct ``GetCoverage`` path: build the KVP request, fetch, wrap.
 
     Returns ``(ds, native_wkt)`` so the shared finalize step can resample within
@@ -555,8 +563,15 @@ def _from_wcs_direct(
     shim was supplied.
     """
     url = _getcoverage_url(
-        endpoint, coverage, crs, bbox, version, wcs_format, resolution,
-        subset_axes, extra_params,
+        endpoint,
+        coverage,
+        crs,
+        bbox,
+        version,
+        wcs_format,
+        resolution,
+        subset_axes,
+        extra_params,
     )
     payload = _http_get(url, auth, timeout, "GetCoverage")
     mem = _open_getcoverage_bytes(payload, coverage)
@@ -569,13 +584,13 @@ def _from_wcs_direct(
 
 
 def _finalize(
-    ds: "Dataset",
+    ds: Dataset,
     output_crs: str | None,
     res: tuple[float, float] | None,
     resample: str,
     native_wkt: str | None,
     output: str | Path | None,
-) -> "Dataset":
+) -> Dataset:
     """Apply the optional reproject/resample + write shared by both WCS paths.
 
     With ``output_crs`` set, reproject to it; with only ``res`` set, resample
@@ -601,7 +616,7 @@ def _finalize(
 
 
 def from_wcs(
-    dataset_cls: type["Dataset"],
+    dataset_cls: type[Dataset],
     endpoint: str,
     *,
     coverage: str,
@@ -619,7 +634,7 @@ def from_wcs(
     extra_params: dict[str, str] | None = None,
     direct: bool = False,
     subset_axes: tuple[str, str] | None = None,
-) -> "Dataset":
+) -> Dataset:
     """Fetch a WCS coverage subset and return a :class:`Dataset`.
 
     This is the private implementation; the public API is the
@@ -646,8 +661,19 @@ def from_wcs(
 
     if direct:
         ds, native_wkt = _from_wcs_direct(
-            dataset_cls, endpoint, coverage, window, crs, version, wcs_format,
-            resolution, subset_axes, coverage_crs, auth, timeout, extra_params,
+            dataset_cls,
+            endpoint,
+            coverage,
+            window,
+            crs,
+            version,
+            wcs_format,
+            resolution,
+            subset_axes,
+            coverage_crs,
+            auth,
+            timeout,
+            extra_params,
         )
         # 1.0.0 direct sends RESX/RESY, so the server already grids to `res`; skip
         # the redundant client-side resample. 2.0.x has no request-side resolution,
@@ -681,8 +707,8 @@ def from_wcs(
 
 
 def _translate_window(
-    src: "gdal.Dataset", projwin: list[float], coverage: str
-) -> "gdal.Dataset":
+    src: gdal.Dataset, projwin: list[float], coverage: str
+) -> gdal.Dataset:
     """Issue the windowed ``GetCoverage`` via :func:`gdal.Translate` into MEM.
 
     Translating into an in-memory dataset (never directly to the user's output

@@ -21,7 +21,9 @@ def small_gdf():
 def lfc(small_gdf):
     """A 2-partition LazyFeatureCollection built from small_gdf."""
     dg = pytest.importorskip("dask_geopandas")
-    from pyramids.feature import LazyFeatureCollection  # optional-dep; must follow importorskip
+    from pyramids.feature import (
+        LazyFeatureCollection,  # optional-dep; must follow importorskip
+    )
 
     ddf = dg.from_geopandas(small_gdf, npartitions=2)
     return LazyFeatureCollection.from_dask_gdf(ddf)

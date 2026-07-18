@@ -600,7 +600,9 @@ class FeatureCollection(GeoDataFrame):
             - :meth:`pyramids.dataset.Dataset.get_cell_polygons`: the raster-aligned grid-cell equivalent.
         """
         polygons, rows, cols = _tess.fishnet_cells(bounds, cell_size)
-        return cls(gpd.GeoDataFrame({"row": rows, "col": cols}, geometry=polygons, crs=crs))
+        return cls(
+            gpd.GeoDataFrame({"row": rows, "col": cols}, geometry=polygons, crs=crs)
+        )
 
     @classmethod
     def from_records(
@@ -1652,9 +1654,13 @@ class FeatureCollection(GeoDataFrame):
                 ```
         """
         if page_size < 1:
-            raise ValueError(f"from_featureserver: page_size must be >= 1, got {page_size}")
+            raise ValueError(
+                f"from_featureserver: page_size must be >= 1, got {page_size}"
+            )
         if max_records is not None and max_records < 0:
-            raise ValueError(f"from_featureserver: max_records must be >= 0 or None, got {max_records}")
+            raise ValueError(
+                f"from_featureserver: max_records must be >= 0 or None, got {max_records}"
+            )
         base = url.split("?", 1)[0].rstrip("/")
         if not base.lower().endswith("/query"):
             base = f"{base}/query"
@@ -1900,7 +1906,11 @@ class FeatureCollection(GeoDataFrame):
                     stacklevel=2,
                 )
                 break
-            this_page = page_size if max_records is None else min(page_size, max_records - fetched)
+            this_page = (
+                page_size
+                if max_records is None
+                else min(page_size, max_records - fetched)
+            )
             query = urlencode(
                 {
                     "where": where,
@@ -1997,7 +2007,7 @@ class FeatureCollection(GeoDataFrame):
         blocksize: int | str | None,
         storage_options: dict | None,
         extra_kwargs: dict[str, Any],
-    ) -> "LazyFeatureCollection":
+    ) -> LazyFeatureCollection:
         """Dask backend for :meth:`read_parquet`: wrap dask_geopandas as a LazyFeatureCollection."""
         # check deps in order of specificity — the backend request is the more
         # specific signal, so the dask-geopandas hint beats the generic pyarrow
@@ -2470,7 +2480,12 @@ class FeatureCollection(GeoDataFrame):
                 ```
         """
         return self._to_vector_tiles(
-            path, "PMTiles", min_zoom=min_zoom, max_zoom=max_zoom, layer_name=layer_name, **creation_options
+            path,
+            "PMTiles",
+            min_zoom=min_zoom,
+            max_zoom=max_zoom,
+            layer_name=layer_name,
+            **creation_options,
         )
 
     def to_mvt(
@@ -2520,7 +2535,12 @@ class FeatureCollection(GeoDataFrame):
                 ```
         """
         return self._to_vector_tiles(
-            path, "MVT", min_zoom=min_zoom, max_zoom=max_zoom, layer_name=layer_name, **creation_options
+            path,
+            "MVT",
+            min_zoom=min_zoom,
+            max_zoom=max_zoom,
+            layer_name=layer_name,
+            **creation_options,
         )
 
     # FeatureCollection.to_dataset was moved to
@@ -3082,7 +3102,9 @@ class FeatureCollection(GeoDataFrame):
             ValueError: If ``column`` is not ``None`` and not one of this collection's columns.
         """
         if column is not None and column not in self.columns:
-            raise ValueError(f"{op}: column {column!r} not found; available columns are {list(self.columns)}")
+            raise ValueError(
+                f"{op}: column {column!r} not found; available columns are {list(self.columns)}"
+            )
 
     def voronoi(
         self,
@@ -3153,7 +3175,9 @@ class FeatureCollection(GeoDataFrame):
                 if carried is not None:
                     attributes.append(carried[i])
         data = {values: attributes} if values is not None else {}
-        result = FeatureCollection(gpd.GeoDataFrame(data, geometry=geometries, crs=self.crs))
+        result = FeatureCollection(
+            gpd.GeoDataFrame(data, geometry=geometries, crs=self.crs)
+        )
         return result
 
     def quadtree(
@@ -3216,12 +3240,20 @@ class FeatureCollection(GeoDataFrame):
             raise ValueError(f"quadtree: nmax must be >= 1, got {nmax}")
         xs, ys, keep = _tess.point_xy(self.geometry)
         if xs.size < 1:
-            raise InvalidGeometryError("quadtree: need at least 1 point with finite coordinates, got 0")
+            raise InvalidGeometryError(
+                "quadtree: need at least 1 point with finite coordinates, got 0"
+            )
         reducer = len if column is None else _tess.resolve_reducer(agg)
-        column_values = None if column is None else self[column].to_numpy(dtype=float)[keep]
+        column_values = (
+            None if column is None else self[column].to_numpy(dtype=float)[keep]
+        )
 
         def agg_fn(idx: np.ndarray) -> float:
-            return float(len(idx)) if column_values is None else float(reducer(column_values[idx]))
+            return (
+                float(len(idx))
+                if column_values is None
+                else float(reducer(column_values[idx]))
+            )
 
         boundary = _tess.resolve_clip(clip, self.crs)
         cells = _tess.quadtree_cells(xs, ys, agg_fn, nmax, nmin)
@@ -3229,12 +3261,16 @@ class FeatureCollection(GeoDataFrame):
         values_out: list = []
         for xmin, ymin, xmax, ymax, value in cells:
             rectangle = box(xmin, ymin, xmax, ymax)
-            bounded = rectangle if boundary is None else rectangle.intersection(boundary)
+            bounded = (
+                rectangle if boundary is None else rectangle.intersection(boundary)
+            )
             for part in _tess.polygon_parts(bounded):
                 geometries.append(part)
                 values_out.append(value)
         name = column if column is not None else "count"
-        result = FeatureCollection(gpd.GeoDataFrame({name: values_out}, geometry=geometries, crs=self.crs))
+        result = FeatureCollection(
+            gpd.GeoDataFrame({name: values_out}, geometry=geometries, crs=self.crs)
+        )
         return result
 
     def interpolate_to_raster(
@@ -3247,7 +3283,7 @@ class FeatureCollection(GeoDataFrame):
         power: float = 2.0,
         n_neighbors: int | None = None,
         nodata: float = -9999.0,
-    ) -> "Dataset":
+    ) -> Dataset:
         """Interpolate a point column onto a continuous raster surface (point → grid).
 
         Reads ``column`` as the z-value at each point geometry and grids it with ``gdal.Grid`` via
@@ -3313,21 +3349,29 @@ class FeatureCollection(GeoDataFrame):
                 "geostatistics tier)."
             )
         if len(self) < 3:
-            raise ValueError(f"interpolate_to_raster: need at least 3 points, got {len(self)}")
+            raise ValueError(
+                f"interpolate_to_raster: need at least 3 points, got {len(self)}"
+            )
         try:
             values = self[column].to_numpy(dtype=float)
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"interpolate_to_raster: column {column!r} must be numeric") from exc
+            raise ValueError(
+                f"interpolate_to_raster: column {column!r} must be numeric"
+            ) from exc
         if np.isnan(values).all():
             raise ValueError(f"interpolate_to_raster: column {column!r} is all-NaN")
         if n_neighbors is not None:
-            algorithm = f"invdistnn:power={power}:max_points={n_neighbors}:nodata={nodata}"
+            algorithm = (
+                f"invdistnn:power={power}:max_points={n_neighbors}:nodata={nodata}"
+            )
         else:
             algorithm = f"invdist:power={power}:smoothing=0.0:nodata={nodata}"
         # local import: pyramids.dataset imports pyramids.feature, so import here to break the cycle.
         from pyramids.dataset import Dataset
 
-        return Dataset.from_points(self, column, algorithm=algorithm, cell_size=cell_size, bbox=bounds)
+        return Dataset.from_points(
+            self, column, algorithm=algorithm, cell_size=cell_size, bbox=bounds
+        )
 
     def _h3_cells(self, resolution: int, op: str) -> list[str]:
         """Return the H3 cell index of each point at ``resolution`` (helper for to_h3 / h3_bin).
@@ -3347,7 +3391,9 @@ class FeatureCollection(GeoDataFrame):
         if not 0 <= resolution <= 15:
             raise ValueError(f"{op}: resolution must be 0-15, got {resolution}")
         if self.crs is None:
-            raise ValueError(f"{op}: a CRS is required to convert points to lat/lng for H3 indexing")
+            raise ValueError(
+                f"{op}: a CRS is required to convert points to lat/lng for H3 indexing"
+            )
         pts = self if self.epsg == 4326 else self.to_crs(4326)
         return [_h3.latlng_to_cell(geom.y, geom.x, resolution) for geom in pts.geometry]
 
@@ -3457,7 +3503,9 @@ class FeatureCollection(GeoDataFrame):
                 values = self[column].to_numpy(dtype=float)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"h3_bin: column {column!r} must be numeric") from exc
-            grouped = pd.DataFrame({"_cell": cells, "_v": values}).groupby("_cell")["_v"]
+            grouped = pd.DataFrame({"_cell": cells, "_v": values}).groupby("_cell")[
+                "_v"
+            ]
             items = [(cell, float(reducer(grp.to_numpy()))) for cell, grp in grouped]
             name = column
         geometries: list = []
@@ -3468,5 +3516,7 @@ class FeatureCollection(GeoDataFrame):
             geometries.append(Polygon([(lng, lat) for (lat, lng) in boundary]))
             idx.append(cell)
             agg_values.append(value)
-        frame = gpd.GeoDataFrame({"h3": idx, name: agg_values}, geometry=geometries, crs="EPSG:4326")
+        frame = gpd.GeoDataFrame(
+            {"h3": idx, name: agg_values}, geometry=geometries, crs="EPSG:4326"
+        )
         return FeatureCollection(frame)

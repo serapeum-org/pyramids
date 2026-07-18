@@ -487,12 +487,31 @@ class TestGeoreferenceCLI:
         out = str(tmp_path / "geo.tif")
         rc = main(
             [
-                "georeference", src_raster, out,
-                "--gcp", "0", "0", "10", "50",
-                "--gcp", "8", "0", "11", "50",
-                "--gcp", "0", "8", "10", "49",
-                "--gcp", "8", "8", "11", "49",
-                "--gcp-crs", "4326",
+                "georeference",
+                src_raster,
+                out,
+                "--gcp",
+                "0",
+                "0",
+                "10",
+                "50",
+                "--gcp",
+                "8",
+                "0",
+                "11",
+                "50",
+                "--gcp",
+                "0",
+                "8",
+                "10",
+                "49",
+                "--gcp",
+                "8",
+                "8",
+                "11",
+                "49",
+                "--gcp-crs",
+                "4326",
             ]
         )
         assert rc == 0, "georeference must exit 0"
@@ -511,9 +530,16 @@ class TestGeoreferenceCLI:
         ).to_file(out)
         rc = main(
             [
-                "georeference", src_raster, out,
-                "--gcp", "0", "0", "10", "50",
-                "--gcp-crs", "4326",
+                "georeference",
+                src_raster,
+                out,
+                "--gcp",
+                "0",
+                "0",
+                "10",
+                "50",
+                "--gcp-crs",
+                "4326",
             ]
         )
         assert rc == 1, "must refuse an existing output without --overwrite"

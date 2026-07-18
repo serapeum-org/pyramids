@@ -291,8 +291,8 @@ class TestNormalizeToDataset:
             Passing `nodata` updates every band's nodata marker.
         """
         result = _normalize_to_dataset(mem_dataset, None, None, 5.0)
-        assert (
-            result.no_data_value[0] == pytest.approx(5.0)
+        assert result.no_data_value[0] == pytest.approx(
+            5.0
         ), f"nodata override not applied: {result.no_data_value}"
 
     def test_unsupported_type_raises(self):

@@ -54,8 +54,12 @@ class TestWriteArray:
         patch = np.array([[99.0, 99.0], [99.0, 99.0]], dtype=np.float32)
         ds.write_array(patch, top_left_corner=[0, 0])
         result = ds.read_array()
-        assert result[0, 0] == pytest.approx(99.0), "Top-left cell should be 99 after write"
-        assert result[0, 1] == pytest.approx(99.0), "Cell (0,1) should be 99 after write"
+        assert result[0, 0] == pytest.approx(
+            99.0
+        ), "Top-left cell should be 99 after write"
+        assert result[0, 1] == pytest.approx(
+            99.0
+        ), "Cell (0,1) should be 99 after write"
 
     def test_write_array_with_offset(self):
         """write_array with offset should write at the given position."""
@@ -72,7 +76,9 @@ class TestWriteArray:
         result = ds.read_array()
         assert result[1, 1] == pytest.approx(7.0), "Offset write failed at (1,1)"
         assert result[2, 2] == pytest.approx(10.0), "Offset write failed at (2,2)"
-        assert result[0, 0] == pytest.approx(0.0), "Cell outside patch should be unchanged"
+        assert result[0, 0] == pytest.approx(
+            0.0
+        ), "Cell outside patch should be unchanged"
 
     def test_write_array_multi_band(self):
         """write_array writes a multi-band patch at an offset across every band.

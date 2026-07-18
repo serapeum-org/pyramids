@@ -109,7 +109,10 @@ class TestToCogCompression:
         ds = gdal.Open(str(out))
         compression = ds.GetMetadataItem("COMPRESSION", "IMAGE_STRUCTURE")
         ds = None
-        assert compression in (None, "NONE"), f"expected uncompressed, got {compression!r}"
+        assert compression in (
+            None,
+            "NONE",
+        ), f"expected uncompressed, got {compression!r}"
 
 
 class TestToCogExtra:

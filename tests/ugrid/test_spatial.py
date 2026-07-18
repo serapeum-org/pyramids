@@ -520,7 +520,9 @@ class TestCrop:
         mask = box(0.0, 0.0, 1.0, 2.0)
         n_false = unit_square_dataset.crop(mask, touch=False).n_face
         n_true = unit_square_dataset.crop(mask, touch=True).n_face
-        assert n_false <= n_true, f"touch=False ({n_false}) should be <= touch=True ({n_true})"
+        assert (
+            n_false <= n_true
+        ), f"touch=False ({n_false}) should be <= touch=True ({n_true})"
 
     @pytest.mark.parametrize("as_type", [tuple, list])
     def test_crop_bbox_matches_subset_by_bounds(self, unit_square_dataset, as_type):
@@ -579,12 +581,16 @@ class TestCrop:
             The 'temperature' face variable survives and its length matches the new face count.
         """
         cropped = unit_square_dataset.crop(box(-0.1, -0.1, 1.1, 1.1), touch=False)
-        assert "temperature" in cropped.data_variable_names, "data variable dropped by crop"
+        assert (
+            "temperature" in cropped.data_variable_names
+        ), "data variable dropped by crop"
         assert (
             len(cropped["temperature"].data) == cropped.n_face
         ), "data length must match the cropped face count"
 
-    def test_crop_bbox_reprojected_matches_native_envelope(self, unit_square_dataset_4326):
+    def test_crop_bbox_reprojected_matches_native_envelope(
+        self, unit_square_dataset_4326
+    ):
         """A bbox in another CRS is reprojected to the mesh CRS, then subset by its envelope.
 
         Test scenario:
@@ -660,7 +666,9 @@ class TestCrop:
         assert (
             unit_square_dataset.n_face == before
         ), f"source face count changed from {before} to {unit_square_dataset.n_face}"
-        assert cropped is not unit_square_dataset, "crop must return a new object, not self"
+        assert (
+            cropped is not unit_square_dataset
+        ), "crop must return a new object, not self"
 
     def test_crop_neither_raises(self, unit_square_dataset):
         """Supplying neither mask nor bbox raises TypeError.

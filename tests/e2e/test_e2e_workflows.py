@@ -107,8 +107,8 @@ class TestDatasetCollectionRoundTrip:
 
         base = _make_dataset(rows=rows, cols=cols, fill_value=1.0)
         md = DatasetCollection.create_cube(base, dataset_length=time_steps)
-        values = np.random.default_rng(0).random((time_steps, rows, cols)).astype(
-            np.float64
+        values = (
+            np.random.default_rng(0).random((time_steps, rows, cols)).astype(np.float64)
         )
         md.values = values
 
@@ -755,9 +755,7 @@ class TestClusterE2E:
             clusters exist (exact match not expected due to resampling).
         """
         rng = np.random.default_rng(77)
-        arr = rng.choice([0.0, 5.0], size=(10, 10), p=[0.6, 0.4]).astype(
-            np.float32
-        )
+        arr = rng.choice([0.0, 5.0], size=(10, 10), p=[0.6, 0.4]).astype(np.float32)
         src = Dataset.create_from_array(
             arr, top_left_corner=(30.0, 31.0), cell_size=0.01, epsg=4326
         )

@@ -211,8 +211,8 @@ class TestScaleOffset:
     def test_scale_setter(self, single_band_dataset):
         """Setting scale should update GDAL band scale."""
         single_band_dataset.scale = [0.5]
-        assert (
-            single_band_dataset._iloc(0).GetScale() == pytest.approx(0.5)
+        assert single_band_dataset._iloc(0).GetScale() == pytest.approx(
+            0.5
         ), "GDAL band scale not updated by setter"
 
     def test_offset_default(self, single_band_dataset):
@@ -222,8 +222,8 @@ class TestScaleOffset:
     def test_offset_setter(self, single_band_dataset):
         """Setting offset should update GDAL band offset."""
         single_band_dataset.offset = [100.0]
-        assert (
-            single_band_dataset._iloc(0).GetOffset() == pytest.approx(100.0)
+        assert single_band_dataset._iloc(0).GetOffset() == pytest.approx(
+            100.0
         ), "GDAL band offset not updated by setter"
 
     def test_multi_band_scale_offset(self, multi_band_dataset):
@@ -693,8 +693,8 @@ class TestDatasetProperties:
 
     def test_cell_size_property(self, single_band_dataset):
         """cell_size should match the value passed during creation."""
-        assert (
-            single_band_dataset.cell_size == pytest.approx(0.05)
+        assert single_band_dataset.cell_size == pytest.approx(
+            0.05
         ), "cell_size property does not match"
 
     def test_driver_type_property(self, single_band_dataset):
@@ -904,8 +904,8 @@ class TestInplaceConsistency:
         result = single_band_dataset.resample(cell_size=0.1)
         assert result is not None, "resample should return a Dataset"
         assert isinstance(result, Dataset), f"Expected Dataset, got {type(result)}"
-        assert (
-            result.cell_size == pytest.approx(0.1)
+        assert result.cell_size == pytest.approx(
+            0.1
         ), f"Cell size should be 0.1 after resample, got {result.cell_size}"
         assert (
             single_band_dataset.cell_size == original_cell_size
@@ -934,7 +934,9 @@ class TestInplaceConsistency:
         result = single_band_dataset.apply(lambda x: x * 2, inplace=True)
         assert result is single_band_dataset, "inplace apply should return self"
         arr = single_band_dataset.read_array()
-        assert arr[0, 0] == pytest.approx(2.0), f"Expected 2.0 after doubling, got {arr[0, 0]}"
+        assert arr[0, 0] == pytest.approx(
+            2.0
+        ), f"Expected 2.0 after doubling, got {arr[0, 0]}"
 
     def test_apply_not_inplace_returns_new_dataset(self, single_band_dataset):
         """apply(inplace=False) should return a new Dataset without modifying the original."""

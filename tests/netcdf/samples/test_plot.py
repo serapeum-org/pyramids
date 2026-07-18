@@ -49,7 +49,10 @@ def test_plot_with_colour_options(sample):
     """``ColourOpts`` (cmap / robust limits) is accepted by plot."""
     nc = NetCDF.read_file(sample(RHUM))
     try:
-        assert nc.plot(variable="rhum", colour=ColourOpts(cmap="viridis", robust=True)) is not None
+        assert (
+            nc.plot(variable="rhum", colour=ColourOpts(cmap="viridis", robust=True))
+            is not None
+        )
     finally:
         plt.close("all")
         nc.close()
@@ -59,7 +62,9 @@ def test_plot_with_selectors_pins_a_slice(sample):
     """``Selectors`` pinning all non-spatial dims yields a single 2-D plot."""
     nc = NetCDF.read_file(sample(RHUM))
     try:
-        result = nc.plot(variable="rhum", selectors=Selectors(isel={"time": 0, "level": 0}))
+        result = nc.plot(
+            variable="rhum", selectors=Selectors(isel={"time": 0, "level": 0})
+        )
         assert result is not None
     finally:
         plt.close("all")

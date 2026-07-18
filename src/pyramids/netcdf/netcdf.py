@@ -9,8 +9,6 @@ from __future__ import annotations
 import gc
 import itertools
 import math
-import os
-import tempfile
 import threading
 import warnings
 import weakref
@@ -26,23 +24,11 @@ from pyramids import _io
 from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg
 from pyramids.base.protocols import ArrayLike
-from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
+from pyramids.dataset import Dataset
 from pyramids.dataset.dataset import _COLLABORATOR_ATTRS
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
-from pyramids.netcdf._mfdataset import open_mfdataset
-from pyramids.netcdf._plot import NetCDFPlot
-from pyramids.netcdf.engines import interop as _interop
-from pyramids.netcdf.engines import variables as _variables
-from pyramids.netcdf.engines.interop import Interop
-from pyramids.netcdf.engines.selection import Selection
-from pyramids.netcdf.engines.variables import Variables
-from pyramids.netcdf.cf import (
-    build_coordinate_attrs,
-    detect_axis,
-    write_attributes_to_md_array,
-)
 from pyramids.netcdf._mdim import (
     GEOSTATIONARY_PROJECTION,
     axis_flips,
@@ -50,11 +36,23 @@ from pyramids.netcdf._mdim import (
     needs_x_flip,
     needs_y_flip,
     open_mdarray,
-    scaled_axis_ascends,
     scalar_no_data,
+    scaled_axis_ascends,
     x_axis_is_right_to_left,
     y_axis_is_bottom_up,
 )
+from pyramids.netcdf._mfdataset import open_mfdataset
+from pyramids.netcdf._plot import NetCDFPlot
+from pyramids.netcdf.cf import (
+    build_coordinate_attrs,
+    detect_axis,
+    write_attributes_to_md_array,
+)
+from pyramids.netcdf.engines import interop as _interop
+from pyramids.netcdf.engines import variables as _variables
+from pyramids.netcdf.engines.interop import Interop
+from pyramids.netcdf.engines.selection import Selection
+from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
@@ -982,7 +980,9 @@ class NetCDF(Dataset):
             # _materialize_md_view warns generically on failure. Here the consequence is specific
             # and worse -- the wrapper claims metres over a raw scan-angle grid -- so own the
             # message rather than emitting two overlapping warnings for one failure.
-            warnings.filterwarnings("ignore", message="could not materialize the multidim view")
+            warnings.filterwarnings(
+                "ignore", message="could not materialize the multidim view"
+            )
             self._materialize_md_view()
         if not self._md_view_materialized:
             warnings.warn(
@@ -1827,9 +1827,7 @@ class NetCDF(Dataset):
                 )
             return window
         if window is not None:
-            raise ValueError(
-                "read_array accepts either `window` or `bbox`, not both"
-            )
+            raise ValueError("read_array accepts either `window` or `bbox`, not both")
         if chunks is not None:
             raise ValueError(
                 "read_array(chunks=..., bbox=...) is not supported; "
@@ -1983,11 +1981,13 @@ class NetCDF(Dataset):
         # wrapped result's live band count: a band-shrinking spatial op may have
         # diverged the band count from the cached coords, so the staleness guard lives
         # once in `_derive_primary_band_view` rather than being repeated here.
-        wrapped._band_dim_name, wrapped._band_dim_values = self._derive_primary_band_view(
-            wrapped._band_dim_names,
-            wrapped._band_dim_values_map,
-            wrapped._band_dim_sizes,
-            wrapped._band_count,
+        wrapped._band_dim_name, wrapped._band_dim_values = (
+            self._derive_primary_band_view(
+                wrapped._band_dim_names,
+                wrapped._band_dim_values_map,
+                wrapped._band_dim_sizes,
+                wrapped._band_count,
+            )
         )
         wrapped._variable_attrs = self._variable_attrs
         wrapped._scale = self._scale
@@ -1998,7 +1998,7 @@ class NetCDF(Dataset):
         wrapped._gdal_rg_ref = None
         return wrapped
 
-    def crop(self, *args, **kwargs) -> "NetCDF":
+    def crop(self, *args, **kwargs) -> NetCDF:
         """Facade — :meth:`Selection.crop <pyramids.netcdf.engines.selection.Selection.crop>`."""
         return self.selection.crop(*args, **kwargs)
 
@@ -2337,7 +2337,7 @@ class NetCDF(Dataset):
         self._carry_aux_variables(cast("NetCDF", result), aux_vars, operation)
         return cast("NetCDF", result)
 
-    def reduce(self, *args, **kwargs) -> "NetCDF":
+    def reduce(self, *args, **kwargs) -> NetCDF:
         """Facade — :meth:`Selection.reduce <pyramids.netcdf.engines.selection.Selection.reduce>`."""
         return self.selection.reduce(*args, **kwargs)
 
@@ -2669,7 +2669,7 @@ class NetCDF(Dataset):
         self._gdal_rg_ref = None
         self._md_view_materialized = True
 
-    def _materialize_from_raw_view(self) -> "gdal.Dataset | None":
+    def _materialize_from_raw_view(self) -> gdal.Dataset | None:
         """Copy the *unreversed* multidim view into MEM, applying any Y flip with NumPy.
 
         ``_read_md_array`` reverses a bottom-up Y axis (and an east-to-west X axis) lazily via
@@ -2699,7 +2699,7 @@ class NetCDF(Dataset):
             self._reconcile_band_no_data(result)
         return result
 
-    def _copy_raw_view(self) -> "gdal.Dataset | None":
+    def _copy_raw_view(self) -> gdal.Dataset | None:
         """Rebuild the **unreversed** classic view of the source variable and copy it into MEM.
 
         Returns ``None`` when the view cannot be rebuilt (no root group, no source variable,
@@ -2709,7 +2709,9 @@ class NetCDF(Dataset):
         rg = self._gdal_rg_ref
         var = self._source_var_name
         spatial = self._md_spatial_dims
-        flips_known = isinstance(self._md_y_flipped, bool) and isinstance(self._md_x_flipped, bool)
+        flips_known = isinstance(self._md_y_flipped, bool) and isinstance(
+            self._md_x_flipped, bool
+        )
         if rg is not None and var is not None and spatial is not None and flips_known:
             x_index, y_index = spatial
             try:
@@ -2727,7 +2729,7 @@ class NetCDF(Dataset):
                 result = gdal.GetDriverByName("MEM").CreateCopy("", raw_view)
         return result
 
-    def _flip_bands_in_place(self, target: "gdal.Dataset") -> None:
+    def _flip_bands_in_place(self, target: gdal.Dataset) -> None:
         """Reverse whichever spatial axes ``_read_md_array`` reversed, one band at a time.
 
         Reading the whole cube and writing back a reversed (negative-stride) view would hold the
@@ -2741,7 +2743,7 @@ class NetCDF(Dataset):
                 band = target.GetRasterBand(index)
                 band.WriteArray(np.ascontiguousarray(band.ReadAsArray()[rows, cols]))
 
-    def _reconcile_band_no_data(self, target: "gdal.Dataset") -> None:
+    def _reconcile_band_no_data(self, target: gdal.Dataset) -> None:
         """Copy the wrapper's per-band no-data onto a raster rebuilt from the raw view.
 
         The rebuilt view reads the same MDArray, so band order, scale and offset already agree. Its
@@ -2790,7 +2792,7 @@ class NetCDF(Dataset):
             result = self._preserve_netcdf_metadata(result)
         return cast("NetCDF", result)
 
-    def sel(self, *args, **kwargs) -> "NetCDF":
+    def sel(self, *args, **kwargs) -> NetCDF:
         """Facade — :meth:`Selection.sel <pyramids.netcdf.engines.selection.Selection.sel>`."""
         return self.selection.sel(*args, **kwargs)
 
@@ -3401,7 +3403,7 @@ class NetCDF(Dataset):
                 pass
         return result
 
-    def _working_group(self) -> "gdal.Group | None":
+    def _working_group(self) -> gdal.Group | None:
         """Return the GDAL group this container is rooted at.
 
         For a normal container (`_group_path` is None) this is the dataset's
@@ -3650,8 +3652,11 @@ class NetCDF(Dataset):
         else:
             short = target.lstrip("/").split("/")[-1]
             match = next(
-                (i for i, name in enumerate(dim_names)
-                 if name.lstrip("/").split("/")[-1] == short),
+                (
+                    i
+                    for i, name in enumerate(dim_names)
+                    if name.lstrip("/").split("/")[-1] == short
+                ),
                 None,
             )
             if match is None:
@@ -3729,7 +3734,11 @@ class NetCDF(Dataset):
         # collide with the last-two fallback (e.g. a 2-D `lon_bnds(lon, bnds)` variable).
         candidate_x = explicit_x if explicit_x is not None else detected_x
         candidate_y = explicit_y if explicit_y is not None else detected_y
-        if candidate_x is not None and candidate_y is not None and candidate_x != candidate_y:
+        if (
+            candidate_x is not None
+            and candidate_y is not None
+            and candidate_x != candidate_y
+        ):
             return candidate_x, candidate_y
 
         # Fallback: the last two dimensions, keeping a non-colliding explicit side.
@@ -3893,8 +3902,8 @@ class NetCDF(Dataset):
 
         spatial_dim_indices: tuple[int, int] | None = None
         if prefix == "MEMORY" or rg is not None:
-            src, md_arr_ref, rg_ref, x_index, y_index, y_flipped, x_flipped = self._read_md_array(
-                variable_name, x_dim=x_dim, y_dim=y_dim
+            src, md_arr_ref, rg_ref, x_index, y_index, y_flipped, x_flipped = (
+                self._read_md_array(variable_name, x_dim=x_dim, y_dim=y_dim)
             )
             if x_index is not None:
                 spatial_dim_indices = (x_index, y_index)
@@ -3970,7 +3979,7 @@ class NetCDF(Dataset):
             cube._geotransform = gt
             cube._cell_size = abs(gt[1])
 
-    def _georeference_index_subset(self, cube: "NetCDF") -> "NetCDF":
+    def _georeference_index_subset(self, cube: NetCDF) -> NetCDF:
         """Re-georeference a variable subset whose MDArray view came back in index space.
 
         A subset built from a bare MDArray view can carry an index-space geotransform (cell
@@ -4025,7 +4034,7 @@ class NetCDF(Dataset):
         return values, found
 
     @staticmethod
-    def _coordinates_index_subset(cube: "NetCDF", lon, lat, lon_name: str | None) -> bool:
+    def _coordinates_index_subset(cube: NetCDF, lon, lat, lon_name: str | None) -> bool:
         """Whether the parent's 1-D lon/lat legitimately index `cube`'s spatial grid.
 
         Adopt them only when the variable actually has the longitude coordinate dimension (by the CF
@@ -4044,7 +4053,8 @@ class NetCDF(Dataset):
         dim_names = getattr(cube, "_md_array_dims", None) or []
         renamed_prefix = f"subset_{lon_name}_" if lon_name else None
         gdal_renamed_x = bool(cube._md_x_flipped) and any(
-            renamed_prefix is not None and name.startswith(renamed_prefix) for name in dim_names
+            renamed_prefix is not None and name.startswith(renamed_prefix)
+            for name in dim_names
         )
         names_ok = (not dim_names) or (lon_name in dim_names) or gdal_renamed_x
         return bool(
@@ -4059,7 +4069,7 @@ class NetCDF(Dataset):
             and names_ok
         )
 
-    def _coordinate_derived_geotransform(self, cube: "NetCDF") -> tuple | None:
+    def _coordinate_derived_geotransform(self, cube: NetCDF) -> tuple | None:
         """Real-world geotransform from the parent's 1-D lon/lat, or ``None`` if not applicable.
 
         Returns the north-up affine implied by the parent container's 1-D ``lon``/``lat`` (or
@@ -4092,7 +4102,9 @@ class NetCDF(Dataset):
                 -y_cell,
             )
             current = cube._raster.GetGeoTransform()
-            if not all(abs(float(a) - float(b)) < 1e-6 for a, b in zip(real_gt, current)):
+            if not all(
+                abs(float(a) - float(b)) < 1e-6 for a, b in zip(real_gt, current)
+            ):
                 result = real_gt
         return result
 
@@ -4436,12 +4448,16 @@ class NetCDF(Dataset):
         """
         src_rg = self._working_group()
         if src_rg is None:
-            raise RuntimeError("manual netCDF copy requires a multidimensional container")
+            raise RuntimeError(
+                "manual netCDF copy requires a multidimensional container"
+            )
         if src_rg.GetGroupNames():
             raise RuntimeError(
                 f"manual netCDF copy of {path} does not support hierarchical groups"
             )
-        dst = gdal.GetDriverByName("netCDF").CreateMultiDimensional(str(path), ["FORMAT=NC4"])
+        dst = gdal.GetDriverByName("netCDF").CreateMultiDimensional(
+            str(path), ["FORMAT=NC4"]
+        )
         dst_rg = dst.GetRootGroup()
         self._copy_md_array_attributes(src_rg, dst_rg)
         for var_name in src_rg.GetMDArrayNames():
@@ -4474,7 +4490,9 @@ class NetCDF(Dataset):
         if ds is None:
             return
         rg = ds.GetRootGroup()
-        if rg is not None and any(a.GetName() == "Conventions" for a in rg.GetAttributes()):
+        if rg is not None and any(
+            a.GetName() == "Conventions" for a in rg.GetAttributes()
+        ):
             try:
                 rg.DeleteAttribute("Conventions")
             except RuntimeError:
@@ -4616,7 +4634,7 @@ class NetCDF(Dataset):
         return dim
 
     @classmethod
-    def create_from_array(cls, *args, **kwargs) -> "NetCDF":
+    def create_from_array(cls, *args, **kwargs) -> NetCDF:
         """Facade — :func:`create_from_array <pyramids.netcdf.engines.variables.create_from_array>`.
 
         Builds a new :class:`Container` from a NumPy array; the full signature and
@@ -4994,7 +5012,7 @@ class NetCDF(Dataset):
         """Facade — delegates to :meth:`Interop.to_xarray <pyramids.netcdf.engines.interop.Interop.to_xarray>`."""
         return self.interop.to_xarray(*args, **kwargs)
 
-    def subset(self, *args, **kwargs) -> "NetCDF":
+    def subset(self, *args, **kwargs) -> NetCDF:
         """Facade — :meth:`Selection.subset <pyramids.netcdf.engines.selection.Selection.subset>`."""
         return self.selection.subset(*args, **kwargs)
 

@@ -34,7 +34,9 @@ class TestCfTimeRoundTrip:
         num = encode_cf_time("1979-01-11", UNIT)
         assert num == pytest.approx(10.0), f"expected day offset 10.0, got {num}"
         back = decode_cf_time(np.array([num]), UNIT)
-        assert back[0] == np.datetime64("1979-01-11"), f"round-trip lost the date: {back[0]}"
+        assert back[0] == np.datetime64(
+            "1979-01-11"
+        ), f"round-trip lost the date: {back[0]}"
 
     def test_default_calendar_matches_explicit_standard(self):
         """The new ``calendar`` default ('standard') matches passing it explicitly (N2).
@@ -46,9 +48,9 @@ class TestCfTimeRoundTrip:
         """
         with_default = encode_cf_time("2000-06-15T12:00:00", UNIT)
         explicit = encode_cf_time("2000-06-15T12:00:00", UNIT, "standard")
-        assert with_default == explicit, (
-            f"default calendar ({with_default}) must match explicit standard ({explicit})"
-        )
+        assert (
+            with_default == explicit
+        ), f"default calendar ({with_default}) must match explicit standard ({explicit})"
 
     @pytest.mark.parametrize("calendar", ["360_day", "noleap"])
     def test_non_standard_calendar_roundtrip_stays_cftime(self, calendar):
@@ -64,12 +66,22 @@ class TestCfTimeRoundTrip:
             proleptic-Gregorian ``datetime64`` (which would shift selection bounds).
         """
         num = encode_cf_time("1979-01-11", UNIT, calendar)
-        assert num == pytest.approx(10.0), f"{calendar}: expected offset 10.0, got {num}"
+        assert num == pytest.approx(
+            10.0
+        ), f"{calendar}: expected offset 10.0, got {num}"
 
         back = decode_cf_time(np.array([num]), UNIT, calendar)[0]
-        assert isinstance(back, cftime.datetime), f"{calendar} should decode to cftime, got {type(back)}"
-        assert (back.year, back.month, back.day) == (1979, 1, 11), f"{calendar} round-trip drifted: {back}"
-        assert back.calendar == calendar, f"expected calendar {calendar}, got {back.calendar}"
+        assert isinstance(
+            back, cftime.datetime
+        ), f"{calendar} should decode to cftime, got {type(back)}"
+        assert (back.year, back.month, back.day) == (
+            1979,
+            1,
+            11,
+        ), f"{calendar} round-trip drifted: {back}"
+        assert (
+            back.calendar == calendar
+        ), f"expected calendar {calendar}, got {back.calendar}"
 
     def test_non_time_unit_passthrough(self):
         """A non-time unit string returns the values unchanged.

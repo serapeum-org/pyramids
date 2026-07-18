@@ -20,7 +20,9 @@ from pyramids.dataset.engines._base import _Engine
 from pyramids.feature import FeatureCollection, create_points, create_polygon
 
 if TYPE_CHECKING:
-    from pyramids.dataset.dataset import Dataset  # noqa: F401  (forward ref in _Engine["Dataset"])
+    from pyramids.dataset.dataset import (  # noqa: F401  (forward ref in _Engine["Dataset"])
+        Dataset,
+    )
 
 
 class Cell(_Engine["Dataset"]):

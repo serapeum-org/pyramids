@@ -73,9 +73,9 @@ class TestGetVariableNonTrailingPlaneGeoref:
         data = self._read().read_array()
         assert data.shape == (6, 64, 128), f"unexpected shape {data.shape}"
         assert np.isfinite(data).all(), "array contains non-finite values"
-        assert 150.0 < float(np.nanmin(data)) < float(np.nanmax(data)) < 350.0, (
-            f"values outside plausible range: {float(np.nanmin(data))}..{float(np.nanmax(data))}"
-        )
+        assert (
+            150.0 < float(np.nanmin(data)) < float(np.nanmax(data)) < 350.0
+        ), f"values outside plausible range: {float(np.nanmin(data))}..{float(np.nanmax(data))}"
 
     def test_georeferencing_is_real_degrees_not_index_space(self):
         """The subset adopts the file's real lon/lat geotransform, not index space.
@@ -91,4 +91,11 @@ class TestGetVariableNonTrailingPlaneGeoref:
         assert var.epsg == 4326, f"expected EPSG:4326, got {var.epsg}"
         assert gt[1] == pytest.approx(2.8125), f"unexpected lon cell size: {gt[1]}"
         assert gt[5] < 0, f"geotransform should be north-up (negative dy), got {gt[5]}"
-        assert gt != (0.0, 1.0, 0.0, 0.0, 0.0, -1.0), "geotransform is still index-space"
+        assert gt != (
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            -1.0,
+        ), "geotransform is still index-space"

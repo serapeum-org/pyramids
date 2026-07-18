@@ -525,9 +525,7 @@ class TestPlotDatasetCollection:
             arr = (rng.random((n_bands, dim, dim), dtype="float32") * 255).astype(
                 "float32"
             )
-            ds = Dataset.create_from_array(
-                arr=arr, geo=(0, 1, 0, 0, 0, -1), epsg=4326
-            )
+            ds = Dataset.create_from_array(arr=arr, geo=(0, 1, 0, 0, 0, -1), epsg=4326)
             path = tmp_path / f"rgb_{t}.tif"
             ds.to_file(str(path))
             files.append(str(path))
@@ -584,9 +582,9 @@ class TestPlotDatasetCollection:
         cube = self._rgb_cube(tmp_path, n_times=3)
         glyph = cube.plot(rgb_options={"rgb": [0, 1, 2], "surface_reflectance": 255})
         assert glyph.arr.shape == (3, 8, 8, 3), "RGB stack keeps every frame"
-        assert float(glyph.arr.min()) >= 0.0 and float(glyph.arr.max()) <= 1.0, (
-            "surface-reflectance frames must be normalised into [0, 1]"
-        )
+        assert (
+            float(glyph.arr.min()) >= 0.0 and float(glyph.arr.max()) <= 1.0
+        ), "surface-reflectance frames must be normalised into [0, 1]"
 
     @pytest.mark.plot
     def test_rgb_options_unknown_key_raises(self, tmp_path):

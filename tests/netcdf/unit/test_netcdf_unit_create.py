@@ -120,7 +120,9 @@ class TestCreateFromArrayAlternatives:
         )
         assert nc is not None, "NetCDF should be created"
         var = nc.get_variable("data")
-        assert var.cell_size == pytest.approx(0.5), f"Expected cell_size 0.5, got {var.cell_size}"
+        assert var.cell_size == pytest.approx(
+            0.5
+        ), f"Expected cell_size 0.5, got {var.cell_size}"
 
     def test_create_from_array_no_geo_raises(self):
         """Verify create_from_array raises ValueError without geo information.

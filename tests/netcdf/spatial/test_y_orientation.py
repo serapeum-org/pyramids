@@ -189,10 +189,30 @@ class TestOneDimNotFlipped:
 
 
 ORIENTATION_CASES = [
-    ("cf__9v__1d7-2d2__geos__y-desc.nc", "CMI", False, "geostationary radian scan angle, descending -> keep"),
-    ("cf__6v__1d2-2d4__geog__y-asc.nc", "Band1", True, "geographic ascending (NOAH) -> flip"),
-    ("cf__5v__1d4-3d1__geog__y-desc.nc", "t2m", False, "geographic descending (ERA5) -> keep"),
-    ("coards__4v__1d3-3d1__y-desc.nc", "air", False, "geographic descending (COARDS) -> keep"),
+    (
+        "cf__9v__1d7-2d2__geos__y-desc.nc",
+        "CMI",
+        False,
+        "geostationary radian scan angle, descending -> keep",
+    ),
+    (
+        "cf__6v__1d2-2d4__geog__y-asc.nc",
+        "Band1",
+        True,
+        "geographic ascending (NOAH) -> flip",
+    ),
+    (
+        "cf__5v__1d4-3d1__geog__y-desc.nc",
+        "t2m",
+        False,
+        "geographic descending (ERA5) -> keep",
+    ),
+    (
+        "coards__4v__1d3-3d1__y-desc.nc",
+        "air",
+        False,
+        "geographic descending (COARDS) -> keep",
+    ),
 ]
 
 
@@ -327,7 +347,9 @@ class TestOrientationAllCases:
         ORIENTATION_CASES,
         ids=[c[0].split(".")[0] for c in ORIENTATION_CASES],
     )
-    def test_orientation_matches_coordinate_reference(self, filename, variable, expect_flip, label):
+    def test_orientation_matches_coordinate_reference(
+        self, filename, variable, expect_flip, label
+    ):
         """The multidim read is north-up and byte-identical to the coordinate-ordered reference.
 
         Test scenario:
@@ -347,9 +369,15 @@ class TestOrientationAllCases:
         """
         var = NetCDF.read_file(projected_descending_nc).get_variable("Band1")
         srs = var.raster.GetSpatialRef()
-        assert srs is not None and srs.IsProjected(), "fixture should carry a projected CRS"
+        assert (
+            srs is not None and srs.IsProjected()
+        ), "fixture should carry a projected CRS"
         _assert_orientation(
-            var, False, "projected descending (UTM) -> keep", projected_descending_nc, "Band1"
+            var,
+            False,
+            "projected descending (UTM) -> keep",
+            projected_descending_nc,
+            "Band1",
         )
 
     def test_projected_ascending_is_flipped(self, projected_ascending_nc):
@@ -364,9 +392,15 @@ class TestOrientationAllCases:
         """
         var = NetCDF.read_file(projected_ascending_nc).get_variable("Band1")
         srs = var.raster.GetSpatialRef()
-        assert srs is not None and srs.IsProjected(), "fixture should carry a projected CRS"
+        assert (
+            srs is not None and srs.IsProjected()
+        ), "fixture should carry a projected CRS"
         _assert_orientation(
-            var, True, "projected ascending (UTM) -> flip", projected_ascending_nc, "Band1"
+            var,
+            True,
+            "projected ascending (UTM) -> flip",
+            projected_ascending_nc,
+            "Band1",
         )
 
 
@@ -409,17 +443,24 @@ class TestMultiBandMaterialize:
         var = NetCDF.read_file(path).get_variable("tos")
         assert var._md_y_flipped is True, "the fixture's latitude ascends"
         before = np.asarray(var.read_array())
-        assert before.ndim == 3 and before.shape[0] > 1, f"expected a band stack, got {before.shape}"
+        assert (
+            before.ndim == 3 and before.shape[0] > 1
+        ), f"expected a band stack, got {before.shape}"
         np.testing.assert_array_equal(before, _north_up_reference(path, "tos"))
         var._materialize_md_view()
         np.testing.assert_array_equal(
             np.asarray(var.read_array()), before, err_msg="materialize changed a band"
         )
-        assert var.raster.ReadAsArray(1, 1, 3, 2).shape[-2:] == (2, 3), "window read must work"
+        assert var.raster.ReadAsArray(1, 1, 3, 2).shape[-2:] == (
+            2,
+            3,
+        ), "window read must work"
 
     def test_multiband_x_flip_matches_numpy_reference(self):
         """A 3-D east-to-west variable is reversed along columns, on every band."""
-        store, data = _mdim_cube([4.0, 3.0, 2.0, 1.0], [5.0, 4.0, 3.0, 2.0, 1.0], bands=3)
+        store, data = _mdim_cube(
+            [4.0, 3.0, 2.0, 1.0], [5.0, 4.0, 3.0, 2.0, 1.0], bands=3
+        )
         var = Container(store).get_variable("v")
         assert var._md_x_flipped is True and var._md_y_flipped is False
         expected = data[..., ::-1]
@@ -431,14 +472,18 @@ class TestMultiBandMaterialize:
 
     def test_both_axes_flipped_materializes_correctly(self):
         """A cube stored south-to-north *and* east-to-west is reversed on both axes."""
-        store, data = _mdim_cube([1.0, 2.0, 3.0, 4.0], [5.0, 4.0, 3.0, 2.0, 1.0], bands=2)
+        store, data = _mdim_cube(
+            [1.0, 2.0, 3.0, 4.0], [5.0, 4.0, 3.0, 2.0, 1.0], bands=2
+        )
         var = Container(store).get_variable("v")
         assert var._md_y_flipped is True and var._md_x_flipped is True
         expected = data[..., ::-1, ::-1]
         np.testing.assert_array_equal(np.asarray(var.read_array()), expected)
         var._materialize_md_view()
         np.testing.assert_array_equal(np.asarray(var.read_array()), expected)
-        assert var.geotransform[1] > 0 and var.geotransform[5] < 0, "must be north-up, west-east"
+        assert (
+            var.geotransform[1] > 0 and var.geotransform[5] < 0
+        ), "must be north-up, west-east"
 
 
 def _fake_indexing_variable(values):
@@ -504,8 +549,19 @@ class TestScaledAxisAscends:
             ([1.0, 2.0, 2.0, 3.0], None, "plateau"),
             ([1.0, np.nan, 3.0], None, "interior NaN"),
         ],
-        ids=["asc", "desc", "constant", "size-1", "no-coord", "nan-first", "nan-last", "inf",
-             "non-monotonic", "plateau", "interior-nan"],
+        ids=[
+            "asc",
+            "desc",
+            "constant",
+            "size-1",
+            "no-coord",
+            "nan-first",
+            "nan-last",
+            "inf",
+            "non-monotonic",
+            "plateau",
+            "interior-nan",
+        ],
     )
     def test_direction_or_unknown(self, values, expected, label):
         """A non-finite endpoint must report `None`, not a direction.
@@ -531,10 +587,17 @@ class TestScaledAxisAscends:
             ([0, 1, 2, 3], None, True),
             ([0, 2, 1, 3], -5.6e-05, None),
         ],
-        ids=["negative-scale", "positive-scale", "negative-scale-desc-raw", "no-scale",
-             "non-monotonic-raw"],
+        ids=[
+            "negative-scale",
+            "positive-scale",
+            "negative-scale-desc-raw",
+            "no-scale",
+            "non-monotonic-raw",
+        ],
     )
-    def test_declined_unscaled_view_accounts_for_the_scale_sign(self, raw, scale, expected):
+    def test_declined_unscaled_view_accounts_for_the_scale_sign(
+        self, raw, scale, expected
+    ):
         """When `GetUnscaled()` declines, the raw order is corrected by the scale factor's sign.
 
         Test scenario:
@@ -543,7 +606,9 @@ class TestScaledAxisAscends:
             descends, got mirrored in #705.
         """
         result = NetCDF._scaled_axis_ascends([_unscaledless_dim(raw, scale)], 0)
-        assert result is expected, f"raw={raw} scale={scale}: expected {expected}, got {result}"
+        assert (
+            result is expected
+        ), f"raw={raw} scale={scale}: expected {expected}, got {result}"
 
 
 class TestGeostationaryFallbackNeverFlips:
@@ -578,7 +643,9 @@ class TestGeostationaryFallbackNeverFlips:
             carry both signals. This test documents the limitation so a behaviour change is loud.
         """
         srs = osr.SpatialReference()
-        srs.ImportFromEPSG(32636)  # a projected CRS that is NOT recognised as geostationary
+        srs.ImportFromEPSG(
+            32636
+        )  # a projected CRS that is NOT recognised as geostationary
         view = SimpleNamespace(
             GetGeoTransform=lambda: (0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
             GetSpatialRef=lambda: srs,
@@ -611,7 +678,9 @@ class TestCorrectFlippedGeotransform:
 
     def test_y_flip_reanchors_origin_to_the_north(self):
         """A positive `gt[5]` after a Y flip is re-anchored to the north edge."""
-        cube = self._cube((10.0, 2.0, 0.0, 0.0, 0.0, 1.0), y_flipped=True, x_flipped=False)
+        cube = self._cube(
+            (10.0, 2.0, 0.0, 0.0, 0.0, 1.0), y_flipped=True, x_flipped=False
+        )
         NetCDF._correct_flipped_geotransform(cube)
         assert cube._geotransform == pytest.approx((10.0, 2.0, 0.0, 4.0, 0.0, -1.0))
         assert cube._cell_size == pytest.approx(2.0)
@@ -624,14 +693,18 @@ class TestCorrectFlippedGeotransform:
             when the reversed dimension had no indexing variable. Exercised directly because no
             fixture can reach it.
         """
-        cube = self._cube((30.0, -2.0, 0.0, 10.0, 0.0, -1.0), y_flipped=False, x_flipped=True)
+        cube = self._cube(
+            (30.0, -2.0, 0.0, 10.0, 0.0, -1.0), y_flipped=False, x_flipped=True
+        )
         NetCDF._correct_flipped_geotransform(cube)
         assert cube._geotransform == pytest.approx((20.0, 2.0, 0.0, 10.0, 0.0, -1.0))
         assert cube._cell_size == pytest.approx(2.0)
 
     def test_both_axes_reanchored_together(self):
         """Both corrections compose into one north-up, west-to-east geotransform."""
-        cube = self._cube((30.0, -2.0, 0.0, 0.0, 0.0, 1.0), y_flipped=True, x_flipped=True)
+        cube = self._cube(
+            (30.0, -2.0, 0.0, 0.0, 0.0, 1.0), y_flipped=True, x_flipped=True
+        )
         NetCDF._correct_flipped_geotransform(cube)
         assert cube._geotransform == pytest.approx((20.0, 2.0, 0.0, 4.0, 0.0, -1.0))
 
@@ -666,10 +739,14 @@ class TestXAxisOrientation:
         """
         var = NetCDF.read_file(x_descending_nc).get_variable("Band1")
         assert var._md_x_flipped is True, "east-to-west longitude must be reversed"
-        assert var._md_y_flipped is False, "the latitude already descends; it must not be reversed"
+        assert (
+            var._md_y_flipped is False
+        ), "the latitude already descends; it must not be reversed"
         gt = var.geotransform
         assert gt[1] > 0, f"pixel width must be positive after the X flip, got {gt[1]}"
-        assert var.bbox == pytest.approx([20.0, 6.0, 30.0, 10.0]), f"wrong extent: {var.bbox}"
+        assert var.bbox == pytest.approx(
+            [20.0, 6.0, 30.0, 10.0]
+        ), f"wrong extent: {var.bbox}"
         np.testing.assert_array_equal(
             np.asarray(var.read_array()),
             _north_up_reference(x_descending_nc, "Band1"),
@@ -682,9 +759,14 @@ class TestXAxisOrientation:
         before = np.asarray(var.read_array())
         var._materialize_md_view()
         np.testing.assert_array_equal(
-            np.asarray(var.read_array()), before, err_msg="materializing changed the pixels"
+            np.asarray(var.read_array()),
+            before,
+            err_msg="materializing changed the pixels",
         )
-        assert var.raster.ReadAsArray(1, 1, 3, 2).shape[-2:] == (2, 3), "window read must work"
+        assert var.raster.ReadAsArray(1, 1, 3, 2).shape[-2:] == (
+            2,
+            3,
+        ), "window read must work"
 
     @pytest.mark.parametrize(
         "filename, variable",
@@ -694,7 +776,9 @@ class TestXAxisOrientation:
     def test_repo_fixtures_all_ascend_in_x(self, filename, variable):
         """Document the invariant: every on-disk fixture stores X west→east, so none is X-flipped."""
         var = NetCDF.read_file(f"tests/data/netcdf/{filename}").get_variable(variable)
-        assert var._md_x_flipped is False, f"{filename} unexpectedly stores X east-to-west"
+        assert (
+            var._md_x_flipped is False
+        ), f"{filename} unexpectedly stores X east-to-west"
 
 
 class TestDiskRoundTripOrientation:

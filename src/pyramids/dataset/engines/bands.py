@@ -1037,9 +1037,9 @@ class Bands(_Engine["Dataset"]):
         except Exception as e:
             if str(e).__contains__(" argument 2 of type 'double'"):
                 self._ds.raster.GetRasterBand(band + 1).Fill(np.float64(no_data_value))
-            elif str(e).__contains__(_GDAL_READ_ONLY_FILL_ERROR) or str(
-                e
-            ).__contains__("attempt to write to dataset opened in read-only mode."):
+            elif str(e).__contains__(_GDAL_READ_ONLY_FILL_ERROR) or str(e).__contains__(
+                "attempt to write to dataset opened in read-only mode."
+            ):
                 raise ReadOnlyError(
                     "The Dataset is open with a read only, please read the raster using update access mode"
                 )

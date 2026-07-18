@@ -212,7 +212,9 @@ class TestStatsWithMask:
         """
         dataset = Dataset(era5_image)
         stats = dataset.stats(mask=era5_mask)
-        assert isinstance(stats, pd.DataFrame), "stats with mask should return DataFrame"
+        assert isinstance(
+            stats, pd.DataFrame
+        ), "stats with mask should return DataFrame"
         assert list(stats.columns) == ["min", "max", "mean", "std"]
         arr = dataset.read_array()
         mean = arr[:, 1, :].mean(axis=1)

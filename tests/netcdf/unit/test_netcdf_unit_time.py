@@ -253,9 +253,7 @@ class TestCubeDimensionNames:
             pyramids takes the no-flip read path. The cube's
             `dimension_names` should match the container's exactly.
         """
-        nc = NetCDF.read_file(
-            "tests/data/netcdf/cf__5v__1d4-4d1__geog__y-desc.nc"
-        )
+        nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__geog__y-desc.nc")
         var = nc.get_variable("t")
         assert var.dimension_names == [
             "valid_time",
@@ -266,9 +264,7 @@ class TestCubeDimensionNames:
 
     def test_cube_dimension_names_matches_container_for_real_4d(self):
         """Cube's `dimension_names` mirrors container's on a no-flip file."""
-        nc = NetCDF.read_file(
-            "tests/data/netcdf/cf__5v__1d4-4d1__geog__y-desc.nc"
-        )
+        nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__geog__y-desc.nc")
         var = nc.get_variable("t")
         assert (
             var.dimension_names == nc.dimension_names

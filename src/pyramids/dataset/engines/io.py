@@ -34,9 +34,9 @@ from pyramids.base._file_manager import (
     gdal_raster_open,
 )
 from pyramids.base._locks import DummyLock, default_lock
+from pyramids.base._utils import resolve_resampling
 from pyramids.base.crs import reproject_coordinates
 from pyramids.base.protocols import ArrayLike
-from pyramids.base._utils import resolve_resampling
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS, RESAMPLING_METHODS
 from pyramids.dataset.engines.cog import (
     _RESAMPLING_ALG,
@@ -68,6 +68,7 @@ def _snap_index(value: float, tol: float = _GRID_SNAP_TOL) -> float:
     """Snap a fractional pixel index to the nearest integer when within `tol`, else return it as-is."""
     nearest = round(value)
     return float(nearest) if abs(value - nearest) <= tol else value
+
 
 _THREAD_MANAGER_CREATION_LOCK = threading.Lock()
 """Guards the lazy creation of a Dataset's per-thread file manager.
@@ -1443,9 +1444,7 @@ class IO(_Engine["Dataset"]):
         rounding: str = "cover",
     ) -> list[Any]:
         if rounding not in ("cover", "nearest"):
-            raise ValueError(
-                f"rounding must be 'cover' or 'nearest', got {rounding!r}"
-            )
+            raise ValueError(f"rounding must be 'cover' or 'nearest', got {rounding!r}")
         poly = FeatureCollection(poly)
         west, south, east, north = poly.total_bounds
         # The window is computed in the raster's own coordinate frame, so reproject the bbox into the
@@ -1501,8 +1500,14 @@ class IO(_Engine["Dataset"]):
         # Deriving the window from map_to_array_coordinates instead snapped each corner to the nearest
         # cell centre, which both transposed every non-square window and dropped the boundary
         # row/column of a bbox whose edges fell mid-cell (#719).
-        cols = [_snap_index((west - origin_x) / pixel_x), _snap_index((east - origin_x) / pixel_x)]
-        rows = [_snap_index((north - origin_y) / pixel_y), _snap_index((south - origin_y) / pixel_y)]
+        cols = [
+            _snap_index((west - origin_x) / pixel_x),
+            _snap_index((east - origin_x) / pixel_x),
+        ]
+        rows = [
+            _snap_index((north - origin_y) / pixel_y),
+            _snap_index((south - origin_y) / pixel_y),
+        ]
         if rounding == "cover":
             # Floor the near edge and ceil the far edge, so the window includes every pixel the bbox
             # overlaps -- a geotransform-based numpy crop of the full read. Never drops edge data.
@@ -1746,7 +1751,7 @@ class IO(_Engine["Dataset"]):
     def _resolve_write_window(
         array: np.ndarray,
         top_left_corner: list[int] | None,
-        window: "Window | tuple[int, int, int, int] | None",
+        window: Window | tuple[int, int, int, int] | None,
     ) -> tuple[int, int, int, int]:
         """Resolve the ``(yoff, xoff, n_rows, n_cols)`` target of a write.
 
@@ -2199,7 +2204,7 @@ class IO(_Engine["Dataset"]):
                 xsize = size if size + xoff <= cols else cols - xoff
                 yield xoff, yoff, xsize, ysize
 
-    def get_tile(self, size=256) -> Generator[np.typing.NDArray, None, None]:
+    def get_tile(self, size=256) -> Generator[np.typing.NDArray]:
         """Get tile.
 
         Args:
@@ -2627,7 +2632,7 @@ class IO(_Engine["Dataset"]):
     @staticmethod
     def _terrain_byte_dataset(
         stack: np.ndarray, geotransform: tuple, projection: str
-    ) -> "gdal.Dataset":
+    ) -> gdal.Dataset:
         """Build an in-memory Byte GDAL dataset from a ``(bands, rows, cols)`` stack."""
         n_bands, rows, cols = stack.shape
         mem = gdal.GetDriverByName("MEM").Create("", cols, rows, n_bands, gdal.GDT_Byte)
@@ -2693,9 +2698,7 @@ class IO(_Engine["Dataset"]):
         if max_zoom is None:
             max_zoom = self._native_terrain_zoom(abs(gt[1]), tile_size, min_zoom)
         if max_zoom < min_zoom:
-            raise ValueError(
-                f"max_zoom ({max_zoom}) must be >= min_zoom ({min_zoom})."
-            )
+            raise ValueError(f"max_zoom ({max_zoom}) must be >= min_zoom ({min_zoom}).")
         nodata = source.no_data_value[band]
         path.mkdir(parents=True, exist_ok=True)
         for zoom in range(min_zoom, max_zoom + 1):
@@ -2726,7 +2729,7 @@ class IO(_Engine["Dataset"]):
     @staticmethod
     def _terrain_tile_indices(
         zoom: int, west: float, south: float, east: float, north: float
-    ) -> Generator[tuple[int, int], None, None]:
+    ) -> Generator[tuple[int, int]]:
         """Yield the ``(x, y)`` XYZ tile indices covering the 3857 bounds at `zoom`."""
         n_tiles = 2**zoom
         radius = _WEB_MERCATOR_HALF_EXTENT
@@ -2928,9 +2931,7 @@ class IO(_Engine["Dataset"]):
                 "The Dataset is opened with a read only. Please read the dataset using read_only=False"
             )
 
-    def get_overview(
-        self, band: int = 0, overview_index: int = 0
-    ) -> gdal.Band:
+    def get_overview(self, band: int = 0, overview_index: int = 0) -> gdal.Band:
         """Get an overview of a band.
         Args:
             band (int):

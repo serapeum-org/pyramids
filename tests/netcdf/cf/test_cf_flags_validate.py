@@ -151,7 +151,9 @@ class TestCFAttributePreservation:
         # RT-7: get_variable surfaces the variable's real CF attributes — the
         # grid-mapping link create_from_array writes — not just an empty/missing
         # dict. A regression that drops or mangles the tracked attrs fails here.
-        assert var._variable_attrs == {"grid_mapping": "spatial_ref"}, var._variable_attrs
+        assert var._variable_attrs == {
+            "grid_mapping": "spatial_ref"
+        }, var._variable_attrs
 
     def test_conventions_preserved_after_copy(self):
         """Conventions attribute preserved after copy().

@@ -134,8 +134,12 @@ class TestMesh2dFaceCentroids:
             face_y=face_y,
         )
         cx, cy = mesh.face_centroids
-        assert cx[0] == pytest.approx(99.0), f"Expected provided face_x=99.0, got {cx[0]}"
-        assert cy[0] == pytest.approx(99.0), f"Expected provided face_y=99.0, got {cy[0]}"
+        assert cx[0] == pytest.approx(
+            99.0
+        ), f"Expected provided face_x=99.0, got {cx[0]}"
+        assert cy[0] == pytest.approx(
+            99.0
+        ), f"Expected provided face_y=99.0, got {cy[0]}"
 
     def test_centroids_cached(self, triangle_mesh):
         """Test that centroids are cached after first computation.

@@ -276,8 +276,8 @@ class TestApply:
         md.values = values
         double_fn = np.frompyfunc(lambda x: x * 2, 1, 1)
         result = md.apply(double_fn)
-        assert (
-            result.values[0, 1, 0] == pytest.approx(20.0)
+        assert result.values[0, 1, 0] == pytest.approx(
+            20.0
         ), f"Expected 20.0 after doubling, got {result.values[0, 1, 0]}"
 
     def test_apply_non_callable_raises(self, cube_with_values: DatasetCollection):

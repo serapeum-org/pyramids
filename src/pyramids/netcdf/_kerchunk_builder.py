@@ -533,7 +533,11 @@ def _variable_names(refs: dict[str, Any]) -> list[str]:
 
             ```
     """
-    return [key[: -len("/" + _ZARR_ARRAY)] for key in refs if key.endswith("/" + _ZARR_ARRAY)]
+    return [
+        key[: -len("/" + _ZARR_ARRAY)]
+        for key in refs
+        if key.endswith("/" + _ZARR_ARRAY)
+    ]
 
 
 def _shift_chunk_key(key: str, axis: int, offset: int) -> str:
@@ -608,9 +612,7 @@ def _concat_variable(
             )
         prefix = f"{name}/"
         for key, value in refs.items():
-            if not key.startswith(prefix) or key.endswith(
-                _META_SUFFIXES
-            ):
+            if not key.startswith(prefix) or key.endswith(_META_SUFFIXES):
                 continue
             chunk_key = key[len(prefix) :]
             merged[f"{prefix}{_shift_chunk_key(chunk_key, axis, prior_chunks)}"] = value
@@ -661,7 +663,9 @@ def _identical_variable(
                     stacklevel=3,
                 )
                 break
-    return {key: value for key, value in per_file_refs[0].items() if key.startswith(prefix)}
+    return {
+        key: value for key, value in per_file_refs[0].items() if key.startswith(prefix)
+    }
 
 
 def combine_manifests(
@@ -716,7 +720,9 @@ def combine_manifests(
             combined[key] = value
 
     for name in _variable_names(refs_list[0]):
-        dims = json.loads(refs_list[0][f"{name}/{_ZARR_ATTRS}"]).get("_ARRAY_DIMENSIONS", [])
+        dims = json.loads(refs_list[0][f"{name}/{_ZARR_ATTRS}"]).get(
+            "_ARRAY_DIMENSIONS", []
+        )
         if concat_dim in dims:
             combined.update(_concat_variable(name, refs_list, dims.index(concat_dim)))
         else:
