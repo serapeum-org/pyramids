@@ -25,16 +25,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check actor is a repository admin
-        run: |
-          PERMISSION=$(gh api \
-            repos/${{ github.repository }}/collaborators/${{ github.actor }}/permission --jq '.permission')
-          echo "Permission level for ${{ github.actor }}: $PERMISSION"
-          if [ "$PERMISSION" != "admin" ]; then
-            echo "::error::${{ github.actor }} is not a repository admin. Only admins can publish."
-            exit 1
-          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Mirrors github-release.yml's admin gate. Actor/repo are passed via
+          # env (not interpolated into the script body). Distinguish an API
+          # failure (403 scope / rate-limit / transient 5xx) from a genuine
+          # non-admin, so a broken emergency path is not reported as "not admin".
+          if ! PERMISSION=$(gh api "repos/${REPO}/collaborators/${ACTOR}/permission" --jq '.permission'); then
+            echo "::error::could not verify repository permission for ${ACTOR} (GitHub API error)"
+            exit 1
+          fi
+          echo "Permission level for ${ACTOR}: ${PERMISSION}"
+          if [ "${PERMISSION}" != "admin" ]; then
+            echo "::error::${ACTOR} is not a repository admin. Only admins can publish."
+            exit 1
+          fi
 
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
