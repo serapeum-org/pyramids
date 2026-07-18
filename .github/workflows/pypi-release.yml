@@ -4,11 +4,13 @@ name: pypi-release (emergency sdist-only fallback)
 # when bundle-pypi-wheels.yml is broken and conda-forge needs a new tarball
 # to pick up; do NOT use it for normal releases.
 #
-# The canonical release path is bundle-pypi-wheels.yml's `publish:` job,
-# which builds + tests + publishes sdist plus 20 platform wheels in
-# one workflow. That job fires automatically on `release: types:
-# [released]` (which github-release.yml's commitizen tag emits) and on
-# manual `workflow_dispatch` with `upload-to-pypi: true`.
+# The canonical release path is bundle-pypi-wheels.yml's `release:` job,
+# which builds + tests + publishes the sdist plus 23 platform wheels in
+# one workflow. It runs automatically on `workflow_run` when the
+# `github-release` workflow completes (github-release.yml cuts the tag +
+# release via commitizen). A manual `workflow_dispatch` with
+# `dry_run_release: true` runs the gather + composition gate only and
+# does NOT publish.
 #
 # Trigger this workflow manually: `gh workflow run pypi-release.yml`.
 
@@ -21,7 +23,35 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # contents: write is required for the admin-gate step below: the
+    # collaborators/{user}/permission REST endpoint needs push access, and the
+    # gate this mirrors in github-release.yml runs under contents: write for the
+    # same reason. Without it the gh api call 403s and the gate fails closed for
+    # everyone, making the emergency publish path inert.
+    permissions:
+      contents: write
     steps:
+      - name: Check actor is a repository admin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Mirrors github-release.yml's admin gate. Actor/repo are passed via
+          # env (not interpolated into the script body). Distinguish an API
+          # failure (403 scope / rate-limit / transient 5xx) from a genuine
+          # non-admin, so a broken emergency path is not reported as "not admin".
+          if ! PERMISSION=$(gh api "repos/${REPO}/collaborators/${ACTOR}/permission" --jq '.permission'); then
+            echo "::error::could not verify repository permission for ${ACTOR} (GitHub API error)"
+            exit 1
+          fi
+          echo "Permission level for ${ACTOR}: ${PERMISSION}"
+          if [ "${PERMISSION}" != "admin" ]; then
+            echo "::error::${ACTOR} is not a repository admin. Only admins can publish."
+            exit 1
+          fi
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0

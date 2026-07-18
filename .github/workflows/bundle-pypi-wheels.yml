@@ -26,10 +26,16 @@ on:
         default: false
         type: boolean
 
-# Cancel superseded runs to free the hosted-runner pool, but only for pull_request builds —
-# never cancel a push/workflow_run build, since those can publish wheels to PyPI.
+# Every push / workflow_run runs to completion independently: a merge to main must always
+# be fully built and verified, even if a later commit lands while its pipeline is still
+# running, so nothing ever reaches main unverified. Those events get a per-run group
+# (github.run_id is unique per run) so they never queue behind — or cancel — one another.
+# Only pull_request builds share a per-branch group with cancel-in-progress, so a new push
+# to a PR supersedes its older run and frees the hosted-runner pool. NOTE: the on.pull_request
+# trigger is currently commented out above, so the PR arm is dormant future-proofing today —
+# every live event resolves to the unique github.run_id group. It activates if that trigger is restored.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -44,6 +50,13 @@ env:
   # (ci/source-build/) and no longer need them.
   PIXI_VERSION: "0.68.1"
   MICROMAMBA_VERSION: "2.6.1"
+  # x86_64 uv for the Rosetta verify-macos-x86_64 job. Pinned + SHA256-verified
+  # like the other toolchain fetches (never `latest/download`): this job gates
+  # the PyPI publish, so a rolling/tampered binary must not silently pass or
+  # break the wheel verification. Bump both together — the checksum is of
+  # uv-x86_64-apple-darwin.tar.gz for UV_VERSION.
+  UV_VERSION: "0.11.29"
+  UV_SHA256: "c4c4de482da9ccdd076dc4fb5cfe7b740609029385c72f58606be3153602387d"
 
 jobs:
   build-sdist:
@@ -706,6 +719,82 @@ jobs:
           pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread
           -m "core and not vfs and not slow" tests/
 
+  # The macOS x86_64 wheel is cross-compiled on this arm64 macos-14 host, so
+  # cibuildwheel can't run it, and GitHub's macos-13 Intel runners are unusable
+  # in practice (an added macos-13 test cell sat queued 12h, never assigned a
+  # runner). Verify the wheel here instead by running an x86_64 CPython under
+  # Rosetta 2 on this same arm64 runner: install the wheel into an x86_64 venv
+  # and run verify-wheel (GDAL import + all promised drivers + TLS) on every
+  # shipped CPython. This is the only place `import pyramids` runs on the x86_64
+  # wheel before it publishes. The behavioural pytest suite is arch-independent
+  # and runs natively on the arm64/linux/windows test-wheels cells; re-running it
+  # under Rosetta emulation only adds per-test-timeout flakiness (a heavy
+  # curvilinear read tripped the 60s cap under emulation), so it is omitted here.
+  verify-macos-x86_64:
+    needs: build-macos-wheels
+    runs-on: macos-14
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
+
+      - name: Ensure Rosetta 2 is available
+        run: |
+          set -euo pipefail
+          # macos-14 arm64 runners generally ship Rosetta 2, so tolerate the
+          # already-installed / no-op case, but then prove x86_64 emulation
+          # actually works — otherwise a genuine failure is swallowed here and
+          # resurfaces as a confusing error in a later `arch -x86_64` step.
+          softwareupdate --install-rosetta --agree-to-license || true
+          arch -x86_64 /usr/bin/true || {
+            echo "::error::Rosetta 2 x86_64 emulation is unavailable on this runner"
+            exit 1
+          }
+
+      - name: Install a pinned, checksummed x86_64 uv (runs under Rosetta)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o uv-x86_64.tar.gz \
+            "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-apple-darwin.tar.gz"
+          echo "${UV_SHA256}  uv-x86_64.tar.gz" | shasum -a 256 -c -
+          tar -xzf uv-x86_64.tar.gz
+          echo "UVX86=$PWD/uv-x86_64-apple-darwin/uv" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: wheels-macos-x86_64
+          path: dist
+
+      - name: Install the x86_64 wheel into an x86_64 venv (Rosetta)
+        run: |
+          set -euo pipefail
+          # only-managed forces uv to download an x86_64 python-build-standalone
+          # interpreter (uv runs under Rosetta here) instead of reusing a
+          # pre-installed arm64 Homebrew python, which macos-14 ships for some
+          # versions and which would make the x86_64 wheel install as wrong-arch.
+          arch -x86_64 "$UVX86" venv --python-preference only-managed \
+            --python ${{ matrix.python-version }} .venv-x86
+          PYTAG="cp$(echo '${{ matrix.python-version }}' | tr -d .)"
+          WHEEL=$(ls dist/pyramids_gis-*-${PYTAG}-${PYTAG}-*macosx*x86_64.whl | head -1)
+          echo "Installing: $WHEEL"
+          arch -x86_64 "$UVX86" pip install --python .venv-x86/bin/python "$WHEEL"
+
+      - name: Verify GDAL import + drivers (x86_64 under Rosetta)
+        run: |
+          set -euo pipefail
+          # Confirm the venv really is x86_64 (not a stray arm64 interpreter)
+          # without `assert`, which `python -O` would strip.
+          M=$(arch -x86_64 .venv-x86/bin/python -c "import platform;print(platform.machine())")
+          [ "$M" = "x86_64" ] || { echo "::error::venv python is $M, expected x86_64"; exit 1; }
+          arch -x86_64 .venv-x86/bin/python ci/verify-wheel.py
+
   release:
     name: Publish to PyPI + attach to GitHub release
     # NOTE: the musl canary wheels stay UNPUBLISHED (their `canary-*`
@@ -717,7 +806,8 @@ jobs:
     # verify-alpine red (a run-level failure is not loud enough).
     needs: [build-sdist, build-linux-wheels, build-macos-wheels,
             build-windows-wheels, test-wheels, verify-debian12, verify-rocky9,
-            verify-rocky9-aarch64, verify-alpine, verify-winarm64]
+            verify-rocky9-aarch64, verify-alpine, verify-winarm64,
+            verify-macos-x86_64]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Dry-run path (workflow_dispatch + dry-run-release): executes the
