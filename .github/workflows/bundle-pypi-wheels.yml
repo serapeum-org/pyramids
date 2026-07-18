@@ -751,7 +751,12 @@ jobs:
       - name: Install the x86_64 wheel into an x86_64 venv (Rosetta)
         run: |
           set -euo pipefail
-          arch -x86_64 "$UVX86" venv --python ${{ matrix.python-version }} .venv-x86
+          # only-managed forces uv to download an x86_64 python-build-standalone
+          # interpreter (uv runs under Rosetta here) instead of reusing a
+          # pre-installed arm64 Homebrew python, which macos-14 ships for some
+          # versions and which would make the x86_64 wheel install as wrong-arch.
+          arch -x86_64 "$UVX86" venv --python-preference only-managed \
+            --python ${{ matrix.python-version }} .venv-x86
           PYTAG="cp$(echo '${{ matrix.python-version }}' | tr -d .)"
           WHEEL=$(ls dist/pyramids_gis-*-${PYTAG}-${PYTAG}-*macosx*x86_64.whl | head -1)
           echo "Installing: $WHEEL"
