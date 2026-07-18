@@ -10519,7 +10519,9 @@ vertex extraction, and CRS helpers on top.</p>
 <span class="normal"><a href="#__codelineno-0-3465">3465</a></span>
 <span class="normal"><a href="#__codelineno-0-3466">3466</a></span>
 <span class="normal"><a href="#__codelineno-0-3467">3467</a></span>
-<span class="normal"><a href="#__codelineno-0-3468">3468</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-158" name="__codelineno-0-158"></a><span class="k">class</span><span class="w"> </span><span class="nc">FeatureCollection</span><span class="p">(</span><span class="n">GeoDataFrame</span><span class="p">):</span>
+<span class="normal"><a href="#__codelineno-0-3468">3468</a></span>
+<span class="normal"><a href="#__codelineno-0-3469">3469</a></span>
+<span class="normal"><a href="#__codelineno-0-3470">3470</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-158" name="__codelineno-0-158"></a><span class="k">class</span><span class="w"> </span><span class="nc">FeatureCollection</span><span class="p">(</span><span class="n">GeoDataFrame</span><span class="p">):</span>
 <a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;A :class:`geopandas.GeoDataFrame` with pyramids-specific GIS methods.</span>
 <a id="__codelineno-0-160" name="__codelineno-0-160"></a>
 <a id="__codelineno-0-161" name="__codelineno-0-161"></a><span class="sd">    `FeatureCollection` *is a* `GeoDataFrame` — ``isinstance(fc,</span>
@@ -13615,221 +13617,223 @@ vertex extraction, and CRS helpers on top.</p>
 <a id="__codelineno-0-3251" name="__codelineno-0-3251"></a><span class="sd">        Reads ``column`` as the z-value at each point geometry and grids it with ``gdal.Grid`` via</span>
 <a id="__codelineno-0-3252" name="__codelineno-0-3252"></a><span class="sd">        :meth:`pyramids.dataset.Dataset.from_points`. This is distinct from the inherited geopandas</span>
 <a id="__codelineno-0-3253" name="__codelineno-0-3253"></a><span class="sd">        ``GeoSeries.interpolate`` (which is 1-D interpolation *along* a line). Only inverse-distance weighting</span>
-<a id="__codelineno-0-3254" name="__codelineno-0-3254"></a><span class="sd">        (``method=&quot;idw&quot;``) is available here; kriging needs the optional ``pykrige`` dependency.</span>
-<a id="__codelineno-0-3255" name="__codelineno-0-3255"></a>
-<a id="__codelineno-0-3256" name="__codelineno-0-3256"></a><span class="sd">        IDW extrapolates across the whole output extent (no convex-hull mask), so ``nodata`` only appears in</span>
-<a id="__codelineno-0-3257" name="__codelineno-0-3257"></a><span class="sd">        cells ``gdal.Grid`` cannot estimate. Coincident (duplicate) points are not pre-averaged — they are</span>
-<a id="__codelineno-0-3258" name="__codelineno-0-3258"></a><span class="sd">        handled by the inverse-distance weighting itself.</span>
-<a id="__codelineno-0-3259" name="__codelineno-0-3259"></a>
-<a id="__codelineno-0-3260" name="__codelineno-0-3260"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-3261" name="__codelineno-0-3261"></a><span class="sd">            column: Numeric attribute column interpolated as the z-value at each point.</span>
-<a id="__codelineno-0-3262" name="__codelineno-0-3262"></a><span class="sd">            method: Interpolation method. Only ``&quot;idw&quot;`` (inverse-distance weighting) is supported.</span>
-<a id="__codelineno-0-3263" name="__codelineno-0-3263"></a><span class="sd">            cell_size: Output pixel size in the layer&#39;s CRS units. Defaults to a grid spanning the layer extent</span>
-<a id="__codelineno-0-3264" name="__codelineno-0-3264"></a><span class="sd">                (see :meth:`Dataset.from_points`).</span>
-<a id="__codelineno-0-3265" name="__codelineno-0-3265"></a><span class="sd">            bounds: ``(minx, miny, maxx, maxy)`` output extent; defaults to the points&#39; total bounds.</span>
-<a id="__codelineno-0-3266" name="__codelineno-0-3266"></a><span class="sd">            power: IDW distance exponent (higher → more local).</span>
-<a id="__codelineno-0-3267" name="__codelineno-0-3267"></a><span class="sd">            n_neighbors: If given, limit each estimate to the nearest ``n_neighbors`` points (``invdistnn``);</span>
-<a id="__codelineno-0-3268" name="__codelineno-0-3268"></a><span class="sd">                otherwise use all points (``invdist``).</span>
-<a id="__codelineno-0-3269" name="__codelineno-0-3269"></a><span class="sd">            nodata: Value written to cells GDAL cannot interpolate.</span>
-<a id="__codelineno-0-3270" name="__codelineno-0-3270"></a>
-<a id="__codelineno-0-3271" name="__codelineno-0-3271"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-3272" name="__codelineno-0-3272"></a><span class="sd">            Dataset: A single-band raster of the interpolated surface, in the layer&#39;s CRS.</span>
-<a id="__codelineno-0-3273" name="__codelineno-0-3273"></a>
-<a id="__codelineno-0-3274" name="__codelineno-0-3274"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-3275" name="__codelineno-0-3275"></a><span class="sd">            InvalidGeometryError: If the geometries are not all ``Point``.</span>
-<a id="__codelineno-0-3276" name="__codelineno-0-3276"></a><span class="sd">            ValueError: If ``method`` is not ``&quot;idw&quot;``, ``column`` is missing / non-numeric / all-NaN, or there</span>
-<a id="__codelineno-0-3277" name="__codelineno-0-3277"></a><span class="sd">                are fewer than 3 points.</span>
-<a id="__codelineno-0-3278" name="__codelineno-0-3278"></a>
-<a id="__codelineno-0-3279" name="__codelineno-0-3279"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-3280" name="__codelineno-0-3280"></a><span class="sd">            - Inverse-distance interpolate four corner readings onto a 1-degree grid:</span>
-<a id="__codelineno-0-3281" name="__codelineno-0-3281"></a><span class="sd">                ```python</span>
-<a id="__codelineno-0-3282" name="__codelineno-0-3282"></a><span class="sd">                &gt;&gt;&gt; import geopandas as gpd</span>
-<a id="__codelineno-0-3283" name="__codelineno-0-3283"></a><span class="sd">                &gt;&gt;&gt; from shapely.geometry import Point</span>
-<a id="__codelineno-0-3284" name="__codelineno-0-3284"></a><span class="sd">                &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
-<a id="__codelineno-0-3285" name="__codelineno-0-3285"></a><span class="sd">                &gt;&gt;&gt; fc = FeatureCollection(</span>
-<a id="__codelineno-0-3286" name="__codelineno-0-3286"></a><span class="sd">                ...     gpd.GeoDataFrame(</span>
-<a id="__codelineno-0-3287" name="__codelineno-0-3287"></a><span class="sd">                ...         {&quot;rain&quot;: [1.0, 2.0, 3.0, 4.0]},</span>
-<a id="__codelineno-0-3288" name="__codelineno-0-3288"></a><span class="sd">                ...         geometry=[Point(0, 0), Point(3, 0), Point(0, 3), Point(3, 3)],</span>
-<a id="__codelineno-0-3289" name="__codelineno-0-3289"></a><span class="sd">                ...         crs=&quot;EPSG:4326&quot;,</span>
-<a id="__codelineno-0-3290" name="__codelineno-0-3290"></a><span class="sd">                ...     )</span>
-<a id="__codelineno-0-3291" name="__codelineno-0-3291"></a><span class="sd">                ... )</span>
-<a id="__codelineno-0-3292" name="__codelineno-0-3292"></a><span class="sd">                &gt;&gt;&gt; surface = fc.interpolate_to_raster(&quot;rain&quot;, cell_size=1.0)</span>
-<a id="__codelineno-0-3293" name="__codelineno-0-3293"></a><span class="sd">                &gt;&gt;&gt; surface.band_count</span>
-<a id="__codelineno-0-3294" name="__codelineno-0-3294"></a><span class="sd">                1</span>
-<a id="__codelineno-0-3295" name="__codelineno-0-3295"></a><span class="sd">                &gt;&gt;&gt; surface.epsg</span>
-<a id="__codelineno-0-3296" name="__codelineno-0-3296"></a><span class="sd">                4326</span>
-<a id="__codelineno-0-3297" name="__codelineno-0-3297"></a>
-<a id="__codelineno-0-3298" name="__codelineno-0-3298"></a><span class="sd">                ```</span>
-<a id="__codelineno-0-3299" name="__codelineno-0-3299"></a>
-<a id="__codelineno-0-3300" name="__codelineno-0-3300"></a><span class="sd">        See Also:</span>
-<a id="__codelineno-0-3301" name="__codelineno-0-3301"></a><span class="sd">            - :meth:`pyramids.dataset.Dataset.from_points`: the underlying ``gdal.Grid`` interpolation this</span>
-<a id="__codelineno-0-3302" name="__codelineno-0-3302"></a><span class="sd">              method delegates to (accepts any ``gdal.Grid`` algorithm string).</span>
-<a id="__codelineno-0-3303" name="__codelineno-0-3303"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-3304" name="__codelineno-0-3304"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_require_point_geometry</span><span class="p">(</span><span class="s2">&quot;interpolate_to_raster&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3305" name="__codelineno-0-3305"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_require_column</span><span class="p">(</span><span class="s2">&quot;interpolate_to_raster&quot;</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span>
-<a id="__codelineno-0-3306" name="__codelineno-0-3306"></a>        <span class="k">if</span> <span class="n">method</span> <span class="o">!=</span> <span class="s2">&quot;idw&quot;</span><span class="p">:</span>
-<a id="__codelineno-0-3307" name="__codelineno-0-3307"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-3308" name="__codelineno-0-3308"></a>                <span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: method </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2"> is not supported; only &#39;idw&#39; is available &quot;</span>
-<a id="__codelineno-0-3309" name="__codelineno-0-3309"></a>                <span class="s2">&quot;(kriging needs the optional &#39;pykrige&#39; dependency)&quot;</span>
-<a id="__codelineno-0-3310" name="__codelineno-0-3310"></a>            <span class="p">)</span>
-<a id="__codelineno-0-3311" name="__codelineno-0-3311"></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">:</span>
-<a id="__codelineno-0-3312" name="__codelineno-0-3312"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: need at least 3 points, got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3313" name="__codelineno-0-3313"></a>        <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-3314" name="__codelineno-0-3314"></a>            <span class="n">values</span> <span class="o">=</span> <span class="bp">self</span><span class="p">[</span><span class="n">column</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
-<a id="__codelineno-0-3315" name="__codelineno-0-3315"></a>        <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-<a id="__codelineno-0-3316" name="__codelineno-0-3316"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> must be numeric&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-<a id="__codelineno-0-3317" name="__codelineno-0-3317"></a>        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">values</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
-<a id="__codelineno-0-3318" name="__codelineno-0-3318"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> is all-NaN&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3319" name="__codelineno-0-3319"></a>        <span class="k">if</span> <span class="n">n_neighbors</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-3320" name="__codelineno-0-3320"></a>            <span class="n">algorithm</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;invdistnn:power=</span><span class="si">{</span><span class="n">power</span><span class="si">}</span><span class="s2">:max_points=</span><span class="si">{</span><span class="n">n_neighbors</span><span class="si">}</span><span class="s2">:nodata=</span><span class="si">{</span><span class="n">nodata</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-3321" name="__codelineno-0-3321"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-3322" name="__codelineno-0-3322"></a>            <span class="n">algorithm</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;invdist:power=</span><span class="si">{</span><span class="n">power</span><span class="si">}</span><span class="s2">:smoothing=0.0:nodata=</span><span class="si">{</span><span class="n">nodata</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-3323" name="__codelineno-0-3323"></a>        <span class="c1"># local import: pyramids.dataset imports pyramids.feature, so import here to break the cycle.</span>
-<a id="__codelineno-0-3324" name="__codelineno-0-3324"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
-<a id="__codelineno-0-3325" name="__codelineno-0-3325"></a>
-<a id="__codelineno-0-3326" name="__codelineno-0-3326"></a>        <span class="k">return</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_points</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">algorithm</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="n">bounds</span><span class="p">)</span>
+<a id="__codelineno-0-3254" name="__codelineno-0-3254"></a><span class="sd">        (``method=&quot;idw&quot;``) is available here; kriging is out of scope for pyramids — see the ``geostatista``</span>
+<a id="__codelineno-0-3255" name="__codelineno-0-3255"></a><span class="sd">        package (the serapeum geostatistics tier).</span>
+<a id="__codelineno-0-3256" name="__codelineno-0-3256"></a>
+<a id="__codelineno-0-3257" name="__codelineno-0-3257"></a><span class="sd">        IDW extrapolates across the whole output extent (no convex-hull mask), so ``nodata`` only appears in</span>
+<a id="__codelineno-0-3258" name="__codelineno-0-3258"></a><span class="sd">        cells ``gdal.Grid`` cannot estimate. Coincident (duplicate) points are not pre-averaged — they are</span>
+<a id="__codelineno-0-3259" name="__codelineno-0-3259"></a><span class="sd">        handled by the inverse-distance weighting itself.</span>
+<a id="__codelineno-0-3260" name="__codelineno-0-3260"></a>
+<a id="__codelineno-0-3261" name="__codelineno-0-3261"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-3262" name="__codelineno-0-3262"></a><span class="sd">            column: Numeric attribute column interpolated as the z-value at each point.</span>
+<a id="__codelineno-0-3263" name="__codelineno-0-3263"></a><span class="sd">            method: Interpolation method. Only ``&quot;idw&quot;`` (inverse-distance weighting) is supported.</span>
+<a id="__codelineno-0-3264" name="__codelineno-0-3264"></a><span class="sd">            cell_size: Output pixel size in the layer&#39;s CRS units. Defaults to a grid spanning the layer extent</span>
+<a id="__codelineno-0-3265" name="__codelineno-0-3265"></a><span class="sd">                (see :meth:`Dataset.from_points`).</span>
+<a id="__codelineno-0-3266" name="__codelineno-0-3266"></a><span class="sd">            bounds: ``(minx, miny, maxx, maxy)`` output extent; defaults to the points&#39; total bounds.</span>
+<a id="__codelineno-0-3267" name="__codelineno-0-3267"></a><span class="sd">            power: IDW distance exponent (higher → more local).</span>
+<a id="__codelineno-0-3268" name="__codelineno-0-3268"></a><span class="sd">            n_neighbors: If given, limit each estimate to the nearest ``n_neighbors`` points (``invdistnn``);</span>
+<a id="__codelineno-0-3269" name="__codelineno-0-3269"></a><span class="sd">                otherwise use all points (``invdist``).</span>
+<a id="__codelineno-0-3270" name="__codelineno-0-3270"></a><span class="sd">            nodata: Value written to cells GDAL cannot interpolate.</span>
+<a id="__codelineno-0-3271" name="__codelineno-0-3271"></a>
+<a id="__codelineno-0-3272" name="__codelineno-0-3272"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-3273" name="__codelineno-0-3273"></a><span class="sd">            Dataset: A single-band raster of the interpolated surface, in the layer&#39;s CRS.</span>
+<a id="__codelineno-0-3274" name="__codelineno-0-3274"></a>
+<a id="__codelineno-0-3275" name="__codelineno-0-3275"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-3276" name="__codelineno-0-3276"></a><span class="sd">            InvalidGeometryError: If the geometries are not all ``Point``.</span>
+<a id="__codelineno-0-3277" name="__codelineno-0-3277"></a><span class="sd">            ValueError: If ``method`` is not ``&quot;idw&quot;``, ``column`` is missing / non-numeric / all-NaN, or there</span>
+<a id="__codelineno-0-3278" name="__codelineno-0-3278"></a><span class="sd">                are fewer than 3 points.</span>
+<a id="__codelineno-0-3279" name="__codelineno-0-3279"></a>
+<a id="__codelineno-0-3280" name="__codelineno-0-3280"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-3281" name="__codelineno-0-3281"></a><span class="sd">            - Inverse-distance interpolate four corner readings onto a 1-degree grid:</span>
+<a id="__codelineno-0-3282" name="__codelineno-0-3282"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-3283" name="__codelineno-0-3283"></a><span class="sd">                &gt;&gt;&gt; import geopandas as gpd</span>
+<a id="__codelineno-0-3284" name="__codelineno-0-3284"></a><span class="sd">                &gt;&gt;&gt; from shapely.geometry import Point</span>
+<a id="__codelineno-0-3285" name="__codelineno-0-3285"></a><span class="sd">                &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
+<a id="__codelineno-0-3286" name="__codelineno-0-3286"></a><span class="sd">                &gt;&gt;&gt; fc = FeatureCollection(</span>
+<a id="__codelineno-0-3287" name="__codelineno-0-3287"></a><span class="sd">                ...     gpd.GeoDataFrame(</span>
+<a id="__codelineno-0-3288" name="__codelineno-0-3288"></a><span class="sd">                ...         {&quot;rain&quot;: [1.0, 2.0, 3.0, 4.0]},</span>
+<a id="__codelineno-0-3289" name="__codelineno-0-3289"></a><span class="sd">                ...         geometry=[Point(0, 0), Point(3, 0), Point(0, 3), Point(3, 3)],</span>
+<a id="__codelineno-0-3290" name="__codelineno-0-3290"></a><span class="sd">                ...         crs=&quot;EPSG:4326&quot;,</span>
+<a id="__codelineno-0-3291" name="__codelineno-0-3291"></a><span class="sd">                ...     )</span>
+<a id="__codelineno-0-3292" name="__codelineno-0-3292"></a><span class="sd">                ... )</span>
+<a id="__codelineno-0-3293" name="__codelineno-0-3293"></a><span class="sd">                &gt;&gt;&gt; surface = fc.interpolate_to_raster(&quot;rain&quot;, cell_size=1.0)</span>
+<a id="__codelineno-0-3294" name="__codelineno-0-3294"></a><span class="sd">                &gt;&gt;&gt; surface.band_count</span>
+<a id="__codelineno-0-3295" name="__codelineno-0-3295"></a><span class="sd">                1</span>
+<a id="__codelineno-0-3296" name="__codelineno-0-3296"></a><span class="sd">                &gt;&gt;&gt; surface.epsg</span>
+<a id="__codelineno-0-3297" name="__codelineno-0-3297"></a><span class="sd">                4326</span>
+<a id="__codelineno-0-3298" name="__codelineno-0-3298"></a>
+<a id="__codelineno-0-3299" name="__codelineno-0-3299"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-3300" name="__codelineno-0-3300"></a>
+<a id="__codelineno-0-3301" name="__codelineno-0-3301"></a><span class="sd">        See Also:</span>
+<a id="__codelineno-0-3302" name="__codelineno-0-3302"></a><span class="sd">            - :meth:`pyramids.dataset.Dataset.from_points`: the underlying ``gdal.Grid`` interpolation this</span>
+<a id="__codelineno-0-3303" name="__codelineno-0-3303"></a><span class="sd">              method delegates to (accepts any ``gdal.Grid`` algorithm string).</span>
+<a id="__codelineno-0-3304" name="__codelineno-0-3304"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-3305" name="__codelineno-0-3305"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_require_point_geometry</span><span class="p">(</span><span class="s2">&quot;interpolate_to_raster&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3306" name="__codelineno-0-3306"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_require_column</span><span class="p">(</span><span class="s2">&quot;interpolate_to_raster&quot;</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span>
+<a id="__codelineno-0-3307" name="__codelineno-0-3307"></a>        <span class="k">if</span> <span class="n">method</span> <span class="o">!=</span> <span class="s2">&quot;idw&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-3308" name="__codelineno-0-3308"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-3309" name="__codelineno-0-3309"></a>                <span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: method </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2"> is not supported; only &#39;idw&#39; is available. &quot;</span>
+<a id="__codelineno-0-3310" name="__codelineno-0-3310"></a>                <span class="s2">&quot;Kriging is out of scope for pyramids — see the geostatista package (the serapeum &quot;</span>
+<a id="__codelineno-0-3311" name="__codelineno-0-3311"></a>                <span class="s2">&quot;geostatistics tier).&quot;</span>
+<a id="__codelineno-0-3312" name="__codelineno-0-3312"></a>            <span class="p">)</span>
+<a id="__codelineno-0-3313" name="__codelineno-0-3313"></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">:</span>
+<a id="__codelineno-0-3314" name="__codelineno-0-3314"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: need at least 3 points, got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3315" name="__codelineno-0-3315"></a>        <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-3316" name="__codelineno-0-3316"></a>            <span class="n">values</span> <span class="o">=</span> <span class="bp">self</span><span class="p">[</span><span class="n">column</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+<a id="__codelineno-0-3317" name="__codelineno-0-3317"></a>        <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-0-3318" name="__codelineno-0-3318"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> must be numeric&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+<a id="__codelineno-0-3319" name="__codelineno-0-3319"></a>        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">values</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+<a id="__codelineno-0-3320" name="__codelineno-0-3320"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> is all-NaN&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3321" name="__codelineno-0-3321"></a>        <span class="k">if</span> <span class="n">n_neighbors</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-3322" name="__codelineno-0-3322"></a>            <span class="n">algorithm</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;invdistnn:power=</span><span class="si">{</span><span class="n">power</span><span class="si">}</span><span class="s2">:max_points=</span><span class="si">{</span><span class="n">n_neighbors</span><span class="si">}</span><span class="s2">:nodata=</span><span class="si">{</span><span class="n">nodata</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-3323" name="__codelineno-0-3323"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-3324" name="__codelineno-0-3324"></a>            <span class="n">algorithm</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;invdist:power=</span><span class="si">{</span><span class="n">power</span><span class="si">}</span><span class="s2">:smoothing=0.0:nodata=</span><span class="si">{</span><span class="n">nodata</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-3325" name="__codelineno-0-3325"></a>        <span class="c1"># local import: pyramids.dataset imports pyramids.feature, so import here to break the cycle.</span>
+<a id="__codelineno-0-3326" name="__codelineno-0-3326"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-0-3327" name="__codelineno-0-3327"></a>
-<a id="__codelineno-0-3328" name="__codelineno-0-3328"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_h3_cells</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">op</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
-<a id="__codelineno-0-3329" name="__codelineno-0-3329"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the H3 cell index of each point at ``resolution`` (helper for to_h3 / h3_bin).</span>
-<a id="__codelineno-0-3330" name="__codelineno-0-3330"></a>
-<a id="__codelineno-0-3331" name="__codelineno-0-3331"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-3332" name="__codelineno-0-3332"></a><span class="sd">            resolution: H3 resolution, 0-15.</span>
-<a id="__codelineno-0-3333" name="__codelineno-0-3333"></a><span class="sd">            op: Calling operation name, used in error messages.</span>
-<a id="__codelineno-0-3334" name="__codelineno-0-3334"></a>
-<a id="__codelineno-0-3335" name="__codelineno-0-3335"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-3336" name="__codelineno-0-3336"></a><span class="sd">            list[str]: One H3 cell index (hex string) per point, in row order.</span>
-<a id="__codelineno-0-3337" name="__codelineno-0-3337"></a>
-<a id="__codelineno-0-3338" name="__codelineno-0-3338"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-3339" name="__codelineno-0-3339"></a><span class="sd">            InvalidGeometryError: If the geometries are not all ``Point``.</span>
-<a id="__codelineno-0-3340" name="__codelineno-0-3340"></a><span class="sd">            ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.</span>
-<a id="__codelineno-0-3341" name="__codelineno-0-3341"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-3342" name="__codelineno-0-3342"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_require_point_geometry</span><span class="p">(</span><span class="n">op</span><span class="p">)</span>
-<a id="__codelineno-0-3343" name="__codelineno-0-3343"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">resolution</span> <span class="o">&lt;=</span> <span class="mi">15</span><span class="p">:</span>
-<a id="__codelineno-0-3344" name="__codelineno-0-3344"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2">: resolution must be 0-15, got </span><span class="si">{</span><span class="n">resolution</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3345" name="__codelineno-0-3345"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">crs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-3346" name="__codelineno-0-3346"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2">: a CRS is required to convert points to lat/lng for H3 indexing&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3347" name="__codelineno-0-3347"></a>        <span class="n">pts</span> <span class="o">=</span> <span class="bp">self</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">epsg</span> <span class="o">==</span> <span class="mi">4326</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_crs</span><span class="p">(</span><span class="mi">4326</span><span class="p">)</span>
-<a id="__codelineno-0-3348" name="__codelineno-0-3348"></a>        <span class="k">return</span> <span class="p">[</span><span class="n">_h3</span><span class="o">.</span><span class="n">latlng_to_cell</span><span class="p">(</span><span class="n">geom</span><span class="o">.</span><span class="n">y</span><span class="p">,</span> <span class="n">geom</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="n">resolution</span><span class="p">)</span> <span class="k">for</span> <span class="n">geom</span> <span class="ow">in</span> <span class="n">pts</span><span class="o">.</span><span class="n">geometry</span><span class="p">]</span>
-<a id="__codelineno-0-3349" name="__codelineno-0-3349"></a>
-<a id="__codelineno-0-3350" name="__codelineno-0-3350"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_h3</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FeatureCollection</span><span class="p">:</span>
-<a id="__codelineno-0-3351" name="__codelineno-0-3351"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Attach the H3 cell index of each point as an ``h3`` column.</span>
-<a id="__codelineno-0-3352" name="__codelineno-0-3352"></a>
-<a id="__codelineno-0-3353" name="__codelineno-0-3353"></a><span class="sd">        Indexes every point geometry into Uber&#39;s H3 hexagonal grid at the given resolution (computed in</span>
-<a id="__codelineno-0-3354" name="__codelineno-0-3354"></a><span class="sd">        EPSG:4326 — points are reprojected for the lookup, but the returned collection keeps its own geometry</span>
-<a id="__codelineno-0-3355" name="__codelineno-0-3355"></a><span class="sd">        and CRS). Uses pyramids&#39; built-in H3 engine, so no ``h3`` dependency is required.</span>
-<a id="__codelineno-0-3356" name="__codelineno-0-3356"></a>
-<a id="__codelineno-0-3357" name="__codelineno-0-3357"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-3358" name="__codelineno-0-3358"></a><span class="sd">            resolution: H3 resolution, 0 (coarsest) to 15 (finest).</span>
-<a id="__codelineno-0-3359" name="__codelineno-0-3359"></a>
-<a id="__codelineno-0-3360" name="__codelineno-0-3360"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-3361" name="__codelineno-0-3361"></a><span class="sd">            FeatureCollection: A copy of this collection with an ``h3`` column of cell-index strings.</span>
-<a id="__codelineno-0-3362" name="__codelineno-0-3362"></a>
-<a id="__codelineno-0-3363" name="__codelineno-0-3363"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-3364" name="__codelineno-0-3364"></a><span class="sd">            InvalidGeometryError: If the geometries are not all ``Point``.</span>
-<a id="__codelineno-0-3365" name="__codelineno-0-3365"></a><span class="sd">            ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.</span>
-<a id="__codelineno-0-3366" name="__codelineno-0-3366"></a>
-<a id="__codelineno-0-3367" name="__codelineno-0-3367"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-3368" name="__codelineno-0-3368"></a><span class="sd">            - Index three points at resolution 9:</span>
-<a id="__codelineno-0-3369" name="__codelineno-0-3369"></a><span class="sd">                ```python</span>
-<a id="__codelineno-0-3370" name="__codelineno-0-3370"></a><span class="sd">                &gt;&gt;&gt; import geopandas as gpd</span>
-<a id="__codelineno-0-3371" name="__codelineno-0-3371"></a><span class="sd">                &gt;&gt;&gt; from shapely.geometry import Point</span>
-<a id="__codelineno-0-3372" name="__codelineno-0-3372"></a><span class="sd">                &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
-<a id="__codelineno-0-3373" name="__codelineno-0-3373"></a><span class="sd">                &gt;&gt;&gt; fc = FeatureCollection(</span>
-<a id="__codelineno-0-3374" name="__codelineno-0-3374"></a><span class="sd">                ...     gpd.GeoDataFrame(</span>
-<a id="__codelineno-0-3375" name="__codelineno-0-3375"></a><span class="sd">                ...         {&quot;id&quot;: [1, 2, 3]},</span>
-<a id="__codelineno-0-3376" name="__codelineno-0-3376"></a><span class="sd">                ...         geometry=[Point(-122.418, 37.775), Point(-122.42, 37.776), Point(0, 0)],</span>
-<a id="__codelineno-0-3377" name="__codelineno-0-3377"></a><span class="sd">                ...         crs=&quot;EPSG:4326&quot;,</span>
-<a id="__codelineno-0-3378" name="__codelineno-0-3378"></a><span class="sd">                ...     )</span>
-<a id="__codelineno-0-3379" name="__codelineno-0-3379"></a><span class="sd">                ... )</span>
-<a id="__codelineno-0-3380" name="__codelineno-0-3380"></a><span class="sd">                &gt;&gt;&gt; out = fc.to_h3(9)</span>
-<a id="__codelineno-0-3381" name="__codelineno-0-3381"></a><span class="sd">                &gt;&gt;&gt; out[&quot;h3&quot;].tolist()</span>
-<a id="__codelineno-0-3382" name="__codelineno-0-3382"></a><span class="sd">                [&#39;89283082803ffff&#39;, &#39;8928308280fffff&#39;, &#39;89754e64993ffff&#39;]</span>
-<a id="__codelineno-0-3383" name="__codelineno-0-3383"></a>
-<a id="__codelineno-0-3384" name="__codelineno-0-3384"></a><span class="sd">                ```</span>
-<a id="__codelineno-0-3385" name="__codelineno-0-3385"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-3386" name="__codelineno-0-3386"></a>        <span class="n">cells</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_h3_cells</span><span class="p">(</span><span class="n">resolution</span><span class="p">,</span> <span class="s2">&quot;to_h3&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3387" name="__codelineno-0-3387"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">copy</span><span class="p">())</span>
-<a id="__codelineno-0-3388" name="__codelineno-0-3388"></a>        <span class="n">result</span><span class="p">[</span><span class="s2">&quot;h3&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cells</span>
-<a id="__codelineno-0-3389" name="__codelineno-0-3389"></a>        <span class="k">return</span> <span class="n">result</span>
-<a id="__codelineno-0-3390" name="__codelineno-0-3390"></a>
-<a id="__codelineno-0-3391" name="__codelineno-0-3391"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">h3_bin</span><span class="p">(</span>
-<a id="__codelineno-0-3392" name="__codelineno-0-3392"></a>        <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-3393" name="__codelineno-0-3393"></a>        <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-3394" name="__codelineno-0-3394"></a>        <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-3395" name="__codelineno-0-3395"></a>        <span class="n">agg</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Callable</span> <span class="o">=</span> <span class="s2">&quot;count&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-3396" name="__codelineno-0-3396"></a>        <span class="n">column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-3397" name="__codelineno-0-3397"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FeatureCollection</span><span class="p">:</span>
-<a id="__codelineno-0-3398" name="__codelineno-0-3398"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Aggregate points into H3 hexagon cells, one polygon per occupied cell.</span>
-<a id="__codelineno-0-3399" name="__codelineno-0-3399"></a>
-<a id="__codelineno-0-3400" name="__codelineno-0-3400"></a><span class="sd">        Groups the points by their H3 cell at ``resolution`` and returns one hexagon (or pentagon) polygon per</span>
-<a id="__codelineno-0-3401" name="__codelineno-0-3401"></a><span class="sd">        occupied cell carrying an aggregate: the point **count** when ``column`` is ``None``, otherwise ``agg``</span>
-<a id="__codelineno-0-3402" name="__codelineno-0-3402"></a><span class="sd">        applied to ``column``. The output is in EPSG:4326 (H3 is lat/lng). No ``h3`` dependency is required.</span>
-<a id="__codelineno-0-3403" name="__codelineno-0-3403"></a>
-<a id="__codelineno-0-3404" name="__codelineno-0-3404"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-3405" name="__codelineno-0-3405"></a><span class="sd">            resolution: H3 resolution, 0-15.</span>
-<a id="__codelineno-0-3406" name="__codelineno-0-3406"></a><span class="sd">            agg: Per-cell reducer applied to ``column`` — one of ``&quot;count&quot;`` / ``&quot;mean&quot;`` / ``&quot;sum&quot;`` /</span>
-<a id="__codelineno-0-3407" name="__codelineno-0-3407"></a><span class="sd">                ``&quot;median&quot;`` / ``&quot;min&quot;`` / ``&quot;max&quot;`` / ``&quot;std&quot;`` or a callable taking a 1-D array. Ignored when</span>
-<a id="__codelineno-0-3408" name="__codelineno-0-3408"></a><span class="sd">                ``column`` is ``None`` (point count).</span>
-<a id="__codelineno-0-3409" name="__codelineno-0-3409"></a><span class="sd">            column: Numeric column aggregated per cell, or ``None`` to count points (density).</span>
-<a id="__codelineno-0-3410" name="__codelineno-0-3410"></a>
-<a id="__codelineno-0-3411" name="__codelineno-0-3411"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-3412" name="__codelineno-0-3412"></a><span class="sd">            FeatureCollection: One hexagon polygon per occupied cell, in EPSG:4326, with an ``h3`` index column</span>
-<a id="__codelineno-0-3413" name="__codelineno-0-3413"></a><span class="sd">            and an aggregate column (``&quot;count&quot;`` when ``column`` is ``None``, else named ``column``).</span>
-<a id="__codelineno-0-3414" name="__codelineno-0-3414"></a>
-<a id="__codelineno-0-3415" name="__codelineno-0-3415"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-3416" name="__codelineno-0-3416"></a><span class="sd">            InvalidGeometryError: If the geometries are not all ``Point``.</span>
-<a id="__codelineno-0-3417" name="__codelineno-0-3417"></a><span class="sd">            ValueError: If ``resolution`` is outside 0-15, the collection has no CRS, ``column`` is missing /</span>
-<a id="__codelineno-0-3418" name="__codelineno-0-3418"></a><span class="sd">                non-numeric, or ``agg`` is not a known reducer name or callable.</span>
-<a id="__codelineno-0-3419" name="__codelineno-0-3419"></a>
-<a id="__codelineno-0-3420" name="__codelineno-0-3420"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-3421" name="__codelineno-0-3421"></a><span class="sd">            - Bin four nearby points into H3 cells at resolution 9 and read the counts:</span>
-<a id="__codelineno-0-3422" name="__codelineno-0-3422"></a><span class="sd">                ```python</span>
-<a id="__codelineno-0-3423" name="__codelineno-0-3423"></a><span class="sd">                &gt;&gt;&gt; import geopandas as gpd</span>
-<a id="__codelineno-0-3424" name="__codelineno-0-3424"></a><span class="sd">                &gt;&gt;&gt; from shapely.geometry import Point</span>
-<a id="__codelineno-0-3425" name="__codelineno-0-3425"></a><span class="sd">                &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
-<a id="__codelineno-0-3426" name="__codelineno-0-3426"></a><span class="sd">                &gt;&gt;&gt; fc = FeatureCollection(</span>
-<a id="__codelineno-0-3427" name="__codelineno-0-3427"></a><span class="sd">                ...     gpd.GeoDataFrame(</span>
-<a id="__codelineno-0-3428" name="__codelineno-0-3428"></a><span class="sd">                ...         {&quot;v&quot;: [1.0, 2.0, 3.0, 4.0]},</span>
-<a id="__codelineno-0-3429" name="__codelineno-0-3429"></a><span class="sd">                ...         geometry=[</span>
-<a id="__codelineno-0-3430" name="__codelineno-0-3430"></a><span class="sd">                ...             Point(-122.418, 37.775), Point(-122.4181, 37.7751),</span>
-<a id="__codelineno-0-3431" name="__codelineno-0-3431"></a><span class="sd">                ...             Point(-122.40, 37.78), Point(-122.40, 37.78),</span>
-<a id="__codelineno-0-3432" name="__codelineno-0-3432"></a><span class="sd">                ...         ],</span>
-<a id="__codelineno-0-3433" name="__codelineno-0-3433"></a><span class="sd">                ...         crs=&quot;EPSG:4326&quot;,</span>
-<a id="__codelineno-0-3434" name="__codelineno-0-3434"></a><span class="sd">                ...     )</span>
-<a id="__codelineno-0-3435" name="__codelineno-0-3435"></a><span class="sd">                ... )</span>
-<a id="__codelineno-0-3436" name="__codelineno-0-3436"></a><span class="sd">                &gt;&gt;&gt; cells = fc.h3_bin(9)</span>
-<a id="__codelineno-0-3437" name="__codelineno-0-3437"></a><span class="sd">                &gt;&gt;&gt; int(cells[&quot;count&quot;].sum())</span>
-<a id="__codelineno-0-3438" name="__codelineno-0-3438"></a><span class="sd">                4</span>
-<a id="__codelineno-0-3439" name="__codelineno-0-3439"></a><span class="sd">                &gt;&gt;&gt; cells.crs.to_epsg()</span>
-<a id="__codelineno-0-3440" name="__codelineno-0-3440"></a><span class="sd">                4326</span>
-<a id="__codelineno-0-3441" name="__codelineno-0-3441"></a>
-<a id="__codelineno-0-3442" name="__codelineno-0-3442"></a><span class="sd">                ```</span>
-<a id="__codelineno-0-3443" name="__codelineno-0-3443"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-3444" name="__codelineno-0-3444"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_require_column</span><span class="p">(</span><span class="s2">&quot;h3_bin&quot;</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span>
-<a id="__codelineno-0-3445" name="__codelineno-0-3445"></a>        <span class="n">cells</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_h3_cells</span><span class="p">(</span><span class="n">resolution</span><span class="p">,</span> <span class="s2">&quot;h3_bin&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3446" name="__codelineno-0-3446"></a>        <span class="k">if</span> <span class="n">column</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-3447" name="__codelineno-0-3447"></a>            <span class="n">counts</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">cells</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;object&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span>
-<a id="__codelineno-0-3448" name="__codelineno-0-3448"></a>            <span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="n">cell</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">n</span><span class="p">))</span> <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">counts</span><span class="o">.</span><span class="n">items</span><span class="p">()]</span>
-<a id="__codelineno-0-3449" name="__codelineno-0-3449"></a>            <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;count&quot;</span>
-<a id="__codelineno-0-3450" name="__codelineno-0-3450"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-3451" name="__codelineno-0-3451"></a>            <span class="n">reducer</span> <span class="o">=</span> <span class="n">_tess</span><span class="o">.</span><span class="n">resolve_reducer</span><span class="p">(</span><span class="n">agg</span><span class="p">)</span>
-<a id="__codelineno-0-3452" name="__codelineno-0-3452"></a>            <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-3453" name="__codelineno-0-3453"></a>                <span class="n">values</span> <span class="o">=</span> <span class="bp">self</span><span class="p">[</span><span class="n">column</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
-<a id="__codelineno-0-3454" name="__codelineno-0-3454"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-<a id="__codelineno-0-3455" name="__codelineno-0-3455"></a>                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;h3_bin: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> must be numeric&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-<a id="__codelineno-0-3456" name="__codelineno-0-3456"></a>            <span class="n">grouped</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s2">&quot;_cell&quot;</span><span class="p">:</span> <span class="n">cells</span><span class="p">,</span> <span class="s2">&quot;_v&quot;</span><span class="p">:</span> <span class="n">values</span><span class="p">})</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">&quot;_cell&quot;</span><span class="p">)[</span><span class="s2">&quot;_v&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-3457" name="__codelineno-0-3457"></a>            <span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="n">cell</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">reducer</span><span class="p">(</span><span class="n">grp</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">())))</span> <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">grp</span> <span class="ow">in</span> <span class="n">grouped</span><span class="p">]</span>
-<a id="__codelineno-0-3458" name="__codelineno-0-3458"></a>            <span class="n">name</span> <span class="o">=</span> <span class="n">column</span>
-<a id="__codelineno-0-3459" name="__codelineno-0-3459"></a>        <span class="n">geometries</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-3460" name="__codelineno-0-3460"></a>        <span class="n">idx</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-3461" name="__codelineno-0-3461"></a>        <span class="n">agg_values</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-3462" name="__codelineno-0-3462"></a>        <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
-<a id="__codelineno-0-3463" name="__codelineno-0-3463"></a>            <span class="n">boundary</span> <span class="o">=</span> <span class="n">_h3</span><span class="o">.</span><span class="n">cell_to_boundary</span><span class="p">(</span><span class="n">cell</span><span class="p">)</span>
-<a id="__codelineno-0-3464" name="__codelineno-0-3464"></a>            <span class="n">geometries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Polygon</span><span class="p">([(</span><span class="n">lng</span><span class="p">,</span> <span class="n">lat</span><span class="p">)</span> <span class="k">for</span> <span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="n">lng</span><span class="p">)</span> <span class="ow">in</span> <span class="n">boundary</span><span class="p">]))</span>
-<a id="__codelineno-0-3465" name="__codelineno-0-3465"></a>            <span class="n">idx</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cell</span><span class="p">)</span>
-<a id="__codelineno-0-3466" name="__codelineno-0-3466"></a>            <span class="n">agg_values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
-<a id="__codelineno-0-3467" name="__codelineno-0-3467"></a>        <span class="n">frame</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">({</span><span class="s2">&quot;h3&quot;</span><span class="p">:</span> <span class="n">idx</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n">agg_values</span><span class="p">},</span> <span class="n">geometry</span><span class="o">=</span><span class="n">geometries</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="s2">&quot;EPSG:4326&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3468" name="__codelineno-0-3468"></a>        <span class="k">return</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
+<a id="__codelineno-0-3328" name="__codelineno-0-3328"></a>        <span class="k">return</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_points</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">algorithm</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="n">bounds</span><span class="p">)</span>
+<a id="__codelineno-0-3329" name="__codelineno-0-3329"></a>
+<a id="__codelineno-0-3330" name="__codelineno-0-3330"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_h3_cells</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">op</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-3331" name="__codelineno-0-3331"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the H3 cell index of each point at ``resolution`` (helper for to_h3 / h3_bin).</span>
+<a id="__codelineno-0-3332" name="__codelineno-0-3332"></a>
+<a id="__codelineno-0-3333" name="__codelineno-0-3333"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-3334" name="__codelineno-0-3334"></a><span class="sd">            resolution: H3 resolution, 0-15.</span>
+<a id="__codelineno-0-3335" name="__codelineno-0-3335"></a><span class="sd">            op: Calling operation name, used in error messages.</span>
+<a id="__codelineno-0-3336" name="__codelineno-0-3336"></a>
+<a id="__codelineno-0-3337" name="__codelineno-0-3337"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-3338" name="__codelineno-0-3338"></a><span class="sd">            list[str]: One H3 cell index (hex string) per point, in row order.</span>
+<a id="__codelineno-0-3339" name="__codelineno-0-3339"></a>
+<a id="__codelineno-0-3340" name="__codelineno-0-3340"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-3341" name="__codelineno-0-3341"></a><span class="sd">            InvalidGeometryError: If the geometries are not all ``Point``.</span>
+<a id="__codelineno-0-3342" name="__codelineno-0-3342"></a><span class="sd">            ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.</span>
+<a id="__codelineno-0-3343" name="__codelineno-0-3343"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-3344" name="__codelineno-0-3344"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_require_point_geometry</span><span class="p">(</span><span class="n">op</span><span class="p">)</span>
+<a id="__codelineno-0-3345" name="__codelineno-0-3345"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">resolution</span> <span class="o">&lt;=</span> <span class="mi">15</span><span class="p">:</span>
+<a id="__codelineno-0-3346" name="__codelineno-0-3346"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2">: resolution must be 0-15, got </span><span class="si">{</span><span class="n">resolution</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3347" name="__codelineno-0-3347"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">crs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-3348" name="__codelineno-0-3348"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2">: a CRS is required to convert points to lat/lng for H3 indexing&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3349" name="__codelineno-0-3349"></a>        <span class="n">pts</span> <span class="o">=</span> <span class="bp">self</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">epsg</span> <span class="o">==</span> <span class="mi">4326</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_crs</span><span class="p">(</span><span class="mi">4326</span><span class="p">)</span>
+<a id="__codelineno-0-3350" name="__codelineno-0-3350"></a>        <span class="k">return</span> <span class="p">[</span><span class="n">_h3</span><span class="o">.</span><span class="n">latlng_to_cell</span><span class="p">(</span><span class="n">geom</span><span class="o">.</span><span class="n">y</span><span class="p">,</span> <span class="n">geom</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="n">resolution</span><span class="p">)</span> <span class="k">for</span> <span class="n">geom</span> <span class="ow">in</span> <span class="n">pts</span><span class="o">.</span><span class="n">geometry</span><span class="p">]</span>
+<a id="__codelineno-0-3351" name="__codelineno-0-3351"></a>
+<a id="__codelineno-0-3352" name="__codelineno-0-3352"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_h3</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FeatureCollection</span><span class="p">:</span>
+<a id="__codelineno-0-3353" name="__codelineno-0-3353"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Attach the H3 cell index of each point as an ``h3`` column.</span>
+<a id="__codelineno-0-3354" name="__codelineno-0-3354"></a>
+<a id="__codelineno-0-3355" name="__codelineno-0-3355"></a><span class="sd">        Indexes every point geometry into Uber&#39;s H3 hexagonal grid at the given resolution (computed in</span>
+<a id="__codelineno-0-3356" name="__codelineno-0-3356"></a><span class="sd">        EPSG:4326 — points are reprojected for the lookup, but the returned collection keeps its own geometry</span>
+<a id="__codelineno-0-3357" name="__codelineno-0-3357"></a><span class="sd">        and CRS). Uses pyramids&#39; built-in H3 engine, so no ``h3`` dependency is required.</span>
+<a id="__codelineno-0-3358" name="__codelineno-0-3358"></a>
+<a id="__codelineno-0-3359" name="__codelineno-0-3359"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-3360" name="__codelineno-0-3360"></a><span class="sd">            resolution: H3 resolution, 0 (coarsest) to 15 (finest).</span>
+<a id="__codelineno-0-3361" name="__codelineno-0-3361"></a>
+<a id="__codelineno-0-3362" name="__codelineno-0-3362"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-3363" name="__codelineno-0-3363"></a><span class="sd">            FeatureCollection: A copy of this collection with an ``h3`` column of cell-index strings.</span>
+<a id="__codelineno-0-3364" name="__codelineno-0-3364"></a>
+<a id="__codelineno-0-3365" name="__codelineno-0-3365"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-3366" name="__codelineno-0-3366"></a><span class="sd">            InvalidGeometryError: If the geometries are not all ``Point``.</span>
+<a id="__codelineno-0-3367" name="__codelineno-0-3367"></a><span class="sd">            ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.</span>
+<a id="__codelineno-0-3368" name="__codelineno-0-3368"></a>
+<a id="__codelineno-0-3369" name="__codelineno-0-3369"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-3370" name="__codelineno-0-3370"></a><span class="sd">            - Index three points at resolution 9:</span>
+<a id="__codelineno-0-3371" name="__codelineno-0-3371"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-3372" name="__codelineno-0-3372"></a><span class="sd">                &gt;&gt;&gt; import geopandas as gpd</span>
+<a id="__codelineno-0-3373" name="__codelineno-0-3373"></a><span class="sd">                &gt;&gt;&gt; from shapely.geometry import Point</span>
+<a id="__codelineno-0-3374" name="__codelineno-0-3374"></a><span class="sd">                &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
+<a id="__codelineno-0-3375" name="__codelineno-0-3375"></a><span class="sd">                &gt;&gt;&gt; fc = FeatureCollection(</span>
+<a id="__codelineno-0-3376" name="__codelineno-0-3376"></a><span class="sd">                ...     gpd.GeoDataFrame(</span>
+<a id="__codelineno-0-3377" name="__codelineno-0-3377"></a><span class="sd">                ...         {&quot;id&quot;: [1, 2, 3]},</span>
+<a id="__codelineno-0-3378" name="__codelineno-0-3378"></a><span class="sd">                ...         geometry=[Point(-122.418, 37.775), Point(-122.42, 37.776), Point(0, 0)],</span>
+<a id="__codelineno-0-3379" name="__codelineno-0-3379"></a><span class="sd">                ...         crs=&quot;EPSG:4326&quot;,</span>
+<a id="__codelineno-0-3380" name="__codelineno-0-3380"></a><span class="sd">                ...     )</span>
+<a id="__codelineno-0-3381" name="__codelineno-0-3381"></a><span class="sd">                ... )</span>
+<a id="__codelineno-0-3382" name="__codelineno-0-3382"></a><span class="sd">                &gt;&gt;&gt; out = fc.to_h3(9)</span>
+<a id="__codelineno-0-3383" name="__codelineno-0-3383"></a><span class="sd">                &gt;&gt;&gt; out[&quot;h3&quot;].tolist()</span>
+<a id="__codelineno-0-3384" name="__codelineno-0-3384"></a><span class="sd">                [&#39;89283082803ffff&#39;, &#39;8928308280fffff&#39;, &#39;89754e64993ffff&#39;]</span>
+<a id="__codelineno-0-3385" name="__codelineno-0-3385"></a>
+<a id="__codelineno-0-3386" name="__codelineno-0-3386"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-3387" name="__codelineno-0-3387"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-3388" name="__codelineno-0-3388"></a>        <span class="n">cells</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_h3_cells</span><span class="p">(</span><span class="n">resolution</span><span class="p">,</span> <span class="s2">&quot;to_h3&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3389" name="__codelineno-0-3389"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">copy</span><span class="p">())</span>
+<a id="__codelineno-0-3390" name="__codelineno-0-3390"></a>        <span class="n">result</span><span class="p">[</span><span class="s2">&quot;h3&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cells</span>
+<a id="__codelineno-0-3391" name="__codelineno-0-3391"></a>        <span class="k">return</span> <span class="n">result</span>
+<a id="__codelineno-0-3392" name="__codelineno-0-3392"></a>
+<a id="__codelineno-0-3393" name="__codelineno-0-3393"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">h3_bin</span><span class="p">(</span>
+<a id="__codelineno-0-3394" name="__codelineno-0-3394"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-3395" name="__codelineno-0-3395"></a>        <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-3396" name="__codelineno-0-3396"></a>        <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-3397" name="__codelineno-0-3397"></a>        <span class="n">agg</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Callable</span> <span class="o">=</span> <span class="s2">&quot;count&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3398" name="__codelineno-0-3398"></a>        <span class="n">column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-3399" name="__codelineno-0-3399"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FeatureCollection</span><span class="p">:</span>
+<a id="__codelineno-0-3400" name="__codelineno-0-3400"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Aggregate points into H3 hexagon cells, one polygon per occupied cell.</span>
+<a id="__codelineno-0-3401" name="__codelineno-0-3401"></a>
+<a id="__codelineno-0-3402" name="__codelineno-0-3402"></a><span class="sd">        Groups the points by their H3 cell at ``resolution`` and returns one hexagon (or pentagon) polygon per</span>
+<a id="__codelineno-0-3403" name="__codelineno-0-3403"></a><span class="sd">        occupied cell carrying an aggregate: the point **count** when ``column`` is ``None``, otherwise ``agg``</span>
+<a id="__codelineno-0-3404" name="__codelineno-0-3404"></a><span class="sd">        applied to ``column``. The output is in EPSG:4326 (H3 is lat/lng). No ``h3`` dependency is required.</span>
+<a id="__codelineno-0-3405" name="__codelineno-0-3405"></a>
+<a id="__codelineno-0-3406" name="__codelineno-0-3406"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-3407" name="__codelineno-0-3407"></a><span class="sd">            resolution: H3 resolution, 0-15.</span>
+<a id="__codelineno-0-3408" name="__codelineno-0-3408"></a><span class="sd">            agg: Per-cell reducer applied to ``column`` — one of ``&quot;count&quot;`` / ``&quot;mean&quot;`` / ``&quot;sum&quot;`` /</span>
+<a id="__codelineno-0-3409" name="__codelineno-0-3409"></a><span class="sd">                ``&quot;median&quot;`` / ``&quot;min&quot;`` / ``&quot;max&quot;`` / ``&quot;std&quot;`` or a callable taking a 1-D array. Ignored when</span>
+<a id="__codelineno-0-3410" name="__codelineno-0-3410"></a><span class="sd">                ``column`` is ``None`` (point count).</span>
+<a id="__codelineno-0-3411" name="__codelineno-0-3411"></a><span class="sd">            column: Numeric column aggregated per cell, or ``None`` to count points (density).</span>
+<a id="__codelineno-0-3412" name="__codelineno-0-3412"></a>
+<a id="__codelineno-0-3413" name="__codelineno-0-3413"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-3414" name="__codelineno-0-3414"></a><span class="sd">            FeatureCollection: One hexagon polygon per occupied cell, in EPSG:4326, with an ``h3`` index column</span>
+<a id="__codelineno-0-3415" name="__codelineno-0-3415"></a><span class="sd">            and an aggregate column (``&quot;count&quot;`` when ``column`` is ``None``, else named ``column``).</span>
+<a id="__codelineno-0-3416" name="__codelineno-0-3416"></a>
+<a id="__codelineno-0-3417" name="__codelineno-0-3417"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-3418" name="__codelineno-0-3418"></a><span class="sd">            InvalidGeometryError: If the geometries are not all ``Point``.</span>
+<a id="__codelineno-0-3419" name="__codelineno-0-3419"></a><span class="sd">            ValueError: If ``resolution`` is outside 0-15, the collection has no CRS, ``column`` is missing /</span>
+<a id="__codelineno-0-3420" name="__codelineno-0-3420"></a><span class="sd">                non-numeric, or ``agg`` is not a known reducer name or callable.</span>
+<a id="__codelineno-0-3421" name="__codelineno-0-3421"></a>
+<a id="__codelineno-0-3422" name="__codelineno-0-3422"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-3423" name="__codelineno-0-3423"></a><span class="sd">            - Bin four nearby points into H3 cells at resolution 9 and read the counts:</span>
+<a id="__codelineno-0-3424" name="__codelineno-0-3424"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-3425" name="__codelineno-0-3425"></a><span class="sd">                &gt;&gt;&gt; import geopandas as gpd</span>
+<a id="__codelineno-0-3426" name="__codelineno-0-3426"></a><span class="sd">                &gt;&gt;&gt; from shapely.geometry import Point</span>
+<a id="__codelineno-0-3427" name="__codelineno-0-3427"></a><span class="sd">                &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
+<a id="__codelineno-0-3428" name="__codelineno-0-3428"></a><span class="sd">                &gt;&gt;&gt; fc = FeatureCollection(</span>
+<a id="__codelineno-0-3429" name="__codelineno-0-3429"></a><span class="sd">                ...     gpd.GeoDataFrame(</span>
+<a id="__codelineno-0-3430" name="__codelineno-0-3430"></a><span class="sd">                ...         {&quot;v&quot;: [1.0, 2.0, 3.0, 4.0]},</span>
+<a id="__codelineno-0-3431" name="__codelineno-0-3431"></a><span class="sd">                ...         geometry=[</span>
+<a id="__codelineno-0-3432" name="__codelineno-0-3432"></a><span class="sd">                ...             Point(-122.418, 37.775), Point(-122.4181, 37.7751),</span>
+<a id="__codelineno-0-3433" name="__codelineno-0-3433"></a><span class="sd">                ...             Point(-122.40, 37.78), Point(-122.40, 37.78),</span>
+<a id="__codelineno-0-3434" name="__codelineno-0-3434"></a><span class="sd">                ...         ],</span>
+<a id="__codelineno-0-3435" name="__codelineno-0-3435"></a><span class="sd">                ...         crs=&quot;EPSG:4326&quot;,</span>
+<a id="__codelineno-0-3436" name="__codelineno-0-3436"></a><span class="sd">                ...     )</span>
+<a id="__codelineno-0-3437" name="__codelineno-0-3437"></a><span class="sd">                ... )</span>
+<a id="__codelineno-0-3438" name="__codelineno-0-3438"></a><span class="sd">                &gt;&gt;&gt; cells = fc.h3_bin(9)</span>
+<a id="__codelineno-0-3439" name="__codelineno-0-3439"></a><span class="sd">                &gt;&gt;&gt; int(cells[&quot;count&quot;].sum())</span>
+<a id="__codelineno-0-3440" name="__codelineno-0-3440"></a><span class="sd">                4</span>
+<a id="__codelineno-0-3441" name="__codelineno-0-3441"></a><span class="sd">                &gt;&gt;&gt; cells.crs.to_epsg()</span>
+<a id="__codelineno-0-3442" name="__codelineno-0-3442"></a><span class="sd">                4326</span>
+<a id="__codelineno-0-3443" name="__codelineno-0-3443"></a>
+<a id="__codelineno-0-3444" name="__codelineno-0-3444"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-3445" name="__codelineno-0-3445"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-3446" name="__codelineno-0-3446"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_require_column</span><span class="p">(</span><span class="s2">&quot;h3_bin&quot;</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span>
+<a id="__codelineno-0-3447" name="__codelineno-0-3447"></a>        <span class="n">cells</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_h3_cells</span><span class="p">(</span><span class="n">resolution</span><span class="p">,</span> <span class="s2">&quot;h3_bin&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3448" name="__codelineno-0-3448"></a>        <span class="k">if</span> <span class="n">column</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-3449" name="__codelineno-0-3449"></a>            <span class="n">counts</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">cells</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;object&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span>
+<a id="__codelineno-0-3450" name="__codelineno-0-3450"></a>            <span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="n">cell</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">n</span><span class="p">))</span> <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">counts</span><span class="o">.</span><span class="n">items</span><span class="p">()]</span>
+<a id="__codelineno-0-3451" name="__codelineno-0-3451"></a>            <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;count&quot;</span>
+<a id="__codelineno-0-3452" name="__codelineno-0-3452"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-3453" name="__codelineno-0-3453"></a>            <span class="n">reducer</span> <span class="o">=</span> <span class="n">_tess</span><span class="o">.</span><span class="n">resolve_reducer</span><span class="p">(</span><span class="n">agg</span><span class="p">)</span>
+<a id="__codelineno-0-3454" name="__codelineno-0-3454"></a>            <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-3455" name="__codelineno-0-3455"></a>                <span class="n">values</span> <span class="o">=</span> <span class="bp">self</span><span class="p">[</span><span class="n">column</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+<a id="__codelineno-0-3456" name="__codelineno-0-3456"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-0-3457" name="__codelineno-0-3457"></a>                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;h3_bin: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> must be numeric&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+<a id="__codelineno-0-3458" name="__codelineno-0-3458"></a>            <span class="n">grouped</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s2">&quot;_cell&quot;</span><span class="p">:</span> <span class="n">cells</span><span class="p">,</span> <span class="s2">&quot;_v&quot;</span><span class="p">:</span> <span class="n">values</span><span class="p">})</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">&quot;_cell&quot;</span><span class="p">)[</span><span class="s2">&quot;_v&quot;</span><span class="p">]</span>
+<a id="__codelineno-0-3459" name="__codelineno-0-3459"></a>            <span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="n">cell</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">reducer</span><span class="p">(</span><span class="n">grp</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">())))</span> <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">grp</span> <span class="ow">in</span> <span class="n">grouped</span><span class="p">]</span>
+<a id="__codelineno-0-3460" name="__codelineno-0-3460"></a>            <span class="n">name</span> <span class="o">=</span> <span class="n">column</span>
+<a id="__codelineno-0-3461" name="__codelineno-0-3461"></a>        <span class="n">geometries</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-3462" name="__codelineno-0-3462"></a>        <span class="n">idx</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-3463" name="__codelineno-0-3463"></a>        <span class="n">agg_values</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-3464" name="__codelineno-0-3464"></a>        <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
+<a id="__codelineno-0-3465" name="__codelineno-0-3465"></a>            <span class="n">boundary</span> <span class="o">=</span> <span class="n">_h3</span><span class="o">.</span><span class="n">cell_to_boundary</span><span class="p">(</span><span class="n">cell</span><span class="p">)</span>
+<a id="__codelineno-0-3466" name="__codelineno-0-3466"></a>            <span class="n">geometries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Polygon</span><span class="p">([(</span><span class="n">lng</span><span class="p">,</span> <span class="n">lat</span><span class="p">)</span> <span class="k">for</span> <span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="n">lng</span><span class="p">)</span> <span class="ow">in</span> <span class="n">boundary</span><span class="p">]))</span>
+<a id="__codelineno-0-3467" name="__codelineno-0-3467"></a>            <span class="n">idx</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cell</span><span class="p">)</span>
+<a id="__codelineno-0-3468" name="__codelineno-0-3468"></a>            <span class="n">agg_values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-3469" name="__codelineno-0-3469"></a>        <span class="n">frame</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">({</span><span class="s2">&quot;h3&quot;</span><span class="p">:</span> <span class="n">idx</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n">agg_values</span><span class="p">},</span> <span class="n">geometry</span><span class="o">=</span><span class="n">geometries</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="s2">&quot;EPSG:4326&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3470" name="__codelineno-0-3470"></a>        <span class="k">return</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -24066,7 +24070,8 @@ or if <code>agg</code> is neither a known reducer name nor a callable.</p>
 <p>Reads <code>column</code> as the z-value at each point geometry and grids it with <code>gdal.Grid</code> via
 :meth:<code>pyramids.dataset.Dataset.from_points</code>. This is distinct from the inherited geopandas
 <code>GeoSeries.interpolate</code> (which is 1-D interpolation <em>along</em> a line). Only inverse-distance weighting
-(<code>method="idw"</code>) is available here; kriging needs the optional <code>pykrige</code> dependency.</p>
+(<code>method="idw"</code>) is available here; kriging is out of scope for pyramids — see the <code>geostatista</code>
+package (the serapeum geostatistics tier).</p>
 <p>IDW extrapolates across the whole output extent (no convex-hull mask), so <code>nodata</code> only appears in
 cells <code>gdal.Grid</code> cannot estimate. Coincident (duplicate) points are not pre-averaged — they are
 handled by the inverse-distance weighting itself.</p>
@@ -24378,7 +24383,9 @@ are fewer than 3 points.</p>
 <span class="normal"><a href="#__codelineno-0-3323">3323</a></span>
 <span class="normal"><a href="#__codelineno-0-3324">3324</a></span>
 <span class="normal"><a href="#__codelineno-0-3325">3325</a></span>
-<span class="normal"><a href="#__codelineno-0-3326">3326</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3238" name="__codelineno-0-3238"></a><span class="k">def</span><span class="w"> </span><span class="nf">interpolate_to_raster</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-3326">3326</a></span>
+<span class="normal"><a href="#__codelineno-0-3327">3327</a></span>
+<span class="normal"><a href="#__codelineno-0-3328">3328</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3238" name="__codelineno-0-3238"></a><span class="k">def</span><span class="w"> </span><span class="nf">interpolate_to_raster</span><span class="p">(</span>
 <a id="__codelineno-0-3239" name="__codelineno-0-3239"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-3240" name="__codelineno-0-3240"></a>    <span class="n">column</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-3241" name="__codelineno-0-3241"></a>    <span class="o">*</span><span class="p">,</span>
@@ -24394,79 +24401,81 @@ are fewer than 3 points.</p>
 <a id="__codelineno-0-3251" name="__codelineno-0-3251"></a><span class="sd">    Reads ``column`` as the z-value at each point geometry and grids it with ``gdal.Grid`` via</span>
 <a id="__codelineno-0-3252" name="__codelineno-0-3252"></a><span class="sd">    :meth:`pyramids.dataset.Dataset.from_points`. This is distinct from the inherited geopandas</span>
 <a id="__codelineno-0-3253" name="__codelineno-0-3253"></a><span class="sd">    ``GeoSeries.interpolate`` (which is 1-D interpolation *along* a line). Only inverse-distance weighting</span>
-<a id="__codelineno-0-3254" name="__codelineno-0-3254"></a><span class="sd">    (``method=&quot;idw&quot;``) is available here; kriging needs the optional ``pykrige`` dependency.</span>
-<a id="__codelineno-0-3255" name="__codelineno-0-3255"></a>
-<a id="__codelineno-0-3256" name="__codelineno-0-3256"></a><span class="sd">    IDW extrapolates across the whole output extent (no convex-hull mask), so ``nodata`` only appears in</span>
-<a id="__codelineno-0-3257" name="__codelineno-0-3257"></a><span class="sd">    cells ``gdal.Grid`` cannot estimate. Coincident (duplicate) points are not pre-averaged — they are</span>
-<a id="__codelineno-0-3258" name="__codelineno-0-3258"></a><span class="sd">    handled by the inverse-distance weighting itself.</span>
-<a id="__codelineno-0-3259" name="__codelineno-0-3259"></a>
-<a id="__codelineno-0-3260" name="__codelineno-0-3260"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-3261" name="__codelineno-0-3261"></a><span class="sd">        column: Numeric attribute column interpolated as the z-value at each point.</span>
-<a id="__codelineno-0-3262" name="__codelineno-0-3262"></a><span class="sd">        method: Interpolation method. Only ``&quot;idw&quot;`` (inverse-distance weighting) is supported.</span>
-<a id="__codelineno-0-3263" name="__codelineno-0-3263"></a><span class="sd">        cell_size: Output pixel size in the layer&#39;s CRS units. Defaults to a grid spanning the layer extent</span>
-<a id="__codelineno-0-3264" name="__codelineno-0-3264"></a><span class="sd">            (see :meth:`Dataset.from_points`).</span>
-<a id="__codelineno-0-3265" name="__codelineno-0-3265"></a><span class="sd">        bounds: ``(minx, miny, maxx, maxy)`` output extent; defaults to the points&#39; total bounds.</span>
-<a id="__codelineno-0-3266" name="__codelineno-0-3266"></a><span class="sd">        power: IDW distance exponent (higher → more local).</span>
-<a id="__codelineno-0-3267" name="__codelineno-0-3267"></a><span class="sd">        n_neighbors: If given, limit each estimate to the nearest ``n_neighbors`` points (``invdistnn``);</span>
-<a id="__codelineno-0-3268" name="__codelineno-0-3268"></a><span class="sd">            otherwise use all points (``invdist``).</span>
-<a id="__codelineno-0-3269" name="__codelineno-0-3269"></a><span class="sd">        nodata: Value written to cells GDAL cannot interpolate.</span>
-<a id="__codelineno-0-3270" name="__codelineno-0-3270"></a>
-<a id="__codelineno-0-3271" name="__codelineno-0-3271"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-3272" name="__codelineno-0-3272"></a><span class="sd">        Dataset: A single-band raster of the interpolated surface, in the layer&#39;s CRS.</span>
-<a id="__codelineno-0-3273" name="__codelineno-0-3273"></a>
-<a id="__codelineno-0-3274" name="__codelineno-0-3274"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-3275" name="__codelineno-0-3275"></a><span class="sd">        InvalidGeometryError: If the geometries are not all ``Point``.</span>
-<a id="__codelineno-0-3276" name="__codelineno-0-3276"></a><span class="sd">        ValueError: If ``method`` is not ``&quot;idw&quot;``, ``column`` is missing / non-numeric / all-NaN, or there</span>
-<a id="__codelineno-0-3277" name="__codelineno-0-3277"></a><span class="sd">            are fewer than 3 points.</span>
-<a id="__codelineno-0-3278" name="__codelineno-0-3278"></a>
-<a id="__codelineno-0-3279" name="__codelineno-0-3279"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-3280" name="__codelineno-0-3280"></a><span class="sd">        - Inverse-distance interpolate four corner readings onto a 1-degree grid:</span>
-<a id="__codelineno-0-3281" name="__codelineno-0-3281"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-3282" name="__codelineno-0-3282"></a><span class="sd">            &gt;&gt;&gt; import geopandas as gpd</span>
-<a id="__codelineno-0-3283" name="__codelineno-0-3283"></a><span class="sd">            &gt;&gt;&gt; from shapely.geometry import Point</span>
-<a id="__codelineno-0-3284" name="__codelineno-0-3284"></a><span class="sd">            &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
-<a id="__codelineno-0-3285" name="__codelineno-0-3285"></a><span class="sd">            &gt;&gt;&gt; fc = FeatureCollection(</span>
-<a id="__codelineno-0-3286" name="__codelineno-0-3286"></a><span class="sd">            ...     gpd.GeoDataFrame(</span>
-<a id="__codelineno-0-3287" name="__codelineno-0-3287"></a><span class="sd">            ...         {&quot;rain&quot;: [1.0, 2.0, 3.0, 4.0]},</span>
-<a id="__codelineno-0-3288" name="__codelineno-0-3288"></a><span class="sd">            ...         geometry=[Point(0, 0), Point(3, 0), Point(0, 3), Point(3, 3)],</span>
-<a id="__codelineno-0-3289" name="__codelineno-0-3289"></a><span class="sd">            ...         crs=&quot;EPSG:4326&quot;,</span>
-<a id="__codelineno-0-3290" name="__codelineno-0-3290"></a><span class="sd">            ...     )</span>
-<a id="__codelineno-0-3291" name="__codelineno-0-3291"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-3292" name="__codelineno-0-3292"></a><span class="sd">            &gt;&gt;&gt; surface = fc.interpolate_to_raster(&quot;rain&quot;, cell_size=1.0)</span>
-<a id="__codelineno-0-3293" name="__codelineno-0-3293"></a><span class="sd">            &gt;&gt;&gt; surface.band_count</span>
-<a id="__codelineno-0-3294" name="__codelineno-0-3294"></a><span class="sd">            1</span>
-<a id="__codelineno-0-3295" name="__codelineno-0-3295"></a><span class="sd">            &gt;&gt;&gt; surface.epsg</span>
-<a id="__codelineno-0-3296" name="__codelineno-0-3296"></a><span class="sd">            4326</span>
-<a id="__codelineno-0-3297" name="__codelineno-0-3297"></a>
-<a id="__codelineno-0-3298" name="__codelineno-0-3298"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-3299" name="__codelineno-0-3299"></a>
-<a id="__codelineno-0-3300" name="__codelineno-0-3300"></a><span class="sd">    See Also:</span>
-<a id="__codelineno-0-3301" name="__codelineno-0-3301"></a><span class="sd">        - :meth:`pyramids.dataset.Dataset.from_points`: the underlying ``gdal.Grid`` interpolation this</span>
-<a id="__codelineno-0-3302" name="__codelineno-0-3302"></a><span class="sd">          method delegates to (accepts any ``gdal.Grid`` algorithm string).</span>
-<a id="__codelineno-0-3303" name="__codelineno-0-3303"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-3304" name="__codelineno-0-3304"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_require_point_geometry</span><span class="p">(</span><span class="s2">&quot;interpolate_to_raster&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3305" name="__codelineno-0-3305"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_require_column</span><span class="p">(</span><span class="s2">&quot;interpolate_to_raster&quot;</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span>
-<a id="__codelineno-0-3306" name="__codelineno-0-3306"></a>    <span class="k">if</span> <span class="n">method</span> <span class="o">!=</span> <span class="s2">&quot;idw&quot;</span><span class="p">:</span>
-<a id="__codelineno-0-3307" name="__codelineno-0-3307"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-3308" name="__codelineno-0-3308"></a>            <span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: method </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2"> is not supported; only &#39;idw&#39; is available &quot;</span>
-<a id="__codelineno-0-3309" name="__codelineno-0-3309"></a>            <span class="s2">&quot;(kriging needs the optional &#39;pykrige&#39; dependency)&quot;</span>
-<a id="__codelineno-0-3310" name="__codelineno-0-3310"></a>        <span class="p">)</span>
-<a id="__codelineno-0-3311" name="__codelineno-0-3311"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">:</span>
-<a id="__codelineno-0-3312" name="__codelineno-0-3312"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: need at least 3 points, got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3313" name="__codelineno-0-3313"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-3314" name="__codelineno-0-3314"></a>        <span class="n">values</span> <span class="o">=</span> <span class="bp">self</span><span class="p">[</span><span class="n">column</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
-<a id="__codelineno-0-3315" name="__codelineno-0-3315"></a>    <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-<a id="__codelineno-0-3316" name="__codelineno-0-3316"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> must be numeric&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-<a id="__codelineno-0-3317" name="__codelineno-0-3317"></a>    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">values</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
-<a id="__codelineno-0-3318" name="__codelineno-0-3318"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> is all-NaN&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3319" name="__codelineno-0-3319"></a>    <span class="k">if</span> <span class="n">n_neighbors</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-3320" name="__codelineno-0-3320"></a>        <span class="n">algorithm</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;invdistnn:power=</span><span class="si">{</span><span class="n">power</span><span class="si">}</span><span class="s2">:max_points=</span><span class="si">{</span><span class="n">n_neighbors</span><span class="si">}</span><span class="s2">:nodata=</span><span class="si">{</span><span class="n">nodata</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-3321" name="__codelineno-0-3321"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-3322" name="__codelineno-0-3322"></a>        <span class="n">algorithm</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;invdist:power=</span><span class="si">{</span><span class="n">power</span><span class="si">}</span><span class="s2">:smoothing=0.0:nodata=</span><span class="si">{</span><span class="n">nodata</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-3323" name="__codelineno-0-3323"></a>    <span class="c1"># local import: pyramids.dataset imports pyramids.feature, so import here to break the cycle.</span>
-<a id="__codelineno-0-3324" name="__codelineno-0-3324"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
-<a id="__codelineno-0-3325" name="__codelineno-0-3325"></a>
-<a id="__codelineno-0-3326" name="__codelineno-0-3326"></a>    <span class="k">return</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_points</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">algorithm</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="n">bounds</span><span class="p">)</span>
+<a id="__codelineno-0-3254" name="__codelineno-0-3254"></a><span class="sd">    (``method=&quot;idw&quot;``) is available here; kriging is out of scope for pyramids — see the ``geostatista``</span>
+<a id="__codelineno-0-3255" name="__codelineno-0-3255"></a><span class="sd">    package (the serapeum geostatistics tier).</span>
+<a id="__codelineno-0-3256" name="__codelineno-0-3256"></a>
+<a id="__codelineno-0-3257" name="__codelineno-0-3257"></a><span class="sd">    IDW extrapolates across the whole output extent (no convex-hull mask), so ``nodata`` only appears in</span>
+<a id="__codelineno-0-3258" name="__codelineno-0-3258"></a><span class="sd">    cells ``gdal.Grid`` cannot estimate. Coincident (duplicate) points are not pre-averaged — they are</span>
+<a id="__codelineno-0-3259" name="__codelineno-0-3259"></a><span class="sd">    handled by the inverse-distance weighting itself.</span>
+<a id="__codelineno-0-3260" name="__codelineno-0-3260"></a>
+<a id="__codelineno-0-3261" name="__codelineno-0-3261"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-3262" name="__codelineno-0-3262"></a><span class="sd">        column: Numeric attribute column interpolated as the z-value at each point.</span>
+<a id="__codelineno-0-3263" name="__codelineno-0-3263"></a><span class="sd">        method: Interpolation method. Only ``&quot;idw&quot;`` (inverse-distance weighting) is supported.</span>
+<a id="__codelineno-0-3264" name="__codelineno-0-3264"></a><span class="sd">        cell_size: Output pixel size in the layer&#39;s CRS units. Defaults to a grid spanning the layer extent</span>
+<a id="__codelineno-0-3265" name="__codelineno-0-3265"></a><span class="sd">            (see :meth:`Dataset.from_points`).</span>
+<a id="__codelineno-0-3266" name="__codelineno-0-3266"></a><span class="sd">        bounds: ``(minx, miny, maxx, maxy)`` output extent; defaults to the points&#39; total bounds.</span>
+<a id="__codelineno-0-3267" name="__codelineno-0-3267"></a><span class="sd">        power: IDW distance exponent (higher → more local).</span>
+<a id="__codelineno-0-3268" name="__codelineno-0-3268"></a><span class="sd">        n_neighbors: If given, limit each estimate to the nearest ``n_neighbors`` points (``invdistnn``);</span>
+<a id="__codelineno-0-3269" name="__codelineno-0-3269"></a><span class="sd">            otherwise use all points (``invdist``).</span>
+<a id="__codelineno-0-3270" name="__codelineno-0-3270"></a><span class="sd">        nodata: Value written to cells GDAL cannot interpolate.</span>
+<a id="__codelineno-0-3271" name="__codelineno-0-3271"></a>
+<a id="__codelineno-0-3272" name="__codelineno-0-3272"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-3273" name="__codelineno-0-3273"></a><span class="sd">        Dataset: A single-band raster of the interpolated surface, in the layer&#39;s CRS.</span>
+<a id="__codelineno-0-3274" name="__codelineno-0-3274"></a>
+<a id="__codelineno-0-3275" name="__codelineno-0-3275"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-3276" name="__codelineno-0-3276"></a><span class="sd">        InvalidGeometryError: If the geometries are not all ``Point``.</span>
+<a id="__codelineno-0-3277" name="__codelineno-0-3277"></a><span class="sd">        ValueError: If ``method`` is not ``&quot;idw&quot;``, ``column`` is missing / non-numeric / all-NaN, or there</span>
+<a id="__codelineno-0-3278" name="__codelineno-0-3278"></a><span class="sd">            are fewer than 3 points.</span>
+<a id="__codelineno-0-3279" name="__codelineno-0-3279"></a>
+<a id="__codelineno-0-3280" name="__codelineno-0-3280"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-3281" name="__codelineno-0-3281"></a><span class="sd">        - Inverse-distance interpolate four corner readings onto a 1-degree grid:</span>
+<a id="__codelineno-0-3282" name="__codelineno-0-3282"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-3283" name="__codelineno-0-3283"></a><span class="sd">            &gt;&gt;&gt; import geopandas as gpd</span>
+<a id="__codelineno-0-3284" name="__codelineno-0-3284"></a><span class="sd">            &gt;&gt;&gt; from shapely.geometry import Point</span>
+<a id="__codelineno-0-3285" name="__codelineno-0-3285"></a><span class="sd">            &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
+<a id="__codelineno-0-3286" name="__codelineno-0-3286"></a><span class="sd">            &gt;&gt;&gt; fc = FeatureCollection(</span>
+<a id="__codelineno-0-3287" name="__codelineno-0-3287"></a><span class="sd">            ...     gpd.GeoDataFrame(</span>
+<a id="__codelineno-0-3288" name="__codelineno-0-3288"></a><span class="sd">            ...         {&quot;rain&quot;: [1.0, 2.0, 3.0, 4.0]},</span>
+<a id="__codelineno-0-3289" name="__codelineno-0-3289"></a><span class="sd">            ...         geometry=[Point(0, 0), Point(3, 0), Point(0, 3), Point(3, 3)],</span>
+<a id="__codelineno-0-3290" name="__codelineno-0-3290"></a><span class="sd">            ...         crs=&quot;EPSG:4326&quot;,</span>
+<a id="__codelineno-0-3291" name="__codelineno-0-3291"></a><span class="sd">            ...     )</span>
+<a id="__codelineno-0-3292" name="__codelineno-0-3292"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-3293" name="__codelineno-0-3293"></a><span class="sd">            &gt;&gt;&gt; surface = fc.interpolate_to_raster(&quot;rain&quot;, cell_size=1.0)</span>
+<a id="__codelineno-0-3294" name="__codelineno-0-3294"></a><span class="sd">            &gt;&gt;&gt; surface.band_count</span>
+<a id="__codelineno-0-3295" name="__codelineno-0-3295"></a><span class="sd">            1</span>
+<a id="__codelineno-0-3296" name="__codelineno-0-3296"></a><span class="sd">            &gt;&gt;&gt; surface.epsg</span>
+<a id="__codelineno-0-3297" name="__codelineno-0-3297"></a><span class="sd">            4326</span>
+<a id="__codelineno-0-3298" name="__codelineno-0-3298"></a>
+<a id="__codelineno-0-3299" name="__codelineno-0-3299"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-3300" name="__codelineno-0-3300"></a>
+<a id="__codelineno-0-3301" name="__codelineno-0-3301"></a><span class="sd">    See Also:</span>
+<a id="__codelineno-0-3302" name="__codelineno-0-3302"></a><span class="sd">        - :meth:`pyramids.dataset.Dataset.from_points`: the underlying ``gdal.Grid`` interpolation this</span>
+<a id="__codelineno-0-3303" name="__codelineno-0-3303"></a><span class="sd">          method delegates to (accepts any ``gdal.Grid`` algorithm string).</span>
+<a id="__codelineno-0-3304" name="__codelineno-0-3304"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-3305" name="__codelineno-0-3305"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_require_point_geometry</span><span class="p">(</span><span class="s2">&quot;interpolate_to_raster&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3306" name="__codelineno-0-3306"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_require_column</span><span class="p">(</span><span class="s2">&quot;interpolate_to_raster&quot;</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span>
+<a id="__codelineno-0-3307" name="__codelineno-0-3307"></a>    <span class="k">if</span> <span class="n">method</span> <span class="o">!=</span> <span class="s2">&quot;idw&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-3308" name="__codelineno-0-3308"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-3309" name="__codelineno-0-3309"></a>            <span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: method </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2"> is not supported; only &#39;idw&#39; is available. &quot;</span>
+<a id="__codelineno-0-3310" name="__codelineno-0-3310"></a>            <span class="s2">&quot;Kriging is out of scope for pyramids — see the geostatista package (the serapeum &quot;</span>
+<a id="__codelineno-0-3311" name="__codelineno-0-3311"></a>            <span class="s2">&quot;geostatistics tier).&quot;</span>
+<a id="__codelineno-0-3312" name="__codelineno-0-3312"></a>        <span class="p">)</span>
+<a id="__codelineno-0-3313" name="__codelineno-0-3313"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">:</span>
+<a id="__codelineno-0-3314" name="__codelineno-0-3314"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: need at least 3 points, got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3315" name="__codelineno-0-3315"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-3316" name="__codelineno-0-3316"></a>        <span class="n">values</span> <span class="o">=</span> <span class="bp">self</span><span class="p">[</span><span class="n">column</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+<a id="__codelineno-0-3317" name="__codelineno-0-3317"></a>    <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-0-3318" name="__codelineno-0-3318"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> must be numeric&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+<a id="__codelineno-0-3319" name="__codelineno-0-3319"></a>    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">values</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+<a id="__codelineno-0-3320" name="__codelineno-0-3320"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;interpolate_to_raster: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> is all-NaN&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3321" name="__codelineno-0-3321"></a>    <span class="k">if</span> <span class="n">n_neighbors</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-3322" name="__codelineno-0-3322"></a>        <span class="n">algorithm</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;invdistnn:power=</span><span class="si">{</span><span class="n">power</span><span class="si">}</span><span class="s2">:max_points=</span><span class="si">{</span><span class="n">n_neighbors</span><span class="si">}</span><span class="s2">:nodata=</span><span class="si">{</span><span class="n">nodata</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-3323" name="__codelineno-0-3323"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-3324" name="__codelineno-0-3324"></a>        <span class="n">algorithm</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;invdist:power=</span><span class="si">{</span><span class="n">power</span><span class="si">}</span><span class="s2">:smoothing=0.0:nodata=</span><span class="si">{</span><span class="n">nodata</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-3325" name="__codelineno-0-3325"></a>    <span class="c1"># local import: pyramids.dataset imports pyramids.feature, so import here to break the cycle.</span>
+<a id="__codelineno-0-3326" name="__codelineno-0-3326"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<a id="__codelineno-0-3327" name="__codelineno-0-3327"></a>
+<a id="__codelineno-0-3328" name="__codelineno-0-3328"></a>    <span class="k">return</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_points</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">algorithm</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="n">bounds</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -24599,9 +24608,7 @@ and CRS). Uses pyramids' built-in H3 engine, so no <code>h3</code> dependency is
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/feature/collection.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3350">3350</a></span>
-<span class="normal"><a href="#__codelineno-0-3351">3351</a></span>
-<span class="normal"><a href="#__codelineno-0-3352">3352</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3352">3352</a></span>
 <span class="normal"><a href="#__codelineno-0-3353">3353</a></span>
 <span class="normal"><a href="#__codelineno-0-3354">3354</a></span>
 <span class="normal"><a href="#__codelineno-0-3355">3355</a></span>
@@ -24638,46 +24645,48 @@ and CRS). Uses pyramids' built-in H3 engine, so no <code>h3</code> dependency is
 <span class="normal"><a href="#__codelineno-0-3386">3386</a></span>
 <span class="normal"><a href="#__codelineno-0-3387">3387</a></span>
 <span class="normal"><a href="#__codelineno-0-3388">3388</a></span>
-<span class="normal"><a href="#__codelineno-0-3389">3389</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3350" name="__codelineno-0-3350"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_h3</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FeatureCollection</span><span class="p">:</span>
-<a id="__codelineno-0-3351" name="__codelineno-0-3351"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Attach the H3 cell index of each point as an ``h3`` column.</span>
-<a id="__codelineno-0-3352" name="__codelineno-0-3352"></a>
-<a id="__codelineno-0-3353" name="__codelineno-0-3353"></a><span class="sd">    Indexes every point geometry into Uber&#39;s H3 hexagonal grid at the given resolution (computed in</span>
-<a id="__codelineno-0-3354" name="__codelineno-0-3354"></a><span class="sd">    EPSG:4326 — points are reprojected for the lookup, but the returned collection keeps its own geometry</span>
-<a id="__codelineno-0-3355" name="__codelineno-0-3355"></a><span class="sd">    and CRS). Uses pyramids&#39; built-in H3 engine, so no ``h3`` dependency is required.</span>
-<a id="__codelineno-0-3356" name="__codelineno-0-3356"></a>
-<a id="__codelineno-0-3357" name="__codelineno-0-3357"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-3358" name="__codelineno-0-3358"></a><span class="sd">        resolution: H3 resolution, 0 (coarsest) to 15 (finest).</span>
-<a id="__codelineno-0-3359" name="__codelineno-0-3359"></a>
-<a id="__codelineno-0-3360" name="__codelineno-0-3360"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-3361" name="__codelineno-0-3361"></a><span class="sd">        FeatureCollection: A copy of this collection with an ``h3`` column of cell-index strings.</span>
-<a id="__codelineno-0-3362" name="__codelineno-0-3362"></a>
-<a id="__codelineno-0-3363" name="__codelineno-0-3363"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-3364" name="__codelineno-0-3364"></a><span class="sd">        InvalidGeometryError: If the geometries are not all ``Point``.</span>
-<a id="__codelineno-0-3365" name="__codelineno-0-3365"></a><span class="sd">        ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.</span>
-<a id="__codelineno-0-3366" name="__codelineno-0-3366"></a>
-<a id="__codelineno-0-3367" name="__codelineno-0-3367"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-3368" name="__codelineno-0-3368"></a><span class="sd">        - Index three points at resolution 9:</span>
-<a id="__codelineno-0-3369" name="__codelineno-0-3369"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-3370" name="__codelineno-0-3370"></a><span class="sd">            &gt;&gt;&gt; import geopandas as gpd</span>
-<a id="__codelineno-0-3371" name="__codelineno-0-3371"></a><span class="sd">            &gt;&gt;&gt; from shapely.geometry import Point</span>
-<a id="__codelineno-0-3372" name="__codelineno-0-3372"></a><span class="sd">            &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
-<a id="__codelineno-0-3373" name="__codelineno-0-3373"></a><span class="sd">            &gt;&gt;&gt; fc = FeatureCollection(</span>
-<a id="__codelineno-0-3374" name="__codelineno-0-3374"></a><span class="sd">            ...     gpd.GeoDataFrame(</span>
-<a id="__codelineno-0-3375" name="__codelineno-0-3375"></a><span class="sd">            ...         {&quot;id&quot;: [1, 2, 3]},</span>
-<a id="__codelineno-0-3376" name="__codelineno-0-3376"></a><span class="sd">            ...         geometry=[Point(-122.418, 37.775), Point(-122.42, 37.776), Point(0, 0)],</span>
-<a id="__codelineno-0-3377" name="__codelineno-0-3377"></a><span class="sd">            ...         crs=&quot;EPSG:4326&quot;,</span>
-<a id="__codelineno-0-3378" name="__codelineno-0-3378"></a><span class="sd">            ...     )</span>
-<a id="__codelineno-0-3379" name="__codelineno-0-3379"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-3380" name="__codelineno-0-3380"></a><span class="sd">            &gt;&gt;&gt; out = fc.to_h3(9)</span>
-<a id="__codelineno-0-3381" name="__codelineno-0-3381"></a><span class="sd">            &gt;&gt;&gt; out[&quot;h3&quot;].tolist()</span>
-<a id="__codelineno-0-3382" name="__codelineno-0-3382"></a><span class="sd">            [&#39;89283082803ffff&#39;, &#39;8928308280fffff&#39;, &#39;89754e64993ffff&#39;]</span>
-<a id="__codelineno-0-3383" name="__codelineno-0-3383"></a>
-<a id="__codelineno-0-3384" name="__codelineno-0-3384"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-3385" name="__codelineno-0-3385"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-3386" name="__codelineno-0-3386"></a>    <span class="n">cells</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_h3_cells</span><span class="p">(</span><span class="n">resolution</span><span class="p">,</span> <span class="s2">&quot;to_h3&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3387" name="__codelineno-0-3387"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">copy</span><span class="p">())</span>
-<a id="__codelineno-0-3388" name="__codelineno-0-3388"></a>    <span class="n">result</span><span class="p">[</span><span class="s2">&quot;h3&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cells</span>
-<a id="__codelineno-0-3389" name="__codelineno-0-3389"></a>    <span class="k">return</span> <span class="n">result</span>
+<span class="normal"><a href="#__codelineno-0-3389">3389</a></span>
+<span class="normal"><a href="#__codelineno-0-3390">3390</a></span>
+<span class="normal"><a href="#__codelineno-0-3391">3391</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3352" name="__codelineno-0-3352"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_h3</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FeatureCollection</span><span class="p">:</span>
+<a id="__codelineno-0-3353" name="__codelineno-0-3353"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Attach the H3 cell index of each point as an ``h3`` column.</span>
+<a id="__codelineno-0-3354" name="__codelineno-0-3354"></a>
+<a id="__codelineno-0-3355" name="__codelineno-0-3355"></a><span class="sd">    Indexes every point geometry into Uber&#39;s H3 hexagonal grid at the given resolution (computed in</span>
+<a id="__codelineno-0-3356" name="__codelineno-0-3356"></a><span class="sd">    EPSG:4326 — points are reprojected for the lookup, but the returned collection keeps its own geometry</span>
+<a id="__codelineno-0-3357" name="__codelineno-0-3357"></a><span class="sd">    and CRS). Uses pyramids&#39; built-in H3 engine, so no ``h3`` dependency is required.</span>
+<a id="__codelineno-0-3358" name="__codelineno-0-3358"></a>
+<a id="__codelineno-0-3359" name="__codelineno-0-3359"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-3360" name="__codelineno-0-3360"></a><span class="sd">        resolution: H3 resolution, 0 (coarsest) to 15 (finest).</span>
+<a id="__codelineno-0-3361" name="__codelineno-0-3361"></a>
+<a id="__codelineno-0-3362" name="__codelineno-0-3362"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-3363" name="__codelineno-0-3363"></a><span class="sd">        FeatureCollection: A copy of this collection with an ``h3`` column of cell-index strings.</span>
+<a id="__codelineno-0-3364" name="__codelineno-0-3364"></a>
+<a id="__codelineno-0-3365" name="__codelineno-0-3365"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-3366" name="__codelineno-0-3366"></a><span class="sd">        InvalidGeometryError: If the geometries are not all ``Point``.</span>
+<a id="__codelineno-0-3367" name="__codelineno-0-3367"></a><span class="sd">        ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.</span>
+<a id="__codelineno-0-3368" name="__codelineno-0-3368"></a>
+<a id="__codelineno-0-3369" name="__codelineno-0-3369"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-3370" name="__codelineno-0-3370"></a><span class="sd">        - Index three points at resolution 9:</span>
+<a id="__codelineno-0-3371" name="__codelineno-0-3371"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-3372" name="__codelineno-0-3372"></a><span class="sd">            &gt;&gt;&gt; import geopandas as gpd</span>
+<a id="__codelineno-0-3373" name="__codelineno-0-3373"></a><span class="sd">            &gt;&gt;&gt; from shapely.geometry import Point</span>
+<a id="__codelineno-0-3374" name="__codelineno-0-3374"></a><span class="sd">            &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
+<a id="__codelineno-0-3375" name="__codelineno-0-3375"></a><span class="sd">            &gt;&gt;&gt; fc = FeatureCollection(</span>
+<a id="__codelineno-0-3376" name="__codelineno-0-3376"></a><span class="sd">            ...     gpd.GeoDataFrame(</span>
+<a id="__codelineno-0-3377" name="__codelineno-0-3377"></a><span class="sd">            ...         {&quot;id&quot;: [1, 2, 3]},</span>
+<a id="__codelineno-0-3378" name="__codelineno-0-3378"></a><span class="sd">            ...         geometry=[Point(-122.418, 37.775), Point(-122.42, 37.776), Point(0, 0)],</span>
+<a id="__codelineno-0-3379" name="__codelineno-0-3379"></a><span class="sd">            ...         crs=&quot;EPSG:4326&quot;,</span>
+<a id="__codelineno-0-3380" name="__codelineno-0-3380"></a><span class="sd">            ...     )</span>
+<a id="__codelineno-0-3381" name="__codelineno-0-3381"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-3382" name="__codelineno-0-3382"></a><span class="sd">            &gt;&gt;&gt; out = fc.to_h3(9)</span>
+<a id="__codelineno-0-3383" name="__codelineno-0-3383"></a><span class="sd">            &gt;&gt;&gt; out[&quot;h3&quot;].tolist()</span>
+<a id="__codelineno-0-3384" name="__codelineno-0-3384"></a><span class="sd">            [&#39;89283082803ffff&#39;, &#39;8928308280fffff&#39;, &#39;89754e64993ffff&#39;]</span>
+<a id="__codelineno-0-3385" name="__codelineno-0-3385"></a>
+<a id="__codelineno-0-3386" name="__codelineno-0-3386"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-3387" name="__codelineno-0-3387"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-3388" name="__codelineno-0-3388"></a>    <span class="n">cells</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_h3_cells</span><span class="p">(</span><span class="n">resolution</span><span class="p">,</span> <span class="s2">&quot;to_h3&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3389" name="__codelineno-0-3389"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">copy</span><span class="p">())</span>
+<a id="__codelineno-0-3390" name="__codelineno-0-3390"></a>    <span class="n">result</span><span class="p">[</span><span class="s2">&quot;h3&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cells</span>
+<a id="__codelineno-0-3391" name="__codelineno-0-3391"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -24860,9 +24869,7 @@ non-numeric, or <code>agg</code> is not a known reducer name or callable.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/feature/collection.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3391">3391</a></span>
-<span class="normal"><a href="#__codelineno-0-3392">3392</a></span>
-<span class="normal"><a href="#__codelineno-0-3393">3393</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3393">3393</a></span>
 <span class="normal"><a href="#__codelineno-0-3394">3394</a></span>
 <span class="normal"><a href="#__codelineno-0-3395">3395</a></span>
 <span class="normal"><a href="#__codelineno-0-3396">3396</a></span>
@@ -24937,84 +24944,86 @@ non-numeric, or <code>agg</code> is not a known reducer name or callable.</p>
 <span class="normal"><a href="#__codelineno-0-3465">3465</a></span>
 <span class="normal"><a href="#__codelineno-0-3466">3466</a></span>
 <span class="normal"><a href="#__codelineno-0-3467">3467</a></span>
-<span class="normal"><a href="#__codelineno-0-3468">3468</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3391" name="__codelineno-0-3391"></a><span class="k">def</span><span class="w"> </span><span class="nf">h3_bin</span><span class="p">(</span>
-<a id="__codelineno-0-3392" name="__codelineno-0-3392"></a>    <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-3393" name="__codelineno-0-3393"></a>    <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-3394" name="__codelineno-0-3394"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-3395" name="__codelineno-0-3395"></a>    <span class="n">agg</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Callable</span> <span class="o">=</span> <span class="s2">&quot;count&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-3396" name="__codelineno-0-3396"></a>    <span class="n">column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-3397" name="__codelineno-0-3397"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FeatureCollection</span><span class="p">:</span>
-<a id="__codelineno-0-3398" name="__codelineno-0-3398"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Aggregate points into H3 hexagon cells, one polygon per occupied cell.</span>
-<a id="__codelineno-0-3399" name="__codelineno-0-3399"></a>
-<a id="__codelineno-0-3400" name="__codelineno-0-3400"></a><span class="sd">    Groups the points by their H3 cell at ``resolution`` and returns one hexagon (or pentagon) polygon per</span>
-<a id="__codelineno-0-3401" name="__codelineno-0-3401"></a><span class="sd">    occupied cell carrying an aggregate: the point **count** when ``column`` is ``None``, otherwise ``agg``</span>
-<a id="__codelineno-0-3402" name="__codelineno-0-3402"></a><span class="sd">    applied to ``column``. The output is in EPSG:4326 (H3 is lat/lng). No ``h3`` dependency is required.</span>
-<a id="__codelineno-0-3403" name="__codelineno-0-3403"></a>
-<a id="__codelineno-0-3404" name="__codelineno-0-3404"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-3405" name="__codelineno-0-3405"></a><span class="sd">        resolution: H3 resolution, 0-15.</span>
-<a id="__codelineno-0-3406" name="__codelineno-0-3406"></a><span class="sd">        agg: Per-cell reducer applied to ``column`` — one of ``&quot;count&quot;`` / ``&quot;mean&quot;`` / ``&quot;sum&quot;`` /</span>
-<a id="__codelineno-0-3407" name="__codelineno-0-3407"></a><span class="sd">            ``&quot;median&quot;`` / ``&quot;min&quot;`` / ``&quot;max&quot;`` / ``&quot;std&quot;`` or a callable taking a 1-D array. Ignored when</span>
-<a id="__codelineno-0-3408" name="__codelineno-0-3408"></a><span class="sd">            ``column`` is ``None`` (point count).</span>
-<a id="__codelineno-0-3409" name="__codelineno-0-3409"></a><span class="sd">        column: Numeric column aggregated per cell, or ``None`` to count points (density).</span>
-<a id="__codelineno-0-3410" name="__codelineno-0-3410"></a>
-<a id="__codelineno-0-3411" name="__codelineno-0-3411"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-3412" name="__codelineno-0-3412"></a><span class="sd">        FeatureCollection: One hexagon polygon per occupied cell, in EPSG:4326, with an ``h3`` index column</span>
-<a id="__codelineno-0-3413" name="__codelineno-0-3413"></a><span class="sd">        and an aggregate column (``&quot;count&quot;`` when ``column`` is ``None``, else named ``column``).</span>
-<a id="__codelineno-0-3414" name="__codelineno-0-3414"></a>
-<a id="__codelineno-0-3415" name="__codelineno-0-3415"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-3416" name="__codelineno-0-3416"></a><span class="sd">        InvalidGeometryError: If the geometries are not all ``Point``.</span>
-<a id="__codelineno-0-3417" name="__codelineno-0-3417"></a><span class="sd">        ValueError: If ``resolution`` is outside 0-15, the collection has no CRS, ``column`` is missing /</span>
-<a id="__codelineno-0-3418" name="__codelineno-0-3418"></a><span class="sd">            non-numeric, or ``agg`` is not a known reducer name or callable.</span>
-<a id="__codelineno-0-3419" name="__codelineno-0-3419"></a>
-<a id="__codelineno-0-3420" name="__codelineno-0-3420"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-3421" name="__codelineno-0-3421"></a><span class="sd">        - Bin four nearby points into H3 cells at resolution 9 and read the counts:</span>
-<a id="__codelineno-0-3422" name="__codelineno-0-3422"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-3423" name="__codelineno-0-3423"></a><span class="sd">            &gt;&gt;&gt; import geopandas as gpd</span>
-<a id="__codelineno-0-3424" name="__codelineno-0-3424"></a><span class="sd">            &gt;&gt;&gt; from shapely.geometry import Point</span>
-<a id="__codelineno-0-3425" name="__codelineno-0-3425"></a><span class="sd">            &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
-<a id="__codelineno-0-3426" name="__codelineno-0-3426"></a><span class="sd">            &gt;&gt;&gt; fc = FeatureCollection(</span>
-<a id="__codelineno-0-3427" name="__codelineno-0-3427"></a><span class="sd">            ...     gpd.GeoDataFrame(</span>
-<a id="__codelineno-0-3428" name="__codelineno-0-3428"></a><span class="sd">            ...         {&quot;v&quot;: [1.0, 2.0, 3.0, 4.0]},</span>
-<a id="__codelineno-0-3429" name="__codelineno-0-3429"></a><span class="sd">            ...         geometry=[</span>
-<a id="__codelineno-0-3430" name="__codelineno-0-3430"></a><span class="sd">            ...             Point(-122.418, 37.775), Point(-122.4181, 37.7751),</span>
-<a id="__codelineno-0-3431" name="__codelineno-0-3431"></a><span class="sd">            ...             Point(-122.40, 37.78), Point(-122.40, 37.78),</span>
-<a id="__codelineno-0-3432" name="__codelineno-0-3432"></a><span class="sd">            ...         ],</span>
-<a id="__codelineno-0-3433" name="__codelineno-0-3433"></a><span class="sd">            ...         crs=&quot;EPSG:4326&quot;,</span>
-<a id="__codelineno-0-3434" name="__codelineno-0-3434"></a><span class="sd">            ...     )</span>
-<a id="__codelineno-0-3435" name="__codelineno-0-3435"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-3436" name="__codelineno-0-3436"></a><span class="sd">            &gt;&gt;&gt; cells = fc.h3_bin(9)</span>
-<a id="__codelineno-0-3437" name="__codelineno-0-3437"></a><span class="sd">            &gt;&gt;&gt; int(cells[&quot;count&quot;].sum())</span>
-<a id="__codelineno-0-3438" name="__codelineno-0-3438"></a><span class="sd">            4</span>
-<a id="__codelineno-0-3439" name="__codelineno-0-3439"></a><span class="sd">            &gt;&gt;&gt; cells.crs.to_epsg()</span>
-<a id="__codelineno-0-3440" name="__codelineno-0-3440"></a><span class="sd">            4326</span>
-<a id="__codelineno-0-3441" name="__codelineno-0-3441"></a>
-<a id="__codelineno-0-3442" name="__codelineno-0-3442"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-3443" name="__codelineno-0-3443"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-3444" name="__codelineno-0-3444"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_require_column</span><span class="p">(</span><span class="s2">&quot;h3_bin&quot;</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span>
-<a id="__codelineno-0-3445" name="__codelineno-0-3445"></a>    <span class="n">cells</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_h3_cells</span><span class="p">(</span><span class="n">resolution</span><span class="p">,</span> <span class="s2">&quot;h3_bin&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3446" name="__codelineno-0-3446"></a>    <span class="k">if</span> <span class="n">column</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-3447" name="__codelineno-0-3447"></a>        <span class="n">counts</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">cells</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;object&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span>
-<a id="__codelineno-0-3448" name="__codelineno-0-3448"></a>        <span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="n">cell</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">n</span><span class="p">))</span> <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">counts</span><span class="o">.</span><span class="n">items</span><span class="p">()]</span>
-<a id="__codelineno-0-3449" name="__codelineno-0-3449"></a>        <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;count&quot;</span>
-<a id="__codelineno-0-3450" name="__codelineno-0-3450"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-3451" name="__codelineno-0-3451"></a>        <span class="n">reducer</span> <span class="o">=</span> <span class="n">_tess</span><span class="o">.</span><span class="n">resolve_reducer</span><span class="p">(</span><span class="n">agg</span><span class="p">)</span>
-<a id="__codelineno-0-3452" name="__codelineno-0-3452"></a>        <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-3453" name="__codelineno-0-3453"></a>            <span class="n">values</span> <span class="o">=</span> <span class="bp">self</span><span class="p">[</span><span class="n">column</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
-<a id="__codelineno-0-3454" name="__codelineno-0-3454"></a>        <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-<a id="__codelineno-0-3455" name="__codelineno-0-3455"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;h3_bin: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> must be numeric&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-<a id="__codelineno-0-3456" name="__codelineno-0-3456"></a>        <span class="n">grouped</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s2">&quot;_cell&quot;</span><span class="p">:</span> <span class="n">cells</span><span class="p">,</span> <span class="s2">&quot;_v&quot;</span><span class="p">:</span> <span class="n">values</span><span class="p">})</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">&quot;_cell&quot;</span><span class="p">)[</span><span class="s2">&quot;_v&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-3457" name="__codelineno-0-3457"></a>        <span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="n">cell</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">reducer</span><span class="p">(</span><span class="n">grp</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">())))</span> <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">grp</span> <span class="ow">in</span> <span class="n">grouped</span><span class="p">]</span>
-<a id="__codelineno-0-3458" name="__codelineno-0-3458"></a>        <span class="n">name</span> <span class="o">=</span> <span class="n">column</span>
-<a id="__codelineno-0-3459" name="__codelineno-0-3459"></a>    <span class="n">geometries</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-3460" name="__codelineno-0-3460"></a>    <span class="n">idx</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-3461" name="__codelineno-0-3461"></a>    <span class="n">agg_values</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-3462" name="__codelineno-0-3462"></a>    <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
-<a id="__codelineno-0-3463" name="__codelineno-0-3463"></a>        <span class="n">boundary</span> <span class="o">=</span> <span class="n">_h3</span><span class="o">.</span><span class="n">cell_to_boundary</span><span class="p">(</span><span class="n">cell</span><span class="p">)</span>
-<a id="__codelineno-0-3464" name="__codelineno-0-3464"></a>        <span class="n">geometries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Polygon</span><span class="p">([(</span><span class="n">lng</span><span class="p">,</span> <span class="n">lat</span><span class="p">)</span> <span class="k">for</span> <span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="n">lng</span><span class="p">)</span> <span class="ow">in</span> <span class="n">boundary</span><span class="p">]))</span>
-<a id="__codelineno-0-3465" name="__codelineno-0-3465"></a>        <span class="n">idx</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cell</span><span class="p">)</span>
-<a id="__codelineno-0-3466" name="__codelineno-0-3466"></a>        <span class="n">agg_values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
-<a id="__codelineno-0-3467" name="__codelineno-0-3467"></a>    <span class="n">frame</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">({</span><span class="s2">&quot;h3&quot;</span><span class="p">:</span> <span class="n">idx</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n">agg_values</span><span class="p">},</span> <span class="n">geometry</span><span class="o">=</span><span class="n">geometries</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="s2">&quot;EPSG:4326&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3468" name="__codelineno-0-3468"></a>    <span class="k">return</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-3468">3468</a></span>
+<span class="normal"><a href="#__codelineno-0-3469">3469</a></span>
+<span class="normal"><a href="#__codelineno-0-3470">3470</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3393" name="__codelineno-0-3393"></a><span class="k">def</span><span class="w"> </span><span class="nf">h3_bin</span><span class="p">(</span>
+<a id="__codelineno-0-3394" name="__codelineno-0-3394"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-3395" name="__codelineno-0-3395"></a>    <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-3396" name="__codelineno-0-3396"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-3397" name="__codelineno-0-3397"></a>    <span class="n">agg</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Callable</span> <span class="o">=</span> <span class="s2">&quot;count&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3398" name="__codelineno-0-3398"></a>    <span class="n">column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-3399" name="__codelineno-0-3399"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FeatureCollection</span><span class="p">:</span>
+<a id="__codelineno-0-3400" name="__codelineno-0-3400"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Aggregate points into H3 hexagon cells, one polygon per occupied cell.</span>
+<a id="__codelineno-0-3401" name="__codelineno-0-3401"></a>
+<a id="__codelineno-0-3402" name="__codelineno-0-3402"></a><span class="sd">    Groups the points by their H3 cell at ``resolution`` and returns one hexagon (or pentagon) polygon per</span>
+<a id="__codelineno-0-3403" name="__codelineno-0-3403"></a><span class="sd">    occupied cell carrying an aggregate: the point **count** when ``column`` is ``None``, otherwise ``agg``</span>
+<a id="__codelineno-0-3404" name="__codelineno-0-3404"></a><span class="sd">    applied to ``column``. The output is in EPSG:4326 (H3 is lat/lng). No ``h3`` dependency is required.</span>
+<a id="__codelineno-0-3405" name="__codelineno-0-3405"></a>
+<a id="__codelineno-0-3406" name="__codelineno-0-3406"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-3407" name="__codelineno-0-3407"></a><span class="sd">        resolution: H3 resolution, 0-15.</span>
+<a id="__codelineno-0-3408" name="__codelineno-0-3408"></a><span class="sd">        agg: Per-cell reducer applied to ``column`` — one of ``&quot;count&quot;`` / ``&quot;mean&quot;`` / ``&quot;sum&quot;`` /</span>
+<a id="__codelineno-0-3409" name="__codelineno-0-3409"></a><span class="sd">            ``&quot;median&quot;`` / ``&quot;min&quot;`` / ``&quot;max&quot;`` / ``&quot;std&quot;`` or a callable taking a 1-D array. Ignored when</span>
+<a id="__codelineno-0-3410" name="__codelineno-0-3410"></a><span class="sd">            ``column`` is ``None`` (point count).</span>
+<a id="__codelineno-0-3411" name="__codelineno-0-3411"></a><span class="sd">        column: Numeric column aggregated per cell, or ``None`` to count points (density).</span>
+<a id="__codelineno-0-3412" name="__codelineno-0-3412"></a>
+<a id="__codelineno-0-3413" name="__codelineno-0-3413"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-3414" name="__codelineno-0-3414"></a><span class="sd">        FeatureCollection: One hexagon polygon per occupied cell, in EPSG:4326, with an ``h3`` index column</span>
+<a id="__codelineno-0-3415" name="__codelineno-0-3415"></a><span class="sd">        and an aggregate column (``&quot;count&quot;`` when ``column`` is ``None``, else named ``column``).</span>
+<a id="__codelineno-0-3416" name="__codelineno-0-3416"></a>
+<a id="__codelineno-0-3417" name="__codelineno-0-3417"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-3418" name="__codelineno-0-3418"></a><span class="sd">        InvalidGeometryError: If the geometries are not all ``Point``.</span>
+<a id="__codelineno-0-3419" name="__codelineno-0-3419"></a><span class="sd">        ValueError: If ``resolution`` is outside 0-15, the collection has no CRS, ``column`` is missing /</span>
+<a id="__codelineno-0-3420" name="__codelineno-0-3420"></a><span class="sd">            non-numeric, or ``agg`` is not a known reducer name or callable.</span>
+<a id="__codelineno-0-3421" name="__codelineno-0-3421"></a>
+<a id="__codelineno-0-3422" name="__codelineno-0-3422"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-3423" name="__codelineno-0-3423"></a><span class="sd">        - Bin four nearby points into H3 cells at resolution 9 and read the counts:</span>
+<a id="__codelineno-0-3424" name="__codelineno-0-3424"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-3425" name="__codelineno-0-3425"></a><span class="sd">            &gt;&gt;&gt; import geopandas as gpd</span>
+<a id="__codelineno-0-3426" name="__codelineno-0-3426"></a><span class="sd">            &gt;&gt;&gt; from shapely.geometry import Point</span>
+<a id="__codelineno-0-3427" name="__codelineno-0-3427"></a><span class="sd">            &gt;&gt;&gt; from pyramids.feature import FeatureCollection</span>
+<a id="__codelineno-0-3428" name="__codelineno-0-3428"></a><span class="sd">            &gt;&gt;&gt; fc = FeatureCollection(</span>
+<a id="__codelineno-0-3429" name="__codelineno-0-3429"></a><span class="sd">            ...     gpd.GeoDataFrame(</span>
+<a id="__codelineno-0-3430" name="__codelineno-0-3430"></a><span class="sd">            ...         {&quot;v&quot;: [1.0, 2.0, 3.0, 4.0]},</span>
+<a id="__codelineno-0-3431" name="__codelineno-0-3431"></a><span class="sd">            ...         geometry=[</span>
+<a id="__codelineno-0-3432" name="__codelineno-0-3432"></a><span class="sd">            ...             Point(-122.418, 37.775), Point(-122.4181, 37.7751),</span>
+<a id="__codelineno-0-3433" name="__codelineno-0-3433"></a><span class="sd">            ...             Point(-122.40, 37.78), Point(-122.40, 37.78),</span>
+<a id="__codelineno-0-3434" name="__codelineno-0-3434"></a><span class="sd">            ...         ],</span>
+<a id="__codelineno-0-3435" name="__codelineno-0-3435"></a><span class="sd">            ...         crs=&quot;EPSG:4326&quot;,</span>
+<a id="__codelineno-0-3436" name="__codelineno-0-3436"></a><span class="sd">            ...     )</span>
+<a id="__codelineno-0-3437" name="__codelineno-0-3437"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-3438" name="__codelineno-0-3438"></a><span class="sd">            &gt;&gt;&gt; cells = fc.h3_bin(9)</span>
+<a id="__codelineno-0-3439" name="__codelineno-0-3439"></a><span class="sd">            &gt;&gt;&gt; int(cells[&quot;count&quot;].sum())</span>
+<a id="__codelineno-0-3440" name="__codelineno-0-3440"></a><span class="sd">            4</span>
+<a id="__codelineno-0-3441" name="__codelineno-0-3441"></a><span class="sd">            &gt;&gt;&gt; cells.crs.to_epsg()</span>
+<a id="__codelineno-0-3442" name="__codelineno-0-3442"></a><span class="sd">            4326</span>
+<a id="__codelineno-0-3443" name="__codelineno-0-3443"></a>
+<a id="__codelineno-0-3444" name="__codelineno-0-3444"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-3445" name="__codelineno-0-3445"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-3446" name="__codelineno-0-3446"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_require_column</span><span class="p">(</span><span class="s2">&quot;h3_bin&quot;</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span>
+<a id="__codelineno-0-3447" name="__codelineno-0-3447"></a>    <span class="n">cells</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_h3_cells</span><span class="p">(</span><span class="n">resolution</span><span class="p">,</span> <span class="s2">&quot;h3_bin&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3448" name="__codelineno-0-3448"></a>    <span class="k">if</span> <span class="n">column</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-3449" name="__codelineno-0-3449"></a>        <span class="n">counts</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">cells</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;object&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span>
+<a id="__codelineno-0-3450" name="__codelineno-0-3450"></a>        <span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="n">cell</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">n</span><span class="p">))</span> <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">counts</span><span class="o">.</span><span class="n">items</span><span class="p">()]</span>
+<a id="__codelineno-0-3451" name="__codelineno-0-3451"></a>        <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;count&quot;</span>
+<a id="__codelineno-0-3452" name="__codelineno-0-3452"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-3453" name="__codelineno-0-3453"></a>        <span class="n">reducer</span> <span class="o">=</span> <span class="n">_tess</span><span class="o">.</span><span class="n">resolve_reducer</span><span class="p">(</span><span class="n">agg</span><span class="p">)</span>
+<a id="__codelineno-0-3454" name="__codelineno-0-3454"></a>        <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-3455" name="__codelineno-0-3455"></a>            <span class="n">values</span> <span class="o">=</span> <span class="bp">self</span><span class="p">[</span><span class="n">column</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+<a id="__codelineno-0-3456" name="__codelineno-0-3456"></a>        <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-0-3457" name="__codelineno-0-3457"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;h3_bin: column </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2"> must be numeric&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+<a id="__codelineno-0-3458" name="__codelineno-0-3458"></a>        <span class="n">grouped</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s2">&quot;_cell&quot;</span><span class="p">:</span> <span class="n">cells</span><span class="p">,</span> <span class="s2">&quot;_v&quot;</span><span class="p">:</span> <span class="n">values</span><span class="p">})</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">&quot;_cell&quot;</span><span class="p">)[</span><span class="s2">&quot;_v&quot;</span><span class="p">]</span>
+<a id="__codelineno-0-3459" name="__codelineno-0-3459"></a>        <span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="n">cell</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">reducer</span><span class="p">(</span><span class="n">grp</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">())))</span> <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">grp</span> <span class="ow">in</span> <span class="n">grouped</span><span class="p">]</span>
+<a id="__codelineno-0-3460" name="__codelineno-0-3460"></a>        <span class="n">name</span> <span class="o">=</span> <span class="n">column</span>
+<a id="__codelineno-0-3461" name="__codelineno-0-3461"></a>    <span class="n">geometries</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-3462" name="__codelineno-0-3462"></a>    <span class="n">idx</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-3463" name="__codelineno-0-3463"></a>    <span class="n">agg_values</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-3464" name="__codelineno-0-3464"></a>    <span class="k">for</span> <span class="n">cell</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
+<a id="__codelineno-0-3465" name="__codelineno-0-3465"></a>        <span class="n">boundary</span> <span class="o">=</span> <span class="n">_h3</span><span class="o">.</span><span class="n">cell_to_boundary</span><span class="p">(</span><span class="n">cell</span><span class="p">)</span>
+<a id="__codelineno-0-3466" name="__codelineno-0-3466"></a>        <span class="n">geometries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Polygon</span><span class="p">([(</span><span class="n">lng</span><span class="p">,</span> <span class="n">lat</span><span class="p">)</span> <span class="k">for</span> <span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="n">lng</span><span class="p">)</span> <span class="ow">in</span> <span class="n">boundary</span><span class="p">]))</span>
+<a id="__codelineno-0-3467" name="__codelineno-0-3467"></a>        <span class="n">idx</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cell</span><span class="p">)</span>
+<a id="__codelineno-0-3468" name="__codelineno-0-3468"></a>        <span class="n">agg_values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-3469" name="__codelineno-0-3469"></a>    <span class="n">frame</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">({</span><span class="s2">&quot;h3&quot;</span><span class="p">:</span> <span class="n">idx</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n">agg_values</span><span class="p">},</span> <span class="n">geometry</span><span class="o">=</span><span class="n">geometries</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="s2">&quot;EPSG:4326&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3470" name="__codelineno-0-3470"></a>    <span class="k">return</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>

@@ -7004,7 +7004,7 @@ print(ds)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-16 22:12:45 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-18 16:47:14 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
@@ -7026,6 +7026,14 @@ print(ds)</div>
             Data type: float32
             File: 
         
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>/home/runner/work/pyramids/pyramids/src/pyramids/dataset/engines/analysis.py:1802: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  | `points`                    | array \| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra &gt;= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
 </pre>
 </div>
 </div>
@@ -7076,7 +7084,7 @@ print(ds)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[2]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fc5064ba3c0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f81ea9e0ec0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7143,8 +7151,8 @@ print("wrote", out_zstd)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>wrote /tmp/pyramids-cog-5jvq763a/scene.tif
-wrote /tmp/pyramids-cog-5jvq763a/scene_zstd.tif
+<pre>wrote /tmp/pyramids-cog-qrhmjfid/scene.tif
+wrote /tmp/pyramids-cog-qrhmjfid/scene_zstd.tif
 </pre>
 </div>
 </div>
@@ -7268,7 +7276,7 @@ COG encoding.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fc5bc415310&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f81ea898050&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7626,7 +7634,7 @@ print("validate exit code:", rc_val)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>file:        /tmp/pyramids-cog-5jvq763a/scene.tif
+<pre>file:        /tmp/pyramids-cog-qrhmjfid/scene.tif
 is_cog:      True
 driver:      GTiff
 size:        600 x 600 (1 band(s))
@@ -7640,7 +7648,7 @@ blocksize:   (512, 512)
 overviews:   1
   - level 0: 300 x 300 (1/2)
 info exit code: 0
-/tmp/pyramids-cog-5jvq763a/scene.tif: valid COG
+/tmp/pyramids-cog-qrhmjfid/scene.tif: valid COG
 validate exit code: 0
 </pre>
 </div>
