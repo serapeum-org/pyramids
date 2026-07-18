@@ -6,3 +6,8 @@ pixi.lock merge=binary linguist-language=YAML linguist-generated=true
 # when Windows CRLF endings trip up bash inside the manylinux container.
 *.sh text eol=lf
 ci/**/*.sh text eol=lf
+
+# Jupyter notebooks are LF-normalized JSON. Pin eol=lf so Windows autocrlf
+# checkouts don't rewrite every line and produce spurious full-file diffs
+# (and so tooling like ruff/nbqa round-trips them cleanly).
+*.ipynb text eol=lf
