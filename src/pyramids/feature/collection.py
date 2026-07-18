@@ -3251,7 +3251,8 @@ class FeatureCollection(GeoDataFrame):
         Reads ``column`` as the z-value at each point geometry and grids it with ``gdal.Grid`` via
         :meth:`pyramids.dataset.Dataset.from_points`. This is distinct from the inherited geopandas
         ``GeoSeries.interpolate`` (which is 1-D interpolation *along* a line). Only inverse-distance weighting
-        (``method="idw"``) is available here; kriging needs the optional ``pykrige`` dependency.
+        (``method="idw"``) is available here; kriging is out of scope for pyramids — use the ``geostatista``
+        package.
 
         IDW extrapolates across the whole output extent (no convex-hull mask), so ``nodata`` only appears in
         cells ``gdal.Grid`` cannot estimate. Coincident (duplicate) points are not pre-averaged — they are
@@ -3305,8 +3306,8 @@ class FeatureCollection(GeoDataFrame):
         self._require_column("interpolate_to_raster", column)
         if method != "idw":
             raise ValueError(
-                f"interpolate_to_raster: method {method!r} is not supported; only 'idw' is available "
-                "(kriging needs the optional 'pykrige' dependency)"
+                f"interpolate_to_raster: method {method!r} is not supported; only 'idw' is available. "
+                "Kriging is out of scope for pyramids — use the geostatista package."
             )
         if len(self) < 3:
             raise ValueError(f"interpolate_to_raster: need at least 3 points, got {len(self)}")

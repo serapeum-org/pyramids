@@ -126,8 +126,8 @@ class TestInterpolateToRaster:
         assert surface.shape == (1, 2, 2), f"unexpected shape {surface.shape}"
 
     def test_unknown_method_raises(self, corner_points: FeatureCollection) -> None:
-        """A non-idw method is rejected and points at the optional kriging dependency."""
-        with pytest.raises(ValueError, match="pykrige"):
+        """A non-idw method is rejected and points kriging users at geostatista."""
+        with pytest.raises(ValueError, match="geostatista"):
             corner_points.interpolate_to_raster("rain", method="kriging")
 
     def test_too_few_points_raises(self) -> None:
