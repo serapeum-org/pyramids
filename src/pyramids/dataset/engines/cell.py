@@ -60,6 +60,7 @@ class Cell(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1,3, size=(3, 3))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -167,6 +168,7 @@ class Cell(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1,3, size=(3, 3))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -178,7 +180,7 @@ class Cell(_Engine["Dataset"]):
 
               ```python
               >>> gdf = dataset.get_cell_polygons()
-              >>> print(gdf)
+              >>> print(gdf)  # doctest: +NORMALIZE_WHITESPACE
                                                      geometry  id
               0  POLYGON ((0 0, 0.05 0, 0.05 -0.05, 0 -0.05, 0 0))   0
               1  POLYGON ((0.05 0, 0.1 0, 0.1 -0.05, 0.05 -0.05...   1
@@ -189,8 +191,8 @@ class Cell(_Engine["Dataset"]):
               6  POLYGON ((0 -0.1, 0.05 -0.1, 0.05 -0.15, 0 -0....   6
               7  POLYGON ((0.05 -0.1, 0.1 -0.1, 0.1 -0.15, 0.05...   7
               8  POLYGON ((0.1 -0.1, 0.15 -0.1, 0.15 -0.15, 0.1...   8
-              >>> fig, ax = dataset.plot()
-              >>> gdf.plot(ax=ax, facecolor='none', edgecolor="gray", linewidth=2)
+              >>> fig, ax = dataset.plot()  # doctest: +SKIP
+              >>> gdf.plot(ax=ax, facecolor='none', edgecolor="gray", linewidth=2)  # doctest: +SKIP
               <Axes: >
 
               ```
@@ -247,6 +249,7 @@ class Cell(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1,3, size=(3, 3))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -269,8 +272,8 @@ class Cell(_Engine["Dataset"]):
               6  POINT (0.025 -0.125)   6
               7  POINT (0.075 -0.125)   7
               8  POINT (0.125 -0.125)   8
-              >>> fig, ax = dataset.plot()
-              >>> gdf.plot(ax=ax, facecolor='black', linewidth=2)
+              >>> fig, ax = dataset.plot()  # doctest: +SKIP
+              >>> gdf.plot(ax=ax, facecolor='black', linewidth=2)  # doctest: +SKIP
               <Axes: >
 
               ```
@@ -281,7 +284,7 @@ class Cell(_Engine["Dataset"]):
 
               ```python
               >>> gdf = dataset.get_cell_points(location="corner")
-              >>> print(gdf)
+              >>> print(gdf)  # doctest: +NORMALIZE_WHITESPACE
                           geometry  id
               0         POINT (0 0)   0
               1      POINT (0.05 0)   1
@@ -292,8 +295,8 @@ class Cell(_Engine["Dataset"]):
               6      POINT (0 -0.1)   6
               7   POINT (0.05 -0.1)   7
               8    POINT (0.1 -0.1)   8
-              >>> fig, ax = dataset.plot()
-              >>> gdf.plot(ax=ax, facecolor='black', linewidth=4)
+              >>> fig, ax = dataset.plot()  # doctest: +SKIP
+              >>> gdf.plot(ax=ax, facecolor='black', linewidth=4)  # doctest: +SKIP
               <Axes: >
 
               ```
@@ -335,6 +338,7 @@ class Cell(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> import pandas as pd
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 3, size=(2, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05

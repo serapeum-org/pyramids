@@ -64,7 +64,7 @@ class RasterMeta:
             ... rows=10, columns=12, band_count=1, dtype="float32",
             ... transform=(0.0, 1.0, 0.0, 10.0, 0.0, -1.0),
             ... crs=CRS.from_epsg(4326),
-            ...)
+            ... )
             >>> meta.epsg
             4326
             >>> meta.shape

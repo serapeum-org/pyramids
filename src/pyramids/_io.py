@@ -242,7 +242,7 @@ def _get_zip_path(path: str, file_i: int = 0):
           >>> rdir = "tests/data/virtual-file-system"
           >>> path = _get_zip_path(f"{rdir}/multiple_compressed_files.zip/1.asc")
           >>> print(path)
-          "/vsizip/tests/data/virtual-file-system/multiple_compressed_files.zip/1.asc"
+          /vsizip/tests/data/virtual-file-system/multiple_compressed_files.zip/1.asc
 
           ```
 
@@ -251,16 +251,16 @@ def _get_zip_path(path: str, file_i: int = 0):
           ```python
           >>> path = _get_zip_path(f"{rdir}/multiple_compressed_files.zip")
           >>> print(path)
-          "/vsizip/tests/data/virtual-file-system/multiple_compressed_files.zip/1.asc"
+          /vsizip/tests/data/virtual-file-system/multiple_compressed_files.zip/1.asc
 
           ```
 
         - Zip file path and an index (one/multiple files inside the compressed file): if you provide the path to the zip file and an index to the file inside the compressed file you want to read
 
           ```python
-          >>> path = _get_zip_path("compressed-file-name.zip", file_i=1)
+          >>> path = _get_zip_path(f"{rdir}/multiple_compressed_files.zip", file_i=1)
           >>> print(path)
-          "/vsizip/tests/data/virtual-file-system/multiple_compressed_files.zip/2.asc"
+          /vsizip/tests/data/virtual-file-system/multiple_compressed_files.zip/2.asc
 
           ```
     """

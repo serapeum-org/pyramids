@@ -101,15 +101,18 @@ class Bands(_Engine["Dataset"]):
             - Read a dataset and fetch its attribute table:
 
               ```python
-              >>> dataset = Dataset.read_file("examples/data/geotiff/south-america-mswep_1979010100.tif")
+              >>> from pyramids.dataset import Dataset
+              >>> import pandas as pd
+              >>> dataset = Dataset.create(
+              ...     cell_size=0.05, rows=5, columns=5, dtype="float32", bands=1,
+              ...     top_left_corner=(0, 0), epsg=4326, no_data_value=-9999,
+              ... )
+              >>> dataset.set_attribute_table(
+              ...     pd.DataFrame({"Category": ["Low", "High"], "Description": ["dry", "wet"]})
+              ... )
               >>> df = dataset.get_attribute_table()
-              >>> print(df)
-                Precipitation Range (mm)   Category              Description
-              0                     0-50        Low   Very low precipitation
-              1                   51-100   Moderate   Moderate precipitation
-              2                  101-200       High       High precipitation
-              3                  201-500  Very High  Very high precipitation
-              4                     >500    Extreme    Extreme precipitation
+              >>> df["Category"].tolist()
+              ['Low', 'High']
 
               ```
         """
@@ -148,6 +151,8 @@ class Bands(_Engine["Dataset"]):
             - First create a dataset:
 
               ```python
+              >>> from pyramids.dataset import Dataset
+              >>> import pandas as pd
               >>> dataset = Dataset.create(
               ... cell_size=0.05, rows=10, columns=10, dtype="float32", bands=1,
               ... top_left_corner=(0, 0), epsg=4326, no_data_value=-9999
@@ -348,21 +353,26 @@ class Bands(_Engine["Dataset"]):
             - First create a dataset:
 
               ```python
+              >>> from pyramids.dataset import Dataset
               >>> dataset = Dataset.create(
               ... cell_size=0.05, rows=10, columns=10, dtype="float32", bands=1,
               ... top_left_corner=(0, 0), epsg=4326, no_data_value=-9999
               ... )
-              >>> print(dataset)
+              >>> print(dataset)  # doctest: +NORMALIZE_WHITESPACE
               <BLANKLINE>
+                          Top Left Corner: (0.0, 0.0)
                           Cell size: 0.05
                           Dimension: 10 * 10
                           EPSG: 4326
                           Number of Bands: 1
                           Band names: ['Band_1']
+                          Band colors: {0: 'undefined'}
+                          Band units: ['']
+                          Scale: [1.0]
+                          Offset: [0]
                           Mask: -9999.0
                           Data type: float32
-                          File:...
-              <BLANKLINE>
+                          File:
 
               ```
 
@@ -378,17 +388,21 @@ class Bands(_Engine["Dataset"]):
 
               ```python
               >>> dataset.add_band(array, unit="m", attribute_table=None, inplace=True)
-              >>> print(dataset)
+              >>> print(dataset)  # doctest: +NORMALIZE_WHITESPACE
               <BLANKLINE>
+                          Top Left Corner: (0.0, 0.0)
                           Cell size: 0.05
                           Dimension: 10 * 10
                           EPSG: 4326
                           Number of Bands: 2
                           Band names: ['Band_1', 'Band_2']
+                          Band colors: {0: 'undefined', 1: 'undefined'}
+                          Band units: ['', 'm']
+                          Scale: [1.0, 1.0]
+                          Offset: [0, 0]
                           Mask: -9999.0
                           Data type: float32
-                          File:...
-              <BLANKLINE>
+                          File:
 
               ```
 
@@ -578,6 +592,8 @@ class Bands(_Engine["Dataset"]):
             - Create `Dataset` consisting of 3 bands and assign RGB colors:
 
               ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 3, size=(3, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -622,6 +638,7 @@ class Bands(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> import pandas as pd
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 3, size=(2, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -706,6 +723,7 @@ class Bands(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> import pandas as pd
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 3, size=(2, 10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -749,7 +767,7 @@ class Bands(_Engine["Dataset"]):
               ...     "values": [1, 2, 3, 1, 2, 3],
               ...     "color": ["#709959", "#F2EEA2", "#F2CE85", "#C28C7C", "#D6C19C",
               ...         "#D6C19C"],
-              ...     "alpha": [255, 128 0, 255, 128 0]
+              ...     "alpha": [255, 128, 0, 255, 128, 0]
               ... })
               >>> dataset.color_table = color_table
               >>> print(dataset.color_table)
@@ -1096,6 +1114,7 @@ class Bands(_Engine["Dataset"]):
         Examples:
             - Create a Dataset (4 bands, 10 rows, 10 columns) at lon/lat (0, 0):
               ```python
+              >>> from pyramids.dataset import Dataset
               >>> dataset = Dataset.create(
               ...     cell_size=0.05, rows=3, columns=3, bands=1, top_left_corner=(0, 0),dtype="float32",
               ...     epsg=4326, no_data_value=-9
@@ -1107,6 +1126,7 @@ class Bands(_Engine["Dataset"]):
                [-9. -9. -9.]]
               >>> print(dataset.no_data_value) # doctest: +SKIP
               [-9.0]
+
               ```
             - The dataset is full of the no_data_value. Now change it using `change_no_data_value`:
               ```python
@@ -1118,6 +1138,7 @@ class Bands(_Engine["Dataset"]):
                [-10. -10. -10.]]
               >>> print(new_dataset.no_data_value) # doctest: +SKIP
               [-10.0]
+
               ```
         """
         if not isinstance(new_value, list):

@@ -277,12 +277,14 @@ class LoggerManager:
             ```python
             >>> from pyramids.base.config import LoggerManager
             >>> _ = LoggerManager(level="WARNING")  # doctest: +SKIP
+
             ```
 
         - Configure console and file logging
             ```python
             >>> from pyramids.base.config import LoggerManager
             >>> _ = LoggerManager(level="INFO", log_file="pyramids.log")  # doctest: +SKIP
+
             ```
 
         See Also:

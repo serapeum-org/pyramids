@@ -111,7 +111,7 @@ class DummyLock:
             ```python
             >>> from pyramids.base._locks import DummyLock
             >>> with DummyLock():
-            ... value = 42
+            ...     value = 42
             >>> value
             42
 

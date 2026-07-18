@@ -554,10 +554,11 @@ class RasterBase(ABC):
             - Get the block size of a dataset and print it:
 
               ```python
-              >>> dataset = Dataset.read_file("tests/data/geotiff/era5_land_monthly_averaged.tif")
+              >>> from pyramids.dataset import Dataset
+              >>> dataset = Dataset.read_file("examples/data/acc4000.tif")
               >>> size = dataset.block_size
               >>> print(size)
-              [(128, 128)]
+              [[128, 128]]
 
               ```
         """
@@ -767,7 +768,8 @@ class RasterBase(ABC):
             - Read a 5x5 window from the dataset and print its shape:
 
               ```python
-              >>> dataset = Dataset.read_file("tests/data/geotiff/era5_land_monthly_averaged.tif")
+              >>> from pyramids.dataset import Dataset
+              >>> dataset = Dataset.read_file("examples/data/acc4000.tif")
               >>> arr = dataset.read_array(window=[0, 0, 5, 5])
               >>> print(arr.shape)
               (5, 5)
@@ -1004,8 +1006,10 @@ class RasterBase(ABC):
 
               ```python
               >>> from pyramids.dataset import Dataset
-              >>> dataset = Dataset.read_file("path/raster_name.tif")
+              >>> dataset = Dataset.read_file("examples/data/acc4000.tif")
               >>> reprojected_dataset = dataset.to_crs(to_epsg=3857)
+              >>> reprojected_dataset.epsg
+              3857
 
               ```
         """
@@ -1093,8 +1097,13 @@ class RasterBase(ABC):
             - Save a dataset to a new GeoTIFF file:
 
               ```python
-              >>> dataset = Dataset.read_file("path/to/file/***.tif")
-              >>> dataset.to_file("save_raster_test.tif")
+              >>> import os, tempfile
+              >>> from pyramids.dataset import Dataset
+              >>> dataset = Dataset.read_file("examples/data/acc4000.tif")
+              >>> out_path = os.path.join(tempfile.mkdtemp(), "saved.tif")
+              >>> dataset.to_file(out_path)
+              >>> os.path.exists(out_path)
+              True
 
               ```
 

@@ -744,6 +744,7 @@ class Dataset(RasterBase):
                 >>> glyph = dataset.plot(band=0, kind="pcolormesh")  # doctest: +SKIP
                 >>> glyph.im.set_clim(0, 100)  # doctest: +SKIP
                 >>> _ = glyph.cbar.set_label("elevation [m]")  # doctest: +SKIP
+
                 ```
 
         Examples:

@@ -609,11 +609,14 @@ def require_cleopatra(msg: str | None = None) -> None:
             ```python
             >>> import sys, types
             >>> from pyramids.base._utils import require_cleopatra
-            >>> stub = types.ModuleType("cleopatra")
-            >>> sys.modules.setdefault("cleopatra", stub) is not None
-            True
+            >>> _saved = sys.modules.get("cleopatra")
+            >>> sys.modules["cleopatra"] = types.ModuleType("cleopatra")  # pretend installed
             >>> require_cleopatra() is None
             True
+            >>> if _saved is None:  # restore sys.modules so later doctests still see the real cleopatra
+            ...     del sys.modules["cleopatra"]
+            ... else:
+            ...     sys.modules["cleopatra"] = _saved
 
             ```
 
