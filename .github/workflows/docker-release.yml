@@ -35,12 +35,19 @@ jobs:
           # nearest release tag reachable from the checked-out head_branch tip —
           # not `gh release list --limit 1`. The newest release can differ from
           # this run's commit under back-to-back releases and mislabel the image.
-          # --match constrains git describe to X.Y.Z release tags: the repo also
-          # carries non-semver tags (e.g. basemap-data-v1) that would otherwise
-          # be returned and break docker/metadata-action's type=semver parse.
+          # --match constrains git describe to X.Y.Z(prerelease) tags: the repo
+          # also carries non-version tags (e.g. basemap-data-v1) that would
+          # otherwise be returned and break docker/metadata-action's type=semver.
           TAG=$(git describe --tags --abbrev=0 --match '[0-9]*.[0-9]*.[0-9]*')
-          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            echo "::error::git describe returned a non-semver tag: '$TAG'"
+          # commitizen cuts PEP440 prerelease tags (e.g. 0.47.0rc1); normalize to
+          # SemVer (0.47.0-rc1) so type=semver parses them and prerelease cuts
+          # still produce a correctly-tagged image. Anything else fails loudly.
+          if [[ "$TAG" =~ ^([0-9]+\.[0-9]+\.[0-9]+)((a|b|rc)[0-9]+)?$ ]]; then
+            if [ -n "${BASH_REMATCH[2]}" ]; then
+              TAG="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+            fi
+          else
+            echo "::error::git describe returned an unexpected tag: '$TAG'"
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
