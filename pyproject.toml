@@ -162,14 +162,18 @@ pyramids = [
     "_licenses/**/*",
 ]
 
+# extend-ignore (NOT ignore) so flake8's default-ignore list is preserved —
+# that default list already silences the black-conflict codes E704/W503/W504.
+# E203, E701 are Black's officially recommended flake8 ignores; the rest are
+# project style choices. See:
+# https://black.readthedocs.io/en/stable/guides/using_black_with_other_tools.html
 [tool.flake8]
-ignore = ["E203", "E266", "E501", "W503", "E722", "C901", "E741", "E731"]
+extend-ignore = ["E203", "E266", "E501", "E701", "E704", "E722", "C901", "E741", "E731", "W503"]
 max-line-length = 88
 max-complexity = 18
 select = "B,C,E,F,W,T4"
 
 [tool.black]
-profile = "flake8"
 line-length = 88
 skip-string-normalization = true
 
