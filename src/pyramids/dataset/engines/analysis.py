@@ -89,6 +89,7 @@ class Analysis(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(4, 10, 10)
               >>> geotransform = (0, 0.05, 0, 0, 0, -0.05)
               >>> dataset = Dataset.create_from_array(arr, geo=geotransform, epsg=4326)
@@ -225,6 +226,7 @@ class Analysis(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.uniform(-1, 1, size=(5, 5))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -309,6 +311,7 @@ class Analysis(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 5, size=(5, 5))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -376,21 +379,15 @@ class Analysis(_Engine["Dataset"]):
 
                 ```python
                 >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
                 >>> arr = np.random.randint(1, 5, size=(2, 4, 4))
                 >>> top_left_corner = (0, 0)
                 >>> cell_size = 0.05
                 >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
-                >>> print(dataset)
-                <BLANKLINE>
-                            Cell size: 0.05
-                            Dimension: 4 * 4
-                            EPSG: 4326
-                            Number of Bands: 2
-                            Band names: ['Band_1', 'Band_2']
-                            Mask: -9999.0
-                            Data type: int32
-                            File:...
-                <BLANKLINE>
+                >>> (dataset.band_count, dataset.rows, dataset.columns)
+                (2, 4, 4)
+                >>> dataset.band_names
+                ['Band_1', 'Band_2']
                 >>> print(dataset.read_array()) # doctest: +SKIP
                 [[[1 3 3 4]
                   [1 4 2 4]
@@ -426,6 +423,7 @@ class Analysis(_Engine["Dataset"]):
               ```python
               >>> import geopandas as gpd
               >>> from shapely.geometry import Point
+
               ```
 
               - Create the points using shapely and GeoPandas to cover the 4 cells with xmin, ymin, xmax, ymax = [0.1, -0.2, 0.2, -0.1]:
@@ -961,36 +959,41 @@ class Analysis(_Engine["Dataset"]):
                 values in the base map.
 
         Examples:
-            - Read the dataset:
+            - Build a small value raster and an aligned class raster in memory:
 
               ```python
-              >>> dataset = Dataset.read_file("examples/data/geotiff/raster-folder/MSWEP_1979.01.01.tif")
-              >>> dataset.plot(figsize=(6, 8)) # doctest: +SKIP
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> values = np.array([[10.0, 20.0], [30.0, 40.0]], dtype="float32")
+              >>> dataset = Dataset.create_from_array(
+              ...     values, top_left_corner=(0, 2), cell_size=1.0, epsg=4326
+              ... )
+              >>> class_map = np.array([[1, 1], [2, 2]], dtype="int32")
+              >>> classes = Dataset.create_from_array(
+              ...     class_map, top_left_corner=(0, 2), cell_size=1.0, epsg=4326
+              ... )
 
               ```
 
-              ![rhine-rainfall](./../../_images/dataset/rhine-rainfall.png)
-
-            - Read the classes dataset:
+            - Overlay the value raster with the class raster. The result maps each
+              class to the list of values that fall inside it:
 
               ```python
-              >>> classes = Dataset.read_file("examples/data/geotiff/rhine-classes.tif")
-              >>> classes.plot(figsize=(6, 8), color_scale="boundary-norm", bounds=[1,2,3,4,5,6]) # doctest: +SKIP
+              >>> overlaid = dataset.overlay(classes)
+              >>> sorted(int(key) for key in overlaid)
+              [1, 2]
 
               ```
 
-              ![rhine-classes](./../../_images/dataset/rhine-classes.png)
-
-            - Overlay the dataset with the classes dataset:
+            - Use a class key to read the values that overlay that class:
 
               ```python
-              >>> classes_dict = dataset.overlay(classes)
-              >>> print(classes_dict.keys()) # doctest: +SKIP
-              dict_keys([1, 2, 3, 4, 5])
+              >>> [float(value) for value in sorted(overlaid[1], key=float)]
+              [10.0, 20.0]
+              >>> [float(value) for value in sorted(overlaid[2], key=float)]
+              [30.0, 40.0]
 
               ```
-
-            - You can use the key `1` to get the values that overlay class 1.
         """
         if not self._ds.spatial._check_alignment(classes_map):
             raise AlignmentError(
@@ -1240,40 +1243,38 @@ class Analysis(_Engine["Dataset"]):
                 - if the dataset had separate polygons, each polygon will be in a separate row.
 
         Examples:
-            - The following raster dataset has flood depth stored in its values, and the non-flooded cells are filled with
-              zero, so to extract the flood extent, we need to exclude the zero flood depth cells.
+            - Build a raster whose non-flooded cells are ``0`` and whose flooded cells
+              carry a positive depth. Excluding the zero cells extracts the flood extent
+              as one polygon per connected region:
 
               ```python
-              >>> dataset = Dataset.read_file("examples/data/geotiff/rhine-flood.tif")
-              >>> dataset.plot()
-              (<Figure size 800x800 with 2 Axes>, <Axes: >)
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.zeros((4, 4), dtype="float32")
+              >>> arr[1:3, 1:3] = 5.0    # a 2x2 block of flooded cells
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 4), cell_size=1.0, epsg=4326
+              ... )
 
               ```
 
-            ![dataset-footprint-rhine-flood](./../../_images/dataset/dataset-footprint-rhine-flood.png)
-
-            - Now, to extract the footprint of the dataset band, we need to specify the `exclude_values` parameter with the
-              value of the non-flooded cells.
+            - Extract the footprint of the flooded cells by excluding the zero-depth
+              cells. Covered cells are flagged with the value ``2``:
 
               ```python
               >>> extent = dataset.footprint(band=0, exclude_values=[0])
-              >>> print(extent)
-                 Band_1                                           geometry
-              0     2.0  POLYGON ((4070974.182 3181069.473, 4070974.182...
-              1     2.0  POLYGON ((4077674.182 3181169.473, 4077674.182...
-              2     2.0  POLYGON ((4091174.182 3169169.473, 4091174.182...
-              3     2.0  POLYGON ((4088574.182 3176269.473, 4088574.182...
-              4     2.0  POLYGON ((4082974.182 3167869.473, 4082974.182...
-              5     2.0  POLYGON ((4092274.182 3168269.473, 4092274.182...
-              6     2.0  POLYGON ((4072474.182 3181169.473, 4072474.182...
-
-              >>> extent.plot()
+              >>> extent.shape
+              (1, 2)
+              >>> list(extent.columns)
+              ['Band_1', 'geometry']
+              >>> float(extent["Band_1"].iloc[0])
+              2.0
+              >>> float(extent.geometry.iloc[0].area)
+              4.0
+              >>> extent.plot()  # doctest: +SKIP
               <Axes: >
 
               ```
-
-            ![dataset-footprint-rhine-flood-extent](./../../_images/dataset/dataset-footprint-rhine-flood-extent.png)
-
         """
         arr = self._ds.read_array(band=band)
         no_data_val = self._ds.no_data_value[band]
@@ -1391,6 +1392,7 @@ class Analysis(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 12, size=(10, 10))
               >>> print(arr)    # doctest: +SKIP
               [[ 4  1  1  2  6  9  2  5  1  8]
@@ -1518,6 +1520,7 @@ class Analysis(_Engine["Dataset"]):
                 >>> ds = Dataset.create_from_array(arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
                 >>> fig, ax, hist = ds.plot_histogram(band=0, bins=8)  # doctest: +SKIP
                 >>> _ = ax.set_title("band 0 distribution")  # doctest: +SKIP
+
                 ```
             - Drop a sentinel value before binning:
 
@@ -1525,6 +1528,7 @@ class Analysis(_Engine["Dataset"]):
                 >>> arr = np.array([[1.0, 2.0, 99.0], [3.0, 4.0, 99.0]], dtype="float32")
                 >>> ds = Dataset.create_from_array(arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
                 >>> fig, ax, hist = ds.plot_histogram(band=0, exclude_value=99.0)  # doctest: +SKIP
+
                 ```
         """
         require_cleopatra()
@@ -1599,6 +1603,7 @@ class Analysis(_Engine["Dataset"]):
                 >>> img.size  # (width, height) == (columns, rows)  # doctest: +SKIP
                 (8, 6)
                 >>> img.save("band0.png")  # doctest: +SKIP
+
                 ```
         """
         require_cleopatra()
@@ -1692,12 +1697,14 @@ class Analysis(_Engine["Dataset"]):
                 >>> uv = rng.standard_normal((2, 6, 6)).astype("float32")
                 >>> ds = Dataset.create_from_array(uv, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
                 >>> fig, ax, im = ds.plot_vector_field(u_band=0, v_band=1, kind="quiver")  # doctest: +SKIP
+
                 ```
             - Draw streamlines without the magnitude colorbar (e.g. to add a
               shared one later):
 
                 ```python
                 >>> fig, ax, im = ds.plot_vector_field(kind="streamplot", add_colorbar=False)  # doctest: +SKIP
+
                 ```
         """
         require_cleopatra()
@@ -1841,32 +1848,38 @@ class Analysis(_Engine["Dataset"]):
             - Plot a certain band:
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(4, 10, 10)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326)
-              >>> dataset.plot(band=0)
+              >>> dataset.plot(band=0)  # doctest: +SKIP
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
+
               ```
             - plot using power scale.
               ```python
-              >>> dataset.plot(band=0, color_scale="power")
+              >>> dataset.plot(band=0, color_scale="power")  # doctest: +SKIP
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
+
               ```
             - plot using SymLogNorm scale.
               ```python
-              >>> dataset.plot(band=0, color_scale="sym-lognorm")
+              >>> dataset.plot(band=0, color_scale="sym-lognorm")  # doctest: +SKIP
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
+
               ```
             - plot using PowerNorm scale.
               ```python
-              >>> dataset.plot(band=0, color_scale="boundary-norm", bounds=[0, 0.2, 0.4, 0.6, 0.8, 1])
+              >>> dataset.plot(band=0, color_scale="boundary-norm", bounds=[0, 0.2, 0.4, 0.6, 0.8, 1])  # doctest: +SKIP
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
+
               ```
             - plot using BoundaryNorm scale.
               ```python
-              >>> dataset.plot(band=0, color_scale="midpoint")
+              >>> dataset.plot(band=0, color_scale="midpoint")  # doctest: +SKIP
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
+
               ```
         """
         no_data_value = [np.nan if i is None else i for i in self._ds.no_data_value]

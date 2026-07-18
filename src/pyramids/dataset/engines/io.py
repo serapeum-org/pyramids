@@ -552,6 +552,7 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(4, 5, 5)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -1660,11 +1661,12 @@ class IO(_Engine["Dataset"]):
             - First, create a dataset on disk:
 
               ```python
-              >>> import numpy as np
+              >>> import numpy as np, os, tempfile
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(5, 5)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> path = 'write_array.tif'
+              >>> path = os.path.join(tempfile.mkdtemp(), 'write_array.tif')
               >>> dataset = Dataset.create_from_array(
               ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326, path=path
               ... )
@@ -1814,6 +1816,7 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(13, 14)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -1914,7 +1917,8 @@ class IO(_Engine["Dataset"]):
             - Create a Dataset with 4 bands, 5 rows, 5 columns, at the point lon/lat (0, 0):
 
               ```python
-              >>> import numpy as np
+              >>> import numpy as np, os, tempfile
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(4, 5, 5)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -1927,9 +1931,10 @@ class IO(_Engine["Dataset"]):
             - Now save the dataset as a geotiff file:
 
               ```python
-              >>> dataset.to_file("my-dataset.tif")
-              >>> print(dataset.file_name)
-              my-dataset.tif
+              >>> path = os.path.join(tempfile.mkdtemp(), "my-dataset.tif")
+              >>> dataset.to_file(path)
+              >>> os.path.basename(dataset.file_name)
+              'my-dataset.tif'
 
               ```
         """
@@ -2175,11 +2180,12 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(3, 5)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
-              >>> tile_dimensions = list(dataset._tile_offsets(2))
+              >>> tile_dimensions = list(dataset.io._tile_offsets(2))
               >>> print(tile_dimensions)
               [(0, 0, 2, 2), (2, 0, 2, 2), (4, 0, 1, 2), (0, 2, 2, 1), (2, 2, 2, 1), (4, 2, 1, 1)]
 
@@ -2210,21 +2216,25 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(3, 5)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
-              >>> print(dataset)
-              <BLANKLINE>
-                          Cell size: 0.05
-                          Dimension: 3 * 5
-                          EPSG: 4326
-                          Number of Bands: 1
-                          Band names: ['Band_1']
-                          Mask: -9999.0
-                          Data type: float64
-                          File:...
-              <BLANKLINE>
+              >>> print(dataset)  # doctest: +NORMALIZE_WHITESPACE
+              Top Left Corner: (0.0, 0.0)
+              Cell size: 0.05
+              Dimension: 3 * 5
+              EPSG: 4326
+              Number of Bands: 1
+              Band names: ['Band_1']
+              Band colors: {0: 'undefined'}
+              Band units: ['']
+              Scale: [1.0]
+              Offset: [0]
+              Mask: -9999.0
+              Data type: float64
+              File:
 
               >>> print(dataset.read_array())   # doctest: +SKIP
               [[0.55332314 0.48364841 0.67794589 0.6901816  0.70516817]
@@ -2235,7 +2245,7 @@ class IO(_Engine["Dataset"]):
             - The `get_tile` method splits the domain into tiles of the specified `size` using the `_tile_offsets` function.
 
               ```python
-              >>> tile_dimensions = list(dataset._tile_offsets(2))
+              >>> tile_dimensions = list(dataset.io._tile_offsets(2))
               >>> print(tile_dimensions)
               [(0, 0, 2, 2), (2, 0, 2, 2), (4, 0, 1, 2), (0, 2, 2, 1), (2, 2, 2, 1), (4, 2, 1, 1)]
 
@@ -2331,6 +2341,7 @@ class IO(_Engine["Dataset"]):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.arange(1, 101, dtype=np.float32).reshape(10, 10)
               >>> dataset = Dataset.create_from_array(
               ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
@@ -2420,26 +2431,26 @@ class IO(_Engine["Dataset"]):
                 assign a scale of 0.1 to the dataset.
                 ```python
                 >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
                 >>> arr = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
                 >>> top_left_corner = (0, 0)
                 >>> cell_size = 0.05
                 >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326)
-                >>> print(dataset)
-                <BLANKLINE>
-                            Top Left Corner: (0.0, 0.0)
-                            Cell size: 0.05
-                            Dimension: 2 * 2
-                            EPSG: 4326
-                            Number of Bands: 2
-                            Band names: ['Band_1', 'Band_2']
-                            Band colors: {0: 'undefined', 1: 'undefined'}
-                            Band units: ['', '']
-                            Scale: [1.0, 1.0]
-                            Offset: [0, 0]
-                            Mask: -9999.0
-                            Data type: int64
-                            File: ...
-                <BLANKLINE>
+                >>> print(dataset)  # doctest: +NORMALIZE_WHITESPACE
+                Top Left Corner: (0.0, 0.0)
+                Cell size: 0.05
+                Dimension: 2 * 2
+                EPSG: 4326
+                Number of Bands: 2
+                Band names: ['Band_1', 'Band_2']
+                Band colors: {0: 'undefined', 1: 'undefined'}
+                Band units: ['', '']
+                Scale: [1.0, 1.0]
+                Offset: [0, 0]
+                Mask: -9999
+                Data type: int64
+                File:
+
                 >>> df = dataset.to_xyz()
                 >>> print(df)
                      lon    lat  Band_1  Band_2
@@ -2447,6 +2458,7 @@ class IO(_Engine["Dataset"]):
                 1  0.075 -0.025       2       6
                 2  0.025 -0.075       3       7
                 3  0.075 -0.075       4       8
+
                 ```
         """
         if bands is None:
@@ -2819,31 +2831,37 @@ class IO(_Engine["Dataset"]):
             - Create a Dataset with 4 bands, 10 rows, 10 columns, at the point lon/lat (0, 0):
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(4, 10, 10)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+
               ```
             - Now, create overviews using the default parameters:
               ```python
               >>> dataset.create_overviews()
               >>> print(dataset.overview_count)  # doctest: +SKIP
               [4, 4, 4, 4]
+
               ```
             - For each band, there are 4 overview levels you can use to plot the bands:
               ```python
               >>> dataset.plot(band=0, overview=True, overview_index=0) # doctest: +SKIP
+
               ```
               ![overviews-level-0](./../../_images/dataset/overviews-level-0.png)
             - However, the dataset originally is 10*10, but the first overview level (2) displays half of the cells by
               aggregating all the cells using the nearest neighbor. The second level displays only 3 cells in each:
               ```python
               >>> dataset.plot(band=0, overview=True, overview_index=1)   # doctest: +SKIP
+
               ```
               ![overviews-level-1](./../../_images/dataset/overviews-level-1.png)
             - For the third overview level:
               ```python
               >>> dataset.plot(band=0, overview=True, overview_index=2)       # doctest: +SKIP
+
               ```
               ![overviews-level-2](./../../_images/dataset/overviews-level-2.png)
         See Also:
@@ -2926,6 +2944,7 @@ class IO(_Engine["Dataset"]):
             - Create `Dataset` consisting of 4 bands, 10 rows, 10 columns, at lon/lat (0, 0):
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 10, size=(4, 10, 10))
               >>> print(arr[0, :, :]) # doctest: +SKIP
               array([[6, 3, 3, 7, 4, 8, 4, 3, 8, 7],
@@ -2941,6 +2960,7 @@ class IO(_Engine["Dataset"]):
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+
               ```
             - Now, create overviews using the default parameters and inspect them:
               ```python
@@ -2968,6 +2988,7 @@ class IO(_Engine["Dataset"]):
               >>> ovr = dataset.get_overview(band=0, overview_index=3)
               >>> ovr.ReadAsArray()  # doctest: +SKIP
               array([[6]], dtype=int32)
+
               ```
         See Also:
             - Dataset.create_overviews: Create the dataset overviews if they exist.
@@ -3005,6 +3026,7 @@ class IO(_Engine["Dataset"]):
             - Create `Dataset` consisting of 4 bands, 10 rows, 10 columns, at lon/lat (0, 0):
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 10, size=(4, 10, 10))
               >>> print(arr[0, :, :])     # doctest: +SKIP
               array([[6, 3, 3, 7, 4, 8, 4, 3, 8, 7],
@@ -3020,6 +3042,7 @@ class IO(_Engine["Dataset"]):
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
               >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+
               ```
             - Create overviews using the default parameters and read overview arrays:
               ```python
@@ -3045,6 +3068,7 @@ class IO(_Engine["Dataset"]):
               >>> arr = dataset.read_overview_array(band=0, overview_index=3)
               >>> print(arr)  # doctest: +SKIP
               array([[6]], dtype=int32)
+
               ```
         See Also:
             - Dataset.create_overviews: Create the dataset overviews.

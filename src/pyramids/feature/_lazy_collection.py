@@ -314,7 +314,7 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
                 ...     dg.from_geopandas(gdf, npartitions=1)
                 ... )
                 >>> xmin, ymin, xmax, ymax = lfc.compute_total_bounds()
-                >>> xmin, ymax
+                >>> float(xmin), float(ymax)
                 (0.0, 20.0)
 
                 ```

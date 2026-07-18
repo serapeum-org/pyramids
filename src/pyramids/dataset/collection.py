@@ -1728,10 +1728,10 @@ class DatasetCollection:
                 the same format (YYYY.MM.DD / YYYY-MM-DD or YYYY_MM_DD). For example:
 
                 ```python
-                >>> "MSWEP_1979.01.01.tif"
-                >>> "MSWEP_1979.01.02.tif"
-                >>> ...
-                >>> "MSWEP_1979.01.20.tif"
+                "MSWEP_1979.01.01.tif"
+                "MSWEP_1979.01.02.tif"
+                ...
+                "MSWEP_1979.01.20.tif"
 
                 ```
 
@@ -1743,6 +1743,7 @@ class DatasetCollection:
                 ```python
                 >>> fname = "MSWEP_YYYY.MM.DD.tif"
                 >>> regex_string = r"\d{4}.\d{2}.\d{2}"
+
                 ```
 
                 - Or:
@@ -1750,6 +1751,7 @@ class DatasetCollection:
                 ```python
                 >>> fname = "MSWEP_YYYY_M_D.tif"
                 >>> regex_string = r"\d{4}_\d{1}_\d{1}"
+
                 ```
 
                 - If there is a number at the beginning of the name:
@@ -1757,6 +1759,7 @@ class DatasetCollection:
                 ```python
                 >>> fname = "1_MSWEP_YYYY_M_D.tif"
                 >>> regex_string = r"\d+"
+
                 ```
 
             date (bool):
@@ -1765,8 +1768,9 @@ class DatasetCollection:
                 If the file names contain a date and you want to read them ordered. Default is None. For example:
 
                 ```python
-                >>> "MSWEP_YYYY.MM.DD.tif"
+                >>> fname = "MSWEP_YYYY.MM.DD.tif"
                 >>> file_name_data_fmt = "%Y.%m.%d"
+
                 ```
 
             start (str):
@@ -1788,8 +1792,9 @@ class DatasetCollection:
             - Read all rasters in a folder:
 
               ```python
+              >>> from pathlib import Path
               >>> from pyramids.dataset import DatasetCollection
-              >>> raster_folder = "examples/GIS/data/raster-folder"
+              >>> raster_folder = "examples/data/geotiff/raster-folder"
               >>> prec = DatasetCollection.read_multiple_files(raster_folder)
 
               ```
@@ -1797,7 +1802,7 @@ class DatasetCollection:
             - Read from a pre-collected list without ordering:
 
               ```python
-              >>> raster_folder = Path("examples/GIS/data/raster-folder")
+              >>> raster_folder = Path("examples/data/geotiff/raster-folder")
               >>> file_list = list(raster_folder.glob("*.tif"))
               >>> prec = DatasetCollection.read_multiple_files(file_list, with_order=False)
 
@@ -2411,9 +2416,17 @@ class DatasetCollection:
             - Save to a file:
 
               ```python
-              >>> raster_obj = Dataset.read_file("path/to/file/***.tif")
-              >>> output_path = "examples/GIS/data/save_raster_test.tif"
-              >>> raster_obj.to_file(output_path)
+              >>> import os, tempfile
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, DatasetCollection
+              >>> src = Dataset.create_from_array(
+              ...     np.ones((5, 5), dtype="float32"), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+              ... )
+              >>> collection = DatasetCollection.create_cube(src, 3)
+              >>> out_dir = tempfile.mkdtemp()
+              >>> collection.to_file(out_dir)
+              >>> sorted(os.listdir(out_dir))
+              ['0.tif', '1.tif', '2.tif']
 
               ```
         """
@@ -2665,13 +2678,18 @@ class DatasetCollection:
             `inplace=False`; `None` when `inplace=True`.
 
         Examples:
-            - Crop aligned rasters using a DEM mask:
+            - Crop every timestep against another dataset used as a mask:
 
               ```python
-              >>> dem_path = "examples/GIS/data/acc4000.tif"
-              >>> src_path = "examples/GIS/data/aligned_rasters/"
-              >>> out_path = "examples/GIS/data/crop_aligned_folder/"
-              >>> DatasetCollection.crop(dem_path, src_path, out_path)
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, DatasetCollection
+              >>> mask = Dataset.create_from_array(
+              ...     np.ones((10, 10), dtype="int16"), top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ... )
+              >>> collection = DatasetCollection.create_cube(mask, 3)
+              >>> cropped = collection.crop(mask=mask)
+              >>> cropped.time_length
+              3
 
               ```
 

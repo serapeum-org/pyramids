@@ -2703,6 +2703,7 @@ class FeatureCollection(GeoDataFrame):
                 >>> fc = FeatureCollection(gdf)
                 >>> ax = fc.plot(column="v")  # doctest: +SKIP
                 >>> _ = ax.set_title("points")  # doctest: +SKIP
+
                 ```
             - The cleopatra engine returns the glyph, exposing the colorbar:
 
@@ -2714,6 +2715,7 @@ class FeatureCollection(GeoDataFrame):
                 >>> fc = FeatureCollection(gdf)
                 >>> glyph = fc.plot(column="v", engine="cleopatra")  # doctest: +SKIP
                 >>> _ = glyph.cbar.set_label("value")  # doctest: +SKIP
+
                 ```
         """
         if engine == "geopandas":
