@@ -182,6 +182,13 @@ profile = "black"
 line_length = 88
 multi_line_output = 3
 
+# nbqa runs flake8 on notebook code cells. Tutorial notebooks intentionally place
+# imports next to where they are first used (teaching in context), and setup such as
+# `%matplotlib inline` must run before imports — both legitimately trip E402. E402
+# stays enforced for real .py modules; it is ignored only for notebooks here.
+[tool.nbqa.addopts]
+flake8 = ["--extend-ignore=E402"]
+
 [tool.bandit]
 exclude_dirs = ["tests", "examples", "scripts", "planning", "docs"]
 skips = ["B101"]
