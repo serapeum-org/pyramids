@@ -48,11 +48,11 @@ jobs:
           install-groups: 'docs'
           deploy-token: ${{ secrets.ACTIONS_DEPLOY_TOKEN }}
           # Execute the example notebooks in CI so the rendered docs show real
-          # outputs (plots/tables). Excluded: the notebooks that need extras
-          # envs or live endpoints (the four above), plus the two heavy
-          # notebooks whose executed outputs (live map tiles / mesh renders +
-          # an inline jshtml animation) are multi-MB and byte-different on
-          # every run, which bloats the shared gh-pages branch (see #761).
+          # outputs (plots/tables). Excluded (the notebooks-exclude list below):
+          # the first four need extras envs or live endpoints; the last two are
+          # heavy notebooks whose executed outputs (live map tiles / mesh renders
+          # + an inline jshtml animation) are multi-MB and byte-different on every
+          # run, which bloats the shared gh-pages branch (see #761).
           notebooks-path: 'docs/examples'
           notebooks-exclude: |
             netcdf/dask-lazy-netcdf.ipynb
@@ -80,9 +80,10 @@ jobs:
         install-groups: 'docs'
         deploy-token: ${{ secrets.ACTIONS_DEPLOY_TOKEN }}
         notebooks-path: 'docs/examples'
-        # See the deploy-pr job above: these two heavy notebooks are excluded
-        # from CI execution so their multi-MB, non-deterministic outputs no
-        # longer bloat the shared gh-pages branch (see #761).
+        # See the deploy-pr job above for the rationale: the last two entries
+        # in notebooks-exclude below are the heavy notebooks kept out of CI
+        # execution so their multi-MB, non-deterministic outputs no longer
+        # bloat the shared gh-pages branch (see #761).
         notebooks-exclude: |
           netcdf/dask-lazy-netcdf.ipynb
           feature/dask-lazy-features.ipynb
@@ -122,9 +123,10 @@ jobs:
         release-tag: ${{ github.event.release.tag_name || steps.version.outputs.tag }}
         mike-alias: 'latest'
         notebooks-path: 'docs/examples'
-        # See the deploy-pr job above: these two heavy notebooks are excluded
-        # from CI execution so their multi-MB, non-deterministic outputs no
-        # longer bloat the shared gh-pages branch (see #761).
+        # See the deploy-pr job above for the rationale: the last two entries
+        # in notebooks-exclude below are the heavy notebooks kept out of CI
+        # execution so their multi-MB, non-deterministic outputs no longer
+        # bloat the shared gh-pages branch (see #761).
         notebooks-exclude: |
           netcdf/dask-lazy-netcdf.ipynb
           feature/dask-lazy-features.ipynb
