@@ -744,7 +744,17 @@ jobs:
           ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - name: Ensure Rosetta 2 is available
-        run: softwareupdate --install-rosetta --agree-to-license || true
+        run: |
+          set -euo pipefail
+          # macos-14 arm64 runners generally ship Rosetta 2, so tolerate the
+          # already-installed / no-op case, but then prove x86_64 emulation
+          # actually works — otherwise a genuine failure is swallowed here and
+          # resurfaces as a confusing error in a later `arch -x86_64` step.
+          softwareupdate --install-rosetta --agree-to-license || true
+          arch -x86_64 /usr/bin/true || {
+            echo "::error::Rosetta 2 x86_64 emulation is unavailable on this runner"
+            exit 1
+          }
 
       - name: Install a pinned, checksummed x86_64 uv (runs under Rosetta)
         run: |
