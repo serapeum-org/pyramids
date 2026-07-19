@@ -700,8 +700,7 @@ def reproject_coordinates(
     """
     if len(x) != len(y):
         raise ValueError(
-            f"x and y must have equal length; got len(x)={len(x)} "
-            f"vs. len(y)={len(y)}."
+            f"x and y must have equal length; got len(x)={len(x)} vs. len(y)={len(y)}."
         )
     try:
         transformer = Transformer.from_crs(from_crs, to_crs, always_xy=True)

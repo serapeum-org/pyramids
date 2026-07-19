@@ -85,9 +85,7 @@ def from_ogc_features(
     with gdal.config_options(config):
         try:
             gdf = gpd.read_file(connection, layer=collection, **read_kwargs)
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 — normalise any read failure to OGCAPIError
+        except Exception as exc:  # noqa: BLE001 — normalise any read failure to OGCAPIError
             raise OGCAPIError(
                 f"OGC API items request failed for {collection!r}: {exc}"
             ) from exc

@@ -196,9 +196,9 @@ class TestOsgeoValidate:
         path = str(missing)
         with pytest.raises(FileNotFoundError) as exc_info:
             _osgeo_validate(path)
-        assert str(missing) in str(
-            exc_info.value
-        ), f"FileNotFoundError must name the missing path; got: {exc_info.value}"
+        assert str(missing) in str(exc_info.value), (
+            f"FileNotFoundError must name the missing path; got: {exc_info.value}"
+        )
 
 
 class TestRaiseIfMissing:

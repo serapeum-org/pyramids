@@ -130,9 +130,9 @@ class TestNetCDFPlotDefaultRender:
         var = nc.get_variable("t2m")
         expected = var.read_array()[1]
         result = nc.plot(variable="t2m", selectors=Selectors(time=1))
-        assert isinstance(
-            result, ArrayGlyph
-        ), f"Expected ArrayGlyph, got {type(result).__name__}"
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph, got {type(result).__name__}"
+        )
         assert result.arr.shape == (
             5,
             5,
@@ -158,9 +158,9 @@ class TestNetCDFPlotDefaultRender:
             variable="temperature",
             selectors=Selectors(time=12, level=500),
         )
-        assert isinstance(
-            result, ArrayGlyph
-        ), f"Expected ArrayGlyph, got {type(result).__name__}"
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph, got {type(result).__name__}"
+        )
         assert_array_equal(
             result.arr,
             expected,
@@ -196,9 +196,9 @@ class TestNetCDFPlotForwardingExtra:
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
             nc.plot(variable="t2m", colour=ColourOpts(cmap="viridis"))
-        assert (
-            mock_plot.call_args.kwargs.get("cmap") == "viridis"
-        ), f"cmap must be forwarded, got: {mock_plot.call_args.kwargs}"
+        assert mock_plot.call_args.kwargs.get("cmap") == "viridis", (
+            f"cmap must be forwarded, got: {mock_plot.call_args.kwargs}"
+        )
 
     def test_vmin_vmax_forwarded(self):
         """``vmin``/``vmax`` are forwarded to the renderer."""
@@ -318,9 +318,9 @@ class TestNetCDFPlotContainerBehaviour:
         nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"variable=") as exc_info:
             nc.plot()
-        assert "t2m" in str(
-            exc_info.value
-        ), f"Error message must list available variables, got: {exc_info.value}"
+        assert "t2m" in str(exc_info.value), (
+            f"Error message must list available variables, got: {exc_info.value}"
+        )
 
     def test_subset_with_matching_variable_continues_silently(self):
         """``var.plot(variable=var._source_var_name)`` does not raise.
@@ -336,9 +336,9 @@ class TestNetCDFPlotContainerBehaviour:
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
             result = var.plot(variable=var._source_var_name)
-        assert (
-            result == "ok"
-        ), f"Expected the patched render to return 'ok', got: {result!r}"
+        assert result == "ok", (
+            f"Expected the patched render to return 'ok', got: {result!r}"
+        )
         assert mock_plot.called, "Analysis.plot was not invoked"
 
 

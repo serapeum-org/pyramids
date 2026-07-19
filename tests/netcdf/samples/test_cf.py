@@ -25,16 +25,16 @@ def test_cfinfo_matches_declared_convention(sample_name, sample, caps):
     try:
         meta = nc.get_all_metadata()
         if caps.get("convention") == "cf":
-            assert (
-                meta.cf is not None and meta.cf.cf_version
-            ), f"{sample_name}: missing CF version"
-            assert (
-                meta.cf.data_variable_names
-            ), f"{sample_name}: no data variables classified"
+            assert meta.cf is not None and meta.cf.cf_version, (
+                f"{sample_name}: missing CF version"
+            )
+            assert meta.cf.data_variable_names, (
+                f"{sample_name}: no data variables classified"
+            )
         elif caps.get("convention") == "coards":
-            assert "COARDS" in (
-                meta.cf.conventions if meta.cf else {}
-            ), f"{sample_name}: not COARDS"
+            assert "COARDS" in (meta.cf.conventions if meta.cf else {}), (
+                f"{sample_name}: not COARDS"
+            )
     finally:
         nc.close()
 

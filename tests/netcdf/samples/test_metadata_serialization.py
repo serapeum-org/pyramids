@@ -26,12 +26,12 @@ def test_from_json_roundtrip_preserves_structure(sample_name, sample):
     try:
         meta = nc.get_all_metadata()
         restored = from_json(to_json(meta))
-        assert set(restored.variables) == set(
-            meta.variables
-        ), f"{sample_name}: variable set changed"
-        assert set(restored.dimensions) == set(
-            meta.dimensions
-        ), f"{sample_name}: dimension set changed"
+        assert set(restored.variables) == set(meta.variables), (
+            f"{sample_name}: variable set changed"
+        )
+        assert set(restored.dimensions) == set(meta.dimensions), (
+            f"{sample_name}: dimension set changed"
+        )
         assert restored.global_attributes.get(
             "Conventions"
         ) == meta.global_attributes.get("Conventions")

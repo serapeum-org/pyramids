@@ -59,9 +59,9 @@ class TestSieve:
             threshold=4.
         """
         result = speckled.sieve(threshold=4).read_array()
-        assert (
-            result[5, 5] == 1
-        ), f"Isolated pixel should be merged to 1, got {result[5, 5]}"
+        assert result[5, 5] == 1, (
+            f"Isolated pixel should be merged to 1, got {result[5, 5]}"
+        )
 
     def test_large_clump_preserved(self, speckled):
         """A clump at or above threshold is preserved.
@@ -70,9 +70,9 @@ class TestSieve:
             The 9-pixel '2' block survives threshold=4 unchanged.
         """
         result = speckled.sieve(threshold=4).read_array()
-        assert (
-            result[0, 0] == 2 and result[2, 2] == 2
-        ), f"Large clump should survive, got corners {result[0, 0]} / {result[2, 2]}"
+        assert result[0, 0] == 2 and result[2, 2] == 2, (
+            f"Large clump should survive, got corners {result[0, 0]} / {result[2, 2]}"
+        )
 
     def test_connectedness_4_removes_diagonal(self, diagonal):
         """With 4-connectivity, diagonal-only pixels are separate size-1 clumps.
@@ -81,9 +81,9 @@ class TestSieve:
             Each lone '2' is size 1 < threshold=2, so both are removed.
         """
         result = diagonal.sieve(threshold=2, connectedness=4).read_array()
-        assert (
-            result[1, 1] == 1 and result[2, 2] == 1
-        ), f"4-connectivity should remove diagonal singles, got {result[1, 1]} / {result[2, 2]}"
+        assert result[1, 1] == 1 and result[2, 2] == 1, (
+            f"4-connectivity should remove diagonal singles, got {result[1, 1]} / {result[2, 2]}"
+        )
 
     def test_connectedness_8_keeps_diagonal(self, diagonal):
         """With 8-connectivity, diagonal-touching pixels form one size-2 clump.
@@ -92,9 +92,9 @@ class TestSieve:
             The two '2's join into a size-2 clump that meets threshold=2.
         """
         result = diagonal.sieve(threshold=2, connectedness=8).read_array()
-        assert (
-            result[1, 1] == 2 and result[2, 2] == 2
-        ), f"8-connectivity should keep the joined clump, got {result[1, 1]} / {result[2, 2]}"
+        assert result[1, 1] == 2 and result[2, 2] == 2, (
+            f"8-connectivity should keep the joined clump, got {result[1, 1]} / {result[2, 2]}"
+        )
 
     def test_single_band_output(self, speckled):
         """The result is always a single-band Dataset.
@@ -117,9 +117,9 @@ class TestSieve:
             6,
             6,
         ), f"Wrong shape: {result.rows}x{result.columns}"
-        assert (
-            result.geotransform == speckled.geotransform
-        ), "Geotransform not preserved"
+        assert result.geotransform == speckled.geotransform, (
+            "Geotransform not preserved"
+        )
         assert result.epsg == 4326, f"Expected EPSG 4326, got {result.epsg}"
 
     def test_nodata_preserved(self):
@@ -134,9 +134,9 @@ class TestSieve:
             arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=-1
         )
         result = ds.sieve(threshold=4)
-        assert (
-            result.no_data_value[0] == -1
-        ), f"Expected nodata -1, got {result.no_data_value[0]}"
+        assert result.no_data_value[0] == -1, (
+            f"Expected nodata -1, got {result.no_data_value[0]}"
+        )
 
     def test_no_nodata_value(self):
         """A source without a no-data value yields an output band with none.
@@ -150,9 +150,9 @@ class TestSieve:
             arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=None
         )
         result = ds.sieve(threshold=4)
-        assert (
-            result.raster.GetRasterBand(1).GetNoDataValue() is None
-        ), "Output should have no nodata"
+        assert result.raster.GetRasterBand(1).GetNoDataValue() is None, (
+            "Output should have no nodata"
+        )
 
     def test_band_selection(self):
         """A non-default band is sieved when band= is given.
@@ -183,9 +183,9 @@ class TestSieve:
             mask_arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326
         )
         result = speckled.sieve(threshold=4, mask=mask).read_array()
-        assert (
-            result[5, 5] == 1
-        ), f"Small clump should be removed with mask, got {result[5, 5]}"
+        assert result[5, 5] == 1, (
+            f"Small clump should be removed with mask, got {result[5, 5]}"
+        )
 
     def test_threshold_below_one_raises(self, speckled):
         """A threshold below 1 raises ValueError.

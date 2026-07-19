@@ -73,9 +73,9 @@ class TestCropVariable:
         mask = gpd.GeoDataFrame(geometry=[box(32.0, 28.0, 38.0, 33.0)], crs="EPSG:4326")
         nc.crop_variable("temperature", mask)
         new_shape = nc.get_variable("temperature").shape
-        assert (
-            new_shape[1] < orig_shape[1] or new_shape[2] < orig_shape[2]
-        ), f"Spatial dims should shrink: {orig_shape} -> {new_shape}"
+        assert new_shape[1] < orig_shape[1] or new_shape[2] < orig_shape[2], (
+            f"Spatial dims should shrink: {orig_shape} -> {new_shape}"
+        )
 
 
 class TestResampleVariable:
@@ -170,20 +170,20 @@ class TestWholeContainerCrop:
         nc = self._make_multi_var_nc()
         mask = gpd.GeoDataFrame(geometry=[box(31.0, 32.0, 33.0, 34.0)], crs="EPSG:4326")
         cropped = nc.crop(mask)
-        assert (
-            "temperature" in cropped.variable_names
-        ), "temperature should be in cropped container"
-        assert (
-            "pressure" in cropped.variable_names
-        ), "pressure should be in cropped container"
+        assert "temperature" in cropped.variable_names, (
+            "temperature should be in cropped container"
+        )
+        assert "pressure" in cropped.variable_names, (
+            "pressure should be in cropped container"
+        )
         temp = cropped.get_variable("temperature")
         pres = cropped.get_variable("pressure")
-        assert (
-            temp.shape[1] < 20 or temp.shape[2] < 30
-        ), "temperature spatial dims should shrink"
-        assert (
-            pres.shape[1] < 20 or pres.shape[2] < 30
-        ), "pressure spatial dims should shrink"
+        assert temp.shape[1] < 20 or temp.shape[2] < 30, (
+            "temperature spatial dims should shrink"
+        )
+        assert pres.shape[1] < 20 or pres.shape[2] < 30, (
+            "pressure spatial dims should shrink"
+        )
 
     def test_returns_new_container(self):
         """crop() should return a new NetCDF, not modify the original.
@@ -234,12 +234,12 @@ class TestWholeContainerResample:
         )
         nc.set_variable("pressure", ds2)
         resampled = nc.resample(cell_size=1.0)
-        assert (
-            "temperature" in resampled.variable_names
-        ), "temperature should be in resampled container"
-        assert (
-            "pressure" in resampled.variable_names
-        ), "pressure should be in resampled container"
+        assert "temperature" in resampled.variable_names, (
+            "temperature should be in resampled container"
+        )
+        assert "pressure" in resampled.variable_names, (
+            "pressure should be in resampled container"
+        )
 
     def test_returns_new_container(self):
         """resample() should return a new NetCDF.
@@ -250,9 +250,9 @@ class TestWholeContainerResample:
         nc = _make_nc()
         resampled = nc.resample(cell_size=1.0)
         assert resampled is not nc, "Should return a new container"
-        assert isinstance(
-            resampled, NetCDF
-        ), f"Expected NetCDF, got {type(resampled).__name__}"
+        assert isinstance(resampled, NetCDF), (
+            f"Expected NetCDF, got {type(resampled).__name__}"
+        )
 
     def test_band_count_preserved(self):
         """Resampling container should preserve band count.
@@ -277,9 +277,9 @@ class TestWholeContainerReproject:
         """
         nc = _make_nc()
         reprojected = nc.to_crs(to_epsg=32636)
-        assert (
-            "temperature" in reprojected.variable_names
-        ), "temperature should be in reprojected container"
+        assert "temperature" in reprojected.variable_names, (
+            "temperature should be in reprojected container"
+        )
 
     def test_epsg_changed(self):
         """Reprojected container variables should have new EPSG.
@@ -301,9 +301,9 @@ class TestWholeContainerReproject:
         nc = _make_nc()
         reprojected = nc.to_crs(to_epsg=32636)
         assert reprojected is not nc, "Should return a new container"
-        assert isinstance(
-            reprojected, NetCDF
-        ), f"Expected NetCDF, got {type(reprojected).__name__}"
+        assert isinstance(reprojected, NetCDF), (
+            f"Expected NetCDF, got {type(reprojected).__name__}"
+        )
 
 
 class TestChaining:
@@ -321,6 +321,6 @@ class TestChaining:
             "temperature", cell_size=1.0
         )
         var = nc.get_variable("temperature")
-        assert (
-            var.band_count == 5
-        ), f"Expected 5 bands after chain, got {var.band_count}"
+        assert var.band_count == 5, (
+            f"Expected 5 bands after chain, got {var.band_count}"
+        )

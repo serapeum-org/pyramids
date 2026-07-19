@@ -54,12 +54,12 @@ class TestWriteArray:
         patch = np.array([[99.0, 99.0], [99.0, 99.0]], dtype=np.float32)
         ds.write_array(patch, top_left_corner=[0, 0])
         result = ds.read_array()
-        assert result[0, 0] == pytest.approx(
-            99.0
-        ), "Top-left cell should be 99 after write"
-        assert result[0, 1] == pytest.approx(
-            99.0
-        ), "Cell (0,1) should be 99 after write"
+        assert result[0, 0] == pytest.approx(99.0), (
+            "Top-left cell should be 99 after write"
+        )
+        assert result[0, 1] == pytest.approx(99.0), (
+            "Cell (0,1) should be 99 after write"
+        )
 
     def test_write_array_with_offset(self):
         """write_array with offset should write at the given position."""
@@ -76,9 +76,9 @@ class TestWriteArray:
         result = ds.read_array()
         assert result[1, 1] == pytest.approx(7.0), "Offset write failed at (1,1)"
         assert result[2, 2] == pytest.approx(10.0), "Offset write failed at (2,2)"
-        assert result[0, 0] == pytest.approx(
-            0.0
-        ), "Cell outside patch should be unchanged"
+        assert result[0, 0] == pytest.approx(0.0), (
+            "Cell outside patch should be unchanged"
+        )
 
     def test_write_array_multi_band(self):
         """write_array writes a multi-band patch at an offset across every band.
@@ -151,9 +151,9 @@ class TestCreateFromArrayEdgeCases:
             cell_size=1.0,
             epsg=4326,
         )
-        assert (
-            ds.band_count == 4
-        ), f"Expected 4 bands from 3D array, got {ds.band_count}"
+        assert ds.band_count == 4, (
+            f"Expected 4 bands from 3D array, got {ds.band_count}"
+        )
         assert ds.rows == 5, f"Expected 5 rows, got {ds.rows}"
         assert ds.columns == 6, f"Expected 6 columns, got {ds.columns}"
 
@@ -337,9 +337,9 @@ class TestAddBand:
         new_arr = np.ones((3, 3), dtype=np.float32) * 99
         result = single_band_dataset.add_band(new_arr, inplace=True)
         assert result is None, "add_band inplace should return None"
-        assert (
-            single_band_dataset.band_count == 2
-        ), "Band count should increase after inplace add"
+        assert single_band_dataset.band_count == 2, (
+            "Band count should increase after inplace add"
+        )
 
 
 class TestTranslateWithPath:
@@ -478,9 +478,9 @@ class TestOverviews:
         assert ovr is not None, "Overview should not be None"
         ovr_arr = ds.read_overview_array(band=0, overview_index=0)
         assert ovr_arr.ndim == 2, "Overview array should be 2D"
-        assert (
-            ovr_arr.shape[0] == 32
-        ), f"Expected 32 rows for 2x overview, got {ovr_arr.shape[0]}"
+        assert ovr_arr.shape[0] == 32, (
+            f"Expected 32 rows for 2x overview, got {ovr_arr.shape[0]}"
+        )
 
     def test_get_overview_index_too_large_raises(self, tmp_path):
         """get_overview with too large index should raise ValueError."""
@@ -782,13 +782,13 @@ class TestMapBlocks:
             the source.
         """
         result = single_band_dataset.map_blocks(lambda tile: tile, tile_size=2)
-        assert (
-            result.geotransform == single_band_dataset.geotransform
-        ), "Geotransform should be preserved"
+        assert result.geotransform == single_band_dataset.geotransform, (
+            "Geotransform should be preserved"
+        )
         assert result.epsg == single_band_dataset.epsg, "EPSG should be preserved"
-        assert (
-            result.no_data_value == single_band_dataset.no_data_value
-        ), "No-data value should be preserved"
+        assert result.no_data_value == single_band_dataset.no_data_value, (
+            "No-data value should be preserved"
+        )
 
     def test_map_blocks_identity_matches_read_array(self):
         """map_blocks with identity function should produce the same array.
@@ -824,9 +824,9 @@ class TestMapBlocks:
         result = ds.map_blocks(lambda tile: tile + 5, tile_size=2, band=1)
         assert result.band_count == 1, f"Expected 1 band, got {result.band_count}"
         result_arr = result.read_array()
-        assert np.allclose(
-            result_arr, 25.0
-        ), f"Expected all 25.0 (20+5), got {result_arr}"
+        assert np.allclose(result_arr, 25.0), (
+            f"Expected all 25.0 (20+5), got {result_arr}"
+        )
 
     def test_map_blocks_non_square_raster(self):
         """map_blocks should handle non-square rasters with partial edge tiles.
@@ -840,9 +840,9 @@ class TestMapBlocks:
             arr, top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
         )
         result = ds.map_blocks(lambda tile: tile + 1, tile_size=3)
-        assert np.allclose(
-            result.read_array(), 4.0
-        ), "All cells should be 4.0 (3+1), including edge tiles"
+        assert np.allclose(result.read_array(), 4.0), (
+            "All cells should be 4.0 (3+1), including edge tiles"
+        )
 
     def test_map_blocks_tile_size_larger_than_raster(self):
         """map_blocks should work when tile_size exceeds the raster dimensions.

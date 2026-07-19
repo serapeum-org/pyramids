@@ -54,9 +54,9 @@ class TestContour:
             2, 4, 6, 8 — four LineString features carrying those elevations.
         """
         fc = ramp.contour(interval=2.0)
-        assert isinstance(
-            fc, FeatureCollection
-        ), f"Expected FeatureCollection, got {type(fc)}"
+        assert isinstance(fc, FeatureCollection), (
+            f"Expected FeatureCollection, got {type(fc)}"
+        )
         assert len(fc) == 4, f"Expected 4 contour lines, got {len(fc)}"
         assert sorted(fc["elev"].tolist()) == [
             2.0,
@@ -64,9 +64,9 @@ class TestContour:
             6.0,
             8.0,
         ], f"Unexpected elevations: {sorted(fc['elev'].tolist())}"
-        assert fc.geometry.geom_type.unique().tolist() == [
-            "LineString"
-        ], f"Expected LineString geometries, got {fc.geometry.geom_type.unique().tolist()}"
+        assert fc.geometry.geom_type.unique().tolist() == ["LineString"], (
+            f"Expected LineString geometries, got {fc.geometry.geom_type.unique().tolist()}"
+        )
 
     def test_crs_preserved(self, ramp):
         """The output FeatureCollection carries the source raster CRS.
@@ -128,9 +128,9 @@ class TestContour:
             "Polygon",
             "MultiPolygon",
         }, f"Unexpected geom types: {geom_types}"
-        assert (
-            "elev_min" in fc.columns and "elev_max" in fc.columns
-        ), f"min/max columns missing: {list(fc.columns)}"
+        assert "elev_min" in fc.columns and "elev_max" in fc.columns, (
+            f"min/max columns missing: {list(fc.columns)}"
+        )
 
     def test_polygonize_custom_attribute(self, ramp):
         """Polygon mode honours the custom attribute base name.
@@ -139,9 +139,9 @@ class TestContour:
             attribute='z' with polygonize=True produces 'z_min' and 'z_max'.
         """
         fc = ramp.contour(interval=2.0, polygonize=True, attribute="z")
-        assert (
-            "z_min" in fc.columns and "z_max" in fc.columns
-        ), f"z_min/z_max columns missing: {list(fc.columns)}"
+        assert "z_min" in fc.columns and "z_max" in fc.columns, (
+            f"z_min/z_max columns missing: {list(fc.columns)}"
+        )
 
     def test_band_selection(self):
         """A non-default band is contoured when band= is supplied.
@@ -180,9 +180,9 @@ class TestContour:
         )
         fc = ds.contour(interval=2.0)
         assert len(fc) > 0, "Expected contours from the valid gradient, got none"
-        assert (
-            min(fc["elev"].tolist()) >= 2.0
-        ), f"No-data region should not produce negative contours: {sorted(fc['elev'].tolist())}"
+        assert min(fc["elev"].tolist()) >= 2.0, (
+            f"No-data region should not produce negative contours: {sorted(fc['elev'].tolist())}"
+        )
 
     def test_no_nodata_value(self):
         """A band with no no-data value set still contours (NODATA option omitted).
@@ -195,9 +195,9 @@ class TestContour:
         ds = Dataset.create_from_array(
             arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326, no_data_value=None
         )
-        assert (
-            ds.raster.GetRasterBand(1).GetNoDataValue() is None
-        ), "fixture should have no nodata"
+        assert ds.raster.GetRasterBand(1).GetNoDataValue() is None, (
+            "fixture should have no nodata"
+        )
         fc = ds.contour(interval=2.0)
         assert sorted(fc["elev"].tolist()) == [
             2.0,
@@ -213,9 +213,9 @@ class TestContour:
             A flat value-5 raster contoured at interval=2 has no level crossings.
         """
         fc = flat.contour(interval=2.0)
-        assert isinstance(
-            fc, FeatureCollection
-        ), f"Expected FeatureCollection, got {type(fc)}"
+        assert isinstance(fc, FeatureCollection), (
+            f"Expected FeatureCollection, got {type(fc)}"
+        )
         assert len(fc) == 0, f"Expected an empty collection, got {len(fc)} features"
 
     def test_neither_interval_nor_levels_raises(self, ramp):

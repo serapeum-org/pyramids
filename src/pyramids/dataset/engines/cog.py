@@ -96,8 +96,7 @@ def _resolve_read_resampling(resampling: str) -> int:
     key = resampling.lower().strip()
     if key not in _RESAMPLING_ALG:
         raise ValueError(
-            f"unknown resampling {resampling!r}; "
-            f"choose from {sorted(_RESAMPLING_ALG)}"
+            f"unknown resampling {resampling!r}; choose from {sorted(_RESAMPLING_ALG)}"
         )
     return _RESAMPLING_ALG[key]
 

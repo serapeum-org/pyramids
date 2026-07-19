@@ -93,9 +93,9 @@ class TestBoundlessReads:
         result = ds.read_array(window=Window(-1, -1, 3, 3), boundless=True)
         assert result.shape == (2, 3, 3), f"3-D shape wrong: {result.shape}"
         assert result[0, 1, 1] == pytest.approx(base[0, 0]), "band-0 inside value wrong"
-        assert result[1, 1, 1] == pytest.approx(
-            base[0, 0] + 100.0
-        ), "band-1 inside value wrong"
+        assert result[1, 1, 1] == pytest.approx(base[0, 0] + 100.0), (
+            "band-1 inside value wrong"
+        )
         assert np.isclose(result[:, 0, :], -9999.0).all(), "outside rows must be fill"
 
     def test_legacy_list_window_form(self, ramp_dataset):
@@ -173,9 +173,9 @@ class TestBoundlessReads:
         out = None
 
         ds = Dataset.read_file(path)
-        assert (
-            float(ds.no_data_value[0]) == -9999.0
-        ), "test precondition: GDAL must preserve the out-of-range Byte nodata"
+        assert float(ds.no_data_value[0]) == -9999.0, (
+            "test precondition: GDAL must preserve the out-of-range Byte nodata"
+        )
         result = ds.read_array(band=0, window=Window(-1, -1, 3, 3), boundless=True)
         assert result.dtype == np.uint8, f"band dtype must be kept, got {result.dtype}"
         assert (result[0, :] == 0).all(), "outside row must fall back to dtype zero"

@@ -53,24 +53,24 @@ class TestFullLifecycle:
 
         ds2 = UgridDataset.read_file(out_path)
         assert ds2.n_face == 4, f"Step 3 failed: expected 4 faces, got {ds2.n_face}"
-        assert (
-            "temperature" in ds2.data_variable_names
-        ), "Step 3 failed: temperature variable missing"
+        assert "temperature" in ds2.data_variable_names, (
+            "Step 3 failed: temperature variable missing"
+        )
 
         mask = box(-0.1, -0.1, 1.1, 2.1)
         clipped = ds2.clip(mask, touch=False)
         assert clipped.n_face > 0, "Step 4 failed: clip produced 0 faces"
-        assert (
-            clipped.n_face < ds2.n_face
-        ), f"Step 4 failed: clip should reduce faces: {clipped.n_face} vs {ds2.n_face}"
+        assert clipped.n_face < ds2.n_face, (
+            f"Step 4 failed: clip should reduce faces: {clipped.n_face} vs {ds2.n_face}"
+        )
 
         raster = clipped.to_dataset("temperature", cell_size=0.5)
-        assert (
-            raster.rows > 0
-        ), f"Step 5 failed: expected positive rows, got {raster.rows}"
-        assert (
-            raster.columns > 0
-        ), f"Step 5 failed: expected positive cols, got {raster.columns}"
+        assert raster.rows > 0, (
+            f"Step 5 failed: expected positive rows, got {raster.rows}"
+        )
+        assert raster.columns > 0, (
+            f"Step 5 failed: expected positive cols, got {raster.columns}"
+        )
 
     def test_create_geodataframe_round_trip(self):
         """Test create -> to_geodataframe -> verify geometry.
@@ -88,12 +88,12 @@ class TestFullLifecycle:
         )
         gdf = ds.to_geodataframe("depth", location="face")
         assert len(gdf) == 1, f"Expected 1 row, got {len(gdf)}"
-        assert gdf["depth"].iloc[0] == pytest.approx(
-            5.5
-        ), f"Expected depth 5.5, got {gdf['depth'].iloc[0]}"
-        assert (
-            gdf.geometry.iloc[0].geom_type == "Polygon"
-        ), f"Expected Polygon, got {gdf.geometry.iloc[0].geom_type}"
+        assert gdf["depth"].iloc[0] == pytest.approx(5.5), (
+            f"Expected depth 5.5, got {gdf['depth'].iloc[0]}"
+        )
+        assert gdf.geometry.iloc[0].geom_type == "Polygon", (
+            f"Expected Polygon, got {gdf.geometry.iloc[0].geom_type}"
+        )
 
     def test_reproject_then_interpolate(self):
         """Test CRS reprojection followed by interpolation.

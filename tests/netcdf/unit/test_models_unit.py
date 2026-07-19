@@ -154,15 +154,15 @@ class TestGroupInfoFromGroup:
         )
         assert info.name == "root", f"Expected name='root', got '{info.name}'"
         assert info.full_name == "/", f"Expected full_name='/', got '{info.full_name}'"
-        assert info.variables == [
-            "/temperature"
-        ], f"Expected variables=['/temperature'], got {info.variables}"
-        assert info.children == [
-            "/forecast"
-        ], f"Expected children=['/forecast'], got {info.children}"
-        assert info.attributes == {
-            "Conventions": "CF-1.6"
-        }, f"Expected attributes with Conventions key, got {info.attributes}"
+        assert info.variables == ["/temperature"], (
+            f"Expected variables=['/temperature'], got {info.variables}"
+        )
+        assert info.children == ["/forecast"], (
+            f"Expected children=['/forecast'], got {info.children}"
+        )
+        assert info.attributes == {"Conventions": "CF-1.6"}, (
+            f"Expected attributes with Conventions key, got {info.attributes}"
+        )
 
     def test_attributes_read_from_group_when_none(self):
         """Verify attributes are read from the group when not pre-supplied.
@@ -179,9 +179,9 @@ class TestGroupInfoFromGroup:
             children=[],
             attributes=None,
         )
-        assert (
-            "history" in info.attributes
-        ), f"Expected 'history' in attributes, got {info.attributes}"
+        assert "history" in info.attributes, (
+            f"Expected 'history' in attributes, got {info.attributes}"
+        )
 
     def test_empty_arrays_and_children_become_empty_lists(self):
         """Verify empty iterables are normalised to empty lists.
@@ -226,9 +226,9 @@ class TestGroupInfoFromGroup:
         group = _mock_group(name="subgroup")
         group.GetFullName.side_effect = RuntimeError("GDAL error")
         info = GroupInfo.from_group(group, variables=[], children=[], attributes={})
-        assert (
-            info.full_name == "/subgroup"
-        ), f"Expected fallback full_name='/subgroup', got '{info.full_name}'"
+        assert info.full_name == "/subgroup", (
+            f"Expected fallback full_name='/subgroup', got '{info.full_name}'"
+        )
 
     def test_group_both_name_methods_fail_gives_root(self):
         """Verify '/' is returned when both GetFullName and GetName fail."""
@@ -236,9 +236,9 @@ class TestGroupInfoFromGroup:
         group.GetName.side_effect = RuntimeError("fail")
         group.GetFullName.side_effect = RuntimeError("fail")
         info = GroupInfo.from_group(group, variables=[], children=[], attributes={})
-        assert (
-            info.full_name == "/"
-        ), f"Expected full_name='/' when both methods fail, got '{info.full_name}'"
+        assert info.full_name == "/", (
+            f"Expected full_name='/' when both methods fail, got '{info.full_name}'"
+        )
 
     def test_none_attributes_dict_becomes_empty(self):
         """Verify that if _read_attributes returns None/empty, attributes={}.
@@ -249,9 +249,9 @@ class TestGroupInfoFromGroup:
         group = _mock_group()
         group.GetAttributes.return_value = []
         info = GroupInfo.from_group(group, variables=[], children=[], attributes=None)
-        assert (
-            info.attributes == {}
-        ), f"Expected empty attributes, got {info.attributes}"
+        assert info.attributes == {}, (
+            f"Expected empty attributes, got {info.attributes}"
+        )
 
 
 class TestGroupInfoDataclass:
@@ -288,9 +288,9 @@ class TestDimensionInfoFromGdalDim:
         assert info.full_name == "/time", f"Expected '/time', got '{info.full_name}'"
         assert info.size == 365, f"Expected size=365, got {info.size}"
         assert info.type == "TEMPORAL", f"Expected type='TEMPORAL', got '{info.type}'"
-        assert (
-            info.direction == "NORTH"
-        ), f"Expected direction='NORTH', got '{info.direction}'"
+        assert info.direction == "NORTH", (
+            f"Expected direction='NORTH', got '{info.direction}'"
+        )
 
     def test_indexing_variable_full_name(self):
         """Verify indexing variable full name is captured when available."""
@@ -299,9 +299,9 @@ class TestDimensionInfoFromGdalDim:
         iv.GetAttributes.return_value = []
         dim = _mock_dimension(indexing_variable=iv)
         info = DimensionInfo.from_gdal_dim(dim, "/")
-        assert (
-            info.indexing_variable == "/time_idx"
-        ), f"Expected '/time_idx', got '{info.indexing_variable}'"
+        assert info.indexing_variable == "/time_idx", (
+            f"Expected '/time_idx', got '{info.indexing_variable}'"
+        )
 
     def test_indexing_variable_name_fallback(self):
         """Verify fallback to GetName when GetFullName is absent on the indexing variable."""
@@ -311,17 +311,17 @@ class TestDimensionInfoFromGdalDim:
         del iv.GetFullName
         dim = _mock_dimension(indexing_variable=iv)
         info = DimensionInfo.from_gdal_dim(dim, "/")
-        assert (
-            info.indexing_variable == "time_idx"
-        ), f"Expected 'time_idx', got '{info.indexing_variable}'"
+        assert info.indexing_variable == "time_idx", (
+            f"Expected 'time_idx', got '{info.indexing_variable}'"
+        )
 
     def test_indexing_variable_none(self):
         """Verify indexing_variable is None when GetIndexingVariable returns None."""
         dim = _mock_dimension(indexing_variable=None)
         info = DimensionInfo.from_gdal_dim(dim, "/")
-        assert (
-            info.indexing_variable is None
-        ), f"Expected None, got '{info.indexing_variable}'"
+        assert info.indexing_variable is None, (
+            f"Expected None, got '{info.indexing_variable}'"
+        )
 
     def test_indexing_variable_attrs_read(self):
         """Verify attrs are read from the indexing variable when present."""
@@ -333,9 +333,9 @@ class TestDimensionInfoFromGdalDim:
         iv.GetAttributes.return_value = [attr_mock]
         dim = _mock_dimension(indexing_variable=iv)
         info = DimensionInfo.from_gdal_dim(dim, "/")
-        assert (
-            info.attrs.get("calendar") == "standard"
-        ), f"Expected calendar='standard', got {info.attrs}"
+        assert info.attrs.get("calendar") == "standard", (
+            f"Expected calendar='standard', got {info.attrs}"
+        )
 
     def test_get_name_failure(self):
         """Verify empty name when GetName raises."""
@@ -349,9 +349,9 @@ class TestDimensionInfoFromGdalDim:
         dim = _mock_dimension(name="lat")
         dim.GetFullName.side_effect = RuntimeError("fail")
         info = DimensionInfo.from_gdal_dim(dim, "/root")
-        assert (
-            info.full_name == "/root/lat"
-        ), f"Expected '/root/lat', got '{info.full_name}'"
+        assert info.full_name == "/root/lat", (
+            f"Expected '/root/lat', got '{info.full_name}'"
+        )
 
     def test_get_full_name_fallback_root_group(self):
         """Verify full_name fallback with root group uses /dim_name."""
@@ -379,21 +379,21 @@ class TestDimensionInfoFromGdalDim:
         dim = _mock_dimension()
         dim.GetDirection.side_effect = RuntimeError("fail")
         info = DimensionInfo.from_gdal_dim(dim, "/")
-        assert (
-            info.direction is None
-        ), f"Expected direction=None, got '{info.direction}'"
+        assert info.direction is None, (
+            f"Expected direction=None, got '{info.direction}'"
+        )
 
     def test_get_indexing_variable_failure(self):
         """Verify indexing_variable is None when GetIndexingVariable raises."""
         dim = _mock_dimension()
         dim.GetIndexingVariable.side_effect = RuntimeError("fail")
         info = DimensionInfo.from_gdal_dim(dim, "/")
-        assert (
-            info.indexing_variable is None
-        ), f"Expected indexing_variable=None, got '{info.indexing_variable}'"
-        assert (
-            info.attrs == {}
-        ), f"Expected empty attrs when indexing variable fails, got {info.attrs}"
+        assert info.indexing_variable is None, (
+            f"Expected indexing_variable=None, got '{info.indexing_variable}'"
+        )
+        assert info.attrs == {}, (
+            f"Expected empty attrs when indexing variable fails, got {info.attrs}"
+        )
 
     def test_read_attributes_failure_on_indexing_variable(self):
         """Verify attrs defaults to {} when _read_attributes raises on the iv."""
@@ -402,9 +402,9 @@ class TestDimensionInfoFromGdalDim:
         iv.GetAttributes.side_effect = RuntimeError("fail")
         dim = _mock_dimension(indexing_variable=iv)
         info = DimensionInfo.from_gdal_dim(dim, "/")
-        assert (
-            info.attrs == {}
-        ), f"Expected empty attrs on read failure, got {info.attrs}"
+        assert info.attrs == {}, (
+            f"Expected empty attrs on read failure, got {info.attrs}"
+        )
 
     def test_read_attributes_exception_propagation_caught(self):
         """Verify attrs defaults to {} when _read_attributes raises unexpectedly.
@@ -421,9 +421,9 @@ class TestDimensionInfoFromGdalDim:
             side_effect=RuntimeError("unexpected"),
         ):
             info = DimensionInfo.from_gdal_dim(dim, "/")
-        assert (
-            info.attrs == {}
-        ), f"Expected empty attrs when _read_attributes raises, got {info.attrs}"
+        assert info.attrs == {}, (
+            f"Expected empty attrs when _read_attributes raises, got {info.attrs}"
+        )
 
 
 class TestDimensionInfoDataclass:
@@ -434,9 +434,9 @@ class TestDimensionInfoDataclass:
         info = DimensionInfo(name="x", full_name="/x", size=10)
         assert info.type is None, "type should default to None"
         assert info.direction is None, "direction should default to None"
-        assert (
-            info.indexing_variable is None
-        ), "indexing_variable should default to None"
+        assert info.indexing_variable is None, (
+            "indexing_variable should default to None"
+        )
         assert info.attrs == {}, "attrs should default to {}"
 
 
@@ -454,9 +454,9 @@ class TestVariableInfoFromMdArray:
         )
         info = VariableInfo.from_md_array(arr, "temperature", "/")
         assert info.name == "temperature", f"Expected 'temperature', got '{info.name}'"
-        assert (
-            info.full_name == "/temperature"
-        ), f"Expected '/temperature', got '{info.full_name}'"
+        assert info.full_name == "/temperature", (
+            f"Expected '/temperature', got '{info.full_name}'"
+        )
         assert info.dtype == "float32", f"Expected 'float32', got '{info.dtype}'"
         assert info.shape == [
             365,
@@ -475,18 +475,18 @@ class TestVariableInfoFromMdArray:
         arr = _mock_md_array(name="temp")
         arr.GetName.side_effect = RuntimeError("fail")
         info = VariableInfo.from_md_array(arr, "fallback_name", "/")
-        assert (
-            info.name == "fallback_name"
-        ), f"Expected 'fallback_name', got '{info.name}'"
+        assert info.name == "fallback_name", (
+            f"Expected 'fallback_name', got '{info.name}'"
+        )
 
     def test_get_full_name_failure_uses_group_prefix(self):
         """Verify full_name fallback uses group_full_name/name."""
         arr = _mock_md_array(name="temp")
         arr.GetFullName.side_effect = RuntimeError("fail")
         info = VariableInfo.from_md_array(arr, "temp", "/root")
-        assert (
-            info.full_name == "/root/temp"
-        ), f"Expected '/root/temp', got '{info.full_name}'"
+        assert info.full_name == "/root/temp", (
+            f"Expected '/root/temp', got '{info.full_name}'"
+        )
 
     def test_get_full_name_failure_root_group(self):
         """Verify full_name fallback with root group."""
@@ -519,9 +519,9 @@ class TestVariableInfoFromMdArray:
         arr.GetDimensions.side_effect = RuntimeError("fail")
         info = VariableInfo.from_md_array(arr, "temp", "/")
         assert info.shape == [], f"Expected empty shape, got {info.shape}"
-        assert (
-            info.dimensions == []
-        ), f"Expected empty dimensions, got {info.dimensions}"
+        assert info.dimensions == [], (
+            f"Expected empty dimensions, got {info.dimensions}"
+        )
 
     def test_dimension_get_full_name_failure_falls_back_to_get_name(self):
         """Verify dimension name fallback from GetFullName to GetName."""
@@ -530,9 +530,9 @@ class TestVariableInfoFromMdArray:
         dim.GetFullName.side_effect = RuntimeError("fail")
         dim.GetName.return_value = "x"
         info = VariableInfo.from_md_array(arr, "temp", "/")
-        assert (
-            "x" in info.dimensions
-        ), f"Expected 'x' in dimensions, got {info.dimensions}"
+        assert "x" in info.dimensions, (
+            f"Expected 'x' in dimensions, got {info.dimensions}"
+        )
 
     def test_get_unit_failure(self):
         """Verify unit defaults to None when GetUnit raises."""
@@ -548,12 +548,12 @@ class TestVariableInfoFromMdArray:
         srs.ExportToJSON.return_value = '{"type":"GeographicCRS"}'
         arr = _mock_md_array(srs=srs)
         info = VariableInfo.from_md_array(arr, "temp", "/")
-        assert (
-            info.srs_wkt == 'GEOGCS["WGS 84"]'
-        ), f"Expected WKT string, got '{info.srs_wkt}'"
-        assert (
-            info.srs_projjson == '{"type":"GeographicCRS"}'
-        ), f"Expected PROJJSON, got '{info.srs_projjson}'"
+        assert info.srs_wkt == 'GEOGCS["WGS 84"]', (
+            f"Expected WKT string, got '{info.srs_wkt}'"
+        )
+        assert info.srs_projjson == '{"type":"GeographicCRS"}', (
+            f"Expected PROJJSON, got '{info.srs_projjson}'"
+        )
 
     def test_spatial_ref_failure(self):
         """Verify srs_wkt and srs_projjson are None when GetSpatialRef raises."""
@@ -578,9 +578,9 @@ class TestVariableInfoFromMdArray:
         arr = _mock_md_array()
         arr.GetStructuralInfo.side_effect = RuntimeError("fail")
         info = VariableInfo.from_md_array(arr, "temp", "/")
-        assert (
-            info.structural_info is None
-        ), f"Expected None, got {info.structural_info}"
+        assert info.structural_info is None, (
+            f"Expected None, got {info.structural_info}"
+        )
 
     def test_block_size_captured(self):
         """Verify block_size is read and converted to list[int]."""
@@ -600,9 +600,9 @@ class TestVariableInfoFromMdArray:
         arr = _mock_md_array()
         arr.GetCoordinateVariables.return_value = [cv]
         info = VariableInfo.from_md_array(arr, "temp", "/")
-        assert info.coordinate_variables == [
-            "/lat"
-        ], f"Expected ['/lat'], got {info.coordinate_variables}"
+        assert info.coordinate_variables == ["/lat"], (
+            f"Expected ['/lat'], got {info.coordinate_variables}"
+        )
 
     def test_shape_fallback_dimension_size_failure(self):
         """Verify shape is [] when GetShape fails and dimension GetSize also fails."""
@@ -635,9 +635,9 @@ class TestVariableInfoDataclass:
         assert info.offset is None, "offset should default to None"
         assert info.srs_wkt is None, "srs_wkt should default to None"
         assert info.srs_projjson is None, "srs_projjson should default to None"
-        assert (
-            info.coordinate_variables == []
-        ), "coordinate_variables should default to []"
+        assert info.coordinate_variables == [], (
+            "coordinate_variables should default to []"
+        )
         assert info.structural_info is None, "structural_info should default to None"
         assert info.block_size is None, "block_size should default to None"
 
@@ -655,13 +655,13 @@ class TestStructuralInfoFromDataset:
         }
         ds.GetDriver.return_value = driver
         info = StructuralInfo.from_dataset(ds, "netCDF")
-        assert (
-            info.driver_name == "netCDF"
-        ), f"Expected 'netCDF', got '{info.driver_name}'"
+        assert info.driver_name == "netCDF", (
+            f"Expected 'netCDF', got '{info.driver_name}'"
+        )
         assert info.driver_metadata is not None, "driver_metadata should not be None"
-        assert (
-            info.driver_metadata["DMD_LONGNAME"] == "Network Common Data Form"
-        ), f"Expected correct DMD_LONGNAME, got {info.driver_metadata}"
+        assert info.driver_metadata["DMD_LONGNAME"] == "Network Common Data Form", (
+            f"Expected correct DMD_LONGNAME, got {info.driver_metadata}"
+        )
 
     def test_empty_metadata_dict(self):
         """Verify driver_metadata is None when GetMetadata_Dict returns empty."""
@@ -670,9 +670,9 @@ class TestStructuralInfoFromDataset:
         driver.GetMetadata_Dict.return_value = {}
         ds.GetDriver.return_value = driver
         info = StructuralInfo.from_dataset(ds, "netCDF")
-        assert (
-            info.driver_metadata is None
-        ), f"Expected None for empty metadata, got {info.driver_metadata}"
+        assert info.driver_metadata is None, (
+            f"Expected None for empty metadata, got {info.driver_metadata}"
+        )
 
     def test_metadata_dict_none(self):
         """Verify driver_metadata is None when GetMetadata_Dict returns None."""
@@ -681,21 +681,21 @@ class TestStructuralInfoFromDataset:
         driver.GetMetadata_Dict.return_value = None
         ds.GetDriver.return_value = driver
         info = StructuralInfo.from_dataset(ds, "netCDF")
-        assert (
-            info.driver_metadata is None
-        ), f"Expected None for None metadata, got {info.driver_metadata}"
+        assert info.driver_metadata is None, (
+            f"Expected None for None metadata, got {info.driver_metadata}"
+        )
 
     def test_get_driver_failure(self):
         """Verify driver_metadata is None when GetDriver raises."""
         ds = MagicMock()
         ds.GetDriver.side_effect = RuntimeError("fail")
         info = StructuralInfo.from_dataset(ds, "netCDF")
-        assert (
-            info.driver_name == "netCDF"
-        ), f"driver_name should still be set, got '{info.driver_name}'"
-        assert (
-            info.driver_metadata is None
-        ), f"Expected None on driver failure, got {info.driver_metadata}"
+        assert info.driver_name == "netCDF", (
+            f"driver_name should still be set, got '{info.driver_name}'"
+        )
+        assert info.driver_metadata is None, (
+            f"Expected None on driver failure, got {info.driver_metadata}"
+        )
 
 
 class TestStructuralInfoDataclass:
@@ -805,9 +805,9 @@ class TestNetCDFMetadataDataclass:
     def test_optional_defaults(self):
         """Verify open_options_used defaults to None."""
         meta = _make_metadata()
-        assert (
-            meta.open_options_used is None
-        ), "open_options_used should default to None"
+        assert meta.open_options_used is None, (
+            "open_options_used should default to None"
+        )
 
     def test_all_fields_accessible(self):
         """Verify all expected fields are accessible."""
@@ -815,16 +815,16 @@ class TestNetCDFMetadataDataclass:
         assert meta.driver == "netCDF", f"Expected 'netCDF', got '{meta.driver}'"
         assert meta.root_group == "/", f"Expected '/', got '{meta.root_group}'"
         assert isinstance(meta.groups, dict), f"Expected dict, got {type(meta.groups)}"
-        assert isinstance(
-            meta.variables, dict
-        ), f"Expected dict, got {type(meta.variables)}"
-        assert isinstance(
-            meta.dimensions, dict
-        ), f"Expected dict, got {type(meta.dimensions)}"
-        assert isinstance(
-            meta.global_attributes, dict
-        ), f"Expected dict, got {type(meta.global_attributes)}"
+        assert isinstance(meta.variables, dict), (
+            f"Expected dict, got {type(meta.variables)}"
+        )
+        assert isinstance(meta.dimensions, dict), (
+            f"Expected dict, got {type(meta.dimensions)}"
+        )
+        assert isinstance(meta.global_attributes, dict), (
+            f"Expected dict, got {type(meta.global_attributes)}"
+        )
         assert meta.structural is not None, "Expected not None for structural"
-        assert isinstance(
-            meta.created_with, dict
-        ), f"Expected dict, got {type(meta.created_with)}"
+        assert isinstance(meta.created_with, dict), (
+            f"Expected dict, got {type(meta.created_with)}"
+        )

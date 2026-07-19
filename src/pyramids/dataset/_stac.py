@@ -474,8 +474,7 @@ def _item_datetime(item: Any) -> _datetime_cls:
         when = (props or {}).get("datetime")
     if when is None:
         raise ValueError(
-            f"item {_item_id(item)} has no datetime; required for "
-            "groupby='solar_day'."
+            f"item {_item_id(item)} has no datetime; required for groupby='solar_day'."
         )
     if isinstance(when, str):
         when = _datetime_cls.fromisoformat(when.replace("Z", "+00:00"))

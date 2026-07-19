@@ -77,9 +77,9 @@ class TestPlotDataSet:
         with_cbar = dataset.plot(band=0)
         assert with_cbar.cbar is not None, "default plot must draw a colorbar"
         without_cbar = dataset.plot(band=0, add_colorbar=False)
-        assert (
-            without_cbar.cbar is None
-        ), "add_colorbar=False must suppress the colorbar"
+        assert without_cbar.cbar is None, (
+            "add_colorbar=False must suppress the colorbar"
+        )
 
     @pytest.mark.plot
     def test_glyph_exposes_mappable_im(self, src: Dataset):
@@ -582,9 +582,9 @@ class TestPlotDatasetCollection:
         cube = self._rgb_cube(tmp_path, n_times=3)
         glyph = cube.plot(rgb_options={"rgb": [0, 1, 2], "surface_reflectance": 255})
         assert glyph.arr.shape == (3, 8, 8, 3), "RGB stack keeps every frame"
-        assert (
-            float(glyph.arr.min()) >= 0.0 and float(glyph.arr.max()) <= 1.0
-        ), "surface-reflectance frames must be normalised into [0, 1]"
+        assert float(glyph.arr.min()) >= 0.0 and float(glyph.arr.max()) <= 1.0, (
+            "surface-reflectance frames must be normalised into [0, 1]"
+        )
 
     @pytest.mark.plot
     def test_rgb_options_unknown_key_raises(self, tmp_path):

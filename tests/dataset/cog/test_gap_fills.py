@@ -62,9 +62,9 @@ class TestFallbackValidateGdalOpenRaises:
         path = str(p)
         with pytest.raises(RuntimeError, match="cannot read") as exc_info:
             _fallback_validate(path)
-        assert "cannot read" in str(
-            exc_info.value
-        ), f"Expected 'cannot read' in exception, got: {exc_info.value}"
+        assert "cannot read" in str(exc_info.value), (
+            f"Expected 'cannot read' in exception, got: {exc_info.value}"
+        )
 
 
 class TestToCogOverviewCountBoundary:
@@ -102,9 +102,9 @@ class TestToCogBlocksizeBoundaries:
         reopened = gdal.Open(str(out))
         try:
             bx, by = reopened.GetRasterBand(1).GetBlockSize()
-            assert (
-                bx == 64 and by == 64
-            ), f"Expected blocksize (64, 64), got ({bx}, {by})"
+            assert bx == 64 and by == 64, (
+                f"Expected blocksize (64, 64), got ({bx}, {by})"
+            )
         finally:
             reopened = None
 
@@ -123,12 +123,12 @@ class TestToCogBlocksizeBoundaries:
         target = tmp_path / f"bad_{bad}.tif"
         with pytest.raises(ValueError, match=r"power of 2") as exc_info:
             small_float_dataset.to_cog(target, blocksize=bad)
-        assert (
-            not target.exists()
-        ), f"No file should be created on validation failure: {target}"
-        assert "power of 2" in str(
-            exc_info.value
-        ), f"Error message must mention 'power of 2'; got: {exc_info.value}"
+        assert not target.exists(), (
+            f"No file should be created on validation failure: {target}"
+        )
+        assert "power of 2" in str(exc_info.value), (
+            f"Error message must mention 'power of 2'; got: {exc_info.value}"
+        )
 
 
 class TestToCogOptionInteractions:
@@ -174,8 +174,7 @@ class TestToCogOptionInteractions:
             band_meta = reopened.GetRasterBand(1).GetMetadata()
             stat_keys = [k for k in band_meta if k.startswith("STATISTICS_")]
             assert stat_keys == [], (
-                f"statistics=False should produce no STATISTICS_* keys; "
-                f"got {stat_keys}"
+                f"statistics=False should produce no STATISTICS_* keys; got {stat_keys}"
             )
         finally:
             reopened = None
@@ -196,9 +195,9 @@ class TestCloudConfigExitContract:
         cfg = CloudConfig(aws_region="eu-west-1")
         cfg.__enter__()
         result = cfg.__exit__(None, None, None)
-        assert (
-            not result
-        ), f"__exit__ must return a falsy value on normal exit; got {result!r}"
+        assert not result, (
+            f"__exit__ must return a falsy value on normal exit; got {result!r}"
+        )
 
     def test_exit_does_not_swallow_exception(self):
         """Test exceptions inside the with block are re-raised.
@@ -227,6 +226,6 @@ class TestToCogPathHandling:
             verbatim.
         """
         out = small_float_dataset.to_cog(tmp_path / "fixed_name.tif")
-        assert (
-            out.name == "fixed_name.tif"
-        ), f"Path passed through unchanged; got {out.name!r}"
+        assert out.name == "fixed_name.tif", (
+            f"Path passed through unchanged; got {out.name!r}"
+        )

@@ -63,9 +63,9 @@ class TestWriteArrayWindow:
             [1.0, 1.0],
             [1.0, 1.0],
         ], f"Window not written: {arr}"
-        assert arr[0, 0] == pytest.approx(0.0) and arr[4, 4] == pytest.approx(
-            0.0
-        ), "Cells outside the window changed"
+        assert arr[0, 0] == pytest.approx(0.0) and arr[4, 4] == pytest.approx(0.0), (
+            "Cells outside the window changed"
+        )
 
     def test_top_left_corner_still_works(self, blank):
         """The legacy top_left_corner placement is unchanged.
@@ -87,9 +87,9 @@ class TestWriteArrayWindow:
             A full 5x5 array of ones overwrites the whole raster.
         """
         blank.write_array(np.ones((5, 5)))
-        assert blank.read_array().sum() == pytest.approx(
-            25.0
-        ), "Default write did not fill the raster"
+        assert blank.read_array().sum() == pytest.approx(25.0), (
+            "Default write did not fill the raster"
+        )
 
     def test_band_targeted_window(self, blank_multiband):
         """A band-targeted window write touches only that band.
@@ -102,9 +102,9 @@ class TestWriteArrayWindow:
         )
         arr = blank_multiband.read_array()
         assert arr[1, 0, 0] == pytest.approx(3.0), f"Band 1 not patched: {arr[1, 0, 0]}"
-        assert arr[0, 0, 0] == pytest.approx(
-            0.0
-        ), f"Band 0 should be untouched: {arr[0, 0, 0]}"
+        assert arr[0, 0, 0] == pytest.approx(0.0), (
+            f"Band 0 should be untouched: {arr[0, 0, 0]}"
+        )
 
     def test_band_targeted_top_left_corner(self, blank_multiband):
         """Band targeting also works with top_left_corner.
@@ -117,9 +117,9 @@ class TestWriteArrayWindow:
         )
         arr = blank_multiband.read_array()
         assert arr[0, 3, 3] == pytest.approx(5.0), f"Band 0 not patched: {arr[0, 3, 3]}"
-        assert arr[1, 3, 3] == pytest.approx(
-            0.0
-        ), f"Band 1 should be untouched: {arr[1, 3, 3]}"
+        assert arr[1, 3, 3] == pytest.approx(0.0), (
+            f"Band 1 should be untouched: {arr[1, 3, 3]}"
+        )
 
     def test_multiband_array_write(self, blank_multiband):
         """A 3D array writes across bands when band is not given.
@@ -140,9 +140,9 @@ class TestWriteArrayWindow:
             Window(3, 3, 2, 2) ends exactly at row/col 5 (the raster size).
         """
         blank.write_array(np.ones((2, 2)), window=Window(3, 3, 2, 2))
-        assert blank.read_array()[3:5, 3:5].sum() == pytest.approx(
-            4.0
-        ), "Edge-aligned window not written"
+        assert blank.read_array()[3:5, 3:5].sum() == pytest.approx(4.0), (
+            "Edge-aligned window not written"
+        )
 
     def test_window_shape_mismatch_raises(self, blank):
         """An array whose shape differs from the window raises ValueError.

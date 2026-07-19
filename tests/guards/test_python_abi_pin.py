@@ -97,9 +97,9 @@ def test_feature_targeting_314_pins_gil_abi(feature: str):
     python = _python_spec(_load_pixi()["feature"][feature])
     # Reject the free-threaded ABI anywhere in the spec (so an =-delimited or oddly-formatted
     # cp314t pin can't hide in the version half), and require the standard-GIL cp314 build pin.
-    assert "cp314t" not in str(
-        python
-    ), f"feature {feature!r} python spec {python!r} allows the free-threaded 'cp314t' ABI."
+    assert "cp314t" not in str(python), (
+        f"feature {feature!r} python spec {python!r} allows the free-threaded 'cp314t' ABI."
+    )
     assert "cp314" in _spec_build(python), (
         f"feature {feature!r} python spec {python!r} does not pin the standard-GIL 'cp314' build; a "
         "bare '3.14.*' lets the solver pick either ABI."

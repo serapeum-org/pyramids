@@ -59,9 +59,9 @@ class TestIsDaskArray:
             pass
 
         _FakeDaskThing.__module__ = "dask.array.core"
-        assert (
-            _is_dask_array(_FakeDaskThing()) is False
-        ), "dask module origin alone must not satisfy detection without the block API"
+        assert _is_dask_array(_FakeDaskThing()) is False, (
+            "dask module origin alone must not satisfy detection without the block API"
+        )
 
 
 class TestIterBlockWindows:
@@ -102,9 +102,9 @@ class TestWriteBlocksStreaming:
 
         calls = md_arr.Write.call_args_list
         assert len(calls) == 2, f"expected 2 windowed writes, got {len(calls)}"
-        assert all(
-            call.kwargs["count"][0] < source.shape[0] for call in calls
-        ), "no single write may span the whole outer dimension (not memory-bounded)"
+        assert all(call.kwargs["count"][0] < source.shape[0] for call in calls), (
+            "no single write may span the whole outer dimension (not memory-bounded)"
+        )
         reconstructed = np.empty_like(source)
         for call in calls:
             block = np.asarray(call.args[0])
@@ -215,7 +215,9 @@ class TestStreamingStorageChunks:
             1,
             10,
             15,
-        ], f"expected storage block size [1, 10, 15] from dask chunks, got {var_info.block_size}"
+        ], (
+            f"expected storage block size [1, 10, 15] from dask chunks, got {var_info.block_size}"
+        )
 
     def test_explicit_chunk_sizes_win(self, tmp_path):
         """An explicit ``chunk_sizes`` overrides the dask-derived default."""

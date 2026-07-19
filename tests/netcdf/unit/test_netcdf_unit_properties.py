@@ -36,9 +36,9 @@ class TestGeotransformFallback:
         ):
             gt = var.geotransform
             assert gt is not None, "geotransform should not be None"
-            assert (
-                gt == var._geotransform
-            ), f"Expected _geotransform fallback {var._geotransform}, got {gt}"
+            assert gt == var._geotransform, (
+                f"Expected _geotransform fallback {var._geotransform}, got {gt}"
+            )
 
 
 class TestInvalidateCaches:
@@ -58,9 +58,9 @@ class TestInvalidateCaches:
 
         nc._invalidate_caches()
 
-        assert (
-            nc._geostationary_gt_cache == {}
-        ), f"geostationary GT cache must be cleared, got {nc._geostationary_gt_cache}"
+        assert nc._geostationary_gt_cache == {}, (
+            f"geostationary GT cache must be cleared, got {nc._geostationary_gt_cache}"
+        )
         assert nc._cached_meta_data is None, "metadata cache must be cleared"
 
 
@@ -106,9 +106,9 @@ class TestNarrowedExceptionPropagation:
             `RuntimeError` from `GetGroupNames` yields `[]`, not a propagated error.
         """
         nc = self._nc_with_fake_root_group(RuntimeError("gdal driver error"))
-        assert (
-            nc.group_names == []
-        ), "RuntimeError should degrade to an empty group list"
+        assert nc.group_names == [], (
+            "RuntimeError should degrade to an empty group list"
+        )
 
 
 class TestSpatialOperationDelegates:
@@ -127,9 +127,9 @@ class TestSpatialOperationDelegates:
         )
         result = var.crop(mask, touch=True)
         assert result is not None, "crop should return a new Dataset"
-        assert (
-            result.rows <= var.rows
-        ), f"Cropped rows {result.rows} should be <= original {var.rows}"
+        assert result.rows <= var.rows, (
+            f"Cropped rows {result.rows} should be <= original {var.rows}"
+        )
 
     def test_to_crs_delegates_to_super(self):
         """Verify to_crs() passes through to Dataset.to_crs for subsets.

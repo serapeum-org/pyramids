@@ -82,18 +82,18 @@ class TestWindowedRead705:
             un-materialized view, and still succeeds (identically) after the eager materialize.
         """
         var = NetCDF.read_file(GOES).get_variable("CMI")
-        assert (
-            var._md_y_flipped is False
-        ), "GOES scaled scan-angle Y descends; it must not be reversed"
+        assert var._md_y_flipped is False, (
+            "GOES scaled scan-angle Y descends; it must not be reversed"
+        )
         window_before = var.raster.ReadAsArray(100, 100, 200, 200)
         assert window_before.shape[-2:] == (
             200,
             200,
         ), "raw view must service a windowed read"
         var._materialize_md_view()
-        assert (
-            var._md_view_materialized is True
-        ), "eager path should have materialized the view"
+        assert var._md_view_materialized is True, (
+            "eager path should have materialized the view"
+        )
         window = var.raster.ReadAsArray(100, 100, 200, 200)
         assert window.shape[-2:] == (
             200,
@@ -121,9 +121,9 @@ class TestWindowedRead705:
             the full read.
         """
         var = NetCDF.read_file(NOAH).get_variable("Band1")
-        assert (
-            var._md_y_flipped is True
-        ), "NOAH latitude ascends; its view must be reversed"
+        assert var._md_y_flipped is True, (
+            "NOAH latitude ascends; its view must be reversed"
+        )
         if _GDAL_RAW_VIEW_CRASHES:
             with pytest.raises(RuntimeError, match="arrayStartIdx"):
                 var.raster.ReadAsArray(10, 10, 20, 20)
@@ -163,7 +163,9 @@ class TestWindowedRead705:
         assert window.ndim >= 2, f"expected a 2-D+ window, got shape {window.shape}"
         assert (
             window.shape[-1] < full.shape[-1] and window.shape[-2] < full.shape[-2]
-        ), f"window {window.shape} should be strictly smaller than the full read {full.shape}"
+        ), (
+            f"window {window.shape} should be strictly smaller than the full read {full.shape}"
+        )
 
 
 PACKED = [
@@ -204,9 +206,9 @@ class TestMaterializeIntegrity:
         """Without the resolved spatial dims the raw-view rebuild declines; the fallback still works."""
         var = NetCDF.read_file(GOES).get_variable("CMI")
         var._md_spatial_dims = None
-        assert (
-            var._materialize_from_raw_view() is None
-        ), "cannot rebuild the raw view without dims"
+        assert var._materialize_from_raw_view() is None, (
+            "cannot rebuild the raw view without dims"
+        )
         var._materialize_md_view()
         assert var._md_view_materialized is True, "fallback copy must still materialize"
         assert var.raster.ReadAsArray(10, 10, 20, 20).shape[-2:] == (20, 20)
@@ -221,9 +223,9 @@ class TestMaterializeIntegrity:
         """
         var = NetCDF.read_file(GOES).get_variable("CMI")
         var._gdal_rg_ref = _raising_root_group()
-        assert (
-            var._materialize_from_raw_view() is None
-        ), "a failed reopen must decline, not raise"
+        assert var._materialize_from_raw_view() is None, (
+            "a failed reopen must decline, not raise"
+        )
         var._materialize_md_view()
         assert var._md_view_materialized is True, "fallback copy must still materialize"
         assert var.raster.ReadAsArray(10, 10, 20, 20).shape[-2:] == (20, 20)
@@ -264,14 +266,14 @@ class TestMaterializeIntegrity:
             and silently dropped the wrapper's.
         """
         var = Container(_irregular_lon_mdim()).get_variable("v")
-        assert (
-            var.raster.GetDriver().ShortName == "VRT"
-        ), "fixture should be VRT-wrapped"
+        assert var.raster.GetDriver().ShortName == "VRT", (
+            "fixture should be VRT-wrapped"
+        )
         var.raster.GetRasterBand(1).SetNoDataValue(-777.0)
         var._materialize_md_view()
-        assert (
-            var.raster.GetRasterBand(1).GetNoDataValue() == -777.0
-        ), "materialize dropped no-data"
+        assert var.raster.GetRasterBand(1).GetNoDataValue() == -777.0, (
+            "materialize dropped no-data"
+        )
 
     def test_materialize_does_not_erase_the_raw_views_no_data(self):
         """A wrapper with no no-data must not blank the value the raw view supplies."""
@@ -320,21 +322,21 @@ class TestCoordinateDerivedGeotransform:
         # lon = [1, 2, 4, 8, 16] ascending -> no X flip -> west edge derives from lon[0] = 1.
         # lat = [1, 2, 3, 4] ascending -> Y flipped   -> north edge derives from lat[-1] = 4.
         assert cube._md_x_flipped is False and cube._md_y_flipped is True
-        assert cube.geotransform[0] == pytest.approx(
-            0.5
-        ), "west edge should be lon[0] - cell/2"
-        assert cube.geotransform[3] == pytest.approx(
-            4.5
-        ), "north edge should be lat[-1] + cell/2"
+        assert cube.geotransform[0] == pytest.approx(0.5), (
+            "west edge should be lon[0] - cell/2"
+        )
+        assert cube.geotransform[3] == pytest.approx(4.5), (
+            "north edge should be lat[-1] + cell/2"
+        )
 
         # Force the opposite recorded X flip: the anchor must move to the last stored longitude,
         # because that is the column the (notionally reversed) array would now start at.
         cube._md_x_flipped = True
         derived = container._coordinate_derived_geotransform(cube)
         assert derived is not None, "a changed anchor must be reported as a new affine"
-        assert derived[0] == pytest.approx(
-            15.5
-        ), "west edge should follow the array, not min(lon)"
+        assert derived[0] == pytest.approx(15.5), (
+            "west edge should follow the array, not min(lon)"
+        )
 
     def test_descending_x_file_anchors_on_the_western_edge(self, tmp_path):
         """An actually-reversed X axis still yields the true west edge (the coordinate minimum)."""
@@ -359,9 +361,9 @@ class TestClassicDriverNotUsedForPixels:
     def test_classic_driver_returns_only_fill_for_this_variable(self):
         """Document the GDAL behaviour this guards against: the subdataset read is pure fill."""
         classic = np.asarray(gdal.Open(f'NETCDF:"{RHUM}":rhum').ReadAsArray())
-        assert (
-            classic.min() == classic.max()
-        ), "expected the classic driver to return constant fill"
+        assert classic.min() == classic.max(), (
+            "expected the classic driver to return constant fill"
+        )
 
     def test_materialize_keeps_real_data(self):
         """Materializing keeps the multidim array's real values, not the classic driver's fill.
@@ -378,9 +380,9 @@ class TestClassicDriverNotUsedForPixels:
         np.testing.assert_array_equal(
             after, before, err_msg="materialize altered the pixels"
         )
-        assert (
-            after.min() != after.max()
-        ), "materialize replaced real data with constant fill"
+        assert after.min() != after.max(), (
+            "materialize replaced real data with constant fill"
+        )
 
 
 class TestGeostationaryGroundTruth:

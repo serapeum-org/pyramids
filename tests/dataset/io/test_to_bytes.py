@@ -116,13 +116,13 @@ class TestToBytes:
             ramp_dataset.read_array(),
             err_msg="array must survive the bytes round-trip",
         )
-        assert restored.geotransform == pytest.approx(
-            ramp_dataset.geotransform
-        ), "geotransform changed"
+        assert restored.geotransform == pytest.approx(ramp_dataset.geotransform), (
+            "geotransform changed"
+        )
         assert restored.epsg == 4326, f"CRS lost: {restored.epsg}"
-        assert restored.no_data_value[0] == pytest.approx(
-            -9999.0
-        ), f"nodata lost: {restored.no_data_value}"
+        assert restored.no_data_value[0] == pytest.approx(-9999.0), (
+            f"nodata lost: {restored.no_data_value}"
+        )
 
     def test_payload_is_a_tiff_file(self, ramp_dataset):
         """The default payload carries TIFF magic bytes.
@@ -148,9 +148,9 @@ class TestToBytes:
         )
         compressed = flat.to_bytes(creation_options={"COMPRESS": "DEFLATE"})
         raw = flat.to_bytes()
-        assert len(compressed) < len(
-            raw
-        ), f"deflate ({len(compressed)}) should beat raw ({len(raw)}) on zeros"
+        assert len(compressed) < len(raw), (
+            f"deflate ({len(compressed)}) should beat raw ({len(raw)}) on zeros"
+        )
 
     def test_png_driver(self):
         """A uint8 dataset serializes to a valid PNG payload.
@@ -272,9 +272,9 @@ class TestToBytes:
         Test scenario:
             The facade is a pure delegation of the engine method.
         """
-        assert (
-            ramp_dataset.to_bytes() == ramp_dataset.io.to_bytes()
-        ), "facade and engine outputs differ"
+        assert ramp_dataset.to_bytes() == ramp_dataset.io.to_bytes(), (
+            "facade and engine outputs differ"
+        )
 
     def test_concurrent_to_bytes_are_independent(self):
         """Parallel to_bytes calls do not cross-contaminate (M2).
@@ -304,9 +304,9 @@ class TestToBytes:
 
         for value, payload in results.items():
             restored = Dataset.from_bytes(payload)
-            assert np.allclose(
-                restored.read_array(), float(value)
-            ), f"payload {value} did not round-trip to its own values"
+            assert np.allclose(restored.read_array(), float(value)), (
+                f"payload {value} did not round-trip to its own values"
+            )
 
 
 class TestToCogBytesStillWorks:

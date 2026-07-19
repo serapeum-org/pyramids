@@ -72,9 +72,9 @@ class TestNetCDFFromBytes:
             Inspect the internal multidim flag — expected: ``True``.
         """
         nc = NetCDF.from_bytes(netcdf_bytes)
-        assert (
-            nc._is_md_array is True
-        ), "NetCDF.from_bytes should open in multidim mode by default"
+        assert nc._is_md_array is True, (
+            "NetCDF.from_bytes should open in multidim mode by default"
+        )
 
     def test_classic_mode_when_requested(self, netcdf_bytes: bytes):
         """``open_as_multi_dimensional=False`` opens in classic subdataset mode.
@@ -102,15 +102,15 @@ class TestNetCDFFromBytes:
             file exists while the object is alive.
         """
         nc = NetCDF.from_bytes(netcdf_bytes)
-        assert nc._vsimem_path.startswith(
-            "/vsimem/"
-        ), f"bad backing path: {nc._vsimem_path!r}"
-        assert nc._vsimem_path.endswith(
-            ".nc"
-        ), f"expected .nc suffix: {nc._vsimem_path!r}"
-        assert (
-            gdal.VSIStatL(nc._vsimem_path) is not None
-        ), "backing /vsimem/ file is missing"
+        assert nc._vsimem_path.startswith("/vsimem/"), (
+            f"bad backing path: {nc._vsimem_path!r}"
+        )
+        assert nc._vsimem_path.endswith(".nc"), (
+            f"expected .nc suffix: {nc._vsimem_path!r}"
+        )
+        assert gdal.VSIStatL(nc._vsimem_path) is not None, (
+            "backing /vsimem/ file is missing"
+        )
 
     def test_name_argument_sets_file_name(self, netcdf_bytes: bytes):
         """``name=`` overrides the cosmetic ``file_name``.

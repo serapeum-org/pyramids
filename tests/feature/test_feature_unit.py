@@ -396,12 +396,12 @@ class TestExplodeGdf:
         explode_gdf(gdf, geometry="multipolygon")
 
         # Input row count + geometries are unchanged.
-        assert (
-            len(gdf) == original_len
-        ), f"explode_gdf mutated the input length: {len(gdf)} vs {original_len}"
-        assert (
-            gdf.geometry.iloc[0].geom_type == original_first_type
-        ), "explode_gdf mutated the first row's geometry in place"
+        assert len(gdf) == original_len, (
+            f"explode_gdf mutated the input length: {len(gdf)} vs {original_len}"
+        )
+        assert gdf.geometry.iloc[0].geom_type == original_first_type, (
+            "explode_gdf mutated the first row's geometry in place"
+        )
 
     def test_returns_expanded_row_count(self):
         """D-H1: the returned frame carries the exploded children.
@@ -727,9 +727,9 @@ class TestReadParquetBboxKwarg:
         monkeypatch.setattr(geopandas, "read_parquet", _spy)
 
         FeatureCollection.read_parquet(tmp_path / "x.parquet")
-        assert (
-            "bbox" not in captured[0]
-        ), f"bbox=None should not appear as a literal kwarg; got {captured[0]}"
+        assert "bbox" not in captured[0], (
+            f"bbox=None should not appear as a literal kwarg; got {captured[0]}"
+        )
 
     def test_no_future_warning(self):
         """Must not emit pyproj FutureWarning (ARC-2 regression).

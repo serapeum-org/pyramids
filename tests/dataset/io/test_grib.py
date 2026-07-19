@@ -270,13 +270,13 @@ class TestGribBandMetadata:
             fields are a UTC datetime and an int respectively.
         """
         entry = grib_band_metadata(open_grib(grib_path))[0]
-        assert isinstance(
-            entry["valid_time"], datetime
-        ), "valid_time should be datetime"
+        assert isinstance(entry["valid_time"], datetime), (
+            "valid_time should be datetime"
+        )
         assert entry["valid_time"].tzinfo == timezone.utc, "valid_time should be UTC"
-        assert isinstance(
-            entry["forecast_seconds"], int
-        ), "forecast_seconds should be int"
+        assert isinstance(entry["forecast_seconds"], int), (
+            "forecast_seconds should be int"
+        )
 
 
 class TestSelectGribBand:

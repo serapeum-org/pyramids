@@ -107,9 +107,9 @@ class TestPlaceholder:
             yield a usable placeholder.
         """
         result = _recreate_placeholder()
-        assert isinstance(
-            result, _Placeholder
-        ), f"Expected _Placeholder instance, got {type(result).__name__}"
+        assert isinstance(result, _Placeholder), (
+            f"Expected _Placeholder instance, got {type(result).__name__}"
+        )
 
     def test_each_call_returns_distinct_instance(self):
         """Successive calls must produce distinct objects, not a singleton.
@@ -121,9 +121,9 @@ class TestPlaceholder:
         """
         first = _recreate_placeholder()
         second = _recreate_placeholder()
-        assert (
-            first is not second
-        ), "Successive calls to _recreate_placeholder returned the same instance"
+        assert first is not second, (
+            "Successive calls to _recreate_placeholder returned the same instance"
+        )
 
 
 class TestCollaboratorBase:
@@ -137,12 +137,12 @@ class TestCollaboratorBase:
             transparently resolve to the wrapped Dataset's attributes.
         """
         collab = _Engine(in_memory_dataset)
-        assert (
-            collab._ds.epsg == in_memory_dataset.epsg
-        ), f"Proxy did not resolve epsg: {collab._ds.epsg} != {in_memory_dataset.epsg}"
-        assert (
-            collab._ds.rows == in_memory_dataset.rows
-        ), "Proxy did not resolve rows attribute"
+        assert collab._ds.epsg == in_memory_dataset.epsg, (
+            f"Proxy did not resolve epsg: {collab._ds.epsg} != {in_memory_dataset.epsg}"
+        )
+        assert collab._ds.rows == in_memory_dataset.rows, (
+            "Proxy did not resolve rows attribute"
+        )
 
     def test_proxy_does_not_keep_dataset_alive(self):
         """Strong-cycle safety: deleting the only Dataset ref must release it.
@@ -195,9 +195,9 @@ class TestCollaboratorBase:
             (e.g., a future bug that sets ``self.foo = bar`` on a
             collaborator) and keeps the back-reference the only state.
         """
-        assert _Engine.__slots__ == (
-            "_ds",
-        ), f"Expected __slots__ == ('_ds',), got {_Engine.__slots__!r}"
+        assert _Engine.__slots__ == ("_ds",), (
+            f"Expected __slots__ == ('_ds',), got {_Engine.__slots__!r}"
+        )
 
 
 class TestCollaboratorAttachment:
@@ -229,9 +229,9 @@ class TestCollaboratorAttachment:
             wired in and reachable by attribute access.
         """
         collab = getattr(in_memory_dataset, attr_name)
-        assert isinstance(
-            collab, expected_type
-        ), f"ds.{attr_name} should be {expected_type.__name__}, got {type(collab).__name__}"
+        assert isinstance(collab, expected_type), (
+            f"ds.{attr_name} should be {expected_type.__name__}, got {type(collab).__name__}"
+        )
 
 
 # Stage 2 facades: Dataset method delegates to the collaborator method
@@ -323,9 +323,9 @@ class TestFacadeDelegation:
         facade = getattr(in_memory_dataset, method_name)
         result = facade(1, 2, foo="bar")
 
-        assert (
-            result is sentinel
-        ), f"Dataset.{method_name} facade did not return the collaborator's value"
+        assert result is sentinel, (
+            f"Dataset.{method_name} facade did not return the collaborator's value"
+        )
         mock.assert_called_once_with(1, 2, foo="bar")
 
 
@@ -402,12 +402,12 @@ class TestAnalysisNormalize:
             with min=0.0 and max=1.0 (linear scaling preserves rank).
         """
         out = Analysis.normalize(np.array([[2.0, 4.0], [6.0, 8.0]]))
-        assert float(out.min()) == pytest.approx(
-            0.0
-        ), f"Expected min 0.0, got {out.min()}"
-        assert float(out.max()) == pytest.approx(
-            1.0
-        ), f"Expected max 1.0, got {out.max()}"
+        assert float(out.min()) == pytest.approx(0.0), (
+            f"Expected min 0.0, got {out.min()}"
+        )
+        assert float(out.max()) == pytest.approx(1.0), (
+            f"Expected max 1.0, got {out.max()}"
+        )
         assert out.shape == (2, 2), f"Shape mismatch: {out.shape}"
 
     def test_normalize_signed_values(self):
@@ -432,9 +432,9 @@ class TestAnalysisNormalize:
             Python scalar; the staticmethod always returns ``np.ndarray``.
         """
         out = Analysis.normalize(np.array([1, 2, 3, 4]))
-        assert isinstance(
-            out, np.ndarray
-        ), f"Expected numpy ndarray, got {type(out).__name__}"
+        assert isinstance(out, np.ndarray), (
+            f"Expected numpy ndarray, got {type(out).__name__}"
+        )
 
 
 class TestPickleRoundTrip:
@@ -452,27 +452,27 @@ class TestPickleRoundTrip:
             types — never ``_Placeholder`` instances.
         """
         roundtripped = pickle.loads(pickle.dumps(file_backed_dataset))
-        assert isinstance(
-            roundtripped.io, IO
-        ), f"Roundtripped ds.io is wrong type: {type(roundtripped.io).__name__}"
-        assert isinstance(
-            roundtripped.spatial, Spatial
-        ), f"Roundtripped ds.spatial is wrong type: {type(roundtripped.spatial).__name__}"
-        assert isinstance(
-            roundtripped.bands, Bands
-        ), f"Roundtripped ds.bands is wrong type: {type(roundtripped.bands).__name__}"
-        assert isinstance(
-            roundtripped.analysis, Analysis
-        ), f"Roundtripped ds.analysis is wrong type: {type(roundtripped.analysis).__name__}"
-        assert isinstance(
-            roundtripped.cell, Cell
-        ), f"Roundtripped ds.cell is wrong type: {type(roundtripped.cell).__name__}"
-        assert isinstance(
-            roundtripped.vectorize, Vectorize
-        ), f"Roundtripped ds.vectorize is wrong type: {type(roundtripped.vectorize).__name__}"
-        assert isinstance(
-            roundtripped.cog, COG
-        ), f"Roundtripped ds.cog is wrong type: {type(roundtripped.cog).__name__}"
+        assert isinstance(roundtripped.io, IO), (
+            f"Roundtripped ds.io is wrong type: {type(roundtripped.io).__name__}"
+        )
+        assert isinstance(roundtripped.spatial, Spatial), (
+            f"Roundtripped ds.spatial is wrong type: {type(roundtripped.spatial).__name__}"
+        )
+        assert isinstance(roundtripped.bands, Bands), (
+            f"Roundtripped ds.bands is wrong type: {type(roundtripped.bands).__name__}"
+        )
+        assert isinstance(roundtripped.analysis, Analysis), (
+            f"Roundtripped ds.analysis is wrong type: {type(roundtripped.analysis).__name__}"
+        )
+        assert isinstance(roundtripped.cell, Cell), (
+            f"Roundtripped ds.cell is wrong type: {type(roundtripped.cell).__name__}"
+        )
+        assert isinstance(roundtripped.vectorize, Vectorize), (
+            f"Roundtripped ds.vectorize is wrong type: {type(roundtripped.vectorize).__name__}"
+        )
+        assert isinstance(roundtripped.cog, COG), (
+            f"Roundtripped ds.cog is wrong type: {type(roundtripped.cog).__name__}"
+        )
 
     def test_round_tripped_collaborators_are_functional(self, file_backed_dataset):
         """After round-trip, calling a forwarder still works end-to-end.

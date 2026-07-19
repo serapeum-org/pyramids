@@ -234,9 +234,9 @@ class TestReadGpxLayers:
     def test_layer_contents(self, gpx_path: Path) -> None:
         """The waypoints layer carries the single waypoint."""
         layers = FeatureCollection.read_gpx_layers(gpx_path)
-        assert (
-            len(layers["waypoints"]) == 1
-        ), f"expected 1 waypoint, got {len(layers['waypoints'])}"
+        assert len(layers["waypoints"]) == 1, (
+            f"expected 1 waypoint, got {len(layers['waypoints'])}"
+        )
 
 
 def _page_factory(total: int, page_size: int):

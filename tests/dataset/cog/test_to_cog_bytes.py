@@ -70,9 +70,9 @@ class TestToCogBytes:
         blob = float_dataset.to_cog_bytes()
         out = tmp_path / "roundtrip.tif"
         out.write_bytes(blob)
-        assert (
-            Dataset.read_file(str(out)).validate_cog().is_valid
-        ), "round-tripped COG bytes must validate"
+        assert Dataset.read_file(str(out)).validate_cog().is_valid, (
+            "round-tripped COG bytes must validate"
+        )
 
     def test_forwards_options(self, float_dataset, tmp_path):
         """to_cog_bytes forwards kwargs (e.g. compress) to to_cog.
@@ -128,6 +128,6 @@ class TestToCogBytes:
         info_mem = Dataset.read_file(str(mem_path)).cog_info()
         assert info_mem.compression == info_disk.compression, "compression mismatch"
         assert info_mem.predictor == info_disk.predictor, "predictor mismatch"
-        assert (
-            info_mem.overview_count == info_disk.overview_count
-        ), "overview count mismatch"
+        assert info_mem.overview_count == info_disk.overview_count, (
+            "overview count mismatch"
+        )

@@ -60,9 +60,9 @@ class TestDatasetFromBytes:
         assert ds.geotransform == ref.geotransform, "geotransform mismatch"
         assert ds.no_data_value == ref.no_data_value, "no-data mismatch"
         assert ds.band_names == ref.band_names, "band names mismatch"
-        assert np.array_equal(
-            ds.read_array(), ref.read_array(), equal_nan=True
-        ), "pixel values differ from read_file"
+        assert np.array_equal(ds.read_array(), ref.read_array(), equal_nan=True), (
+            "pixel values differ from read_file"
+        )
 
     def test_round_trip_matches_read_file_multi_band(self, multi_band_bytes: bytes):
         """A multi-band GeoTIFF round-trips identically to ``read_file``.
@@ -77,9 +77,9 @@ class TestDatasetFromBytes:
         ref = Dataset.read_file(MULTI_BAND)
         ds = Dataset.from_bytes(multi_band_bytes)
         assert ds.band_count == ref.band_count, "band count mismatch"
-        assert np.array_equal(
-            ds.read_array(), ref.read_array(), equal_nan=True
-        ), "multi-band pixel values differ from read_file"
+        assert np.array_equal(ds.read_array(), ref.read_array(), equal_nan=True), (
+            "multi-band pixel values differ from read_file"
+        )
 
     def test_returns_dataset_instance(self, single_band_bytes: bytes):
         """The result is a :class:`Dataset` (not a bare ``gdal.Dataset``).
@@ -105,12 +105,12 @@ class TestDatasetFromBytes:
             ``gdal.VSIStatL`` reports it present while the object is alive.
         """
         ds = Dataset.from_bytes(single_band_bytes)
-        assert ds._vsimem_path.startswith(
-            "/vsimem/"
-        ), f"bad backing path: {ds._vsimem_path!r}"
-        assert (
-            gdal.VSIStatL(ds._vsimem_path) is not None
-        ), "backing /vsimem/ file is missing"
+        assert ds._vsimem_path.startswith("/vsimem/"), (
+            f"bad backing path: {ds._vsimem_path!r}"
+        )
+        assert gdal.VSIStatL(ds._vsimem_path) is not None, (
+            "backing /vsimem/ file is missing"
+        )
 
     def test_default_file_name_is_the_vsimem_path(self, single_band_bytes: bytes):
         """Without ``name=``, ``file_name`` is the GDAL description (the ``/vsimem/`` path).
@@ -123,9 +123,9 @@ class TestDatasetFromBytes:
             backing ``/vsimem/`` path.
         """
         ds = Dataset.from_bytes(single_band_bytes)
-        assert (
-            ds.file_name == ds._vsimem_path
-        ), f"unexpected file_name: {ds.file_name!r}"
+        assert ds.file_name == ds._vsimem_path, (
+            f"unexpected file_name: {ds.file_name!r}"
+        )
 
     def test_name_argument_sets_file_name(self, single_band_bytes: bytes):
         """``name=`` overrides the cosmetic ``file_name``.
@@ -139,9 +139,9 @@ class TestDatasetFromBytes:
         """
         ds = Dataset.from_bytes(single_band_bytes, name="scene-A")
         assert ds.file_name == "scene-A", f"name= not applied: {ds.file_name!r}"
-        assert ds._vsimem_path.startswith(
-            "/vsimem/"
-        ), "backing path should still be /vsimem/"
+        assert ds._vsimem_path.startswith("/vsimem/"), (
+            "backing path should still be /vsimem/"
+        )
 
     def test_read_only_by_default(self, single_band_bytes: bytes):
         """The dataset opens read-only unless asked otherwise.
@@ -171,9 +171,9 @@ class TestDatasetFromBytes:
         arr = ds.read_array(band=0)
         ds.raster.GetRasterBand(1).WriteArray(np.zeros_like(arr))
         ds.raster.FlushCache()
-        assert np.array_equal(
-            ds.read_array(band=0), np.zeros_like(arr)
-        ), "write did not take effect"
+        assert np.array_equal(ds.read_array(band=0), np.zeros_like(arr)), (
+            "write did not take effect"
+        )
 
     def test_vsimem_cleaned_up_on_gc(self, single_band_bytes: bytes):
         """Dropping the last reference removes the ``/vsimem/`` file.
@@ -208,9 +208,9 @@ class TestDatasetFromBytes:
         ds.close()
         del ds
         gc.collect()
-        assert (
-            gdal.VSIStatL(vsi_path) is None
-        ), "/vsimem/ file lingered after close + GC"
+        assert gdal.VSIStatL(vsi_path) is None, (
+            "/vsimem/ file lingered after close + GC"
+        )
 
     def test_multiple_instances_independent(self, single_band_bytes: bytes):
         """Two ``from_bytes`` datasets get independent backing files.
@@ -244,9 +244,9 @@ class TestDatasetFromBytes:
         ds = Dataset.from_bytes(single_band_bytes)
         with pytest.raises(TypeError, match=r"to_file") as exc:
             pickle.dumps(ds)
-        assert "/vsimem/" in str(exc.value) or "in-memory" in str(
-            exc.value
-        ), f"unexpected pickle error: {exc.value}"
+        assert "/vsimem/" in str(exc.value) or "in-memory" in str(exc.value), (
+            f"unexpected pickle error: {exc.value}"
+        )
 
     def test_to_file_anchors_to_disk(self, single_band_bytes: bytes, tmp_path: Path):
         """``to_file`` writes the in-memory raster to disk and it round-trips.
@@ -265,9 +265,9 @@ class TestDatasetFromBytes:
         ds.to_file(str(out))
         assert out.exists(), "to_file did not create the output file"
         reloaded = Dataset.read_file(str(out))
-        assert np.array_equal(
-            reloaded.read_array(), original, equal_nan=True
-        ), "disk copy differs"
+        assert np.array_equal(reloaded.read_array(), original, equal_nan=True), (
+            "disk copy differs"
+        )
 
     @pytest.mark.parametrize("bad", ["a string", 42, None, ["bytes"]])
     def test_non_bytes_raises_type_error(self, bad):

@@ -658,7 +658,7 @@ def _identical_variable(
             if inlined and refs.get(key) != value:
                 warnings.warn(
                     f"non-concat variable {name!r} differs across files (chunk "
-                    f"{key[len(prefix):]}); using the first file's values — the "
+                    f"{key[len(prefix) :]}); using the first file's values — the "
                     "inputs may not be co-registered.",
                     stacklevel=3,
                 )

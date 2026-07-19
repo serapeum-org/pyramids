@@ -32,9 +32,9 @@ class TestReadFileWriteMode:
             open_as_multi_dimensional=True,
         )
         assert writable_nc is not None, "Should open file for writing"
-        assert (
-            writable_nc._access == "write"
-        ), f"Expected 'write' access, got {writable_nc._access}"
+        assert writable_nc._access == "write", (
+            f"Expected 'write' access, got {writable_nc._access}"
+        )
 
 
 class TestToFile:
@@ -120,9 +120,9 @@ class TestCreateFromArrayAlternatives:
         )
         assert nc is not None, "NetCDF should be created"
         var = nc.get_variable("data")
-        assert var.cell_size == pytest.approx(
-            0.5
-        ), f"Expected cell_size 0.5, got {var.cell_size}"
+        assert var.cell_size == pytest.approx(0.5), (
+            f"Expected cell_size 0.5, got {var.cell_size}"
+        )
 
     def test_create_from_array_no_geo_raises(self):
         """Verify create_from_array raises ValueError without geo information.
@@ -152,9 +152,9 @@ class TestCreateFromArrayAlternatives:
             no_data_value=-9999.0,
             path=None,
         )
-        assert (
-            "data" in nc.variable_names
-        ), f"Expected 'data' in variable_names, got {nc.variable_names}"
+        assert "data" in nc.variable_names, (
+            f"Expected 'data' in variable_names, got {nc.variable_names}"
+        )
 
     def test_create_from_array_default_extra_dim_values(self):
         """Verify create_from_array defaults extra_dim_values to 0..N-1.

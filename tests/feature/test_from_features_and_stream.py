@@ -471,6 +471,6 @@ class TestIterFeaturesEnginePin:
         monkeypatch.setattr(geopandas, "read_file", _spy)
         list(FeatureCollection.iter_features(larger_geojson, chunksize=10))
         assert captured, "gpd.read_file must be invoked at least once"
-        assert all(
-            k.get("engine") == "pyogrio" for k in captured
-        ), f"expected engine='pyogrio' in every call; got {captured}"
+        assert all(k.get("engine") == "pyogrio" for k in captured), (
+            f"expected engine='pyogrio' in every call; got {captured}"
+        )

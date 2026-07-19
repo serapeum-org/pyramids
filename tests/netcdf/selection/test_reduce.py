@@ -143,9 +143,9 @@ class TestReduceSkipna:
             extra_dim_values=[0, 1],
         )
         skip = nc.reduce("time", "mean", skipna=True).get_variable("v").read_array()
-        assert skip[0, 0] == pytest.approx(
-            10.0
-        ), "all-but-nodata cell should keep the valid value"
+        assert skip[0, 0] == pytest.approx(10.0), (
+            "all-but-nodata cell should keep the valid value"
+        )
         assert skip[0, 1] == pytest.approx(20.0), "mean of 10 and 30 should be 20"
 
     def test_no_skipna_uses_raw_values(self):
@@ -192,9 +192,9 @@ class TestReduceSkipna:
             extra_dim_values=[0, 1],
         )
         out = nc.reduce("time", how, skipna=True).get_variable("v").read_array()
-        assert (
-            out[0, 1] == -9999.0
-        ), f"{how}: all-nodata cell should stay nodata, got {out[0, 1]}"
+        assert out[0, 1] == -9999.0, (
+            f"{how}: all-nodata cell should stay nodata, got {out[0, 1]}"
+        )
         assert out[0, 0] != -9999.0, f"{how}: valid cell should compute a real value"
 
 
@@ -216,9 +216,9 @@ class TestReducePassthrough:
 
         result = nc.reduce("time", "mean")
         assert "static" in result.variable_names, "static variable was dropped"
-        assert np.allclose(
-            result.get_variable("static").read_array(), static_arr
-        ), "static variable should be unchanged"
+        assert np.allclose(result.get_variable("static").read_array(), static_arr), (
+            "static variable should be unchanged"
+        )
 
 
 class TestReduceErrors:
@@ -329,9 +329,9 @@ class TestReduceRealFixtures:
         per_step = nc.reduce("valid_time", "mean", groupby="6h")
         raw = nc.get_variable("t2m").read_array()
         reduced = per_step.get_variable("t2m").read_array()
-        assert np.allclose(
-            reduced[0], raw[0], equal_nan=True
-        ), "first 6h window != first step"
+        assert np.allclose(reduced[0], raw[0], equal_nan=True), (
+            "first 6h window != first step"
+        )
 
 
 class TestReduceMultiBandDim:
@@ -386,9 +386,9 @@ class TestReduceMultiBandDim:
         assert got_v1.shape == (2, 2, 3, 4), f"v1 wrong shape: {got_v1.shape}"
         assert got_v2.shape == (2, 2, 3, 4), f"v2 wrong shape: {got_v2.shape}"
         assert np.allclose(got_v1, a1.mean(axis=0)), "v1 values do not match numpy mean"
-        assert np.allclose(
-            got_v2, a2.mean(axis=0)
-        ), "v2 (non-first) corrupted by reduce"
+        assert np.allclose(got_v2, a2.mean(axis=0)), (
+            "v2 (non-first) corrupted by reduce"
+        )
 
     def test_second_variable_band_dim_names_preserved(self):
         """Both surviving band dimensions are recorded on the reduced variable.

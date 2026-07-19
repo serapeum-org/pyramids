@@ -36,12 +36,12 @@ def test_unpack_applies_scale_offset(sample_name, sample):
         info = meta[name]
         raw = nc.read_array(variable=name)
         unpacked = nc.read_array(variable=name, unpack=True)
-        assert np.issubdtype(
-            raw.dtype, np.integer
-        ), f"{sample_name}/{name}: expected packed integer"
-        assert np.issubdtype(
-            unpacked.dtype, np.floating
-        ), f"{sample_name}/{name}: unpack not float"
+        assert np.issubdtype(raw.dtype, np.integer), (
+            f"{sample_name}/{name}: expected packed integer"
+        )
+        assert np.issubdtype(unpacked.dtype, np.floating), (
+            f"{sample_name}/{name}: unpack not float"
+        )
         scale = info.scale
         offset = info.offset or 0.0
         flat_raw = np.asarray(raw).ravel()

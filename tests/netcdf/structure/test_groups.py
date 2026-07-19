@@ -93,9 +93,9 @@ class TestGroupNames:
             Even for flat files, the return type is list.
         """
         nc = _make_flat_nc()
-        assert isinstance(
-            nc.group_names, list
-        ), f"Expected list, got {type(nc.group_names)}"
+        assert isinstance(nc.group_names, list), (
+            f"Expected list, got {type(nc.group_names)}"
+        )
 
 
 class TestGetGroup:
@@ -119,9 +119,9 @@ class TestGetGroup:
         """
         nc = _make_grouped_nc()
         fg = nc.get_group("forecast")
-        assert (
-            "temperature" in fg.variable_names
-        ), f"Expected 'temperature' in {fg.variable_names}"
+        assert "temperature" in fg.variable_names, (
+            f"Expected 'temperature' in {fg.variable_names}"
+        )
 
     def test_sub_group_variable_data(self):
         """Data from a sub-group variable should be correct.
@@ -148,12 +148,12 @@ class TestGetGroup:
         nc = _make_grouped_nc()
         fg = nc.get_group("forecast")
         ag = nc.get_group("analysis")
-        assert (
-            "temperature" in fg.variable_names
-        ), f"forecast should have temperature: {fg.variable_names}"
-        assert (
-            "wind_speed" in ag.variable_names
-        ), f"analysis should have wind_speed: {ag.variable_names}"
+        assert "temperature" in fg.variable_names, (
+            f"forecast should have temperature: {fg.variable_names}"
+        )
+        assert "wind_speed" in ag.variable_names, (
+            f"analysis should have wind_speed: {ag.variable_names}"
+        )
 
     def test_nonexistent_group_raises(self):
         """get_group with invalid name should raise ValueError.

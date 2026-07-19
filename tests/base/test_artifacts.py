@@ -41,9 +41,9 @@ class TestArtifactDir:
             Two calls share the same parent directory (bounds proliferation).
         """
         a, b = artifact_dir(), artifact_dir()
-        assert os.path.dirname(a) == os.path.dirname(
-            b
-        ), f"dirs should share one root: {os.path.dirname(a)} vs {os.path.dirname(b)}"
+        assert os.path.dirname(a) == os.path.dirname(b), (
+            f"dirs should share one root: {os.path.dirname(a)} vs {os.path.dirname(b)}"
+        )
 
     def test_root_reused_after_first_create(self):
         """The shared root is created once and reused.
@@ -85,9 +85,9 @@ class TestCleanup:
         assert gdal.VSIStatL(path) is not None, "precondition: /vsimem file exists"
         register_vsimem(path)
         cleanup()
-        assert (
-            gdal.VSIStatL(path) is None
-        ), "/vsimem path should be unlinked after cleanup"
+        assert gdal.VSIStatL(path) is None, (
+            "/vsimem path should be unlinked after cleanup"
+        )
 
     def test_cleanup_is_idempotent(self):
         """Calling cleanup twice (or with no root) does not raise.

@@ -33,9 +33,9 @@ class TestOpenClient:
         assert result == "CLIENT", "open_client should return the Client.open result"
         kwargs = mock_open.call_args.kwargs
         assert kwargs["modifier"] == signer.sign_item, "modifier should be sign_item"
-        assert (
-            kwargs["request_modifier"] == signer.sign_request
-        ), "request_modifier should be sign_request"
+        assert kwargs["request_modifier"] == signer.sign_request, (
+            "request_modifier should be sign_request"
+        )
 
     def test_defaults_to_anonymous_signer(self, mocker):
         """With no signer, an AnonymousSigner is wired in.
@@ -51,9 +51,9 @@ class TestOpenClient:
         mock_open = mocker.patch.object(pystac_client.Client, "open", return_value="C")
         open_client("https://example.com/v1")
         modifier = mock_open.call_args.kwargs["modifier"]
-        assert (
-            modifier.__self__.name == "anonymous"
-        ), "Default signer should be anonymous"
+        assert modifier.__self__.name == "anonymous", (
+            "Default signer should be anonymous"
+        )
 
     def test_forwards_url_headers_timeout(self, mocker):
         """url, headers, and timeout are forwarded to Client.open.

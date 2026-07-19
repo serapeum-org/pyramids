@@ -94,9 +94,9 @@ class TestToXarrayInMemory3D:
         """
         nc = _make_3d_nc()
         ds = nc.to_xarray()
-        assert isinstance(
-            ds, xr.Dataset
-        ), f"Expected xr.Dataset, got {type(ds).__name__}"
+        assert isinstance(ds, xr.Dataset), (
+            f"Expected xr.Dataset, got {type(ds).__name__}"
+        )
 
     def test_contains_variable(self):
         """to_xarray() includes the data variable.
@@ -106,9 +106,9 @@ class TestToXarrayInMemory3D:
         """
         nc = _make_3d_nc()
         ds = nc.to_xarray()
-        assert (
-            "temperature" in ds.data_vars
-        ), f"Expected 'temperature' in data_vars, got {list(ds.data_vars)}"
+        assert "temperature" in ds.data_vars, (
+            f"Expected 'temperature' in data_vars, got {list(ds.data_vars)}"
+        )
 
     def test_variable_shape(self):
         """to_xarray() produces a variable with the correct shape.
@@ -295,9 +295,9 @@ class TestToXarrayFileBacked:
         """
         nc = NetCDF.read_file(pyramids_created_nc_3d)
         ds = nc.to_xarray()
-        assert isinstance(
-            ds, xr.Dataset
-        ), f"Expected xr.Dataset, got {type(ds).__name__}"
+        assert isinstance(ds, xr.Dataset), (
+            f"Expected xr.Dataset, got {type(ds).__name__}"
+        )
 
     def test_file_backed_has_variables(self, pyramids_created_nc_3d):
         """to_xarray() on a file-backed container includes variables.
@@ -336,9 +336,9 @@ class TestFromXarrayRoundTrip:
         nc = _make_3d_nc()
         ds = nc.to_xarray()
         nc2 = NetCDF.from_xarray(ds)
-        assert (
-            "temperature" in nc2.variable_names
-        ), f"Expected 'temperature' in {nc2.variable_names}"
+        assert "temperature" in nc2.variable_names, (
+            f"Expected 'temperature' in {nc2.variable_names}"
+        )
 
     def test_round_trip_preserves_data(self):
         """from_xarray(to_xarray()) preserves numeric data.
@@ -370,9 +370,9 @@ class TestFromXarrayRoundTrip:
         nc = _make_multi_var_nc()
         ds = nc.to_xarray()
         nc2 = NetCDF.from_xarray(ds)
-        assert (
-            "temperature" in nc2.variable_names
-        ), "'temperature' should survive round-trip"
+        assert "temperature" in nc2.variable_names, (
+            "'temperature' should survive round-trip"
+        )
         assert "pressure" in nc2.variable_names, "'pressure' should survive round-trip"
 
     def test_round_trip_band_count_preserved(self):
@@ -455,9 +455,9 @@ class TestFromXarrayWithPath:
         ds = nc.to_xarray()
         out_path = str(tmp_path / "string_path.nc")
         nc2 = NetCDF.from_xarray(ds, path=out_path)
-        assert (
-            "temperature" in nc2.variable_names
-        ), "String path should work for from_xarray"
+        assert "temperature" in nc2.variable_names, (
+            "String path should work for from_xarray"
+        )
 
 
 class TestFromXarrayTempFile:
@@ -473,12 +473,12 @@ class TestFromXarrayTempFile:
         nc = _make_3d_nc()
         ds = nc.to_xarray()
         nc2 = NetCDF.from_xarray(ds)
-        assert hasattr(
-            nc2, "_xarray_temp_path"
-        ), "Result should have _xarray_temp_path attribute"
-        assert os.path.exists(
-            nc2._xarray_temp_path
-        ), f"Temp file should exist: {nc2._xarray_temp_path}"
+        assert hasattr(nc2, "_xarray_temp_path"), (
+            "Result should have _xarray_temp_path attribute"
+        )
+        assert os.path.exists(nc2._xarray_temp_path), (
+            f"Temp file should exist: {nc2._xarray_temp_path}"
+        )
 
     def test_temp_file_is_readable(self):
         """from_xarray temp file can be read by the result NetCDF.
@@ -574,12 +574,12 @@ class TestGlobalAttributes:
         nc.set_global_attribute("history", "created by test")
         nc.set_global_attribute("Conventions", "CF-1.6")
         ds = nc.to_xarray()
-        assert (
-            ds.attrs.get("history") == "created by test"
-        ), f"Expected 'created by test', got {ds.attrs.get('history')}"
-        assert (
-            ds.attrs.get("Conventions") == "CF-1.6"
-        ), f"Expected 'CF-1.6', got {ds.attrs.get('Conventions')}"
+        assert ds.attrs.get("history") == "created by test", (
+            f"Expected 'created by test', got {ds.attrs.get('history')}"
+        )
+        assert ds.attrs.get("Conventions") == "CF-1.6", (
+            f"Expected 'CF-1.6', got {ds.attrs.get('Conventions')}"
+        )
 
     def test_numeric_global_attr(self):
         """Numeric global attributes are preserved in xarray.
@@ -590,9 +590,9 @@ class TestGlobalAttributes:
         nc = _make_3d_nc()
         nc.set_global_attribute("version", 2.0)
         ds = nc.to_xarray()
-        assert ds.attrs.get("version") == pytest.approx(
-            2.0
-        ), f"Expected 2.0, got {ds.attrs.get('version')}"
+        assert ds.attrs.get("version") == pytest.approx(2.0), (
+            f"Expected 2.0, got {ds.attrs.get('version')}"
+        )
 
 
 class TestFileBacked3DRoundTrip:
@@ -667,9 +667,9 @@ class TestInteropEngineBranches:
         )
         nc = NetCDF.from_xarray(ds)
         out = nc.to_xarray()
-        assert (
-            out["t"].attrs.get("units") == "kelvin"
-        ), f"units lost on round-trip: {out['t'].attrs}"
+        assert out["t"].attrs.get("units") == "kelvin", (
+            f"units lost on round-trip: {out['t'].attrs}"
+        )
 
     def test_to_xarray_roundtrip_through_engine(self):
         """``nc.interop.to_xarray()`` and ``nc.to_xarray()`` agree.
@@ -681,6 +681,6 @@ class TestInteropEngineBranches:
         nc = _make_3d_nc()
         via_engine = nc.interop.to_xarray()
         via_facade = nc.to_xarray()
-        assert set(via_engine.data_vars) == set(
-            via_facade.data_vars
-        ), "engine and façade disagree on variables"
+        assert set(via_engine.data_vars) == set(via_facade.data_vars), (
+            "engine and façade disagree on variables"
+        )

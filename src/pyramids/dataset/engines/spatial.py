@@ -339,7 +339,6 @@ def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Datase
 
 
 class Spatial(_Engine["Dataset"]):
-
     def _get_crs(self) -> str:
         """Get coordinate reference system."""
         return str(self._ds.raster.GetProjection())

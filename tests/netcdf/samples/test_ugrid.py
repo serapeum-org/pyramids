@@ -20,9 +20,9 @@ def test_ugrid_files_have_unstructured_dimensions(sample_name, sample):
     nc = NetCDF.read_file(sample(sample_name))
     try:
         dims = set(nc.dimension_sizes)
-        assert (
-            dims & _UNSTRUCTURED_DIMS
-        ), f"{sample_name}: no unstructured dimension in {sorted(dims)}"
+        assert dims & _UNSTRUCTURED_DIMS, (
+            f"{sample_name}: no unstructured dimension in {sorted(dims)}"
+        )
     finally:
         nc.close()
 

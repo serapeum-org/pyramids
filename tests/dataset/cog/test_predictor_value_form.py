@@ -74,9 +74,9 @@ class TestPredictorValueForm:
             accepted by the COG driver and round-trip to the numeric token.
         """
         out = float_dataset.to_cog(tmp_path / f"p_{predictor}.tif", predictor=predictor)
-        assert (
-            _predictor_token(out) == expected_token
-        ), f"predictor={predictor!r} should yield token {expected_token!r}"
-        assert (
-            Dataset.read_file(str(out)).validate_cog().is_valid
-        ), f"predictor={predictor!r} produced an invalid COG"
+        assert _predictor_token(out) == expected_token, (
+            f"predictor={predictor!r} should yield token {expected_token!r}"
+        )
+        assert Dataset.read_file(str(out)).validate_cog().is_valid, (
+            f"predictor={predictor!r} produced an invalid COG"
+        )

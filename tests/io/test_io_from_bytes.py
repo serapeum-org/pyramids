@@ -113,17 +113,17 @@ class TestBytesToGdal:
         ref = gdal.Open(GEOTIFF_FIXTURE)
         src, vsi_path = bytes_to_gdal(geotiff_bytes)
         try:
-            assert isinstance(
-                src, gdal.Dataset
-            ), f"expected gdal.Dataset, got {type(src)}"
+            assert isinstance(src, gdal.Dataset), (
+                f"expected gdal.Dataset, got {type(src)}"
+            )
             assert src.RasterXSize == ref.RasterXSize, "column count mismatch"
             assert src.RasterYSize == ref.RasterYSize, "row count mismatch"
-            assert vsi_path.startswith(
-                "/vsimem/"
-            ), f"expected /vsimem/ path, got {vsi_path!r}"
-            assert (
-                gdal.VSIStatL(vsi_path) is not None
-            ), "backing /vsimem/ file is missing"
+            assert vsi_path.startswith("/vsimem/"), (
+                f"expected /vsimem/ path, got {vsi_path!r}"
+            )
+            assert gdal.VSIStatL(vsi_path) is not None, (
+                "backing /vsimem/ file is missing"
+            )
         finally:
             src = None
             silent_unlink(vsi_path)
@@ -184,9 +184,9 @@ class TestBytesToGdal:
         with pytest.raises(ValueError, match="suffix"):
             bytes_to_gdal(payload)
         after = set(gdal.ReadDir("/vsimem") or [])
-        assert after.issubset(
-            before
-        ), f"bytes_to_gdal leaked /vsimem/ files: {after - before}"
+        assert after.issubset(before), (
+            f"bytes_to_gdal leaked /vsimem/ files: {after - before}"
+        )
 
     @pytest.mark.parametrize("bytes_like", ["bytes", "bytearray", "memoryview"])
     def test_accepts_all_bytes_like_types(self, geotiff_bytes: bytes, bytes_like: str):
@@ -230,8 +230,8 @@ class TestBytesToGdal:
         src, vsi_path = bytes_to_gdal(geotiff_bytes)
         src = None
         gc.collect()
-        assert (
-            gdal.VSIStatL(vsi_path) is not None
-        ), "bytes_to_gdal should not auto-clean on success"
+        assert gdal.VSIStatL(vsi_path) is not None, (
+            "bytes_to_gdal should not auto-clean on success"
+        )
         silent_unlink(vsi_path)
         assert gdal.VSIStatL(vsi_path) is None, "explicit cleanup failed"

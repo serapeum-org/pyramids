@@ -52,9 +52,9 @@ class TestToFeatureCollection:
             arr_flatten = raster_to_df_arr.reshape((rows * cols, 1))
             extracted_values = gdf.loc[:, gdf.columns[0]].values
             extracted_values = extracted_values.reshape(arr_flatten.shape)
-            assert np.array_equal(
-                extracted_values, arr_flatten
-            ), "the extracted values in the dataframe do not equal the real values in the array"
+            assert np.array_equal(extracted_values, arr_flatten), (
+                "the extracted values in the dataframe do not equal the real values in the array"
+            )
 
         def test_multi_band(
             self, era5_image: gdal.Dataset, era5_image_gdf: GeoDataFrame
@@ -123,13 +123,13 @@ class TestToFeatureCollection:
             )
             assert isinstance(gdf, GeoDataFrame)
             assert isinstance(poly_gdf, GeoDataFrame)
-            assert np.array_equal(
-                gdf["Band_1"].values, rasterized_mask_values
-            ), "the extracted values in the dataframe does not equal the real values in the array"
+            assert np.array_equal(gdf["Band_1"].values, rasterized_mask_values), (
+                "the extracted values in the dataframe does not equal the real values in the array"
+            )
             assert all(gdf["geometry"].geom_type == "Point")
-            assert np.array_equal(
-                poly_gdf["Band_1"].values, rasterized_mask_values
-            ), "the extracted values in the dataframe does not equal the real values in the array"
+            assert np.array_equal(poly_gdf["Band_1"].values, rasterized_mask_values), (
+                "the extracted values in the dataframe does not equal the real values in the array"
+            )
             assert all(poly_gdf["geometry"].geom_type == "Polygon")
 
         def test_polygon_partly_outside_raster(

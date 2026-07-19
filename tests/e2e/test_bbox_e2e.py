@@ -68,9 +68,9 @@ class TestBboxClipPersistE2E:
 
         reloaded = Dataset.read_file(str(out))
         assert reloaded.shape == (1, 2, 2), f"unexpected shape: {reloaded.shape}"
-        assert np.array_equal(
-            reloaded.read_array(), arr[2:4, 2:4]
-        ), "round-tripped pixels do not match the source slice"
+        assert np.array_equal(reloaded.read_array(), arr[2:4, 2:4]), (
+            "round-tripped pixels do not match the source slice"
+        )
 
     def test_read_array_bbox_matches_geodataframe_window(self, tmp_path):
         """``read_array(bbox=...)`` matches the historical ``window=FeatureCollection`` form.
@@ -93,9 +93,9 @@ class TestBboxClipPersistE2E:
         via_window = src.read_array(
             window=FeatureCollection.from_bbox(bbox, epsg=src.epsg)
         )
-        assert np.array_equal(
-            via_bbox, via_window
-        ), "bbox read_array diverged from the equivalent window=fc form"
+        assert np.array_equal(via_bbox, via_window), (
+            "bbox read_array diverged from the equivalent window=fc form"
+        )
 
     def test_bbox_in_foreign_crs_reprojects(self, tmp_path):
         """A WGS84 bbox crops a Web-Mercator raster after reprojection.
@@ -121,12 +121,12 @@ class TestBboxClipPersistE2E:
         src = Dataset.read_file(src_path)
 
         cropped = src.crop(bbox=(0.05, -0.4, 0.4, -0.05), epsg=4326)
-        assert (
-            cropped.shape[0] >= 1 and cropped.shape[1] >= 1
-        ), f"reprojected crop yielded an empty raster: {cropped.shape}"
-        assert (
-            cropped.epsg == 3857
-        ), "cropping must keep the dataset's CRS — only the bbox is reprojected in"
+        assert cropped.shape[0] >= 1 and cropped.shape[1] >= 1, (
+            f"reprojected crop yielded an empty raster: {cropped.shape}"
+        )
+        assert cropped.epsg == 3857, (
+            "cropping must keep the dataset's CRS — only the bbox is reprojected in"
+        )
 
 
 class TestBboxCollectionE2E:
@@ -149,9 +149,9 @@ class TestBboxCollectionE2E:
         collection = DatasetCollection.from_files([p0, p1])
 
         cropped = collection.crop(bbox=(0.1, -0.2, 0.2, -0.1))
-        assert (
-            cropped.time_length == 2
-        ), f"expected 2 timesteps, got {cropped.time_length}"
+        assert cropped.time_length == 2, (
+            f"expected 2 timesteps, got {cropped.time_length}"
+        )
         assert cropped.base.shape == (
             1,
             2,
@@ -184,9 +184,9 @@ class TestBboxPrimitiveAlsoUsableStandaloneE2E:
         a = src.crop(mask=fc)
         b = src.crop(mask=fc)
         c = src.crop(bbox=(0.1, -0.2, 0.2, -0.1))
-        assert np.array_equal(
-            a.read_array(), b.read_array()
-        ), "mask reuse changed output"
-        assert np.array_equal(
-            a.read_array(), c.read_array()
-        ), "mask path differs from bbox path"
+        assert np.array_equal(a.read_array(), b.read_array()), (
+            "mask reuse changed output"
+        )
+        assert np.array_equal(a.read_array(), c.read_array()), (
+            "mask path differs from bbox path"
+        )

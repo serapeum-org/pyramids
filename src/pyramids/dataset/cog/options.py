@@ -196,8 +196,7 @@ def validate_profile(name: str, dtype_name: str, band_count: int) -> None:
         )
     if not (min_bands <= band_count <= max_bands):
         raise ValueError(
-            f"{key} profile requires {min_bands}-{max_bands} bands; "
-            f"got {band_count}."
+            f"{key} profile requires {min_bands}-{max_bands} bands; got {band_count}."
         )
 
 

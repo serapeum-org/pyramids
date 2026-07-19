@@ -104,13 +104,13 @@ class TestGeostationaryGeotransform:
         goes_cube._geostationary_scaled = False
         goes_cube._normalize_geostationary_geotransform()
         gt = goes_cube.geotransform
-        assert (
-            gt[1] > 0
-        ), f"pixel width must be positive after re-anchoring, got {gt[1]}"
+        assert gt[1] > 0, (
+            f"pixel width must be positive after re-anchoring, got {gt[1]}"
+        )
         expected_west = mirrored[0] + mirrored[1] * goes_cube.columns
-        assert gt[0] == pytest.approx(
-            expected_west
-        ), "origin must move to the west edge"
+        assert gt[0] == pytest.approx(expected_west), (
+            "origin must move to the west edge"
+        )
         assert goes_cube.cell_size == pytest.approx(abs(mirrored[1]))
 
     def test_central_meridian_is_sub_satellite_longitude(self, goes_cube: NetCDF):
@@ -158,9 +158,9 @@ class TestGeostationaryGeotransform:
             UserWarning, match="could not materialize the geostationary view"
         ) as caught:
             cube = container.get_variable("CMI")
-        assert (
-            cube._md_view_materialized is False
-        ), "materialize should have failed soft"
+        assert cube._md_view_materialized is False, (
+            "materialize should have failed soft"
+        )
         assert abs(cube.geotransform[1]) > 1000
         # One failure, one warning: the generic multidim message is suppressed in favour of this
         # geostationary-specific one, which names the actual consequence.

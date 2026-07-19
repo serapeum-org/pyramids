@@ -92,6 +92,6 @@ def test_gdal_pin_script_resolves_micromamba_packages():
     """``ci/gdal-pin.py`` must resolve every pin ci/setup-gdal-micromamba.sh requests."""
     pins = _load_gdal_pin().feature_pins()
     missing = [pkg for pkg in MICROMAMBA_PACKAGES if pkg not in pins]
-    assert (
-        not missing
-    ), f"ci/gdal-pin.py cannot resolve {missing} that setup-gdal-micromamba.sh requests"
+    assert not missing, (
+        f"ci/gdal-pin.py cannot resolve {missing} that setup-gdal-micromamba.sh requests"
+    )

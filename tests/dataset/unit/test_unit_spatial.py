@@ -36,12 +36,12 @@ class TestCorrectWrapCutlineError:
             no_data_value=nd,
         )
         corrected = Spatial._correct_wrap_cutline_error(ds)
-        assert (
-            corrected.rows == 2
-        ), f"Expected 2 rows after correction, got {corrected.rows}"
-        assert (
-            corrected.columns == 2
-        ), f"Expected 2 columns after correction, got {corrected.columns}"
+        assert corrected.rows == 2, (
+            f"Expected 2 rows after correction, got {corrected.rows}"
+        )
+        assert corrected.columns == 2, (
+            f"Expected 2 columns after correction, got {corrected.columns}"
+        )
         result_arr = corrected.read_array()
         expected = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
         np.testing.assert_array_equal(
@@ -118,9 +118,9 @@ class TestCorrectWrapCutlineError:
         corrected = Spatial._correct_wrap_cutline_error(ds)
 
         assert corrected.rows == 2, f"expected 2 rows after trim, got {corrected.rows}"
-        assert (
-            corrected.columns == 2
-        ), f"expected 2 columns after trim, got {corrected.columns}"
+        assert corrected.columns == 2, (
+            f"expected 2 columns after trim, got {corrected.columns}"
+        )
         np.testing.assert_array_equal(
             corrected.read_array(),
             np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
@@ -200,9 +200,9 @@ class TestApply:
         """
         result = single_band_dataset.apply(func)
         arr = result.read_array()
-        assert np.isclose(
-            arr[0, 0], expected_corner
-        ), f"Expected {expected_corner} at (0,0), got {arr[0, 0]}"
+        assert np.isclose(arr[0, 0], expected_corner), (
+            f"Expected {expected_corner} at (0,0), got {arr[0, 0]}"
+        )
 
     def test_apply_scalar_function_fallback(self):
         """Test apply with a scalar if/elif function triggers np.vectorize fallback.
@@ -259,18 +259,18 @@ class TestApply:
         )
         result = ds.apply(lambda x: x * 10)
         result_arr = result.read_array()
-        assert np.isclose(
-            result_arr[0, 0], 10.0
-        ), f"Domain cell should be transformed, got {result_arr[0, 0]}"
-        assert np.isclose(
-            result_arr[1, 1], 40.0
-        ), f"Domain cell should be transformed, got {result_arr[1, 1]}"
-        assert np.isclose(
-            result_arr[0, 1], -9999.0, rtol=0.001
-        ), f"No-data cell should stay -9999, got {result_arr[0, 1]}"
-        assert np.isclose(
-            result_arr[1, 0], -9999.0, rtol=0.001
-        ), f"No-data cell should stay -9999, got {result_arr[1, 0]}"
+        assert np.isclose(result_arr[0, 0], 10.0), (
+            f"Domain cell should be transformed, got {result_arr[0, 0]}"
+        )
+        assert np.isclose(result_arr[1, 1], 40.0), (
+            f"Domain cell should be transformed, got {result_arr[1, 1]}"
+        )
+        assert np.isclose(result_arr[0, 1], -9999.0, rtol=0.001), (
+            f"No-data cell should stay -9999, got {result_arr[0, 1]}"
+        )
+        assert np.isclose(result_arr[1, 0], -9999.0, rtol=0.001), (
+            f"No-data cell should stay -9999, got {result_arr[1, 0]}"
+        )
 
     def test_apply_all_nodata(self):
         """Test apply on a dataset where all cells are no-data.
@@ -289,9 +289,9 @@ class TestApply:
         )
         result = ds.apply(lambda x: x * 100)
         result_arr = result.read_array()
-        assert np.allclose(
-            result_arr, -9999.0, rtol=0.001
-        ), "All-nodata input should produce all-nodata output"
+        assert np.allclose(result_arr, -9999.0, rtol=0.001), (
+            "All-nodata input should produce all-nodata output"
+        )
 
     def test_apply_single_cell(self):
         """Test apply on a 1x1 dataset.
@@ -308,9 +308,9 @@ class TestApply:
             no_data_value=-9999.0,
         )
         result = ds.apply(lambda x: x**2)
-        assert np.isclose(
-            result.read_array()[0, 0], 25.0
-        ), f"Expected 25.0, got {result.read_array()[0, 0]}"
+        assert np.isclose(result.read_array()[0, 0], 25.0), (
+            f"Expected 25.0, got {result.read_array()[0, 0]}"
+        )
 
     def test_apply_with_band_parameter(self, multi_band_dataset):
         """Test apply on band=1 of a multi-band dataset.
@@ -322,9 +322,9 @@ class TestApply:
         original_band1 = multi_band_dataset.read_array(band=1).copy()
         result = multi_band_dataset.apply(lambda x: x + 100, band=1)
         result_arr = result.read_array()
-        assert (
-            result.band_count == 1
-        ), f"Result should be single-band, got {result.band_count}"
+        assert result.band_count == 1, (
+            f"Result should be single-band, got {result.band_count}"
+        )
         domain_mask = ~np.isclose(
             original_band1, multi_band_dataset.no_data_value[1], rtol=0.001
         )
@@ -345,15 +345,15 @@ class TestApply:
         original_epsg = single_band_dataset.epsg
         original_nd = single_band_dataset.no_data_value[0]
         result = single_band_dataset.apply(np.abs)
-        assert (
-            result.geotransform == original_geo
-        ), f"Geotransform mismatch: {result.geotransform} vs {original_geo}"
-        assert (
-            result.epsg == original_epsg
-        ), f"EPSG mismatch: {result.epsg} vs {original_epsg}"
-        assert (
-            result.no_data_value[0] == original_nd
-        ), f"No-data value mismatch: {result.no_data_value[0]} vs {original_nd}"
+        assert result.geotransform == original_geo, (
+            f"Geotransform mismatch: {result.geotransform} vs {original_geo}"
+        )
+        assert result.epsg == original_epsg, (
+            f"EPSG mismatch: {result.epsg} vs {original_epsg}"
+        )
+        assert result.no_data_value[0] == original_nd, (
+            f"No-data value mismatch: {result.no_data_value[0]} vs {original_nd}"
+        )
 
     def test_apply_not_inplace_does_not_mutate_original(self):
         """Test that apply(inplace=False) does not mutate the original array.
@@ -385,14 +385,14 @@ class TestResample:
     def test_resample_changes_cell_size(self, single_band_dataset):
         """Resampling to a larger cell size should reduce rows/columns."""
         resampled = single_band_dataset.resample(cell_size=0.1)
-        assert resampled.cell_size == pytest.approx(
-            0.1
-        ), f"Cell size should be 0.1, got {resampled.cell_size}"
+        assert resampled.cell_size == pytest.approx(0.1), (
+            f"Cell size should be 0.1, got {resampled.cell_size}"
+        )
         # Original is 3x3 with 0.05 cell size -> 0.15 extent
         # With 0.1 cell size -> floor(0.15/0.1) = 2 (or 1, depending on rounding)
-        assert (
-            resampled.rows < single_band_dataset.rows
-        ), "Resampled rows should be fewer"
+        assert resampled.rows < single_band_dataset.rows, (
+            "Resampled rows should be fewer"
+        )
 
 
 class TestToCrs:
@@ -421,9 +421,9 @@ class TestToCrs:
             Both an authority string and a bare numeric string reproject to EPSG 3857.
         """
         result = single_band_dataset.to_crs(to_epsg=crs)
-        assert (
-            result.epsg == 3857
-        ), f"Expected EPSG 3857 from {crs!r}, got {result.epsg}"
+        assert result.epsg == 3857, (
+            f"Expected EPSG 3857 from {crs!r}, got {result.epsg}"
+        )
 
     def test_to_crs_accepts_pyproj_crs(self, single_band_dataset):
         """to_crs accepts a pyproj.CRS object.
@@ -586,9 +586,9 @@ class TestWrapLongitudePaths:
             Projection WKT and every band's no-data value must match the source after conversion.
         """
         result = Dataset(noah).wrap_longitude()
-        assert (
-            result.raster.GetProjection() == noah.GetProjection()
-        ), "projection not preserved"
+        assert result.raster.GetProjection() == noah.GetProjection(), (
+            "projection not preserved"
+        )
         for band in range(1, noah.RasterCount + 1):
             assert (
                 result.raster.GetRasterBand(band).GetNoDataValue()
@@ -672,12 +672,12 @@ class TestWrapLongitudePaths:
         out = None
 
         result = Dataset.read_file(path).wrap_longitude()
-        assert (
-            result.raster.GetDriver().ShortName == "VRT"
-        ), "file-backed source should use VRT"
-        assert (
-            result.raster.GetRasterBand(1).GetNoDataValue() is None
-        ), "should have no no-data"
+        assert result.raster.GetDriver().ShortName == "VRT", (
+            "file-backed source should use VRT"
+        )
+        assert result.raster.GetRasterBand(1).GetNoDataValue() is None, (
+            "should have no no-data"
+        )
         order = list(range(180, 360)) + list(range(0, 180))
         expected = np.arange(n_columns, dtype=np.float32).reshape(1, n_columns)[
             :, order
@@ -705,9 +705,9 @@ class TestWrapLongitudePaths:
         )
         dataset.raster.SetDescription("invalid\x00path")
         result = dataset.wrap_longitude()
-        assert (
-            result.raster.GetDriver().ShortName == "MEM"
-        ), "should fall back to the eager path"
+        assert result.raster.GetDriver().ShortName == "MEM", (
+            "should fall back to the eager path"
+        )
         order = list(range(180, 360)) + list(range(0, 180))
         np.testing.assert_array_equal(result.read_array(band=0), arr[:, order])
 
@@ -1079,9 +1079,9 @@ class TestNearestNeighbour:
         # Cell (1,2) is last col, so right check skipped.
         # Left (1,1) = 5.0 != nd -> filled
         result = Vectorize._nearest_neighbour(arr.copy(), nd, [1], [2])
-        assert result[1, 2] == pytest.approx(
-            5.0
-        ), "Cell at last col should fill from left"
+        assert result[1, 2] == pytest.approx(5.0), (
+            "Cell at last col should fill from left"
+        )
 
     def test_nearest_neighbour_above_path_falls_back_to_left(self):
         """_nearest_neighbour: the last-col above path is unreachable, so it fills from the left."""
@@ -1099,9 +1099,9 @@ class TestNearestNeighbour:
         )
         # Cell (1,2) at last col. Left (1,1)=5.0, cols[i]-1=1 > 0
         result = Vectorize._nearest_neighbour(arr.copy(), nd, [1], [2])
-        assert result[1, 2] == pytest.approx(
-            5.0
-        ), "Cell should be filled from left neighbor"
+        assert result[1, 2] == pytest.approx(5.0), (
+            "Cell should be filled from left neighbor"
+        )
 
 
 class TestMapToArrayCoordinates:
@@ -1247,9 +1247,9 @@ class TestArrayToMapCoordinates:
         x, y = ds.array_to_map_coordinates(
             np.array([0, 1, 3]), np.array([0, 1, 2]), center=True
         )
-        assert all(
-            type(v) is float for v in x + y
-        ), f"elements must be plain Python floats, got {[type(v) for v in x + y]}"
+        assert all(type(v) is float for v in x + y), (
+            f"elements must be plain Python floats, got {[type(v) for v in x + y]}"
+        )
         x_list, y_list = ds.array_to_map_coordinates([0, 1, 3], [0, 1, 2], center=True)
         assert x == x_list and y == y_list, "ndarray and list inputs must agree"
 
@@ -1322,9 +1322,9 @@ class TestCluster2:
             no_data_value=-9999,
         )
         gdf = ds.to_polygons(band=[0])
-        assert (
-            gdf is not None
-        ), "to_polygons with list band should return a GeoDataFrame"
+        assert gdf is not None, (
+            "to_polygons with list band should return a GeoDataFrame"
+        )
         assert len(gdf) > 0, "Should have some polygons"
 
 
@@ -1697,9 +1697,9 @@ class TestCluster2BandNone:
         )
         with pytest.warns(DeprecationWarning, match="cluster2 is deprecated"):
             legacy = ds.cluster2()
-        assert len(legacy) == len(
-            ds.to_polygons()
-        ), "cluster2 should forward to to_polygons"
+        assert len(legacy) == len(ds.to_polygons()), (
+            "cluster2 should forward to to_polygons"
+        )
 
 
 class TestWrapLongitudeInplace:

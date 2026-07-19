@@ -162,7 +162,8 @@ class MetadataBuilder:
                 md = SharedMetaData.from_metadata(ds.GetMetadata())
                 raw = md.to_metadata() if hasattr(md, "to_metadata") else {}
                 global_attrs = {
-                    str(k): str(v) for k, v in raw.items()  # type: ignore[arg-type]
+                    str(k): str(v)
+                    for k, v in raw.items()  # type: ignore[arg-type]
                 }
             except RuntimeError as exc:
                 logger.debug("SharedMetaData.from_metadata fallback failed: %s", exc)

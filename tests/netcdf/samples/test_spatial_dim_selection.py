@@ -35,9 +35,9 @@ def test_time_coordinate_dimension_is_not_spatial():
         time-coordinate dimension yields ``None``.
     """
     role = NetCDF._axis_role_of_dimension(_mock_time_dimension())
-    assert (
-        role is None
-    ), f"a time dimension must not be a spatial axis role, got {role!r}"
+    assert role is None, (
+        f"a time dimension must not be a spatial axis role, got {role!r}"
+    )
 
 
 # cf__48v T(time, lat, lev, lon): lat/lon are NOT the trailing dims and carry no CF axis attributes,

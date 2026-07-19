@@ -80,15 +80,15 @@ class TestConnectivityInit:
         Test scenario:
             A 2-face triangular mesh should store data correctly.
         """
-        assert (
-            triangle_conn.cf_role == "face_node_connectivity"
-        ), f"Expected cf_role 'face_node_connectivity', got '{triangle_conn.cf_role}'"
-        assert (
-            triangle_conn.fill_value == -1
-        ), f"Expected fill_value -1, got {triangle_conn.fill_value}"
-        assert (
-            triangle_conn.original_start_index == 0
-        ), f"Expected original_start_index 0, got {triangle_conn.original_start_index}"
+        assert triangle_conn.cf_role == "face_node_connectivity", (
+            f"Expected cf_role 'face_node_connectivity', got '{triangle_conn.cf_role}'"
+        )
+        assert triangle_conn.fill_value == -1, (
+            f"Expected fill_value -1, got {triangle_conn.fill_value}"
+        )
+        assert triangle_conn.original_start_index == 0, (
+            f"Expected original_start_index 0, got {triangle_conn.original_start_index}"
+        )
         assert triangle_conn.data.shape == (
             2,
             3,
@@ -104,9 +104,9 @@ class TestConnectivityProperties:
         Test scenario:
             2 triangles should give n_elements=2.
         """
-        assert (
-            triangle_conn.n_elements == 2
-        ), f"Expected 2, got {triangle_conn.n_elements}"
+        assert triangle_conn.n_elements == 2, (
+            f"Expected 2, got {triangle_conn.n_elements}"
+        )
 
     def test_n_elements_mixed(self, mixed_conn):
         """Test n_elements for mixed connectivity.
@@ -122,9 +122,9 @@ class TestConnectivityProperties:
         Test scenario:
             Triangles have 3 columns.
         """
-        assert (
-            triangle_conn.max_nodes_per_element == 3
-        ), f"Expected 3, got {triangle_conn.max_nodes_per_element}"
+        assert triangle_conn.max_nodes_per_element == 3, (
+            f"Expected 3, got {triangle_conn.max_nodes_per_element}"
+        )
 
     def test_max_nodes_per_element_mixed(self, mixed_conn):
         """Test max_nodes_per_element for mixed connectivity.
@@ -132,9 +132,9 @@ class TestConnectivityProperties:
         Test scenario:
             Mixed mesh padded to 4 columns (quad max).
         """
-        assert (
-            mixed_conn.max_nodes_per_element == 4
-        ), f"Expected 4, got {mixed_conn.max_nodes_per_element}"
+        assert mixed_conn.max_nodes_per_element == 4, (
+            f"Expected 4, got {mixed_conn.max_nodes_per_element}"
+        )
 
 
 class TestConnectivityGetElement:
@@ -208,9 +208,9 @@ class TestConnectivityIsTriangular:
         Test scenario:
             All faces have exactly 3 nodes.
         """
-        assert (
-            triangle_conn.is_triangular() is True
-        ), "Expected True for triangular mesh"
+        assert triangle_conn.is_triangular() is True, (
+            "Expected True for triangular mesh"
+        )
 
     def test_mixed_false(self, mixed_conn):
         """Test is_triangular returns False for mixed mesh.
@@ -288,9 +288,9 @@ class TestConnectivityFromGdalArray:
         raw = np.array([[0, 1, 2], [1, 3, 2]], dtype=np.int32)
         md_arr = self._mock_md_array(raw, start_index=0, fill_value=-999)
         conn = Connectivity.from_gdal_array(md_arr, "face_node_connectivity")
-        assert (
-            conn.original_start_index == 0
-        ), f"Expected 0, got {conn.original_start_index}"
+        assert conn.original_start_index == 0, (
+            f"Expected 0, got {conn.original_start_index}"
+        )
         np.testing.assert_array_equal(conn.data, [[0, 1, 2], [1, 3, 2]])
 
     def test_one_indexed_normalized(self):
@@ -303,9 +303,9 @@ class TestConnectivityFromGdalArray:
         raw = np.array([[1, 2, 3], [2, 4, 3]], dtype=np.int32)
         md_arr = self._mock_md_array(raw, start_index=1, fill_value=-999)
         conn = Connectivity.from_gdal_array(md_arr, "face_node_connectivity")
-        assert (
-            conn.original_start_index == 1
-        ), f"Expected 1, got {conn.original_start_index}"
+        assert conn.original_start_index == 1, (
+            f"Expected 1, got {conn.original_start_index}"
+        )
         np.testing.assert_array_equal(conn.data, [[0, 1, 2], [1, 3, 2]])
 
     def test_fill_value_preserved(self):
@@ -354,9 +354,9 @@ class TestConnectivity1D:
         Test scenario:
             1D arrays have no column dimension, so max is 1.
         """
-        assert (
-            conn_1d.max_nodes_per_element == 1
-        ), f"Expected 1, got {conn_1d.max_nodes_per_element}"
+        assert conn_1d.max_nodes_per_element == 1, (
+            f"Expected 1, got {conn_1d.max_nodes_per_element}"
+        )
 
     def test_get_element_1d(self, conn_1d):
         """Test get_element for 1D connectivity returns a 1D array.

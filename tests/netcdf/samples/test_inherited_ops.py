@@ -132,9 +132,9 @@ def test_inherited_footprint(tos_view):
     assert fp is not None, "footprint should return a GeoDataFrame"
     gt = tos_view.geotransform
     covered = round(fp.geometry.area.sum() / abs(gt[1] * gt[5]))
-    assert (
-        covered == data_cells
-    ), f"footprint should cover {data_cells} data cells, got {covered}"
+    assert covered == data_cells, (
+        f"footprint should cover {data_cells} data cells, got {covered}"
+    )
 
 
 def test_recreate_overviews_requires_write(tos_view):

@@ -96,8 +96,7 @@ def _resolve_access(access: str) -> int:
         flag = _ACCESS_FLAGS[access]
     except KeyError as exc:
         raise ValueError(
-            f"Unknown access mode {access!r}; expected one of "
-            f"{sorted(_ACCESS_FLAGS)}"
+            f"Unknown access mode {access!r}; expected one of {sorted(_ACCESS_FLAGS)}"
         ) from exc
     return flag
 

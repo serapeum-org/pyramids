@@ -127,9 +127,9 @@ class TestFromDataset:
         )
         monkeypatch.setattr(type(ds), "numpy_dtype", property(lambda self: []))
         meta = RasterMeta.from_dataset(ds)
-        assert (
-            meta.dtype == "int16"
-        ), f"Expected dtype 'int16' from GDAL band fallback, got {meta.dtype!r}"
+        assert meta.dtype == "int16", (
+            f"Expected dtype 'int16' from GDAL band fallback, got {meta.dtype!r}"
+        )
 
 
 class TestPickle:

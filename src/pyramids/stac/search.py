@@ -104,8 +104,7 @@ def search(
     """
     if bbox is not None and intersects is not None:
         raise ValueError(
-            "bbox and intersects are mutually exclusive (STAC API spec); pass "
-            "only one."
+            "bbox and intersects are mutually exclusive (STAC API spec); pass only one."
         )
 
     import_pystac_client(_STAC_INSTALL_HINT)

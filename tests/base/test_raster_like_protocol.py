@@ -138,9 +138,9 @@ class TestRasterLikeNegative:
 
             # deliberately NO crop / to_crs / overlay / extract / overview ops
 
-        assert not isinstance(
-            _ReadOnly(), RasterLike
-        ), "an object lacking the raster operations must not satisfy RasterLike"
+        assert not isinstance(_ReadOnly(), RasterLike), (
+            "an object lacking the raster operations must not satisfy RasterLike"
+        )
 
     def test_vector_spatial_object_is_not_raster_like(self):
         """A FeatureCollection is a SpatialObject but lacks the raster surface, so not RasterLike.
@@ -152,6 +152,6 @@ class TestRasterLikeNegative:
             gpd.GeoDataFrame({"v": [1]}, geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
         )
         assert isinstance(fc, SpatialObject), "fixture must be a SpatialObject"
-        assert not isinstance(
-            fc, RasterLike
-        ), "a vector SpatialObject must not be RasterLike"
+        assert not isinstance(fc, RasterLike), (
+            "a vector SpatialObject must not be RasterLike"
+        )

@@ -2746,7 +2746,7 @@ class FeatureCollection(GeoDataFrame):
             result, ax = self._plot_cleopatra(column=column, **kwargs)
         else:
             raise ValueError(
-                f"Unsupported engine {engine!r}; " "choose 'geopandas' or 'cleopatra'."
+                f"Unsupported engine {engine!r}; choose 'geopandas' or 'cleopatra'."
             )
 
         if basemap:
@@ -2790,8 +2790,7 @@ class FeatureCollection(GeoDataFrame):
 
         if column is not None and column not in self.columns:
             raise ValueError(
-                f"Column {column!r} not found; available columns: "
-                f"{list(self.columns)}."
+                f"Column {column!r} not found; available columns: {list(self.columns)}."
             )
         values = self[column].to_numpy() if column is not None else None
         geom_types = set(self.geom_type.unique())

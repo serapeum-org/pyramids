@@ -117,9 +117,9 @@ class TestResolvePlotBandPolicy:
         )
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
-        assert (
-            resolved_band == 0
-        ), f"{n_bands}-band dataset should default to band 0, got {resolved_band}"
+        assert resolved_band == 0, (
+            f"{n_bands}-band dataset should default to band 0, got {resolved_band}"
+        )
         assert resolved_rgb is None
 
     @pytest.mark.parametrize("n_bands", [3, 4, 12])
@@ -238,9 +238,9 @@ class TestResolvePlotBandPolicy:
             1,
             0,
         ], f"Partial tags should fall back to [2, 1, 0], got {resolved_rgb}"
-        assert (
-            resolved_band == 2
-        ), f"Resolved band must be rgb[0] = 2, got {resolved_band}"
+        assert resolved_band == 2, (
+            f"Resolved band must be rgb[0] = 2, got {resolved_band}"
+        )
 
     def test_explicit_band_zero_on_tagged_dataset(self):
         """Even on a fully-tagged RGB dataset, explicit ``band=0`` wins.
@@ -281,9 +281,9 @@ class TestResolvePlotBandPolicy:
             result = dataset.plot()
 
         assert result == "stub"
-        assert (
-            mock_plot.call_args.kwargs["band"] == 0
-        ), f"Resolver should send band=0, got {mock_plot.call_args.kwargs.get('band')}"
+        assert mock_plot.call_args.kwargs["band"] == 0, (
+            f"Resolver should send band=0, got {mock_plot.call_args.kwargs.get('band')}"
+        )
         assert mock_plot.call_args.kwargs["rgb"] is None
 
 
@@ -395,9 +395,9 @@ class TestNetCDFPlotPolicy:
         nc_subset = _make_nc_subset(n_bands=2)
         with pytest.raises(TypeError) as exc_info:
             nc_subset.plot(**{kwarg: value})
-        assert expected_substr in str(
-            exc_info.value
-        ), f"Expected {expected_substr!r} in TypeError, got: {exc_info.value!r}"
+        assert expected_substr in str(exc_info.value), (
+            f"Expected {expected_substr!r} in TypeError, got: {exc_info.value!r}"
+        )
 
     def test_first_forbidden_kwarg_in_dict_order_wins(self):
         """Multiple forbidden kwargs → only the first (``rgb``) raises.
@@ -431,9 +431,9 @@ class TestNetCDFPlotPolicy:
             mock_plot.return_value = "ok"
             nc_subset.plot()
 
-        assert (
-            mock_plot.call_args.kwargs["band"] == 0
-        ), f"NetCDF default must be band=0, got {mock_plot.call_args.kwargs.get('band')}"
+        assert mock_plot.call_args.kwargs["band"] == 0, (
+            f"NetCDF default must be band=0, got {mock_plot.call_args.kwargs.get('band')}"
+        )
 
     def test_band_kwarg_rejected_with_migration_hint(self):
         """``NetCDF.plot(band=2)`` raises ``TypeError`` — ``band=`` is not NetCDF vocabulary.

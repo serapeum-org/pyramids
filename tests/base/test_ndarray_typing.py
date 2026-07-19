@@ -60,12 +60,12 @@ class TestFloatArrayMatchesRuntime:
         """
         x = Dataset.get_x_lon_dimension_array(0, 10, 5)
         y = Dataset.get_y_lat_dimension_array(100, 10, 4)
-        assert (
-            x.dtype == np.float64
-        ), f"int inputs must still give float64 x, got {x.dtype}"
-        assert (
-            y.dtype == np.float64
-        ), f"int inputs must still give float64 y, got {y.dtype}"
+        assert x.dtype == np.float64, (
+            f"int inputs must still give float64 x, got {x.dtype}"
+        )
+        assert y.dtype == np.float64, (
+            f"int inputs must still give float64 y, got {y.dtype}"
+        )
 
 
 class TestAsNumpyReturn:

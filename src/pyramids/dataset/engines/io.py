@@ -336,7 +336,6 @@ def _terrain_rgba_stack(
 
 
 class IO(_Engine["Dataset"]):
-
     def read_array(
         self,
         band: int | None = None,
@@ -885,8 +884,7 @@ class IO(_Engine["Dataset"]):
         if window is not None and not isinstance(window, (list, tuple)):
             # Same contract as the default path's _read_block.
             raise ValueError(
-                f"window must be a Window or a list of 4 integers, "
-                f"got {type(window)}"
+                f"window must be a Window or a list of 4 integers, got {type(window)}"
             )
         if window is not None and len(window) != 4:
             # Catch a wrong-length sequence here, before _read_via_handle splats

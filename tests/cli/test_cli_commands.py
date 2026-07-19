@@ -162,12 +162,12 @@ class TestClipCommand:
         rc = main(["clip", src_raster, out, "--bbox", "100", "100", "110", "110"])
         err = capsys.readouterr().err
         assert rc == 1, "a disjoint clip bbox must exit 1"
-        assert (
-            "does not intersect" in err
-        ), f"error should name the disjoint bbox: {err}"
-        assert not os.path.exists(
-            out
-        ), "no output should be written for a disjoint clip"
+        assert "does not intersect" in err, (
+            f"error should name the disjoint bbox: {err}"
+        )
+        assert not os.path.exists(out), (
+            "no output should be written for a disjoint clip"
+        )
 
     def test_vector_disjoint_from_raster_clear_error(
         self, src_raster, tmp_path, capsys
@@ -181,12 +181,12 @@ class TestClipCommand:
         rc = main(["clip", src_raster, out, "--vector", mask_path])
         err = capsys.readouterr().err
         assert rc == 1, "a disjoint vector mask must exit 1"
-        assert (
-            "does not intersect" in err
-        ), f"error should name the disjoint mask: {err}"
-        assert not os.path.exists(
-            out
-        ), "no output should be written for a disjoint clip"
+        assert "does not intersect" in err, (
+            f"error should name the disjoint mask: {err}"
+        )
+        assert not os.path.exists(out), (
+            "no output should be written for a disjoint clip"
+        )
 
     def test_refuses_to_overwrite_without_flag(self, src_raster, tmp_path, capsys):
         """clip refuses to clobber an existing output unless --overwrite (N5)."""
@@ -283,9 +283,9 @@ class TestOverviewCommand:
     def test_builds_requested_levels(self, src_raster, capsys):
         """--levels builds that many overview levels in place."""
         assert main(["overview", src_raster, "--levels", "2", "4"]) == 0
-        assert (
-            Dataset.read_file(src_raster).overview_count[0] == 2
-        ), "expected 2 overview levels"
+        assert Dataset.read_file(src_raster).overview_count[0] == 2, (
+            "expected 2 overview levels"
+        )
 
     def test_nearest_neighbor_alias_accepted(self, src_raster, capsys):
         """The warp-family 'nearest neighbor' spelling is accepted here too (L9)."""

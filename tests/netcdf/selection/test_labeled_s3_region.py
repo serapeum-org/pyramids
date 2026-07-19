@@ -199,9 +199,9 @@ class TestResolveS3Region:
             ``test_real_301_flow_reads_region_header``.
         """
         handler = remote_mod._NoRedirectHandler()
-        assert isinstance(
-            handler, urllib.request.HTTPRedirectHandler
-        ), "must subclass urllib's redirect handler"
+        assert isinstance(handler, urllib.request.HTTPRedirectHandler), (
+            "must subclass urllib's redirect handler"
+        )
         handler.redirect_request("request", "fp", 301, "Moved", {}, "https://elsewhere")
 
     def test_real_301_flow_reads_region_header(self, monkeypatch):
@@ -496,9 +496,9 @@ class TestS3PathStyleAddressing:
         sentinel = CloudConfig(aws_virtual_hosting=False)
         store = self._mem_store_with_variable(sentinel)
         child = store.select(x=[10, 30])
-        assert (
-            child._cloud_config is sentinel
-        ), "child view must reuse the parent's cloud config, not a fresh empty one"
+        assert child._cloud_config is sentinel, (
+            "child view must reuse the parent's cloud config, not a fresh empty one"
+        )
 
     def test_classification_runs_under_path_style_config(self, monkeypatch):
         """Post-open array classification reads run under the path-style config (#560).

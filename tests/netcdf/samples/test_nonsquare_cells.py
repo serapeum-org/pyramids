@@ -66,12 +66,12 @@ def test_crop_preserves_nonsquare_cells(sample):
         cropped = nc.crop(polygon).get_variable("tos")
         gt = cropped.geotransform
         assert abs(gt[1]) == pytest.approx(2.0), f"X cell should stay 2°, got {gt[1]}"
-        assert abs(gt[5]) == pytest.approx(
-            1.0
-        ), f"Y cell should stay 1° (not squared to 2°), got {gt[5]}"
+        assert abs(gt[5]) == pytest.approx(1.0), (
+            f"Y cell should stay 1° (not squared to 2°), got {gt[5]}"
+        )
         _, ymin_c, _, ymax_c = cropped.total_bounds
-        assert (
-            -90 <= ymin_c <= ymax_c <= 90
-        ), f"cropped latitude out of range: {ymin_c}..{ymax_c}"
+        assert -90 <= ymin_c <= ymax_c <= 90, (
+            f"cropped latitude out of range: {ymin_c}..{ymax_c}"
+        )
     finally:
         nc.close()

@@ -37,9 +37,9 @@ class TestStreamingWrite:
 
         on_disk = Dataset.read_file(str(plain_path))
         out = on_disk.to_cog(tmp_path / "streamed.tif")
-        assert (
-            Dataset.read_file(str(out)).validate_cog().is_valid
-        ), "on-disk source should COG-encode to a valid COG"
+        assert Dataset.read_file(str(out)).validate_cog().is_valid, (
+            "on-disk source should COG-encode to a valid COG"
+        )
 
     def test_compute_false_refuses_mem_dataset(self, tmp_path):
         """to_file(compute=False) raises early for a MEM-only dataset.

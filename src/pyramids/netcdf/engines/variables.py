@@ -493,8 +493,7 @@ def create_from_array(
         )
     if geo is None:
         raise ValueError(
-            "Either 'geo' or both 'top_left_corner' and "
-            "'cell_size' must be provided."
+            "Either 'geo' or both 'top_left_corner' and 'cell_size' must be provided."
         )
 
     rows = int(arr.shape[-2]) if arr.ndim >= 2 else 0

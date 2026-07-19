@@ -39,9 +39,9 @@ class TestNetCDFPlotAnimate:
         """
         nc = make_plot_3d_nc(n_times=3)
         result = nc.plot(variable="t2m", animate=True)
-        assert isinstance(
-            result, ArrayGlyph
-        ), f"Expected ArrayGlyph, got {type(result).__name__}"
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph, got {type(result).__name__}"
+        )
         assert result.fig is not None, "Animation must own a Figure"
 
     def test_animate_string_resolves_named_dim(self):
@@ -64,9 +64,9 @@ class TestNetCDFPlotAnimate:
         nc = make_plot_3d_nc()
         with pytest.raises(KeyError, match=r"animate='bogus'") as exc_info:
             nc.plot(variable="t2m", animate="bogus")
-        assert "time" in str(
-            exc_info.value
-        ), f"error should list the available band dims, got: {exc_info.value}"
+        assert "time" in str(exc_info.value), (
+            f"error should list the available band dims, got: {exc_info.value}"
+        )
 
     def test_animate_with_col_raises_mutually_exclusive(self):
         """``animate=True`` together with ``col=`` is rejected up-front."""
@@ -189,9 +189,9 @@ class TestNetCDFPlotAnimate:
         ):
             nc.plot(variable="t2m", animate=True)
         template = captured["kw"]["arr"]
-        assert (
-            template.ndim == 2
-        ), f"Template handed to render_array must be 2-D, got {template.shape}"
+        assert template.ndim == 2, (
+            f"Template handed to render_array must be 2-D, got {template.shape}"
+        )
 
     def test_animate_invalid_type_raises(self):
         """``animate=1.0`` (non-bool, non-str) is rejected with a clear error."""
@@ -289,9 +289,9 @@ class TestNetCDFPlotAnimateEdges:
             mock_plot.return_value = "ok"
             nc.plot(variable="t2m", selectors=Selectors(time=0), animate=False)
         kw = mock_plot.call_args.kwargs
-        assert (
-            "animation_axis_values" not in kw
-        ), f"animate=False must not engage the animate path; got {kw}"
+        assert "animation_axis_values" not in kw, (
+            f"animate=False must not engage the animate path; got {kw}"
+        )
 
     def test_animate_data_getter_propagates_inner_exception(self):
         """A ``data_getter`` failure on frame N bubbles out of the call.
@@ -374,9 +374,9 @@ class TestNetCDFPlotAnimateEdges:
         with pytest.raises(ValueError, match=r"exactly one free band dim") as exc:
             nc.plot(variable="temperature", animate=True)
         msg = str(exc.value)
-        assert (
-            "time" in msg and "pressure_level" in msg
-        ), f"Error must list both free dims, got {msg!r}"
+        assert "time" in msg and "pressure_level" in msg, (
+            f"Error must list both free dims, got {msg!r}"
+        )
 
     def test_animate_2d_variable_with_no_band_dims_raises(self):
         """``animate=True`` on a pure 2-D variable raises a clear error.

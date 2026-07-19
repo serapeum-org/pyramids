@@ -97,9 +97,9 @@ class TestBandFilesDownloadStackPersist:
         mask = gpd.GeoDataFrame(geometry=[sub], crs=reloaded.epsg)
         cropped = reloaded.crop(mask)
         assert cropped.band_count == 3, f"crop changed band count: {cropped.band_count}"
-        assert (
-            cropped.rows < reloaded.rows or cropped.columns < reloaded.columns
-        ), "crop to a sub-box should shrink the raster"
+        assert cropped.rows < reloaded.rows or cropped.columns < reloaded.columns, (
+            "crop to a sub-box should shrink the raster"
+        )
 
     def test_unzip_then_stack(self, tmp_path):
         """Mimic the GEE default download: a ZIP of per-band tifs -> one raster.
@@ -158,7 +158,7 @@ class TestBandFilesDownloadStackPersist:
             timestep_paths.append(str(out))
 
         collection = DatasetCollection.from_files(timestep_paths)
-        assert (
-            collection.time_length == 2
-        ), f"expected 2 timesteps, got {collection.time_length}"
+        assert collection.time_length == 2, (
+            f"expected 2 timesteps, got {collection.time_length}"
+        )
         assert collection.base.band_count == 2, "stacked template should have 2 bands"

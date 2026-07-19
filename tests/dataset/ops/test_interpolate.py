@@ -78,12 +78,12 @@ class TestGridPoints:
         """
         ds = grid_points(corner_points, "val", Dataset, cell_size=1.0)
         arr = ds.read_array()
-        assert (
-            float(np.nanmin(arr)) >= 10.0 - 1e-6
-        ), f"min below range: {np.nanmin(arr)}"
-        assert (
-            float(np.nanmax(arr)) <= 40.0 + 1e-6
-        ), f"max above range: {np.nanmax(arr)}"
+        assert float(np.nanmin(arr)) >= 10.0 - 1e-6, (
+            f"min below range: {np.nanmin(arr)}"
+        )
+        assert float(np.nanmax(arr)) <= 40.0 + 1e-6, (
+            f"max above range: {np.nanmax(arr)}"
+        )
 
     def test_explicit_width_height_overrides_cell_size(self, corner_points):
         """Explicit width/height set the output shape directly.
@@ -154,9 +154,9 @@ class TestGridPoints:
         Test scenario:
             The exported default string starts with ``invdist``.
         """
-        assert _DEFAULT_ALGORITHM.startswith(
-            "invdist"
-        ), f"Default algorithm should be IDW, got {_DEFAULT_ALGORITHM!r}"
+        assert _DEFAULT_ALGORITHM.startswith("invdist"), (
+            f"Default algorithm should be IDW, got {_DEFAULT_ALGORITHM!r}"
+        )
 
     def test_missing_value_column_raises(self, corner_points):
         """A value_column not present in the layer raises ValueError.
@@ -166,9 +166,9 @@ class TestGridPoints:
         """
         with pytest.raises(ValueError, match="not in the points columns") as exc:
             grid_points(corner_points, "missing", Dataset, cell_size=1.0)
-        assert "missing" in str(
-            exc.value
-        ), f"Column name absent from error: {exc.value}"
+        assert "missing" in str(exc.value), (
+            f"Column name absent from error: {exc.value}"
+        )
 
     def test_degenerate_bounds_raises(self, corner_points):
         """A zero-area bbox raises ValueError before calling gdal.Grid.

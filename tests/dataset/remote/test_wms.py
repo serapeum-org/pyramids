@@ -262,8 +262,7 @@ class TestLiveWms:
 
     OSM = "https://ows.terrestris.de/osm/service?"
     GIBS = (
-        "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/"
-        "WMTSCapabilities.xml"
+        "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/WMTSCapabilities.xml"
     )
     TRUECOLOR = "MODIS_Terra_CorrectedReflectance_TrueColor"
 

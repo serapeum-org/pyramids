@@ -312,8 +312,7 @@ class ClassicDimensionInfo:
             raise ValueError("Dimension name cannot be empty.")
         if self.size is not None and self.size < 0:
             raise ValueError(
-                f"Dimension '{self.name}': size cannot be negative, "
-                f"got {self.size}."
+                f"Dimension '{self.name}': size cannot be negative, got {self.size}."
             )
         if self.values is not None and self.size is not None:
             if len(self.values) != self.size:

@@ -76,9 +76,9 @@ class TestSelSingleValue:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=18)
-        assert result._band_dim_values == [
-            18.0
-        ], f"Expected [18.0], got {result._band_dim_values}"
+        assert result._band_dim_values == [18.0], (
+            f"Expected [18.0], got {result._band_dim_values}"
+        )
 
 
 class TestSelList:
@@ -409,9 +409,9 @@ class TestSelBoundary:
         )
         var = nc.get_variable("v")
         result = var.sel(level=1.5)
-        assert result._band_dim_values == [
-            1.5
-        ], f"Expected [1.5], got {result._band_dim_values}"
+        assert result._band_dim_values == [1.5], (
+            f"Expected [1.5], got {result._band_dim_values}"
+        )
         expected = var.read_array()[1]
         assert_array_equal(
             result.read_array(),
@@ -466,9 +466,9 @@ class TestSelPreservation:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=12)
-        assert (
-            result.geotransform == var.geotransform
-        ), f"Geotransform changed: {var.geotransform} → {result.geotransform}"
+        assert result.geotransform == var.geotransform, (
+            f"Geotransform changed: {var.geotransform} → {result.geotransform}"
+        )
 
     def test_epsg_preserved(self):
         """EPSG should be identical after sel.
@@ -490,9 +490,9 @@ class TestSelPreservation:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=[6, 18])
-        assert (
-            result._band_dim_name == "time"
-        ), f"Expected 'time', got {result._band_dim_name}"
+        assert result._band_dim_name == "time", (
+            f"Expected 'time', got {result._band_dim_name}"
+        )
 
     def test_variable_attrs_preserved(self):
         """_variable_attrs should carry through to the result.
@@ -539,9 +539,9 @@ class TestSelReturnsNetCDF:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=12)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
     def test_result_is_also_dataset(self):
         """sel() result is still a Dataset (via inheritance)."""
@@ -550,9 +550,9 @@ class TestSelReturnsNetCDF:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=12)
-        assert isinstance(
-            result, Dataset
-        ), f"Expected Dataset, got {type(result).__name__}"
+        assert isinstance(result, Dataset), (
+            f"Expected Dataset, got {type(result).__name__}"
+        )
 
 
 class TestSelRoundTrip:
@@ -568,9 +568,9 @@ class TestSelRoundTrip:
         var = nc.get_variable("temp")
         subset = var.sel(time=[6, 18])
         nc.set_variable("temp_subset", subset)
-        assert (
-            "temp_subset" in nc.variable_names
-        ), f"Expected 'temp_subset' in {nc.variable_names}"
+        assert "temp_subset" in nc.variable_names, (
+            f"Expected 'temp_subset' in {nc.variable_names}"
+        )
         rg = nc._raster.GetRootGroup()
         md_arr = rg.OpenMDArray("temp_subset")
         assert list(md_arr.GetShape()) == [
@@ -612,9 +612,9 @@ class TestSelThreeDimRegression:
         """3-D variable still exposes legacy single-dim fields unchanged."""
         nc = _make_nc()
         var = nc.get_variable("temp")
-        assert (
-            var._band_dim_name == "time"
-        ), f"primary dim must be 'time', got {var._band_dim_name!r}"
+        assert var._band_dim_name == "time", (
+            f"primary dim must be 'time', got {var._band_dim_name!r}"
+        )
         assert var._band_dim_values == [
             0,
             6,
@@ -627,27 +627,27 @@ class TestSelThreeDimRegression:
         """The new multi-dim fields collapse to one-entry containers on a 3-D file."""
         nc = _make_nc()
         var = nc.get_variable("temp")
-        assert var._band_dim_names == (
-            "time",
-        ), f"_band_dim_names must be a 1-tuple, got {var._band_dim_names!r}"
-        assert var._band_dim_sizes == (
-            5,
-        ), f"_band_dim_sizes must be (5,), got {var._band_dim_sizes!r}"
-        assert var._band_dim_values_map == {
-            "time": [0, 6, 12, 18, 24]
-        }, f"_band_dim_values_map mismatch: {var._band_dim_values_map!r}"
+        assert var._band_dim_names == ("time",), (
+            f"_band_dim_names must be a 1-tuple, got {var._band_dim_names!r}"
+        )
+        assert var._band_dim_sizes == (5,), (
+            f"_band_dim_sizes must be (5,), got {var._band_dim_sizes!r}"
+        )
+        assert var._band_dim_values_map == {"time": [0, 6, 12, 18, 24]}, (
+            f"_band_dim_values_map mismatch: {var._band_dim_values_map!r}"
+        )
 
     def test_sel_after_pin_keeps_singleton_layout(self):
         """``sel(time=12)`` on a 3-D var still produces a single-band-dim result."""
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=12)
-        assert result._band_dim_names == (
-            "time",
-        ), f"singleton layout broken: {result._band_dim_names!r}"
-        assert result._band_dim_sizes == (
-            1,
-        ), f"size after sel must be (1,), got {result._band_dim_sizes!r}"
-        assert result._band_dim_values_map == {
-            "time": [12]
-        }, f"values_map after sel mismatch: {result._band_dim_values_map!r}"
+        assert result._band_dim_names == ("time",), (
+            f"singleton layout broken: {result._band_dim_names!r}"
+        )
+        assert result._band_dim_sizes == (1,), (
+            f"size after sel must be (1,), got {result._band_dim_sizes!r}"
+        )
+        assert result._band_dim_values_map == {"time": [12]}, (
+            f"values_map after sel mismatch: {result._band_dim_values_map!r}"
+        )

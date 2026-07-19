@@ -145,9 +145,9 @@ class TestMeshSpatialIndexKDTree:
         """
         idx = MeshSpatialIndex(unit_square_mesh)
         result = idx.locate_nearest_node(1.0, 1.0, k=3)
-        assert (
-            len(result.flatten()) == 3
-        ), f"Expected 3 results, got {len(result.flatten())}"
+        assert len(result.flatten()) == 3, (
+            f"Expected 3 results, got {len(result.flatten())}"
+        )
         assert 4 in result.flatten(), f"Node 4 at (1,1) should be nearest, got {result}"
 
     def test_locate_nearest_face(self, unit_square_mesh):
@@ -280,9 +280,9 @@ class TestMeshSpatialIndexLocateFaces:
         )
         idx = MeshSpatialIndex(mesh)
         result = idx.locate_faces(np.array([0.3]), np.array([0.3]))
-        assert (
-            result[0] == 1
-        ), f"Point at (0.3, 0.3) should be in face 1, got face {result[0]}"
+        assert result[0] == 1, (
+            f"Point at (0.3, 0.3) should be in face 1, got face {result[0]}"
+        )
 
 
 class TestClipMesh:
@@ -310,9 +310,9 @@ class TestClipMesh:
 
         mask = box(0.0, 0.0, 1.0, 2.0)
         clipped = unit_square_dataset.clip(mask, touch=True)
-        assert (
-            clipped.n_face >= 2
-        ), f"Expected >= 2 faces with touch=True, got {clipped.n_face}"
+        assert clipped.n_face >= 2, (
+            f"Expected >= 2 faces with touch=True, got {clipped.n_face}"
+        )
 
     def test_clip_preserves_data(self, unit_square_dataset):
         """Test that clipping preserves data variables.
@@ -324,14 +324,14 @@ class TestClipMesh:
 
         mask = box(-0.1, -0.1, 1.1, 1.1)
         clipped = unit_square_dataset.clip(mask, touch=False)
-        assert (
-            "temperature" in clipped.data_variable_names
-        ), f"temperature should be in clipped data, got {clipped.data_variable_names}"
+        assert "temperature" in clipped.data_variable_names, (
+            f"temperature should be in clipped data, got {clipped.data_variable_names}"
+        )
         var = clipped["temperature"]
         assert var.data is not None, "Clipped data should not be None"
-        assert (
-            len(var.data) == clipped.n_face
-        ), f"Data length should match face count: {len(var.data)} vs {clipped.n_face}"
+        assert len(var.data) == clipped.n_face, (
+            f"Data length should match face count: {len(var.data)} vs {clipped.n_face}"
+        )
 
     def test_clip_renumbers_nodes(self, unit_square_dataset):
         """Test that clipping renumbers nodes compactly.
@@ -344,9 +344,9 @@ class TestClipMesh:
         clipped = unit_square_dataset.clip(mask, touch=False)
         fnc = clipped.mesh.face_node_connectivity
         max_node = fnc.data[fnc.data != -1].max()
-        assert (
-            max_node < clipped.n_node
-        ), f"Max node index {max_node} should be < n_node {clipped.n_node}"
+        assert max_node < clipped.n_node, (
+            f"Max node index {max_node} should be < n_node {clipped.n_node}"
+        )
 
 
 class TestSubsetByBounds:
@@ -424,9 +424,9 @@ class TestSpatialWithUgridConventionNc:
         mid_x = (xmin + xmax) / 2
         mid_y = (ymin + ymax) / 2
         result = ugrid_ds.subset_by_bounds(xmin, ymin, mid_x, mid_y)
-        assert (
-            result.n_face < ugrid_ds.n_face
-        ), f"Subset should have fewer faces: {result.n_face} vs {ugrid_ds.n_face}"
+        assert result.n_face < ugrid_ds.n_face, (
+            f"Subset should have fewer faces: {result.n_face} vs {ugrid_ds.n_face}"
+        )
         assert result.n_face > 0, "Subset should have at least 1 face"
 
 
@@ -490,9 +490,9 @@ class TestSpatialEdgeCases:
         mask = box(-0.1, -0.1, 1.1, 1.1)
         clipped = ds.clip(mask, touch=False)
         var = clipped["altitude"]
-        assert (
-            var.n_elements == clipped.n_node
-        ), f"Node data length {var.n_elements} should match n_node {clipped.n_node}"
+        assert var.n_elements == clipped.n_node, (
+            f"Node data length {var.n_elements} should match n_node {clipped.n_node}"
+        )
 
 
 class TestCrop:
@@ -507,9 +507,9 @@ class TestCrop:
         mask = box(-0.1, -0.1, 1.1, 2.1)
         cropped = unit_square_dataset.crop(mask, touch=False)
         clipped = unit_square_dataset.clip(mask, touch=False)
-        assert (
-            cropped.n_face == clipped.n_face == 2
-        ), f"crop/clip disagree: {cropped.n_face} vs {clipped.n_face}"
+        assert cropped.n_face == clipped.n_face == 2, (
+            f"crop/clip disagree: {cropped.n_face} vs {clipped.n_face}"
+        )
 
     def test_crop_touch_false_subset_of_touch_true(self, unit_square_dataset):
         """touch=False keeps no more faces than touch=True.
@@ -520,9 +520,9 @@ class TestCrop:
         mask = box(0.0, 0.0, 1.0, 2.0)
         n_false = unit_square_dataset.crop(mask, touch=False).n_face
         n_true = unit_square_dataset.crop(mask, touch=True).n_face
-        assert (
-            n_false <= n_true
-        ), f"touch=False ({n_false}) should be <= touch=True ({n_true})"
+        assert n_false <= n_true, (
+            f"touch=False ({n_false}) should be <= touch=True ({n_true})"
+        )
 
     @pytest.mark.parametrize("as_type", [tuple, list])
     def test_crop_bbox_matches_subset_by_bounds(self, unit_square_dataset, as_type):
@@ -538,9 +538,9 @@ class TestCrop:
         bounds = as_type([-0.1, -0.1, 1.1, 2.1])
         cropped = unit_square_dataset.crop(bbox=bounds)
         subset = unit_square_dataset.subset_by_bounds(*bounds)
-        assert (
-            cropped.n_face == subset.n_face
-        ), f"crop(bbox)/subset_by_bounds disagree: {cropped.n_face} vs {subset.n_face}"
+        assert cropped.n_face == subset.n_face, (
+            f"crop(bbox)/subset_by_bounds disagree: {cropped.n_face} vs {subset.n_face}"
+        )
 
     @pytest.mark.parametrize("touch", [True, False])
     def test_crop_mask_forwards_touch_to_clip(self, unit_square_dataset, touch):
@@ -556,9 +556,9 @@ class TestCrop:
         mask = box(-0.1, -0.1, 1.1, 2.1)
         cropped = unit_square_dataset.crop(mask, touch=touch)
         clipped = unit_square_dataset.clip(mask, touch=touch)
-        assert (
-            cropped.n_face == clipped.n_face
-        ), f"crop(touch={touch}) kept {cropped.n_face} faces, clip kept {clipped.n_face}"
+        assert cropped.n_face == clipped.n_face, (
+            f"crop(touch={touch}) kept {cropped.n_face} faces, clip kept {clipped.n_face}"
+        )
 
     def test_crop_bbox_ignores_touch(self, unit_square_dataset):
         """touch does not change the bbox result — the bbox path selects by its envelope (M1).
@@ -570,9 +570,9 @@ class TestCrop:
         bounds = (-0.1, -0.1, 1.1, 2.1)
         n_true = unit_square_dataset.crop(bbox=bounds, touch=True).n_face
         n_false = unit_square_dataset.crop(bbox=bounds, touch=False).n_face
-        assert (
-            n_true == n_false
-        ), f"touch changed the bbox result: touch=True kept {n_true}, touch=False kept {n_false}"
+        assert n_true == n_false, (
+            f"touch changed the bbox result: touch=True kept {n_true}, touch=False kept {n_false}"
+        )
 
     def test_crop_preserves_data(self, unit_square_dataset):
         """A cropped sub-mesh keeps its data variable, subset to the surviving faces.
@@ -581,12 +581,12 @@ class TestCrop:
             The 'temperature' face variable survives and its length matches the new face count.
         """
         cropped = unit_square_dataset.crop(box(-0.1, -0.1, 1.1, 1.1), touch=False)
-        assert (
-            "temperature" in cropped.data_variable_names
-        ), "data variable dropped by crop"
-        assert (
-            len(cropped["temperature"].data) == cropped.n_face
-        ), "data length must match the cropped face count"
+        assert "temperature" in cropped.data_variable_names, (
+            "data variable dropped by crop"
+        )
+        assert len(cropped["temperature"].data) == cropped.n_face, (
+            "data length must match the cropped face count"
+        )
 
     def test_crop_bbox_reprojected_matches_native_envelope(
         self, unit_square_dataset_4326
@@ -601,9 +601,9 @@ class TestCrop:
         merc = tuple(gpd.GeoSeries([box(*native)], crs=4326).to_crs(3857).total_bounds)
         reprojected = unit_square_dataset_4326.crop(bbox=merc, epsg=3857)
         direct = unit_square_dataset_4326.crop(bbox=native)
-        assert (
-            reprojected.n_face == direct.n_face
-        ), f"reprojected bbox selected {reprojected.n_face} faces, native selected {direct.n_face}"
+        assert reprojected.n_face == direct.n_face, (
+            f"reprojected bbox selected {reprojected.n_face} faces, native selected {direct.n_face}"
+        )
 
     def test_crop_bbox_epsg_equal_is_noop(self, unit_square_dataset_4326):
         """Passing epsg equal to the mesh CRS skips reprojection and matches the no-epsg call.
@@ -614,9 +614,9 @@ class TestCrop:
         bounds = (-0.1, -0.1, 1.1, 2.1)
         with_epsg = unit_square_dataset_4326.crop(bbox=bounds, epsg=4326)
         without = unit_square_dataset_4326.crop(bbox=bounds)
-        assert (
-            with_epsg.n_face == without.n_face
-        ), f"epsg=4326 changed the result: {with_epsg.n_face} vs {without.n_face}"
+        assert with_epsg.n_face == without.n_face, (
+            f"epsg=4326 changed the result: {with_epsg.n_face} vs {without.n_face}"
+        )
 
     def test_crop_bbox_epsg_without_mesh_crs_raises(self, unit_square_dataset):
         """Supplying epsg for a bbox when the mesh has no CRS raises ValueError.
@@ -651,9 +651,9 @@ class TestCrop:
         """
         with pytest.raises(ValueError, match="4-tuple") as exc:
             unit_square_dataset.crop(bbox=bad_bbox)
-        assert str(len(bad_bbox)) in str(
-            exc.value
-        ), f"message should report the bad length {len(bad_bbox)}: {exc.value}"
+        assert str(len(bad_bbox)) in str(exc.value), (
+            f"message should report the bad length {len(bad_bbox)}: {exc.value}"
+        )
 
     def test_crop_does_not_mutate_source(self, unit_square_dataset):
         """crop returns a new sub-mesh and leaves the source dataset unchanged.
@@ -663,12 +663,12 @@ class TestCrop:
         """
         before = unit_square_dataset.n_face
         cropped = unit_square_dataset.crop(box(-0.1, -0.1, 1.1, 1.1), touch=False)
-        assert (
-            unit_square_dataset.n_face == before
-        ), f"source face count changed from {before} to {unit_square_dataset.n_face}"
-        assert (
-            cropped is not unit_square_dataset
-        ), "crop must return a new object, not self"
+        assert unit_square_dataset.n_face == before, (
+            f"source face count changed from {before} to {unit_square_dataset.n_face}"
+        )
+        assert cropped is not unit_square_dataset, (
+            "crop must return a new object, not self"
+        )
 
     def test_crop_neither_raises(self, unit_square_dataset):
         """Supplying neither mask nor bbox raises TypeError.

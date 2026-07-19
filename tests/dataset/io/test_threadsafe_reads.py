@@ -260,9 +260,9 @@ class TestThreadsafeEagerReads:
         """threadsafe=False (default) never creates the per-thread manager."""
         ds, _ = tiled_raster
         ds.read_array(band=0)
-        assert (
-            getattr(ds, "_thread_manager", None) is None
-        ), "default reads must not allocate the thread-local manager"
+        assert getattr(ds, "_thread_manager", None) is None, (
+            "default reads must not allocate the thread-local manager"
+        )
 
 
 class TestThreadLocalManagerSemantics:
@@ -285,9 +285,9 @@ class TestThreadLocalManagerSemantics:
         worker.start()
         worker.join()
         worker_handle_id = next(iter(seen.values()))
-        assert worker_handle_id != id(
-            main_handle_1
-        ), "different threads must hold different handles"
+        assert worker_handle_id != id(main_handle_1), (
+            "different threads must hold different handles"
+        )
 
     def test_close_releases_thread_manager(self, tmp_path):
         """close() drops the per-thread manager and unlocks the file.
@@ -339,9 +339,9 @@ class TestThreadLocalManagerSemantics:
         thread.start()
         thread.join()
         manager = ds._thread_manager
-        assert (
-            manager is not None and len(manager._handles) >= 1
-        ), "the worker thread's handle must be tracked on the manager"
+        assert manager is not None and len(manager._handles) >= 1, (
+            "the worker thread's handle must be tracked on the manager"
+        )
         ds.close()
         assert manager._handles == [], "close() must release every tracked handle"
         assert ds._thread_manager is None, "close() must drop the manager"

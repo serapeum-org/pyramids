@@ -1947,8 +1947,7 @@ class DatasetCollection:
         """
         if val.ndim != 3:
             raise ValueError(
-                f"values must be a 3D array (time, rows, cols); got "
-                f"shape {val.shape}"
+                f"values must be a 3D array (time, rows, cols); got shape {val.shape}"
             )
         if (
             self._datasets is not None

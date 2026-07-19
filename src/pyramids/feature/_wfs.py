@@ -182,9 +182,7 @@ def from_wfs(
     with gdal.config_options(config):
         try:
             gdf = gpd.read_file(connection, layer=typename, **read_kwargs)
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 — normalise any read failure to WFSError
+        except Exception as exc:  # noqa: BLE001 — normalise any read failure to WFSError
             raise WFSError(f"WFS GetFeature failed for {typename!r}: {exc}") from exc
 
     fc = featurecollection_cls(gdf)

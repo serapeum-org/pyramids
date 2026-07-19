@@ -176,9 +176,7 @@ def _bincount_stats(
     counts = np.bincount(
         flat_labels[valid_mask],
         minlength=minlength,
-    )[
-        1:
-    ].astype(np.float64)
+    )[1:].astype(np.float64)
     out: dict[str, np.ndarray] = {}
     if "sum" in stats:
         out["sum"] = sums

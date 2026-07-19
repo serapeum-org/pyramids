@@ -134,9 +134,9 @@ class TestPreserveNetcdfMetadata:
             no_data_value=-9999.0,
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
-        assert isinstance(
-            wrapped, NetCDF
-        ), f"Expected NetCDF, got {type(wrapped).__name__}"
+        assert isinstance(wrapped, NetCDF), (
+            f"Expected NetCDF, got {type(wrapped).__name__}"
+        )
 
     def test_passes_through_netcdf_instance(self, var_3d):
         """_preserve_netcdf_metadata does not re-wrap an existing NetCDF.
@@ -146,9 +146,9 @@ class TestPreserveNetcdfMetadata:
         """
         other_nc = _make_3d_nc()
         wrapped = var_3d._preserve_netcdf_metadata(other_nc)
-        assert isinstance(
-            wrapped, NetCDF
-        ), f"Expected NetCDF, got {type(wrapped).__name__}"
+        assert isinstance(wrapped, NetCDF), (
+            f"Expected NetCDF, got {type(wrapped).__name__}"
+        )
 
     def test_copies_band_dim_name(self, var_3d):
         """_preserve_netcdf_metadata preserves _band_dim_name.
@@ -201,9 +201,9 @@ class TestPreserveNetcdfMetadata:
             epsg=4326,
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
-        assert (
-            wrapped._variable_attrs == var_3d._variable_attrs
-        ), "Variable attrs should be preserved"
+        assert wrapped._variable_attrs == var_3d._variable_attrs, (
+            "Variable attrs should be preserved"
+        )
 
     def test_copies_scale_and_offset(self, var_3d):
         """_preserve_netcdf_metadata preserves _scale and _offset.
@@ -221,12 +221,12 @@ class TestPreserveNetcdfMetadata:
             epsg=4326,
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
-        assert wrapped._scale == pytest.approx(
-            0.01
-        ), f"Expected scale=0.01, got {wrapped._scale}"
-        assert wrapped._offset == pytest.approx(
-            273.15
-        ), f"Expected offset=273.15, got {wrapped._offset}"
+        assert wrapped._scale == pytest.approx(0.01), (
+            f"Expected scale=0.01, got {wrapped._scale}"
+        )
+        assert wrapped._offset == pytest.approx(273.15), (
+            f"Expected offset=273.15, got {wrapped._offset}"
+        )
 
     def test_copies_is_subset_flag(self, var_3d):
         """_preserve_netcdf_metadata preserves _is_subset.
@@ -242,9 +242,9 @@ class TestPreserveNetcdfMetadata:
             epsg=4326,
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
-        assert (
-            wrapped._is_subset == var_3d._is_subset
-        ), f"Expected _is_subset={var_3d._is_subset}, got {wrapped._is_subset}"
+        assert wrapped._is_subset == var_3d._is_subset, (
+            f"Expected _is_subset={var_3d._is_subset}, got {wrapped._is_subset}"
+        )
 
     def test_copies_is_md_array_flag(self, var_3d):
         """_preserve_netcdf_metadata preserves _is_md_array.
@@ -261,8 +261,7 @@ class TestPreserveNetcdfMetadata:
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
         assert wrapped._is_md_array == var_3d._is_md_array, (
-            f"Expected _is_md_array={var_3d._is_md_array}, "
-            f"got {wrapped._is_md_array}"
+            f"Expected _is_md_array={var_3d._is_md_array}, got {wrapped._is_md_array}"
         )
 
     def test_clears_swig_refs(self, var_3d):
@@ -279,12 +278,12 @@ class TestPreserveNetcdfMetadata:
             epsg=4326,
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
-        assert (
-            wrapped._gdal_md_arr_ref is None
-        ), "SWIG md_arr ref should be None on wrapped result"
-        assert (
-            wrapped._gdal_rg_ref is None
-        ), "SWIG rg ref should be None on wrapped result"
+        assert wrapped._gdal_md_arr_ref is None, (
+            "SWIG md_arr ref should be None on wrapped result"
+        )
+        assert wrapped._gdal_rg_ref is None, (
+            "SWIG rg ref should be None on wrapped result"
+        )
 
 
 class TestCropReturnType:
@@ -298,9 +297,9 @@ class TestCropReturnType:
             that sel() and read_array(unpack=True) remain available.
         """
         result = var_3d.crop(mask=crop_mask)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
     def test_variable_crop_is_also_dataset(self, var_3d, crop_mask):
         """crop() result is a Dataset via inheritance.
@@ -309,9 +308,9 @@ class TestCropReturnType:
             Backward compatibility: isinstance(result, Dataset) is True.
         """
         result = var_3d.crop(mask=crop_mask)
-        assert isinstance(
-            result, Dataset
-        ), f"Expected Dataset (via inheritance), got {type(result).__name__}"
+        assert isinstance(result, Dataset), (
+            f"Expected Dataset (via inheritance), got {type(result).__name__}"
+        )
 
     def test_variable_crop_preserves_band_dim_name(self, var_3d, crop_mask):
         """crop() preserves _band_dim_name on the result.
@@ -321,9 +320,9 @@ class TestCropReturnType:
             same value after cropping.
         """
         result = var_3d.crop(mask=crop_mask)
-        assert (
-            result._band_dim_name == "time"
-        ), f"Expected band_dim_name='time', got {result._band_dim_name}"
+        assert result._band_dim_name == "time", (
+            f"Expected band_dim_name='time', got {result._band_dim_name}"
+        )
 
     def test_variable_crop_preserves_band_dim_values(self, var_3d, crop_mask):
         """crop() preserves _band_dim_values on the result.
@@ -346,9 +345,9 @@ class TestCropReturnType:
             The result must still be marked as a variable subset.
         """
         result = var_3d.crop(mask=crop_mask)
-        assert (
-            result._is_subset is True
-        ), f"Expected _is_subset=True, got {result._is_subset}"
+        assert result._is_subset is True, (
+            f"Expected _is_subset=True, got {result._is_subset}"
+        )
 
     def test_variable_crop_data_integrity(self, var_3d, crop_mask):
         """crop() produces valid spatial data.
@@ -359,12 +358,12 @@ class TestCropReturnType:
         """
         orig_bands = var_3d.band_count
         result = var_3d.crop(mask=crop_mask)
-        assert (
-            result.band_count == orig_bands
-        ), f"Expected {orig_bands} bands, got {result.band_count}"
-        assert (
-            result.rows <= var_3d.rows
-        ), f"Rows should shrink: {var_3d.rows} -> {result.rows}"
+        assert result.band_count == orig_bands, (
+            f"Expected {orig_bands} bands, got {result.band_count}"
+        )
+        assert result.rows <= var_3d.rows, (
+            f"Rows should shrink: {var_3d.rows} -> {result.rows}"
+        )
 
     def test_variable_crop_returns_new_dataset(self, crop_mask):
         """crop() on a variable subset returns a new NetCDF.
@@ -384,9 +383,9 @@ class TestCropReturnType:
             NetCDF for type consistency.
         """
         result = var_2d.crop(mask=crop_mask)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
     def test_container_crop_returns_netcdf(self, nc_3d, crop_mask):
         """crop() on a container returns NetCDF.
@@ -395,9 +394,9 @@ class TestCropReturnType:
             Container-level crop should still return NetCDF.
         """
         result = nc_3d.crop(mask=crop_mask)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
 
 class TestToCrsReturnType:
@@ -410,9 +409,9 @@ class TestToCrsReturnType:
             Reprojecting a variable should return NetCDF, not Dataset.
         """
         result = var_3d.to_crs(to_epsg=32637)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
     def test_variable_to_crs_preserves_band_dim_name(self, var_3d):
         """to_crs() preserves _band_dim_name.
@@ -421,9 +420,9 @@ class TestToCrsReturnType:
             The time dimension name should survive reprojection.
         """
         result = var_3d.to_crs(to_epsg=32637)
-        assert (
-            result._band_dim_name == "time"
-        ), f"Expected 'time', got {result._band_dim_name}"
+        assert result._band_dim_name == "time", (
+            f"Expected 'time', got {result._band_dim_name}"
+        )
 
     def test_variable_to_crs_preserves_band_dim_values(self, var_3d):
         """to_crs() preserves _band_dim_values.
@@ -448,12 +447,12 @@ class TestToCrsReturnType:
         var_3d._scale = 0.1
         var_3d._offset = -50.0
         result = var_3d.to_crs(to_epsg=32637)
-        assert result._scale == pytest.approx(
-            0.1
-        ), f"Expected scale=0.1, got {result._scale}"
-        assert result._offset == pytest.approx(
-            -50.0
-        ), f"Expected offset=-50.0, got {result._offset}"
+        assert result._scale == pytest.approx(0.1), (
+            f"Expected scale=0.1, got {result._scale}"
+        )
+        assert result._offset == pytest.approx(-50.0), (
+            f"Expected offset=-50.0, got {result._offset}"
+        )
 
     def test_variable_to_crs_changes_epsg(self, var_3d):
         """to_crs() actually changes the CRS of the result.
@@ -481,9 +480,9 @@ class TestToCrsReturnType:
             Container-level reprojection should return NetCDF.
         """
         result = nc_3d.to_crs(to_epsg=32637)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
 
 class TestResampleReturnType:
@@ -496,9 +495,9 @@ class TestResampleReturnType:
             Resampling a variable should return NetCDF, not Dataset.
         """
         result = var_3d.resample(cell_size=2.0)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
     def test_variable_resample_preserves_band_dim_name(self, var_3d):
         """resample() preserves _band_dim_name.
@@ -507,9 +506,9 @@ class TestResampleReturnType:
             The time dimension name should survive resampling.
         """
         result = var_3d.resample(cell_size=2.0)
-        assert (
-            result._band_dim_name == "time"
-        ), f"Expected 'time', got {result._band_dim_name}"
+        assert result._band_dim_name == "time", (
+            f"Expected 'time', got {result._band_dim_name}"
+        )
 
     def test_variable_resample_preserves_band_dim_values(self, var_3d):
         """resample() preserves _band_dim_values.
@@ -532,9 +531,9 @@ class TestResampleReturnType:
             The result cell size should match the requested value.
         """
         result = var_3d.resample(cell_size=2.0)
-        assert (
-            abs(result.cell_size - 2.0) < 0.01
-        ), f"Expected cell_size ~2.0, got {result.cell_size}"
+        assert abs(result.cell_size - 2.0) < 0.01, (
+            f"Expected cell_size ~2.0, got {result.cell_size}"
+        )
 
     def test_variable_resample_returns_new_dataset(self):
         """resample() on a variable always returns a new NetCDF.
@@ -557,9 +556,9 @@ class TestSelReturnType:
             Selecting one time step should return NetCDF.
         """
         result = var_3d.sel(time=6)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
     def test_sel_list_returns_netcdf(self, var_3d):
         """sel() with a list of values returns NetCDF.
@@ -568,9 +567,9 @@ class TestSelReturnType:
             Selecting multiple time steps should return NetCDF.
         """
         result = var_3d.sel(time=[0, 12])
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
     def test_sel_slice_returns_netcdf(self, var_3d):
         """sel() with a slice returns NetCDF.
@@ -579,9 +578,9 @@ class TestSelReturnType:
             Selecting a range of time steps should return NetCDF.
         """
         result = var_3d.sel(time=slice(0, 12))
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
     def test_sel_preserves_band_dim_name(self, var_3d):
         """sel() preserves _band_dim_name.
@@ -590,9 +589,9 @@ class TestSelReturnType:
             The dimension name must be preserved even after selection.
         """
         result = var_3d.sel(time=[0, 12])
-        assert (
-            result._band_dim_name == "time"
-        ), f"Expected 'time', got {result._band_dim_name}"
+        assert result._band_dim_name == "time", (
+            f"Expected 'time', got {result._band_dim_name}"
+        )
 
     def test_sel_updates_band_dim_values(self, var_3d):
         """sel() updates _band_dim_values to only the selected coords.
@@ -613,9 +612,9 @@ class TestSelReturnType:
             Variable attributes should survive selection.
         """
         result = var_3d.sel(time=6)
-        assert (
-            result._variable_attrs == var_3d._variable_attrs
-        ), "Variable attrs should be preserved"
+        assert result._variable_attrs == var_3d._variable_attrs, (
+            "Variable attrs should be preserved"
+        )
 
     def test_sel_preserves_scale_offset(self, var_3d):
         """sel() preserves _scale and _offset for CF unpacking.
@@ -626,12 +625,12 @@ class TestSelReturnType:
         var_3d._scale = 0.5
         var_3d._offset = 100.0
         result = var_3d.sel(time=6)
-        assert result._scale == pytest.approx(
-            0.5
-        ), f"Expected scale=0.5, got {result._scale}"
-        assert result._offset == pytest.approx(
-            100.0
-        ), f"Expected offset=100.0, got {result._offset}"
+        assert result._scale == pytest.approx(0.5), (
+            f"Expected scale=0.5, got {result._scale}"
+        )
+        assert result._offset == pytest.approx(100.0), (
+            f"Expected offset=100.0, got {result._offset}"
+        )
 
     def test_sel_preserves_is_subset(self, var_3d):
         """sel() preserves _is_subset=True.
@@ -640,9 +639,9 @@ class TestSelReturnType:
             The result of sel() must remain marked as a subset.
         """
         result = var_3d.sel(time=6)
-        assert (
-            result._is_subset is True
-        ), f"Expected _is_subset=True, got {result._is_subset}"
+        assert result._is_subset is True, (
+            f"Expected _is_subset=True, got {result._is_subset}"
+        )
 
 
 class TestChaining:
@@ -658,9 +657,9 @@ class TestChaining:
         var = nc.get_variable("temperature")
         selected = var.sel(time=[0, 6])
         cropped = selected.crop(mask=crop_mask)
-        assert isinstance(
-            cropped, NetCDF
-        ), f"Expected NetCDF after sel->crop chain, got {type(cropped).__name__}"
+        assert isinstance(cropped, NetCDF), (
+            f"Expected NetCDF after sel->crop chain, got {type(cropped).__name__}"
+        )
 
     def test_crop_then_resample(self, crop_mask):
         """crop() result can be resampled, and the result is still NetCDF.
@@ -703,9 +702,9 @@ class TestChaining:
         var = nc.get_variable("temperature")
         first = var.sel(time=[0, 6, 12])
         second = first.sel(time=[0, 12])
-        assert isinstance(
-            second, NetCDF
-        ), f"Expected NetCDF after sel->sel chain, got {type(second).__name__}"
+        assert isinstance(second, NetCDF), (
+            f"Expected NetCDF after sel->sel chain, got {type(second).__name__}"
+        )
         assert second._band_dim_values == [
             0,
             12,
@@ -735,17 +734,17 @@ class TestChaining:
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         result = var.sel(time=[0, 6])
-        assert (
-            result._band_dim_name == "time"
-        ), f"After sel: expected 'time', got {result._band_dim_name}"
+        assert result._band_dim_name == "time", (
+            f"After sel: expected 'time', got {result._band_dim_name}"
+        )
         result = result.crop(mask=crop_mask)
-        assert (
-            result._band_dim_name == "time"
-        ), f"After crop: expected 'time', got {result._band_dim_name}"
+        assert result._band_dim_name == "time", (
+            f"After crop: expected 'time', got {result._band_dim_name}"
+        )
         result = result.resample(cell_size=2.0)
-        assert (
-            result._band_dim_name == "time"
-        ), f"After resample: expected 'time', got {result._band_dim_name}"
+        assert result._band_dim_name == "time", (
+            f"After resample: expected 'time', got {result._band_dim_name}"
+        )
 
     def test_read_array_unpack_after_crop(self, crop_mask):
         """read_array(unpack=True) works on a crop() result.
@@ -781,12 +780,12 @@ class TestChaining:
         var._scale = 0.5
         var._offset = 100.0
         reprojected = var.to_crs(to_epsg=32637, method="bilinear")
-        assert reprojected._scale == pytest.approx(
-            0.5
-        ), f"Scale not preserved: {reprojected._scale}"
-        assert reprojected._offset == pytest.approx(
-            100.0
-        ), f"Offset not preserved: {reprojected._offset}"
+        assert reprojected._scale == pytest.approx(0.5), (
+            f"Scale not preserved: {reprojected._scale}"
+        )
+        assert reprojected._offset == pytest.approx(100.0), (
+            f"Offset not preserved: {reprojected._offset}"
+        )
         raw = reprojected.read_array()
         unpacked = reprojected.read_array(unpack=True)
         expected = raw.astype(np.float64) * 0.5 + 100.0
@@ -809,12 +808,12 @@ class TestChaining:
         var._scale = 0.01
         var._offset = 273.15
         resampled = var.resample(cell_size=2.0, method="cubic")
-        assert resampled._scale == pytest.approx(
-            0.01
-        ), f"Scale not preserved: {resampled._scale}"
-        assert resampled._offset == pytest.approx(
-            273.15
-        ), f"Offset not preserved: {resampled._offset}"
+        assert resampled._scale == pytest.approx(0.01), (
+            f"Scale not preserved: {resampled._scale}"
+        )
+        assert resampled._offset == pytest.approx(273.15), (
+            f"Offset not preserved: {resampled._offset}"
+        )
         raw = resampled.read_array()
         unpacked = resampled.read_array(unpack=True)
         expected = raw.astype(np.float64) * 0.01 + 273.15
@@ -838,15 +837,15 @@ class TestContainerOpsReturnType:
         """
         nc = _make_multi_var_nc()
         result = nc.crop(mask=crop_mask)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
-        assert (
-            "temperature" in result.variable_names
-        ), "temperature should be in cropped container"
-        assert (
-            "pressure" in result.variable_names
-        ), "pressure should be in cropped container"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
+        assert "temperature" in result.variable_names, (
+            "temperature should be in cropped container"
+        )
+        assert "pressure" in result.variable_names, (
+            "pressure should be in cropped container"
+        )
 
     def test_container_to_crs_returns_netcdf(self):
         """Container-level to_crs() returns NetCDF.
@@ -856,9 +855,9 @@ class TestContainerOpsReturnType:
         """
         nc = _make_multi_var_nc()
         result = nc.to_crs(to_epsg=32637)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
     def test_container_resample_returns_netcdf(self):
         """Container-level resample() returns NetCDF.
@@ -868,9 +867,9 @@ class TestContainerOpsReturnType:
         """
         nc = _make_multi_var_nc()
         result = nc.resample(cell_size=2.0)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
 
 class TestSetVariableAfterSpatialOps:
@@ -888,9 +887,9 @@ class TestSetVariableAfterSpatialOps:
         cropped = var.crop(mask=crop_mask)
         nc.set_variable("temperature", cropped)
         restored = nc.get_variable("temperature")
-        assert (
-            restored.rows == cropped.rows
-        ), f"Expected {cropped.rows} rows, got {restored.rows}"
+        assert restored.rows == cropped.rows, (
+            f"Expected {cropped.rows} rows, got {restored.rows}"
+        )
 
     def test_sel_result_set_variable_round_trip(self):
         """sel() result can be stored back via set_variable().
@@ -903,6 +902,6 @@ class TestSetVariableAfterSpatialOps:
         var = nc.get_variable("temperature")
         selected = var.sel(time=[0, 12])
         nc.set_variable("temp_subset", selected)
-        assert (
-            "temp_subset" in nc.variable_names
-        ), "temp_subset should be in variable_names after set_variable"
+        assert "temp_subset" in nc.variable_names, (
+            "temp_subset should be in variable_names after set_variable"
+        )

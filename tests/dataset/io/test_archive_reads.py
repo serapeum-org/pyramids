@@ -261,9 +261,9 @@ class TestReadFileVsi:
             whose first pixel is ``2``.
         """
         ds = Dataset.read_file(band_zip, vsi="zip")
-        assert (
-            int(ds.read_array().flat[0]) == 2
-        ), "expected member 0 (asset.B2.tif, value 2)"
+        assert int(ds.read_array().flat[0]) == 2, (
+            "expected member 0 (asset.B2.tif, value 2)"
+        )
 
     def test_vsi_zip_file_index(self, band_zip):
         """``file_i`` selects which member to open.
@@ -276,9 +276,9 @@ class TestReadFileVsi:
             first pixel ``4``.
         """
         ds = Dataset.read_file(band_zip, vsi="zip", file_i=2)
-        assert (
-            int(ds.read_array().flat[0]) == 4
-        ), "expected member 2 (asset.B4.tif, value 4)"
+        assert int(ds.read_array().flat[0]) == 4, (
+            "expected member 2 (asset.B4.tif, value 4)"
+        )
 
     def test_vsi_auto_infers_zip(self, band_zip):
         """``vsi="auto"`` infers the kind from the extension and opens member 0.
@@ -421,9 +421,9 @@ class TestDatasetCollectionFromArchive:
         """
         col = DatasetCollection.from_archive(band_zip, member_glob="*.tif")
         restored = pickle.loads(pickle.dumps(col))
-        assert (
-            restored.time_length == col.time_length
-        ), "time_length changed on pickle round-trip"
+        assert restored.time_length == col.time_length, (
+            "time_length changed on pickle round-trip"
+        )
 
     def test_bad_kind_raises(self, band_zip):
         """An unknown ``kind`` raises ``ValueError`` before any I/O.

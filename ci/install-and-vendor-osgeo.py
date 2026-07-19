@@ -645,8 +645,7 @@ def _vendor_license_texts(pixi_env: Path, dst: Path) -> None:
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
             print(
-                f"[install-and-vendor-osgeo] could not parse {meta_file.name}: "
-                f"{exc!r}",
+                f"[install-and-vendor-osgeo] could not parse {meta_file.name}: {exc!r}",
                 flush=True,
             )
             continue

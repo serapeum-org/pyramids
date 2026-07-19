@@ -39,9 +39,9 @@ class TestChangeNoDataValueAttr:
     def test_change_nodata_attr_updates_internal(self, single_band_dataset):
         """_change_no_data_value_attr should update the internal list."""
         single_band_dataset.bands._change_no_data_value_attr(0, -1111.0)
-        assert (
-            single_band_dataset.no_data_value[0] == -1111.0
-        ), "no_data_value attribute not updated"
+        assert single_band_dataset.no_data_value[0] == -1111.0, (
+            "no_data_value attribute not updated"
+        )
 
     def test_no_data_value_setter_with_list(self, multi_band_dataset):
         """Setting no_data_value with a list should update all bands."""
@@ -55,9 +55,9 @@ class TestChangeNoDataValueAttr:
     def test_no_data_value_setter_with_scalar(self, single_band_dataset):
         """Setting no_data_value with a scalar should update band 0."""
         single_band_dataset.no_data_value = -5555.0
-        assert (
-            single_band_dataset.no_data_value[0] == -5555.0
-        ), "no_data_value scalar setter failed"
+        assert single_band_dataset.no_data_value[0] == -5555.0, (
+            "no_data_value scalar setter failed"
+        )
 
     def test_no_data_value_getter_returns_tuple(self, single_band_dataset):
         """B-17: getter returns immutable tuple, not list.
@@ -151,9 +151,9 @@ class TestFillGaps:
         )
         result = src_ds.fill_gaps(mask_ds, src_arr.copy())
         # The gap cell should now be filled (not nodata)
-        assert not np.isclose(
-            result[1, 1], nd, rtol=0.001
-        ), "The gap cell (1,1) should have been filled"
+        assert not np.isclose(result[1, 1], nd, rtol=0.001), (
+            "The gap cell (1,1) should have been filled"
+        )
 
 
 class TestCheckNoDataValue:
@@ -171,9 +171,9 @@ class TestCheckNoDataValue:
         )
         ndv = ds.no_data_value[0]
         # For float types, None maps to NaN (or stays None)
-        assert ndv is None or np.isnan(
-            ndv
-        ), f"Expected None or NaN for float no_data with None input, got {ndv}"
+        assert ndv is None or np.isnan(ndv), (
+            f"Expected None or NaN for float no_data with None input, got {ndv}"
+        )
 
     def test_check_nodata_overflow(self):
         """No-data value that overflows the dtype should fall back to a valid sentinel."""
@@ -186,9 +186,9 @@ class TestCheckNoDataValue:
             no_data_value=-3.4028230607370965e38,
         )
         ndv = ds.no_data_value[0]
-        assert (
-            ndv is not None
-        ), "overflowing no_data_value should fall back, not stay None"
+        assert ndv is not None, (
+            "overflowing no_data_value should fall back, not stay None"
+        )
 
 
 class TestFill:
@@ -279,9 +279,9 @@ class TestChangeNoDataValueNan:
         )
         new_ds = ds.change_no_data_value([-1.0], old_value=-9999.0)
         result = new_ds.read_array()
-        assert np.isclose(
-            result[0, 0], -1.0
-        ), "Old nodata cells should be replaced with list"
+        assert np.isclose(result[0, 0], -1.0), (
+            "Old nodata cells should be replaced with list"
+        )
 
     def test_change_nodata_list_old_value(self):
         """change_no_data_value with old_value as list."""
@@ -295,9 +295,9 @@ class TestChangeNoDataValueNan:
         )
         new_ds = ds.change_no_data_value(-1.0, old_value=[-9999.0])
         result = new_ds.read_array()
-        assert np.isclose(
-            result[0, 0], -1.0
-        ), "Old nodata cells should be replaced with list old"
+        assert np.isclose(result[0, 0], -1.0), (
+            "Old nodata cells should be replaced with list old"
+        )
 
     def test_change_nodata_multiband_distinct_old_values(self):
         """Each band's cells are matched against its own old_value entry.
@@ -322,12 +322,12 @@ class TestChangeNoDataValueNan:
         )
         new_ds = ds.change_no_data_value(-1.0, old_value=[-9999.0, -8888.0])
         result = new_ds.read_array()
-        assert np.allclose(
-            result[0], [[-1.0, 2.0], [3.0, -1.0]]
-        ), "Band 0 replaced by its own sentinel"
-        assert np.allclose(
-            result[1], [[1.0, -1.0], [-1.0, 4.0]]
-        ), "Band 1 replaced by its own sentinel"
+        assert np.allclose(result[0], [[-1.0, 2.0], [3.0, -1.0]]), (
+            "Band 0 replaced by its own sentinel"
+        )
+        assert np.allclose(result[1], [[1.0, -1.0], [-1.0, 4.0]]), (
+            "Band 1 replaced by its own sentinel"
+        )
 
     @pytest.mark.parametrize(
         ("kwargs", "expected"),
@@ -412,9 +412,9 @@ class TestFillNoneNodata:
         filled = ds.fill(42)
         result = filled.read_array()
         # Non-NaN cells should be set to 42
-        assert np.isclose(
-            result[0, 1], 42.0
-        ), "Valid cell should be 42 after fill with None nodata"
+        assert np.isclose(result[0, 1], 42.0), (
+            "Valid cell should be 42 after fill with None nodata"
+        )
 
 
 class TestSetNoDataValueRecovery:
@@ -573,9 +573,9 @@ class TestSetNoDataValueBackendMocked:
         with patch.object(ds.raster, "GetRasterBand", mock_get_band):
             ds.bands._set_no_data_value_backend(0, -1234.0)
 
-        assert ds.no_data_value[0] == pytest.approx(
-            -1234.0
-        ), "after the Fill retry the band nodata should hold the requested value"
+        assert ds.no_data_value[0] == pytest.approx(-1234.0), (
+            "after the Fill retry the band nodata should hold the requested value"
+        )
 
     def test_backend_generic_error_raises(self):
         """_set_no_data_value_backend raises ValueError on unknown error."""
@@ -661,8 +661,7 @@ class TestChangeNoDataAttrConversion:
                 call_count[0] += 1
                 if call_count[0] == 1:
                     raise RuntimeError(
-                        "in method 'Band_SetNoDataValue', "
-                        "argument 2 of type 'double'"
+                        "in method 'Band_SetNoDataValue', argument 2 of type 'double'"
                     )
                 return original_set(val)
 
@@ -671,9 +670,9 @@ class TestChangeNoDataAttrConversion:
 
         with patch.object(ds.raster, "GetRasterBand", mock_get_band):
             ds.bands._change_no_data_value_attr(0, -1234.0)
-        assert (
-            ds.no_data_value[0] == -1234.0
-        ), "nodata should be updated after type conversion"
+        assert ds.no_data_value[0] == -1234.0, (
+            "nodata should be updated after type conversion"
+        )
 
     def test_change_nodata_attr_read_only_error(self):
         """_change_no_data_value_attr raises ReadOnlyError on write fail."""
@@ -754,7 +753,7 @@ class TestFillGapsLessNodata:
         result = src_ds.fill_gaps(mask_ds, src_arr.copy())
         # Equal valid-cell counts, so no interpolation happens and the src gap
         # at (1, 1) is left untouched.
-        assert result[1, 1] == pytest.approx(
-            nd
-        ), "equal valid counts should skip filling"
+        assert result[1, 1] == pytest.approx(nd), (
+            "equal valid counts should skip filling"
+        )
         assert result[0, 0] == pytest.approx(10.0)

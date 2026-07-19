@@ -65,9 +65,9 @@ class TestFootprint:
         )
         ds._no_data_value = [None]
         result = ds.footprint()
-        assert (
-            result is not None and len(result) > 0
-        ), "footprint should cover the non-NaN cells"
+        assert result is not None and len(result) > 0, (
+            "footprint should cover the non-NaN cells"
+        )
 
     @pytest.mark.filterwarnings("ignore:Geometry is in a geographic CRS")
     def test_footprint_float_nan_nodata_excludes_fill(self):
@@ -84,15 +84,15 @@ class TestFootprint:
             no_data_value=nd,
         )
         result = ds.footprint(band=0)
-        assert (
-            result is not None and len(result) > 0
-        ), "footprint should return polygons"
+        assert result is not None and len(result) > 0, (
+            "footprint should return polygons"
+        )
         covered = round(
             result.geometry.area.sum()
         )  # cell area is 1.0 (1x1 degree cells)
-        assert (
-            covered == 4
-        ), f"footprint should cover the 4 data cells only, got {covered}"
+        assert covered == 4, (
+            f"footprint should cover the 4 data cells only, got {covered}"
+        )
 
     @pytest.mark.filterwarnings("ignore:Geometry is in a geographic CRS")
     def test_footprint_multiband_non_zero_band_positive_nodata(self):
@@ -110,18 +110,18 @@ class TestFootprint:
             no_data_value=nd,
         )
         result = ds.footprint(band=1)
-        assert (
-            result is not None and len(result) > 0
-        ), "band-1 footprint should return polygons"
-        assert (
-            result.columns[0] == ds.band_names[1]
-        ), "column should carry the source band's name"
+        assert result is not None and len(result) > 0, (
+            "band-1 footprint should return polygons"
+        )
+        assert result.columns[0] == ds.band_names[1], (
+            "column should carry the source band's name"
+        )
         covered = round(
             result.geometry.area.sum()
         )  # cell area is 1.0 (1x1 degree cells)
-        assert (
-            covered == 6
-        ), f"footprint should cover the 6 data cells only, got {covered}"
+        assert covered == 6, (
+            f"footprint should cover the 6 data cells only, got {covered}"
+        )
 
 
 class TestBandToPolygon:
@@ -171,9 +171,9 @@ class TestToFeatureCollection:
         tiled_vals = sorted(
             ds.to_feature_collection(tile=True, tile_size=2).iloc[:, 0].tolist()
         )
-        assert (
-            full_vals == tiled_vals
-        ), "tiled and non-tiled should extract the same values"
+        assert full_vals == tiled_vals, (
+            "tiled and non-tiled should extract the same values"
+        )
 
     def test_to_feature_collection_all_nodata(self):
         """Test that a dataset with all no-data cells returns an empty DataFrame.
@@ -211,9 +211,9 @@ class TestToFeatureCollection:
         )
         df = ds.to_feature_collection()
         assert len(df) == 1, f"Expected 1 row, got {len(df)}"
-        assert df.iloc[0, 0] == pytest.approx(
-            42.0
-        ), f"Expected value 42.0, got {df.iloc[0, 0]}"
+        assert df.iloc[0, 0] == pytest.approx(42.0), (
+            f"Expected value 42.0, got {df.iloc[0, 0]}"
+        )
 
     def test_to_feature_collection_column_names_match_band_names(
         self, multi_band_dataset
@@ -226,9 +226,9 @@ class TestToFeatureCollection:
         """
         df = multi_band_dataset.to_feature_collection()
         expected_names = multi_band_dataset.band_names
-        assert (
-            list(df.columns) == expected_names
-        ), f"Expected columns {expected_names}, got {list(df.columns)}"
+        assert list(df.columns) == expected_names, (
+            f"Expected columns {expected_names}, got {list(df.columns)}"
+        )
 
     def test_to_feature_collection_point_geometry_types(self):
         """Test that add_geometry='point' produces Point geometries.
@@ -247,12 +247,12 @@ class TestToFeatureCollection:
             no_data_value=-9999.0,
         )
         gdf = ds.to_feature_collection(add_geometry="point")
-        assert isinstance(
-            gdf, gpd.GeoDataFrame
-        ), f"Expected GeoDataFrame, got {type(gdf)}"
-        assert all(
-            g.geom_type == "Point" for g in gdf.geometry
-        ), "All geometries should be Points"
+        assert isinstance(gdf, gpd.GeoDataFrame), (
+            f"Expected GeoDataFrame, got {type(gdf)}"
+        )
+        assert all(g.geom_type == "Point" for g in gdf.geometry), (
+            "All geometries should be Points"
+        )
 
     def test_to_feature_collection_polygon_geometry_types(self):
         """Test that add_geometry='polygon' produces Polygon geometries.
@@ -271,12 +271,12 @@ class TestToFeatureCollection:
             no_data_value=-9999.0,
         )
         gdf = ds.to_feature_collection(add_geometry="polygon")
-        assert isinstance(
-            gdf, gpd.GeoDataFrame
-        ), f"Expected GeoDataFrame, got {type(gdf)}"
-        assert all(
-            g.geom_type == "Polygon" for g in gdf.geometry
-        ), "All geometries should be Polygons"
+        assert isinstance(gdf, gpd.GeoDataFrame), (
+            f"Expected GeoDataFrame, got {type(gdf)}"
+        )
+        assert all(g.geom_type == "Polygon" for g in gdf.geometry), (
+            "All geometries should be Polygons"
+        )
 
     def test_to_feature_collection_vector_mask_with_geometry(self, single_band_dataset):
         """Test to_feature_collection with both vector_mask and add_geometry.
@@ -292,12 +292,12 @@ class TestToFeatureCollection:
         poly = box(0.0, -0.10, 0.10, 0.0)
         mask = gpd.GeoDataFrame(geometry=[poly], crs="EPSG:4326")
         gdf = single_band_dataset.to_feature_collection(mask=mask, add_geometry="point")
-        assert isinstance(
-            gdf, gpd.GeoDataFrame
-        ), f"Expected GeoDataFrame, got {type(gdf)}"
-        assert len(gdf) <= len(
-            full_df
-        ), f"Masked result ({len(gdf)} rows) should have <= rows than full ({len(full_df)})"
+        assert isinstance(gdf, gpd.GeoDataFrame), (
+            f"Expected GeoDataFrame, got {type(gdf)}"
+        )
+        assert len(gdf) <= len(full_df), (
+            f"Masked result ({len(gdf)} rows) should have <= rows than full ({len(full_df)})"
+        )
         assert "geometry" in gdf.columns, "Should have geometry column"
 
     def test_to_feature_collection_nodata_values_excluded(self):
@@ -367,9 +367,9 @@ class TestToFeatureCollectionTile:
             f"Tiled ({len(df_tiled)}) should have same row count as "
             f"non-tiled ({len(df_full)})"
         )
-        assert (
-            -9999.0 not in df_tiled.iloc[:, 0].values
-        ), "No-data values should be filtered out in tiled path"
+        assert -9999.0 not in df_tiled.iloc[:, 0].values, (
+            "No-data values should be filtered out in tiled path"
+        )
 
     def test_tiled_all_nodata(self):
         """Test that tile=True on all-nodata dataset returns empty DataFrame.
@@ -389,9 +389,9 @@ class TestToFeatureCollectionTile:
         df = ds.to_feature_collection(tile=True, tile_size=2)
         assert isinstance(df, pd.DataFrame), f"Expected DataFrame, got {type(df)}"
         assert len(df) == 0, f"Expected 0 rows for all-nodata, got {len(df)}"
-        assert (
-            list(df.columns) == ds.band_names
-        ), f"Expected columns {ds.band_names}, got {list(df.columns)}"
+        assert list(df.columns) == ds.band_names, (
+            f"Expected columns {ds.band_names}, got {list(df.columns)}"
+        )
 
 
 class TestToFeatureCollectionWithMask:
@@ -419,9 +419,9 @@ class TestToFeatureCollectionWithMask:
         )
         ds._no_data_value = [None]
         df = ds.to_feature_collection()
-        assert isinstance(
-            df, pd.DataFrame
-        ), "Should return DataFrame even with None nodata"
+        assert isinstance(df, pd.DataFrame), (
+            "Should return DataFrame even with None nodata"
+        )
 
     def test_to_feature_collection_tile_multi_band(self):
         """to_feature_collection tile=True on multi-band (branch 3651)."""

@@ -88,9 +88,9 @@ class TestCloudConfigHttpFields:
             expected: ``{expected_key: expected_str}`` and nothing else.
         """
         cfg = CloudConfig(**{field: value}).as_gdal_config()
-        assert cfg == {
-            expected_key: expected_str
-        }, f"unexpected mapping for {field}={value!r}: {cfg!r}"
+        assert cfg == {expected_key: expected_str}, (
+            f"unexpected mapping for {field}={value!r}: {cfg!r}"
+        )
 
     @pytest.mark.parametrize(
         "value, expected",
@@ -138,9 +138,9 @@ class TestCloudConfigHttpFields:
             avoid GDAL's unfollowed 301 on the data-chunk GET.
         """
         cfg = CloudConfig(aws_virtual_hosting=value).as_gdal_config()
-        assert cfg == {
-            "AWS_VIRTUAL_HOSTING": expected
-        }, f"unexpected aws_virtual_hosting mapping: {cfg!r}"
+        assert cfg == {"AWS_VIRTUAL_HOSTING": expected}, (
+            f"unexpected aws_virtual_hosting mapping: {cfg!r}"
+        )
 
     def test_aws_virtual_hosting_none_drops_out(self):
         """``aws_virtual_hosting=None`` (the default) emits no key.
@@ -202,9 +202,9 @@ class TestCloudConfigHttpFields:
             http_max_retry=3,
             extra={"GDAL_HTTP_MAX_RETRY": "9"},
         ).as_gdal_config()
-        assert cfg == {
-            "GDAL_HTTP_MAX_RETRY": "9"
-        }, f"extra= should override typed field, got {cfg!r}"
+        assert cfg == {"GDAL_HTTP_MAX_RETRY": "9"}, (
+            f"extra= should override typed field, got {cfg!r}"
+        )
 
     def test_extra_overrides_vsi_cache(self):
         """``extra`` also overrides ``vsi_cache``'s ``TRUE``/``FALSE`` rendering.
@@ -217,9 +217,9 @@ class TestCloudConfigHttpFields:
             vsi_cache=True,
             extra={"VSI_CACHE": "NO"},
         ).as_gdal_config()
-        assert cfg == {
-            "VSI_CACHE": "NO"
-        }, f"extra should override vsi_cache, got {cfg!r}"
+        assert cfg == {"VSI_CACHE": "NO"}, (
+            f"extra should override vsi_cache, got {cfg!r}"
+        )
 
 
 class TestCloudConfigVsicurlTuning:
@@ -262,9 +262,9 @@ class TestCloudConfigVsicurlTuning:
             mapping with the int rendered as a decimal string.
         """
         cfg = CloudConfig(curl_cache_size=200_000_000).as_gdal_config()
-        assert cfg == {
-            "CPL_VSIL_CURL_CACHE_SIZE": "200000000"
-        }, f"unexpected curl_cache_size mapping: {cfg!r}"
+        assert cfg == {"CPL_VSIL_CURL_CACHE_SIZE": "200000000"}, (
+            f"unexpected curl_cache_size mapping: {cfg!r}"
+        )
 
     def test_explicit_scalar_field_not_clobbered_by_preset(self):
         """An explicit ``http_timeout`` survives alongside the preset.
@@ -276,9 +276,9 @@ class TestCloudConfigVsicurlTuning:
         """
         cfg = CloudConfig(vsicurl_tuning=True, http_timeout=90).as_gdal_config()
         assert cfg["GDAL_HTTP_TIMEOUT"] == "90", f"explicit timeout lost: {cfg!r}"
-        assert (
-            cfg["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR"
-        ), f"preset missing: {cfg!r}"
+        assert cfg["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR", (
+            f"preset missing: {cfg!r}"
+        )
 
     def test_extra_overrides_preset_knob(self):
         """``extra`` still wins over a preset knob on key conflict.
@@ -291,9 +291,9 @@ class TestCloudConfigVsicurlTuning:
         cfg = CloudConfig(
             vsicurl_tuning=True, extra={"GDAL_HTTP_VERSION": "1.1"}
         ).as_gdal_config()
-        assert (
-            cfg["GDAL_HTTP_VERSION"] == "1.1"
-        ), f"extra should override preset, got {cfg!r}"
+        assert cfg["GDAL_HTTP_VERSION"] == "1.1", (
+            f"extra should override preset, got {cfg!r}"
+        )
 
     def test_tuning_combines_with_credentials(self):
         """The preset coexists with credential + region fields.
@@ -323,9 +323,9 @@ class TestCloudConfigHttpContextManager:
             reports ``"7"`` inside, and the key is back to ``None`` after exit.
         """
         gdal.SetConfigOption("GDAL_HTTP_MAX_RETRY", None)
-        assert (
-            gdal.GetConfigOption("GDAL_HTTP_MAX_RETRY") is None
-        ), "precondition: key should start unset"
+        assert gdal.GetConfigOption("GDAL_HTTP_MAX_RETRY") is None, (
+            "precondition: key should start unset"
+        )
         with CloudConfig(http_max_retry=7):
             inside = gdal.GetConfigOption("GDAL_HTTP_MAX_RETRY")
         after = gdal.GetConfigOption("GDAL_HTTP_MAX_RETRY")
@@ -372,9 +372,9 @@ class TestCloudConfigHttpContextManager:
         with CloudConfig(vsi_cache=value):
             inside = gdal.GetConfigOption("VSI_CACHE")
         after = gdal.GetConfigOption("VSI_CACHE")
-        assert (
-            inside == expected_str
-        ), f"expected {expected_str!r} inside, got {inside!r}"
+        assert inside == expected_str, (
+            f"expected {expected_str!r} inside, got {inside!r}"
+        )
         assert after is None, f"expected unset after exit, got {after!r}"
 
     def test_vsi_cache_none_leaves_existing_value_untouched(
@@ -419,9 +419,9 @@ class TestCloudConfigHttpContextManager:
 
         assert outer_value == "3", f"outer expected '3', got {outer_value!r}"
         assert inner_value == "9", f"inner expected '9', got {inner_value!r}"
-        assert (
-            after_inner == "3"
-        ), f"after inner expected '3' (outer restored), got {after_inner!r}"
+        assert after_inner == "3", (
+            f"after inner expected '3' (outer restored), got {after_inner!r}"
+        )
         assert after_outer is None, f"after outer expected unset, got {after_outer!r}"
 
     def test_exception_inside_block_still_restores(self, clean_gdal_http_config):
@@ -439,6 +439,6 @@ class TestCloudConfigHttpContextManager:
         with pytest.raises(RuntimeError, match="boom"):
             with cfg:
                 raise RuntimeError("boom")
-        assert (
-            gdal.GetConfigOption("GDAL_HTTP_MAX_RETRY") == "prev"
-        ), "previous value not restored after exception inside the block"
+        assert gdal.GetConfigOption("GDAL_HTTP_MAX_RETRY") == "prev", (
+            "previous value not restored after exception inside the block"
+        )

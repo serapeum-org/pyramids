@@ -261,8 +261,7 @@ def _normalize_chunks_seq(
     """
     if len(chunks) != len(shape):
         raise ValueError(
-            f"chunks tuple length {len(chunks)} does not match "
-            f"array ndim {len(shape)}."
+            f"chunks tuple length {len(chunks)} does not match array ndim {len(shape)}."
         )
     normalized: list[int] = []
     for c, axis in zip(chunks, shape):
@@ -301,7 +300,7 @@ def _normalize_chunks_dict(
             )
         if not 0 <= axis_idx < len(shape):
             raise ValueError(
-                f"chunks dict axis {axis_idx} out of range for " f"ndim={len(shape)}."
+                f"chunks dict axis {axis_idx} out of range for ndim={len(shape)}."
             )
         resolved[axis_idx] = int(shape[axis_idx]) if value in (None, -1) else int(value)
     return tuple(resolved)

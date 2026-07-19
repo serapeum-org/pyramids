@@ -80,9 +80,9 @@ class TestNetCDFPlotLazy:
             err_msg="chunked plot drew a different slice than the eager plot",
         )
         slice0 = np.asarray(nc.plot(variable="t2m", selectors=Selectors(time=0)).arr)
-        assert not np.array_equal(
-            lazy, slice0
-        ), "chunked plot drew storage band 0, not the selected slice"
+        assert not np.array_equal(lazy, slice0), (
+            "chunked plot drew storage band 0, not the selected slice"
+        )
 
     @pytest.mark.lazy
     def test_multi_dim_selectors_chunks_renders_intersected_slice(self, tmp_path):
@@ -115,9 +115,9 @@ class TestNetCDFPlotLazy:
                 selectors=Selectors(time=0, sel={"pressure_level": 1000}),
             ).arr
         )
-        assert not np.array_equal(
-            lazy, corner
-        ), "chunked plot drew the (0, 0) corner band, not the intersected slice"
+        assert not np.array_equal(lazy, corner), (
+            "chunked plot drew the (0, 0) corner band, not the intersected slice"
+        )
 
     def test_chunks_none_preserves_eager_behaviour(self):
         """``chunks=None`` (default) preserves the current eager path.
@@ -172,9 +172,9 @@ class TestNetCDFPlotLazy:
                 with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                     nc.plot(variable="t2m", selectors=Selectors(time=0))
         msgs = [r.getMessage() for r in caplog.records]
-        assert any(
-            "chunks=" in m for m in msgs
-        ), f"Expected chunks= hint in logs, got: {msgs}"
+        assert any("chunks=" in m for m in msgs), (
+            f"Expected chunks= hint in logs, got: {msgs}"
+        )
 
     @pytest.mark.lazy
     def test_lazy_hint_not_logged_when_chunks_supplied(self, caplog):
@@ -200,9 +200,9 @@ class TestNetCDFPlotLazy:
                         chunks={"cols": 1},
                     )
         msgs = [r.getMessage() for r in caplog.records]
-        assert not any(
-            "chunks=" in m for m in msgs
-        ), f"Hint must not fire when chunks= is supplied; got: {msgs}"
+        assert not any("chunks=" in m for m in msgs), (
+            f"Hint must not fire when chunks= is supplied; got: {msgs}"
+        )
 
     @pytest.mark.lazy
     def test_chunks_with_unpinned_band_dims_renders_2d_slice(self, tmp_path):
@@ -231,9 +231,9 @@ class TestNetCDFPlotLazy:
             f"lazy 4-D read must flatten + index a 2-D slice, got "
             f"{rendered.ndim}-D shape {rendered.shape}"
         )
-        assert (
-            rendered.shape == eager.shape
-        ), f"lazy slice shape {rendered.shape} != eager band-0 shape {eager.shape}"
+        assert rendered.shape == eager.shape, (
+            f"lazy slice shape {rendered.shape} != eager band-0 shape {eager.shape}"
+        )
 
 
 class TestNetCDFPlotLazyEdges:
@@ -255,9 +255,9 @@ class TestNetCDFPlotLazyEdges:
             mock_plot.return_value = "ok"
             nc.plot(variable="t2m", selectors=Selectors(time=0), chunks="auto")
         kw = mock_plot.call_args.kwargs
-        assert (
-            kw.get("_chunks") == "auto"
-        ), f"String chunks value must be forwarded verbatim; got {kw}"
+        assert kw.get("_chunks") == "auto", (
+            f"String chunks value must be forwarded verbatim; got {kw}"
+        )
 
     def test_lazy_hint_does_not_fire_for_small_variable(self, caplog):
         """Variables under 100 MB never trigger the hint.
@@ -275,9 +275,9 @@ class TestNetCDFPlotLazyEdges:
             with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                 nc.plot(variable="t2m", selectors=Selectors(time=0))
         msgs = [r.getMessage() for r in caplog.records]
-        assert not any(
-            "chunks=" in m for m in msgs
-        ), f"Small variable must not log lazy hint; got {msgs}"
+        assert not any("chunks=" in m for m in msgs), (
+            f"Small variable must not log lazy hint; got {msgs}"
+        )
 
     def test_lazy_hint_message_contains_chunks_keyword(self, caplog):
         """Hint message names the ``chunks=`` kwarg explicitly.
@@ -302,9 +302,9 @@ class TestNetCDFPlotLazyEdges:
         ]
         assert hint_msgs, "Expected at least one hint log record"
         joined = " ".join(hint_msgs)
-        assert (
-            "chunks=" in joined
-        ), f"Hint must contain literal `chunks=` token; got {joined!r}"
+        assert "chunks=" in joined, (
+            f"Hint must contain literal `chunks=` token; got {joined!r}"
+        )
 
     def test_lazy_hint_threshold_boundary_one_byte_below(self, caplog):
         """One byte below the 100 MB threshold: hint stays silent.
@@ -328,6 +328,6 @@ class TestNetCDFPlotLazyEdges:
                 with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                     nc.plot(variable="t2m", selectors=Selectors(time=0))
         msgs = [r.getMessage() for r in caplog.records if "chunks=" in r.getMessage()]
-        assert (
-            not msgs
-        ), f"Boundary at threshold (size == 100 MB) must not fire hint; got {msgs}"
+        assert not msgs, (
+            f"Boundary at threshold (size == 100 MB) must not fire hint; got {msgs}"
+        )

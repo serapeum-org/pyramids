@@ -106,9 +106,9 @@ class TestValidateCF:
     def test_missing_conventions(self):
         """Missing Conventions attribute produces an issue."""
         issues = validate_cf({}, {}, {})
-        assert any(
-            "Conventions" in i for i in issues
-        ), f"Expected Conventions warning, got {issues}"
+        assert any("Conventions" in i for i in issues), (
+            f"Expected Conventions warning, got {issues}"
+        )
 
     def test_coordinate_missing_units(self):
         """Coordinate variable without units produces a warning."""
@@ -116,9 +116,9 @@ class TestValidateCF:
         dims = {"x": self._make_mock_dim("x")}
         vars_ = {"x": self._make_mock_var({}, None)}
         issues = validate_cf(global_attrs, vars_, dims)
-        assert any(
-            "units" in i for i in issues
-        ), f"Expected units warning, got {issues}"
+        assert any("units" in i for i in issues), (
+            f"Expected units warning, got {issues}"
+        )
 
     def test_time_missing_calendar(self):
         """Time coordinate without calendar produces a warning."""
@@ -126,9 +126,9 @@ class TestValidateCF:
         dims = {"time": self._make_mock_dim("time")}
         vars_ = {"time": self._make_mock_var({"units": "days since 1970-01-01"}, None)}
         issues = validate_cf(global_attrs, vars_, dims)
-        assert any(
-            "calendar" in i for i in issues
-        ), f"Expected calendar warning, got {issues}"
+        assert any("calendar" in i for i in issues), (
+            f"Expected calendar warning, got {issues}"
+        )
 
 
 class TestCFAttributePreservation:
@@ -151,9 +151,9 @@ class TestCFAttributePreservation:
         # RT-7: get_variable surfaces the variable's real CF attributes — the
         # grid-mapping link create_from_array writes — not just an empty/missing
         # dict. A regression that drops or mangles the tracked attrs fails here.
-        assert var._variable_attrs == {
-            "grid_mapping": "spatial_ref"
-        }, var._variable_attrs
+        assert var._variable_attrs == {"grid_mapping": "spatial_ref"}, (
+            var._variable_attrs
+        )
 
     def test_conventions_preserved_after_copy(self):
         """Conventions attribute preserved after copy().
@@ -165,6 +165,6 @@ class TestCFAttributePreservation:
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         nc2 = nc.copy()
         ga = nc2.global_attributes
-        assert (
-            ga.get("Conventions") == "CF-1.8"
-        ), f"Conventions lost after copy, got {ga.get('Conventions')!r}"
+        assert ga.get("Conventions") == "CF-1.8", (
+            f"Conventions lost after copy, got {ga.get('Conventions')!r}"
+        )

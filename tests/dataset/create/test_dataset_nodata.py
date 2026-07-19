@@ -167,9 +167,9 @@ class TestNoDataValue:
             dataset = Dataset.create_from_array(
                 arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
             )
-        assert (
-            dataset.no_data_value[0] == -9999
-        ), f"{dtype}: expected default no-data -9999, got {dataset.no_data_value[0]}"
+        assert dataset.no_data_value[0] == -9999, (
+            f"{dtype}: expected default no-data -9999, got {dataset.no_data_value[0]}"
+        )
 
 
 class TestFillRaster:

@@ -57,9 +57,9 @@ class TestLazyDataVariables:
         var = ugrid_ds._data_variables[name]
         arr = var.data
         assert arr is not None, f"{name!r} data should load on first access"
-        assert arr.shape == tuple(
-            var.shape
-        ), f"loaded shape {arr.shape} != declared {tuple(var.shape)}"
+        assert arr.shape == tuple(var.shape), (
+            f"loaded shape {arr.shape} != declared {tuple(var.shape)}"
+        )
         assert var.data is arr, "second .data access should return the cached array"
 
     def test_lazy_dtype_matches_loaded_array(self, ugrid_ds):
@@ -93,9 +93,9 @@ class TestLazyDataVariables:
 
         arr = ds._data_variables[name].data
         assert arr is not None, "lazy read must still succeed after the CWD changed"
-        assert arr.shape == tuple(
-            ds._data_variables[name].shape
-        ), "shape mismatch after chdir"
+        assert arr.shape == tuple(ds._data_variables[name].shape), (
+            "shape mismatch after chdir"
+        )
 
     def test_lazy_load_matches_independent_eager_read(self, ugrid_ds):
         """The lazily-loaded values equal an independent eager read of the same array.

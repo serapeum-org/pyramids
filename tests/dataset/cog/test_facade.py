@@ -146,9 +146,9 @@ class TestCoerceEpsg:
         Test scenario:
             The WGS84 PROJ4 string resolves to `4326`.
         """
-        assert (
-            _coerce_epsg("+proj=longlat +datum=WGS84 +no_defs") == 4326
-        ), "WGS84 PROJ string should resolve to 4326"
+        assert _coerce_epsg("+proj=longlat +datum=WGS84 +no_defs") == 4326, (
+            "WGS84 PROJ string should resolve to 4326"
+        )
 
     def test_unresolvable_raises(self):
         """A CRS with no EPSG code raises ValueError.
@@ -291,9 +291,9 @@ class TestNormalizeToDataset:
             Passing `nodata` updates every band's nodata marker.
         """
         result = _normalize_to_dataset(mem_dataset, None, None, 5.0)
-        assert result.no_data_value[0] == pytest.approx(
-            5.0
-        ), f"nodata override not applied: {result.no_data_value}"
+        assert result.no_data_value[0] == pytest.approx(5.0), (
+            f"nodata override not applied: {result.no_data_value}"
+        )
 
     def test_unsupported_type_raises(self):
         """An unsupported input type raises TypeError.
@@ -321,9 +321,9 @@ class TestWriteCog:
         out = tmp_path / "float.tif"
         path, report = write_cog(float_array, out, crs=4326, transform=COG_GEOTRANSFORM)
         assert path.exists(), "Output COG should exist"
-        assert (
-            report is not None and report.is_valid
-        ), f"Expected a valid COG report, got {report}"
+        assert report is not None and report.is_valid, (
+            f"Expected a valid COG report, got {report}"
+        )
 
     def test_delegates_to_to_cog_forwarding_options_as_extra(
         self, float_array, tmp_path, monkeypatch
@@ -419,9 +419,9 @@ class TestWriteCog:
         """
         out = tmp_path / "deflate.tif"
         write_cog(float_array, out, crs=4326, transform=COG_GEOTRANSFORM)
-        assert (
-            _read_compression(out) == "DEFLATE"
-        ), "Default compression should be DEFLATE"
+        assert _read_compression(out) == "DEFLATE", (
+            "Default compression should be DEFLATE"
+        )
 
     def test_options_override_compression(self, int_array, tmp_path):
         """User `options` override the house defaults.
@@ -458,9 +458,9 @@ class TestWriteCog:
             float_array, out, crs=4326, transform=COG_GEOTRANSFORM, validate=False
         )
         assert path.exists(), "Output should still be written"
-        assert (
-            report is None
-        ), f"Report should be None when validate=False, got {report}"
+        assert report is None, (
+            f"Report should be None when validate=False, got {report}"
+        )
 
     def test_predictor_resolved_for_float(self, float_array, tmp_path):
         """A float raster is written with PREDICTOR=3.
@@ -621,9 +621,9 @@ class TestPyramidsCogDefaults:
         Test scenario:
             Predictor is resolved per dtype, so it must not be hardcoded.
         """
-        assert (
-            "PREDICTOR" not in PYRAMIDS_COG_DEFAULTS
-        ), "PREDICTOR must be resolved per dtype, not fixed in defaults"
+        assert "PREDICTOR" not in PYRAMIDS_COG_DEFAULTS, (
+            "PREDICTOR must be resolved per dtype, not fixed in defaults"
+        )
 
     def test_expected_house_defaults(self):
         """The static house defaults carry the documented values.
@@ -636,6 +636,6 @@ class TestPyramidsCogDefaults:
         assert PYRAMIDS_COG_DEFAULTS["COMPRESS"] == "DEFLATE"
         assert PYRAMIDS_COG_DEFAULTS["BLOCKSIZE"] == 512
         assert PYRAMIDS_COG_DEFAULTS["BIGTIFF"] == "IF_SAFER"
-        assert (
-            "OVERVIEW_RESAMPLING" not in PYRAMIDS_COG_DEFAULTS
-        ), "overview resampling is dtype-resolved in to_cog, not a static default"
+        assert "OVERVIEW_RESAMPLING" not in PYRAMIDS_COG_DEFAULTS, (
+            "overview resampling is dtype-resolved in to_cog, not a static default"
+        )

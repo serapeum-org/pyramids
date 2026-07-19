@@ -126,9 +126,9 @@ class TestDimensionModelRename:
             )
         dim = ClassicDimensionInfo(name="time", size=2, values=[0, 1])
         assert dim.name == "time", f"name not stored: {dim.name}"
-        assert isinstance(
-            ClassicDimMetadata, type
-        ), f"ClassicDimMetadata should resolve to a class, got {ClassicDimMetadata!r}"
+        assert isinstance(ClassicDimMetadata, type), (
+            f"ClassicDimMetadata should resolve to a class, got {ClassicDimMetadata!r}"
+        )
 
     @pytest.mark.parametrize("old_name", ["DimMetaData", "MetaData"])
     def test_old_names_warn(self, old_name):
@@ -183,9 +183,9 @@ class TestNormalizeBackend:
             The deprecated alias maps to legacy with a DeprecationWarning.
         """
         with pytest.warns(DeprecationWarning, match="backend='kerchunk'"):
-            assert (
-                _normalize_backend("kerchunk") == "legacy"
-            ), "alias must map to legacy"
+            assert _normalize_backend("kerchunk") == "legacy", (
+                "alias must map to legacy"
+            )
 
     def test_unknown_backend_raises(self):
         """An unrecognised backend raises ``ValueError``.
@@ -271,9 +271,9 @@ class TestDimensionModelConsolidation:
             2,
             "/time",
         ), f"unexpected canonical fields: {dim}"
-        assert (
-            dim.type is None and dim.indexing_variable is None
-        ), "MDIM fields should be None"
+        assert dim.type is None and dim.indexing_variable is None, (
+            "MDIM fields should be None"
+        )
         assert dim.attrs["axis"] == "T", "classic attrs must carry over"
 
     def test_from_classic_metadata_coerces_missing_size_to_int_zero(self):
@@ -291,9 +291,9 @@ class TestDimensionModelConsolidation:
         classic = ClassicDimensionInfo(name="time", size=None, values=[], attrs={})
         dim = DimensionInfo.from_classic_metadata(classic)
         assert dim.size == 0, f"missing size should coerce to 0, got {dim.size!r}"
-        assert isinstance(
-            dim.size, int
-        ), f"size must be int, got {type(dim.size).__name__}"
+        assert isinstance(dim.size, int), (
+            f"size must be int, got {type(dim.size).__name__}"
+        )
 
     def test_to_dimension_info_round_trips_through_bridge(self):
         """``ClassicDimensionInfo.to_dimension_info`` yields the canonical model.

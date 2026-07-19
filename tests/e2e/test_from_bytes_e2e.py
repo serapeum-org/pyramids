@@ -68,18 +68,18 @@ class TestFromBytesDownloadCropPersist:
         assert out.exists(), "crop result was not written to disk"
 
         reloaded = Dataset.read_file(str(out))
-        assert (
-            reloaded.shape == cropped.shape
-        ), f"shape changed on round-trip: {reloaded.shape}"
+        assert reloaded.shape == cropped.shape, (
+            f"shape changed on round-trip: {reloaded.shape}"
+        )
         assert np.array_equal(
             reloaded.read_array(), cropped.read_array(), equal_nan=True
         ), "pixels changed on round-trip"
 
         del ds, cropped
         gc.collect()
-        assert (
-            gdal.VSIStatL(vsi_path) is None
-        ), "in-memory source raster was not cleaned up"
+        assert gdal.VSIStatL(vsi_path) is None, (
+            "in-memory source raster was not cleaned up"
+        )
 
     def test_geotiff_bytes_match_direct_read(self):
         """The bytes path produces the same data as reading the file directly.
@@ -90,9 +90,9 @@ class TestFromBytesDownloadCropPersist:
         """
         direct = Dataset.read_file(GEOTIFF_FIXTURE)
         viabytes = Dataset.from_bytes(_download(GEOTIFF_FIXTURE))
-        assert (
-            viabytes.shape == direct.shape
-        ), "shape differs between bytes and direct read"
+        assert viabytes.shape == direct.shape, (
+            "shape differs between bytes and direct read"
+        )
         assert np.array_equal(
             viabytes.read_array(), direct.read_array(), equal_nan=True
         ), "array differs between bytes and direct read"
@@ -117,9 +117,9 @@ class TestFromBytesDownloadCropPersist:
             paths.append(str(p))
 
         collection = DatasetCollection.from_files(paths)
-        assert (
-            collection.time_length == 3
-        ), f"expected 3 timesteps, got {collection.time_length}"
+        assert collection.time_length == 3, (
+            f"expected 3 timesteps, got {collection.time_length}"
+        )
 
         ref = Dataset.read_file(GEOTIFF_FIXTURE)
         assert collection.base.shape == ref.shape, "collection template shape mismatch"
@@ -149,9 +149,9 @@ class TestNetCDFFromBytesE2E:
         nc.to_file(str(out))
         assert out.exists(), "NetCDF was not written to disk"
         reread = NetCDF.read_file(str(out))
-        assert list(reread.variables) == list(
-            ref.variables
-        ), "variables changed on round-trip"
+        assert list(reread.variables) == list(ref.variables), (
+            "variables changed on round-trip"
+        )
 
         del nc
         gc.collect()
@@ -175,6 +175,6 @@ class TestFromBytesErrorWorkflow:
         with pytest.raises(ValueError, match="could not open"):
             Dataset.from_bytes(truncated)
         after = set(gdal.ReadDir("/vsimem") or [])
-        assert after.issubset(
-            before
-        ), f"truncated payload leaked /vsimem/ files: {after - before}"
+        assert after.issubset(before), (
+            f"truncated payload leaked /vsimem/ files: {after - before}"
+        )

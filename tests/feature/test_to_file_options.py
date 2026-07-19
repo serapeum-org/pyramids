@@ -101,9 +101,9 @@ class TestCreationOptions:
                 "WHERE type='table' AND name LIKE 'rtree_%'"
             ).fetchall()
         names = {r[0] for r in rows}
-        assert any(
-            n.startswith("rtree_rivers") for n in names
-        ), f"expected an rtree_rivers_* table; found {names}"
+        assert any(n.startswith("rtree_rivers") for n in names), (
+            f"expected an rtree_rivers_* table; found {names}"
+        )
 
     def test_geojson_rfc7946(self, tmp_path: Path, fc_rivers: FeatureCollection):
         """GeoJSON RFC7946=YES writes RFC 7946-compliant output.
@@ -216,6 +216,6 @@ class TestEnginePin:
         monkeypatch.setattr(_GDF, "to_file", _spy)
         fc_rivers.to_file(tmp_path / "pin.geojson")
         assert captured, "to_file must be invoked at least once"
-        assert (
-            captured[0].get("engine") == "pyogrio"
-        ), f"expected engine='pyogrio', got {captured[0]}"
+        assert captured[0].get("engine") == "pyogrio", (
+            f"expected engine='pyogrio', got {captured[0]}"
+        )

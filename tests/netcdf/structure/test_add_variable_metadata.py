@@ -70,9 +70,9 @@ def _packed(vi):
     assert vi.offset == pytest.approx(OFFSET), f"offset lost: {vi.offset}"
     assert vi.unit == UNIT, f"unit lost: {vi.unit!r}"
     assert vi.nodata == pytest.approx(FILL), f"no-data lost: {vi.nodata}"
-    assert (
-        vi.attributes.get("long_name") == LONG_NAME
-    ), f"attributes lost: {vi.attributes}"
+    assert vi.attributes.get("long_name") == LONG_NAME, (
+        f"attributes lost: {vi.attributes}"
+    )
 
 
 class TestAddVariableFileBacked:
@@ -86,9 +86,9 @@ class TestAddVariableFileBacked:
         dst = NetCDF.read_file(str(tmp_path / "dst.nc"))
         dst.add_variable(src, "rh")
         assert "rh" in dst.variable_names, f"variable not copied: {dst.variable_names}"
-        assert (
-            "tas" in dst.variable_names
-        ), f"existing variable lost: {dst.variable_names}"
+        assert "tas" in dst.variable_names, (
+            f"existing variable lost: {dst.variable_names}"
+        )
 
     def test_preserves_packing_and_attributes(self, tmp_path):
         """The copied variable should retain scale/offset/unit/no-data and its attributes."""

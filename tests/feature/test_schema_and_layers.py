@@ -153,9 +153,9 @@ class TestListLayersCache:
         FeatureCollection.list_layers(two_layer_gpkg)
         FeatureCollection.list_layers(two_layer_gpkg)
         FeatureCollection.list_layers(two_layer_gpkg)
-        assert (
-            call_count[0] == 1
-        ), f"expected exactly one pyogrio call, got {call_count[0]}"
+        assert call_count[0] == 1, (
+            f"expected exactly one pyogrio call, got {call_count[0]}"
+        )
 
     def test_cache_clear_invalidates_entries(self, two_layer_gpkg: Path, monkeypatch):
         import pyogrio
@@ -207,9 +207,9 @@ class TestListLayersCache:
         first = FeatureCollection.list_layers(two_layer_gpkg)
         first.append("mutated")
         second = FeatureCollection.list_layers(two_layer_gpkg)
-        assert (
-            "mutated" not in second
-        ), "mutation of returned list leaked into cached value"
+        assert "mutated" not in second, (
+            "mutation of returned list leaked into cached value"
+        )
         assert set(second) == {"rivers", "lakes"}
 
 

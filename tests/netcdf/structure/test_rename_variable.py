@@ -56,9 +56,9 @@ class TestRenameVariableHappyPath:
         """
         nc = _make_nc()
         nc.rename_variable("temperature", "temp")
-        assert (
-            "temperature" not in nc.variable_names
-        ), f"Old name should be gone, got {nc.variable_names}"
+        assert "temperature" not in nc.variable_names, (
+            f"Old name should be gone, got {nc.variable_names}"
+        )
 
     def test_new_name_present(self):
         """After rename, new name should be in variable_names.
@@ -68,9 +68,9 @@ class TestRenameVariableHappyPath:
         """
         nc = _make_nc()
         nc.rename_variable("temperature", "temp")
-        assert (
-            "temp" in nc.variable_names
-        ), f"New name should be present, got {nc.variable_names}"
+        assert "temp" in nc.variable_names, (
+            f"New name should be present, got {nc.variable_names}"
+        )
 
     def test_data_preserved(self):
         """Data should be identical after rename.
@@ -110,12 +110,12 @@ class TestRenameVariableHappyPath:
         """
         nc = _make_multi_nc()
         nc.rename_variable("temp", "air_temp")
-        assert (
-            "pressure" in nc.variable_names
-        ), f"Other variable should be unaffected: {nc.variable_names}"
-        assert (
-            "air_temp" in nc.variable_names
-        ), f"Renamed variable should exist: {nc.variable_names}"
+        assert "pressure" in nc.variable_names, (
+            f"Other variable should be unaffected: {nc.variable_names}"
+        )
+        assert "air_temp" in nc.variable_names, (
+            f"Renamed variable should exist: {nc.variable_names}"
+        )
 
     def test_variable_count_unchanged(self):
         """Number of variables should not change after rename.
@@ -127,9 +127,9 @@ class TestRenameVariableHappyPath:
         count_before = len(nc.variable_names)
         nc.rename_variable("temp", "air_temp")
         count_after = len(nc.variable_names)
-        assert (
-            count_after == count_before
-        ), f"Variable count changed: {count_before} → {count_after}"
+        assert count_after == count_before, (
+            f"Variable count changed: {count_before} → {count_after}"
+        )
 
 
 class TestRenameVariableErrors:
@@ -194,9 +194,9 @@ class TestRenameVariableCacheInvalidation:
         """
         nc = _make_nc()
         nc.rename_variable("temperature", "t2m")
-        assert (
-            "t2m" in nc.variables
-        ), f"New name should be in variables dict: {list(nc.variables.keys())}"
+        assert "t2m" in nc.variables, (
+            f"New name should be in variables dict: {list(nc.variables.keys())}"
+        )
 
 
 class TestRenameVariableDiskRoundTrip:
@@ -213,12 +213,12 @@ class TestRenameVariableDiskRoundTrip:
         out = str(tmp_path / "renamed.nc")
         nc.to_file(out)
         reloaded = NetCDF.read_file(out)
-        assert (
-            "air_temp" in reloaded.variable_names
-        ), f"Renamed variable not on disk: {reloaded.variable_names}"
-        assert (
-            "temperature" not in reloaded.variable_names
-        ), f"Old name should not be on disk: {reloaded.variable_names}"
+        assert "air_temp" in reloaded.variable_names, (
+            f"Renamed variable not on disk: {reloaded.variable_names}"
+        )
+        assert "temperature" not in reloaded.variable_names, (
+            f"Old name should not be on disk: {reloaded.variable_names}"
+        )
 
     def test_data_preserved_on_disk(self, tmp_path):
         """Data should match after rename → save → reload.

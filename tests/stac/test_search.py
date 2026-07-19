@@ -88,24 +88,24 @@ class TestSearch:
             max_items=10,
             limit=5,
         )
-        assert (
-            result == "ITEMS"
-        ), f"should return the item_collection sentinel, got {result}"
-        assert (
-            kwargs["collections"] == "sentinel-2-l2a"
-        ), f"collections not forwarded: {kwargs}"
+        assert result == "ITEMS", (
+            f"should return the item_collection sentinel, got {result}"
+        )
+        assert kwargs["collections"] == "sentinel-2-l2a", (
+            f"collections not forwarded: {kwargs}"
+        )
         assert kwargs["bbox"] == (
             11.0,
             46.0,
             11.2,
             46.2,
         ), f"bbox not forwarded: {kwargs}"
-        assert (
-            kwargs["datetime"] == "2023-06/2023-08"
-        ), f"datetime not forwarded: {kwargs}"
-        assert (
-            kwargs["max_items"] == 10 and kwargs["limit"] == 5
-        ), f"paging not forwarded: {kwargs}"
+        assert kwargs["datetime"] == "2023-06/2023-08", (
+            f"datetime not forwarded: {kwargs}"
+        )
+        assert kwargs["max_items"] == 10 and kwargs["limit"] == 5, (
+            f"paging not forwarded: {kwargs}"
+        )
 
     def test_bbox_and_intersects_mutually_exclusive(self):
         """L2: passing both bbox and intersects raises before any client call.
@@ -171,9 +171,9 @@ class TestSearch:
         geom = {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}
         client = _FakeClient()
         _, kwargs = search(client, "c", intersects=geom)
-        assert (
-            kwargs["intersects"] == geom
-        ), f"GeoJSON dict should pass through: {kwargs['intersects']}"
+        assert kwargs["intersects"] == geom, (
+            f"GeoJSON dict should pass through: {kwargs['intersects']}"
+        )
 
     def test_url_opens_client(self, monkeypatch):
         """A URL argument is opened into a client via open_client.
@@ -193,9 +193,9 @@ class TestSearch:
         monkeypatch.setattr(_SEARCH_MOD, "open_client", fake_open_client)
         result, _ = search("https://example.com/v1", "c", signer="SIGNER")
         assert opened["url"] == "https://example.com/v1", f"URL not opened: {opened}"
-        assert (
-            opened["signer"] == "SIGNER"
-        ), f"signer not forwarded to open_client: {opened}"
+        assert opened["signer"] == "SIGNER", (
+            f"signer not forwarded to open_client: {opened}"
+        )
         assert result == "ITEMS", "should return the searched client's items"
 
 

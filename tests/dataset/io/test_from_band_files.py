@@ -159,9 +159,9 @@ class TestSameGrid:
         """
         a = Dataset.read_file(_make_band(tmp_path, "a.tif", 1))
         b = Dataset.read_file(_make_band(tmp_path, "b.tif", 2, **kw))
-        assert (
-            _same_grid(a, b) is False
-        ), f"grids differing in {list(kw)} should be unequal"
+        assert _same_grid(a, b) is False, (
+            f"grids differing in {list(kw)} should be unequal"
+        )
 
 
 class TestFromBandFiles:
@@ -316,10 +316,12 @@ class TestFromBandFiles:
         assert (ds.rows, ds.columns) == (
             template.rows,
             template.columns,
-        ), f"result grid {ds.rows}x{ds.columns} != template {template.rows}x{template.columns}"
-        assert (
-            ds.geotransform == template.geotransform
-        ), "result geotransform != template"
+        ), (
+            f"result grid {ds.rows}x{ds.columns} != template {template.rows}x{template.columns}"
+        )
+        assert ds.geotransform == template.geotransform, (
+            "result geotransform != template"
+        )
 
     def test_mixed_dtypes_promote_and_preserve_float_values(self, tmp_path, band_files):
         """Inputs of different dtypes promote to a common dtype without truncation.
@@ -338,9 +340,9 @@ class TestFromBandFiles:
         )
         ds = Dataset.from_band_files([band_files[0], f32])
         assert ds.dtype == ["float32", "float32"], f"unexpected dtypes: {ds.dtype}"
-        assert float(ds.read_array(band=1).flat[0]) == pytest.approx(
-            1.5
-        ), "float value truncated"
+        assert float(ds.read_array(band=1).flat[0]) == pytest.approx(1.5), (
+            "float value truncated"
+        )
 
     def test_nodata_inherited_when_sources_agree(self, tmp_path):
         """When all sources share a no-data value, the output keeps it.
@@ -448,9 +450,9 @@ class TestFromBandFiles:
         Dataset.from_band_files(band_files, path=out)
         assert os.path.exists(out), "output file was not written"
         reloaded = Dataset.read_file(out)
-        assert (
-            reloaded.band_count == 3
-        ), f"expected 3 bands on reload, got {reloaded.band_count}"
+        assert reloaded.band_count == 3, (
+            f"expected 3 bands on reload, got {reloaded.band_count}"
+        )
         assert reloaded.band_names == [
             "B2",
             "B3",
@@ -497,9 +499,9 @@ class TestFromBandFiles:
             template.rows,
             template.columns,
         ), "result not on template grid"
-        assert float(ds.read_array(band=1).flat[0]) == pytest.approx(
-            0.25
-        ), "float value lost"
+        assert float(ds.read_array(band=1).flat[0]) == pytest.approx(0.25), (
+            "float value lost"
+        )
 
     def test_align_disagreeing_nodata_remaps_fringe_to_resolved(self, tmp_path):
         """``align=True`` with disagreeing source no-data: out-of-coverage fringe matches declared no-data.
@@ -543,12 +545,12 @@ class TestFromBandFiles:
         band1 = ds.read_array(band=1)
         uniques = sorted(set(band1.flatten().tolist()))
         assert ds.no_data_value == (0.0, 0.0), f"declared no-data: {ds.no_data_value}"
-        assert (
-            65535 not in uniques
-        ), f"B's original no-data leaked into the aligned fringe: {uniques}"
-        assert (
-            0 in uniques and 9 in uniques
-        ), f"expected the resolved no-data (0) and the real value (9): {uniques}"
+        assert 65535 not in uniques, (
+            f"B's original no-data leaked into the aligned fringe: {uniques}"
+        )
+        assert 0 in uniques and 9 in uniques, (
+            f"expected the resolved no-data (0) and the real value (9): {uniques}"
+        )
 
     def test_align_agreeing_nodata_preserved(self, tmp_path):
         """``align=True`` with agreeing source no-data: fringe equals declared no-data (regression).
@@ -662,9 +664,9 @@ class TestFromBandFiles:
         with _warnings.catch_warnings(record=True) as caught:
             _warnings.simplefilter("always")
             ds = Dataset.from_band_files([p_e, p_f], align=True)
-        assert not any(
-            "disagree on no-data" in str(w.message) for w in caught
-        ), "spurious NaN-vs-NaN disagreement warning fired"
+        assert not any("disagree on no-data" in str(w.message) for w in caught), (
+            "spurious NaN-vs-NaN disagreement warning fired"
+        )
         band1 = ds.read_array(band=1)
         # The fringe must still be NaN (declared) and the centre = 2.5 (real).
         assert np.isnan(band1[0, 0]), f"fringe should be NaN, got {band1[0, 0]}"

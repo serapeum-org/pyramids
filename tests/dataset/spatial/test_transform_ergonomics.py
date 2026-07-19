@@ -122,9 +122,9 @@ class TestGeoTransform:
         """
         x, y = gt * (3, 2)
         col, row = gt.inverse * (x, y)
-        assert (col, row) == pytest.approx(
-            (3.0, 2.0)
-        ), f"inverse round-trip: {(col, row)}"
+        assert (col, row) == pytest.approx((3.0, 2.0)), (
+            f"inverse round-trip: {(col, row)}"
+        )
 
     def test_singular_transform_raises(self):
         """A zero transform cannot be inverted and raises ValueError."""
@@ -140,9 +140,9 @@ class TestGeoTransform:
         gt = GeoTransform.from_bounds((0.0, 0.0, 4.0, 4.0), rows=4, cols=4)
         expected = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
         assert tuple(gt) == pytest.approx(tuple(expected)), f"unexpected {gt}"
-        assert gt * (4, 4) == pytest.approx(
-            (4.0, 0.0)
-        ), "bottom-right must close the box"
+        assert gt * (4, 4) == pytest.approx((4.0, 0.0)), (
+            "bottom-right must close the box"
+        )
 
     @pytest.mark.parametrize(
         "bbox, rows, cols, match",
@@ -176,9 +176,9 @@ class TestXY:
     def test_scalar_center_and_corner(self, unit_dataset):
         """Scalar input returns plain-float centre / corner coordinates."""
         assert unit_dataset.xy(0, 0) == pytest.approx((0.5, 3.5)), "centre wrong"
-        assert unit_dataset.xy(0, 0, center=False) == pytest.approx(
-            (0.0, 4.0)
-        ), "corner wrong"
+        assert unit_dataset.xy(0, 0, center=False) == pytest.approx((0.0, 4.0)), (
+            "corner wrong"
+        )
 
     def test_zero_d_array_input_is_scalar(self, unit_dataset):
         """0-d numpy array input returns scalar coordinates, not lists (M3).
@@ -224,16 +224,16 @@ class TestXY:
             geo = (100, 1, 0.2, 200, 0.1, -1): cell (row=1, col=2) centre is
             transform * (2.5, 1.5) = (100 + 2.5 + 0.3, 200 + 0.25 - 1.5).
         """
-        assert rotated_dataset.xy(1, 2) == pytest.approx(
-            (102.8, 198.75)
-        ), "rotated centre wrong"
+        assert rotated_dataset.xy(1, 2) == pytest.approx((102.8, 198.75)), (
+            "rotated centre wrong"
+        )
 
     def test_parity_with_engine(self, unit_dataset):
         """xy matches array_to_map_coordinates on a square north-up grid."""
         xs, ys = unit_dataset.array_to_map_coordinates([2], [3], center=True)
-        assert unit_dataset.xy(2, 3) == pytest.approx(
-            (float(xs[0]), float(ys[0]))
-        ), "engine parity drift"
+        assert unit_dataset.xy(2, 3) == pytest.approx((float(xs[0]), float(ys[0]))), (
+            "engine parity drift"
+        )
 
 
 class TestRowCol:
@@ -255,12 +255,12 @@ class TestRowCol:
         rows, cols = unit_dataset.rowcol([0.5, 2.5], [3.5, 1.5])
         assert rows == [0, 2], f"rows wrong: {rows}"
         assert cols == [0, 2], f"cols wrong: {cols}"
-        assert isinstance(rows, list) and isinstance(
-            cols, list
-        ), "rowcol must return lists"
-        assert all(
-            isinstance(v, int) for v in rows + cols
-        ), "elements must be plain ints"
+        assert isinstance(rows, list) and isinstance(cols, list), (
+            "rowcol must return lists"
+        )
+        assert all(isinstance(v, int) for v in rows + cols), (
+            "elements must be plain ints"
+        )
 
     def test_round_trip_through_xy(self, unit_dataset):
         """rowcol(xy(r, c)) returns (r, c) through cell centres."""

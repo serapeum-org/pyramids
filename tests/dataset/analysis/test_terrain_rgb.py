@@ -58,9 +58,9 @@ class TestToTerrainRgbRoundtrip:
             r.astype("int64"), g.astype("int64"), b.astype("int64")
         )
         source = np.array([[0.0, 100.0], [2000.0, 8848.0]])
-        assert (
-            np.max(np.abs(decoded - source)) <= 0.1
-        ), f"decode must be within 0.1 m, got {np.abs(decoded - source)}"
+        assert np.max(np.abs(decoded - source)) <= 0.1, (
+            f"decode must be within 0.1 m, got {np.abs(decoded - source)}"
+        )
 
     def test_terrarium_roundtrip_within_quantum(self, tmp_path):
         """Terrarium decode recovers each height to within 1/256 m."""
@@ -157,9 +157,9 @@ class TestToTerrainRgbTiles:
         for png in pngs:
             rel = os.path.relpath(png, str(root)).replace(os.sep, "/")
             z, x, name = rel.split("/")
-            assert (
-                name.endswith(".png") and z.isdigit() and x.isdigit()
-            ), f"tile path must be z/x/y.png, got {rel}"
+            assert name.endswith(".png") and z.isdigit() and x.isdigit(), (
+                f"tile path must be z/x/y.png, got {rel}"
+            )
             tile = gdal.Open(png)
             assert (tile.RasterXSize, tile.RasterYSize) == (256, 256), "256x256 tiles"
 
@@ -287,9 +287,9 @@ class TestTerrainRgbaStack:
             elev, -9999.0, encoding="mapbox", base_val=-10000.0, interval=0.1
         )
         assert stack.shape[0] == 4, f"expected RGBA, got {stack.shape[0]} bands"
-        assert (
-            stack[3, 0, 0] == 255 and stack[3, 0, 1] == 0
-        ), f"alpha must be 255 valid / 0 nodata, got {stack[3, 0]}"
+        assert stack[3, 0, 0] == 255 and stack[3, 0, 1] == 0, (
+            f"alpha must be 255 valid / 0 nodata, got {stack[3, 0]}"
+        )
 
 
 class TestTerrainTileMath:
@@ -305,9 +305,9 @@ class TestTerrainTileMath:
         """Every emitted tile index is within ``[0, 2**zoom)``."""
         tiles = list(IO._terrain_tile_indices(5, 0.0, 0.0, 1_000_000.0, 1_000_000.0))
         assert tiles, "a covered region must yield at least one tile"
-        assert all(
-            0 <= x < 32 and 0 <= y < 32 for x, y in tiles
-        ), f"indices out of [0, 32) at zoom 5: {tiles}"
+        assert all(0 <= x < 32 and 0 <= y < 32 for x, y in tiles), (
+            f"indices out of [0, 32) at zoom 5: {tiles}"
+        )
 
     def test_native_zoom_floored_at_min_zoom(self):
         """A coarse pixel size would give a low zoom; ``min_zoom`` is the floor."""
@@ -339,4 +339,4 @@ class TestToTerrainRgbClamping:
             255,
             255,
             255,
-        ), f"clamped cell must be (255,255,255), got {(r[0,0], g[0,0], b[0,0])}"
+        ), f"clamped cell must be (255,255,255), got {(r[0, 0], g[0, 0], b[0, 0])}"

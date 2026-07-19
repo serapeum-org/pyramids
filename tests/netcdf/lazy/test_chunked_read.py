@@ -77,9 +77,9 @@ class TestChunksNoneEager:
     def test_chunks_none_returns_numpy(self, three_d_var):
         """Default path returns a plain numpy ndarray (regression)."""
         arr = three_d_var.read_array()
-        assert isinstance(
-            arr, np.ndarray
-        ), f"Expected numpy.ndarray, got {type(arr).__name__}"
+        assert isinstance(arr, np.ndarray), (
+            f"Expected numpy.ndarray, got {type(arr).__name__}"
+        )
 
     def test_chunks_none_with_band_kw(self, three_d_var):
         """``band=0`` still works on the eager path."""
@@ -95,9 +95,9 @@ class TestChunksLazy:
     def test_chunks_auto_returns_dask(self, three_d_var):
         """``chunks='auto'`` returns a dask array."""
         arr = three_d_var.read_array(chunks="auto")
-        assert isinstance(
-            arr, dask_array.Array
-        ), f"Expected dask.array.Array, got {type(arr).__name__}"
+        assert isinstance(arr, dask_array.Array), (
+            f"Expected dask.array.Array, got {type(arr).__name__}"
+        )
 
     def test_chunks_int_returns_dask(self, three_d_var):
         """Integer chunks also return a dask array."""
@@ -165,12 +165,12 @@ class TestChunksLazy:
         """
         eager = three_d_var.read_array()
         lazy = three_d_var.read_array(chunks="auto")
-        assert (
-            lazy.dtype == eager.dtype
-        ), f"declared lazy dtype {lazy.dtype} != eager dtype {eager.dtype}"
-        assert (
-            lazy.compute().dtype == lazy.dtype
-        ), f"materialized dtype {lazy.compute().dtype} diverged from declared {lazy.dtype}"
+        assert lazy.dtype == eager.dtype, (
+            f"declared lazy dtype {lazy.dtype} != eager dtype {eager.dtype}"
+        )
+        assert lazy.compute().dtype == lazy.dtype, (
+            f"materialized dtype {lazy.compute().dtype} diverged from declared {lazy.dtype}"
+        )
 
 
 @requires_dask
@@ -239,9 +239,9 @@ class TestUnpackLazy:
         )
         var = nc.get_variable("z")
         lazy = var.read_array(chunks="auto", unpack=True)
-        assert isinstance(
-            lazy, dask_array.Array
-        ), "unpack=True on a lazy backing must stay lazy"
+        assert isinstance(lazy, dask_array.Array), (
+            "unpack=True on a lazy backing must stay lazy"
+        )
         assert lazy.dtype == np.float64, "Unpacked dask array should be float64"
         computed = lazy.compute()
         eager = var.read_array(unpack=True)
@@ -289,9 +289,9 @@ class TestLazyPickle:
                 _compute_lazy_in_subprocess,
                 (payload,),
             )
-        assert (
-            shape == expected.shape
-        ), f"Child shape {shape} != parent {expected.shape}"
+        assert shape == expected.shape, (
+            f"Child shape {shape} != parent {expected.shape}"
+        )
         expected_sum = float(np.asarray(expected, dtype=np.float64).sum())
         assert_allclose(total, expected_sum, rtol=1e-6)
 
@@ -536,9 +536,9 @@ class TestLazyOrientationMatchesEager:
             3,
             1,
         ), "lon/lat must resolve to the non-trailing (x=3, y=1)"
-        assert (
-            var._md_y_flipped is True
-        ), "the fixture's ascending latitude must flip to north-up"
+        assert var._md_y_flipped is True, (
+            "the fixture's ascending latitude must flip to north-up"
+        )
         eager = np.asarray(var.read_array())
         rows, cols = eager.shape[-2:]
         assert (rows, cols) == (64, 128), "eager plane must be (lat=64, lon=128)"
@@ -633,19 +633,19 @@ class TestLazyHandleLifetime:
             on the read's manager (kept alive by the dask graph) evicts its slot when the array is
             dropped, so reopening the same NetCDF in-process does not leave two live handles.
         """
-        assert (
-            len(FILE_CACHE) == 0
-        ), "the autouse fixture should leave FILE_CACHE empty at test start"
+        assert len(FILE_CACHE) == 0, (
+            "the autouse fixture should leave FILE_CACHE empty at test start"
+        )
         lazy = three_d_var.read_array(chunks="auto")
         lazy.compute()
-        assert (
-            len(FILE_CACHE) == 1
-        ), "a lazy read + compute must park exactly one handle"
+        assert len(FILE_CACHE) == 1, (
+            "a lazy read + compute must park exactly one handle"
+        )
         del lazy
         gc.collect()
-        assert (
-            len(FILE_CACHE) == 0
-        ), "dropping the lazy array must evict the parked handle"
+        assert len(FILE_CACHE) == 0, (
+            "dropping the lazy array must evict the parked handle"
+        )
 
     def test_nontrailing_moveaxis_lazy_evicts_handle_on_drop(self):
         """Dropping a non-trailing (moveaxis-graph) lazy array still evicts its parked handle (#728).
@@ -655,23 +655,23 @@ class TestLazyHandleLifetime:
             is kept alive by the base readers, not the wrapper, so the drop-time finalizer must still
             fire — mirror the trailing eviction test on the moveaxis graph.
         """
-        assert (
-            len(FILE_CACHE) == 0
-        ), "the autouse fixture should leave FILE_CACHE empty at test start"
+        assert len(FILE_CACHE) == 0, (
+            "the autouse fixture should leave FILE_CACHE empty at test start"
+        )
         lazy = (
             NetCDF.read_file("tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc")
             .get_variable("T", x_dim="lon", y_dim="lat")
             .read_array(chunks="auto")
         )
         lazy.compute()
-        assert (
-            len(FILE_CACHE) == 1
-        ), "a non-trailing lazy read + compute must park exactly one handle"
+        assert len(FILE_CACHE) == 1, (
+            "a non-trailing lazy read + compute must park exactly one handle"
+        )
         del lazy
         gc.collect()
-        assert (
-            len(FILE_CACHE) == 0
-        ), "dropping the moveaxis lazy array must evict the parked handle"
+        assert len(FILE_CACHE) == 0, (
+            "dropping the moveaxis lazy array must evict the parked handle"
+        )
 
     def test_dropping_unpack_lazy_array_evicts_handle(self, scale_offset_path):
         """Dropping an `unpack=True` lazy array — a DERIVED dask array — still evicts the handle (H1).
@@ -687,14 +687,14 @@ class TestLazyHandleLifetime:
             chunks="auto", unpack=True
         )
         lazy.compute()
-        assert (
-            len(FILE_CACHE) == 1
-        ), "a lazy unpack read + compute must park exactly one handle"
+        assert len(FILE_CACHE) == 1, (
+            "a lazy unpack read + compute must park exactly one handle"
+        )
         del lazy
         gc.collect()
-        assert (
-            len(FILE_CACHE) == 0
-        ), "dropping a derived (unpack) lazy array must evict the handle"
+        assert len(FILE_CACHE) == 0, (
+            "dropping a derived (unpack) lazy array must evict the handle"
+        )
 
     def test_close_releases_parked_handle_while_array_alive(self, three_d_path):
         """`nc.close()` releases the lazy handle even while the array is alive — #727's exact repro.
@@ -710,12 +710,12 @@ class TestLazyHandleLifetime:
         lazy.compute()
         assert len(FILE_CACHE) == 1, "the lazy read parks a handle"
         nc.close()
-        assert (
-            len(FILE_CACHE) == 0
-        ), "close() must release the parked handle even while the array is alive"
-        assert (
-            lazy.compute().size > 0
-        ), "the lazy array stays usable after close() (its manager re-opens)"
+        assert len(FILE_CACHE) == 0, (
+            "close() must release the parked handle even while the array is alive"
+        )
+        assert lazy.compute().size > 0, (
+            "the lazy array stays usable after close() (its manager re-opens)"
+        )
 
     def test_closing_variable_subset_releases_its_handle(self, three_d_path):
         """Closing a `get_variable()` subset directly releases the handle it parked (M1).
@@ -745,9 +745,9 @@ class TestLazyHandleLifetime:
         nc.close()
         assert len(FILE_CACHE) == 0, "the first close releases the parked handle"
         lazy.compute()
-        assert (
-            len(FILE_CACHE) == 1
-        ), "recomputing after close re-parks a handle (manager re-opens)"
+        assert len(FILE_CACHE) == 1, (
+            "recomputing after close re-parks a handle (manager re-opens)"
+        )
         nc.close()
         assert len(FILE_CACHE) == 0, "a second close must release the re-parked handle"
 
@@ -759,9 +759,9 @@ class TestLazyHandleLifetime:
             del lazy
         gc.collect()
         tracked = getattr(three_d_var, "_lazy_managers", ())
-        assert (
-            len(tracked) <= 1
-        ), f"dead managers must not accumulate in the WeakSet; tracked={len(tracked)}"
+        assert len(tracked) <= 1, (
+            f"dead managers must not accumulate in the WeakSet; tracked={len(tracked)}"
+        )
 
     def test_shared_slot_kept_until_last_manager_released(self, three_d_var):
         """Two reads of the same variable share one slot; the handle survives until BOTH drop (M2).
@@ -779,9 +779,9 @@ class TestLazyHandleLifetime:
         assert len(FILE_CACHE) == 1, "two reads of one variable share a single slot"
         del first
         gc.collect()
-        assert (
-            len(FILE_CACHE) == 1
-        ), "dropping one array must NOT evict the shared handle"
+        assert len(FILE_CACHE) == 1, (
+            "dropping one array must NOT evict the shared handle"
+        )
         assert second.compute().size > 0, "the surviving array must still read"
         del second
         gc.collect()
@@ -801,9 +801,9 @@ class TestLazyHandleLifetime:
         lazy.compute()
         del lazy
         gc.collect()
-        assert (
-            len(FILE_CACHE) == 0
-        ), "the parked handle must be released before reopening"
+        assert len(FILE_CACHE) == 0, (
+            "the parked handle must be released before reopening"
+        )
         reopened = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
         eager = np.asarray(reopened.get_variable(variable).read_array())
         assert eager.size > 0, "the eager reopen read should return data"

@@ -66,12 +66,12 @@ class TestFourDimVariableMetadata:
 
     def test_primary_band_dim_legacy_fields(self, synth_var):
         """Legacy ``_band_dim_name`` / ``_band_dim_values`` point at the primary dim."""
-        assert (
-            synth_var._band_dim_name == "time"
-        ), f"primary dim must be 'time', got {synth_var._band_dim_name!r}"
-        assert (
-            synth_var._band_dim_values == TIME_VALUES
-        ), f"primary values mismatch: {synth_var._band_dim_values!r}"
+        assert synth_var._band_dim_name == "time", (
+            f"primary dim must be 'time', got {synth_var._band_dim_name!r}"
+        )
+        assert synth_var._band_dim_values == TIME_VALUES, (
+            f"primary values mismatch: {synth_var._band_dim_values!r}"
+        )
 
     def test_values_map_keyed_by_dim_name(self, synth_var):
         """``_band_dim_values_map`` carries coords per dim, by dim name."""
@@ -96,9 +96,9 @@ class TestFourDimVariableMetadata:
             "time",
             "pressure_level",
         ], f"band dims must be first two: {synth_var._md_array_dims}"
-        assert (
-            len(synth_var._md_array_dims) == 4
-        ), f"4-D variable must have 4 dims: {synth_var._md_array_dims}"
+        assert len(synth_var._md_array_dims) == 4, (
+            f"4-D variable must have 4 dims: {synth_var._md_array_dims}"
+        )
 
 
 class TestSelByPressureLevel:
@@ -117,9 +117,9 @@ class TestSelByPressureLevel:
         """Each band's top-left pixel matches ``encode(t, l=2, y=NY-1, x=0)``."""
         arr = synth_var.sel(pressure_level=500).read_array()
         for t in range(NT):
-            assert arr[t, 0, 0] == _expect(
-                t, 2
-            ), f"Band {t}: expected {_expect(t, 2)}, got {arr[t, 0, 0]}"
+            assert arr[t, 0, 0] == _expect(t, 2), (
+                f"Band {t}: expected {_expect(t, 2)}, got {arr[t, 0, 0]}"
+            )
 
     def test_pressure_level_values_preserved_after_pin(self, synth_var):
         """``_band_dim_values_map`` reflects the pinned level; time dim untouched."""
@@ -163,8 +163,7 @@ class TestSelByTime:
         arr = synth_var.sel(time=12).read_array()
         for l_idx in range(NL):
             assert arr[l_idx, 0, 0] == _expect(2, l_idx), (
-                f"Level {l_idx}: expected {_expect(2, l_idx)}, "
-                f"got {arr[l_idx, 0, 0]}"
+                f"Level {l_idx}: expected {_expect(2, l_idx)}, got {arr[l_idx, 0, 0]}"
             )
 
 
@@ -331,8 +330,7 @@ class TestRootContainer4DSpatialOps:
         inner = result.get_variable("t")
 
         assert inner._band_dim_names == ("valid_time", "pressure_level"), (
-            f"crop on root container dropped a band-dim: "
-            f"got {inner._band_dim_names!r}"
+            f"crop on root container dropped a band-dim: got {inner._band_dim_names!r}"
         )
         assert inner._band_dim_sizes == (
             4,
@@ -341,9 +339,9 @@ class TestRootContainer4DSpatialOps:
         assert inner._band_dim_values_map["pressure_level"] == [500.0]
         # sel() across either axis still works on the cropped container.
         sub = inner.sel(pressure_level=500)
-        assert (
-            sub.read_array().shape[0] == 4
-        ), f"pin level should leave 4 time bands, got {sub.read_array().shape}"
+        assert sub.read_array().shape[0] == 4, (
+            f"pin level should leave 4 time bands, got {sub.read_array().shape}"
+        )
 
     def test_crop_root_container_synthetic_4d_round_trip(self):
         """Synthetic `(4, 3)` cube survives a no-op-style crop on the root.
@@ -408,19 +406,19 @@ class TestPreserveNetcdfMetadataSelfHeal:
         nc = NetCDF.read_file(SYNTH_PATH)
         var = nc.get_variable("temperature")
         sub = var.sel(pressure_level=500)
-        assert (
-            sub._band_dim_values == TIME_VALUES
-        ), f"post-sel values broken: {sub._band_dim_values!r}"
+        assert sub._band_dim_values == TIME_VALUES, (
+            f"post-sel values broken: {sub._band_dim_values!r}"
+        )
         # Round-trip through preserve a second time. Wrapping a fresh
         # Dataset of the same shape simulates a downstream spatial op
         # that doesn't refill afterwards.
         rewrapped = sub._preserve_netcdf_metadata(sub)
-        assert (
-            rewrapped._band_dim_values == TIME_VALUES
-        ), f"self-heal failed; values dropped to {rewrapped._band_dim_values!r}"
-        assert (
-            rewrapped._band_dim_name == "time"
-        ), f"primary dim must stay 'time', got {rewrapped._band_dim_name!r}"
+        assert rewrapped._band_dim_values == TIME_VALUES, (
+            f"self-heal failed; values dropped to {rewrapped._band_dim_values!r}"
+        )
+        assert rewrapped._band_dim_name == "time", (
+            f"primary dim must stay 'time', got {rewrapped._band_dim_name!r}"
+        )
 
     def test_self_heal_keeps_none_when_no_match_available(self):
         """If no map entry matches the new band count, the value stays None.
@@ -445,9 +443,9 @@ class TestPreserveNetcdfMetadataSelfHeal:
             "fake": [],
         }
         rewrapped = var._preserve_netcdf_metadata(var)
-        assert (
-            rewrapped._band_dim_values is None
-        ), f"self-heal injected a stale list: {rewrapped._band_dim_values!r}"
+        assert rewrapped._band_dim_values is None, (
+            f"self-heal injected a stale list: {rewrapped._band_dim_values!r}"
+        )
 
 
 def _make_4d_writable_nc():
@@ -537,6 +535,5 @@ class TestSel4DRoundTrip:
             f"_band_dim_name={reloaded._band_dim_name!r}"
         )
         assert reloaded.read_array().shape[-2:] == (NY, NX), (
-            f"spatial shape regressed after round-trip: "
-            f"{reloaded.read_array().shape}"
+            f"spatial shape regressed after round-trip: {reloaded.read_array().shape}"
         )

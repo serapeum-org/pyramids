@@ -69,12 +69,12 @@ class TestEngineWiring:
         """
         assert isinstance(mdim_container.interop, Interop), "interop engine missing"
         assert isinstance(mdim_container.varops, Variables), "varops engine missing"
-        assert isinstance(
-            mdim_container.selection, Selection
-        ), "selection engine missing"
-        assert not isinstance(
-            mdim_container.variables, Variables
-        ), "`variables` must stay the read-side property, not the engine"
+        assert isinstance(mdim_container.selection, Selection), (
+            "selection engine missing"
+        )
+        assert not isinstance(mdim_container.variables, Variables), (
+            "`variables` must stay the read-side property, not the engine"
+        )
 
     def test_engine_back_reference_points_at_owner(self, mdim_container):
         """Each engine's weakref back-reference resolves to its owning container.
@@ -88,9 +88,9 @@ class TestEngineWiring:
             mdim_container.varops,
             mdim_container.selection,
         ):
-            assert (
-                engine._ds.file_name == mdim_container.file_name
-            ), "engine back-reference does not resolve to its owner"
+            assert engine._ds.file_name == mdim_container.file_name, (
+                "engine back-reference does not resolve to its owner"
+            )
 
     def test_engines_rebind_after_inplace_update(self):
         """The netcdf engines are re-bound after an in-place state swap.
@@ -268,9 +268,9 @@ class TestVariablesEngine:
             variable_name="w",
             extra_dims=[("lev", None)],
         )
-        assert (
-            "w" in nc.variable_names
-        ), "variable not created with None-filled dim values"
+        assert "w" in nc.variable_names, (
+            "variable not created with None-filled dim values"
+        )
 
     def test_create_from_array_corner_and_cell_size(self):
         """``create_from_array`` builds ``geo`` from ``top_left_corner`` + ``cell_size``.

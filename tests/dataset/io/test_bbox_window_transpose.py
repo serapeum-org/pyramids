@@ -118,9 +118,9 @@ class TestBboxWindowNonSquare:
         fc = FeatureCollection.from_bbox(bbox, epsg=4326)
         xoff, yoff, x_size, y_size = non_square_raster.io._convert_polygon_to_window(fc)
         assert [xoff, yoff, x_size, y_size] == [10, 2, 20, 6]
-        assert (
-            x_size > y_size
-        ), "this bbox is wider than it is tall; x_size must exceed y_size"
+        assert x_size > y_size, (
+            "this bbox is wider than it is tall; x_size must exceed y_size"
+        )
 
     def test_wide_bbox_read_matches_independent_cover_slice(self, non_square_raster):
         """A wider-than-tall bbox reads the geotransform-derived sub-window, not its transpose.
@@ -134,12 +134,12 @@ class TestBboxWindowNonSquare:
         full = np.squeeze(np.asarray(non_square_raster.read_array()))
         expected = full[yoff : yoff + y_size, xoff : xoff + x_size]
         got = np.squeeze(np.asarray(non_square_raster.read_array(bbox=list(bbox))))
-        assert (
-            got.shape == expected.shape
-        ), f"transposed: got {got.shape}, expected {expected.shape}"
-        assert (
-            got.shape[0] < got.shape[1]
-        ), "this bbox is wider than it is tall; rows must be < cols"
+        assert got.shape == expected.shape, (
+            f"transposed: got {got.shape}, expected {expected.shape}"
+        )
+        assert got.shape[0] < got.shape[1], (
+            "this bbox is wider than it is tall; rows must be < cols"
+        )
         np.testing.assert_array_equal(got, expected)
 
     def test_tall_bbox_read_is_not_transposed(self, non_square_raster):
@@ -153,12 +153,12 @@ class TestBboxWindowNonSquare:
         full = np.squeeze(np.asarray(non_square_raster.read_array()))
         expected = full[yoff : yoff + y_size, xoff : xoff + x_size]
         got = np.squeeze(np.asarray(non_square_raster.read_array(bbox=list(bbox))))
-        assert (
-            got.shape == expected.shape
-        ), f"transposed: got {got.shape}, expected {expected.shape}"
-        assert (
-            got.shape[0] > got.shape[1]
-        ), "this bbox is taller than it is wide; rows must be > cols"
+        assert got.shape == expected.shape, (
+            f"transposed: got {got.shape}, expected {expected.shape}"
+        )
+        assert got.shape[0] > got.shape[1], (
+            "this bbox is taller than it is wide; rows must be > cols"
+        )
         np.testing.assert_array_equal(got, expected)
 
     def test_polygon_window_matches_bbox_and_oracle(self, non_square_raster):

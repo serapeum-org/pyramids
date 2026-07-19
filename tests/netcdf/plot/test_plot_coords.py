@@ -60,9 +60,9 @@ class TestNetCDFPlotCoordAxes:
         """
         nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m", coords=("t2m", "t2m"))
-        assert isinstance(
-            result, ArrayGlyph
-        ), f"Expected ArrayGlyph from valid-coords render, got {type(result).__name__}"
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph from valid-coords render, got {type(result).__name__}"
+        )
 
 
 class TestNetCDFPlotCoordAxesExtra:
@@ -73,9 +73,9 @@ class TestNetCDFPlotCoordAxesExtra:
         nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"coords x=") as exc_info:
             nc.plot(variable="t2m", coords=("bogus", "t2m"))
-        assert "bogus" in str(
-            exc_info.value
-        ), f"Error must echo the bad name, got: {exc_info.value}"
+        assert "bogus" in str(exc_info.value), (
+            f"Error must echo the bad name, got: {exc_info.value}"
+        )
 
     def test_coords_pair_both_valid_renders(self):
         """`coords=(<valid>, <valid>)` passes validation and renders.
@@ -180,9 +180,9 @@ class TestCurvilinearCoords:
         assert cleo.coords is not None, "curvilinear coords must reach cleopatra"
         assert cleo.coords[0].shape == (6, 7)
         assert cleo.coords[1].shape == (6, 7)
-        assert (
-            cleo.extent is None
-        ), "extent must be suppressed when curvilinear coords are present"
+        assert cleo.extent is None, (
+            "extent must be suppressed when curvilinear coords are present"
+        )
 
     def test_wrapping_curvilinear_grid_has_no_antimeridian_smear(self):
         """A real 0-360 wrapping curvilinear grid renders without a seam smear (#669).
@@ -438,7 +438,9 @@ class TestCurvilinearCoordsEdges:
             "don't match the data slice shape" in r.getMessage()
             and r.levelno == logging.WARNING
             for r in caplog.records
-        ), f"expected a shape-mismatch WARNING, got: {[r.getMessage() for r in caplog.records]}"
+        ), (
+            f"expected a shape-mismatch WARNING, got: {[r.getMessage() for r in caplog.records]}"
+        )
 
     def test_cf_coordinates_lon_then_lat(self):
         """CF `coordinates="XLONG XLAT"` (lon-first) still resolves the pair.
@@ -456,9 +458,9 @@ class TestCurvilinearCoordsEdges:
             cf_attr="XLONG XLAT",
         )
         cleo = nc.plot(variable="CANWAT")
-        assert (
-            cleo.coords is not None
-        ), "lon-first CF attribute must still resolve curvilinear coords"
+        assert cleo.coords is not None, (
+            "lon-first CF attribute must still resolve curvilinear coords"
+        )
         assert cleo.coords[0].shape == (
             5,
             6,
@@ -478,9 +480,9 @@ class TestCurvilinearCoordsEdges:
             cf_attr="XLAT XLONG",
         )
         cleo = nc.plot(variable="CANWAT")
-        assert (
-            cleo.coords is not None
-        ), "lat-first CF attribute must still resolve curvilinear coords"
+        assert cleo.coords is not None, (
+            "lat-first CF attribute must still resolve curvilinear coords"
+        )
         assert cleo.coords[0].shape == (
             5,
             6,
@@ -599,12 +601,12 @@ class TestCurvilinearCoordsEdges:
         nc.__class__ = subcls
 
         cleo = nc.plot(variable="CANWAT")
-        assert (
-            cleo.coords is None
-        ), "Wrong-shape CF coords must be skipped (no crash); got coords"
-        assert (
-            cleo.extent is not None
-        ), "Renderer must fall back to extent when CF coords don't fit"
+        assert cleo.coords is None, (
+            "Wrong-shape CF coords must be skipped (no crash); got coords"
+        )
+        assert cleo.extent is not None, (
+            "Renderer must fall back to extent when CF coords don't fit"
+        )
 
     def test_explicit_coords_missing_variable_name_raises(self):
         """`coords=("missing", "XLAT")` references a non-variable name.
@@ -619,9 +621,9 @@ class TestCurvilinearCoordsEdges:
         nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
         with pytest.raises(ValueError, match=r"missing") as exc_info:
             nc.plot(variable="CANWAT", coords=("missing", "XLAT"))
-        assert "Available" in str(
-            exc_info.value
-        ), f"Error must list available variables, got: {exc_info.value}"
+        assert "Available" in str(exc_info.value), (
+            f"Error must list available variables, got: {exc_info.value}"
+        )
 
     def test_explicit_coords_mixed_string_array_forms(self):
         """`coords=(name, array)` mixed-form is accepted.
@@ -668,9 +670,9 @@ class TestCurvilinearCoordsEdges:
         """
         nc = make_plot_3d_nc()
         cleo = nc.plot(variable="t2m", kind="auto")
-        assert (
-            cleo.coords is None
-        ), "Regular grid + kind='auto' should keep coords None (imshow path)"
+        assert cleo.coords is None, (
+            "Regular grid + kind='auto' should keep coords None (imshow path)"
+        )
         assert cleo.extent is not None, "Imshow path must carry an extent"
 
     def test_kind_pcolormesh_without_explicit_coords_renders(self):
@@ -684,9 +686,9 @@ class TestCurvilinearCoordsEdges:
         """
         nc = make_plot_3d_nc()
         cleo = nc.plot(variable="t2m", kind="pcolormesh")
-        assert isinstance(
-            cleo, ArrayGlyph
-        ), "kind='pcolormesh' without coords must still produce an ArrayGlyph"
+        assert isinstance(cleo, ArrayGlyph), (
+            "kind='pcolormesh' without coords must still produce an ArrayGlyph"
+        )
 
     def test_coords_1d_x_1d_y_correct_lengths(self):
         """`coords=(1D x of len cols, 1D y of len rows)` is accepted.
@@ -702,12 +704,12 @@ class TestCurvilinearCoordsEdges:
         y_1d = np.linspace(0.0, 1.0, 5, dtype=np.float32)
         cleo = nc.plot(variable="CANWAT", coords=(x_1d, y_1d))
         assert cleo.coords is not None
-        assert cleo.coords[0].shape == (
-            6,
-        ), f"x should be 1-D of length 6, got {cleo.coords[0].shape}"
-        assert cleo.coords[1].shape == (
-            5,
-        ), f"y should be 1-D of length 5, got {cleo.coords[1].shape}"
+        assert cleo.coords[0].shape == (6,), (
+            f"x should be 1-D of length 6, got {cleo.coords[0].shape}"
+        )
+        assert cleo.coords[1].shape == (5,), (
+            f"y should be 1-D of length 5, got {cleo.coords[1].shape}"
+        )
 
     def test_coords_1d_swapped_lengths_falls_back_to_extent(self):
         """`coords=(1D x of len rows, 1D y of len cols)` shapes mismatch.
@@ -724,9 +726,9 @@ class TestCurvilinearCoordsEdges:
         x_wrong = np.linspace(-1.0, 1.0, 5, dtype=np.float32)
         y_wrong = np.linspace(0.0, 1.0, 6, dtype=np.float32)
         cleo = nc.plot(variable="t2m", coords=(x_wrong, y_wrong))
-        assert (
-            cleo.coords is None
-        ), "Swapped-length 1-D coords must skip and fall back to extent"
+        assert cleo.coords is None, (
+            "Swapped-length 1-D coords must skip and fall back to extent"
+        )
         assert cleo.extent is not None
 
     def test_coords_2d_x_1d_y_mixed_dims_accepted(self):
