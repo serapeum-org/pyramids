@@ -41,60 +41,18 @@ repos:
       - id: check-yaml
         name: "[yaml -  check] validate yaml"
         exclude: mkdocs\.yml
-  - repo: https://github.com/asottile/pyupgrade
-    rev: v3.21.2
+  # Ruff replaces black + isort + flake8 + pyupgrade and their nbqa notebook
+  # wrappers. One engine and one line-length ruler mean the formatter and the
+  # import sorter can't disagree the way black and isort did (a long trailing
+  # comment on an import). Ruff lints and formats both .py and .ipynb natively.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.22
     hooks:
-      -   id: pyupgrade
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.3.0
-    hooks:
-      - id: flake8
-        additional_dependencies: [Flake8-pyproject]
-        name: "[py   - check] flake8"
-        exclude: ^(examples/|tests/)
-#   - repo: https://github.com/pycqa/docformatter
-#     rev: v1.4
-#     hooks:
-#      - id: docformatter
-#        name: "[py   - format] docformatter"
-#        description: 'Formats docstrings to follow PEP 257.'
-#        entry: docformatter
-#        args: [-i]
-#        language: python
-#        types: [python]
-#   - repo: https://github.com/pycqa/pydocstyle
-#     rev: 6.3.0
-#     hooks:
-#       - id: pydocstyle
-#         name: "[py   - check] pydocstyle"
-#         files: ^hydrolib/.*\.py$
-  - repo: https://github.com/pycqa/isort
-    rev: 9.0.0b1
-    hooks:
-      - id: isort
-        name: "[py   - format] isort"
-  - repo: https://github.com/psf/black
-    rev: 26.5.1
-    hooks:
-      - id: black
-
-  # Run the same Python linters / formatters on notebook code cells.
-  # nbqa wraps each tool so it sees only the code cells and does not
-  # touch the surrounding JSON envelope (cell metadata, outputs,
-  # kernel info).
-  - repo: https://github.com/nbQA-dev/nbQA
-    rev: 1.9.1
-    hooks:
-      - id: nbqa-pyupgrade
-        name: "[ipynb - format] pyupgrade"
-      - id: nbqa-isort
-        name: "[ipynb - format] isort"
-      - id: nbqa-black
-        name: "[ipynb - format] black"
-      - id: nbqa-flake8
-        name: "[ipynb -   lint] flake8"
-        additional_dependencies: [Flake8-pyproject]
-        exclude: ^(examples/|tests/)
+      - id: ruff-check
+        name: "[py   -   lint] ruff"
+        args: [--fix]
+      - id: ruff-format
+        name: "[py   - format] ruff-format"
 
   - repo: https://github.com/lovesegfault/beautysh
     rev: v6.4.3

@@ -162,54 +162,39 @@ pyramids = [
     "_licenses/**/*",
 ]
 
-# extend-ignore (NOT ignore) so flake8's default-ignore list is preserved —
-# that default list already silences the black-conflict codes E704/W503/W504.
-# E203, E701 are Black's officially recommended flake8 ignores; the rest are
-# project style choices. See:
-# https://black.readthedocs.io/en/stable/guides/using_black_with_other_tools.html
-[tool.flake8]
-extend-ignore = ["E203", "E226", "E266", "E501", "E701", "E704", "E722", "C901", "E741", "E731", "W503"]
-max-line-length = 88
-max-complexity = 18
-# extend-select (not bare select) so flake8's default-ignore list — which turns off the
-# black-conflict codes E226/W503/W504/E121/E123/E126 — is preserved instead of replaced.
-extend-select = "B,C,E,F,W,T4"
-
-[tool.black]
+# Ruff replaces black + isort + flake8 + pyupgrade (and their nbqa notebook
+# wrappers) with one tool. Because a single engine formats and sorts imports
+# against one line-length, the formatter and the import sorter cannot disagree the
+# way black and isort did — a long trailing comment on an import made black wrap the
+# line while isort collapsed it, an endless loop. Ruff lints and formats both .py
+# and .ipynb natively, so the nbqa wrappers are gone too.
+[tool.ruff]
 line-length = 88
-skip-string-normalization = true
-# Pin the target so black doesn't infer py315 from requires-python's "<4" bound.
-# Capped at py312 (not py314) because black uses the MAX target for its AST safety
-# check, and the pre-commit black hooks run under Python 3.12 — a higher max would
-# make black skip that check and warn. The formatted output is identical for the
-# codebase either way; target-version only gates *newer* syntax choices.
-target-version = ["py311", "py312"]
+target-version = "py311"  # requires-python floors at 3.11
 
-[tool.isort]
-profile = "black"
-line_length = 88
-multi_line_output = 3
+[tool.ruff.format]
+# black had skip-string-normalization = true → preserve existing quotes.
+quote-style = "preserve"
 
-# nbqa runs flake8 on notebook code cells. Tutorial notebooks intentionally place
-# imports next to where they are first used (teaching in context), and setup such as
-# `%matplotlib inline` must run before imports — both legitimately trip E402. E402
-# stays enforced for real .py modules; it is ignored only for notebooks here.
-[tool.nbqa.addopts]
-# nbqa runs flake8 on a temp file, so flake8 does NOT discover this pyproject's
-# [tool.flake8] config — pass the same ignores explicitly here (E402 is the extra,
-# notebook-only rule for imports-near-usage). Keep in sync with [tool.flake8].extend-ignore.
-flake8 = [
-    "--extend-ignore=E203,E226,E266,E402,E501,E701,E704,E722,C901,E741,E731,W503",
-    "--max-line-length=88",
-]
-# nbqa runs black on a temp file too, so pass black's config explicitly (same reason
-# as flake8): honor skip-string-normalization and the pinned target range so black
-# doesn't infer py315 and skip its safety check.
-black = [
-    "--skip-string-normalization",
-    "--target-version=py311",
-    "--target-version=py312",
-]
+[tool.ruff.lint]
+# The *effective* flake8 rule set today is E/F/W: the old config's B and T4 selectors
+# were inert (flake8-bugbear / flake8-print were never installed). Add I (isort) and
+# UP (pyupgrade) to fold in those two standalone hooks.
+select = ["E", "F", "W", "I", "UP"]
+# Mirror the old [tool.flake8].extend-ignore. E704 and W503 are dropped — ruff does not
+# implement either (both are formatter-owned pycodestyle codes black conflicts with), so
+# there is nothing to ignore. E121/E123/E126 likewise need no entry: the ruff formatter
+# owns continuation-line indentation.
+ignore = ["E203", "E226", "E266", "E501", "E701", "E722", "C901", "E741", "E731"]
+
+[tool.ruff.lint.per-file-ignores]
+# flake8 excluded examples/ and tests/ from linting while isort/black/pyupgrade ran
+# everywhere — keep import-sorting + pyupgrade there but drop the style/lint codes.
+"tests/**" = ["E", "F", "W"]
+"examples/**" = ["E", "F", "W"]
+# Tutorial notebooks import next to first use and run setup (e.g. `%matplotlib inline`)
+# before imports — both legitimately trip E402, which stays enforced for real modules.
+"*.ipynb" = ["E402"]
 
 [tool.bandit]
 # ci/ holds non-shipped build tooling (like scripts/) — its subprocess/urllib
