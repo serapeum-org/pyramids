@@ -38,7 +38,14 @@ esac
 
 # Cross-compile when the target arch differs from the build host (macOS
 # x86_64 wheels built on the arm64 runner). Normalize x86_64/amd64 spelling.
-_norm_arch() { local arch="$1"; case "${arch}" in x86_64|amd64|AMD64) echo x86_64 ;; arm64|aarch64) echo arm64 ;; *) echo "${arch}" ;; esac; }
+_norm_arch() {
+    local arch="$1"
+    case "${arch}" in
+        x86_64 | amd64 | AMD64) echo x86_64 ;;
+        arm64 | aarch64) echo arm64 ;;
+        *) echo "${arch}" ;;
+    esac
+}
 CROSS=0
 [[ "$(_norm_arch "${TARGET_ARCH}")" != "$(_norm_arch "${HOST_ARCH}")" ]] && CROSS=1
 
@@ -120,7 +127,7 @@ if [[ -n "${_expected_sha}" ]]; then
     echo "build-icu-min-data: ICU source SHA256 verified"
 elif [[ "${PYRAMIDS_ICU_ALLOW_UNPINNED:-0}" == "1" ]]; then
     echo "build-icu-min-data: WARNING no pinned SHA256 for ICU ${icu_ver}; source unverified" \
-         "(PYRAMIDS_ICU_ALLOW_UNPINNED=1)" >&2
+        "(PYRAMIDS_ICU_ALLOW_UNPINNED=1)" >&2
 else
     # No pin for this ICU version (e.g. an ICU bump). Refuse to compile an
     # unverified source tarball into the shipped wheel. Pin the new hash in
