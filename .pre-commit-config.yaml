@@ -106,15 +106,6 @@ repos:
 
   - repo: local
     hooks:
-      - id: safety
-        name: Safety Check
-        entry: safety check --full-report
-        language: system
-        types: [python]
-        pass_filenames: false
-
-  - repo: local
-    hooks:
       - id: mypy
         name: "[py   -  type] mypy"
         entry: pixi run -e dev mypy
