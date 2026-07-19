@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../../_images/branding/logo-layers-v2.svg">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -7757,8 +7757,7 @@ user input.</p>
 <span class="normal"><a href="#__codelineno-0-718">718</a></span>
 <span class="normal"><a href="#__codelineno-0-719">719</a></span>
 <span class="normal"><a href="#__codelineno-0-720">720</a></span>
-<span class="normal"><a href="#__codelineno-0-721">721</a></span>
-<span class="normal"><a href="#__codelineno-0-722">722</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-638" name="__codelineno-0-638"></a><span class="k">def</span><span class="w"> </span><span class="nf">reproject_coordinates</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-721">721</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-638" name="__codelineno-0-638"></a><span class="k">def</span><span class="w"> </span><span class="nf">reproject_coordinates</span><span class="p">(</span>
 <a id="__codelineno-0-639" name="__codelineno-0-639"></a>    <span class="n">x</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
 <a id="__codelineno-0-640" name="__codelineno-0-640"></a>    <span class="n">y</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
 <a id="__codelineno-0-641" name="__codelineno-0-641"></a>    <span class="o">*</span><span class="p">,</span>
@@ -7823,26 +7822,25 @@ user input.</p>
 <a id="__codelineno-0-700" name="__codelineno-0-700"></a><span class="sd">    &quot;&quot;&quot;</span>
 <a id="__codelineno-0-701" name="__codelineno-0-701"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">):</span>
 <a id="__codelineno-0-702" name="__codelineno-0-702"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-703" name="__codelineno-0-703"></a>            <span class="sa">f</span><span class="s2">&quot;x and y must have equal length; got len(x)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="si">}</span><span class="s2"> &quot;</span>
-<a id="__codelineno-0-704" name="__codelineno-0-704"></a>            <span class="sa">f</span><span class="s2">&quot;vs. len(y)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span>
-<a id="__codelineno-0-705" name="__codelineno-0-705"></a>        <span class="p">)</span>
-<a id="__codelineno-0-706" name="__codelineno-0-706"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-707" name="__codelineno-0-707"></a>        <span class="n">transformer</span> <span class="o">=</span> <span class="n">Transformer</span><span class="o">.</span><span class="n">from_crs</span><span class="p">(</span><span class="n">from_crs</span><span class="p">,</span> <span class="n">to_crs</span><span class="p">,</span> <span class="n">always_xy</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-708" name="__codelineno-0-708"></a>    <span class="k">except</span> <span class="p">(</span><span class="n">pyproj</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CRSError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-<a id="__codelineno-0-709" name="__codelineno-0-709"></a>        <span class="k">raise</span> <span class="n">CRSError</span><span class="p">(</span>
-<a id="__codelineno-0-710" name="__codelineno-0-710"></a>            <span class="sa">f</span><span class="s2">&quot;reproject_coordinates failed to parse CRS &quot;</span>
-<a id="__codelineno-0-711" name="__codelineno-0-711"></a>            <span class="sa">f</span><span class="s2">&quot;(from_crs=</span><span class="si">{</span><span class="n">from_crs</span><span class="si">!r}</span><span class="s2">, to_crs=</span><span class="si">{</span><span class="n">to_crs</span><span class="si">!r}</span><span class="s2">): </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-712" name="__codelineno-0-712"></a>        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-<a id="__codelineno-0-713" name="__codelineno-0-713"></a>    <span class="n">xs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
-<a id="__codelineno-0-714" name="__codelineno-0-714"></a>    <span class="n">ys</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
-<a id="__codelineno-0-715" name="__codelineno-0-715"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)):</span>
-<a id="__codelineno-0-716" name="__codelineno-0-716"></a>        <span class="n">nx</span><span class="p">,</span> <span class="n">ny</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">y</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
-<a id="__codelineno-0-717" name="__codelineno-0-717"></a>        <span class="k">if</span> <span class="n">precision</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-718" name="__codelineno-0-718"></a>            <span class="n">nx</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">nx</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span>
-<a id="__codelineno-0-719" name="__codelineno-0-719"></a>            <span class="n">ny</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">ny</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span>
-<a id="__codelineno-0-720" name="__codelineno-0-720"></a>        <span class="n">xs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">nx</span>
-<a id="__codelineno-0-721" name="__codelineno-0-721"></a>        <span class="n">ys</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">ny</span>
-<a id="__codelineno-0-722" name="__codelineno-0-722"></a>    <span class="k">return</span> <span class="n">xs</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="n">ys</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+<a id="__codelineno-0-703" name="__codelineno-0-703"></a>            <span class="sa">f</span><span class="s2">&quot;x and y must have equal length; got len(x)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="si">}</span><span class="s2"> vs. len(y)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span>
+<a id="__codelineno-0-704" name="__codelineno-0-704"></a>        <span class="p">)</span>
+<a id="__codelineno-0-705" name="__codelineno-0-705"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-706" name="__codelineno-0-706"></a>        <span class="n">transformer</span> <span class="o">=</span> <span class="n">Transformer</span><span class="o">.</span><span class="n">from_crs</span><span class="p">(</span><span class="n">from_crs</span><span class="p">,</span> <span class="n">to_crs</span><span class="p">,</span> <span class="n">always_xy</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-707" name="__codelineno-0-707"></a>    <span class="k">except</span> <span class="p">(</span><span class="n">pyproj</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CRSError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-0-708" name="__codelineno-0-708"></a>        <span class="k">raise</span> <span class="n">CRSError</span><span class="p">(</span>
+<a id="__codelineno-0-709" name="__codelineno-0-709"></a>            <span class="sa">f</span><span class="s2">&quot;reproject_coordinates failed to parse CRS &quot;</span>
+<a id="__codelineno-0-710" name="__codelineno-0-710"></a>            <span class="sa">f</span><span class="s2">&quot;(from_crs=</span><span class="si">{</span><span class="n">from_crs</span><span class="si">!r}</span><span class="s2">, to_crs=</span><span class="si">{</span><span class="n">to_crs</span><span class="si">!r}</span><span class="s2">): </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-711" name="__codelineno-0-711"></a>        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+<a id="__codelineno-0-712" name="__codelineno-0-712"></a>    <span class="n">xs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+<a id="__codelineno-0-713" name="__codelineno-0-713"></a>    <span class="n">ys</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+<a id="__codelineno-0-714" name="__codelineno-0-714"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)):</span>
+<a id="__codelineno-0-715" name="__codelineno-0-715"></a>        <span class="n">nx</span><span class="p">,</span> <span class="n">ny</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">y</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+<a id="__codelineno-0-716" name="__codelineno-0-716"></a>        <span class="k">if</span> <span class="n">precision</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-717" name="__codelineno-0-717"></a>            <span class="n">nx</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">nx</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span>
+<a id="__codelineno-0-718" name="__codelineno-0-718"></a>            <span class="n">ny</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">ny</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span>
+<a id="__codelineno-0-719" name="__codelineno-0-719"></a>        <span class="n">xs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">nx</span>
+<a id="__codelineno-0-720" name="__codelineno-0-720"></a>        <span class="n">ys</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">ny</span>
+<a id="__codelineno-0-721" name="__codelineno-0-721"></a>    <span class="k">return</span> <span class="n">xs</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="n">ys</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7962,7 +7960,7 @@ user input.</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.tracking", "navigation.footer", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "content.code.copy", "content.code.annotate", "content.action.edit", "content.action.view", "content.tooltips", "search.highlight", "search.suggest", "toc.follow", "announce.dismiss"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="../../../assets/javascripts/panzoom.min.js"></script>
       
