@@ -40,7 +40,8 @@ import math
 import operator
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
 from osgeo import osr
@@ -110,7 +111,7 @@ def _bbox_disjoint(a, b) -> bool:
     """
     aminx, aminy, amaxx, amaxy = a
     bminx, bminy, bmaxx, bmaxy = b
-    return aminx >= bmaxx or amaxx <= bminx or aminy >= bmaxy or amaxy <= bminy
+    return bool(aminx >= bmaxx or amaxx <= bminx or aminy >= bmaxy or amaxy <= bminy)
 
 
 _HELP_INSPECT_RASTER = "raster path to inspect"
@@ -394,7 +395,7 @@ def _cmd_orthorectify(args: argparse.Namespace) -> int:
     return 0
 
 
-_CALC_BINOPS = {
+_CALC_BINOPS: dict[type[ast.operator], Callable[[Any, Any], Any]] = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
@@ -403,8 +404,11 @@ _CALC_BINOPS = {
     ast.Mod: operator.mod,
     ast.FloorDiv: operator.floordiv,
 }
-_CALC_UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
-_CALC_COMPARE = {
+_CALC_UNARYOPS: dict[type[ast.unaryop], Callable[[Any], Any]] = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+_CALC_COMPARE: dict[type[ast.cmpop], Callable[[Any, Any], Any]] = {
     ast.Lt: operator.lt,
     ast.Gt: operator.gt,
     ast.LtE: operator.le,
@@ -1007,7 +1011,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
-        result = args.func(args)
+        result: int = args.func(args)
     except (
         ValueError,
         TypeError,

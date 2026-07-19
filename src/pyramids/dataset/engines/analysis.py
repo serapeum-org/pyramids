@@ -1997,7 +1997,7 @@ class Analysis(_Engine["Dataset"]):
             result = np.asarray(lazy[band].compute())
         else:
             result = np.asarray(lazy.compute())
-        return result
+        return cast(np.ndarray, result)
 
     @staticmethod
     def _process_color_table(color_table: DataFrame) -> DataFrame:

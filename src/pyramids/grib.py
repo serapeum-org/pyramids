@@ -18,7 +18,7 @@ from __future__ import annotations
 import warnings
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from osgeo import gdal
 
@@ -255,7 +255,7 @@ def _match_grib_element(metadata: list[dict[str, Any]], variable: str) -> int:
         m for m in metadata if (m.get("element") or "").strip().upper() == wanted
     ]
     if not matches:
-        elements = sorted({m.get("element") for m in metadata if m.get("element")})
+        elements = sorted({m["element"] for m in metadata if m.get("element")})
         raise ValueError(
             f"No GRIB message with element {variable!r}; "
             f"available elements: {elements}."
@@ -266,7 +266,7 @@ def _match_grib_element(metadata: list[dict[str, Any]], variable: str) -> int:
             f"using the first (band {matches[0]['band']}).",
             stacklevel=4,
         )
-    return matches[0]["band"] - 1
+    return cast(int, matches[0]["band"]) - 1
 
 
 def grib_to_cog(
@@ -331,10 +331,13 @@ def grib_to_cog(
     """
     with open_grib(grib_path, vsi=vsi) as dataset:
         band_index = _select_grib_band(grib_band_metadata(dataset), variable)
-        result = dataset.to_cog(
-            output,
-            indexes=[band_index],
-            profile=cog_profile,
-            target_srs=target_crs,
+        result = cast(
+            Path,
+            dataset.to_cog(
+                output,
+                indexes=[band_index],
+                profile=cog_profile,
+                target_srs=target_crs,
+            ),
         )
     return result

@@ -14,7 +14,7 @@ The geotransform is stored as a plain 6-tuple and the CRS as a
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from pyproj import CRS
@@ -118,7 +118,10 @@ class RasterMeta:
         Returns:
             RasterMeta: Immutable copy of `ds`'s geobox + dtype + nodata.
         """
-        transform = tuple(float(v) for v in ds.geotransform)
+        transform = cast(
+            tuple[float, float, float, float, float, float],
+            tuple(float(v) for v in ds.geotransform),
+        )
         crs = CRS.from_epsg(int(ds.epsg)) if ds.epsg else CRS.from_wkt(ds.crs)
         nodata_raw = tuple(ds.no_data_value) if ds.no_data_value else ()
         nodata = tuple(None if v is None else float(v) for v in nodata_raw)

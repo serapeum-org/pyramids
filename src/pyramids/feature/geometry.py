@@ -25,7 +25,7 @@ exposes the explode logic as an instance method).
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 import geopandas as gpd
 import pandas as pd
@@ -646,7 +646,7 @@ def polygon_wkt(coords: list[tuple[float, float]]) -> str:
 
             ```
     """
-    return Polygon(coords).wkt
+    return cast(str, Polygon(coords).wkt)
 
 
 def create_points(coords: Iterable[tuple[float, ...]]) -> list[Point]:
@@ -819,7 +819,7 @@ class Coords:
 
                 ```
         """
-        return create_polygon(self._coords)
+        return create_polygon(cast(list[tuple[float, float]], self._coords))
 
     def to_polygon_wkt(self) -> str:
         """Return the WKT string of the polygon built from the coords.
@@ -836,7 +836,7 @@ class Coords:
 
                 ```
         """
-        return polygon_wkt(self._coords)
+        return polygon_wkt(cast(list[tuple[float, float]], self._coords))
 
     def to_points(self) -> list[Point]:
         """Build a list of :class:`shapely.Point` from the wrapped coords.

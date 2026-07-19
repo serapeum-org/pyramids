@@ -457,11 +457,16 @@ class NetCDF(Dataset):
 
     # NetCDF-only instance attributes assigned outside ``__init__``: the
     # temp-file path tracked for an xarray round-trip (set by the interop
-    # engine) and the 2-D curvilinear coordinate windows carried on a
+    # engine), the 2-D curvilinear coordinate windows carried on a
     # cropped subset (set by the selection engine, read defensively via
-    # ``getattr`` in the plot engine).
+    # ``getattr`` in the plot engine), and the weak set of lazy-read file
+    # managers created on first use by ``_register_lazy_manager``. The
+    # latter is a declaration only — no class-level value — so a fresh
+    # instance still reports "nothing tracked yet" through the
+    # ``getattr(owner, "_lazy_managers", ...)`` lookups that read it.
     _xarray_temp_path: str
     _curvilinear_coords: tuple[Any, Any] | None
+    _lazy_managers: weakref.WeakSet[Any]
 
     def __reduce__(self):  # type: ignore[override]
         """Emit the extended recipe tuple carrying NetCDF mode flags.
@@ -969,7 +974,10 @@ class NetCDF(Dataset):
         # ignores SetGeoTransform -- but every read and warp then went through that VRT, which was
         # ~20x slower than reading the view directly and, over a Y-reversed view, raised
         # "arrayStartIdx[...] >= <dim>" on each windowed block.
-        self._geotransform = correct
+        # `_classic_geotransform` returns GDAL's 6-element affine as an unsized `tuple[float, ...]`.
+        self._geotransform = cast(
+            "tuple[float, float, float, float, float, float]", correct
+        )
         # The classic driver describes the grid as *it* stores it: it flips a bottom-up Y but never
         # reverses X, emitting a negative gt[1] instead. Re-anchor the adopted affine for whichever
         # axes _read_md_array actually reversed, or the metre grid would describe the pre-flip array

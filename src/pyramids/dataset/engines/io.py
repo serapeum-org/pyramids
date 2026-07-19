@@ -1516,8 +1516,9 @@ class IO(_Engine["Dataset"]):
             # partly-covered boundary pixel.
             cols = [round(value) for value in cols]
             rows = [round(value) for value in rows]
-            xoff, x_far = min(cols), max(cols)
-            yoff, y_far = min(rows), max(rows)
+            # Already whole numbers after `round`; `int` only restates that for the checker.
+            xoff, x_far = int(min(cols)), int(max(cols))
+            yoff, y_far = int(min(rows)), int(max(rows))
         # A sub-pixel bbox (or a degenerate zero-width/height polygon) can collapse to a zero-size
         # window -- read at least the single cell it falls in rather than an empty array.
         x_far = max(x_far, xoff + 1)

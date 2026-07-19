@@ -31,7 +31,7 @@ import warnings
 from collections.abc import Callable, Iterable
 from numbers import Number
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlencode
 
 if TYPE_CHECKING:
@@ -271,7 +271,7 @@ class FeatureCollection(GeoDataFrame):
         """
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:
         """Exit the context-managed block. Calls :meth:`close`.
 
         Args:
@@ -280,8 +280,9 @@ class FeatureCollection(GeoDataFrame):
             tb: Traceback for the raised exception, else `None`.
 
         Returns:
-            bool: Always `False` — exceptions from inside the `with`
-            block propagate to the caller rather than being swallowed.
+            Literal[False]: Always `False` — exceptions from inside the
+            `with` block propagate to the caller rather than being
+            swallowed.
 
         Examples:
             - The clean-exit path returns `False` so nothing is swallowed:
@@ -600,7 +601,9 @@ class FeatureCollection(GeoDataFrame):
         See Also:
             - :meth:`pyramids.dataset.Dataset.get_cell_polygons`: the raster-aligned grid-cell equivalent.
         """
-        polygons, rows, cols = _tess.fishnet_cells(bounds, cell_size)
+        polygons, rows, cols = _tess.fishnet_cells(
+            cast(tuple[float, float, float, float], bounds), cell_size
+        )
         return cls(
             gpd.GeoDataFrame({"row": rows, "col": cols}, geometry=polygons, crs=crs)
         )
@@ -916,7 +919,7 @@ class FeatureCollection(GeoDataFrame):
             if python_bbox is not None and len(gdf_chunk) > 0:
                 xmin, ymin, xmax, ymax = python_bbox
                 mask = gdf_chunk.intersects(box(xmin, ymin, xmax, ymax))
-                if include_index:
+                if row_indices is not None:
                     row_indices = [ri for ri, keep in zip(row_indices, mask) if keep]
                 gdf_chunk = gdf_chunk[mask]
             yield from cls._emit_features(
@@ -970,7 +973,7 @@ class FeatureCollection(GeoDataFrame):
         """
         if chunksize is None:
             iterator = gdf_chunk.iterfeatures(na="null")
-            if include_index:
+            if include_index and row_indices is not None:
                 for ri, feat in zip(row_indices, iterator):
                     feat["id"] = ri
                     yield feat
@@ -1327,7 +1330,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        return self.columns.tolist()
+        return cast(list[str], self.columns.tolist())
 
     def __str__(self) -> str:
         """Return a short, pyramids-branded summary of the collection."""
@@ -3495,7 +3498,9 @@ class FeatureCollection(GeoDataFrame):
         cells = self._h3_cells(resolution, "h3_bin")
         if column is None:
             counts = pd.Series(cells, dtype="object").value_counts()
-            items = [(cell, int(n)) for cell, n in counts.items()]
+            items: list[tuple[Any, float]] = [
+                (cell, int(n)) for cell, n in counts.items()
+            ]
             name = "count"
         else:
             reducer = _tess.resolve_reducer(agg)

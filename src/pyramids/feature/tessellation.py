@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from shapely import voronoi_polygons
@@ -341,7 +341,7 @@ def resolve_reducer(agg: Any) -> Callable[..., Any]:
         raise ValueError(
             f"unknown agg {agg!r}; choose one of {sorted(QUADTREE_AGG)} or a callable"
         )
-    return reducer
+    return cast(Callable[..., Any], reducer)
 
 
 def _emit_cell(

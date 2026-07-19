@@ -23,7 +23,7 @@ Public surface:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pyproj.exceptions
@@ -235,7 +235,7 @@ def _epsg_from_db_match(srs: osr.SpatialReference) -> str | None:
     if len(matches) > 1 and matches[1][1] >= best_confidence:
         if matches[1][0].GetAuthorityCode(None) != best_code:
             return None
-    return best_code
+    return cast(str | None, best_code)
 
 
 def get_epsg_from_prj(prj: str) -> int:

@@ -850,6 +850,10 @@ def _create_netcdf_from_array(
     from pyramids.netcdf.netcdf import NetCDF
 
     _require_create_inputs(variable_name, geo, epsg)
+    # `_require_create_inputs` raises `ValueError` on a None `geo`/`epsg`; restate that
+    # invariant so the geotransform indexing and the `int(epsg)` below are guarded.
+    assert geo is not None
+    assert epsg is not None
 
     if extra_dims is None:
         extra_dims = []

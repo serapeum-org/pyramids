@@ -231,13 +231,15 @@ class Selection(_Engine["NetCDF"]):
             crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
             ds_geo = nc.epsg is not None and sr_from_user_input(nc.epsg).IsGeographic()
             if west > east and crs_geo and ds_geo:
-                _require_antimeridian_seam(nc, tuple(bbox))
+                # The unpacking above already asserts the 4-element shape a bbox has.
+                bbox_tuple = cast("tuple[float, float, float, float]", tuple(bbox))
+                _require_antimeridian_seam(nc, bbox_tuple)
                 if is_container:
                     result = self._crop_antimeridian_container(
-                        tuple(bbox), crs, touch, chunks
+                        bbox_tuple, crs, touch, chunks
                     )
                 else:
-                    result = self._crop_antimeridian(tuple(bbox), crs, touch, chunks)
+                    result = self._crop_antimeridian(bbox_tuple, crs, touch, chunks)
         return result
 
     def _crop_antimeridian_container(
@@ -273,8 +275,11 @@ class Selection(_Engine["NetCDF"]):
             ValueError: ``chunks`` was supplied.
         """
         _reject_antimeridian_chunks(chunks)
-        return self._ds._apply_to_all_variables(
-            "crop", {"bbox": bbox, "epsg": crs, "touch": touch}
+        return cast(
+            "NetCDF",
+            self._ds._apply_to_all_variables(
+                "crop", {"bbox": bbox, "epsg": crs, "touch": touch}
+            ),
         )
 
     def _crop_antimeridian(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import yaml
@@ -250,7 +251,7 @@ def resolve_resampling(method: str) -> int:
             f"The given interpolation method: {method!r} does not exist, "
             f"existing methods are {sorted(INTERPOLATION_METHODS)}"
         )
-    return INTERPOLATION_METHODS[key]
+    return cast(int, INTERPOLATION_METHODS[key])
 
 
 def color_name_to_gdal_constant(color_name: str) -> int:
