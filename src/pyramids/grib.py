@@ -16,7 +16,7 @@ through the same path as :meth:`pyramids.dataset.Dataset.read_file`.
 from __future__ import annotations
 
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +64,7 @@ def _parse_grib_seconds(value: str | None) -> datetime | None:
     if value:
         token = value.split()[0]
         try:
-            result = datetime.fromtimestamp(int(token), tz=timezone.utc)
+            result = datetime.fromtimestamp(int(token), tz=UTC)
         except (ValueError, OverflowError, OSError):
             result = None
     return result

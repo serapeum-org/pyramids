@@ -40,7 +40,7 @@ import math
 import operator
 import os
 import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 from osgeo import osr

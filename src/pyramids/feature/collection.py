@@ -28,9 +28,10 @@ import functools
 import math
 import os
 import warnings
+from collections.abc import Callable, Iterable
 from numbers import Number
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 if TYPE_CHECKING:

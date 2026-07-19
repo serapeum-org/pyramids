@@ -16,7 +16,8 @@ values. GDAL is invoked only at the write call site.
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 CreationOptions = Mapping[str, Any]
 """Alias for a mapping of GDAL creation-option names to Python values.

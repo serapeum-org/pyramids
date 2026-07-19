@@ -22,8 +22,9 @@ fans out over workers rather than blocking sequentially.
 from __future__ import annotations
 
 import glob
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 

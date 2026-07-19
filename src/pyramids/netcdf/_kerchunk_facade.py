@@ -24,9 +24,10 @@ from __future__ import annotations
 import json
 import os
 import warnings
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Iterator, Sequence, cast
+from typing import Any, cast
 
 import numpy as np
 

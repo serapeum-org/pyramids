@@ -17,9 +17,10 @@ compatibility with the module path; the class itself was renamed from
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from numbers import Number
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame

@@ -22,7 +22,8 @@ AOI / time / cloud query one call and returns an ``ItemCollection`` ready for
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from pyramids.base._utils import import_pystac_client
 from pyramids.stac.client import open_client

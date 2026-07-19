@@ -34,8 +34,9 @@ import uuid
 import weakref
 from abc import ABC, abstractmethod
 from collections import OrderedDict
+from collections.abc import Callable, Hashable, Iterator, MutableMapping
 from contextlib import contextmanager
-from typing import Any, Callable, Hashable, Iterator, MutableMapping
+from typing import Any
 
 import numpy as np  # noqa: F401 - imported so type checkers see np.ndarray refs
 from osgeo import gdal, ogr

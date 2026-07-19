@@ -188,10 +188,11 @@ select = ["E", "F", "W", "I", "UP"]
 ignore = ["E203", "E226", "E266", "E501", "E701", "E722", "C901", "E741", "E731"]
 
 [tool.ruff.lint.per-file-ignores]
-# flake8 excluded examples/ and tests/ from linting while isort/black/pyupgrade ran
-# everywhere — keep import-sorting + pyupgrade there but drop the style/lint codes.
-"tests/**" = ["E", "F", "W"]
-"examples/**" = ["E", "F", "W"]
+# flake8 excluded examples/ and tests/ from linting, and the old bare pyupgrade never
+# modernized their typing — so drop E/F/W and UP there, keeping only import-sorting (I),
+# which isort did run everywhere. This keeps the migration's lint churn on shipped src/.
+"tests/**" = ["E", "F", "W", "UP"]
+"examples/**" = ["E", "F", "W", "UP"]
 # Tutorial notebooks import next to first use and run setup (e.g. `%matplotlib inline`)
 # before imports — both legitimately trip E402, which stays enforced for real modules.
 "*.ipynb" = ["E402"]

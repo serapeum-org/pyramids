@@ -12,10 +12,10 @@ import math
 import pickle  # nosec B403 - PicklingError only, no load
 import threading
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Generator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd

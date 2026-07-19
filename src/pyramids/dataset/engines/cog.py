@@ -10,8 +10,9 @@ from __future__ import annotations
 import math
 import uuid
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from osgeo import gdal

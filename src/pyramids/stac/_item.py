@@ -22,7 +22,8 @@ pyramids does **not** import or depend on pystac. The extension-field accessor
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from pyramids.base._errors import StacAssetError
 

@@ -24,7 +24,8 @@ exposes the explode logic as an instance method).
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 import geopandas as gpd
 import pandas as pd

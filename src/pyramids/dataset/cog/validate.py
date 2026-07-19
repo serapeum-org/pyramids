@@ -14,10 +14,11 @@ Returns a :class:`ValidationReport` — a frozen dataclass usable as a
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from osgeo import gdal
 

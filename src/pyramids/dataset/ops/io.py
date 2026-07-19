@@ -239,8 +239,8 @@ def _build_creation_options(
             ]
             if ds._block_size is not None and ds._block_size != []:
                 options += [
-                    "BLOCKXSIZE={}".format(ds._block_size[0][0]),
-                    "BLOCKYSIZE={}".format(ds._block_size[0][1]),
+                    f"BLOCKXSIZE={ds._block_size[0][0]}",
+                    f"BLOCKYSIZE={ds._block_size[0][1]}",
                 ]
     if creation_options is not None:
         options += creation_options

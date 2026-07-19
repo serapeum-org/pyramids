@@ -18,8 +18,8 @@ from __future__ import annotations
 import io
 import itertools
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 import geopandas as gpd
 from geopandas import GeoDataFrame

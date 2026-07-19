@@ -25,10 +25,10 @@ import re
 import urllib.error
 import urllib.request
 import warnings
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any
 from urllib.parse import ParseResult, urlparse
 
 from osgeo import gdal

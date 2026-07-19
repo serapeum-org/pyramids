@@ -28,6 +28,7 @@ from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
     from cleopatra.array_glyph import ArrayGlyph
+
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
