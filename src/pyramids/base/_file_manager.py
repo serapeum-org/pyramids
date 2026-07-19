@@ -699,7 +699,7 @@ def _close_all_cached_handles() -> None:  # pragma: no cover - invoked at exit
     """Close every handle in :data:`FILE_CACHE` at interpreter shutdown."""
     try:
         FILE_CACHE.clear()
-    except Exception:
+    except Exception:  # nosec B110 - best-effort cache clear; must not raise
         pass
 
 

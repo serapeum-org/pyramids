@@ -103,7 +103,7 @@ def get_collections(
         # urllib honours the raw float timeout (a sub-second value is a valid fast
         # timeout here); only the GDAL driver read clamps to >= 1s, because GDAL
         # truncates GDAL_HTTP_TIMEOUT to whole seconds and reads "0" as no timeout.
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:  # nosec B310 - caller's own OGC endpoint
             payload = resp.read()
     except urllib.error.HTTPError as exc:
         # 4xx/5xx commonly carry an RFC 7807 problem document — surface its message.

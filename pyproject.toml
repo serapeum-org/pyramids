@@ -212,7 +212,9 @@ black = [
 ]
 
 [tool.bandit]
-exclude_dirs = ["tests", "examples", "scripts", "planning", "docs"]
+# ci/ holds non-shipped build tooling (like scripts/) — its subprocess/urllib
+# calls run trusted, fixed commands in CI, so it is excluded from the scan.
+exclude_dirs = ["ci", "tests", "examples", "scripts", "planning", "docs"]
 skips = ["B101"]
 
 [tool.coverage.run]

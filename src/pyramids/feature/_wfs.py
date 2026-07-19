@@ -25,7 +25,7 @@ from __future__ import annotations
 import urllib.request
 from functools import lru_cache
 from typing import TYPE_CHECKING
-from xml.etree import ElementTree as ET
+from xml.etree import ElementTree as ET  # nosec B405 - trusted OGC responses; ET resolves no external entities
 
 import geopandas as gpd
 from osgeo import gdal
@@ -82,7 +82,7 @@ def _get_capabilities(
         ) from exc
 
     try:
-        root = ET.fromstring(payload)
+        root = ET.fromstring(payload)  # nosec B314 - OGC service response; ET resolves no external entities
     except ET.ParseError as exc:
         raise WFSError(
             f"WFS GetCapabilities returned a non-XML body from {endpoint!r}: {exc}"

@@ -136,7 +136,7 @@ def silent_unlink(path: str) -> None:
     """
     try:
         gdal.Unlink(path)
-    except Exception:  # pragma: no cover - cleanup must never raise
+    except Exception:  # pragma: no cover  # nosec B110 - cleanup must never raise
         pass
 
 

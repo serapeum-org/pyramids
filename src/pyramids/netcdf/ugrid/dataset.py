@@ -163,7 +163,7 @@ class UgridDataset:
         if self._cached_crs is None and self._crs_wkt is not None:
             try:
                 self._cached_crs = CRS.from_wkt(self._crs_wkt)
-            except Exception:
+            except Exception:  # nosec B110 - best-effort CRS parse; falls back to None
                 pass
         return cast("CRS | None", self._cached_crs)
 

@@ -90,7 +90,7 @@ def cleanup() -> None:
         path = _VSIMEM_PATHS.pop()
         try:
             gdal.Unlink(path)
-        except Exception:  # noqa: BLE001 - best-effort shutdown cleanup
+        except Exception:  # noqa: BLE001  # nosec B110 - best-effort shutdown cleanup
             pass
     if _ROOT is not None and os.path.isdir(_ROOT):
         shutil.rmtree(_ROOT, ignore_errors=True)
