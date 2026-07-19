@@ -178,6 +178,12 @@ extend-select = "B,C,E,F,W,T4"
 [tool.black]
 line-length = 88
 skip-string-normalization = true
+# Pin the target so black doesn't infer py315 from requires-python's "<4" bound.
+# Capped at py312 (not py314) because black uses the MAX target for its AST safety
+# check, and the pre-commit black hooks run under Python 3.12 — a higher max would
+# make black skip that check and warn. The formatted output is identical for the
+# codebase either way; target-version only gates *newer* syntax choices.
+target-version = ["py311", "py312"]
 
 [tool.isort]
 profile = "black"
@@ -195,6 +201,14 @@ multi_line_output = 3
 flake8 = [
     "--extend-ignore=E203,E226,E266,E402,E501,E701,E704,E722,C901,E741,E731,W503",
     "--max-line-length=88",
+]
+# nbqa runs black on a temp file too, so pass black's config explicitly (same reason
+# as flake8): honor skip-string-normalization and the pinned target range so black
+# doesn't infer py315 and skip its safety check.
+black = [
+    "--skip-string-normalization",
+    "--target-version=py311",
+    "--target-version=py312",
 ]
 
 [tool.bandit]
