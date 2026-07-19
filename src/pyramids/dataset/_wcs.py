@@ -43,7 +43,7 @@ import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
-from xml.etree import ElementTree as ET  # nosec B405 - trusted OGC responses; ET resolves no external entities
+from xml.etree import ElementTree as ET  # nosec B405 - trusted OGC XML
 
 from osgeo import gdal
 from pyproj import CRS as _PyprojCRS
@@ -276,7 +276,7 @@ def _get_capabilities(
     payload = _http_get(url, auth, timeout, "GetCapabilities")
 
     try:
-        root = ET.fromstring(payload)  # nosec B314 - OGC service response; ET resolves no external entities
+        root = ET.fromstring(payload)  # nosec B314 - trusted OGC XML
     except ET.ParseError as exc:
         raise WCSError(
             f"WCS GetCapabilities returned a non-XML body from {endpoint!r}: {exc}"
@@ -502,7 +502,7 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> gdal.Dataset:
     """
     if payload[:64].lstrip()[:1] == b"<":
         try:
-            root: ET.Element | None = ET.fromstring(payload)  # nosec B314 - OGC response; no external entities
+            root: ET.Element | None = ET.fromstring(payload)  # nosec B314
         except ET.ParseError:
             root = None
         if root is not None and _localname(root.tag) in (

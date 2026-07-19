@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
-import pickle  # nosec B403 - referenced only for pickle.PicklingError; no load/loads is used
+import pickle  # nosec B403 - PicklingError only, no load
 import threading
 import warnings
 from collections.abc import Callable, Sequence

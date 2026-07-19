@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, overload
-from xml.sax.saxutils import escape  # nosec B406 - escapes output strings only; parses no XML
+from xml.sax.saxutils import escape  # nosec B406 - output escaping only
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
