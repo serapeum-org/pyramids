@@ -97,6 +97,7 @@ repos:
     rev: v1.5.0
     hooks:
       - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
         exclude: '\.(ipynb|drawio)$'
   - repo: https://github.com/bridgecrewio/checkov
     rev: 3.3.8
