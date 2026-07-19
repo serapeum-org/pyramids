@@ -214,13 +214,13 @@ src_xz() {
 src_nghttp2() {
     (cd "$(src_dir nghttp2)" &&
         ./configure --enable-lib-only --prefix="${BUILD_PREFIX}" &&
-        make -j "$(nproc)" && make install)
+    make -j "$(nproc)" && make install)
 }
 
 src_openssl() {
     (cd "$(src_dir openssl)" &&
         ./config "${OPENSSL_TARGET}" -fPIC --prefix="${BUILD_PREFIX}" &&
-        make -j "$(nproc)" && make install)
+    make -j "$(nproc)" && make install)
 }
 
 src_curl() {
@@ -233,7 +233,7 @@ src_curl() {
             --with-zlib="${BUILD_PREFIX}" \
             --with-ssl="${BUILD_PREFIX}" \
             --enable-shared --without-libidn2 --without-libpsl &&
-        make -j "$(nproc)" && make install)
+    make -j "$(nproc)" && make install)
 }
 
 src_libpng() {
@@ -246,14 +246,14 @@ src_giflib() {
     # only the library targets GDAL links against.
     (cd "$(src_dir giflib)" &&
         make libgif.a libgif.so &&
-        make install-include install-lib PREFIX="${BUILD_PREFIX}")
+    make install-include install-lib PREFIX="${BUILD_PREFIX}")
 }
 
 src_libwebp() {
     (cd "$(src_dir libwebp)" &&
         ./autogen.sh &&
         ./configure --prefix="${BUILD_PREFIX}" --enable-libwebpmux --enable-libwebpdemux &&
-        make && make install)
+    make && make install)
 }
 
 src_zstd() {
@@ -294,13 +294,13 @@ src_tiff() {
             --enable-zstd --enable-webp --enable-lerc \
             --with-jpeg-include-dir="${BUILD_PREFIX}/include" \
             --with-jpeg-lib-dir="${BUILD_PREFIX}/lib" &&
-        make -j "$(nproc)" && make install)
+    make -j "$(nproc)" && make install)
 }
 
 src_lcms2() {
     (cd "$(src_dir lcms2)" &&
         ./configure --prefix="${BUILD_PREFIX}" &&
-        make -j "$(nproc)" && make install)
+    make -j "$(nproc)" && make install)
 }
 
 src_openjpeg() {
@@ -328,7 +328,7 @@ src_sqlite() {
     (cd "$(src_dir sqlite)" &&
         CFLAGS="${sqlite_cflags}" ./configure \
             --enable-rtree --enable-threadsafe --prefix="${BUILD_PREFIX}" &&
-        make && make install)
+    make && make install)
 }
 
 src_proj() {
@@ -338,8 +338,8 @@ src_proj() {
     (
         cd "$(src_dir proj)"
         CFLAGS="${CFLAGS} -DPROJ_RENAME_SYMBOLS" \
-        CXXFLAGS="${CXXFLAGS} -DPROJ_RENAME_SYMBOLS -DPROJ_INTERNAL_CPP_NAMESPACE" \
-        cmake . \
+            CXXFLAGS="${CXXFLAGS} -DPROJ_RENAME_SYMBOLS -DPROJ_INTERNAL_CPP_NAMESPACE" \
+            cmake . \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${BUILD_PREFIX}" \
             -DCMAKE_PREFIX_PATH="${BUILD_PREFIX}" \
@@ -425,7 +425,7 @@ src_blosc() {
 src_pcre2() {
     (cd "$(src_dir pcre2)" &&
         ./configure --prefix="${BUILD_PREFIX}" &&
-        make -j "$(nproc)" && make install)
+    make -j "$(nproc)" && make install)
 }
 
 src_gdal() {
@@ -433,8 +433,8 @@ src_gdal() {
         cd "$(src_dir gdal)"
         mkdir -p _pyramids_build && cd _pyramids_build
         CFLAGS="${CFLAGS} -DPROJ_RENAME_SYMBOLS" \
-        CXXFLAGS="${CXXFLAGS} -DPROJ_RENAME_SYMBOLS -DPROJ_INTERNAL_CPP_NAMESPACE" \
-        cmake .. \
+            CXXFLAGS="${CXXFLAGS} -DPROJ_RENAME_SYMBOLS -DPROJ_INTERNAL_CPP_NAMESPACE" \
+            cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${BUILD_PREFIX}" \
             -DCMAKE_PREFIX_PATH="${BUILD_PREFIX}" \
