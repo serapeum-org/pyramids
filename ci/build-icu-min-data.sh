@@ -31,8 +31,8 @@ TARGET_ARCH="${3:-$(uname -m)}"   # cibuildwheel target arch (may differ from ho
 HOST_ARCH="$(uname -m)"
 
 case "$(uname -s)" in
-    Darwin) OS=macos; LIBEXT=dylib; ICU_CFG=MacOSX ;;
-    Linux)  OS=linux; LIBEXT=so;    ICU_CFG=Linux  ;;
+    Darwin) OS=macos; ICU_CFG=MacOSX ;;
+    Linux)  OS=linux; ICU_CFG=Linux  ;;
     *) echo "build-icu-min-data: unsupported OS $(uname -s); skipping"; exit 0 ;;
 esac
 

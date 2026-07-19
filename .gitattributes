@@ -4,8 +4,12 @@ pixi.lock merge=binary linguist-language=YAML linguist-generated=true
 # Shell scripts executed inside Linux containers must use LF line endings
 # even on Windows checkouts. Prevents `set: pipefail: invalid option name`
 # when Windows CRLF endings trip up bash inside the manylinux container.
+# `.sh.tmpl` shell templates need the same pin (they lack a `.sh` extension,
+# so the rule above misses them) — otherwise a Windows checkout leaves CRLF
+# that shellcheck flags as SC1017 and the rendered wrapper breaks on macOS.
 *.sh text eol=lf
 ci/**/*.sh text eol=lf
+*.sh.tmpl text eol=lf
 
 # Jupyter notebooks are LF-normalized JSON. Pin eol=lf so Windows autocrlf
 # checkouts don't rewrite every line and produce spurious full-file diffs

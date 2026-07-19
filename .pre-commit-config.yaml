@@ -102,11 +102,11 @@ repos:
       - id: beautysh
         name: "[bash - format] beautysh"
 
-  - repo: https://github.com/detailyang/pre-commit-shell
-    rev: 1.0.5
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
     hooks:
-      - id: shell-lint
-        name: "[bash -   lint] shell-lint"
+      - id: shellcheck
+        name: "[bash -   lint] shellcheck"
 
   - repo: https://github.com/rlindsgaard/pre-commit-commit-msg-hooks
     rev: 0.1.0
