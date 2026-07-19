@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -10042,41 +10042,41 @@
 <li><strong>netcdf</strong>: stop curvilinear plots smearing across the antimeridian (#670)</li>
 <li><strong>netcdf</strong>: stop curvilinear plots smearing across the antimeridian</li>
 </ul>
-<p>Curvilinear NetCDF grids whose longitude crosses the 0/360                                                <br />
-  antimeridian rendered as a full-width smear, because pcolormesh                                           <br />
-  read the 359-&gt;0 wrap as one giant cell. render_array now makes a                                          <br />
-  wrapping degree-geographic longitude continuous before it reaches                                         <br />
-  cleopatra, gated so projected, unknown-CRS, and non-wrapping grids                                        <br />
-  are left untouched.                                                                                         </p>
-<p>Plotting fix:                                                                                             <br />
-  - NaN-safe, degrees-only, dtype-preserving, single-return unwrap                                          <br />
-  - unit tests for the unwrap and CRS gate, plus an end-to-end                                              <br />
-    regression on a real wrapping curvilinear file                                                          <br />
-  - cover multi-wrap rows, single-column grids, and interior-NaN edges                                        </p>
-<p>Documentation:                                                                                            <br />
-  - correct the basemap claims in the CF/COARDS explore notebooks:                                          <br />
-    they plot in the data's own CRS with a Natural Earth coastline                                          <br />
-    overlay, not a reprojected OpenStreetMap / Web Mercator basemap                                         <br />
-  - drop the redundant crs= from add_features across the explore and                                        <br />
-    anatomy notebooks; the returned glyph already carries the CRS                                           <br />
-  - plot the anatomy examples via NetCDF.plot() instead of raw matplotlib                                   <br />
-  - add a NetCDF class anatomy &amp; reference notebook                                                         <br />
-  - add mermaid diagrams across the NetCDF reference: container/variable                                    <br />
-    object model, engines, the metadata pipeline and dataclass                                              <br />
-    aggregation, the plot pipeline, the CF capability map, and the                                          <br />
-    ugrid class model, conversion bridges, and submodule diagrams                                             </p>
-<p>Documentation accuracy &amp; hygiene:                                                                         <br />
-  - fix the UgridMetadata data_variables edge (it is a dict[str,str]                                        <br />
-    name-&gt;location map, not MeshVariable records)                                                           <br />
-  - clarify the metadata serializers are module-level functions, not                                        <br />
-    methods on NetCDFMetadata                                                                               <br />
-  - list representative CF classification roles instead of a partial set                                    <br />
-  - remove the object-model flowchart's subgraph self-loop                                                  <br />
-  - scrub committed notebook output: drop an INFO log line and sanitize                                     <br />
-    an ipykernel temp path that leaked a local username                                                       </p>
-<p>Test quality:                                                                                             <br />
-  - assert unwrapped values with np.isclose instead of float ==                                             <br />
-  - pass an unresolvable EPSG code, not a str, to the CRS-gate test                                           </p>
+<p>Curvilinear NetCDF grids whose longitude crosses the 0/360<br />
+  antimeridian rendered as a full-width smear, because pcolormesh<br />
+  read the 359-&gt;0 wrap as one giant cell. render_array now makes a<br />
+  wrapping degree-geographic longitude continuous before it reaches<br />
+  cleopatra, gated so projected, unknown-CRS, and non-wrapping grids<br />
+  are left untouched.  </p>
+<p>Plotting fix:<br />
+  - NaN-safe, degrees-only, dtype-preserving, single-return unwrap<br />
+  - unit tests for the unwrap and CRS gate, plus an end-to-end<br />
+    regression on a real wrapping curvilinear file<br />
+  - cover multi-wrap rows, single-column grids, and interior-NaN edges  </p>
+<p>Documentation:<br />
+  - correct the basemap claims in the CF/COARDS explore notebooks:<br />
+    they plot in the data's own CRS with a Natural Earth coastline<br />
+    overlay, not a reprojected OpenStreetMap / Web Mercator basemap<br />
+  - drop the redundant crs= from add_features across the explore and<br />
+    anatomy notebooks; the returned glyph already carries the CRS<br />
+  - plot the anatomy examples via NetCDF.plot() instead of raw matplotlib<br />
+  - add a NetCDF class anatomy &amp; reference notebook<br />
+  - add mermaid diagrams across the NetCDF reference: container/variable<br />
+    object model, engines, the metadata pipeline and dataclass<br />
+    aggregation, the plot pipeline, the CF capability map, and the<br />
+    ugrid class model, conversion bridges, and submodule diagrams  </p>
+<p>Documentation accuracy &amp; hygiene:<br />
+  - fix the UgridMetadata data_variables edge (it is a dict[str,str]<br />
+    name-&gt;location map, not MeshVariable records)<br />
+  - clarify the metadata serializers are module-level functions, not<br />
+    methods on NetCDFMetadata<br />
+  - list representative CF classification roles instead of a partial set<br />
+  - remove the object-model flowchart's subgraph self-loop<br />
+  - scrub committed notebook output: drop an INFO log line and sanitize<br />
+    an ipykernel temp path that leaked a local username  </p>
+<p>Test quality:<br />
+  - assert unwrapped values with np.isclose instead of float ==<br />
+  - pass an unresolvable EPSG code, not a str, to the CRS-gate test  </p>
 <p>Closes #669</p>
 <h3 id="refactor_2"><a class="toclink" href="#refactor_2">Refactor</a><a class="headerlink" href="#refactor_2" title="Permanent link">#</a></h3>
 <ul>
@@ -10103,28 +10103,28 @@ an isinstance-compatible base for one major version.</li>
 <li><strong>wcs</strong>: add Dataset.from_wcs OGC Web Coverage Service reader (#632)</li>
 <li><strong>wcs</strong>: add Dataset.from_wcs OGC Web Coverage Service reader</li>
 </ul>
-<p>Add a version-normalising OGC WCS reader exposed as the                                                   <br />
-  Dataset.from_wcs classmethod (implementation in dataset/_wcs.py),                                         <br />
-  backed by GDAL's native WCS driver so the 1.0.0 vs 2.0.x GetCoverage                                      <br />
-  dialect fork is handled inside GDAL rather than hand-written.                                               </p>
+<p>Add a version-normalising OGC WCS reader exposed as the<br />
+  Dataset.from_wcs classmethod (implementation in dataset/_wcs.py),<br />
+  backed by GDAL's native WCS driver so the 1.0.0 vs 2.0.x GetCoverage<br />
+  dialect fork is handled inside GDAL rather than hand-written.  </p>
 <ul>
-<li>Caller supplies one lon/lat bbox plus optional resolution and                                           <br />
-    output_crs; the reader issues the version-correct GetCoverage.                                            </li>
-<li>CRS shim: attach a caller-supplied coverage_crs when the server's                                       <br />
-    advertised CRS is absent from PROJ (e.g. SoilGrids EPSG:152160).                                          </li>
-<li>Client-side bbox reprojection into the coverage's native CRS via                                        <br />
-    pyproj, densified with transform_bounds so distorted or large                                           <br />
-    windows stay covered.                                                                                     </li>
-<li>GetCapabilities fetched once per endpoint (LRU-cached); an unknown                                      <br />
-    coverage raises ValueError, server errors raise the new WCSError.                                         </li>
-<li>The windowed read goes through an in-memory dataset, so a                                               <br />
-    non-raster ExceptionReport body can never be written to a .tif.                                           </li>
-<li>No new dependencies: GDAL handles transport and decode, pyproj                                          <br />
-    (core) the CRS transform, and Dataset the warp/IO.                                                        </li>
-<li>Tests: pure helpers, the CRS shim, the capabilities cache, and a                                        <br />
-    protocol-faithful mock server that drives GDAL end-to-end for both                                      <br />
-    WCS dialects (asserting each call shape), plus gated live SoilGrids                                     <br />
-    tests; 100% line and branch coverage on the new module.                                                   </li>
+<li>Caller supplies one lon/lat bbox plus optional resolution and<br />
+    output_crs; the reader issues the version-correct GetCoverage.  </li>
+<li>CRS shim: attach a caller-supplied coverage_crs when the server's<br />
+    advertised CRS is absent from PROJ (e.g. SoilGrids EPSG:152160).  </li>
+<li>Client-side bbox reprojection into the coverage's native CRS via<br />
+    pyproj, densified with transform_bounds so distorted or large<br />
+    windows stay covered.  </li>
+<li>GetCapabilities fetched once per endpoint (LRU-cached); an unknown<br />
+    coverage raises ValueError, server errors raise the new WCSError.  </li>
+<li>The windowed read goes through an in-memory dataset, so a<br />
+    non-raster ExceptionReport body can never be written to a .tif.  </li>
+<li>No new dependencies: GDAL handles transport and decode, pyproj<br />
+    (core) the CRS transform, and Dataset the warp/IO.  </li>
+<li>Tests: pure helpers, the CRS shim, the capabilities cache, and a<br />
+    protocol-faithful mock server that drives GDAL end-to-end for both<br />
+    WCS dialects (asserting each call shape), plus gated live SoilGrids<br />
+    tests; 100% line and branch coverage on the new module.  </li>
 </ul>
 <p>Closes #626
 - <strong>netcdf</strong>: split NetCDF into Container + Variable types (API-1) (#625)</p>

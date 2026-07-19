@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6862,7 +6862,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
@@ -6874,7 +6873,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">%matplotlib inline
 
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -6939,7 +6937,7 @@ dem.shape, dem.epsg, dem.cell_size</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:43:35 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:56:55 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
@@ -6996,7 +6994,7 @@ dem.shape, dem.epsg, dem.cell_size</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fa8e38a63c0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f8b2b8ae120&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7093,10 +7091,14 @@ Steeper cells show up brighter.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">slope_ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">slope</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">dem</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">dem</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="n">no_data_value</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">slope_ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+    <span class="n">slope</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">dem</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">dem</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="n">no_data_value</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+<span class="p">)</span>
 <span class="n">slope_ds</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Slope (degrees)"</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s2">"magma"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5">slope_ds = Dataset.create_from_array(slope, geo=dem.geotransform, epsg=dem.epsg, no_data_value=np.nan)
+<div class="clipboard-copy-txt" id="cell-5">slope_ds = Dataset.create_from_array(
+    slope, geo=dem.geotransform, epsg=dem.epsg, no_data_value=np.nan
+)
 slope_ds.plot(band=0, title="Slope (degrees)", cmap="magma")</div>
 </div>
 </div>
@@ -7109,7 +7111,7 @@ slope_ds.plot(band=0, title="Slope (degrees)", cmap="magma")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fa8e39ab750&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f8b2b9c79d0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7204,10 +7206,14 @@ shaded relief (sun at NW, 45° above the horizon).</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">shade_ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">shade</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">dem</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">dem</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="n">no_data_value</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">shade_ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+    <span class="n">shade</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">dem</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">dem</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="n">no_data_value</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+<span class="p">)</span>
 <span class="n">shade_ds</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Hillshade"</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s2">"gray"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">shade_ds = Dataset.create_from_array(shade, geo=dem.geotransform, epsg=dem.epsg, no_data_value=np.nan)
+<div class="clipboard-copy-txt" id="cell-7">shade_ds = Dataset.create_from_array(
+    shade, geo=dem.geotransform, epsg=dem.epsg, no_data_value=np.nan
+)
 shade_ds.plot(band=0, title="Hillshade", cmap="gray")</div>
 </div>
 </div>
@@ -7220,7 +7226,7 @@ shade_ds.plot(band=0, title="Hillshade", cmap="gray")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fa8e32f5950&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f8b2b717ed0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7330,7 +7336,7 @@ target cell, so values grow with distance from the targets.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fa8e3611350&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f8b2b645220&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">

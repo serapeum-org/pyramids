@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7028,8 +7028,8 @@ resolve <code>DATA</code> to the repo's <code>examples/data/</code> folder, rela
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">plot_chunk_grid</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">title</span><span class="p">):</span>
@@ -7039,7 +7039,11 @@ resolve <code>DATA</code> to the repo's <code>examples/data/</code> folder, rela
     <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mf">4.5</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
     <span class="k">for</span> <span class="n">y0</span><span class="p">,</span> <span class="n">y1</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">ys</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">ys</span><span class="p">[</span><span class="mi">1</span><span class="p">:]):</span>
         <span class="k">for</span> <span class="n">x0</span><span class="p">,</span> <span class="n">x1</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">xs</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">xs</span><span class="p">[</span><span class="mi">1</span><span class="p">:]):</span>
-            <span class="n">ax</span><span class="o">.</span><span class="n">add_patch</span><span class="p">(</span><span class="n">plt</span><span class="o">.</span><span class="n">Rectangle</span><span class="p">((</span><span class="n">x0</span><span class="p">,</span> <span class="n">y0</span><span class="p">),</span> <span class="n">x1</span> <span class="o">-</span> <span class="n">x0</span><span class="p">,</span> <span class="n">y1</span> <span class="o">-</span> <span class="n">y0</span><span class="p">,</span> <span class="n">fill</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">ec</span><span class="o">=</span><span class="s1">'crimson'</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mf">1.4</span><span class="p">))</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">add_patch</span><span class="p">(</span>
+                <span class="n">plt</span><span class="o">.</span><span class="n">Rectangle</span><span class="p">(</span>
+                    <span class="p">(</span><span class="n">x0</span><span class="p">,</span> <span class="n">y0</span><span class="p">),</span> <span class="n">x1</span> <span class="o">-</span> <span class="n">x0</span><span class="p">,</span> <span class="n">y1</span> <span class="o">-</span> <span class="n">y0</span><span class="p">,</span> <span class="n">fill</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">ec</span><span class="o">=</span><span class="s1">'crimson'</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mf">1.4</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
     <span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">xlim</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">nx</span><span class="p">),</span> <span class="n">ylim</span><span class="o">=</span><span class="p">(</span><span class="n">ny</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">title</span><span class="o">=</span><span class="n">title</span><span class="p">,</span> <span class="n">xlabel</span><span class="o">=</span><span class="s1">'columns'</span><span class="p">,</span> <span class="n">ylabel</span><span class="o">=</span><span class="s1">'rows'</span><span class="p">)</span>
     <span class="n">ax</span><span class="o">.</span><span class="n">set_aspect</span><span class="p">(</span><span class="s1">'equal'</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">fig</span>
@@ -7052,8 +7056,8 @@ resolve <code>DATA</code> to the repo's <code>examples/data/</code> folder, rela
 
 from pathlib import Path
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 def plot_chunk_grid(arr, title):
@@ -7063,7 +7067,11 @@ def plot_chunk_grid(arr, title):
     fig, ax = plt.subplots(figsize=(4.5, 4))
     for y0, y1 in zip(ys[:-1], ys[1:]):
         for x0, x1 in zip(xs[:-1], xs[1:]):
-            ax.add_patch(plt.Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False, ec='crimson', lw=1.4))
+            ax.add_patch(
+                plt.Rectangle(
+                    (x0, y0), x1 - x0, y1 - y0, fill=False, ec='crimson', lw=1.4
+                )
+            )
     ax.set(xlim=(0, nx), ylim=(ny, 0), title=title, xlabel='columns', ylabel='rows')
     ax.set_aspect('equal')
     return fig
@@ -7205,7 +7213,7 @@ cube.time_length, cube.rows, cube.columns</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:40:10 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:53:17 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
@@ -7263,7 +7271,7 @@ so we can plot it — a quick visual check before reducing across time.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fc821ab7230&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fd11c4b2f90&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7709,11 +7717,17 @@ image renders even when the HTML repr above does not.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">plot_chunk_grid</span><span class="p">(</span><span class="n">tiled</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"spatial chunk grid per timestep — </span><span class="si">{</span><span class="n">tiled</span><span class="o">.</span><span class="n">numblocks</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="s2">x</span><span class="si">{</span><span class="n">tiled</span><span class="o">.</span><span class="n">numblocks</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2"> tiles "</span>
-                       <span class="sa">f</span><span class="s2">"x </span><span class="si">{</span><span class="n">tiled</span><span class="o">.</span><span class="n">numblocks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> days = </span><span class="si">{</span><span class="n">tiled</span><span class="o">.</span><span class="n">npartitions</span><span class="si">}</span><span class="s2"> chunks"</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">plot_chunk_grid</span><span class="p">(</span>
+    <span class="n">tiled</span><span class="p">,</span>
+    <span class="sa">f</span><span class="s2">"spatial chunk grid per timestep — </span><span class="si">{</span><span class="n">tiled</span><span class="o">.</span><span class="n">numblocks</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="s2">x</span><span class="si">{</span><span class="n">tiled</span><span class="o">.</span><span class="n">numblocks</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2"> tiles "</span>
+    <span class="sa">f</span><span class="s2">"x </span><span class="si">{</span><span class="n">tiled</span><span class="o">.</span><span class="n">numblocks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> days = </span><span class="si">{</span><span class="n">tiled</span><span class="o">.</span><span class="n">npartitions</span><span class="si">}</span><span class="s2"> chunks"</span><span class="p">,</span>
+<span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">plot_chunk_grid(tiled, f"spatial chunk grid per timestep — {tiled.numblocks[-2]}x{tiled.numblocks[-1]} tiles "
-                       f"x {tiled.numblocks[0]} days = {tiled.npartitions} chunks")</div>
+<div class="clipboard-copy-txt" id="cell-9">plot_chunk_grid(
+    tiled,
+    f"spatial chunk grid per timestep — {tiled.numblocks[-2]}x{tiled.numblocks[-1]} tiles "
+    f"x {tiled.numblocks[0]} days = {tiled.npartitions} chunks",
+)</div>
 </div>
 </div>
 </div>

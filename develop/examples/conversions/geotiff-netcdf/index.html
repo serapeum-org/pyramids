@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6988,7 +6988,7 @@ from pyramids.netcdf import NetCDF</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:38:55 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:51:55 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
@@ -7094,7 +7094,7 @@ ds.shape, ds.band_count, ds.epsg</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f3e90955940&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f387dfe56a0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7201,7 +7201,7 @@ NetCDF.read_file(out).variable_names</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f3e90825bd0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f387de81d10&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7344,16 +7344,12 @@ NetCDF.read_file(rgbn_nc).variable_names</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Prefer one 4-D variable with a band coordinate (handy for many bands)? var_per_band=False.</span>
 <span class="n">rgbn_cube</span> <span class="o">=</span> <span class="n">WORK</span> <span class="o">/</span> <span class="s1">'rgbn_cube.nc'</span>
-<span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_files</span><span class="p">([</span><span class="n">rgbn_tif</span><span class="p">])</span><span class="o">.</span><span class="n">to_netcdf</span><span class="p">(</span>
-    <span class="n">rgbn_cube</span><span class="p">,</span> <span class="n">var_per_band</span><span class="o">=</span><span class="kc">False</span>
-<span class="p">)</span>
+<span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_files</span><span class="p">([</span><span class="n">rgbn_tif</span><span class="p">])</span><span class="o">.</span><span class="n">to_netcdf</span><span class="p">(</span><span class="n">rgbn_cube</span><span class="p">,</span> <span class="n">var_per_band</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">rgbn_cube</span><span class="p">)</span><span class="o">.</span><span class="n">variable_names</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-9"># Prefer one 4-D variable with a band coordinate (handy for many bands)? var_per_band=False.
 rgbn_cube = WORK / 'rgbn_cube.nc'
-DatasetCollection.from_files([rgbn_tif]).to_netcdf(
-    rgbn_cube, var_per_band=False
-)
+DatasetCollection.from_files([rgbn_tif]).to_netcdf(rgbn_cube, var_per_band=False)
 NetCDF.read_file(rgbn_cube).variable_names</div>
 </div>
 </div>
@@ -7518,7 +7514,7 @@ exported</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f3e87d20e10&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f3875314f50&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">

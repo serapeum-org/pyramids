@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7012,14 +7012,14 @@ work</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:40:42 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:53:51 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[1]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>'/tmp/solar_day_demo_s9h7zc42'</pre>
+<pre>'/tmp/solar_day_demo_h3ryvoq3'</pre>
 </div>
 </div>
 </div>
@@ -7060,8 +7060,13 @@ work</div>
     <span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">work</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
     <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">20</span><span class="p">,</span> <span class="mi">20</span><span class="p">),</span> <span class="n">value</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">)</span>
     <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
-        <span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span>
-        <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span> <span class="n">driver_type</span><span class="o">=</span><span class="s2">"GTiff"</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
+        <span class="n">arr</span><span class="p">,</span>
+        <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left</span><span class="p">,</span>
+        <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
+        <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span>
+        <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span>
+        <span class="n">driver_type</span><span class="o">=</span><span class="s2">"GTiff"</span><span class="p">,</span>
+        <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="n">path</span>
 </pre></div>
@@ -7070,8 +7075,13 @@ work</div>
     path = os.path.join(work, name)
     arr = np.full((20, 20), value, dtype="float32")
     Dataset.create_from_array(
-        arr, top_left_corner=top_left, cell_size=0.05, epsg=4326,
-        no_data_value=-9999.0, driver_type="GTiff", path=path,
+        arr,
+        top_left_corner=top_left,
+        cell_size=0.05,
+        epsg=4326,
+        no_data_value=-9999.0,
+        driver_type="GTiff",
+        path=path,
     )
     return path</div>
 </div>
@@ -7131,9 +7141,9 @@ tile_c = make_tile("c.tif", top_left=(10.0, 41.0), value=3.0)  # day 2
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>['/tmp/solar_day_demo_s9h7zc42/a.tif',
- '/tmp/solar_day_demo_s9h7zc42/b.tif',
- '/tmp/solar_day_demo_s9h7zc42/c.tif']</pre>
+<pre>['/tmp/solar_day_demo_h3ryvoq3/a.tif',
+ '/tmp/solar_day_demo_h3ryvoq3/b.tif',
+ '/tmp/solar_day_demo_h3ryvoq3/c.tif']</pre>
 </div>
 </div>
 </div>
@@ -7394,7 +7404,7 @@ solar-day mosaic (west tile = 1, east tile = 2).</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fd2dacdd400&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f55cbc21010&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7545,11 +7555,14 @@ cloud-score weighting) just adapt this — group with the same key and swap the 
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset.merge</span><span class="w"> </span><span class="kn">import</span> <span class="n">merge_rasters</span>
 
+
 <span class="k">def</span><span class="w"> </span><span class="nf">group_by_solar_day</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="p">,</span> <span class="n">out_dir</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">"""One mosaicked GeoTIFF per solar day — the building blocks groupby uses."""</span>
     <span class="n">groups</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">it</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
-        <span class="n">when</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="n">it</span><span class="p">[</span><span class="s1">'properties'</span><span class="p">][</span><span class="s1">'datetime'</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">'Z'</span><span class="p">,</span> <span class="s1">'+00:00'</span><span class="p">))</span>
+        <span class="n">when</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span>
+            <span class="n">it</span><span class="p">[</span><span class="s1">'properties'</span><span class="p">][</span><span class="s1">'datetime'</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">'Z'</span><span class="p">,</span> <span class="s1">'+00:00'</span><span class="p">)</span>
+        <span class="p">)</span>
         <span class="n">minx</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">it</span><span class="p">[</span><span class="s1">'bbox'</span><span class="p">]</span>
         <span class="n">day</span> <span class="o">=</span> <span class="n">solar_day</span><span class="p">(</span><span class="n">when</span><span class="p">,</span> <span class="n">centroid_lon</span><span class="o">=</span><span class="p">(</span><span class="n">minx</span> <span class="o">+</span> <span class="n">maxx</span><span class="p">)</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">)</span>
         <span class="n">groups</span><span class="p">[</span><span class="n">day</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">it</span><span class="p">[</span><span class="s1">'assets'</span><span class="p">][</span><span class="n">asset</span><span class="p">][</span><span class="s1">'href'</span><span class="p">])</span>
@@ -7564,11 +7577,14 @@ cloud-score weighting) just adapt this — group with the same key and swap the 
 
 from pyramids.dataset.merge import merge_rasters
 
+
 def group_by_solar_day(items, asset, out_dir):
     """One mosaicked GeoTIFF per solar day — the building blocks groupby uses."""
     groups = defaultdict(list)
     for it in items:
-        when = datetime.fromisoformat(it['properties']['datetime'].replace('Z', '+00:00'))
+        when = datetime.fromisoformat(
+            it['properties']['datetime'].replace('Z', '+00:00')
+        )
         minx, _, maxx, _ = it['bbox']
         day = solar_day(when, centroid_lon=(minx + maxx) / 2.0)
         groups[day].append(it['assets'][asset]['href'])

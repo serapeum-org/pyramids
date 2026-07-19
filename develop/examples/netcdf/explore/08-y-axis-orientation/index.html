@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6787,7 +6787,7 @@ DATA = Path('../../../../examples/data/netcdf/samples')</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:42:12 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:55:26 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
@@ -7007,16 +7007,20 @@ the coastline on top — it's North America:</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">first_step</span> <span class="o">=</span> <span class="n">air</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">unpack</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>   <span class="c1"># unpack the int16 values to Kelvin</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">first_step</span> <span class="o">=</span> <span class="n">air</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">unpack</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># unpack the int16 values to Kelvin</span>
 <span class="n">geo</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">air</span><span class="o">.</span><span class="n">geotransform</span><span class="p">)</span>
-<span class="n">geo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">geo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">360</span>                                <span class="c1"># 200..330 E  -&gt;  -160..-30 (same grid, shifted frame)</span>
-<span class="n">shifted_file</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span><span class="n">arr</span><span class="o">=</span><span class="n">first_step</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">geo</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span> <span class="n">variable_name</span><span class="o">=</span><span class="s1">'air'</span><span class="p">)</span>
+<span class="n">geo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">geo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">360</span>  <span class="c1"># 200..330 E  -&gt;  -160..-30 (same grid, shifted frame)</span>
+<span class="n">shifted_file</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
+    <span class="n">arr</span><span class="o">=</span><span class="n">first_step</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">geo</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span> <span class="n">variable_name</span><span class="o">=</span><span class="s1">'air'</span>
+<span class="p">)</span>
 <span class="n">shifted</span> <span class="o">=</span> <span class="n">shifted_file</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'air'</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5">first_step = air.read_array(band=0, unpack=True)   # unpack the int16 values to Kelvin
+<div class="clipboard-copy-txt" id="cell-5">first_step = air.read_array(band=0, unpack=True)  # unpack the int16 values to Kelvin
 geo = list(air.geotransform)
-geo[0] = geo[0] - 360                                # 200..330 E  -&gt;  -160..-30 (same grid, shifted frame)
-shifted_file = NetCDF.create_from_array(arr=first_step, geo=tuple(geo), epsg=4326, variable_name='air')
+geo[0] = geo[0] - 360  # 200..330 E  -&gt;  -160..-30 (same grid, shifted frame)
+shifted_file = NetCDF.create_from_array(
+    arr=first_step, geo=tuple(geo), epsg=4326, variable_name='air'
+)
 shifted = shifted_file.get_variable('air')</div>
 </div>
 </div>
@@ -7042,10 +7046,14 @@ shifted = shifted_file.get_variable('air')</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">glyph</span> <span class="o">=</span> <span class="n">shifted</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s1">'NCEP air temperature over North America — read north-up'</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s1">'coolwarm'</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">glyph</span> <span class="o">=</span> <span class="n">shifted</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+    <span class="n">title</span><span class="o">=</span><span class="s1">'NCEP air temperature over North America — read north-up'</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s1">'coolwarm'</span>
+<span class="p">)</span>
 <span class="n">glyph</span><span class="o">.</span><span class="n">add_features</span><span class="p">(</span><span class="s1">'coastline'</span><span class="p">,</span> <span class="s1">'50m'</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">glyph = shifted.plot(title='NCEP air temperature over North America — read north-up', cmap='coolwarm')
+<div class="clipboard-copy-txt" id="cell-6">glyph = shifted.plot(
+    title='NCEP air temperature over North America — read north-up', cmap='coolwarm'
+)
 glyph.add_features('coastline', '50m', zorder=5)</div>
 </div>
 </div>
@@ -7128,7 +7136,7 @@ print(f'pixel   : {goes.geotransform[1]:&gt;12,.0f} m   (a ~2 km geostationary g
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:42:13 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[1] Unhandled X/Y axis unit rad. SRS will ignore axis unit and be likely wrong.
+<pre>2026-07-19 00:55:28 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[1] Unhandled X/Y axis unit rad. SRS will ignore axis unit and be likely wrong.
 </pre>
 </div>
 </div>
@@ -7163,9 +7171,13 @@ pixel   :        2,004 m   (a ~2 km geostationary grid)
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">glyph</span> <span class="o">=</span> <span class="n">goes</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s1">'GOES-16 brightness temperature — kept as stored'</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s1">'Greys_r'</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">glyph</span> <span class="o">=</span> <span class="n">goes</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+    <span class="n">title</span><span class="o">=</span><span class="s1">'GOES-16 brightness temperature — kept as stored'</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s1">'Greys_r'</span>
+<span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-8">glyph = goes.plot(title='GOES-16 brightness temperature — kept as stored', cmap='Greys_r')</div>
+<div class="clipboard-copy-txt" id="cell-8">glyph = goes.plot(
+    title='GOES-16 brightness temperature — kept as stored', cmap='Greys_r'
+)</div>
 </div>
 </div>
 </div>
@@ -7217,12 +7229,16 @@ flags) on the identical grid — a completely different variable, read exactly t
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">dqf</span> <span class="o">=</span> <span class="n">goes_file</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'DQF'</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'DQF shares CMI</span><span class="se">\'</span><span class="s1">s y coordinate : </span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">dqf</span><span class="o">.</span><span class="n">y</span><span class="p">,</span><span class="w"> </span><span class="n">goes</span><span class="o">.</span><span class="n">y</span><span class="p">)</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'DQF first / last y            : </span><span class="si">{</span><span class="n">dqf</span><span class="o">.</span><span class="n">y</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s1">&gt;12,.0f</span><span class="si">}</span><span class="s1"> .. </span><span class="si">{</span><span class="n">dqf</span><span class="o">.</span><span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="si">:</span><span class="s1">&gt;12,.0f</span><span class="si">}</span><span class="s1"> m   (same descending grid)'</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="sa">f</span><span class="s1">'DQF first / last y            : </span><span class="si">{</span><span class="n">dqf</span><span class="o">.</span><span class="n">y</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s1">&gt;12,.0f</span><span class="si">}</span><span class="s1"> .. </span><span class="si">{</span><span class="n">dqf</span><span class="o">.</span><span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="si">:</span><span class="s1">&gt;12,.0f</span><span class="si">}</span><span class="s1"> m   (same descending grid)'</span>
+<span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'DQF pixel height &lt; 0 (north-up): </span><span class="si">{</span><span class="n">dqf</span><span class="o">.</span><span class="n">geotransform</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">0</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-9">dqf = goes_file.get_variable('DQF')
 print(f'DQF shares CMI\'s y coordinate : {np.array_equal(dqf.y, goes.y)}')
-print(f'DQF first / last y            : {dqf.y[0]:&gt;12,.0f} .. {dqf.y[-1]:&gt;12,.0f} m   (same descending grid)')
+print(
+    f'DQF first / last y            : {dqf.y[0]:&gt;12,.0f} .. {dqf.y[-1]:&gt;12,.0f} m   (same descending grid)'
+)
 print(f'DQF pixel height &lt; 0 (north-up): {dqf.geotransform[5] &lt; 0}')</div>
 </div>
 </div>
@@ -7235,7 +7251,7 @@ print(f'DQF pixel height &lt; 0 (north-up): {dqf.geotransform[5] &lt; 0}')</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:42:14 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[1] Unhandled X/Y axis unit rad. SRS will ignore axis unit and be likely wrong.
+<pre>2026-07-19 00:55:28 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[1] Unhandled X/Y axis unit rad. SRS will ignore axis unit and be likely wrong.
 </pre>
 </div>
 </div>
@@ -7306,14 +7322,14 @@ silently wrong.</p>
 <span class="c1"># pad the view a little, then fetch imagery tiles for that extent (warped to lon/lat)</span>
 <span class="n">glyph</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">set_xlim</span><span class="p">(</span><span class="o">-</span><span class="mi">56</span><span class="p">,</span> <span class="o">-</span><span class="mi">24</span><span class="p">)</span>
 <span class="n">glyph</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
-<span class="n">glyph</span><span class="o">.</span><span class="n">add_tiles</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="s1">'Esri.WorldImagery'</span><span class="p">)</span>   <span class="c1"># glyph carries the CRS from to_crs(4326)</span>
+<span class="n">glyph</span><span class="o">.</span><span class="n">add_tiles</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="s1">'Esri.WorldImagery'</span><span class="p">)</span>  <span class="c1"># glyph carries the CRS from to_crs(4326)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-10">geographic = goes.to_crs(4326)
 glyph = geographic.plot(title='A tropical system in the open Atlantic', cmap='Greys_r')
 # pad the view a little, then fetch imagery tiles for that extent (warped to lon/lat)
 glyph.ax.set_xlim(-56, -24)
 glyph.ax.set_ylim(-2, 20)
-glyph.add_tiles(source='Esri.WorldImagery')   # glyph carries the CRS from to_crs(4326)</div>
+glyph.add_tiles(source='Esri.WorldImagery')  # glyph carries the CRS from to_crs(4326)</div>
 </div>
 </div>
 </div>
@@ -7369,9 +7385,11 @@ stored bottom-up and even a longitude stored east→west (column 0 always ends u
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">variable</span> <span class="ow">in</span> <span class="p">[(</span><span class="s1">'cf__6v__1d2-2d4__geog__y-asc.nc'</span><span class="p">,</span> <span class="s1">'Band1'</span><span class="p">),</span>
-                       <span class="p">(</span><span class="s1">'coards__4v__1d3-3d1__y-desc.nc'</span><span class="p">,</span> <span class="s1">'air'</span><span class="p">),</span>
-                       <span class="p">(</span><span class="s1">'cf__9v__1d7-2d2__geos__y-desc.nc'</span><span class="p">,</span> <span class="s1">'CMI'</span><span class="p">)]:</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">variable</span> <span class="ow">in</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s1">'cf__6v__1d2-2d4__geog__y-asc.nc'</span><span class="p">,</span> <span class="s1">'Band1'</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">'coards__4v__1d3-3d1__y-desc.nc'</span><span class="p">,</span> <span class="s1">'air'</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">'cf__9v__1d7-2d2__geos__y-desc.nc'</span><span class="p">,</span> <span class="s1">'CMI'</span><span class="p">),</span>
+<span class="p">]:</span>
     <span class="n">container</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">DATA</span> <span class="o">/</span> <span class="n">name</span><span class="p">)</span>
     <span class="n">var</span> <span class="o">=</span> <span class="n">container</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="n">variable</span><span class="p">)</span>
     <span class="n">eager</span> <span class="o">=</span> <span class="n">var</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>
@@ -7379,9 +7397,11 @@ stored bottom-up and even a longitude stored east→west (column 0 always ends u
     <span class="n">same</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">chunked</span><span class="p">),</span> <span class="n">eager</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'</span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s1">38s</span><span class="si">}</span><span class="s1"> </span><span class="si">{</span><span class="n">variable</span><span class="si">:</span><span class="s1">6s</span><span class="si">}</span><span class="s1"> chunked == eager: </span><span class="si">{</span><span class="n">same</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-11">for name, variable in [('cf__6v__1d2-2d4__geog__y-asc.nc', 'Band1'),
-                       ('coards__4v__1d3-3d1__y-desc.nc', 'air'),
-                       ('cf__9v__1d7-2d2__geos__y-desc.nc', 'CMI')]:
+<div class="clipboard-copy-txt" id="cell-11">for name, variable in [
+    ('cf__6v__1d2-2d4__geog__y-asc.nc', 'Band1'),
+    ('coards__4v__1d3-3d1__y-desc.nc', 'air'),
+    ('cf__9v__1d7-2d2__geos__y-desc.nc', 'CMI'),
+]:
     container = NetCDF.read_file(DATA / name)
     var = container.get_variable(variable)
     eager = var.read_array()
@@ -7399,7 +7419,7 @@ stored bottom-up and even a longitude stored east→west (column 0 always ends u
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:42:15 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[1] Unhandled X/Y axis unit rad. SRS will ignore axis unit and be likely wrong.
+<pre>2026-07-19 00:55:29 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[1] Unhandled X/Y axis unit rad. SRS will ignore axis unit and be likely wrong.
 </pre>
 </div>
 </div>

@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6963,7 +6963,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DatasetCollection</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">AnonymousSigner</span><span class="p">,</span>
     <span class="n">AWSRequesterPaysSigner</span><span class="p">,</span>
     <span class="n">BearerTokenSigner</span><span class="p">,</span>
     <span class="n">build_vrt_from_stac</span><span class="p">,</span>
@@ -6975,6 +6974,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="p">)</span>
 
 <span class="n">WORK</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s1">'pyramids_stac_nb_'</span><span class="p">))</span>
+
 
 <span class="k">def</span><span class="w"> </span><span class="nf">write_band</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">cell</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">top_left</span><span class="o">=</span><span class="p">(</span><span class="mf">600000.0</span><span class="p">,</span> <span class="mf">5300000.0</span><span class="p">)):</span>
 <span class="w">    </span><span class="sd">"""Write a constant uint16 EPSG:32630 raster (nodata 0) and return its path."""</span>
@@ -6988,6 +6988,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="n">path</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">WORK</span> <span class="o">/</span> <span class="sa">f</span><span class="s1">'</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s1">.tif'</span><span class="p">)</span>
     <span class="n">ds</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">path</span>
+
 
 <span class="c1"># One scene with a 10 m B04 and a 20 m B05 (the classic Sentinel-2 mixed-resolution case)</span>
 <span class="n">b04</span> <span class="o">=</span> <span class="n">write_band</span><span class="p">(</span><span class="s1">'B04'</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
@@ -7010,7 +7011,6 @@ import numpy as np
 
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.stac import (
-    AnonymousSigner,
     AWSRequesterPaysSigner,
     BearerTokenSigner,
     build_vrt_from_stac,
@@ -7022,6 +7022,7 @@ from pyramids.stac import (
 )
 
 WORK = Path(tempfile.mkdtemp(prefix='pyramids_stac_nb_'))
+
 
 def write_band(name, value, *, cell=10.0, shape=(4, 4), top_left=(600000.0, 5300000.0)):
     """Write a constant uint16 EPSG:32630 raster (nodata 0) and return its path."""
@@ -7035,6 +7036,7 @@ def write_band(name, value, *, cell=10.0, shape=(4, 4), top_left=(600000.0, 5300
     path = str(WORK / f'{name}.tif')
     ds.to_file(path)
     return path
+
 
 # One scene with a 10 m B04 and a 20 m B05 (the classic Sentinel-2 mixed-resolution case)
 b04 = write_band('B04', 1)
@@ -7058,14 +7060,14 @@ print('workspace:', WORK)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:44:08 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:57:31 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>workspace: /tmp/pyramids_stac_nb_l3tfrcki
+<pre>workspace: /tmp/pyramids_stac_nb_56u96ciq
 </pre>
 </div>
 </div>
@@ -7333,7 +7335,7 @@ ds0.band_count, ds0.band_names, ds0.read_array().shape</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fc56a4cd550&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f8c84239160&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7421,21 +7423,21 @@ daily.time_length  # two distinct solar days</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:44:09 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[6] Band data type of UInt16 cannot represent the specified NoData value of nan
+<pre>2026-07-19 00:57:32 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[6] Band data type of UInt16 cannot represent the specified NoData value of nan
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:44:09 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[6] Band data type of UInt16 cannot represent the specified NoData value of nan
+<pre>2026-07-19 00:57:32 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[6] Band data type of UInt16 cannot represent the specified NoData value of nan
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:44:09 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[6] Band data type of UInt16 cannot represent the specified NoData value of nan
+<pre>2026-07-19 00:57:32 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[6] Band data type of UInt16 cannot represent the specified NoData value of nan
 </pre>
 </div>
 </div>
@@ -7493,7 +7495,7 @@ mosaic per day.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fc56a271310&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f8c83fdd310&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7747,7 +7749,7 @@ tileB (20) on the right.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fc56a1ac690&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f8c83f18690&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7889,7 +7891,7 @@ resolved_href(items[0], 'B04')</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[15]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>'/tmp/pyramids_stac_nb_l3tfrcki/B04.tif'</pre>
+<pre>'/tmp/pyramids_stac_nb_56u96ciq/B04.tif'</pre>
 </div>
 </div>
 </div>

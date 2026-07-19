@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6937,8 +6937,8 @@ imports and paths here so the teaching cells below stay about <code>NetCDF</code
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
@@ -6956,8 +6956,8 @@ imports and paths here so the teaching cells below stay about <code>NetCDF</code
 <span class="n">PACKED</span> <span class="o">=</span> <span class="n">DATA</span> <span class="o">/</span> <span class="s1">'coards__4v__1d2-2d2__scaleoffset__y-asc.nc'</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">%matplotlib inline
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -6984,7 +6984,7 @@ PACKED = DATA / 'coards__4v__1d2-2d2__scaleoffset__y-asc.nc'</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:42:25 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:55:40 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
@@ -7990,23 +7990,29 @@ CRS (<code>epsg</code>), the affine <code>geotransform</code>, the axis coordina
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">({</span>
-    <span class="s1">'epsg'</span><span class="p">:</span> <span class="n">tos</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span>
-    <span class="s1">'geotransform'</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">g</span><span class="p">),</span> <span class="mi">3</span><span class="p">)</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">tos</span><span class="o">.</span><span class="n">geotransform</span><span class="p">),</span>
-    <span class="s1">'top_left_corner'</span><span class="p">:</span> <span class="n">tos</span><span class="o">.</span><span class="n">top_left_corner</span><span class="p">,</span>
-    <span class="s1">'no_data_value[0]'</span><span class="p">:</span> <span class="n">tos</span><span class="o">.</span><span class="n">no_data_value</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
-    <span class="s1">'lon range'</span><span class="p">:</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">tos</span><span class="o">.</span><span class="n">lon</span><span class="o">.</span><span class="n">min</span><span class="p">()),</span> <span class="nb">float</span><span class="p">(</span><span class="n">tos</span><span class="o">.</span><span class="n">lon</span><span class="o">.</span><span class="n">max</span><span class="p">())),</span>
-    <span class="s1">'lat range'</span><span class="p">:</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">tos</span><span class="o">.</span><span class="n">lat</span><span class="o">.</span><span class="n">min</span><span class="p">()),</span> <span class="nb">float</span><span class="p">(</span><span class="n">tos</span><span class="o">.</span><span class="n">lat</span><span class="o">.</span><span class="n">max</span><span class="p">())),</span>
-<span class="p">},</span> <span class="n">name</span><span class="o">=</span><span class="s1">'value'</span><span class="p">)</span><span class="o">.</span><span class="n">to_frame</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s1">'epsg'</span><span class="p">:</span> <span class="n">tos</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span>
+        <span class="s1">'geotransform'</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">g</span><span class="p">),</span> <span class="mi">3</span><span class="p">)</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">tos</span><span class="o">.</span><span class="n">geotransform</span><span class="p">),</span>
+        <span class="s1">'top_left_corner'</span><span class="p">:</span> <span class="n">tos</span><span class="o">.</span><span class="n">top_left_corner</span><span class="p">,</span>
+        <span class="s1">'no_data_value[0]'</span><span class="p">:</span> <span class="n">tos</span><span class="o">.</span><span class="n">no_data_value</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+        <span class="s1">'lon range'</span><span class="p">:</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">tos</span><span class="o">.</span><span class="n">lon</span><span class="o">.</span><span class="n">min</span><span class="p">()),</span> <span class="nb">float</span><span class="p">(</span><span class="n">tos</span><span class="o">.</span><span class="n">lon</span><span class="o">.</span><span class="n">max</span><span class="p">())),</span>
+        <span class="s1">'lat range'</span><span class="p">:</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">tos</span><span class="o">.</span><span class="n">lat</span><span class="o">.</span><span class="n">min</span><span class="p">()),</span> <span class="nb">float</span><span class="p">(</span><span class="n">tos</span><span class="o">.</span><span class="n">lat</span><span class="o">.</span><span class="n">max</span><span class="p">())),</span>
+    <span class="p">},</span>
+    <span class="n">name</span><span class="o">=</span><span class="s1">'value'</span><span class="p">,</span>
+<span class="p">)</span><span class="o">.</span><span class="n">to_frame</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">pd.Series({
-    'epsg': tos.epsg,
-    'geotransform': tuple(round(float(g), 3) for g in tos.geotransform),
-    'top_left_corner': tos.top_left_corner,
-    'no_data_value[0]': tos.no_data_value[0],
-    'lon range': (float(tos.lon.min()), float(tos.lon.max())),
-    'lat range': (float(tos.lat.min()), float(tos.lat.max())),
-}, name='value').to_frame()</div>
+<div class="clipboard-copy-txt" id="cell-9">pd.Series(
+    {
+        'epsg': tos.epsg,
+        'geotransform': tuple(round(float(g), 3) for g in tos.geotransform),
+        'top_left_corner': tos.top_left_corner,
+        'no_data_value[0]': tos.no_data_value[0],
+        'lon range': (float(tos.lon.min()), float(tos.lon.max())),
+        'lat range': (float(tos.lat.min()), float(tos.lat.max())),
+    },
+    name='value',
+).to_frame()</div>
 </div>
 </div>
 </div>
@@ -8371,19 +8377,25 @@ the raw stored values by default; <code>unpack=True</code> applies <code>real = 
 <span class="n">z</span> <span class="o">=</span> <span class="n">packed</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'z'</span><span class="p">)</span>
 <span class="n">raw</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>
 <span class="n">real</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">unpack</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">({</span>
-    <span class="s1">'raw mean (stored)'</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">raw</span><span class="p">)),</span>
-    <span class="s1">'unpacked mean (real units)'</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">real</span><span class="p">)),</span>
-<span class="p">},</span> <span class="n">name</span><span class="o">=</span><span class="s1">'value'</span><span class="p">)</span><span class="o">.</span><span class="n">to_frame</span><span class="p">()</span>
+<span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s1">'raw mean (stored)'</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">raw</span><span class="p">)),</span>
+        <span class="s1">'unpacked mean (real units)'</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">real</span><span class="p">)),</span>
+    <span class="p">},</span>
+    <span class="n">name</span><span class="o">=</span><span class="s1">'value'</span><span class="p">,</span>
+<span class="p">)</span><span class="o">.</span><span class="n">to_frame</span><span class="p">()</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-14">packed = NetCDF.read_file(PACKED)
 z = packed.get_variable('z')
 raw = z.read_array()
 real = z.read_array(unpack=True)
-pd.Series({
-    'raw mean (stored)': float(np.nanmean(raw)),
-    'unpacked mean (real units)': float(np.nanmean(real)),
-}, name='value').to_frame()</div>
+pd.Series(
+    {
+        'raw mean (stored)': float(np.nanmean(raw)),
+        'unpacked mean (real units)': float(np.nanmean(real)),
+    },
+    name='value',
+).to_frame()</div>
 </div>
 </div>
 </div>
@@ -8720,7 +8732,7 @@ dict(time_mean.dimension_sizes)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/tmp/ipykernel_5194/2515305529.py:1: UserWarning: reduce() dropped auxiliary variable(s) ['time_bnds'] that span the reduced dimension 'time'; carrying them unchanged would leave an inconsistent 'time' length in the result.
+<pre>/tmp/ipykernel_17096/2515305529.py:1: UserWarning: reduce() dropped auxiliary variable(s) ['time_bnds'] that span the reduced dimension 'time'; carrying them unchanged would leave an inconsistent 'time' length in the result.
   time_mean = nc.reduce('time', how='mean')
 </pre>
 </div>

@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6861,7 +6861,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
@@ -6873,7 +6872,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">%matplotlib inline
 
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -6938,7 +6936,7 @@ ds.shape, ds.no_data_value</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:43:07 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:56:25 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
@@ -6995,7 +6993,7 @@ ds.shape, ds.no_data_value</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fca674423c0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f6b1b11e120&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7246,7 +7244,7 @@ The repaired array is wrapped back into a <code>Dataset</code> so it can be plot
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fca5ed0fb10&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f6b1aad7c50&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7278,12 +7276,20 @@ The repaired array is wrapped back into a <code>Dataset</code> so it can be plot
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">repaired_ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
-    <span class="n">repaired</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">'float32'</span><span class="p">),</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span> <span class="n">no_data_value</span><span class="o">=</span><span class="n">ND</span>
+    <span class="n">repaired</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">'float32'</span><span class="p">),</span>
+    <span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+    <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span>
+    <span class="n">no_data_value</span><span class="o">=</span><span class="n">ND</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">repaired_ds</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Gaps filled (fill_gaps)"</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s2">"viridis"</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-8">repaired_ds = Dataset.create_from_array(
-    repaired.astype('float32'), top_left_corner=(0, 0), cell_size=1.0, epsg=4326, no_data_value=ND
+    repaired.astype('float32'),
+    top_left_corner=(0, 0),
+    cell_size=1.0,
+    epsg=4326,
+    no_data_value=ND,
 )
 repaired_ds.plot(band=0, title="Gaps filled (fill_gaps)", cmap="viridis")</div>
 </div>
@@ -7297,7 +7303,7 @@ repaired_ds.plot(band=0, title="Gaps filled (fill_gaps)", cmap="viridis")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fca5edc5450&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f6b1ab91590&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">

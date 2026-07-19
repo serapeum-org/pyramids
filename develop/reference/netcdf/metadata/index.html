@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6388,7 +6388,7 @@ not used to open the file.</p>
                 <code>start_group</code>
             </td>
             <td>
-                  <code>&#39;gdal.Group | None&#39;</code>
+                  <code><span title="osgeo.gdal.Group">Group</span> | None</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -6538,7 +6538,7 @@ opened as a multidimensional raster.</p>
 <span class="normal"><a href="#__codelineno-0-719">719</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-661" name="__codelineno-0-661"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_metadata</span><span class="p">(</span>
 <a id="__codelineno-0-662" name="__codelineno-0-662"></a>    <span class="n">source</span><span class="p">,</span>
 <a id="__codelineno-0-663" name="__codelineno-0-663"></a>    <span class="n">open_options</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-664" name="__codelineno-0-664"></a>    <span class="n">start_group</span><span class="p">:</span> <span class="s2">&quot;gdal.Group | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-664" name="__codelineno-0-664"></a>    <span class="n">start_group</span><span class="p">:</span> <span class="n">gdal</span><span class="o">.</span><span class="n">Group</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-665" name="__codelineno-0-665"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NetCDFMetadata</span><span class="p">:</span>
 <a id="__codelineno-0-666" name="__codelineno-0-666"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Read and normalize all NetCDF MDIM metadata.</span>
 <a id="__codelineno-0-667" name="__codelineno-0-667"></a>

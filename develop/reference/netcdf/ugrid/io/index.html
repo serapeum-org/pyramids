@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6487,7 +6487,13 @@ Uses cf.write_attributes_to_md_array for all attribute writing.</p>
 <span class="normal"><a href="#__codelineno-0-492">492</a></span>
 <span class="normal"><a href="#__codelineno-0-493">493</a></span>
 <span class="normal"><a href="#__codelineno-0-494">494</a></span>
-<span class="normal"><a href="#__codelineno-0-495">495</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-401" name="__codelineno-0-401"></a><span class="k">def</span><span class="w"> </span><span class="nf">write_ugrid_topology</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-495">495</a></span>
+<span class="normal"><a href="#__codelineno-0-496">496</a></span>
+<span class="normal"><a href="#__codelineno-0-497">497</a></span>
+<span class="normal"><a href="#__codelineno-0-498">498</a></span>
+<span class="normal"><a href="#__codelineno-0-499">499</a></span>
+<span class="normal"><a href="#__codelineno-0-500">500</a></span>
+<span class="normal"><a href="#__codelineno-0-501">501</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-401" name="__codelineno-0-401"></a><span class="k">def</span><span class="w"> </span><span class="nf">write_ugrid_topology</span><span class="p">(</span>
 <a id="__codelineno-0-402" name="__codelineno-0-402"></a>    <span class="n">rg</span><span class="p">:</span> <span class="n">gdal</span><span class="o">.</span><span class="n">Group</span><span class="p">,</span>
 <a id="__codelineno-0-403" name="__codelineno-0-403"></a>    <span class="n">mesh</span><span class="p">:</span> <span class="n">Mesh2d</span><span class="p">,</span>
 <a id="__codelineno-0-404" name="__codelineno-0-404"></a>    <span class="n">mesh_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">DEFAULT_MESH_NAME</span><span class="p">,</span>
@@ -6572,16 +6578,22 @@ Uses cf.write_attributes_to_md_array for all attribute writing.</p>
 <a id="__codelineno-0-483" name="__codelineno-0-483"></a>
 <a id="__codelineno-0-484" name="__codelineno-0-484"></a>    <span class="k">if</span> <span class="n">mesh</span><span class="o">.</span><span class="n">has_face_coords</span><span class="p">:</span>
 <a id="__codelineno-0-485" name="__codelineno-0-485"></a>        <span class="n">_write_coord_array</span><span class="p">(</span>
-<a id="__codelineno-0-486" name="__codelineno-0-486"></a>            <span class="n">rg</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">mesh_name</span><span class="si">}</span><span class="s2">_face_x&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n_face_dim</span><span class="p">],</span> <span class="n">cast</span><span class="p">(</span><span class="s2">&quot;np.typing.NDArray&quot;</span><span class="p">,</span> <span class="n">mesh</span><span class="o">.</span><span class="n">face_x</span><span class="p">)</span>
-<a id="__codelineno-0-487" name="__codelineno-0-487"></a>        <span class="p">)</span>
-<a id="__codelineno-0-488" name="__codelineno-0-488"></a>        <span class="n">_write_coord_array</span><span class="p">(</span>
-<a id="__codelineno-0-489" name="__codelineno-0-489"></a>            <span class="n">rg</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">mesh_name</span><span class="si">}</span><span class="s2">_face_y&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n_face_dim</span><span class="p">],</span> <span class="n">cast</span><span class="p">(</span><span class="s2">&quot;np.typing.NDArray&quot;</span><span class="p">,</span> <span class="n">mesh</span><span class="o">.</span><span class="n">face_y</span><span class="p">)</span>
+<a id="__codelineno-0-486" name="__codelineno-0-486"></a>            <span class="n">rg</span><span class="p">,</span>
+<a id="__codelineno-0-487" name="__codelineno-0-487"></a>            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">mesh_name</span><span class="si">}</span><span class="s2">_face_x&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-488" name="__codelineno-0-488"></a>            <span class="p">[</span><span class="n">n_face_dim</span><span class="p">],</span>
+<a id="__codelineno-0-489" name="__codelineno-0-489"></a>            <span class="n">cast</span><span class="p">(</span><span class="s2">&quot;np.typing.NDArray&quot;</span><span class="p">,</span> <span class="n">mesh</span><span class="o">.</span><span class="n">face_x</span><span class="p">),</span>
 <a id="__codelineno-0-490" name="__codelineno-0-490"></a>        <span class="p">)</span>
-<a id="__codelineno-0-491" name="__codelineno-0-491"></a>
-<a id="__codelineno-0-492" name="__codelineno-0-492"></a>    <span class="k">if</span> <span class="n">crs_wkt</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-493" name="__codelineno-0-493"></a>        <span class="n">_write_crs_variable</span><span class="p">(</span><span class="n">rg</span><span class="p">,</span> <span class="n">crs_wkt</span><span class="p">,</span> <span class="n">topo_dim</span><span class="p">)</span>
-<a id="__codelineno-0-494" name="__codelineno-0-494"></a>
-<a id="__codelineno-0-495" name="__codelineno-0-495"></a>    <span class="k">return</span> <span class="n">dims</span>
+<a id="__codelineno-0-491" name="__codelineno-0-491"></a>        <span class="n">_write_coord_array</span><span class="p">(</span>
+<a id="__codelineno-0-492" name="__codelineno-0-492"></a>            <span class="n">rg</span><span class="p">,</span>
+<a id="__codelineno-0-493" name="__codelineno-0-493"></a>            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">mesh_name</span><span class="si">}</span><span class="s2">_face_y&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-494" name="__codelineno-0-494"></a>            <span class="p">[</span><span class="n">n_face_dim</span><span class="p">],</span>
+<a id="__codelineno-0-495" name="__codelineno-0-495"></a>            <span class="n">cast</span><span class="p">(</span><span class="s2">&quot;np.typing.NDArray&quot;</span><span class="p">,</span> <span class="n">mesh</span><span class="o">.</span><span class="n">face_y</span><span class="p">),</span>
+<a id="__codelineno-0-496" name="__codelineno-0-496"></a>        <span class="p">)</span>
+<a id="__codelineno-0-497" name="__codelineno-0-497"></a>
+<a id="__codelineno-0-498" name="__codelineno-0-498"></a>    <span class="k">if</span> <span class="n">crs_wkt</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-499" name="__codelineno-0-499"></a>        <span class="n">_write_crs_variable</span><span class="p">(</span><span class="n">rg</span><span class="p">,</span> <span class="n">crs_wkt</span><span class="p">,</span> <span class="n">topo_dim</span><span class="p">)</span>
+<a id="__codelineno-0-500" name="__codelineno-0-500"></a>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a>    <span class="k">return</span> <span class="n">dims</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6688,13 +6700,7 @@ Uses cf.write_attributes_to_md_array for all attribute writing.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/ugrid/io.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-578">578</a></span>
-<span class="normal"><a href="#__codelineno-0-579">579</a></span>
-<span class="normal"><a href="#__codelineno-0-580">580</a></span>
-<span class="normal"><a href="#__codelineno-0-581">581</a></span>
-<span class="normal"><a href="#__codelineno-0-582">582</a></span>
-<span class="normal"><a href="#__codelineno-0-583">583</a></span>
-<span class="normal"><a href="#__codelineno-0-584">584</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-584">584</a></span>
 <span class="normal"><a href="#__codelineno-0-585">585</a></span>
 <span class="normal"><a href="#__codelineno-0-586">586</a></span>
 <span class="normal"><a href="#__codelineno-0-587">587</a></span>
@@ -6745,64 +6751,70 @@ Uses cf.write_attributes_to_md_array for all attribute writing.</p>
 <span class="normal"><a href="#__codelineno-0-632">632</a></span>
 <span class="normal"><a href="#__codelineno-0-633">633</a></span>
 <span class="normal"><a href="#__codelineno-0-634">634</a></span>
-<span class="normal"><a href="#__codelineno-0-635">635</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-578" name="__codelineno-0-578"></a><span class="k">def</span><span class="w"> </span><span class="nf">write_ugrid_data_variable</span><span class="p">(</span>
-<a id="__codelineno-0-579" name="__codelineno-0-579"></a>    <span class="n">rg</span><span class="p">:</span> <span class="n">gdal</span><span class="o">.</span><span class="n">Group</span><span class="p">,</span>
-<a id="__codelineno-0-580" name="__codelineno-0-580"></a>    <span class="n">var</span><span class="p">:</span> <span class="n">MeshVariable</span><span class="p">,</span>
-<a id="__codelineno-0-581" name="__codelineno-0-581"></a>    <span class="n">mesh_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<a id="__codelineno-0-582" name="__codelineno-0-582"></a>    <span class="n">dims</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
-<a id="__codelineno-0-583" name="__codelineno-0-583"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-584" name="__codelineno-0-584"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Write a single data variable to the GDAL group.</span>
-<a id="__codelineno-0-585" name="__codelineno-0-585"></a>
-<a id="__codelineno-0-586" name="__codelineno-0-586"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-587" name="__codelineno-0-587"></a><span class="sd">        rg: GDAL root group.</span>
-<a id="__codelineno-0-588" name="__codelineno-0-588"></a><span class="sd">        var: MeshVariable instance.</span>
-<a id="__codelineno-0-589" name="__codelineno-0-589"></a><span class="sd">        mesh_name: Name of the mesh topology variable.</span>
-<a id="__codelineno-0-590" name="__codelineno-0-590"></a><span class="sd">        dims: Dict mapping dimension names to GDAL dimension objects.</span>
-<a id="__codelineno-0-591" name="__codelineno-0-591"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-592" name="__codelineno-0-592"></a>    <span class="k">if</span> <span class="n">var</span><span class="o">.</span><span class="n">data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-593" name="__codelineno-0-593"></a>        <span class="k">return</span>
-<a id="__codelineno-0-594" name="__codelineno-0-594"></a>
-<a id="__codelineno-0-595" name="__codelineno-0-595"></a>    <span class="n">dim_list</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-596" name="__codelineno-0-596"></a>    <span class="k">if</span> <span class="n">var</span><span class="o">.</span><span class="n">has_time</span> <span class="ow">and</span> <span class="s2">&quot;time&quot;</span> <span class="ow">in</span> <span class="n">dims</span><span class="p">:</span>
-<a id="__codelineno-0-597" name="__codelineno-0-597"></a>        <span class="n">dim_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dims</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">])</span>
-<a id="__codelineno-0-598" name="__codelineno-0-598"></a>
-<a id="__codelineno-0-599" name="__codelineno-0-599"></a>    <span class="n">loc_dim_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">mesh_name</span><span class="si">}</span><span class="s2">_n</span><span class="si">{</span><span class="n">var</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">capitalize</span><span class="p">()</span><span class="si">}</span><span class="s2">s&quot;</span>
-<a id="__codelineno-0-600" name="__codelineno-0-600"></a>    <span class="k">if</span> <span class="n">loc_dim_name</span> <span class="ow">in</span> <span class="n">dims</span><span class="p">:</span>
-<a id="__codelineno-0-601" name="__codelineno-0-601"></a>        <span class="n">dim_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dims</span><span class="p">[</span><span class="n">loc_dim_name</span><span class="p">])</span>
-<a id="__codelineno-0-602" name="__codelineno-0-602"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-603" name="__codelineno-0-603"></a>        <span class="n">loc_dim</span> <span class="o">=</span> <span class="n">rg</span><span class="o">.</span><span class="n">CreateDimension</span><span class="p">(</span><span class="n">loc_dim_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">var</span><span class="o">.</span><span class="n">n_elements</span><span class="p">)</span>
-<a id="__codelineno-0-604" name="__codelineno-0-604"></a>        <span class="n">dims</span><span class="p">[</span><span class="n">loc_dim_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">loc_dim</span>
-<a id="__codelineno-0-605" name="__codelineno-0-605"></a>        <span class="n">dim_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">loc_dim</span><span class="p">)</span>
-<a id="__codelineno-0-606" name="__codelineno-0-606"></a>
-<a id="__codelineno-0-607" name="__codelineno-0-607"></a>    <span class="n">dtype_map</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-0-608" name="__codelineno-0-608"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;float64&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Float64</span><span class="p">,</span>
-<a id="__codelineno-0-609" name="__codelineno-0-609"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;float32&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Float32</span><span class="p">,</span>
-<a id="__codelineno-0-610" name="__codelineno-0-610"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;int64&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Int64</span><span class="p">,</span>
-<a id="__codelineno-0-611" name="__codelineno-0-611"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;int32&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Int32</span><span class="p">,</span>
-<a id="__codelineno-0-612" name="__codelineno-0-612"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;int16&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Int16</span><span class="p">,</span>
-<a id="__codelineno-0-613" name="__codelineno-0-613"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;int8&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Int16</span><span class="p">,</span>
-<a id="__codelineno-0-614" name="__codelineno-0-614"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;uint8&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Byte</span><span class="p">,</span>
-<a id="__codelineno-0-615" name="__codelineno-0-615"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;uint16&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_UInt16</span><span class="p">,</span>
-<a id="__codelineno-0-616" name="__codelineno-0-616"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;uint32&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_UInt32</span><span class="p">,</span>
-<a id="__codelineno-0-617" name="__codelineno-0-617"></a>    <span class="p">}</span>
-<a id="__codelineno-0-618" name="__codelineno-0-618"></a>    <span class="n">gdal_dt</span> <span class="o">=</span> <span class="n">dtype_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">var</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Float64</span><span class="p">)</span>
-<a id="__codelineno-0-619" name="__codelineno-0-619"></a>
-<a id="__codelineno-0-620" name="__codelineno-0-620"></a>    <span class="n">md_arr</span> <span class="o">=</span> <span class="n">rg</span><span class="o">.</span><span class="n">CreateMDArray</span><span class="p">(</span>
-<a id="__codelineno-0-621" name="__codelineno-0-621"></a>        <span class="n">var</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
-<a id="__codelineno-0-622" name="__codelineno-0-622"></a>        <span class="n">dim_list</span><span class="p">,</span>
-<a id="__codelineno-0-623" name="__codelineno-0-623"></a>        <span class="n">gdal</span><span class="o">.</span><span class="n">ExtendedDataType</span><span class="o">.</span><span class="n">Create</span><span class="p">(</span><span class="n">gdal_dt</span><span class="p">),</span>
-<a id="__codelineno-0-624" name="__codelineno-0-624"></a>    <span class="p">)</span>
-<a id="__codelineno-0-625" name="__codelineno-0-625"></a>    <span class="n">md_arr</span><span class="o">.</span><span class="n">Write</span><span class="p">(</span><span class="n">var</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
-<a id="__codelineno-0-626" name="__codelineno-0-626"></a>
-<a id="__codelineno-0-627" name="__codelineno-0-627"></a>    <span class="n">var_attrs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;mesh&quot;</span><span class="p">:</span> <span class="n">mesh_name</span><span class="p">,</span> <span class="s2">&quot;location&quot;</span><span class="p">:</span> <span class="n">var</span><span class="o">.</span><span class="n">location</span><span class="p">}</span>
-<a id="__codelineno-0-628" name="__codelineno-0-628"></a>    <span class="k">if</span> <span class="n">var</span><span class="o">.</span><span class="n">units</span><span class="p">:</span>
-<a id="__codelineno-0-629" name="__codelineno-0-629"></a>        <span class="n">var_attrs</span><span class="p">[</span><span class="s2">&quot;units&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">var</span><span class="o">.</span><span class="n">units</span>
-<a id="__codelineno-0-630" name="__codelineno-0-630"></a>    <span class="k">if</span> <span class="n">var</span><span class="o">.</span><span class="n">standard_name</span><span class="p">:</span>
-<a id="__codelineno-0-631" name="__codelineno-0-631"></a>        <span class="n">var_attrs</span><span class="p">[</span><span class="s2">&quot;standard_name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">var</span><span class="o">.</span><span class="n">standard_name</span>
-<a id="__codelineno-0-632" name="__codelineno-0-632"></a>    <span class="k">if</span> <span class="n">var</span><span class="o">.</span><span class="n">nodata</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-633" name="__codelineno-0-633"></a>        <span class="n">var_attrs</span><span class="p">[</span><span class="s2">&quot;_FillValue&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">var</span><span class="o">.</span><span class="n">nodata</span>
-<a id="__codelineno-0-634" name="__codelineno-0-634"></a>
-<a id="__codelineno-0-635" name="__codelineno-0-635"></a>    <span class="n">write_attributes_to_md_array</span><span class="p">(</span><span class="n">md_arr</span><span class="p">,</span> <span class="n">var_attrs</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-635">635</a></span>
+<span class="normal"><a href="#__codelineno-0-636">636</a></span>
+<span class="normal"><a href="#__codelineno-0-637">637</a></span>
+<span class="normal"><a href="#__codelineno-0-638">638</a></span>
+<span class="normal"><a href="#__codelineno-0-639">639</a></span>
+<span class="normal"><a href="#__codelineno-0-640">640</a></span>
+<span class="normal"><a href="#__codelineno-0-641">641</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-584" name="__codelineno-0-584"></a><span class="k">def</span><span class="w"> </span><span class="nf">write_ugrid_data_variable</span><span class="p">(</span>
+<a id="__codelineno-0-585" name="__codelineno-0-585"></a>    <span class="n">rg</span><span class="p">:</span> <span class="n">gdal</span><span class="o">.</span><span class="n">Group</span><span class="p">,</span>
+<a id="__codelineno-0-586" name="__codelineno-0-586"></a>    <span class="n">var</span><span class="p">:</span> <span class="n">MeshVariable</span><span class="p">,</span>
+<a id="__codelineno-0-587" name="__codelineno-0-587"></a>    <span class="n">mesh_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-588" name="__codelineno-0-588"></a>    <span class="n">dims</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<a id="__codelineno-0-589" name="__codelineno-0-589"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-590" name="__codelineno-0-590"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Write a single data variable to the GDAL group.</span>
+<a id="__codelineno-0-591" name="__codelineno-0-591"></a>
+<a id="__codelineno-0-592" name="__codelineno-0-592"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-593" name="__codelineno-0-593"></a><span class="sd">        rg: GDAL root group.</span>
+<a id="__codelineno-0-594" name="__codelineno-0-594"></a><span class="sd">        var: MeshVariable instance.</span>
+<a id="__codelineno-0-595" name="__codelineno-0-595"></a><span class="sd">        mesh_name: Name of the mesh topology variable.</span>
+<a id="__codelineno-0-596" name="__codelineno-0-596"></a><span class="sd">        dims: Dict mapping dimension names to GDAL dimension objects.</span>
+<a id="__codelineno-0-597" name="__codelineno-0-597"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-598" name="__codelineno-0-598"></a>    <span class="k">if</span> <span class="n">var</span><span class="o">.</span><span class="n">data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-599" name="__codelineno-0-599"></a>        <span class="k">return</span>
+<a id="__codelineno-0-600" name="__codelineno-0-600"></a>
+<a id="__codelineno-0-601" name="__codelineno-0-601"></a>    <span class="n">dim_list</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-602" name="__codelineno-0-602"></a>    <span class="k">if</span> <span class="n">var</span><span class="o">.</span><span class="n">has_time</span> <span class="ow">and</span> <span class="s2">&quot;time&quot;</span> <span class="ow">in</span> <span class="n">dims</span><span class="p">:</span>
+<a id="__codelineno-0-603" name="__codelineno-0-603"></a>        <span class="n">dim_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dims</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">])</span>
+<a id="__codelineno-0-604" name="__codelineno-0-604"></a>
+<a id="__codelineno-0-605" name="__codelineno-0-605"></a>    <span class="n">loc_dim_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">mesh_name</span><span class="si">}</span><span class="s2">_n</span><span class="si">{</span><span class="n">var</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">capitalize</span><span class="p">()</span><span class="si">}</span><span class="s2">s&quot;</span>
+<a id="__codelineno-0-606" name="__codelineno-0-606"></a>    <span class="k">if</span> <span class="n">loc_dim_name</span> <span class="ow">in</span> <span class="n">dims</span><span class="p">:</span>
+<a id="__codelineno-0-607" name="__codelineno-0-607"></a>        <span class="n">dim_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dims</span><span class="p">[</span><span class="n">loc_dim_name</span><span class="p">])</span>
+<a id="__codelineno-0-608" name="__codelineno-0-608"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-609" name="__codelineno-0-609"></a>        <span class="n">loc_dim</span> <span class="o">=</span> <span class="n">rg</span><span class="o">.</span><span class="n">CreateDimension</span><span class="p">(</span><span class="n">loc_dim_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">var</span><span class="o">.</span><span class="n">n_elements</span><span class="p">)</span>
+<a id="__codelineno-0-610" name="__codelineno-0-610"></a>        <span class="n">dims</span><span class="p">[</span><span class="n">loc_dim_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">loc_dim</span>
+<a id="__codelineno-0-611" name="__codelineno-0-611"></a>        <span class="n">dim_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">loc_dim</span><span class="p">)</span>
+<a id="__codelineno-0-612" name="__codelineno-0-612"></a>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a>    <span class="n">dtype_map</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-0-614" name="__codelineno-0-614"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;float64&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Float64</span><span class="p">,</span>
+<a id="__codelineno-0-615" name="__codelineno-0-615"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;float32&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Float32</span><span class="p">,</span>
+<a id="__codelineno-0-616" name="__codelineno-0-616"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;int64&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Int64</span><span class="p">,</span>
+<a id="__codelineno-0-617" name="__codelineno-0-617"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;int32&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Int32</span><span class="p">,</span>
+<a id="__codelineno-0-618" name="__codelineno-0-618"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;int16&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Int16</span><span class="p">,</span>
+<a id="__codelineno-0-619" name="__codelineno-0-619"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;int8&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Int16</span><span class="p">,</span>
+<a id="__codelineno-0-620" name="__codelineno-0-620"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;uint8&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Byte</span><span class="p">,</span>
+<a id="__codelineno-0-621" name="__codelineno-0-621"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;uint16&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_UInt16</span><span class="p">,</span>
+<a id="__codelineno-0-622" name="__codelineno-0-622"></a>        <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="s2">&quot;uint32&quot;</span><span class="p">):</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_UInt32</span><span class="p">,</span>
+<a id="__codelineno-0-623" name="__codelineno-0-623"></a>    <span class="p">}</span>
+<a id="__codelineno-0-624" name="__codelineno-0-624"></a>    <span class="n">gdal_dt</span> <span class="o">=</span> <span class="n">dtype_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">var</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">gdal</span><span class="o">.</span><span class="n">GDT_Float64</span><span class="p">)</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a>    <span class="n">md_arr</span> <span class="o">=</span> <span class="n">rg</span><span class="o">.</span><span class="n">CreateMDArray</span><span class="p">(</span>
+<a id="__codelineno-0-627" name="__codelineno-0-627"></a>        <span class="n">var</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+<a id="__codelineno-0-628" name="__codelineno-0-628"></a>        <span class="n">dim_list</span><span class="p">,</span>
+<a id="__codelineno-0-629" name="__codelineno-0-629"></a>        <span class="n">gdal</span><span class="o">.</span><span class="n">ExtendedDataType</span><span class="o">.</span><span class="n">Create</span><span class="p">(</span><span class="n">gdal_dt</span><span class="p">),</span>
+<a id="__codelineno-0-630" name="__codelineno-0-630"></a>    <span class="p">)</span>
+<a id="__codelineno-0-631" name="__codelineno-0-631"></a>    <span class="n">md_arr</span><span class="o">.</span><span class="n">Write</span><span class="p">(</span><span class="n">var</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+<a id="__codelineno-0-632" name="__codelineno-0-632"></a>
+<a id="__codelineno-0-633" name="__codelineno-0-633"></a>    <span class="n">var_attrs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;mesh&quot;</span><span class="p">:</span> <span class="n">mesh_name</span><span class="p">,</span> <span class="s2">&quot;location&quot;</span><span class="p">:</span> <span class="n">var</span><span class="o">.</span><span class="n">location</span><span class="p">}</span>
+<a id="__codelineno-0-634" name="__codelineno-0-634"></a>    <span class="k">if</span> <span class="n">var</span><span class="o">.</span><span class="n">units</span><span class="p">:</span>
+<a id="__codelineno-0-635" name="__codelineno-0-635"></a>        <span class="n">var_attrs</span><span class="p">[</span><span class="s2">&quot;units&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">var</span><span class="o">.</span><span class="n">units</span>
+<a id="__codelineno-0-636" name="__codelineno-0-636"></a>    <span class="k">if</span> <span class="n">var</span><span class="o">.</span><span class="n">standard_name</span><span class="p">:</span>
+<a id="__codelineno-0-637" name="__codelineno-0-637"></a>        <span class="n">var_attrs</span><span class="p">[</span><span class="s2">&quot;standard_name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">var</span><span class="o">.</span><span class="n">standard_name</span>
+<a id="__codelineno-0-638" name="__codelineno-0-638"></a>    <span class="k">if</span> <span class="n">var</span><span class="o">.</span><span class="n">nodata</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-639" name="__codelineno-0-639"></a>        <span class="n">var_attrs</span><span class="p">[</span><span class="s2">&quot;_FillValue&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">var</span><span class="o">.</span><span class="n">nodata</span>
+<a id="__codelineno-0-640" name="__codelineno-0-640"></a>
+<a id="__codelineno-0-641" name="__codelineno-0-641"></a>    <span class="n">write_attributes_to_md_array</span><span class="p">(</span><span class="n">md_arr</span><span class="p">,</span> <span class="n">var_attrs</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>

@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6696,27 +6696,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">geopandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">gpd</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">shapely.geometry</span><span class="w"> </span><span class="kn">import</span> <span class="n">Polygon</span><span class="p">,</span> <span class="n">box</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span><span class="p">,</span> <span class="n">UgridDataset</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
 
 <span class="n">DATA</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s1">'../../../../examples/data/netcdf/samples'</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">%matplotlib inline
 from pathlib import Path
-import tempfile
 
-import numpy as np
-import geopandas as gpd
 from shapely.geometry import Polygon, box
 
 from pyramids.netcdf import NetCDF, UgridDataset
-from pyramids.feature import FeatureCollection
 
 DATA = Path('../../../../examples/data/netcdf/samples')</div>
 </div>
@@ -6730,7 +6722,7 @@ DATA = Path('../../../../examples/data/netcdf/samples')</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:42:07 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:55:20 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
@@ -6860,7 +6852,7 @@ print('bounds:', ug.bounds)</div>
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>nodes: 16 | faces: 4 | edges: 0
-mesh: &lt;pyramids.netcdf.ugrid.mesh.Mesh2d object at 0x7f4939e03380&gt;
+mesh: &lt;pyramids.netcdf.ugrid.mesh.Mesh2d object at 0x7fe9d419ae40&gt;
 bounds: (-0.3252372145652771, -0.26931479573249817, 0.38283485174179077, 0.2782424986362457)
 </pre>
 </div>
@@ -6912,7 +6904,7 @@ bounds: (-0.3252372145652771, -0.26931479573249817, 0.38283485174179077, 0.27824
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.mesh_glyph.MeshGlyph at 0x7f4939c08d70&gt;</pre>
+<pre>&lt;cleopatra.mesh_glyph.MeshGlyph at 0x7fe9d3f70830&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7059,8 +7051,7 @@ bounds: (-0.3252372145652771, -0.26931479573249817, 0.38283485174179077, 0.27824
 <span class="n">region</span> <span class="o">=</span> <span class="n">box</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.3</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-6"># A bounding-box polygon over the right-hand portion of the mesh
-region = box(0.0, -0.3, 0.4, 0.3)
-</div>
+region = box(0.0, -0.3, 0.4, 0.3)</div>
 </div>
 </div>
 </div>
@@ -7089,8 +7080,7 @@ region = box(0.0, -0.3, 0.4, 0.3)
 <span class="n">cropped</span> <span class="o">=</span> <span class="n">ug</span><span class="o">.</span><span class="n">crop</span><span class="p">(</span><span class="n">region</span><span class="p">,</span> <span class="n">touch</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-7"># Keep every face that touches the region
-cropped = ug.crop(region, touch=True)
-</div>
+cropped = ug.crop(region, touch=True)</div>
 </div>
 </div>
 </div>
@@ -7119,8 +7109,7 @@ cropped = ug.crop(region, touch=True)
 <span class="nb">print</span><span class="p">(</span><span class="s1">'faces before:'</span><span class="p">,</span> <span class="n">ug</span><span class="o">.</span><span class="n">n_face</span><span class="p">,</span> <span class="s1">'| faces after crop:'</span><span class="p">,</span> <span class="n">cropped</span><span class="o">.</span><span class="n">n_face</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-8"># Cropping selects a subset of the faces
-print('faces before:', ug.n_face, '| faces after crop:', cropped.n_face)
-</div>
+print('faces before:', ug.n_face, '| faces after crop:', cropped.n_face)</div>
 </div>
 </div>
 </div>
@@ -7171,8 +7160,7 @@ print('faces before:', ug.n_face, '| faces after crop:', cropped.n_face)
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">cropped</span><span class="o">.</span><span class="n">plot_outline</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">cropped.plot_outline()
-</div>
+<div class="clipboard-copy-txt" id="cell-9">cropped.plot_outline()</div>
 </div>
 </div>
 </div>
@@ -7184,7 +7172,7 @@ print('faces before:', ug.n_face, '| faces after crop:', cropped.n_face)
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.mesh_glyph.MeshGlyph at 0x7f4939713610&gt;</pre>
+<pre>&lt;cleopatra.mesh_glyph.MeshGlyph at 0x7fe9d3aaf610&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7232,8 +7220,7 @@ print('faces before:', ug.n_face, '| faces after crop:', cropped.n_face)
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-10"># Same subset expressed as a bounding box instead of a polygon mask
 cropped_bbox = ug.crop(bbox=(0.0, -0.3, 0.4, 0.3))
-print('faces inside bbox:', cropped_bbox.n_face)
-</div>
+print('faces inside bbox:', cropped_bbox.n_face)</div>
 </div>
 </div>
 </div>
@@ -7301,8 +7288,7 @@ print('faces inside bbox:', cropped_bbox.n_face)
 <div class="clipboard-copy-txt" id="cell-11"># Re-crop the same box, this time keeping only faces fully inside it
 inside_only = ug.crop(region, touch=False)
 print('touch=True :', cropped.n_face, 'faces')
-print('touch=False:', inside_only.n_face, 'faces')
-</div>
+print('touch=False:', inside_only.n_face, 'faces')</div>
 </div>
 </div>
 </div>
@@ -7367,8 +7353,7 @@ touch=False: 1 faces
 <span class="n">triangle</span> <span class="o">=</span> <span class="n">Polygon</span><span class="p">([(</span><span class="o">-</span><span class="mf">0.35</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.3</span><span class="p">),</span> <span class="p">(</span><span class="mf">0.05</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.3</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.35</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">)])</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-12"># A triangular region over the lower-left of the mesh
-triangle = Polygon([(-0.35, -0.3), (0.05, -0.3), (-0.35, 0.3)])
-</div>
+triangle = Polygon([(-0.35, -0.3), (0.05, -0.3), (-0.35, 0.3)])</div>
 </div>
 </div>
 </div>
@@ -7399,8 +7384,7 @@ triangle = Polygon([(-0.35, -0.3), (0.05, -0.3), (-0.35, 0.3)])
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-13"># Keep the faces the triangle touches
 triangle_crop = ug.crop(triangle, touch=True)
-print('faces inside the triangle:', triangle_crop.n_face)
-</div>
+print('faces inside the triangle:', triangle_crop.n_face)</div>
 </div>
 </div>
 </div>
@@ -7451,8 +7435,7 @@ print('faces inside the triangle:', triangle_crop.n_face)
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">triangle_crop</span><span class="o">.</span><span class="n">plot_outline</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-14">triangle_crop.plot_outline()
-</div>
+<div class="clipboard-copy-txt" id="cell-14">triangle_crop.plot_outline()</div>
 </div>
 </div>
 </div>
@@ -7464,7 +7447,7 @@ print('faces inside the triangle:', triangle_crop.n_face)
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[14]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.mesh_glyph.MeshGlyph at 0x7f493117b110&gt;</pre>
+<pre>&lt;cleopatra.mesh_glyph.MeshGlyph at 0x7fe9cb567110&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">

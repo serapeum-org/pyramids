@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -8371,9 +8371,9 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-1037" name="__codelineno-0-1037"></a>        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
 <a id="__codelineno-0-1038" name="__codelineno-0-1038"></a>            <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="fm">__contains__</span><span class="p">(</span><span class="s2">&quot; argument 2 of type &#39;double&#39;&quot;</span><span class="p">):</span>
 <a id="__codelineno-0-1039" name="__codelineno-0-1039"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">Fill</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">(</span><span class="n">no_data_value</span><span class="p">))</span>
-<a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>            <span class="k">elif</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="fm">__contains__</span><span class="p">(</span><span class="n">_GDAL_READ_ONLY_FILL_ERROR</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">str</span><span class="p">(</span>
-<a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>                <span class="n">e</span>
-<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a>            <span class="p">)</span><span class="o">.</span><span class="fm">__contains__</span><span class="p">(</span><span class="s2">&quot;attempt to write to dataset opened in read-only mode.&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>            <span class="k">elif</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="fm">__contains__</span><span class="p">(</span><span class="n">_GDAL_READ_ONLY_FILL_ERROR</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="fm">__contains__</span><span class="p">(</span>
+<a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>                <span class="s2">&quot;attempt to write to dataset opened in read-only mode.&quot;</span>
+<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a>            <span class="p">):</span>
 <a id="__codelineno-0-1043" name="__codelineno-0-1043"></a>                <span class="k">raise</span> <span class="n">ReadOnlyError</span><span class="p">(</span>
 <a id="__codelineno-0-1044" name="__codelineno-0-1044"></a>                    <span class="s2">&quot;The Dataset is open with a read only, please read the raster using update access mode&quot;</span>
 <a id="__codelineno-0-1045" name="__codelineno-0-1045"></a>                <span class="p">)</span>

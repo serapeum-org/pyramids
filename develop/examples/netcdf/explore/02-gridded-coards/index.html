@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6695,30 +6695,30 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">geopandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">gpd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">shapely.geometry</span><span class="w"> </span><span class="kn">import</span> <span class="n">Polygon</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span><span class="p">,</span> <span class="n">UgridDataset</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span>
 
 <span class="n">DATA</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s1">'../../../../examples/data/netcdf/samples'</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">%matplotlib inline
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
-import numpy as np
 import geopandas as gpd
+import numpy as np
 from shapely.geometry import Polygon
 
 from pyramids.dataset import Dataset
-from pyramids.netcdf import NetCDF, UgridDataset
 from pyramids.feature import FeatureCollection
+from pyramids.netcdf import NetCDF
 
 DATA = Path('../../../../examples/data/netcdf/samples')</div>
 </div>
@@ -6732,7 +6732,7 @@ DATA = Path('../../../../examples/data/netcdf/samples')</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:41:03 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:54:14 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
@@ -7048,12 +7048,22 @@ glyph.add_features("coastline", "50m", zorder=5)</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'air'</span><span class="p">)</span>
 <span class="n">data</span> <span class="o">=</span> <span class="n">var</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'shape:'</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s1">'min / mean / max:'</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">data</span><span class="p">)))</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s1">'min / mean / max:'</span><span class="p">,</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span>
+<span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-6">var = nc.get_variable('air')
 data = var.read_array()
 print('shape:', data.shape)
-print('min / mean / max:', float(np.nanmin(data)), float(np.nanmean(data)), float(np.nanmax(data)))</div>
+print(
+    'min / mean / max:',
+    float(np.nanmin(data)),
+    float(np.nanmean(data)),
+    float(np.nanmax(data)),
+)</div>
 </div>
 </div>
 </div>
@@ -7159,8 +7169,11 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">work</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">())</span>
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
 <span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
-    <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">,</span>
-    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'air_slice0'</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
+    <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
+    <span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span>
+    <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">,</span>
+    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'air_slice0'</span><span class="p">,</span>
+    <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
 <span class="p">)</span>
 <span class="n">nc</span><span class="o">.</span><span class="n">add_variable</span><span class="p">(</span><span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">)),</span> <span class="s1">'air_slice0'</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'variables after add:'</span><span class="p">,</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span><span class="p">)</span>
@@ -7168,8 +7181,11 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 <div class="clipboard-copy-txt" id="cell-8">work = Path(tempfile.mkdtemp())
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
 NetCDF.create_from_array(
-    arr=slice2d, geo=var.geotransform, epsg=var.epsg or 4326,
-    variable_name='air_slice0', path=str(work / 'derived.nc'),
+    arr=slice2d,
+    geo=var.geotransform,
+    epsg=var.epsg or 4326,
+    variable_name='air_slice0',
+    path=str(work / 'derived.nc'),
 )
 nc.add_variable(NetCDF.read_file(str(work / 'derived.nc')), 'air_slice0')
 print('variables after add:', nc.variable_names)</div>
@@ -7275,10 +7291,23 @@ print('variables after remove:', nc.variable_names)</div>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Contiguous USA, in -180..180 longitudes</span>
-<span class="n">usa</span> <span class="o">=</span> <span class="n">Polygon</span><span class="p">([</span>
-    <span class="p">(</span><span class="o">-</span><span class="mi">125</span><span class="p">,</span> <span class="mi">49</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">102</span><span class="p">,</span> <span class="mi">49</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">80</span><span class="p">,</span> <span class="mi">47</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">66</span><span class="p">,</span> <span class="mi">45</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">66</span><span class="p">,</span> <span class="mi">38</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">77</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span>
-    <span class="p">(</span><span class="o">-</span><span class="mi">80</span><span class="p">,</span> <span class="mi">25</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">90</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">98</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">105</span><span class="p">,</span> <span class="mi">25</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">112</span><span class="p">,</span> <span class="mi">33</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">122</span><span class="p">,</span> <span class="mi">42</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">125</span><span class="p">,</span> <span class="mi">49</span><span class="p">),</span>
-<span class="p">])</span>
+<span class="n">usa</span> <span class="o">=</span> <span class="n">Polygon</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">125</span><span class="p">,</span> <span class="mi">49</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">102</span><span class="p">,</span> <span class="mi">49</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">80</span><span class="p">,</span> <span class="mi">47</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">66</span><span class="p">,</span> <span class="mi">45</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">66</span><span class="p">,</span> <span class="mi">38</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">77</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">80</span><span class="p">,</span> <span class="mi">25</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">90</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">98</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">105</span><span class="p">,</span> <span class="mi">25</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">112</span><span class="p">,</span> <span class="mi">33</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">122</span><span class="p">,</span> <span class="mi">42</span><span class="p">),</span>
+        <span class="p">(</span><span class="o">-</span><span class="mi">125</span><span class="p">,</span> <span class="mi">49</span><span class="p">),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
 <span class="n">aoi</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">geometry</span><span class="o">=</span><span class="p">[</span><span class="n">usa</span><span class="p">],</span> <span class="n">crs</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
 
 <span class="c1"># the file has no embedded CRS + uses 0..360 lons, so shift the geotransform origin by -360</span>
@@ -7295,10 +7324,23 @@ print('variables after remove:', nc.variable_names)</div>
 <span class="n">glyph</span><span class="o">.</span><span class="n">add_features</span><span class="p">(</span><span class="s2">"coastline"</span><span class="p">,</span> <span class="s2">"50m"</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-10"># Contiguous USA, in -180..180 longitudes
-usa = Polygon([
-    (-125, 49), (-102, 49), (-80, 47), (-66, 45), (-66, 38), (-77, 30),
-    (-80, 25), (-90, 30), (-98, 30), (-105, 25), (-112, 33), (-122, 42), (-125, 49),
-])
+usa = Polygon(
+    [
+        (-125, 49),
+        (-102, 49),
+        (-80, 47),
+        (-66, 45),
+        (-66, 38),
+        (-77, 30),
+        (-80, 25),
+        (-90, 30),
+        (-98, 30),
+        (-105, 25),
+        (-112, 33),
+        (-122, 42),
+        (-125, 49),
+    ]
+)
 aoi = FeatureCollection(gpd.GeoDataFrame(geometry=[usa], crs=4326))
 
 # the file has no embedded CRS + uses 0..360 lons, so shift the geotransform origin by -360
@@ -7768,12 +7810,22 @@ glyph.add_features("coastline", "50m", zorder=5)</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'rhum'</span><span class="p">)</span>
 <span class="n">data</span> <span class="o">=</span> <span class="n">var</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'shape:'</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s1">'min / mean / max:'</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">data</span><span class="p">)))</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s1">'min / mean / max:'</span><span class="p">,</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span>
+<span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-17">var = nc.get_variable('rhum')
 data = var.read_array()
 print('shape:', data.shape)
-print('min / mean / max:', float(np.nanmin(data)), float(np.nanmean(data)), float(np.nanmax(data)))</div>
+print(
+    'min / mean / max:',
+    float(np.nanmin(data)),
+    float(np.nanmean(data)),
+    float(np.nanmax(data)),
+)</div>
 </div>
 </div>
 </div>
@@ -7879,8 +7931,11 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">work</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">())</span>
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
 <span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
-    <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">,</span>
-    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'rhum_slice0'</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
+    <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
+    <span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span>
+    <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">,</span>
+    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'rhum_slice0'</span><span class="p">,</span>
+    <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
 <span class="p">)</span>
 <span class="n">nc</span><span class="o">.</span><span class="n">add_variable</span><span class="p">(</span><span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">)),</span> <span class="s1">'rhum_slice0'</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'variables after add:'</span><span class="p">,</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span><span class="p">)</span>
@@ -7888,8 +7943,11 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 <div class="clipboard-copy-txt" id="cell-19">work = Path(tempfile.mkdtemp())
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
 NetCDF.create_from_array(
-    arr=slice2d, geo=var.geotransform, epsg=var.epsg or 4326,
-    variable_name='rhum_slice0', path=str(work / 'derived.nc'),
+    arr=slice2d,
+    geo=var.geotransform,
+    epsg=var.epsg or 4326,
+    variable_name='rhum_slice0',
+    path=str(work / 'derived.nc'),
 )
 nc.add_variable(NetCDF.read_file(str(work / 'derived.nc')), 'rhum_slice0')
 print('variables after add:', nc.variable_names)</div>
@@ -7995,11 +8053,25 @@ print('variables after remove:', nc.variable_names)</div>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Australia, lon in the file's native 0-360 convention</span>
-<span class="n">australia</span> <span class="o">=</span> <span class="n">Polygon</span><span class="p">([</span>
-    <span class="p">(</span><span class="mi">113</span><span class="p">,</span> <span class="o">-</span><span class="mi">22</span><span class="p">),</span> <span class="p">(</span><span class="mi">123</span><span class="p">,</span> <span class="o">-</span><span class="mi">17</span><span class="p">),</span> <span class="p">(</span><span class="mi">130</span><span class="p">,</span> <span class="o">-</span><span class="mi">12</span><span class="p">),</span> <span class="p">(</span><span class="mi">138</span><span class="p">,</span> <span class="o">-</span><span class="mi">12</span><span class="p">),</span> <span class="p">(</span><span class="mi">143</span><span class="p">,</span> <span class="o">-</span><span class="mi">11</span><span class="p">),</span> <span class="p">(</span><span class="mi">147</span><span class="p">,</span> <span class="o">-</span><span class="mi">19</span><span class="p">),</span>
-    <span class="p">(</span><span class="mi">153</span><span class="p">,</span> <span class="o">-</span><span class="mi">28</span><span class="p">),</span> <span class="p">(</span><span class="mi">150</span><span class="p">,</span> <span class="o">-</span><span class="mi">37</span><span class="p">),</span> <span class="p">(</span><span class="mi">141</span><span class="p">,</span> <span class="o">-</span><span class="mi">38</span><span class="p">),</span> <span class="p">(</span><span class="mi">135</span><span class="p">,</span> <span class="o">-</span><span class="mi">35</span><span class="p">),</span> <span class="p">(</span><span class="mi">129</span><span class="p">,</span> <span class="o">-</span><span class="mi">32</span><span class="p">),</span> <span class="p">(</span><span class="mi">123</span><span class="p">,</span> <span class="o">-</span><span class="mi">34</span><span class="p">),</span>
-    <span class="p">(</span><span class="mi">115</span><span class="p">,</span> <span class="o">-</span><span class="mi">34</span><span class="p">),</span> <span class="p">(</span><span class="mi">113</span><span class="p">,</span> <span class="o">-</span><span class="mi">26</span><span class="p">),</span> <span class="p">(</span><span class="mi">113</span><span class="p">,</span> <span class="o">-</span><span class="mi">22</span><span class="p">),</span>
-<span class="p">])</span>
+<span class="n">australia</span> <span class="o">=</span> <span class="n">Polygon</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="p">(</span><span class="mi">113</span><span class="p">,</span> <span class="o">-</span><span class="mi">22</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">123</span><span class="p">,</span> <span class="o">-</span><span class="mi">17</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">130</span><span class="p">,</span> <span class="o">-</span><span class="mi">12</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">138</span><span class="p">,</span> <span class="o">-</span><span class="mi">12</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">143</span><span class="p">,</span> <span class="o">-</span><span class="mi">11</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">147</span><span class="p">,</span> <span class="o">-</span><span class="mi">19</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">153</span><span class="p">,</span> <span class="o">-</span><span class="mi">28</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">150</span><span class="p">,</span> <span class="o">-</span><span class="mi">37</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">141</span><span class="p">,</span> <span class="o">-</span><span class="mi">38</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">135</span><span class="p">,</span> <span class="o">-</span><span class="mi">35</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">129</span><span class="p">,</span> <span class="o">-</span><span class="mi">32</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">123</span><span class="p">,</span> <span class="o">-</span><span class="mi">34</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">115</span><span class="p">,</span> <span class="o">-</span><span class="mi">34</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">113</span><span class="p">,</span> <span class="o">-</span><span class="mi">26</span><span class="p">),</span>
+        <span class="p">(</span><span class="mi">113</span><span class="p">,</span> <span class="o">-</span><span class="mi">22</span><span class="p">),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
 <span class="n">aoi</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">geometry</span><span class="o">=</span><span class="p">[</span><span class="n">australia</span><span class="p">],</span> <span class="n">crs</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">))</span>
 
 <span class="c1"># select the variable</span>
@@ -8012,11 +8084,25 @@ print('variables after remove:', nc.variable_names)</div>
 <span class="n">glyph</span><span class="o">.</span><span class="n">add_features</span><span class="p">(</span><span class="s2">"coastline"</span><span class="p">,</span> <span class="s2">"50m"</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-21"># Australia, lon in the file's native 0-360 convention
-australia = Polygon([
-    (113, -22), (123, -17), (130, -12), (138, -12), (143, -11), (147, -19),
-    (153, -28), (150, -37), (141, -38), (135, -35), (129, -32), (123, -34),
-    (115, -34), (113, -26), (113, -22),
-])
+australia = Polygon(
+    [
+        (113, -22),
+        (123, -17),
+        (130, -12),
+        (138, -12),
+        (143, -11),
+        (147, -19),
+        (153, -28),
+        (150, -37),
+        (141, -38),
+        (135, -35),
+        (129, -32),
+        (123, -34),
+        (115, -34),
+        (113, -26),
+        (113, -22),
+    ]
+)
 aoi = FeatureCollection(gpd.GeoDataFrame(geometry=[australia], crs=var.epsg or 4326))
 
 # select the variable

@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7047,7 +7047,7 @@ from pyramids.feature import FeatureCollection</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:43:46 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:57:08 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
@@ -7095,7 +7095,9 @@ in metres). A fixed random seed keeps the example reproducible.</p>
         <span class="n">crs</span><span class="o">=</span><span class="s1">'EPSG:32618'</span><span class="p">,</span>
     <span class="p">)</span>
 <span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s1">'points:'</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">points</span><span class="p">),</span> <span class="s1">'| epsg:'</span><span class="p">,</span> <span class="n">points</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="s1">'| columns:'</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">points</span><span class="o">.</span><span class="n">columns</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s1">'points:'</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">points</span><span class="p">),</span> <span class="s1">'| epsg:'</span><span class="p">,</span> <span class="n">points</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="s1">'| columns:'</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">points</span><span class="o">.</span><span class="n">columns</span><span class="p">)</span>
+<span class="p">)</span>
 <span class="n">points</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2">rng = np.random.default_rng(42)
@@ -7107,7 +7109,9 @@ points = FeatureCollection(
         crs='EPSG:32618',
     )
 )
-print('points:', len(points), '| epsg:', points.epsg, '| columns:', list(points.columns))
+print(
+    'points:', len(points), '| epsg:', points.epsg, '| columns:', list(points.columns)
+)
 points.head()</div>
 </div>
 </div>
@@ -7330,20 +7334,30 @@ Here we clip to the left half of the points' extent.</p>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">minx</span><span class="p">,</span> <span class="n">miny</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">maxy</span> <span class="o">=</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">points</span><span class="o">.</span><span class="n">total_bounds</span><span class="p">)</span>
-<span class="n">left_half</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="o">.</span><span class="n">from_bbox</span><span class="p">((</span><span class="n">minx</span><span class="p">,</span> <span class="n">miny</span><span class="p">,</span> <span class="p">(</span><span class="n">minx</span> <span class="o">+</span> <span class="n">maxx</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span> <span class="n">maxy</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="n">points</span><span class="o">.</span><span class="n">epsg</span><span class="p">)</span>
+<span class="n">left_half</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="o">.</span><span class="n">from_bbox</span><span class="p">(</span>
+    <span class="p">(</span><span class="n">minx</span><span class="p">,</span> <span class="n">miny</span><span class="p">,</span> <span class="p">(</span><span class="n">minx</span> <span class="o">+</span> <span class="n">maxx</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span> <span class="n">maxy</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="n">points</span><span class="o">.</span><span class="n">epsg</span>
+<span class="p">)</span>
 
 <span class="n">clipped</span> <span class="o">=</span> <span class="n">points</span><span class="o">.</span><span class="n">voronoi</span><span class="p">(</span><span class="n">values</span><span class="o">=</span><span class="s1">'fid'</span><span class="p">,</span> <span class="n">clip</span><span class="o">=</span><span class="n">left_half</span><span class="p">)</span>
 <span class="n">boundary</span> <span class="o">=</span> <span class="n">left_half</span><span class="o">.</span><span class="n">geometry</span><span class="o">.</span><span class="n">union_all</span><span class="p">()</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'cells after clip:'</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">clipped</span><span class="p">))</span>
-<span class="nb">print</span><span class="p">(</span><span class="s1">'fraction within the clip boundary:'</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">clipped</span><span class="o">.</span><span class="n">geometry</span><span class="o">.</span><span class="n">within</span><span class="p">(</span><span class="n">boundary</span><span class="o">.</span><span class="n">buffer</span><span class="p">(</span><span class="mf">1e-6</span><span class="p">))</span><span class="o">.</span><span class="n">mean</span><span class="p">(),</span> <span class="mi">3</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s1">'fraction within the clip boundary:'</span><span class="p">,</span>
+    <span class="nb">round</span><span class="p">(</span><span class="n">clipped</span><span class="o">.</span><span class="n">geometry</span><span class="o">.</span><span class="n">within</span><span class="p">(</span><span class="n">boundary</span><span class="o">.</span><span class="n">buffer</span><span class="p">(</span><span class="mf">1e-6</span><span class="p">))</span><span class="o">.</span><span class="n">mean</span><span class="p">(),</span> <span class="mi">3</span><span class="p">),</span>
+<span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-5">minx, miny, maxx, maxy = (float(v) for v in points.total_bounds)
-left_half = FeatureCollection.from_bbox((minx, miny, (minx + maxx) / 2, maxy), epsg=points.epsg)
+left_half = FeatureCollection.from_bbox(
+    (minx, miny, (minx + maxx) / 2, maxy), epsg=points.epsg
+)
 
 clipped = points.voronoi(values='fid', clip=left_half)
 boundary = left_half.geometry.union_all()
 print('cells after clip:', len(clipped))
-print('fraction within the clip boundary:', round(clipped.geometry.within(boundary.buffer(1e-6)).mean(), 3))</div>
+print(
+    'fraction within the clip boundary:',
+    round(clipped.geometry.within(boundary.buffer(1e-6)).mean(), 3),
+)</div>
 </div>
 </div>
 </div>
@@ -7394,13 +7408,17 @@ fraction within the clip boundary: 1.0
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
-<span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">choropleth</span><span class="p">)</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">column</span><span class="o">=</span><span class="s1">'fid'</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s1">'viridis'</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'black'</span><span class="p">,</span> <span class="n">legend</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">choropleth</span><span class="p">)</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+    <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">column</span><span class="o">=</span><span class="s1">'fid'</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s1">'viridis'</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'black'</span><span class="p">,</span> <span class="n">legend</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
 <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">points</span><span class="p">)</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">'red'</span><span class="p">,</span> <span class="n">markersize</span><span class="o">=</span><span class="mi">18</span><span class="p">)</span>
 <span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s1">'Voronoi cells coloured by fid (points in red)'</span><span class="p">)</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-6">fig, ax = plt.subplots(figsize=(6, 6))
-gpd.GeoDataFrame(choropleth).plot(ax=ax, column='fid', cmap='viridis', edgecolor='black', legend=True)
+gpd.GeoDataFrame(choropleth).plot(
+    ax=ax, column='fid', cmap='viridis', edgecolor='black', legend=True
+)
 gpd.GeoDataFrame(points).plot(ax=ax, color='red', markersize=18)
 ax.set_title('Voronoi cells coloured by fid (points in red)')
 plt.show()</div>
@@ -7682,7 +7700,9 @@ nmax= 8  -&gt;   4 cells
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">grid</span> <span class="o">=</span> <span class="n">points</span><span class="o">.</span><span class="n">quadtree</span><span class="p">(</span><span class="n">nmax</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">clip</span><span class="o">=</span><span class="n">left_half</span><span class="p">)</span>
 
 <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
-<span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">grid</span><span class="p">)</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">column</span><span class="o">=</span><span class="s1">'count'</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s1">'magma'</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'white'</span><span class="p">,</span> <span class="n">legend</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">grid</span><span class="p">)</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+    <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">column</span><span class="o">=</span><span class="s1">'count'</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s1">'magma'</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'white'</span><span class="p">,</span> <span class="n">legend</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
 <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">points</span><span class="p">)</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">'cyan'</span><span class="p">,</span> <span class="n">markersize</span><span class="o">=</span><span class="mi">18</span><span class="p">)</span>
 <span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s1">'Quad-tree density grid, clipped to the left half'</span><span class="p">)</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
@@ -7690,7 +7710,9 @@ nmax= 8  -&gt;   4 cells
 <div class="clipboard-copy-txt" id="cell-10">grid = points.quadtree(nmax=2, clip=left_half)
 
 fig, ax = plt.subplots(figsize=(6, 6))
-gpd.GeoDataFrame(grid).plot(ax=ax, column='count', cmap='magma', edgecolor='white', legend=True)
+gpd.GeoDataFrame(grid).plot(
+    ax=ax, column='count', cmap='magma', edgecolor='white', legend=True
+)
 gpd.GeoDataFrame(points).plot(ax=ax, color='cyan', markersize=18)
 ax.set_title('Quad-tree density grid, clipped to the left half')
 plt.show()</div>

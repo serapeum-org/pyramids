@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6684,30 +6684,30 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">geopandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">gpd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">shapely.geometry</span><span class="w"> </span><span class="kn">import</span> <span class="n">Polygon</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span><span class="p">,</span> <span class="n">UgridDataset</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.plot_options</span><span class="w"> </span><span class="kn">import</span> <span class="n">Selectors</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.plot_options</span><span class="w"> </span><span class="kn">import</span> <span class="n">Selectors</span>
 
 <span class="n">DATA</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s1">'../../../../examples/data/netcdf/samples'</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">%matplotlib inline
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
-import numpy as np
 import geopandas as gpd
+import numpy as np
 from shapely.geometry import Polygon
 
-from pyramids.netcdf import NetCDF, UgridDataset
-from pyramids.netcdf.plot_options import Selectors
 from pyramids.feature import FeatureCollection
+from pyramids.netcdf import NetCDF
+from pyramids.netcdf.plot_options import Selectors
 
 DATA = Path('../../../../examples/data/netcdf/samples')</div>
 </div>
@@ -6721,7 +6721,7 @@ DATA = Path('../../../../examples/data/netcdf/samples')</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-18 18:41:55 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
+<pre>2026-07-19 00:55:08 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
 </pre>
 </div>
 </div>
@@ -7076,12 +7076,22 @@ glyph.add_features("coastline", "50m", zorder=5)</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'T2'</span><span class="p">)</span>
 <span class="n">data</span> <span class="o">=</span> <span class="n">var</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'shape:'</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s1">'min / mean / max:'</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">data</span><span class="p">)))</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s1">'min / mean / max:'</span><span class="p">,</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">data</span><span class="p">)),</span>
+<span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-6">var = nc.get_variable('T2')
 data = var.read_array()
 print('shape:', data.shape)
-print('min / mean / max:', float(np.nanmin(data)), float(np.nanmean(data)), float(np.nanmax(data)))</div>
+print(
+    'min / mean / max:',
+    float(np.nanmin(data)),
+    float(np.nanmean(data)),
+    float(np.nanmax(data)),
+)</div>
 </div>
 </div>
 </div>
@@ -7134,8 +7144,11 @@ min / mean / max: 0.0 185.22796630859375 297.0773620605469
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">work</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">())</span>
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
 <span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
-    <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">,</span>
-    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'T2_slice0'</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
+    <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
+    <span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">),</span>
+    <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">,</span>
+    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'T2_slice0'</span><span class="p">,</span>
+    <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
 <span class="p">)</span>
 <span class="n">nc</span><span class="o">.</span><span class="n">add_variable</span><span class="p">(</span><span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">)),</span> <span class="s1">'T2_slice0'</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'variables after add:'</span><span class="p">,</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span><span class="p">)</span>
@@ -7143,8 +7156,11 @@ min / mean / max: 0.0 185.22796630859375 297.0773620605469
 <div class="clipboard-copy-txt" id="cell-7">work = Path(tempfile.mkdtemp())
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
 NetCDF.create_from_array(
-    arr=slice2d, geo=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0), epsg=var.epsg or 4326,
-    variable_name='T2_slice0', path=str(work / 'derived.nc'),
+    arr=slice2d,
+    geo=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0),
+    epsg=var.epsg or 4326,
+    variable_name='T2_slice0',
+    path=str(work / 'derived.nc'),
 )
 nc.add_variable(NetCDF.read_file(str(work / 'derived.nc')), 'T2_slice0')
 print('variables after add:', nc.variable_names)</div>
@@ -7250,8 +7266,11 @@ print('variables after remove:', nc.variable_names)</div>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># the WRF domain spans roughly lon -94..-66, lat 25..44; crop to a box over the north-eastern US</span>
-<span class="n">aoi</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="p">(</span><span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span>
-    <span class="n">geometry</span><span class="o">=</span><span class="p">[</span><span class="n">Polygon</span><span class="p">([(</span><span class="o">-</span><span class="mi">88</span><span class="p">,</span> <span class="mi">35</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">75</span><span class="p">,</span> <span class="mi">35</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">75</span><span class="p">,</span> <span class="mi">43</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">88</span><span class="p">,</span> <span class="mi">43</span><span class="p">)])],</span> <span class="n">crs</span><span class="o">=</span><span class="mi">4326</span><span class="p">))</span>
+<span class="n">aoi</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="p">(</span>
+    <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span>
+        <span class="n">geometry</span><span class="o">=</span><span class="p">[</span><span class="n">Polygon</span><span class="p">([(</span><span class="o">-</span><span class="mi">88</span><span class="p">,</span> <span class="mi">35</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">75</span><span class="p">,</span> <span class="mi">35</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">75</span><span class="p">,</span> <span class="mi">43</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mi">88</span><span class="p">,</span> <span class="mi">43</span><span class="p">)])],</span> <span class="n">crs</span><span class="o">=</span><span class="mi">4326</span>
+    <span class="p">)</span>
+<span class="p">)</span>
 <span class="n">t2</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'T2'</span><span class="p">)</span>
 <span class="n">cropped</span> <span class="o">=</span> <span class="n">t2</span><span class="o">.</span><span class="n">crop</span><span class="p">(</span><span class="n">aoi</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'cropped shape:'</span><span class="p">,</span> <span class="n">cropped</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
@@ -7262,8 +7281,11 @@ print('variables after remove:', nc.variable_names)</div>
 <span class="n">glyph</span><span class="o">.</span><span class="n">add_features</span><span class="p">(</span><span class="s2">"coastline"</span><span class="p">,</span> <span class="s2">"50m"</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-9"># the WRF domain spans roughly lon -94..-66, lat 25..44; crop to a box over the north-eastern US
-aoi = FeatureCollection(gpd.GeoDataFrame(
-    geometry=[Polygon([(-88, 35), (-75, 35), (-75, 43), (-88, 43)])], crs=4326))
+aoi = FeatureCollection(
+    gpd.GeoDataFrame(
+        geometry=[Polygon([(-88, 35), (-75, 35), (-75, 43), (-88, 43)])], crs=4326
+    )
+)
 t2 = nc.get_variable('T2')
 cropped = t2.crop(aoi)
 print('cropped shape:', cropped.shape)

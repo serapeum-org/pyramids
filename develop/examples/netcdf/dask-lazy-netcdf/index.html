@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7078,9 +7078,15 @@ time step directly from the cloud file — GDAL fetches only the byte ranges the
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s2">"air_temperature_at_2_metres"</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"ERA5 2-metre air temperature (2024-06)"</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+    <span class="n">variable</span><span class="o">=</span><span class="s2">"air_temperature_at_2_metres"</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"ERA5 2-metre air temperature (2024-06)"</span><span class="p">,</span>
+<span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">nc.plot(variable="air_temperature_at_2_metres", title="ERA5 2-metre air temperature (2024-06)")</div>
+<div class="clipboard-copy-txt" id="cell-3">nc.plot(
+    variable="air_temperature_at_2_metres",
+    title="ERA5 2-metre air temperature (2024-06)",
+)</div>
 </div>
 </div>
 </div>
@@ -7141,13 +7147,11 @@ type(lazy).__name__, lazy.shape, lazy.chunksize</div>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Reduce over time — only the chunks we touch get fetched.</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">daily_mean</span> <span class="o">=</span> <span class="n">lazy</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">compute</span><span class="p">()</span>
 <span class="n">daily_mean</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">daily_mean</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span> <span class="o">-</span> <span class="mf">273.15</span>  <span class="c1"># Kelvin → Celsius</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-5"># Reduce over time — only the chunks we touch get fetched.
-import numpy as np
 
 daily_mean = lazy.mean(axis=0).compute()
 daily_mean.shape, float(daily_mean.mean()) - 273.15  # Kelvin → Celsius</div>
