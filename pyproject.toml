@@ -189,7 +189,13 @@ multi_line_output = 3
 # `%matplotlib inline` must run before imports — both legitimately trip E402. E402
 # stays enforced for real .py modules; it is ignored only for notebooks here.
 [tool.nbqa.addopts]
-flake8 = ["--extend-ignore=E402"]
+# nbqa runs flake8 on a temp file, so flake8 does NOT discover this pyproject's
+# [tool.flake8] config — pass the same ignores explicitly here (E402 is the extra,
+# notebook-only rule for imports-near-usage). Keep in sync with [tool.flake8].extend-ignore.
+flake8 = [
+    "--extend-ignore=E203,E226,E266,E402,E501,E701,E704,E722,C901,E741,E731,W503",
+    "--max-line-length=88",
+]
 
 [tool.bandit]
 exclude_dirs = ["tests", "examples", "scripts", "planning", "docs"]
