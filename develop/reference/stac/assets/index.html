@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7412,7 +7412,7 @@ GeoTIFF/GRIB inside a <code>.zip</code>).</p>
 <a id="__codelineno-0-299" name="__codelineno-0-299"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">href</span><span class="p">)</span>
 <a id="__codelineno-0-300" name="__codelineno-0-300"></a>        <span class="k">else</span><span class="p">:</span>
 <a id="__codelineno-0-301" name="__codelineno-0-301"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">href</span><span class="p">,</span> <span class="n">vsi</span><span class="o">=</span><span class="n">vsi</span><span class="p">)</span>
-<a id="__codelineno-0-302" name="__codelineno-0-302"></a>    <span class="k">return</span> <span class="n">result</span>
+<a id="__codelineno-0-302" name="__codelineno-0-302"></a>    <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="n">Dataset</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
