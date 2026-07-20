@@ -128,6 +128,6 @@ class TestToCogStackWorksAfterReadMultipleFiles:
             rasters_folder_path, with_order=False
         )
         paths = dc.to_cog_stack(tmp_path / "out")
-        assert (
-            len(paths) == dc.time_length
-        ), f"Expected {dc.time_length} outputs, got {len(paths)}"
+        assert len(paths) == dc.time_length, (
+            f"Expected {dc.time_length} outputs, got {len(paths)}"
+        )

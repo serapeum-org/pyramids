@@ -43,9 +43,9 @@ class TestCreateEmpty:
             5,
             1,
         ), f"shape mismatch: {(ds.rows, ds.columns, ds.band_count)}"
-        assert ds.no_data_value[0] == pytest.approx(
-            -9999.0
-        ), f"nodata not stamped, got {ds.no_data_value[0]}"
+        assert ds.no_data_value[0] == pytest.approx(-9999.0), (
+            f"nodata not stamped, got {ds.no_data_value[0]}"
+        )
 
     def test_mem_unwritten_cells_read_as_nodata(self):
         """MEM unwritten cells read back as the no-data sentinel, not 0.
@@ -61,9 +61,9 @@ class TestCreateEmpty:
             4, 4, dtype="float32", no_data_value=-9999.0, driver_type="MEM"
         )
         whole = ds.read_array()
-        assert np.all(
-            np.isclose(whole, -9999.0)
-        ), f"unwritten MEM cells should read as nodata -9999, got {np.unique(whole)}"
+        assert np.all(np.isclose(whole, -9999.0)), (
+            f"unwritten MEM cells should read as nodata -9999, got {np.unique(whole)}"
+        )
 
     def test_window_write_read_roundtrip_mem(self):
         """A window scattered into an empty MEM raster reads back unchanged.
@@ -93,9 +93,9 @@ class TestCreateEmpty:
         del ds
         reopened = Dataset.read_file(str(path))
         back = reopened.read_array(window=[0, 0, 8, 8])
-        assert (
-            back.tolist() == block.tolist()
-        ), f"GTiff window did not round-trip: {back}"
+        assert back.tolist() == block.tolist(), (
+            f"GTiff window did not round-trip: {back}"
+        )
 
     def test_geo_crs_nodata_preserved_on_reopen(self, tmp_path: Path):
         """Geotransform, CRS, and no-data survive a disk round-trip.
@@ -111,13 +111,13 @@ class TestCreateEmpty:
         )
         del ds
         reopened = Dataset.read_file(str(path))
-        assert (
-            reopened.geotransform == geo
-        ), f"geotransform drift: {reopened.geotransform} != {geo}"
+        assert reopened.geotransform == geo, (
+            f"geotransform drift: {reopened.geotransform} != {geo}"
+        )
         assert reopened.epsg == 32636, f"epsg drift: {reopened.epsg}"
-        assert reopened.no_data_value[0] == pytest.approx(
-            -1.0
-        ), f"nodata drift: {reopened.no_data_value[0]}"
+        assert reopened.no_data_value[0] == pytest.approx(-1.0), (
+            f"nodata drift: {reopened.no_data_value[0]}"
+        )
 
     def test_unwritten_block_reads_as_nodata(self, tmp_path: Path):
         """A never-written block of a sparse GTiff reads back as no-data, not 0.
@@ -137,9 +137,9 @@ class TestCreateEmpty:
         del ds
         reopened = Dataset.read_file(str(path))
         far = reopened.read_array(window=[1000, 1000, 4, 4])
-        assert np.all(
-            np.isclose(far, -9999.0)
-        ), f"unwritten block should read as nodata -9999, got {np.unique(far)}"
+        assert np.all(np.isclose(far, -9999.0)), (
+            f"unwritten block should read as nodata -9999, got {np.unique(far)}"
+        )
 
     def test_no_data_none_sparse_block_reads_as_zero(self, tmp_path: Path):
         """With no_data_value=None, an unwritten sparse GTiff block reads back as 0.
@@ -160,9 +160,9 @@ class TestCreateEmpty:
         del ds
         reopened = Dataset.read_file(str(path))
         far = reopened.read_array(window=[1000, 1000, 4, 4])
-        assert np.all(
-            far == 0
-        ), f"with no nodata, unwritten block should read as 0, got {np.unique(far)}"
+        assert np.all(far == 0), (
+            f"with no nodata, unwritten block should read as 0, got {np.unique(far)}"
+        )
 
     def test_mem_none_nodata_does_not_warn(self):
         """create_empty(MEM, no_data_value=None) does not emit NoDataSentinelWarning.
@@ -179,9 +179,9 @@ class TestCreateEmpty:
             ds = Dataset.create_empty(
                 4, 4, dtype="float32", no_data_value=None, driver_type="MEM"
             )
-        assert (
-            ds.no_data_value[0] is None
-        ), f"expected no sentinel, got {ds.no_data_value[0]}"
+        assert ds.no_data_value[0] is None, (
+            f"expected no sentinel, got {ds.no_data_value[0]}"
+        )
 
     def test_default_options_are_tiled_sparse_bigtiff(self, tmp_path: Path):
         """The default GTiff is tiled, sparse, and BigTIFF.
@@ -261,15 +261,15 @@ class TestCreateEmpty:
         band0 = reopened.read_array(band=0, window=[0, 0, 4, 4])
         band1 = reopened.read_array(band=1, window=[0, 0, 4, 4])
         band2 = reopened.read_array(band=2, window=[0, 0, 4, 4])
-        assert np.all(
-            np.isclose(band0, 1.0)
-        ), f"band 0 should be 1.0, got {np.unique(band0)}"
-        assert np.all(
-            np.isclose(band1, -9999.0)
-        ), f"untouched band 1 should be nodata, got {np.unique(band1)}"
-        assert np.all(
-            np.isclose(band2, 7.0)
-        ), f"band 2 should be 7.0, got {np.unique(band2)}"
+        assert np.all(np.isclose(band0, 1.0)), (
+            f"band 0 should be 1.0, got {np.unique(band0)}"
+        )
+        assert np.all(np.isclose(band1, -9999.0)), (
+            f"untouched band 1 should be nodata, got {np.unique(band1)}"
+        )
+        assert np.all(np.isclose(band2, 7.0)), (
+            f"band 2 should be 7.0, got {np.unique(band2)}"
+        )
 
     def test_options_without_path_raises(self):
         """Passing `options` with no `path` (MEM target) raises instead of dropping them.
@@ -334,9 +334,9 @@ class TestCreateEmpty:
         )
         del ds
         info = gdal.Info(str(path))
-        assert (
-            "BigTIFF" in info or "BIGTIFF" in info.upper()
-        ), f"file should be BigTIFF, gdalinfo:\n{info[:400]}"
+        assert "BigTIFF" in info or "BIGTIFF" in info.upper(), (
+            f"file should be BigTIFF, gdalinfo:\n{info[:400]}"
+        )
         reopened = Dataset.read_file(str(path))
         # read_array window is (col_off, row_off, n_cols, n_rows) — the opposite axis
         # order of write_array (it forwards straight to GDAL ReadAsArray(xoff, yoff,
@@ -443,9 +443,9 @@ class TestEmptyLike:
             no_data_value=[-1.0, -2.0, -3.0],
         )
         out = Dataset.empty_like(template)
-        assert list(out.no_data_value) == pytest.approx(
-            [-1.0, -2.0, -3.0]
-        ), f"per-band no-data not preserved, got {out.no_data_value}"
+        assert list(out.no_data_value) == pytest.approx([-1.0, -2.0, -3.0]), (
+            f"per-band no-data not preserved, got {out.no_data_value}"
+        )
 
     def test_nodata_override(self, template: Dataset):
         """An explicit ``no_data_value`` overrides the template's sentinel.
@@ -455,9 +455,9 @@ class TestEmptyLike:
             -9999.
         """
         out = Dataset.empty_like(template, no_data_value=0)
-        assert (
-            out.no_data_value[0] == 0
-        ), f"nodata override ignored: {out.no_data_value[0]}"
+        assert out.no_data_value[0] == 0, (
+            f"nodata override ignored: {out.no_data_value[0]}"
+        )
 
     def test_explicit_none_nodata_stamps_no_sentinel_mem(self, template: Dataset):
         """In-RAM ``empty_like(no_data_value=None)`` stamps no sentinel and does not warn.
@@ -473,9 +473,9 @@ class TestEmptyLike:
         with warnings.catch_warnings():
             warnings.simplefilter("error", NoDataSentinelWarning)
             out = Dataset.empty_like(template, no_data_value=None)
-        assert (
-            out.no_data_value[0] is None
-        ), f"expected no no-data sentinel, got {out.no_data_value[0]}"
+        assert out.no_data_value[0] is None, (
+            f"expected no no-data sentinel, got {out.no_data_value[0]}"
+        )
 
     def test_none_nodata_disk_warns(self, template: Dataset, tmp_path: Path):
         """Disk-backed ``empty_like(no_data_value=None)`` emits NoDataSentinelWarning.
@@ -488,9 +488,9 @@ class TestEmptyLike:
         path = tmp_path / "like_no_nodata.tif"
         with pytest.warns(NoDataSentinelWarning, match="read back as"):
             out = Dataset.empty_like(template, no_data_value=None, path=path)
-        assert (
-            out.no_data_value[0] is None
-        ), f"expected no no-data sentinel, got {out.no_data_value[0]}"
+        assert out.no_data_value[0] is None, (
+            f"expected no no-data sentinel, got {out.no_data_value[0]}"
+        )
 
     def test_disk_backed_roundtrip(self, template: Dataset, tmp_path: Path):
         """A disk-backed ``empty_like`` writes, reopens, and round-trips a window.
@@ -535,9 +535,9 @@ class TestCreateOptionsBackCompat:
             path=str(path),
         )
         info = gdal.Info(str(path))
-        assert (
-            "COMPRESSION=LZW" in info.upper()
-        ), f"existing create_from_array compression changed, gdalinfo:\n{info}"
+        assert "COMPRESSION=LZW" in info.upper(), (
+            f"existing create_from_array compression changed, gdalinfo:\n{info}"
+        )
 
     def test_out_of_core_option_set_shape(self):
         """The module-level option set is the documented tiled / sparse / BigTIFF list.

@@ -47,9 +47,15 @@ class TestSpatialReturnContract:
             Clipping the left column returns the rebuilt mesh and the sliced data-variable
             dict; the mesh has the expected reduced face count and the dict keys match.
         """
-        mesh, data_vars = clip_mesh(unit_square_dataset, box(-0.1, -0.1, 1.1, 2.1), touch=False)
-        assert isinstance(mesh, Mesh2d), f"first element should be a Mesh2d, got {type(mesh)}"
-        assert isinstance(data_vars, dict), f"second element should be a dict, got {type(data_vars)}"
+        mesh, data_vars = clip_mesh(
+            unit_square_dataset, box(-0.1, -0.1, 1.1, 2.1), touch=False
+        )
+        assert isinstance(mesh, Mesh2d), (
+            f"first element should be a Mesh2d, got {type(mesh)}"
+        )
+        assert isinstance(data_vars, dict), (
+            f"second element should be a dict, got {type(data_vars)}"
+        )
         assert mesh.n_face == 2, f"expected 2 clipped faces, got {mesh.n_face}"
         assert "temperature" in data_vars, "the face variable should survive the clip"
 
@@ -60,7 +66,9 @@ class TestSpatialReturnContract:
             Full-cover bounds return all 4 faces as a mesh + data-variable dict pair.
         """
         mesh, data_vars = subset_by_bounds(unit_square_dataset, -1.0, -1.0, 3.0, 3.0)
-        assert isinstance(mesh, Mesh2d), f"first element should be a Mesh2d, got {type(mesh)}"
+        assert isinstance(mesh, Mesh2d), (
+            f"first element should be a Mesh2d, got {type(mesh)}"
+        )
         assert mesh.n_face == 4, f"expected all 4 faces, got {mesh.n_face}"
         assert isinstance(data_vars, dict), "second element should be a dict"
 
@@ -105,7 +113,9 @@ class TestEdgeRemapWithTopology:
             shape=(5,),
             _data=np.array([10.0, 11.0, 12.0, 13.0, 14.0]),
         )
-        return UgridDataset(mesh=mesh, data_variables={"edge_flux": edge_var}, global_attributes={})
+        return UgridDataset(
+            mesh=mesh, data_variables={"edge_flux": edge_var}, global_attributes={}
+        )
 
     def test_edge_filter_renumber_and_slice(self):
         """Keeping one triangle drops non-incident edges, renumbers nodes, slices the edge var.
@@ -126,9 +136,13 @@ class TestEdgeRemapWithTopology:
         assert mesh.edge_node_connectivity is not None, "edge topology must survive"
         enc = mesh.edge_node_connectivity.data
         assert enc.shape[0] == 3, f"expected 3 kept edges, got {enc.shape[0]}"
-        assert (enc < mesh.n_node).all(), f"edge nodes must be renumbered < n_node: {enc}"
+        assert (enc < mesh.n_node).all(), (
+            f"edge nodes must be renumbered < n_node: {enc}"
+        )
         np.testing.assert_array_equal(
-            enc, np.array([[0, 1], [1, 2], [2, 0]]), err_msg="edge connectivity misremapped"
+            enc,
+            np.array([[0, 1], [1, 2], [2, 0]]),
+            err_msg="edge connectivity misremapped",
         )
         np.testing.assert_array_equal(
             np.asarray(data_vars["edge_flux"].data),
@@ -169,7 +183,9 @@ class TestEdgeVariableClip:
             dropped (with a warning) rather than carried at full length onto the clipped mesh,
             which would leave the dataset internally inconsistent (edge var length != edge count).
         """
-        assert square_with_edge_var.mesh.edge_node_connectivity is None, "precondition: no edges"
+        assert square_with_edge_var.mesh.edge_node_connectivity is None, (
+            "precondition: no edges"
+        )
         with pytest.warns(UserWarning, match="no edge_node_connectivity"):
             mesh, data_vars = clip_mesh(
                 square_with_edge_var, box(-0.1, -0.1, 1.1, 2.1), touch=False
@@ -201,4 +217,6 @@ class TestNoImportCycle:
             if line.lstrip().startswith(("import ", "from "))
             and "ugrid.dataset" in line
         ]
-        assert not offenders, f"spatial must not import ugrid.dataset; found: {offenders}"
+        assert not offenders, (
+            f"spatial must not import ugrid.dataset; found: {offenders}"
+        )

@@ -297,11 +297,17 @@ def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
     """
     west, south, east, north = bbox
     if not all(math.isfinite(v) for v in (west, south, east, north)):
-        raise ValueError(f"estimate_pixel_dims: bbox coordinates must be finite, got {bbox!r}")
+        raise ValueError(
+            f"estimate_pixel_dims: bbox coordinates must be finite, got {bbox!r}"
+        )
     if scale_m <= 0 or math.isnan(scale_m):  # isnan needed since NaN <= 0 is False
-        raise ValueError(f"estimate_pixel_dims: scale_m must be positive, got {scale_m}")
+        raise ValueError(
+            f"estimate_pixel_dims: scale_m must be positive, got {scale_m}"
+        )
     if north < south:
-        raise ValueError(f"estimate_pixel_dims: north ({north}) must be >= south ({south})")
+        raise ValueError(
+            f"estimate_pixel_dims: north ({north}) must be >= south ({south})"
+        )
     lon_span = east - west if east >= west else east - west + 360.0
     width = max(math.ceil(lon_span * METRES_PER_DEGREE / scale_m), 1)
     height = max(math.ceil((north - south) * MAX_METRES_PER_LAT_DEGREE / scale_m), 1)
@@ -361,7 +367,9 @@ def read_bbox_dict(bbox: Mapping[str, float]) -> Bbox:
         try:
             edges[edge] = float(lowered[key])
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"read_bbox_dict: the {edge!r} edge value {lowered[key]!r} is not numeric") from exc
+            raise ValueError(
+                f"read_bbox_dict: the {edge!r} edge value {lowered[key]!r} is not numeric"
+            ) from exc
     return edges["west"], edges["south"], edges["east"], edges["north"]
 
 

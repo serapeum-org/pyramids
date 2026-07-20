@@ -26,8 +26,17 @@ FIXTURE = "tests/data/netcdf/cf__7v__1d3-2d3-3d1__y-asc.nc"
 GDAL_LOGGER = "pyramids.base.config.gdal"
 # Gulf of Mexico + Caribbean, in -180..180 longitudes (matches the wrapped grid).
 REGION = [
-    (-98, 18), (-93, 30), (-80, 31), (-75, 27), (-63, 22),
-    (-60, 16), (-65, 10), (-75, 9), (-84, 8), (-92, 11), (-98, 18),
+    (-98, 18),
+    (-93, 30),
+    (-80, 31),
+    (-75, 27),
+    (-63, 22),
+    (-60, 16),
+    (-65, 10),
+    (-75, 9),
+    (-84, 8),
+    (-92, 11),
+    (-98, 18),
 ]
 
 

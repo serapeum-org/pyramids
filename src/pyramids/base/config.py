@@ -246,9 +246,7 @@ class LoggerManager:
             if log_file_path not in existing_paths:
                 fh = logging.FileHandler(log_file_path, encoding="utf-8")
                 fh.setLevel(level)
-                fh.setFormatter(
-                    logging.Formatter(fmt=self.FMT, datefmt=self.DATE_FMT)
-                )
+                fh.setFormatter(logging.Formatter(fmt=self.FMT, datefmt=self.DATE_FMT))
                 root_logger.addHandler(fh)
 
     def _setup_logging(
@@ -297,9 +295,7 @@ class LoggerManager:
 
         console_handler, file_handler_exists_for = self._existing_handlers(root_logger)
         self._ensure_console_handler(root_logger, console_handler, level)
-        self._ensure_file_handler(
-            root_logger, log_file, level, file_handler_exists_for
-        )
+        self._ensure_file_handler(root_logger, log_file, level, file_handler_exists_for)
 
         # Reduce noise from common third-party libraries
         for noisy in ("fiona", "rasterio", "shapely", "matplotlib", "urllib3", "osgeo"):

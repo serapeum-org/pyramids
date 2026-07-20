@@ -37,12 +37,16 @@ def _write_packed_nc(path):
     dt = rg.CreateDimension("time", "TEMPORAL", "", 2)
     dy = rg.CreateDimension("lat", "HORIZONTAL_Y", "NORTH", 3)
     dx = rg.CreateDimension("lon", "HORIZONTAL_X", "EAST", 4)
-    arr = rg.CreateMDArray("rh", [dt, dy, dx], gdal.ExtendedDataType.Create(gdal.GDT_Int16))
+    arr = rg.CreateMDArray(
+        "rh", [dt, dy, dx], gdal.ExtendedDataType.Create(gdal.GDT_Int16)
+    )
     arr.SetScale(SCALE)
     arr.SetOffset(OFFSET)
     arr.SetUnit(UNIT)
     arr.SetNoDataValueDouble(FILL)
-    arr.CreateAttribute("long_name", [], gdal.ExtendedDataType.CreateString()).WriteString(LONG_NAME)
+    arr.CreateAttribute(
+        "long_name", [], gdal.ExtendedDataType.CreateString()
+    ).WriteString(LONG_NAME)
     arr.Write(np.arange(2 * 3 * 4, dtype=np.int16).reshape(2, 3, 4))
     ds.FlushCache()
 
@@ -66,7 +70,9 @@ def _packed(vi):
     assert vi.offset == pytest.approx(OFFSET), f"offset lost: {vi.offset}"
     assert vi.unit == UNIT, f"unit lost: {vi.unit!r}"
     assert vi.nodata == pytest.approx(FILL), f"no-data lost: {vi.nodata}"
-    assert vi.attributes.get("long_name") == LONG_NAME, f"attributes lost: {vi.attributes}"
+    assert vi.attributes.get("long_name") == LONG_NAME, (
+        f"attributes lost: {vi.attributes}"
+    )
 
 
 class TestAddVariableFileBacked:
@@ -80,7 +86,9 @@ class TestAddVariableFileBacked:
         dst = NetCDF.read_file(str(tmp_path / "dst.nc"))
         dst.add_variable(src, "rh")
         assert "rh" in dst.variable_names, f"variable not copied: {dst.variable_names}"
-        assert "tas" in dst.variable_names, f"existing variable lost: {dst.variable_names}"
+        assert "tas" in dst.variable_names, (
+            f"existing variable lost: {dst.variable_names}"
+        )
 
     def test_preserves_packing_and_attributes(self, tmp_path):
         """The copied variable should retain scale/offset/unit/no-data and its attributes."""

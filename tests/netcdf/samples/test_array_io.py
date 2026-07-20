@@ -36,13 +36,22 @@ def test_unpack_applies_scale_offset(sample_name, sample):
         info = meta[name]
         raw = nc.read_array(variable=name)
         unpacked = nc.read_array(variable=name, unpack=True)
-        assert np.issubdtype(raw.dtype, np.integer), f"{sample_name}/{name}: expected packed integer"
-        assert np.issubdtype(unpacked.dtype, np.floating), f"{sample_name}/{name}: unpack not float"
+        assert np.issubdtype(raw.dtype, np.integer), (
+            f"{sample_name}/{name}: expected packed integer"
+        )
+        assert np.issubdtype(unpacked.dtype, np.floating), (
+            f"{sample_name}/{name}: unpack not float"
+        )
         scale = info.scale
         offset = info.offset or 0.0
         flat_raw = np.asarray(raw).ravel()
         flat_unp = np.asarray(unpacked).ravel()
-        idx = int(np.argmax(flat_raw != (info.nodata if info.nodata is not None else flat_raw[0] - 1)))
+        idx = int(
+            np.argmax(
+                flat_raw
+                != (info.nodata if info.nodata is not None else flat_raw[0] - 1)
+            )
+        )
         assert flat_unp[idx] == pytest.approx(flat_raw[idx] * scale + offset, rel=1e-5)
     finally:
         nc.close()
@@ -53,7 +62,11 @@ def test_masked_read_matches_shape(sample_name, sample):
     """A masked read returns an array of the same shape as the plain read without raising."""
     nc = NetCDF.read_file(sample(sample_name))
     try:
-        name = next(n for n, info in nc.get_all_metadata().variables.items() if info.scale is not None)
+        name = next(
+            n
+            for n, info in nc.get_all_metadata().variables.items()
+            if info.scale is not None
+        )
         plain = nc.read_array(variable=name)
         masked = nc.read_array(variable=name, masked=True)
         assert masked is not None and masked.shape == plain.shape
@@ -66,8 +79,13 @@ def test_read_array_window_subsets(sample, tmp_path):
     nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1__y-asc.nc"))
     try:
         full = nc.read_array(variable="tos")
-        windowed = nc.read_array(variable="tos", window=[0, 0, 10, 8])  # col, row, width, height
-        assert windowed.shape[-2:] == (8, 10), f"window shape {windowed.shape} != (..,8,10)"
+        windowed = nc.read_array(
+            variable="tos", window=[0, 0, 10, 8]
+        )  # col, row, width, height
+        assert windowed.shape[-2:] == (
+            8,
+            10,
+        ), f"window shape {windowed.shape} != (..,8,10)"
         assert windowed.shape[-1] < full.shape[-1]
     finally:
         nc.close()

@@ -17,8 +17,12 @@ def test_chunked_read_returns_dask_and_matches_eager(sample):
         var = nc.get_variable("rhum")
         eager = var.read_array()
         lazy = var.read_array(chunks="auto")
-        assert isinstance(lazy, da.Array), f"expected dask array, got {type(lazy).__name__}"
+        assert isinstance(lazy, da.Array), (
+            f"expected dask array, got {type(lazy).__name__}"
+        )
         assert lazy.size == eager.size
-        np.testing.assert_array_equal(np.asarray(lazy.compute()).ravel(), np.asarray(eager).ravel())
+        np.testing.assert_array_equal(
+            np.asarray(lazy.compute()).ravel(), np.asarray(eager).ravel()
+        )
     finally:
         nc.close()

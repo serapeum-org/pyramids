@@ -140,9 +140,9 @@ class TestLRUCache:
         cache = _LRUCache(maxsize=7)
         assert cache.maxsize == 7, f"Expected maxsize=7, got {cache.maxsize}"
         cache.maxsize = 9
-        assert (
-            cache.maxsize == 9
-        ), f"Expected maxsize=9 after widening, got {cache.maxsize}"
+        assert cache.maxsize == 9, (
+            f"Expected maxsize=9 after widening, got {cache.maxsize}"
+        )
 
     def test_maxsize_setter_rejects_zero(self):
         """Setting `cache.maxsize` below 1 raises `ValueError`.
@@ -481,13 +481,13 @@ class TestThreadLocalFileManager:
         """
         fm = ThreadLocalFileManager(_fake_opener, "t.tif", "read_only")
         with fm.acquire_context() as handle:
-            assert isinstance(
-                handle, _FakeHandle
-            ), f"Expected _FakeHandle, got {type(handle)}"
+            assert isinstance(handle, _FakeHandle), (
+                f"Expected _FakeHandle, got {type(handle)}"
+            )
         with fm.acquire_context() as handle2:
-            assert (
-                handle is handle2
-            ), "Context manager must reuse the thread-local handle"
+            assert handle is handle2, (
+                "Context manager must reuse the thread-local handle"
+            )
 
 
 class TestNullLock:
@@ -504,9 +504,9 @@ class TestNullLock:
         """
         lock = _NullLock()
         assert lock.acquire() is True, "_NullLock.acquire() must always return True"
-        assert (
-            lock.acquire(blocking=False, timeout=5.0) is True
-        ), "_NullLock.acquire() must ignore blocking/timeout"
+        assert lock.acquire(blocking=False, timeout=5.0) is True, (
+            "_NullLock.acquire() must ignore blocking/timeout"
+        )
 
     def test_release_is_noop(self):
         """`release()` returns `None` without raising.
@@ -633,9 +633,9 @@ class TestOpenersE2E:
         try:
             assert ds is not None, "ogr_open must return a datasource"
             layer = ds.GetLayer(0)
-            assert (
-                layer.GetFeatureCount() == 1
-            ), f"Expected 1 feature, got {layer.GetFeatureCount()}"
+            assert layer.GetFeatureCount() == 1, (
+                f"Expected 1 feature, got {layer.GetFeatureCount()}"
+            )
         finally:
             ds = None
 
@@ -681,10 +681,14 @@ class TestCachingFileManagerAutoRelease:
         assert second.acquire() is handle, "same manager_id shares one cached handle"
         del first
         gc.collect()
-        assert handle.closed is False and len(cache) == 1, "one manager gone: shared handle stays open"
+        assert handle.closed is False and len(cache) == 1, (
+            "one manager gone: shared handle stays open"
+        )
         del second
         gc.collect()
-        assert handle.closed is True and len(cache) == 0, "last manager gone: handle closed"
+        assert handle.closed is True and len(cache) == 0, (
+            "last manager gone: handle closed"
+        )
 
     def test_without_auto_release_handle_survives_manager_gc(self):
         """A default (non-auto-release) manager leaves its handle under pure LRU lifetime."""
@@ -693,7 +697,9 @@ class TestCachingFileManagerAutoRelease:
         handle = fm.acquire()
         del fm
         gc.collect()
-        assert handle.closed is False and len(cache) == 1, "LRU lifetime: handle survives manager GC"
+        assert handle.closed is False and len(cache) == 1, (
+            "LRU lifetime: handle survives manager GC"
+        )
 
     def test_setstate_tolerates_legacy_six_tuple(self):
         """A manager pickled by the pre-`auto_release` 6-tuple format still unpickles (defaults False)."""
@@ -701,7 +707,9 @@ class TestCachingFileManagerAutoRelease:
         legacy = (fm._opener, fm._path, fm._access, fm._kwargs, None, fm._manager_id)
         clone = CachingFileManager.__new__(CachingFileManager)
         clone.__setstate__(legacy)
-        assert clone._auto_release is False, "legacy 6-tuple must default auto_release to False"
+        assert clone._auto_release is False, (
+            "legacy 6-tuple must default auto_release to False"
+        )
 
     def test_stale_finalizer_after_clear_does_not_close_reopened_handle(self):
         """A finalizer firing after `clear()` must not close a handle re-opened for a live sibling.
@@ -723,11 +731,14 @@ class TestCachingFileManagerAutoRelease:
         assert len(cache) == 1 and reopened.closed is False
         del first
         gc.collect()
-        assert reopened.closed is False, "a stale post-clear finalizer must not close the re-opened handle"
+        assert reopened.closed is False, (
+            "a stale post-clear finalizer must not close the re-opened handle"
+        )
         assert len(cache) == 1, "the re-opened handle survives an untracked release"
 
     def test_release_logs_close_error_instead_of_raising(self, caplog):
         """A close failure during finalizer-invoked `release()` is logged, not left unraisable (L1)."""
+
         def boom(_key, _handle):
             raise OSError("simulated remote /vsi flush failure")
 
@@ -737,5 +748,6 @@ class TestCachingFileManagerAutoRelease:
         with caplog.at_level("WARNING", logger="pyramids.base._file_manager"):
             cache.release("k")
         assert any(
-            "handle close failed during finalizer release" in r.getMessage() for r in caplog.records
+            "handle close failed during finalizer release" in r.getMessage()
+            for r in caplog.records
         ), "the finalizer-invoked close error must be logged at WARNING"

@@ -253,9 +253,9 @@ class TestExportSrs:
         srs.ExportToJSON.return_value = '{"type":"GeographicCRS"}'
         wkt, projjson = _export_srs(srs)
         assert wkt == "GEOGCS[...]", "WKT should match ExportToWkt result"
-        assert (
-            projjson == '{"type":"GeographicCRS"}'
-        ), "PROJJSON should match ExportToJSON result"
+        assert projjson == '{"type":"GeographicCRS"}', (
+            "PROJJSON should match ExportToJSON result"
+        )
 
     def test_wkt_fails_projjson_succeeds(self):
         """ExportToWkt raises but ExportToJSON succeeds."""
@@ -307,7 +307,9 @@ class TestGetArrayNodata:
         mdarr = MagicMock(spec=[])
         attrs = {"_FillValue": [1e20, 1e20]}
         result = _get_array_nodata(mdarr, attrs)
-        assert result == pytest.approx(1e20), "Should return first element of list _FillValue"
+        assert result == pytest.approx(1e20), (
+            "Should return first element of list _FillValue"
+        )
 
     def test_fill_value_empty_list_returns_none(self):
         """Empty list _FillValue returns None."""
@@ -384,12 +386,12 @@ class TestGetArrayScaleOffset:
         mdarr = MagicMock(spec=[])
         attrs = {"scale_factor": 0.1, "add_offset": 273.15}
         scale, offset = _get_array_scale_offset(mdarr, attrs)
-        assert scale == pytest.approx(
-            0.1
-        ), "Scale should come from scale_factor attribute"
-        assert offset == pytest.approx(
-            273.15
-        ), "Offset should come from add_offset attribute"
+        assert scale == pytest.approx(0.1), (
+            "Scale should come from scale_factor attribute"
+        )
+        assert offset == pytest.approx(273.15), (
+            "Offset should come from add_offset attribute"
+        )
 
     def test_none_when_no_info(self):
         """No attributes and no GDAL API methods."""
@@ -406,12 +408,12 @@ class TestGetArrayScaleOffset:
         mdarr.GetOffset.return_value = 100.0
         attrs = {"scale_factor": 0.1, "add_offset": 200.0}
         scale, offset = _get_array_scale_offset(mdarr, attrs)
-        assert scale == pytest.approx(
-            0.01
-        ), "GDAL API scale should override CF attribute"
-        assert offset == pytest.approx(
-            100.0
-        ), "GDAL API offset should override CF attribute"
+        assert scale == pytest.approx(0.01), (
+            "GDAL API scale should override CF attribute"
+        )
+        assert offset == pytest.approx(100.0), (
+            "GDAL API offset should override CF attribute"
+        )
 
     def test_gdal_api_returns_none_keeps_attr_value(self):
         """GDAL API returns None; CF attribute value is kept."""
@@ -420,12 +422,12 @@ class TestGetArrayScaleOffset:
         mdarr.GetOffset.return_value = None
         attrs = {"scale_factor": 0.5, "add_offset": 10.0}
         scale, offset = _get_array_scale_offset(mdarr, attrs)
-        assert scale == pytest.approx(
-            0.5
-        ), "Should keep CF scale when GDAL returns None"
-        assert offset == pytest.approx(
-            10.0
-        ), "Should keep CF offset when GDAL returns None"
+        assert scale == pytest.approx(0.5), (
+            "Should keep CF scale when GDAL returns None"
+        )
+        assert offset == pytest.approx(10.0), (
+            "Should keep CF offset when GDAL returns None"
+        )
 
     def test_gdal_api_raises_keeps_attr_value(self):
         """GDAL API raises; CF attribute value is kept."""
@@ -565,9 +567,9 @@ class TestNormalizeOriginString:
     def test_minimal_origin(self):
         """Pad a minimal '1-1-1 0:0:0' origin."""
         result = _normalize_origin_string("1-1-1 0:0:0")
-        assert (
-            result == "0001-01-01 00:00:00"
-        ), "Should zero-pad year, month, day, hour, min, sec"
+        assert result == "0001-01-01 00:00:00", (
+            "Should zero-pad year, month, day, hour, min, sec"
+        )
 
     def test_iso_t_separator(self):
         """T separator is replaced with space."""
@@ -582,16 +584,16 @@ class TestNormalizeOriginString:
     def test_already_padded(self):
         """Already zero-padded input is unchanged."""
         result = _normalize_origin_string("1979-01-01 00:00:00")
-        assert (
-            result == "1979-01-01 00:00:00"
-        ), "Already padded origin should be unchanged"
+        assert result == "1979-01-01 00:00:00", (
+            "Already padded origin should be unchanged"
+        )
 
     def test_fractional_seconds(self):
         """Fractional seconds are preserved."""
         result = _normalize_origin_string("2000-1-1 0:0:0.5")
-        assert (
-            result == "2000-01-01 00:00:0.5"
-        ), "Fractional seconds should be preserved"
+        assert result == "2000-01-01 00:00:0.5", (
+            "Fractional seconds should be preserved"
+        )
 
     def test_whitespace_stripped(self):
         """Leading/trailing whitespace is stripped."""
@@ -601,16 +603,16 @@ class TestNormalizeOriginString:
     def test_partial_date_pads_missing_parts(self):
         """Year-only or year-month date is padded."""
         result = _normalize_origin_string("2000")
-        assert (
-            result == "2000-01-01 00:00:00"
-        ), "Missing month and day should default to 01"
+        assert result == "2000-01-01 00:00:00", (
+            "Missing month and day should default to 01"
+        )
 
     def test_partial_time_pads_missing_parts(self):
         """Partial time (hour only) is padded."""
         result = _normalize_origin_string("2000-01-01 12")
-        assert (
-            result == "2000-01-01 12:00:00"
-        ), "Missing minutes and seconds should be 00"
+        assert result == "2000-01-01 12:00:00", (
+            "Missing minutes and seconds should be 00"
+        )
 
     def test_year_month_only(self):
         """Year-month only with no day."""
@@ -682,9 +684,9 @@ class TestParseUnitsOrigin:
         monkeypatch.setattr(utils_mod, "datetime", _PatchedDatetime)
         unit, origin = _parse_units_origin("days since 1979-01-01 00:00:00")
         assert unit == "days", "Unit should be 'days'"
-        assert origin == real_datetime(
-            1979, 1, 1
-        ), "Should fall back to strptime when fromisoformat fails"
+        assert origin == real_datetime(1979, 1, 1), (
+            "Should fall back to strptime when fromisoformat fails"
+        )
 
 
 class TestCreateTimeConversionFunc:
@@ -717,9 +719,9 @@ class TestCreateTimeConversionFunc:
             "hours since 2000-01-01",
             out_format="%Y-%m-%d",
         )
-        assert (
-            convert(24) == "2000-01-02"
-        ), "Custom format should produce date-only string"
+        assert convert(24) == "2000-01-02", (
+            "Custom format should produce date-only string"
+        )
 
     def test_unsupported_unit_raises(self):
         """Unsupported unit string raises ValueError."""
@@ -734,9 +736,9 @@ class TestCreateTimeConversionFunc:
     def test_negative_offset(self):
         """Negative offset goes before origin."""
         convert = create_time_conversion_func("days since 2000-01-02")
-        assert (
-            convert(-1) == "2000-01-01 00:00:00"
-        ), "Negative offset should go before origin"
+        assert convert(-1) == "2000-01-01 00:00:00", (
+            "Negative offset should go before origin"
+        )
 
     def test_invalid_units_string_raises(self):
         """Completely invalid string raises ValueError."""
@@ -776,9 +778,9 @@ class TestDtypeToStr:
         dt.GetName.return_value = ""
         dt.GetNumericDataType.return_value = 6  # GDT_Float32
         result = _dtype_to_str(dt)
-        assert (
-            result == "float32"
-        ), f"Empty name should fall through to numeric, got {result}"
+        assert result == "float32", (
+            f"Empty name should fall through to numeric, got {result}"
+        )
 
     def test_no_numeric_returns_unknown(self):
         """GetName empty and GetNumericDataType fails; returns 'unknown'."""
@@ -786,9 +788,9 @@ class TestDtypeToStr:
         dt.GetName.return_value = None
         dt.GetNumericDataType.side_effect = Exception("no numeric")
         result = _dtype_to_str(dt)
-        assert (
-            result == "unknown"
-        ), f"Should return 'unknown' when all paths fail, got {result}"
+        assert result == "unknown", (
+            f"Should return 'unknown' when all paths fail, got {result}"
+        )
 
 
 class TestToPyScalar:
@@ -1043,9 +1045,9 @@ class TestReadAttributes:
         obj = MagicMock()
         obj.GetAttributes.return_value = [att]
         result = _read_attributes(obj)
-        assert (
-            "explosive_attr" in result
-        ), "Attribute key should be present even when reader explodes"
-        assert (
-            result["explosive_attr"] is None
-        ), "Value should be normalized None from the except branch"
+        assert "explosive_attr" in result, (
+            "Attribute key should be present even when reader explodes"
+        )
+        assert result["explosive_attr"] is None, (
+            "Value should be normalized None from the except branch"
+        )

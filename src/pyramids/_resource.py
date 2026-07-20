@@ -244,9 +244,10 @@ def _determine_kind(path: Path, fmt: str | None) -> ResourceKind:
     try:
         kind = sniff_kind(path, fmt=fmt)
     except ValueError:
-        kind = _sniff_from_archive(path)
-        if kind is None:
+        sniffed = _sniff_from_archive(path)
+        if sniffed is None:
             raise
+        kind = sniffed
     return kind
 
 

@@ -195,9 +195,9 @@ class TestSample:
         """
         sampled = two_band.sample(inside_points, bands=0)
         extracted = two_band.extract(band=0, mask=inside_points)
-        assert (
-            sampled.tolist() == extracted.tolist()
-        ), f"sample {sampled.tolist()} != extract {extracted.tolist()}"
+        assert sampled.tolist() == extracted.tolist(), (
+            f"sample {sampled.tolist()} != extract {extracted.tolist()}"
+        )
 
     def test_empty_band_list(self, two_band, inside_points):
         """An empty band list yields a (0, n_points) array.

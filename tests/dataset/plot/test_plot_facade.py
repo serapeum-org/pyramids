@@ -52,9 +52,9 @@ class TestDatasetPlotFacade:
         )
 
         result = dataset.plot()
-        assert isinstance(
-            result, ArrayGlyph
-        ), f"Expected ArrayGlyph, got {type(result).__name__}"
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph, got {type(result).__name__}"
+        )
 
     @pytest.mark.plot
     def test_two_consecutive_calls_return_independent_figures(self):
@@ -75,9 +75,9 @@ class TestDatasetPlotFacade:
         first = dataset.plot()
         second = dataset.plot()
         assert first is not second, "plot() must return a fresh ArrayGlyph each call"
-        assert (
-            first.fig is not second.fig
-        ), "Each call must own a distinct matplotlib Figure"
+        assert first.fig is not second.fig, (
+            "Each call must own a distinct matplotlib Figure"
+        )
 
     @pytest.mark.plot
     @pytest.mark.parametrize(
@@ -167,14 +167,14 @@ class TestDatasetPlotFacade:
             mock_plot.return_value = "stub-glyph"
             result = dataset.plot(figsize=(4, 4))
 
-        assert (
-            result == "stub-glyph"
-        ), f"Facade must return engine output, got {result!r}"
+        assert result == "stub-glyph", (
+            f"Facade must return engine output, got {result!r}"
+        )
         assert mock_plot.call_count == 1
         call_kwargs = mock_plot.call_args.kwargs
-        assert (
-            call_kwargs["band"] == 0
-        ), f"Resolver should send band=0, got {call_kwargs.get('band')}"
+        assert call_kwargs["band"] == 0, (
+            f"Resolver should send band=0, got {call_kwargs.get('band')}"
+        )
         assert call_kwargs["figsize"] == (
             4,
             4,
@@ -321,12 +321,12 @@ class TestDatasetPlotRgbOptions:
         assert (
             "rgb_options` wins" in collide_msg and "drop the loose form" in collide_msg
         ), f"collision warning should say rgb_options wins; got: {collide_msg!r}"
-        assert (
-            "Group them under" not in collide_msg
-        ), f"collision warning must not use the 'group them' wording; got: {collide_msg!r}"
-        assert (
-            "Group them under" in pure_msg
-        ), f"pure-loose warning should keep the 'group them' wording; got: {pure_msg!r}"
+        assert "Group them under" not in collide_msg, (
+            f"collision warning must not use the 'group them' wording; got: {collide_msg!r}"
+        )
+        assert "Group them under" in pure_msg, (
+            f"pure-loose warning should keep the 'group them' wording; got: {pure_msg!r}"
+        )
 
 
 class TestDatasetPlotRgbOptionsEdges:
@@ -407,12 +407,12 @@ class TestDatasetPlotRgbOptionsEdges:
                 multiband_dataset.plot(rgb_options={})
         call_kwargs = mock_plot.call_args.kwargs
         # No Sentinel kwargs were set; the resolver passes None through.
-        assert (
-            call_kwargs.get("rgb") is None
-        ), f"Empty rgb_options should leave rgb=None, got: {call_kwargs.get('rgb')}"
-        assert (
-            call_kwargs.get("surface_reflectance") is None
-        ), "Empty rgb_options should leave surface_reflectance=None"
+        assert call_kwargs.get("rgb") is None, (
+            f"Empty rgb_options should leave rgb=None, got: {call_kwargs.get('rgb')}"
+        )
+        assert call_kwargs.get("surface_reflectance") is None, (
+            "Empty rgb_options should leave surface_reflectance=None"
+        )
         deprecations = [
             w for w in captured if issubclass(w.category, DeprecationWarning)
         ]
@@ -465,9 +465,9 @@ class TestDatasetPlotRgbOptionsEdges:
             f"Exactly one DeprecationWarning expected, got {len(deprecations)}: "
             f"{[str(w.message) for w in deprecations]}"
         )
-        assert "surface_reflectance" in str(
-            deprecations[0].message
-        ), f"Warning must name the loose kwarg, got: {deprecations[0].message}"
+        assert "surface_reflectance" in str(deprecations[0].message), (
+            f"Warning must name the loose kwarg, got: {deprecations[0].message}"
+        )
 
     @pytest.mark.plot
     def test_rgb_options_only_partial_override(self, multiband_dataset):
@@ -496,6 +496,6 @@ class TestDatasetPlotRgbOptionsEdges:
             1,
             2,
         ], f"Grouped rgb must propagate, got: {call_kwargs.get('rgb')}"
-        assert (
-            call_kwargs["percentile"] == 2
-        ), f"Loose percentile must survive, got: {call_kwargs.get('percentile')}"
+        assert call_kwargs["percentile"] == 2, (
+            f"Loose percentile must survive, got: {call_kwargs.get('percentile')}"
+        )

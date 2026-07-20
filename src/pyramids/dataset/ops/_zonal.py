@@ -26,7 +26,8 @@ then reduce.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -175,9 +176,7 @@ def _bincount_stats(
     counts = np.bincount(
         flat_labels[valid_mask],
         minlength=minlength,
-    )[
-        1:
-    ].astype(np.float64)
+    )[1:].astype(np.float64)
     out: dict[str, np.ndarray] = {}
     if "sum" in stats:
         out["sum"] = sums

@@ -10,7 +10,7 @@ Depends on:
 
 from __future__ import annotations
 
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 import numpy as np
 from osgeo import gdal
@@ -297,12 +297,12 @@ def _parse_single_topology(
 
         # UGRID connectivity attributes are CF variable-name strings; the
         # generic attrs map types values as the broad GDAL value union.
-        face_node_var = cast(Optional[str], attrs.get("face_node_connectivity"))
-        edge_node_var = cast(Optional[str], attrs.get("edge_node_connectivity"))
-        face_edge_var = cast(Optional[str], attrs.get("face_edge_connectivity"))
-        face_face_var = cast(Optional[str], attrs.get("face_face_connectivity"))
-        edge_face_var = cast(Optional[str], attrs.get("edge_face_connectivity"))
-        boundary_node_var = cast(Optional[str], attrs.get("boundary_node_connectivity"))
+        face_node_var = cast(str | None, attrs.get("face_node_connectivity"))
+        edge_node_var = cast(str | None, attrs.get("edge_node_connectivity"))
+        face_edge_var = cast(str | None, attrs.get("face_edge_connectivity"))
+        face_face_var = cast(str | None, attrs.get("face_face_connectivity"))
+        edge_face_var = cast(str | None, attrs.get("edge_face_connectivity"))
+        boundary_node_var = cast(str | None, attrs.get("boundary_node_connectivity"))
 
         face_x_var, face_y_var = _split_coord_pair(attrs, "face_coordinates")
         edge_x_var, edge_y_var = _split_coord_pair(attrs, "edge_coordinates")
@@ -483,10 +483,16 @@ def write_ugrid_topology(
 
     if mesh.has_face_coords:
         _write_coord_array(
-            rg, f"{mesh_name}_face_x", [n_face_dim], cast("np.typing.NDArray", mesh.face_x)
+            rg,
+            f"{mesh_name}_face_x",
+            [n_face_dim],
+            cast("np.typing.NDArray", mesh.face_x),
         )
         _write_coord_array(
-            rg, f"{mesh_name}_face_y", [n_face_dim], cast("np.typing.NDArray", mesh.face_y)
+            rg,
+            f"{mesh_name}_face_y",
+            [n_face_dim],
+            cast("np.typing.NDArray", mesh.face_y),
         )
 
     if crs_wkt is not None:

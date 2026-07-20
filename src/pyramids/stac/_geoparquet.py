@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import shapely.geometry
 
@@ -28,7 +28,7 @@ _ITEM_COLUMN = "stac_item"
 def _item_to_dict(item: Any) -> dict[str, Any]:
     """Return a STAC Item as a plain dict (calls `.to_dict()` when available)."""
     if hasattr(item, "to_dict"):
-        return item.to_dict()
+        return cast(dict[str, Any], item.to_dict())
     if isinstance(item, dict):
         return item
     raise TypeError(

@@ -5,6 +5,7 @@ antimeridian-seam smear (#669 / serapeum-org/cleopatra#179): a wrapping
 geographic longitude is made continuous before it reaches cleopatra, while
 non-geographic, unknown-CRS, and non-wrapping coords are left untouched.
 """
+
 import numpy as np
 
 from pyramids.dataset._plot_helpers import (
@@ -91,7 +92,9 @@ def test_is_degree_geographic_gate():
     """`_is_degree_geographic` accepts EPSG:4326, rejects a projected CRS and an unresolvable code."""
     assert _is_degree_geographic(4326) is True
     assert _is_degree_geographic(3857) is False
-    assert _is_degree_geographic(999999) is False  # unassigned code -> CRSError -> False
+    assert (
+        _is_degree_geographic(999999) is False
+    )  # unassigned code -> CRSError -> False
 
 
 def test_row_wrapping_more_than_once_is_fully_unwrapped():

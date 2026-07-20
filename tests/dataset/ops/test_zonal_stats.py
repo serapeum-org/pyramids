@@ -90,9 +90,9 @@ class TestMultipleStats:
             unreachable from the mean/sum-only paths.
         """
         result = raster.zonal_stats(two_boxes, stats=("count",))
-        assert list(result.columns) == [
-            "count"
-        ], f"Expected a single 'count' column, got {list(result.columns)}"
+        assert list(result.columns) == ["count"], (
+            f"Expected a single 'count' column, got {list(result.columns)}"
+        )
         assert result["count"].tolist() == [
             4.0,
             4.0,
@@ -114,9 +114,9 @@ class TestMultipleStats:
         )
         fc = FeatureCollection(off_raster)
         result = raster.zonal_stats(fc, stats=("std",))
-        assert np.isnan(
-            result.iloc[0]["std"]
-        ), f"Empty cohort must yield NaN, got {result.iloc[0]['std']}"
+        assert np.isnan(result.iloc[0]["std"]), (
+            f"Empty cohort must yield NaN, got {result.iloc[0]['std']}"
+        )
 
     def test_std_with_all_nan_pixels_returns_nan(self, tmp_path, two_boxes):
         """All-NaN pixel cohort → NaN via the ``valid.size == 0`` branch.
@@ -139,9 +139,9 @@ class TestMultipleStats:
         ds.to_file(path)
         nodata_raster = Dataset.read_file(path)
         result = nodata_raster.zonal_stats(two_boxes, stats=("std",))
-        assert np.isnan(
-            result.iloc[0]["std"]
-        ), f"All-NaN cohort must yield NaN, got {result.iloc[0]['std']}"
+        assert np.isnan(result.iloc[0]["std"]), (
+            f"All-NaN cohort must yield NaN, got {result.iloc[0]['std']}"
+        )
 
 
 class TestStatValidation:

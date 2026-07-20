@@ -18,7 +18,9 @@ def test_sel_level_pins_band_dimension(sample):
         assert var.read_array().shape[0] == 48
         selected = var.sel(level=1000.0)
         assert isinstance(selected, NetCDF)
-        assert selected.read_array().shape[0] == 12, "sel should keep the 12 time steps at one level"
+        assert selected.read_array().shape[0] == 12, (
+            "sel should keep the 12 time steps at one level"
+        )
     finally:
         nc.close()
 

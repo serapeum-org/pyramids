@@ -25,7 +25,7 @@ from __future__ import annotations
 import urllib.request
 from functools import lru_cache
 from typing import TYPE_CHECKING
-from xml.etree import ElementTree as ET
+from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted, no XXE
 
 import geopandas as gpd
 from osgeo import gdal
@@ -77,17 +77,21 @@ def _get_capabilities(
             payload = resp.read()
     except OSError as exc:
         # urllib.error.URLError / HTTPError both derive from OSError.
-        raise WFSError(f"WFS GetCapabilities request failed for {endpoint!r}: {exc}") from exc
+        raise WFSError(
+            f"WFS GetCapabilities request failed for {endpoint!r}: {exc}"
+        ) from exc
 
     try:
-        root = ET.fromstring(payload)
+        root = ET.fromstring(payload)  # nosec B314 - server XML; DoS accepted, no XXE
     except ET.ParseError as exc:
         raise WFSError(
             f"WFS GetCapabilities returned a non-XML body from {endpoint!r}: {exc}"
         ) from exc
 
     if _localname(root.tag) in ("ExceptionReport", "ServiceExceptionReport"):
-        raise WFSError(f"WFS server returned an exception for {endpoint!r}: {_exception_text(root)}")
+        raise WFSError(
+            f"WFS server returned an exception for {endpoint!r}: {_exception_text(root)}"
+        )
 
     versions = {root.attrib["version"]} if root.attrib.get("version") else set()
     for el in root.iter():
@@ -131,7 +135,7 @@ def _wfs_connection(endpoint: str, version: str | None) -> str:
 
 
 def from_wfs(
-    featurecollection_cls: type["FeatureCollection"],
+    featurecollection_cls: type[FeatureCollection],
     endpoint: str,
     *,
     typename: str,
@@ -142,7 +146,7 @@ def from_wfs(
     version: str | None = None,
     auth: tuple[str, str] | None = None,
     timeout: float = 60.0,
-) -> "FeatureCollection":
+) -> FeatureCollection:
     """Fetch a WFS feature-type subset and return a :class:`FeatureCollection`.
 
     This is the private implementation; the public API is the
@@ -155,7 +159,9 @@ def from_wfs(
         WFSError: The server could not be reached or returned an error / a
             non-feature body.
     """
-    read_kwargs = _read_kwargs(bbox, where, max_features)  # validate inputs before any network call
+    read_kwargs = _read_kwargs(
+        bbox, where, max_features
+    )  # validate inputs before any network call
 
     # Fetch capabilities unpinned so the advertised version set is authoritative.
     versions, typenames = _get_capabilities(endpoint, None, auth, timeout)

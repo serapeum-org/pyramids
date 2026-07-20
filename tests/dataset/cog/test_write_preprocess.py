@@ -99,9 +99,9 @@ class TestToCogPreprocess:
             tmp_path / "cast.tif", indexes=[0], out_dtype="int16"
         )
         ds = _open(out)
-        assert (
-            gdal.GetDataTypeName(ds.GetRasterBand(1).DataType) == "Int16"
-        ), "cast failed"
+        assert gdal.GetDataTypeName(ds.GetRasterBand(1).DataType) == "Int16", (
+            "cast failed"
+        )
         pred = ds.GetMetadataItem("PREDICTOR", "IMAGE_STRUCTURE")
         ds = None
         assert pred == "2", f"post-cast int COG should have predictor 2, got {pred}"

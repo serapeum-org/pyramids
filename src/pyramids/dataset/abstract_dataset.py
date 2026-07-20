@@ -17,17 +17,18 @@ compatibility with the module path; the class itself was renamed from
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from numbers import Number
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal
 
 from pyramids.base._utils import (
-    Catalog,
     DEFAULT_RESAMPLING,
+    Catalog,
 )
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
 from pyramids.base.protocols import ArrayLike, FloatArray
@@ -36,6 +37,7 @@ from pyramids.dataset.window import Window
 
 if TYPE_CHECKING:
     from pyramids.base._file_manager import ThreadLocalFileManager
+
 from pyramids.feature import FeatureCollection
 
 DEFAULT_NO_DATA_VALUE = -9999
@@ -579,7 +581,7 @@ class RasterBase(ABC):
 
     def block_windows(
         self, band: int = 0, *, window: Window | None = None
-    ) -> Generator[Window, None, None]:
+    ) -> Generator[Window]:
         """Yield a :class:`Window` for every native block of ``band``.
 
         Walks the raster in its on-disk block layout (tiles for tiled
@@ -658,7 +660,7 @@ class RasterBase(ABC):
 
     def iter_blocks(
         self, band: int = 0, *, window: Window | None = None
-    ) -> Generator[tuple[Window, np.typing.NDArray], None, None]:
+    ) -> Generator[tuple[Window, np.typing.NDArray]]:
         """Yield ``(Window, ndarray)`` for every native block of ``band``.
 
         The streaming read companion of :meth:`block_windows`: each yielded

@@ -183,7 +183,9 @@ def _make_geotiff(width: int, height: int, minx: float, maxy: float) -> bytes:
     srs = osr.SpatialReference()
     srs.ImportFromEPSG(4326)
     ds.SetProjection(srs.ExportToWkt())
-    ds.GetRasterBand(1).WriteArray(np.fromfunction(lambda r, c: (r + c).astype("int16"), (height, width)))
+    ds.GetRasterBand(1).WriteArray(
+        np.fromfunction(lambda r, c: (r + c).astype("int16"), (height, width))
+    )
     ds.GetRasterBand(1).SetNoDataValue(-32768)
     ds.FlushCache()
     ds = None
@@ -286,7 +288,7 @@ class WcsMock:
     def getcoverage_requests(self) -> list[str]:
         return [r for r in self.requests if "getcoverage" in r.lower()]
 
-    def __enter__(self) -> "WcsMock":
+    def __enter__(self) -> WcsMock:
         self._thread.start()
         return self
 

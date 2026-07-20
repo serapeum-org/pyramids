@@ -111,9 +111,9 @@ class TestResolveCogPredictor:
         Test scenario:
             Horizontal differencing (predictor 2) is correct for integer data.
         """
-        assert (
-            resolve_cog_predictor(gdal_dtype) == 2
-        ), f"integer dtype {gdal_dtype} should map to predictor 2"
+        assert resolve_cog_predictor(gdal_dtype) == 2, (
+            f"integer dtype {gdal_dtype} should map to predictor 2"
+        )
 
     @pytest.mark.parametrize(
         "gdal_dtype",
@@ -128,9 +128,9 @@ class TestResolveCogPredictor:
         Test scenario:
             The floating-point predictor (3) is correct for continuous data.
         """
-        assert (
-            resolve_cog_predictor(gdal_dtype) == 3
-        ), f"float dtype {gdal_dtype} should map to predictor 3"
+        assert resolve_cog_predictor(gdal_dtype) == 3, (
+            f"float dtype {gdal_dtype} should map to predictor 3"
+        )
 
 
 class TestIsIntegerGdalDtype:
@@ -281,9 +281,9 @@ class TestToCogResamplingGuardrail:
             out = float_dataset.to_cog(tmp_path / "f.tif")
         categorical = [w for w in caught if "categorical" in str(w.message).lower()]
         assert not categorical, "float default must not warn"
-        assert (
-            float_dataset.read_file(str(out)).validate_cog().is_valid
-        ), "float default write must produce a valid COG"
+        assert float_dataset.read_file(str(out)).validate_cog().is_valid, (
+            "float default write must produce a valid COG"
+        )
 
     def test_large_float_builds_averaged_overviews(self, tmp_path):
         """A float raster larger than the tile size gets averaged overviews.
@@ -420,13 +420,13 @@ class TestToCogWriteCogEquivalence:
         ds.to_cog(p1)
         out2, report = write_cog(ds, p2)
 
-        assert _read_predictor(p1) == _read_predictor(
-            out2
-        ), "predictor must match between to_cog and write_cog"
-        assert _first_overview_decimation(p1) == _first_overview_decimation(
-            out2
-        ), "overview decimation must match between to_cog and write_cog"
+        assert _read_predictor(p1) == _read_predictor(out2), (
+            "predictor must match between to_cog and write_cog"
+        )
+        assert _first_overview_decimation(p1) == _first_overview_decimation(out2), (
+            "overview decimation must match between to_cog and write_cog"
+        )
         assert report is not None and report.is_valid, "write_cog output must validate"
-        assert (
-            ds.read_file(str(p1)).validate_cog().is_valid
-        ), "to_cog output must validate"
+        assert ds.read_file(str(p1)).validate_cog().is_valid, (
+            "to_cog output must validate"
+        )

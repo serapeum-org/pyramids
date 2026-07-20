@@ -185,8 +185,8 @@ echo "resolved GDAL_VERSION=${GDAL_VERSION}"
 # 3. Extract native artifacts into ${BUILD_PREFIX}.
 echo "--- Extracting native artifacts into ${BUILD_PREFIX} ---"
 mkdir -p "${BUILD_PREFIX}/lib" "${BUILD_PREFIX}/lib64" \
-         "${BUILD_PREFIX}/include" "${BUILD_PREFIX}/share" \
-         "${BUILD_PREFIX}/bin"
+    "${BUILD_PREFIX}/include" "${BUILD_PREFIX}/share" \
+    "${BUILD_PREFIX}/bin"
 
 # Shared libraries — preserve symlinks with -a.
 # Linux uses .so, macOS uses .dylib; glob both so the script is cross-platform.
@@ -272,12 +272,12 @@ fi
 echo "--- Stripping shared libraries ---"
 if [[ "$(uname -s)" == "Darwin" ]]; then
     if ! find "${BUILD_PREFIX}/lib" -name '*.dylib*' -type f \
-            -exec strip -S {} +; then
+        -exec strip -S {} +; then
         echo "  (some files not strippable — see strip output above)"
     fi
 else
     if ! find "${BUILD_PREFIX}/lib" "${BUILD_PREFIX}/lib64" -name '*.so*' \
-            -type f -exec strip --strip-unneeded {} +; then
+        -type f -exec strip --strip-unneeded {} +; then
         echo "  (some files not strippable — see strip output above)"
     fi
 fi
@@ -296,7 +296,7 @@ if [[ "${PYRAMIDS_ICU_STUB:-1}" == "1" ]] && [[ "$(uname -s)" =~ ^(Linux|Darwin)
     _icu_target_arch="${_icu_target_arch%% *}"
     echo "--- Rebuilding ICU data (charset-only, target ${_icu_target_arch}) ---"
     if ! bash "$(dirname "$0")/build-icu-min-data.sh" \
-            "${BUILD_PREFIX}" "${PIXI_ENV}" "${_icu_target_arch}"; then
+        "${BUILD_PREFIX}" "${PIXI_ENV}" "${_icu_target_arch}"; then
         echo "WARNING: ICU min-data rebuild failed; keeping the full libicudata" >&2
     fi
 

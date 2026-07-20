@@ -321,16 +321,16 @@ class TestGetTarPath:
     def test_tar_path_with_internal_path(self):
         """A path containing .tar with an internal path should get /vsitar/ prefix."""
         result = _get_tar_path("archive.tar/internal_file.asc")
-        assert (
-            result == "/vsitar/archive.tar/internal_file.asc"
-        ), f"Expected /vsitar/ prefix with internal path, got {result}"
+        assert result == "/vsitar/archive.tar/internal_file.asc", (
+            f"Expected /vsitar/ prefix with internal path, got {result}"
+        )
 
     def test_tar_path_without_internal_path(self):
         """A .tar path without internal path should still get /vsitar/ prefix."""
         result = _get_tar_path("archive.tar")
-        assert (
-            result == "/vsitar/archive.tar"
-        ), f"Expected /vsitar/ prefix, got {result}"
+        assert result == "/vsitar/archive.tar", (
+            f"Expected /vsitar/ prefix, got {result}"
+        )
 
 
 class TestInsertSpace:
@@ -356,9 +356,9 @@ class TestHelperFunctions:
 
     def test_is_zip_with_internal_path(self):
         """_is_zip should return True for paths containing .zip."""
-        assert (
-            _is_zip("file.zip/internal.asc") is True
-        ), "path containing .zip should be identified"
+        assert _is_zip("file.zip/internal.asc") is True, (
+            "path containing .zip should be identified"
+        )
 
     def test_is_zip_non_zip(self):
         """_is_zip should return False for non-zip files."""

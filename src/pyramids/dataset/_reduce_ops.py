@@ -8,7 +8,8 @@ convention.
 
 from __future__ import annotations
 
-from typing import Any, Callable, cast
+from collections.abc import Callable
+from typing import Any, cast
 
 _SUPPORTED_OPS = ("mean", "sum", "min", "max", "std", "var")
 _NAN_TABLE = {op: f"nan{op}" for op in _SUPPORTED_OPS}

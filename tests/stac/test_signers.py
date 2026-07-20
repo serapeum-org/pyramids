@@ -26,9 +26,9 @@ class TestBaseSigner:
         Test scenario:
             The base signer does not touch outgoing requests.
         """
-        assert (
-            _BaseSigner().sign_request(object()) is None
-        ), "Base sign_request must be a no-op"
+        assert _BaseSigner().sign_request(object()) is None, (
+            "Base sign_request must be a no-op"
+        )
 
     def test_sign_item_is_noop(self):
         """sign_item returns None (leave the item unchanged).
@@ -36,9 +36,9 @@ class TestBaseSigner:
         Test scenario:
             The base signer does not mutate returned items.
         """
-        assert (
-            _BaseSigner().sign_item(object()) is None
-        ), "Base sign_item must be a no-op"
+        assert _BaseSigner().sign_item(object()) is None, (
+            "Base sign_item must be a no-op"
+        )
 
     def test_sign_href_passthrough(self):
         """sign_href returns the href unchanged.
@@ -87,9 +87,9 @@ class TestAnonymousSigner:
         Test scenario:
             Structural runtime_checkable Protocol membership holds.
         """
-        assert isinstance(
-            AnonymousSigner(), Signer
-        ), "Should satisfy the Signer protocol"
+        assert isinstance(AnonymousSigner(), Signer), (
+            "Should satisfy the Signer protocol"
+        )
 
 
 class TestAWSRequesterPaysSigner:
@@ -117,9 +117,9 @@ class TestAWSRequesterPaysSigner:
         Test scenario:
             `region='us-west-2'` is retained for caller use.
         """
-        assert (
-            AWSRequesterPaysSigner(region="us-west-2").region == "us-west-2"
-        ), "Region not stored"
+        assert AWSRequesterPaysSigner(region="us-west-2").region == "us-west-2", (
+            "Region not stored"
+        )
 
     def test_gdal_env_requester_pays(self):
         """gdal_env opts into Requester-Pays and trims redundant calls.
@@ -129,9 +129,9 @@ class TestAWSRequesterPaysSigner:
         """
         env = AWSRequesterPaysSigner().gdal_env()
         assert env["AWS_REQUEST_PAYER"] == "requester", "Must opt into requester-pays"
-        assert (
-            env["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR"
-        ), "Should disable readdir"
+        assert env["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR", (
+            "Should disable readdir"
+        )
         assert env["CPL_VSIL_CURL_USE_HEAD"] == "NO", "Should disable HEAD"
 
     def test_request_and_href_are_noops(self):
@@ -150,9 +150,9 @@ class TestAWSRequesterPaysSigner:
         Test scenario:
             Structural Protocol membership holds.
         """
-        assert isinstance(
-            AWSRequesterPaysSigner(), Signer
-        ), "Should satisfy the Signer protocol"
+        assert isinstance(AWSRequesterPaysSigner(), Signer), (
+            "Should satisfy the Signer protocol"
+        )
 
 
 class TestBearerTokenSigner:
@@ -185,9 +185,9 @@ class TestBearerTokenSigner:
             GDAL_HTTP_HEADERS holds the Authorization header.
         """
         env = BearerTokenSigner("abc123").gdal_env()
-        assert (
-            env["GDAL_HTTP_HEADERS"] == "Authorization: Bearer abc123"
-        ), "Bad GDAL header"
+        assert env["GDAL_HTTP_HEADERS"] == "Authorization: Bearer abc123", (
+            "Bad GDAL header"
+        )
 
     def test_callable_token_resolved_each_use(self):
         """A callable token is resolved on every use.
@@ -200,12 +200,12 @@ class TestBearerTokenSigner:
         first = signer.gdal_env()["GDAL_HTTP_HEADERS"]
         box["v"] = "second"
         second = signer.gdal_env()["GDAL_HTTP_HEADERS"]
-        assert (
-            first == "Authorization: Bearer first"
-        ), f"Unexpected first token: {first}"
-        assert (
-            second == "Authorization: Bearer second"
-        ), f"Callable not re-resolved: {second}"
+        assert first == "Authorization: Bearer first", (
+            f"Unexpected first token: {first}"
+        )
+        assert second == "Authorization: Bearer second", (
+            f"Callable not re-resolved: {second}"
+        )
 
     def test_callable_token_in_request(self):
         """A callable token is used when signing a request.
@@ -215,9 +215,9 @@ class TestBearerTokenSigner:
         """
         request = SimpleNamespace(headers={})
         BearerTokenSigner(lambda: "fresh").sign_request(request)
-        assert (
-            request.headers["Authorization"] == "Bearer fresh"
-        ), "Callable token not used"
+        assert request.headers["Authorization"] == "Bearer fresh", (
+            "Callable token not used"
+        )
 
     def test_item_and_href_are_noops(self):
         """Bearer signing does not rewrite items or hrefs.
@@ -266,9 +266,9 @@ class TestBearerTokenSigner:
         Test scenario:
             Structural Protocol membership holds.
         """
-        assert isinstance(
-            BearerTokenSigner("t"), Signer
-        ), "Should satisfy the Signer protocol"
+        assert isinstance(BearerTokenSigner("t"), Signer), (
+            "Should satisfy the Signer protocol"
+        )
 
 
 class TestSignerProtocol:

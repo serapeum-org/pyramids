@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from pyramids.netcdf import UgridDataset
-from pyramids.netcdf.ugrid import Connectivity, MeshSpatialIndex, Mesh2d
+from pyramids.netcdf.ugrid import Connectivity, Mesh2d, MeshSpatialIndex
 from tests.netcdf.samples.conftest import MESH
 
 pytestmark = pytest.mark.core

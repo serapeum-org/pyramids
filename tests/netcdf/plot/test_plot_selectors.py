@@ -10,7 +10,12 @@ from numpy.testing import assert_array_equal
 
 from pyramids.netcdf import Selectors
 from tests.netcdf.conftest import make_plot_3d_nc
-from tests.netcdf.plot._plot_helpers import _make_3d_nc_with_dates, _make_4d_nc, _make_capture, _make_ensemble_nc
+from tests.netcdf.plot._plot_helpers import (
+    _make_3d_nc_with_dates,
+    _make_4d_nc,
+    _make_capture,
+    _make_ensemble_nc,
+)
 
 pytestmark = pytest.mark.plot
 
@@ -46,9 +51,9 @@ class TestNetCDFPlotVariableResolution:
         """
         nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m")
-        assert isinstance(
-            result, ArrayGlyph
-        ), f"Expected ArrayGlyph, got {type(result).__name__}"
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph, got {type(result).__name__}"
+        )
 
     def test_subset_with_matching_variable_renders(self):
         """`variable=<pinned_name>` is accepted on a variable subset.
@@ -97,7 +102,10 @@ class TestNetCDFPlotSelectors:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             var.plot(selectors=Selectors(time="2024-01-15"))
         assert_array_equal(
@@ -113,7 +121,10 @@ class TestNetCDFPlotSelectors:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             var.plot(selectors=Selectors(sel={"time": "2024-01-14"}))
         assert_array_equal(
@@ -130,7 +141,10 @@ class TestNetCDFPlotSelectors:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             nc.plot(variable="t2m", selectors=Selectors(isel={"time": 2}))
         assert_array_equal(
@@ -152,7 +166,10 @@ class TestNetCDFPlotSelectors:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             nc.plot(
                 variable="temperature",
@@ -237,9 +254,9 @@ class TestNetCDFPlotBandKwargRejected:
         with pytest.raises(TypeError, match=r"band=") as exc_info:
             nc.plot(variable="t2m", band=0)
         msg = str(exc_info.value)
-        assert (
-            "Selectors" in msg
-        ), f"band= rejection should point at Selectors(...), got: {msg}"
+        assert "Selectors" in msg, (
+            f"band= rejection should point at Selectors(...), got: {msg}"
+        )
 
     def test_band_rejection_fires_before_render(self):
         """The `band=` gate runs before any engine call.
@@ -323,9 +340,9 @@ class TestNetCDFPlotVariableResolutionEdges:
             nc.plot(variable="temperature", selectors=sel)
         msg = str(exc_info.value)
         assert "time" in msg, f"Resolved selectors should be reported, got: {msg}"
-        assert (
-            "Remaining shape" in msg
-        ), f"Error must include 'Remaining shape', got: {msg}"
+        assert "Remaining shape" in msg, (
+            f"Error must include 'Remaining shape', got: {msg}"
+        )
 
 
 class TestNetCDFPlotRejectedKwargsCombinations:
@@ -399,17 +416,17 @@ class TestNetCDFPlotSelectorEdges:
         """``sel={}`` adds no resolved selectors; default render proceeds."""
         nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m", selectors=Selectors(sel={}))
-        assert isinstance(
-            result, ArrayGlyph
-        ), f"Empty sel dict must be a no-op, got {type(result).__name__}"
+        assert isinstance(result, ArrayGlyph), (
+            f"Empty sel dict must be a no-op, got {type(result).__name__}"
+        )
 
     def test_empty_isel_dict_is_noop(self):
         """``isel={}`` adds no resolved selectors; default render proceeds."""
         nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m", selectors=Selectors(isel={}))
-        assert isinstance(
-            result, ArrayGlyph
-        ), f"Empty isel dict must be a no-op, got {type(result).__name__}"
+        assert isinstance(result, ArrayGlyph), (
+            f"Empty isel dict must be a no-op, got {type(result).__name__}"
+        )
 
     def test_time_alias_overrides_sel_entry(self):
         """``time=`` alias is written into ``resolved_sel`` after the raw ``sel``.
@@ -427,7 +444,10 @@ class TestNetCDFPlotSelectorEdges:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             nc.plot(
                 variable="t2m",
@@ -455,7 +475,10 @@ class TestNetCDFPlotSelectorEdges:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             nc.plot(
                 variable="t2m",
@@ -495,9 +518,9 @@ class TestNetCDFPlotSelectorEdges:
         sel = Selectors(level=500)
         with pytest.raises(ValueError, match=r"level=") as exc_info:
             nc.plot(variable="t2m", selectors=sel)
-        assert "['time']" in str(
-            exc_info.value
-        ), f"Band dim names must be reported in the error, got: {exc_info.value}"
+        assert "['time']" in str(exc_info.value), (
+            f"Band dim names must be reported in the error, got: {exc_info.value}"
+        )
 
     def test_member_on_variable_without_ensemble_dim_raises(self):
         """``member=`` on a non-ensemble variable surfaces a clear ValueError."""
@@ -505,9 +528,9 @@ class TestNetCDFPlotSelectorEdges:
         sel = Selectors(member=0)
         with pytest.raises(ValueError, match=r"member=") as exc_info:
             nc.plot(variable="t2m", selectors=sel)
-        assert "['time']" in str(
-            exc_info.value
-        ), f"Available band dims must be listed, got: {exc_info.value}"
+        assert "['time']" in str(exc_info.value), (
+            f"Available band dims must be listed, got: {exc_info.value}"
+        )
 
     def test_under_specified_4d_message_contents(self):
         """Pin-to-one-slice ValueError on 4-D includes resolved and remaining shape.
@@ -524,9 +547,9 @@ class TestNetCDFPlotSelectorEdges:
             nc.plot(variable="temperature", selectors=sel)
         message = str(exc_info.value)
         assert "Resolved" in message, f"Error must mention 'Resolved', got: {message}"
-        assert (
-            "Remaining shape" in message
-        ), f"Error must mention 'Remaining shape', got: {message}"
+        assert "Remaining shape" in message, (
+            f"Error must mention 'Remaining shape', got: {message}"
+        )
 
 
 class TestNetCDFPlotMemberSelector:
@@ -547,7 +570,10 @@ class TestNetCDFPlotMemberSelector:
         captured: dict = {}
 
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
+            type(var.analysis),
+            "plot",
+            autospec=True,
+            side_effect=_make_capture(captured),
         ):
             nc.plot(variable="forecast", selectors=Selectors(member=1))
         assert_array_equal(

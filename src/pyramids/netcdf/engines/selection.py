@@ -206,7 +206,7 @@ class Selection(_Engine["NetCDF"]):
         is_container: bool,
         touch: bool,
         chunks: Any,
-    ) -> "NetCDF | None":
+    ) -> NetCDF | None:
         """Return an antimeridian crop when a geographic west>east bbox warrants it.
 
         Args:
@@ -223,7 +223,7 @@ class Selection(_Engine["NetCDF"]):
             strip, a masked curvilinear window, or a container with every variable
             cropped — otherwise ``None``.
         """
-        result: "NetCDF | None" = None
+        result: NetCDF | None = None
         if bbox is not None and mask is None:
             nc = self._ds
             crs = epsg if epsg is not None else nc.epsg
@@ -231,13 +231,15 @@ class Selection(_Engine["NetCDF"]):
             crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
             ds_geo = nc.epsg is not None and sr_from_user_input(nc.epsg).IsGeographic()
             if west > east and crs_geo and ds_geo:
-                _require_antimeridian_seam(nc, tuple(bbox))
+                # The unpacking above already asserts the 4-element shape a bbox has.
+                bbox_tuple = cast("tuple[float, float, float, float]", tuple(bbox))
+                _require_antimeridian_seam(nc, bbox_tuple)
                 if is_container:
                     result = self._crop_antimeridian_container(
-                        tuple(bbox), crs, touch, chunks
+                        bbox_tuple, crs, touch, chunks
                     )
                 else:
-                    result = self._crop_antimeridian(tuple(bbox), crs, touch, chunks)
+                    result = self._crop_antimeridian(bbox_tuple, crs, touch, chunks)
         return result
 
     def _crop_antimeridian_container(
@@ -246,7 +248,7 @@ class Selection(_Engine["NetCDF"]):
         crs: Any,
         touch: bool,
         chunks: Any,
-    ) -> "NetCDF":
+    ) -> NetCDF:
         """Fan an antimeridian bbox out across every variable of a root container.
 
         The container has no single crop to run — each variable splits the bbox in
@@ -273,8 +275,11 @@ class Selection(_Engine["NetCDF"]):
             ValueError: ``chunks`` was supplied.
         """
         _reject_antimeridian_chunks(chunks)
-        return self._ds._apply_to_all_variables(
-            "crop", {"bbox": bbox, "epsg": crs, "touch": touch}
+        return cast(
+            "NetCDF",
+            self._ds._apply_to_all_variables(
+                "crop", {"bbox": bbox, "epsg": crs, "touch": touch}
+            ),
         )
 
     def _crop_antimeridian(
@@ -283,7 +288,7 @@ class Selection(_Engine["NetCDF"]):
         crs: Any,
         touch: bool,
         chunks: Any,
-    ) -> "NetCDF":
+    ) -> NetCDF:
         """Crop a variable with a geographic ``west > east`` (antimeridian) bbox.
 
         A curvilinear variable (2-D lon/lat coords) is masked on its coordinate
@@ -311,9 +316,7 @@ class Selection(_Engine["NetCDF"]):
         """
         curv = _curvilinear_coords_2d(self._ds)
         if curv is not None:
-            result = self._crop_antimeridian_curvilinear(
-                bbox, crs, curv, touch, chunks
-            )
+            result = self._crop_antimeridian_curvilinear(bbox, crs, curv, touch, chunks)
         else:
             _reject_antimeridian_chunks(chunks)
             result = _crop_seam_halves(
@@ -331,7 +334,7 @@ class Selection(_Engine["NetCDF"]):
         coords2d: tuple[np.ndarray, np.ndarray],
         touch: bool,
         chunks: Any,
-    ) -> "NetCDF":
+    ) -> NetCDF:
         """Crop a curvilinear variable with a ``west > east`` bbox via a split mask.
 
         Curvilinear grids have no affine seam to stitch across, but their crop
@@ -361,7 +364,7 @@ class Selection(_Engine["NetCDF"]):
         )
         return self._crop_curvilinear(mask, coords2d, touch=touch, chunks=chunks)
 
-    def _merge_lon_halves(self, west_part: "NetCDF", east_part: "NetCDF") -> "NetCDF":
+    def _merge_lon_halves(self, west_part: NetCDF, east_part: NetCDF) -> NetCDF:
         """Concatenate two longitude-adjacent variable crops into one contiguous result.
 
         `west_part` (the pre-seam half) sits to the left and `east_part` (the
@@ -423,7 +426,7 @@ class Selection(_Engine["NetCDF"]):
             )
         return mask
 
-    def _crop_one(self, mask: Any, touch: bool = True, chunks: Any = None) -> "NetCDF":
+    def _crop_one(self, mask: Any, touch: bool = True, chunks: Any = None) -> NetCDF:
         """Crop a single variable/subset, routing curvilinear grids to the 2-D coordinate masker.
 
         Curvilinear grids (2-D lon/lat coords, no single affine geotransform) can't be clipped by the
@@ -482,7 +485,7 @@ class Selection(_Engine["NetCDF"]):
         coords2d: tuple[np.ndarray, np.ndarray],
         touch: bool = True,
         chunks: Any = None,
-    ) -> "NetCDF":
+    ) -> NetCDF:
         """Crop a curvilinear (2-D coordinate) variable by masking on its lon/lat arrays.
 
         Curvilinear grids have 2-D ``lon(y, x)`` / ``lat(y, x)`` coordinates and no single affine
@@ -851,7 +854,10 @@ class Selection(_Engine["NetCDF"]):
             y_start, y_stop = 0, dim_sizes[y_axis]
         else:
             min_x, min_y, max_x, max_y = nc._reproject_bbox_envelope(
-                cast("tuple[float, float, float, float]", tuple(bbox)), crs, srs, densify
+                cast("tuple[float, float, float, float]", tuple(bbox)),
+                crs,
+                srs,
+                densify,
             )
             x_start, x_stop = _contiguous_range(x_coords, min_x, max_x, "x", bbox)
             y_start, y_stop = _contiguous_range(y_coords, min_y, max_y, "y", bbox)

@@ -36,10 +36,14 @@ DEFAULT_RTOL: float = 0.001
 def is_no_data(
     arr: np.ndarray, no_data_value: float | None, *, rtol: float = DEFAULT_RTOL
 ) -> np.typing.NDArray: ...
+
+
 @overload
 def is_no_data(
     arr: float, no_data_value: float | None, *, rtol: float = DEFAULT_RTOL
 ) -> np.bool_: ...
+
+
 def is_no_data(
     arr: np.ndarray | float,
     no_data_value: float | None,

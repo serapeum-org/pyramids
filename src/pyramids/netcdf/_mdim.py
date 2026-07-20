@@ -315,7 +315,9 @@ def y_axis_is_bottom_up(dims: list, y_index: int, classic_view: gdal.Dataset) ->
     return result
 
 
-def x_axis_is_right_to_left(dims: list, x_index: int, classic_view: gdal.Dataset) -> bool:
+def x_axis_is_right_to_left(
+    dims: list, x_index: int, classic_view: gdal.Dataset
+) -> bool:
     """Report whether the X axis runs east-to-west and must be reversed to west-to-east order.
 
     The exact mirror of :func:`y_axis_is_bottom_up`, applied to columns. GDAL's classic netCDF

@@ -22,7 +22,8 @@ AOI / time / cloud query one call and returns an ``ItemCollection`` ready for
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from pyramids.base._utils import import_pystac_client
 from pyramids.stac.client import open_client
@@ -103,8 +104,7 @@ def search(
     """
     if bbox is not None and intersects is not None:
         raise ValueError(
-            "bbox and intersects are mutually exclusive (STAC API spec); pass "
-            "only one."
+            "bbox and intersects are mutually exclusive (STAC API spec); pass only one."
         )
 
     import_pystac_client(_STAC_INSTALL_HINT)

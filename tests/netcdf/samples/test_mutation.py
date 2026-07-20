@@ -29,7 +29,9 @@ def test_rename_variable_keeps_data(sample):
     """``rename_variable`` swaps the name while keeping the variable accessible."""
     nc = NetCDF.read_file(sample(MULTI))
     try:
-        target = next(n for n in nc.variable_names if n not in ("time", "latitude", "longitude"))
+        target = next(
+            n for n in nc.variable_names if n not in ("time", "latitude", "longitude")
+        )
         nc.rename_variable(target, "renamed_var")
         assert "renamed_var" in nc.variable_names
         assert target not in nc.variable_names

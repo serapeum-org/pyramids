@@ -27,9 +27,9 @@ class TestReadVariable:
         nc = make_2d_nc()
         result = nc._read_variable("x")
         assert result is not None, "Should read 'x' dimension values"
-        assert isinstance(
-            result, np.ndarray
-        ), f"Expected np.ndarray, got {type(result)}"
+        assert isinstance(result, np.ndarray), (
+            f"Expected np.ndarray, got {type(result)}"
+        )
 
     def test_read_variable_classic_mode(self):
         """Verify _read_variable works in classic mode via subdataset string.
@@ -44,9 +44,9 @@ class TestReadVariable:
         var_names = nc.variable_names
         if var_names:
             result = nc._read_variable(var_names[0])
-            assert (
-                result is not None
-            ), f"Should read variable '{var_names[0]}' in classic mode"
+            assert result is not None, (
+                f"Should read variable '{var_names[0]}' in classic mode"
+            )
 
     def test_read_variable_nonexistent_returns_none(self):
         """Verify _read_variable returns None for nonexistent variables."""
@@ -83,11 +83,13 @@ class TestReadMdArray1D:
         str_dtype = gdal.ExtendedDataType.CreateString()
         rg.CreateMDArray("label_data", [dim], str_dtype)
         nc = Container(src_ds)
-        result_src, result_md, result_rg, _ix, _iy, _yf, _xf = nc._read_md_array("label_data")
+        result_src, result_md, result_rg, _ix, _iy, _yf, _xf = nc._read_md_array(
+            "label_data"
+        )
         # For string type, src should be the md_arr itself (not a Dataset)
-        assert (
-            result_src is result_md
-        ), "For string 1D arrays, src and md_arr should be the same object"
+        assert result_src is result_md, (
+            "For string 1D arrays, src and md_arr should be the same object"
+        )
         assert result_rg is not None, "root group ref should not be None"
 
 
@@ -147,9 +149,9 @@ class TestGetVariableEdgeCases:
         if var_names:
             var = nc.get_variable(var_names[0])
             assert var.is_subset is True, "Variable should be a subset"
-            assert (
-                var._is_md_array is False
-            ), "Classic-mode variable should not be md_array"
+            assert var._is_md_array is False, (
+                "Classic-mode variable should not be md_array"
+            )
 
     def test_get_variable_sets_md_array_dims(self):
         """Verify get_variable populates _md_array_dims.
@@ -158,12 +160,12 @@ class TestGetVariableEdgeCases:
         """
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
-        assert isinstance(
-            var._md_array_dims, list
-        ), f"Expected list, got {type(var._md_array_dims)}"
-        assert (
-            len(var._md_array_dims) == 3
-        ), f"Expected 3 dims, got {len(var._md_array_dims)}"
+        assert isinstance(var._md_array_dims, list), (
+            f"Expected list, got {type(var._md_array_dims)}"
+        )
+        assert len(var._md_array_dims) == 3, (
+            f"Expected 3 dims, got {len(var._md_array_dims)}"
+        )
 
     def test_get_variable_sets_band_dim_info(self):
         """Verify get_variable populates _band_dim_name and _band_dim_values.
@@ -172,15 +174,15 @@ class TestGetVariableEdgeCases:
         """
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
-        assert (
-            var._band_dim_name is not None
-        ), "Expected a band dim name for 3D variable"
-        assert (
-            var._band_dim_values is not None
-        ), "Expected band dim values for 3D variable"
-        assert (
-            len(var._band_dim_values) == 3
-        ), f"Expected 3 band values, got {len(var._band_dim_values)}"
+        assert var._band_dim_name is not None, (
+            "Expected a band dim name for 3D variable"
+        )
+        assert var._band_dim_values is not None, (
+            "Expected band dim values for 3D variable"
+        )
+        assert len(var._band_dim_values) == 3, (
+            f"Expected 3 band values, got {len(var._band_dim_values)}"
+        )
 
     def test_get_variable_2d_has_no_band_dim(self):
         """Verify get_variable sets _band_dim_name=None for 2D variables.
@@ -189,12 +191,12 @@ class TestGetVariableEdgeCases:
         """
         nc = make_2d_nc()
         var = nc.get_variable("elevation")
-        assert (
-            var._band_dim_name is None
-        ), f"Expected None band_dim_name for 2D var, got {var._band_dim_name}"
-        assert (
-            var._band_dim_values is None
-        ), f"Expected None band_dim_values for 2D var, got {var._band_dim_values}"
+        assert var._band_dim_name is None, (
+            f"Expected None band_dim_name for 2D var, got {var._band_dim_name}"
+        )
+        assert var._band_dim_values is None, (
+            f"Expected None band_dim_values for 2D var, got {var._band_dim_values}"
+        )
 
 
 class TestGetVariableBandDimErrors:
@@ -251,9 +253,9 @@ class TestReadVariableFallbackPaths:
         ):
             result = nc._read_variable("x")
         assert result is not None, "Should read 'x' via dimension indexing variable"
-        assert isinstance(
-            result, np.ndarray
-        ), f"Expected np.ndarray, got {type(result)}"
+        assert isinstance(result, np.ndarray), (
+            f"Expected np.ndarray, got {type(result)}"
+        )
 
     def test_read_variable_classic_mode_success(self):
         """Verify _read_variable reads data in classic mode.
@@ -269,9 +271,9 @@ class TestReadVariableFallbackPaths:
         # Try reading lon/lat which exist in the file
         result = nc._read_variable("Band1")
         assert result is not None, "Should read 'Band1' variable in classic mode"
-        assert isinstance(
-            result, np.ndarray
-        ), f"Expected np.ndarray, got {type(result)}"
+        assert isinstance(result, np.ndarray), (
+            f"Expected np.ndarray, got {type(result)}"
+        )
 
 
 class TestGetVariableYFlipAndErrors:
@@ -406,9 +408,9 @@ class TestGetVariableYFlipAndErrors:
         with patch.object(nc, "_read_md_array", side_effect=patched_read_md):
             var = nc.get_variable("temperature")
         # Should have fallen back to range-based values
-        assert (
-            var._band_dim_values is not None
-        ), "band_dim_values should be set (fallback to range)"
+        assert var._band_dim_values is not None, (
+            "band_dim_values should be set (fallback to range)"
+        )
         assert var._band_dim_values == [
             0,
             1,
@@ -436,18 +438,18 @@ class TestGetVariableYFlipAndErrors:
         with patch.object(nc, "_read_md_array", side_effect=patched_read):
             var = nc.get_variable("temperature")
 
-        assert (
-            var._md_array_dims == []
-        ), f"Expected empty md_array_dims, got {var._md_array_dims}"
-        assert (
-            var._band_dim_name is None
-        ), f"Expected None band_dim_name, got {var._band_dim_name}"
-        assert (
-            var._band_dim_values is None
-        ), f"Expected None band_dim_values, got {var._band_dim_values}"
-        assert (
-            var._variable_attrs == {}
-        ), f"Expected empty variable_attrs, got {var._variable_attrs}"
+        assert var._md_array_dims == [], (
+            f"Expected empty md_array_dims, got {var._md_array_dims}"
+        )
+        assert var._band_dim_name is None, (
+            f"Expected None band_dim_name, got {var._band_dim_name}"
+        )
+        assert var._band_dim_values is None, (
+            f"Expected None band_dim_values, got {var._band_dim_values}"
+        )
+        assert var._variable_attrs == {}, (
+            f"Expected empty variable_attrs, got {var._variable_attrs}"
+        )
 
 
 class TestGetVariableNonDataset:
@@ -482,9 +484,9 @@ class TestGetVariableNonDataset:
         rg.CreateMDArray("labels", [str_dim], str_dtype)
 
         nc = Container(src)
-        assert (
-            "labels" in nc.variable_names
-        ), f"'labels' should be a variable, got {nc.variable_names}"
+        assert "labels" in nc.variable_names, (
+            f"'labels' should be a variable, got {nc.variable_names}"
+        )
         var = nc.get_variable("labels")
         # The result should be the MDArray itself (not a Dataset)
         assert var is not None, "Variable should not be None"
@@ -554,12 +556,11 @@ class TestGetVariableMultipleBandDims:
             1.0,
         ], f"time values mismatch: {var._band_dim_values_map.get('time')!r}"
         assert var._band_dim_values_map["ensemble"] == [1.0, 2.0], (
-            f"ensemble values mismatch: "
-            f"{var._band_dim_values_map.get('ensemble')!r}"
+            f"ensemble values mismatch: {var._band_dim_values_map.get('ensemble')!r}"
         )
-        assert (
-            var._band_dim_name == "time"
-        ), f"legacy primary must be 'time', got {var._band_dim_name!r}"
+        assert var._band_dim_name == "time", (
+            f"legacy primary must be 'time', got {var._band_dim_name!r}"
+        )
         assert var._band_dim_values == [
             0.0,
             1.0,
@@ -603,9 +604,9 @@ class TestGetVariableAttrException:
 
         with patch.object(nc, "_read_md_array", side_effect=patched_read):
             var = nc.get_variable("temperature")
-        assert (
-            var._variable_attrs == {}
-        ), f"Expected empty attrs after exception, got {var._variable_attrs}"
+        assert var._variable_attrs == {}, (
+            f"Expected empty attrs after exception, got {var._variable_attrs}"
+        )
 
 
 class TestReadMdArray1DNumeric:

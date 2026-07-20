@@ -29,7 +29,6 @@ def _close_matplotlib_figures():
 
 
 class TestColorTable:
-
     @pytest.mark.plot
     def test_generated_data(self):
         rng = np.random.default_rng(0)

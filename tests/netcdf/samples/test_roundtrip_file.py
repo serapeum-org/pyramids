@@ -78,8 +78,12 @@ def test_roundtrip_preserves_packing(sample_name, sample, tmp_path):
         after = reopened.get_all_metadata().variables
         for name, (scale, offset, dtype) in packed.items():
             info = after[name]
-            assert info.scale == pytest.approx(scale), f"{sample_name}/{name}: scale changed"
-            assert info.offset == pytest.approx(offset), f"{sample_name}/{name}: offset changed"
+            assert info.scale == pytest.approx(scale), (
+                f"{sample_name}/{name}: scale changed"
+            )
+            assert info.offset == pytest.approx(offset), (
+                f"{sample_name}/{name}: offset changed"
+            )
             assert info.dtype == dtype, f"{sample_name}/{name}: dtype changed"
     finally:
         reopened.close()

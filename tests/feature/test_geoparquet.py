@@ -153,3 +153,49 @@ class TestMissingPyarrow:
         small_fc.to_parquet(p)
         with pytest.raises(ImportError, match="pyarrow"):
             FeatureCollection.read_parquet(p)
+
+
+class TestReadParquetUrlRouting:
+    """`read_parquet` hands remote URLs to fsspec verbatim, never GDAL `/vsi*`."""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "s3://bucket/places.parquet",
+            "gs://bucket/places.parquet",
+            "az://container/places.parquet",
+            "https://host/places.parquet",
+            "file:///data/places.parquet",
+        ],
+    )
+    def test_remote_url_reaches_reader_untouched(self, url: str, monkeypatch):
+        """A remote URL is forwarded to gpd.read_parquet raw, never rewritten to /vsi*."""
+        seen: dict = {}
+
+        def fake(path, **kwargs):
+            seen["path"] = path
+            return gpd.GeoDataFrame(
+                {"id": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326"
+            )
+
+        monkeypatch.setattr(gpd, "read_parquet", fake)
+        FeatureCollection.read_parquet(url)
+        assert seen["path"] == url
+        assert "/vsi" not in str(seen["path"])
+
+    def test_local_path_goes_through_parse_path(self, tmp_path: Path, monkeypatch):
+        """A local path is resolved by `_parse_path` (str form), not treated as remote."""
+        seen: dict = {}
+
+        def fake(path, **kwargs):
+            seen["path"] = path
+            return gpd.GeoDataFrame(
+                {"id": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326"
+            )
+
+        monkeypatch.setattr(gpd, "read_parquet", fake)
+        local = tmp_path / "x.parquet"
+        local.write_bytes(b"")
+        FeatureCollection.read_parquet(local)
+        assert seen["path"] == str(local)
+        assert "/vsi" not in str(seen["path"])

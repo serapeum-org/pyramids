@@ -266,9 +266,9 @@ class TestMetadataBuilder:
         assert "temp" in md.variables, "'temp' should be in arrays"
         assert len(md.dimensions) >= 1, "Should have at least one dimension"
         assert md.structural is not None, "Structural info should be populated"
-        assert (
-            "Conventions" in md.global_attributes
-        ), f"Expected 'Conventions' in global attrs, got {md.global_attributes}"
+        assert "Conventions" in md.global_attributes, (
+            f"Expected 'Conventions' in global attrs, got {md.global_attributes}"
+        )
 
     def test_build_without_root_group(self):
         """Verify build falls back to classic metadata when no root group exists.
@@ -297,9 +297,9 @@ class TestMetadataBuilder:
         ds.GetMetadata.side_effect = RuntimeError("fail")
         builder = MetadataBuilder(ds)
         md = builder.build()
-        assert (
-            md.global_attributes == {}
-        ), f"Expected empty global_attributes on failure, got {md.global_attributes}"
+        assert md.global_attributes == {}, (
+            f"Expected empty global_attributes on failure, got {md.global_attributes}"
+        )
 
     def test_build_root_group_get_full_name_failure(self):
         """Verify root_name defaults to '/' when GetFullName raises."""
@@ -309,9 +309,9 @@ class TestMetadataBuilder:
         ds = _mock_dataset(root_group=root)
         builder = MetadataBuilder(ds)
         md = builder.build()
-        assert (
-            md.root_group == "/"
-        ), f"Expected fallback root_group='/', got '{md.root_group}'"
+        assert md.root_group == "/", (
+            f"Expected fallback root_group='/', got '{md.root_group}'"
+        )
 
     def test_open_options_stored(self):
         """Verify open_options are stored in the metadata."""
@@ -320,9 +320,9 @@ class TestMetadataBuilder:
         opts = {"OPEN_SHARED": "YES"}
         builder = MetadataBuilder(ds, open_options=opts)
         md = builder.build()
-        assert (
-            md.open_options_used == opts
-        ), f"Expected {opts}, got {md.open_options_used}"
+        assert md.open_options_used == opts, (
+            f"Expected {opts}, got {md.open_options_used}"
+        )
 
     def test_open_options_none_stays_none(self):
         """Verify open_options_used is None when not provided."""
@@ -330,9 +330,9 @@ class TestMetadataBuilder:
         ds = _mock_dataset(root_group=root)
         builder = MetadataBuilder(ds)
         md = builder.build()
-        assert (
-            md.open_options_used is None
-        ), f"Expected None, got {md.open_options_used}"
+        assert md.open_options_used is None, (
+            f"Expected None, got {md.open_options_used}"
+        )
 
     def test_created_with_contains_gdal(self):
         """Verify created_with includes GDAL library and version."""
@@ -340,12 +340,12 @@ class TestMetadataBuilder:
         ds = _mock_dataset(root_group=root)
         builder = MetadataBuilder(ds)
         md = builder.build()
-        assert (
-            md.created_with.get("library") == "GDAL"
-        ), f"Expected library='GDAL', got {md.created_with}"
-        assert (
-            "version" in md.created_with
-        ), f"Expected 'version' key in created_with, got {md.created_with}"
+        assert md.created_with.get("library") == "GDAL", (
+            f"Expected library='GDAL', got {md.created_with}"
+        )
+        assert "version" in md.created_with, (
+            f"Expected 'version' key in created_with, got {md.created_with}"
+        )
 
 
 class TestDimAttrsTopupFromClassic:
@@ -410,7 +410,9 @@ class TestDimAttrsTopupFromClassic:
 
         assert (
             md.dimensions["valid time"].attrs.get("units") == "seconds since 1970-01-01"
-        ), "classic units must be merged even when the dimension name contains whitespace"
+        ), (
+            "classic units must be merged even when the dimension name contains whitespace"
+        )
 
     def test_existing_units_not_overwritten(self):
         """Multidim already has units; classic must not overwrite it."""
@@ -431,9 +433,9 @@ class TestDimAttrsTopupFromClassic:
 
         md = MetadataBuilder(ds).build()
 
-        assert (
-            md.dimensions["time"].attrs.get("units") == "days since 1979-01-01"
-        ), "multidim units must win over classic units"
+        assert md.dimensions["time"].attrs.get("units") == "days since 1979-01-01", (
+            "multidim units must win over classic units"
+        )
 
     def test_no_classic_fallback_value_leaves_attrs_unchanged(self):
         """Neither path exposes units; attrs stay as-is."""
@@ -449,12 +451,12 @@ class TestDimAttrsTopupFromClassic:
 
         md = MetadataBuilder(ds).build()
 
-        assert (
-            "units" not in md.dimensions["x"].attrs
-        ), "units must remain absent when neither path provides it"
-        assert (
-            md.dimensions["x"].attrs.get("long_name") == "x-axis"
-        ), "pre-existing attrs must be preserved"
+        assert "units" not in md.dimensions["x"].attrs, (
+            "units must remain absent when neither path provides it"
+        )
+        assert md.dimensions["x"].attrs.get("long_name") == "x-axis", (
+            "pre-existing attrs must be preserved"
+        )
 
     def test_classic_metadata_failure_is_safe(self):
         """RuntimeError from GetMetadata() must not break build()."""
@@ -471,9 +473,9 @@ class TestDimAttrsTopupFromClassic:
 
         md = MetadataBuilder(ds).build()
 
-        assert (
-            "units" not in md.dimensions["valid_time"].attrs
-        ), "GetMetadata failure must leave dim attrs untouched"
+        assert "units" not in md.dimensions["valid_time"].attrs, (
+            "GetMetadata failure must leave dim attrs untouched"
+        )
 
 
 class TestReadClassicMetadataForTopup:
@@ -502,9 +504,9 @@ class TestReadClassicMetadataForTopup:
             md = builder._read_classic_metadata_for_topup()
 
         mock_open.assert_not_called()
-        assert md == {
-            "valid_time#units": "seconds since 1970"
-        }, f"expected pass-through of classic md, got {md}"
+        assert md == {"valid_time#units": "seconds since 1970"}, (
+            f"expected pass-through of classic md, got {md}"
+        )
 
     def test_metadata_without_hash_keys_triggers_reopen(self):
         """Non-empty metadata without ``#`` keys still falls through to reopen.
@@ -663,9 +665,9 @@ class TestReadClassicMetadataForTopup:
         with patch("pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds):
             md = builder._read_classic_metadata_for_topup()
 
-        assert md == {
-            "x#units": "m"
-        }, f"expected reopen result after GetMetadata raise, got {md}"
+        assert md == {"x#units": "m"}, (
+            f"expected reopen result after GetMetadata raise, got {md}"
+        )
 
     def test_get_metadata_returns_none_treated_as_empty(self):
         """``GetMetadata`` returning ``None`` is coerced to ``{}`` via ``or {}``.
@@ -684,9 +686,9 @@ class TestReadClassicMetadataForTopup:
         with patch("pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds):
             md = builder._read_classic_metadata_for_topup()
 
-        assert md == {
-            "a#units": "u"
-        }, f"expected reopen result when GetMetadata returns None, got {md}"
+        assert md == {"a#units": "u"}, (
+            f"expected reopen result when GetMetadata returns None, got {md}"
+        )
 
     def test_reopen_get_metadata_returns_none_yields_empty(self):
         """Reopened classic ds returning ``None`` for ``GetMetadata`` -> ``{}``.
@@ -729,9 +731,9 @@ class TestReadClassicMetadataForTopup:
             first = builder._read_classic_metadata_for_topup()
             second = builder._read_classic_metadata_for_topup()
 
-        assert (
-            mock_open.call_count == 1
-        ), f"reopen should run once, ran {mock_open.call_count} times"
+        assert mock_open.call_count == 1, (
+            f"reopen should run once, ran {mock_open.call_count} times"
+        )
         assert first == {"x#units": "m"}, f"first call wrong: {first}"
         assert second is first, (
             "second call should return the cached object, "
@@ -781,9 +783,9 @@ class TestReadClassicMetadataForTopup:
             MetadataBuilder(ds)._read_classic_metadata_for_topup()
             MetadataBuilder(ds)._read_classic_metadata_for_topup()
 
-        assert (
-            mock_open.call_count == 2
-        ), f"each fresh builder should reopen, ran {mock_open.call_count} times"
+        assert mock_open.call_count == 2, (
+            f"each fresh builder should reopen, ran {mock_open.call_count} times"
+        )
 
 
 class TestDimAttrsTopupFromClassicExtras:
@@ -864,9 +866,9 @@ class TestDimAttrsTopupFromClassicExtras:
 
         md = MetadataBuilder(ds).build()
 
-        assert (
-            "units" not in md.dimensions["valid_time"].attrs
-        ), "empty-string classic value must not be merged"
+        assert "units" not in md.dimensions["valid_time"].attrs, (
+            "empty-string classic value must not be merged"
+        )
 
     def test_multiple_dims_mixed_update_and_skip(self):
         """Two dims; one is already complete, one needs the topup.
@@ -888,12 +890,12 @@ class TestDimAttrsTopupFromClassicExtras:
 
         md = MetadataBuilder(ds).build()
 
-        assert (
-            md.dimensions["time"].attrs["units"] == "days since 1900"
-        ), "time multidim units must win over classic"
-        assert (
-            md.dimensions["lat"].attrs["units"] == "degrees_north"
-        ), "lat must receive classic units"
+        assert md.dimensions["time"].attrs["units"] == "days since 1900", (
+            "time multidim units must win over classic"
+        )
+        assert md.dimensions["lat"].attrs["units"] == "degrees_north", (
+            "lat must receive classic units"
+        )
 
     def test_frozen_dataclass_replaced_not_mutated(self):
         """Topup uses ``dataclasses.replace`` — the original instance is intact.
@@ -913,12 +915,12 @@ class TestDimAttrsTopupFromClassicExtras:
         ds.GetMetadata.return_value = {"t#units": "u2"}
         md2 = MetadataBuilder(ds).build()
 
-        assert (
-            captured.attrs["units"] == "u1"
-        ), f"first DimensionInfo was mutated: {captured.attrs}"
-        assert (
-            md2.dimensions["t"].attrs["units"] == "u2"
-        ), f"second build did not see new metadata: {md2.dimensions['t'].attrs}"
+        assert captured.attrs["units"] == "u1", (
+            f"first DimensionInfo was mutated: {captured.attrs}"
+        )
+        assert md2.dimensions["t"].attrs["units"] == "u2", (
+            f"second build did not see new metadata: {md2.dimensions['t'].attrs}"
+        )
 
     def test_topup_skipped_when_classic_metadata_empty(self):
         """Empty classic metadata triggers the early-return branch.
@@ -935,9 +937,9 @@ class TestDimAttrsTopupFromClassicExtras:
         md = MetadataBuilder(ds).build()
 
         attrs = md.dimensions["t"].attrs
-        assert attrs == {
-            "long_name": "T"
-        }, f"empty classic metadata must leave dim attrs untouched, got {attrs}"
+        assert attrs == {"long_name": "T"}, (
+            f"empty classic metadata must leave dim attrs untouched, got {attrs}"
+        )
 
 
 class TestMetadataBuilderTopupIntegration:
@@ -1028,12 +1030,12 @@ class TestMetadataBuilderRealFile:
         md = MetadataBuilder(ds).build()
 
         attrs = md.dimensions["valid_time"].attrs
-        assert (
-            attrs.get("units") == "seconds since 1970-01-01"
-        ), f"e2e topup failed; got attrs={attrs}"
-        assert (
-            attrs.get("calendar") == "proleptic_gregorian"
-        ), f"e2e calendar lost; got attrs={attrs}"
+        assert attrs.get("units") == "seconds since 1970-01-01", (
+            f"e2e topup failed; got attrs={attrs}"
+        )
+        assert attrs.get("calendar") == "proleptic_gregorian", (
+            f"e2e calendar lost; got attrs={attrs}"
+        )
 
 
 class TestGroupTraverserWalk:
@@ -1157,7 +1159,9 @@ class TestGroupTraverserWalk:
             t.walk(root)
 
         # The child should still be traversed with a fallback name /child
-        assert "child" in groups, f"Expected child to be in the traversal, got {list(groups.keys())}"
+        assert "child" in groups, (
+            f"Expected child to be in the traversal, got {list(groups.keys())}"
+        )
 
     def test_child_group_info_fallback_non_root_parent(self):
         """Verify fallback path concatenation for non-root parent uses parent_path/child_name.
@@ -1323,9 +1327,9 @@ class TestGetMetadata:
         mock_ds = _mock_dataset(root_group=_mock_group())
         with patch("pyramids.netcdf.metadata.gdal.OpenEx", return_value=mock_ds):
             md = get_metadata("fake.nc", open_options={"KEY": "VAL"})
-        assert md.open_options_used == {
-            "KEY": "VAL"
-        }, f"Expected open_options to be stored, got {md.open_options_used}"
+        assert md.open_options_used == {"KEY": "VAL"}, (
+            f"Expected open_options to be stored, got {md.open_options_used}"
+        )
 
 
 class TestToDict:
@@ -1347,26 +1351,26 @@ class TestToDict:
         d = to_dict(md)
         group_data = d["groups"]["/"]
         assert isinstance(group_data, dict), "GroupInfo should be converted to dict"
-        assert (
-            group_data["name"] == "root"
-        ), f"Expected group name 'root', got {group_data['name']}"
+        assert group_data["name"] == "root", (
+            f"Expected group name 'root', got {group_data['name']}"
+        )
 
     def test_structural_info_conversion(self):
         """Verify StructuralInfo is converted to a plain dict."""
         md = _make_metadata()
         d = to_dict(md)
         assert isinstance(d["structural"], dict), "structural should be dict"
-        assert (
-            d["structural"]["driver_name"] == "netCDF"
-        ), f"Expected 'netCDF', got {d['structural']['driver_name']}"
+        assert d["structural"]["driver_name"] == "netCDF", (
+            f"Expected 'netCDF', got {d['structural']['driver_name']}"
+        )
 
     def test_none_structural(self):
         """Verify to_dict handles structural=None."""
         md = _make_metadata(structural=None)
         d = to_dict(md)
-        assert (
-            d["structural"] is None
-        ), f"Expected None for structural, got {d['structural']}"
+        assert d["structural"] is None, (
+            f"Expected None for structural, got {d['structural']}"
+        )
 
     def test_empty_metadata(self):
         """Verify to_dict handles metadata with empty collections."""
@@ -1399,9 +1403,9 @@ class TestToJson:
         s = to_json(md)
         parsed = json.loads(s)
         assert isinstance(parsed, dict), "JSON should parse to a dict"
-        assert (
-            parsed["driver"] == "netCDF"
-        ), f"Expected 'netCDF', got {parsed['driver']}"
+        assert parsed["driver"] == "netCDF", (
+            f"Expected 'netCDF', got {parsed['driver']}"
+        )
 
     def test_compact_format(self):
         """Verify to_json uses compact separators (no spaces)."""
@@ -1418,27 +1422,27 @@ class TestFromJson:
         md = _make_metadata()
         s = to_json(md)
         restored = from_json(s)
-        assert (
-            restored.driver == md.driver
-        ), f"Expected driver='{md.driver}', got '{restored.driver}'"
-        assert (
-            restored.root_group == md.root_group
-        ), f"Expected root_group '{md.root_group}', got '{restored.root_group}'"
-        assert set(restored.groups.keys()) == set(
-            md.groups.keys()
-        ), "Groups keys should match after round-trip"
-        assert set(restored.variables.keys()) == set(
-            md.variables.keys()
-        ), "Arrays keys should match after round-trip"
-        assert set(restored.dimensions.keys()) == set(
-            md.dimensions.keys()
-        ), "Dimensions keys should match after round-trip"
-        assert (
-            restored.global_attributes == md.global_attributes
-        ), "Global attributes should match after round-trip"
-        assert (
-            restored.created_with == md.created_with
-        ), "created_with should match after round-trip"
+        assert restored.driver == md.driver, (
+            f"Expected driver='{md.driver}', got '{restored.driver}'"
+        )
+        assert restored.root_group == md.root_group, (
+            f"Expected root_group '{md.root_group}', got '{restored.root_group}'"
+        )
+        assert set(restored.groups.keys()) == set(md.groups.keys()), (
+            "Groups keys should match after round-trip"
+        )
+        assert set(restored.variables.keys()) == set(md.variables.keys()), (
+            "Arrays keys should match after round-trip"
+        )
+        assert set(restored.dimensions.keys()) == set(md.dimensions.keys()), (
+            "Dimensions keys should match after round-trip"
+        )
+        assert restored.global_attributes == md.global_attributes, (
+            "Global attributes should match after round-trip"
+        )
+        assert restored.created_with == md.created_with, (
+            "created_with should match after round-trip"
+        )
 
     def test_round_trip_groups(self):
         """Verify group metadata is preserved through round-trip."""
@@ -1446,15 +1450,15 @@ class TestFromJson:
         restored = from_json(to_json(md))
         orig_group = md.groups["/"]
         rest_group = restored.groups["/"]
-        assert (
-            rest_group.name == orig_group.name
-        ), f"Expected name='{orig_group.name}', got '{rest_group.name}'"
-        assert (
-            rest_group.full_name == orig_group.full_name
-        ), f"Expected full_name '{orig_group.full_name}', got '{rest_group.full_name}'"
-        assert (
-            rest_group.variables == orig_group.variables
-        ), f"Expected arrays {orig_group.variables}, got {rest_group.variables}"
+        assert rest_group.name == orig_group.name, (
+            f"Expected name='{orig_group.name}', got '{rest_group.name}'"
+        )
+        assert rest_group.full_name == orig_group.full_name, (
+            f"Expected full_name '{orig_group.full_name}', got '{rest_group.full_name}'"
+        )
+        assert rest_group.variables == orig_group.variables, (
+            f"Expected arrays {orig_group.variables}, got {rest_group.variables}"
+        )
 
     def test_round_trip_arrays(self):
         """Verify array metadata is preserved through round-trip."""
@@ -1462,18 +1466,18 @@ class TestFromJson:
         restored = from_json(to_json(md))
         orig_arr = md.variables["/temperature"]
         rest_arr = restored.variables["/temperature"]
-        assert (
-            rest_arr.name == orig_arr.name
-        ), f"Expected name '{orig_arr.name}', got '{rest_arr.name}'"
-        assert (
-            rest_arr.dtype == orig_arr.dtype
-        ), f"Expected dtype '{orig_arr.dtype}', got '{rest_arr.dtype}'"
-        assert (
-            rest_arr.shape == orig_arr.shape
-        ), f"Expected shape {orig_arr.shape}, got {rest_arr.shape}"
-        assert (
-            rest_arr.dimensions == orig_arr.dimensions
-        ), f"Expected dimensions {orig_arr.dimensions}, got {rest_arr.dimensions}"
+        assert rest_arr.name == orig_arr.name, (
+            f"Expected name '{orig_arr.name}', got '{rest_arr.name}'"
+        )
+        assert rest_arr.dtype == orig_arr.dtype, (
+            f"Expected dtype '{orig_arr.dtype}', got '{rest_arr.dtype}'"
+        )
+        assert rest_arr.shape == orig_arr.shape, (
+            f"Expected shape {orig_arr.shape}, got {rest_arr.shape}"
+        )
+        assert rest_arr.dimensions == orig_arr.dimensions, (
+            f"Expected dimensions {orig_arr.dimensions}, got {rest_arr.dimensions}"
+        )
 
     def test_round_trip_dimensions(self):
         """Verify dimension metadata is preserved through round-trip."""
@@ -1481,35 +1485,35 @@ class TestFromJson:
         restored = from_json(to_json(md))
         for key, orig_dim in md.dimensions.items():
             rest_dim = restored.dimensions[key]
-            assert (
-                rest_dim.name == orig_dim.name
-            ), f"Expected name='{orig_dim.name}', got '{rest_dim.name}'"
-            assert (
-                rest_dim.size == orig_dim.size
-            ), f"Expected size {orig_dim.size}, got {rest_dim.size}"
-            assert (
-                rest_dim.full_name == orig_dim.full_name
-            ), f"Expected full_name '{orig_dim.full_name}', got '{rest_dim.full_name}'"
+            assert rest_dim.name == orig_dim.name, (
+                f"Expected name='{orig_dim.name}', got '{rest_dim.name}'"
+            )
+            assert rest_dim.size == orig_dim.size, (
+                f"Expected size {orig_dim.size}, got {rest_dim.size}"
+            )
+            assert rest_dim.full_name == orig_dim.full_name, (
+                f"Expected full_name '{orig_dim.full_name}', got '{rest_dim.full_name}'"
+            )
 
     def test_round_trip_structural_info(self):
         """Verify structural info is preserved through round-trip."""
         md = _make_metadata()
         restored = from_json(to_json(md))
         assert restored.structural is not None, "Structural info should not be None"
-        assert (
-            restored.structural.driver_name == md.structural.driver_name
-        ), f"Expected driver_name '{md.structural.driver_name}', got '{restored.structural.driver_name}'"
-        assert (
-            restored.structural.driver_metadata == md.structural.driver_metadata
-        ), "driver_metadata should match after round-trip"
+        assert restored.structural.driver_name == md.structural.driver_name, (
+            f"Expected driver_name '{md.structural.driver_name}', got '{restored.structural.driver_name}'"
+        )
+        assert restored.structural.driver_metadata == md.structural.driver_metadata, (
+            "driver_metadata should match after round-trip"
+        )
 
     def test_round_trip_none_structural(self):
         """Verify None structural info survives round-trip."""
         md = _make_metadata(structural=None)
         restored = from_json(to_json(md))
-        assert (
-            restored.structural is None
-        ), f"Expected None structural, got {restored.structural}"
+        assert restored.structural is None, (
+            f"Expected None structural, got {restored.structural}"
+        )
 
     def test_round_trip_with_all_array_fields(self):
         """Verify all VariableInfo optional fields survive round-trip."""
@@ -1536,14 +1540,14 @@ class TestFromJson:
         assert r.scale == pytest.approx(0.01), f"Expected scale=0.01, got {r.scale}"
         assert r.offset == pytest.approx(0.5), f"Expected offset=0.5, got {r.offset}"
         assert r.nodata == -9999, f"Expected nodata=-9999, got {r.nodata}"
-        assert (
-            r.srs_wkt == 'GEOGCS["WGS 84"]'
-        ), f"Expected WGS 84 WKT, got '{r.srs_wkt}'"
+        assert r.srs_wkt == 'GEOGCS["WGS 84"]', (
+            f"Expected WGS 84 WKT, got '{r.srs_wkt}'"
+        )
         assert r.block_size == [1, 20, 30]
         assert r.coordinate_variables == ["/lat", "/lon"]
-        assert r.structural_info == {
-            "COMPRESS": "DEFLATE"
-        }, f"Expected structural_info with COMPRESS, got {r.structural_info}"
+        assert r.structural_info == {"COMPRESS": "DEFLATE"}, (
+            f"Expected structural_info with COMPRESS, got {r.structural_info}"
+        )
 
     def test_round_trip_with_dimension_attrs(self):
         """Verify dimension attrs survive round-trip."""
@@ -1562,9 +1566,9 @@ class TestFromJson:
         assert r.attrs == dim.attrs, f"Expected {dim.attrs}, got {r.attrs}"
         assert r.type == "TEMPORAL", f"Expected 'TEMPORAL', got '{r.type}'"
         assert r.direction == "NORTH", f"Expected 'NORTH', got '{r.direction}'"
-        assert (
-            r.indexing_variable == "/time_idx"
-        ), f"Expected '/time_idx', got '{r.indexing_variable}'"
+        assert r.indexing_variable == "/time_idx", (
+            f"Expected '/time_idx', got '{r.indexing_variable}'"
+        )
 
     def test_from_json_invalid_json(self):
         """Verify JSONDecodeError for invalid JSON input."""
@@ -1584,17 +1588,17 @@ class TestFromJson:
             }
         )
         md = from_json(s)
-        assert (
-            md.driver == "UNKNOWN"
-        ), f"Expected 'UNKNOWN' for missing driver, got '{md.driver}'"
+        assert md.driver == "UNKNOWN", (
+            f"Expected 'UNKNOWN' for missing driver, got '{md.driver}'"
+        )
 
     def test_from_json_open_options_preserved(self):
         """Verify open_options_used is preserved through round-trip."""
         md = _make_metadata(open_options_used={"KEY": "VAL"})
         restored = from_json(to_json(md))
-        assert restored.open_options_used == {
-            "KEY": "VAL"
-        }, f"Expected {{'KEY': 'VAL'}}, got {restored.open_options_used}"
+        assert restored.open_options_used == {"KEY": "VAL"}, (
+            f"Expected {{'KEY': 'VAL'}}, got {restored.open_options_used}"
+        )
 
     def test_from_json_block_size_none(self):
         """Verify block_size=None survives round-trip (not converted to [])."""
@@ -1608,9 +1612,9 @@ class TestFromJson:
         )
         md = _make_metadata(variables={"v": arr})
         restored = from_json(to_json(md))
-        assert (
-            restored.variables["v"].block_size is None
-        ), f"Expected None block_size, got {restored.variables['v'].block_size}"
+        assert restored.variables["v"].block_size is None, (
+            f"Expected None block_size, got {restored.variables['v'].block_size}"
+        )
 
 
 class TestToDictFromJsonConsistency:
@@ -1621,9 +1625,9 @@ class TestToDictFromJsonConsistency:
         md = _make_metadata()
         d1 = to_dict(md)
         d2 = to_dict(from_json(to_json(md)))
-        assert (
-            d1 == d2
-        ), "to_dict should produce identical output before and after JSON round-trip"
+        assert d1 == d2, (
+            "to_dict should produce identical output before and after JSON round-trip"
+        )
 
 
 class TestFlattenForIndex:
@@ -1637,36 +1641,36 @@ class TestFlattenForIndex:
         assert flat["root_group"] == "/", f"Expected '/', got {flat['root_group']}"
         assert flat["group_count"] == 1, f"Expected 1, got {flat['group_count']}"
         assert flat["variable_count"] == 1, f"Expected 1, got {flat['variable_count']}"
-        assert (
-            flat["dimension_count"] == 3
-        ), f"Expected 3, got {flat['dimension_count']}"
+        assert flat["dimension_count"] == 3, (
+            f"Expected 3, got {flat['dimension_count']}"
+        )
 
     def test_global_attributes_prefixed(self):
         """Verify global attributes are prefixed with 'global.'."""
         md = _make_metadata()
         flat = flatten_for_index(md)
-        assert (
-            flat["global.Conventions"] == "CF-1.6"
-        ), f"Expected 'CF-1.6', got {flat.get('global.Conventions')}"
-        assert (
-            flat["global.history"] == "created"
-        ), f"Expected 'created', got {flat.get('global.history')}"
+        assert flat["global.Conventions"] == "CF-1.6", (
+            f"Expected 'CF-1.6', got {flat.get('global.Conventions')}"
+        )
+        assert flat["global.history"] == "created", (
+            f"Expected 'created', got {flat.get('global.history')}"
+        )
 
     def test_arrays_sorted(self):
         """Verify arrays list is sorted."""
         md = _make_metadata()
         flat = flatten_for_index(md)
-        assert flat["variables"] == [
-            "/temperature"
-        ], f"Expected ['/temperature'], got {flat['variables']}"
+        assert flat["variables"] == ["/temperature"], (
+            f"Expected ['/temperature'], got {flat['variables']}"
+        )
 
     def test_dimensions_sorted(self):
         """Verify dimensions list is sorted."""
         md = _make_metadata()
         flat = flatten_for_index(md)
-        assert flat["dimensions"] == sorted(
-            flat["dimensions"]
-        ), f"Expected sorted dimensions, got {flat['dimensions']}"
+        assert flat["dimensions"] == sorted(flat["dimensions"]), (
+            f"Expected sorted dimensions, got {flat['dimensions']}"
+        )
 
     def test_empty_metadata(self):
         """Verify flatten_for_index handles empty metadata gracefully."""
@@ -1679,9 +1683,9 @@ class TestFlattenForIndex:
         flat = flatten_for_index(md)
         assert flat["group_count"] == 0, f"Expected 0, got {flat['group_count']}"
         assert flat["variable_count"] == 0, f"Expected 0, got {flat['variable_count']}"
-        assert (
-            flat["dimension_count"] == 0
-        ), f"Expected 0, got {flat['dimension_count']}"
+        assert flat["dimension_count"] == 0, (
+            f"Expected 0, got {flat['dimension_count']}"
+        )
         assert flat["variables"] == [], f"Expected [], got {flat['variables']}"
         assert flat["dimensions"] == [], f"Expected [], got {flat['dimensions']}"
 
@@ -1691,9 +1695,9 @@ class TestFlattenForIndex:
         md = _make_metadata(global_attributes=attrs)
         flat = flatten_for_index(md)
         global_keys = [k for k in flat if k.startswith("global.")]
-        assert (
-            len(global_keys) == 20
-        ), f"Expected 20 global keys, got {len(global_keys)}"
+        assert len(global_keys) == 20, (
+            f"Expected 20 global keys, got {len(global_keys)}"
+        )
 
     def test_multiple_arrays_sorted(self):
         """Verify multiple arrays are sorted alphabetically."""

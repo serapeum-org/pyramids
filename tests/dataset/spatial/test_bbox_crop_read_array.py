@@ -122,15 +122,15 @@ class TestDatasetCropBbox:
         fc = FeatureCollection.from_bbox(small_bbox, epsg=dataset.epsg)
         via_mask = dataset.crop(mask=fc)
         via_bbox = dataset.crop(bbox=small_bbox)
-        assert (
-            via_bbox.shape == via_mask.shape
-        ), f"shape differs: bbox={via_bbox.shape}, mask={via_mask.shape}"
-        assert (
-            via_bbox.geotransform == via_mask.geotransform
-        ), "geotransform differs between bbox and mask paths"
-        assert np.array_equal(
-            via_bbox.read_array(), via_mask.read_array()
-        ), "pixel values differ between bbox and mask paths"
+        assert via_bbox.shape == via_mask.shape, (
+            f"shape differs: bbox={via_bbox.shape}, mask={via_mask.shape}"
+        )
+        assert via_bbox.geotransform == via_mask.geotransform, (
+            "geotransform differs between bbox and mask paths"
+        )
+        assert np.array_equal(via_bbox.read_array(), via_mask.read_array()), (
+            "pixel values differ between bbox and mask paths"
+        )
 
     def test_default_epsg_is_dataset_crs(self, dataset, small_bbox):
         """Omitting ``epsg`` is the same as ``epsg=dataset.epsg``.
@@ -145,9 +145,9 @@ class TestDatasetCropBbox:
         """
         a = dataset.crop(bbox=small_bbox)
         b = dataset.crop(bbox=small_bbox, epsg=4326)
-        assert np.array_equal(
-            a.read_array(), b.read_array()
-        ), "default-epsg crop differs from explicit epsg=dataset.epsg"
+        assert np.array_equal(a.read_array(), b.read_array()), (
+            "default-epsg crop differs from explicit epsg=dataset.epsg"
+        )
 
     def test_explicit_epsg_in_dataset_crs(self, dataset, small_bbox):
         """An explicit ``epsg`` that matches the dataset CRS is a no-op vs default.
@@ -178,9 +178,9 @@ class TestDatasetCropBbox:
         bbox_3857 = _bbox_in_3857(small_bbox)
         via_4326 = dataset.crop(bbox=small_bbox)
         via_3857 = dataset.crop(bbox=bbox_3857, epsg=3857)
-        assert (
-            via_3857.shape == via_4326.shape
-        ), f"reprojected crop shape {via_3857.shape} != native {via_4326.shape}"
+        assert via_3857.shape == via_4326.shape, (
+            f"reprojected crop shape {via_3857.shape} != native {via_4326.shape}"
+        )
 
     def test_existing_mask_path_unchanged(self, dataset, small_bbox):
         """Passing a ``GeoDataFrame`` as ``mask`` still works (no regression).
@@ -196,9 +196,9 @@ class TestDatasetCropBbox:
         w, s, e, n = small_bbox
         mask = gpd.GeoDataFrame(geometry=[box(w, s, e, n)], crs=dataset.epsg)
         out = dataset.crop(mask=mask)
-        assert (
-            out.shape == dataset.crop(bbox=small_bbox).shape
-        ), "GeoDataFrame mask path diverged from bbox path"
+        assert out.shape == dataset.crop(bbox=small_bbox).shape, (
+            "GeoDataFrame mask path diverged from bbox path"
+        )
 
     def test_bbox_and_mask_mutually_exclusive(self, dataset, small_bbox):
         """Supplying both ``mask`` and ``bbox`` raises ``ValueError``.
@@ -255,7 +255,10 @@ class TestDatasetCropBbox:
         arr = np.full((10, 10), -9999.0, dtype="float32")
         arr[0:5, 0:5] = 1.0  # valid only in the top-left quadrant
         ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326,
+            arr,
+            top_left_corner=(0.0, 10.0),
+            cell_size=1.0,
+            epsg=4326,
             no_data_value=-9999.0,
         )
         with pytest.raises(ValueError, match="no valid pixels"):
@@ -288,7 +291,9 @@ class TestAntimeridianCrop:
         arr, ds = self._global(top_left_x=0.0)
         strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
         assert strip.shape == (1, 20, 20), "20x20 strip"
-        assert strip.bbox == pytest.approx([170.0, -10.0, 190.0, 10.0]), "170..190 extent"
+        assert strip.bbox == pytest.approx([170.0, -10.0, 190.0, 10.0]), (
+            "170..190 extent"
+        )
         assert np.array_equal(strip.read_array(), arr[80:100, 170:190]), "0..360 values"
 
     def test_multiband_keeps_all_bands(self):
@@ -425,9 +430,9 @@ class TestDatasetReadArrayBbox:
         fc = FeatureCollection.from_bbox(small_bbox, epsg=dataset.epsg)
         via_window = dataset.read_array(window=fc)
         via_bbox = dataset.read_array(bbox=small_bbox)
-        assert np.array_equal(
-            via_bbox, via_window
-        ), "bbox read differs from window=fc read"
+        assert np.array_equal(via_bbox, via_window), (
+            "bbox read differs from window=fc read"
+        )
 
     def test_default_epsg(self, dataset, small_bbox):
         """``read_array(bbox=...)`` defaults ``epsg`` to the dataset's CRS.
@@ -527,9 +532,9 @@ class TestDatasetReadArrayBbox:
         via_window = multiband_dataset.read_array(window=fc)
         via_bbox = multiband_dataset.read_array(bbox=small_bbox)
         assert via_bbox.shape == (3, 2, 2), f"unexpected shape: {via_bbox.shape}"
-        assert np.array_equal(
-            via_bbox, via_window
-        ), "multi-band bbox read differs from window=fc read"
+        assert np.array_equal(via_bbox, via_window), (
+            "multi-band bbox read differs from window=fc read"
+        )
 
     def test_multiband_bbox_matches_per_band_reads_and_dtype(
         self, multiband_dataset, small_bbox
@@ -551,9 +556,9 @@ class TestDatasetReadArrayBbox:
         assert block.dtype == np.dtype("uint16"), f"dtype not preserved: {block.dtype}"
         for b in range(multiband_dataset.band_count):
             per_band = multiband_dataset.read_array(band=b, bbox=small_bbox)
-            assert np.array_equal(
-                block[b], per_band
-            ), f"multi-band block band {b} differs from the single-band bbox read"
+            assert np.array_equal(block[b], per_band), (
+                f"multi-band block band {b} differs from the single-band bbox read"
+            )
 
     def test_multiband_full_read_unchanged(self, multiband_dataset):
         """``read_array()`` with no window still returns every band unchanged.
@@ -570,9 +575,9 @@ class TestDatasetReadArrayBbox:
         assert full.shape == (3, 10, 10), f"unexpected full shape: {full.shape}"
         ramp = np.arange(100, dtype="uint16").reshape(10, 10)
         for b in range(3):
-            assert np.array_equal(
-                full[b], ramp + b * 1000
-            ), f"band {b} full read mismatch"
+            assert np.array_equal(full[b], ramp + b * 1000), (
+                f"band {b} full read mismatch"
+            )
 
 
 class TestDatasetCollectionCropBbox:
@@ -607,9 +612,9 @@ class TestDatasetCollectionCropBbox:
             arrays equal the bbox crop of the original timesteps.
         """
         cc = collection.crop(bbox=small_bbox)
-        assert (
-            cc.time_length == collection.time_length
-        ), f"time_length changed: {collection.time_length} -> {cc.time_length}"
+        assert cc.time_length == collection.time_length, (
+            f"time_length changed: {collection.time_length} -> {cc.time_length}"
+        )
         assert cc.base.shape == (1, 2, 2), f"unexpected template shape: {cc.base.shape}"
         ref0 = collection.iloc(0).crop(bbox=small_bbox).read_array()
         ref1 = collection.iloc(1).crop(bbox=small_bbox).read_array()
@@ -628,9 +633,9 @@ class TestDatasetCollectionCropBbox:
         """
         a = collection.crop(bbox=small_bbox)
         b = collection.crop(bbox=small_bbox, epsg=collection.base.epsg)
-        assert np.array_equal(
-            a[0], b[0]
-        ), "default-epsg collection crop differs from explicit"
+        assert np.array_equal(a[0], b[0]), (
+            "default-epsg collection crop differs from explicit"
+        )
 
     def test_bbox_and_mask_mutually_exclusive(self, collection, small_bbox):
         """Both ``mask`` and ``bbox`` together raises ``ValueError``.

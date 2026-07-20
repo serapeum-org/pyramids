@@ -458,9 +458,13 @@ class TestRasterLazyHandleRelease:
             ds = Dataset.read_file(str(tiled_tif_path))
             lazy = ds.read_array(chunks="auto")
             lazy.compute()
-            assert len(FILE_CACHE) >= 1, "a lazy raster read + compute must park a handle"
+            assert len(FILE_CACHE) >= 1, (
+                "a lazy raster read + compute must park a handle"
+            )
             del lazy
             gc.collect()
-            assert len(FILE_CACHE) == 0, "dropping the lazy array must evict the parked handle"
+            assert len(FILE_CACHE) == 0, (
+                "dropping the lazy array must evict the parked handle"
+            )
         finally:
             FILE_CACHE.clear()

@@ -54,7 +54,9 @@ class TestPureHelpers:
 
     def test_coverage_connection_inserts_path_before_query(self):
         """A query-string endpoint keeps its query; /collections/{cov} lands before it."""
-        conn = _ogc_coverages._coverage_connection("https://h/ogc?api_key=secret", "cov")
+        conn = _ogc_coverages._coverage_connection(
+            "https://h/ogc?api_key=secret", "cov"
+        )
         assert conn == "OGCAPI:https://h/ogc/collections/cov?api_key=secret"
         # the coverage path segment precedes the query string
         assert conn.index("/collections/cov") < conn.index("?api_key=secret")
@@ -77,7 +79,12 @@ class TestPureHelpers:
             _ogc_coverages._resolution_pair(bad)
 
     def test_validate_bbox_ok(self):
-        assert _ogc_coverages._validate_bbox((5.0, 51.0, 6.0, 52.0)) == (5.0, 51.0, 6.0, 52.0)
+        assert _ogc_coverages._validate_bbox((5.0, 51.0, 6.0, 52.0)) == (
+            5.0,
+            51.0,
+            6.0,
+            52.0,
+        )
 
     @pytest.mark.parametrize(
         "bad",
@@ -91,16 +98,26 @@ class TestPureHelpers:
         """A bbox outside the native CRS's area of use projects to inf/nan and is rejected."""
         ortho = osr.SpatialReference()
         # Orthographic sees one hemisphere; the far side (lon ~180 here) projects to inf.
-        ortho.ImportFromProj4("+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs")
+        ortho.ImportFromProj4(
+            "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        )
         with pytest.raises(ValueError, match="finite window"):
-            _ogc_coverages._native_projwin((170.0, -5.0, 179.0, 5.0), "EPSG:4326", ortho)
+            _ogc_coverages._native_projwin(
+                (170.0, -5.0, 179.0, 5.0), "EPSG:4326", ortho
+            )
 
     def test_read_size_from_resolution(self):
         # projWin span is 2.0 x 2.0 native units; 0.01 res -> 200 x 200 px
-        assert _ogc_coverages._read_size([2.0, 5.0, 4.0, 3.0], (0.01, 0.01)) == (200, 200)
+        assert _ogc_coverages._read_size([2.0, 5.0, 4.0, 3.0], (0.01, 0.01)) == (
+            200,
+            200,
+        )
 
     def test_read_size_nonsquare_resolution(self):
-        assert _ogc_coverages._read_size([2.0, 5.0, 4.0, 3.0], (0.01, 0.02)) == (200, 100)
+        assert _ogc_coverages._read_size([2.0, 5.0, 4.0, 3.0], (0.01, 0.02)) == (
+            200,
+            100,
+        )
 
     def test_read_size_default_cap_wide(self):
         # span 4 (x) x 2 (y): longer side x -> width capped at 1024, height halved
@@ -146,19 +163,25 @@ class TestTranslateWindow:
 
         monkeypatch.setattr(_ogc_coverages.gdal, "Translate", boom)
         with pytest.raises(OGCAPIError, match="read failed"):
-            _ogc_coverages._translate_window(object(), [2.0, 5.0, 4.0, 3.0], (8, 8), "cov")
+            _ogc_coverages._translate_window(
+                object(), [2.0, 5.0, 4.0, 3.0], (8, 8), "cov"
+            )
 
     def test_none_raises_ogcapierror(self, monkeypatch):
         monkeypatch.setattr(_ogc_coverages.gdal, "Translate", lambda *a, **k: None)
         with pytest.raises(OGCAPIError, match="no raster"):
-            _ogc_coverages._translate_window(object(), [2.0, 5.0, 4.0, 3.0], (8, 8), "cov")
+            _ogc_coverages._translate_window(
+                object(), [2.0, 5.0, 4.0, 3.0], (8, 8), "cov"
+            )
 
 
 class TestFromOgcCoveragesValidation:
     """Argument / error handling that needs no live driver (monkeypatched)."""
 
     def _patch_collections(self, monkeypatch, ids=("cov",)):
-        monkeypatch.setattr(_ogc_coverages, "_get_collections", lambda *a, **k: frozenset(ids))
+        monkeypatch.setattr(
+            _ogc_coverages, "_get_collections", lambda *a, **k: frozenset(ids)
+        )
 
     def test_bbox_is_required(self):
         with pytest.raises(TypeError):
@@ -182,6 +205,7 @@ class TestFromOgcCoveragesValidation:
 
     def test_bad_bbox_raises_before_network(self, monkeypatch):
         """An inverted bbox is rejected before any /collections or OpenEx call."""
+
         def fail(*a, **k):  # pragma: no cover - must not be reached
             raise AssertionError("network must not be touched")
 
@@ -254,7 +278,8 @@ class TestFromOgcCoveragesValidation:
         srs = osr.SpatialReference()
         srs.ImportFromEPSG(4326)
         monkeypatch.setattr(
-            _ogc_coverages.gdal, "OpenEx",
+            _ogc_coverages.gdal,
+            "OpenEx",
             lambda *a, **k: gdal.GetDriverByName("MEM").Create("", 4, 4, 1),
         )
         seen = {}
@@ -264,13 +289,20 @@ class TestFromOgcCoveragesValidation:
             return srs
 
         monkeypatch.setattr(_ogc_coverages, "_resolve_native_srs", fake_resolve)
-        monkeypatch.setattr(_ogc_coverages, "_native_projwin", lambda *a, **k: [5.0, 52.0, 6.0, 51.0])
         monkeypatch.setattr(
-            _ogc_coverages, "_translate_window",
-            lambda src, projwin, size, coverage: gdal.GetDriverByName("MEM").Create("", size[0], size[1], 1),
+            _ogc_coverages, "_native_projwin", lambda *a, **k: [5.0, 52.0, 6.0, 51.0]
+        )
+        monkeypatch.setattr(
+            _ogc_coverages,
+            "_translate_window",
+            lambda src, projwin, size, coverage: gdal.GetDriverByName("MEM").Create(
+                "", size[0], size[1], 1
+            ),
         )
         Dataset.from_ogc_coverages(
-            "https://h/ogc", coverage="cov", bbox=(5.0, 51.0, 6.0, 52.0),
+            "https://h/ogc",
+            coverage="cov",
+            bbox=(5.0, 51.0, 6.0, 52.0),
             coverage_crs="+proj=igh +datum=WGS84 +units=m +no_defs",
         )
         assert seen["coverage_crs"] == "+proj=igh +datum=WGS84 +units=m +no_defs"
@@ -281,11 +313,14 @@ class TestFromOgcCoveragesValidation:
         srs = osr.SpatialReference()
         srs.ImportFromEPSG(4326)
         monkeypatch.setattr(
-            _ogc_coverages.gdal, "OpenEx",
+            _ogc_coverages.gdal,
+            "OpenEx",
             lambda *a, **k: gdal.GetDriverByName("MEM").Create("", 4, 4, 1),
         )
         monkeypatch.setattr(_ogc_coverages, "_resolve_native_srs", lambda *a, **k: srs)
-        monkeypatch.setattr(_ogc_coverages, "_native_projwin", lambda *a, **k: [5.0, 52.0, 6.0, 51.0])
+        monkeypatch.setattr(
+            _ogc_coverages, "_native_projwin", lambda *a, **k: [5.0, 52.0, 6.0, 51.0]
+        )
         seen = {}
 
         def fake_translate(src, projwin, size, coverage):
@@ -294,7 +329,10 @@ class TestFromOgcCoveragesValidation:
 
         monkeypatch.setattr(_ogc_coverages, "_translate_window", fake_translate)
         Dataset.from_ogc_coverages(
-            "https://h/ogc", coverage="cov", bbox=(5.0, 51.0, 6.0, 52.0), resolution=0.01,
+            "https://h/ogc",
+            coverage="cov",
+            bbox=(5.0, 51.0, 6.0, 52.0),
+            resolution=0.01,
         )
         assert seen["size"] == (100, 100)  # 1° span / 0.01° → 100 px each side
 
@@ -316,7 +354,11 @@ _COLLECTION = {
     },
     "crs": ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"],
     "links": [
-        {"rel": "self", "type": "application/json", "href": "http://HOST/collections/demo"},
+        {
+            "rel": "self",
+            "type": "application/json",
+            "href": "http://HOST/collections/demo",
+        },
         {
             "rel": "http://www.opengis.net/def/rel/ogc/1.0/coverage",
             "type": "image/tiff; application=geotiff",
@@ -335,7 +377,9 @@ _COLLECTION = {
     ],
 }
 _DISCOVERY = {
-    "links": [{"rel": "self", "type": "application/json", "href": "http://HOST/collections"}],
+    "links": [
+        {"rel": "self", "type": "application/json", "href": "http://HOST/collections"}
+    ],
     "collections": [_COLLECTION],
 }
 _DOMAINSET = {
@@ -346,20 +390,38 @@ _DOMAINSET = {
         "axisLabels": ["Lat", "Long"],
         "axis": [
             {
-                "type": "RegularAxis", "axisLabel": "Lat", "lowerBound": _MINY,
-                "upperBound": _MAXY, "resolution": _RES, "uomLabel": "deg",
+                "type": "RegularAxis",
+                "axisLabel": "Lat",
+                "lowerBound": _MINY,
+                "upperBound": _MAXY,
+                "resolution": _RES,
+                "uomLabel": "deg",
             },
             {
-                "type": "RegularAxis", "axisLabel": "Long", "lowerBound": _MINX,
-                "upperBound": _MAXX, "resolution": _RES, "uomLabel": "deg",
+                "type": "RegularAxis",
+                "axisLabel": "Long",
+                "lowerBound": _MINX,
+                "upperBound": _MAXX,
+                "resolution": _RES,
+                "uomLabel": "deg",
             },
         ],
         "gridLimits": {
             "type": "GridLimits",
             "axisLabels": ["i", "j"],
             "axis": [
-                {"type": "IndexAxis", "axisLabel": "i", "lowerBound": 0, "upperBound": _NY - 1},
-                {"type": "IndexAxis", "axisLabel": "j", "lowerBound": 0, "upperBound": _NX - 1},
+                {
+                    "type": "IndexAxis",
+                    "axisLabel": "i",
+                    "lowerBound": 0,
+                    "upperBound": _NY - 1,
+                },
+                {
+                    "type": "IndexAxis",
+                    "axisLabel": "j",
+                    "lowerBound": 0,
+                    "upperBound": _NX - 1,
+                },
             ],
         },
     },
@@ -368,7 +430,9 @@ _RANGETYPE = {
     "type": "DataRecord",
     "field": [
         {
-            "type": "Quantity", "name": "band1", "encodingInfo": {"dataType": "FLOAT32"},
+            "type": "Quantity",
+            "name": "band1",
+            "encodingInfo": {"dataType": "FLOAT32"},
             "definition": "http://www.opengis.net/def/dataType/OGC/0/float32",
         }
     ],
@@ -388,7 +452,9 @@ def _make_geotiff(width, height, minx, miny, maxx, maxy):
     sr.ImportFromEPSG(4326)
     sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     ds.SetProjection(sr.ExportToWkt())
-    ds.SetGeoTransform([minx, (maxx - minx) / width, 0, maxy, 0, -(maxy - miny) / height])
+    ds.SetGeoTransform(
+        [minx, (maxx - minx) / width, 0, maxy, 0, -(maxy - miny) / height]
+    )
     yy, xx = np.mgrid[0:height, 0:width]
     ds.GetRasterBand(1).WriteArray((xx + yy).astype(np.float32) + 100.0)
     ds.FlushCache()
@@ -531,7 +597,9 @@ class TestLiveOgcCoverages:
     ENDPOINT = "https://maps.gnosis.earth/ogcapi"
 
     def test_live_read(self):
-        coverage = os.environ.get("PYRAMIDS_OGC_COVERAGES_NAME", "SRTM_ViewFinderPanorama")
+        coverage = os.environ.get(
+            "PYRAMIDS_OGC_COVERAGES_NAME", "SRTM_ViewFinderPanorama"
+        )
         ds = Dataset.from_ogc_coverages(
             self.ENDPOINT, coverage=coverage, bbox=(5.0, 51.0, 6.0, 52.0)
         )

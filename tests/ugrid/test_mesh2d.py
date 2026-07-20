@@ -134,8 +134,12 @@ class TestMesh2dFaceCentroids:
             face_y=face_y,
         )
         cx, cy = mesh.face_centroids
-        assert cx[0] == pytest.approx(99.0), f"Expected provided face_x=99.0, got {cx[0]}"
-        assert cy[0] == pytest.approx(99.0), f"Expected provided face_y=99.0, got {cy[0]}"
+        assert cx[0] == pytest.approx(99.0), (
+            f"Expected provided face_x=99.0, got {cx[0]}"
+        )
+        assert cy[0] == pytest.approx(99.0), (
+            f"Expected provided face_y=99.0, got {cy[0]}"
+        )
 
     def test_centroids_cached(self, triangle_mesh):
         """Test that centroids are cached after first computation.
@@ -283,9 +287,9 @@ class TestMesh2dBuildConnectivity:
         enc = triangle_mesh.edge_node_connectivity
         assert enc is not None, "Edge connectivity should be built"
         assert enc.n_elements > 0, "Should have at least 1 edge"
-        assert (
-            enc.max_nodes_per_element == 2
-        ), f"Edges should have 2 nodes, got {enc.max_nodes_per_element}"
+        assert enc.max_nodes_per_element == 2, (
+            f"Edges should have 2 nodes, got {enc.max_nodes_per_element}"
+        )
 
     def test_build_face_face_connectivity(self, triangle_mesh):
         """Test building face-face neighbor connectivity.

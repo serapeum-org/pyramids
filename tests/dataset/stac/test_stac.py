@@ -88,9 +88,9 @@ class TestFromStac:
         collection = DatasetCollection.from_stac(stac_items, asset="data")
         left = [Path(p).resolve() for p in collection.files]
         right = [Path(p).resolve() for p in three_tifs]
-        assert (
-            left == right
-        ), f"files mismatch (normalised): got {left}, expected {right}"
+        assert left == right, (
+            f"files mismatch (normalised): got {left}, expected {right}"
+        )
 
     @pytest.mark.lazy
     def test_lazy_data_computes(self, stac_items):
@@ -146,9 +146,9 @@ class TestFromStacSigner:
         signer = _RecordingSigner()
         coll = DatasetCollection.from_stac(stac_items, asset="data", signer=signer)
         assert coll.time_length == 3, f"expected 3 timesteps, got {coll.time_length}"
-        assert (
-            signer.seen == three_tifs
-        ), f"sign_href should see each href once, got {signer.seen}"
+        assert signer.seen == three_tifs, (
+            f"sign_href should see each href once, got {signer.seen}"
+        )
 
     def test_gdal_env_captured_on_collection(self, stac_items):
         """The signer's gdal_env() is persisted on the returned collection.
@@ -159,9 +159,9 @@ class TestFromStacSigner:
         """
         signer = _RecordingSigner(env={"GDAL_HTTP_TIMEOUT": "30"})
         coll = DatasetCollection.from_stac(stac_items, asset="data", signer=signer)
-        assert coll._gdal_env == {
-            "GDAL_HTTP_TIMEOUT": "30"
-        }, f"signer env not captured: {coll._gdal_env}"
+        assert coll._gdal_env == {"GDAL_HTTP_TIMEOUT": "30"}, (
+            f"signer env not captured: {coll._gdal_env}"
+        )
 
     def test_no_signer_empty_gdal_env(self, stac_items):
         """Without a signer the collection captures no GDAL config.
@@ -200,12 +200,12 @@ class TestFromStacSigner:
         DatasetCollection.from_stac(
             stac_items, asset="data", patch_url=lambda h: f"{h}?p", signer=signer
         )
-        assert all(
-            f.endswith("?p?s") for f in captured["files"]
-        ), f"patch_url should run before signer: {captured['files']}"
-        assert captured["gdal_env"] == {
-            "AWS_REQUEST_PAYER": "requester"
-        }, f"signer env not forwarded to from_files: {captured['gdal_env']}"
+        assert all(f.endswith("?p?s") for f in captured["files"]), (
+            f"patch_url should run before signer: {captured['files']}"
+        )
+        assert captured["gdal_env"] == {"AWS_REQUEST_PAYER": "requester"}, (
+            f"signer env not forwarded to from_files: {captured['gdal_env']}"
+        )
 
     def test_from_files_gdal_env_persisted(self, three_tifs):
         """from_files(gdal_env=...) persists the mapping on the collection.
@@ -216,9 +216,9 @@ class TestFromStacSigner:
         coll = DatasetCollection.from_files(
             three_tifs, gdal_env={"GDAL_HTTP_TIMEOUT": "15"}
         )
-        assert coll._gdal_env == {
-            "GDAL_HTTP_TIMEOUT": "15"
-        }, f"env not persisted: {coll._gdal_env}"
+        assert coll._gdal_env == {"GDAL_HTTP_TIMEOUT": "15"}, (
+            f"env not persisted: {coll._gdal_env}"
+        )
 
 
 class TestCollectionGdalEnvLazyReads:
@@ -246,9 +246,9 @@ class TestCollectionGdalEnvLazyReads:
             three_tifs, gdal_env={"PYRAMIDS_TEST_KEY": "on"}
         )
         _ = coll.datasets
-        assert seen and all(
-            v == "on" for v in seen
-        ), f"env not active for every open: {seen}"
+        assert seen and all(v == "on" for v in seen), (
+            f"env not active for every open: {seen}"
+        )
 
     def test_path_a_no_env_leaves_option_unset(self, three_tifs, monkeypatch):
         """Path A: without a persisted env the sentinel option stays unset.
@@ -269,9 +269,9 @@ class TestCollectionGdalEnvLazyReads:
         monkeypatch.setattr(coll_mod.Dataset, "read_file", staticmethod(spy))
         coll = DatasetCollection.from_files(three_tifs)
         _ = coll.datasets
-        assert seen and all(
-            v is None for v in seen
-        ), f"unexpected env without signer: {seen}"
+        assert seen and all(v is None for v in seen), (
+            f"unexpected env without signer: {seen}"
+        )
 
     def test_path_b_read_time_step_installs_env(self, three_tifs, monkeypatch):
         """Path B: `_read_time_step` installs the env around the worker open.
@@ -302,9 +302,9 @@ class TestCollectionGdalEnvLazyReads:
         from pyramids.dataset.collection import _read_time_step
 
         arr = _read_time_step(three_tifs[0])
-        assert (
-            arr.shape[0] == 1
-        ), f"single-band read should be (1, R, C), got {arr.shape}"
+        assert arr.shape[0] == 1, (
+            f"single-band read should be (1, R, C), got {arr.shape}"
+        )
 
     def test_gdal_env_survives_pickle(self, three_tifs):
         """H4: the persisted env survives pickling (so it reaches dask workers).
@@ -319,9 +319,9 @@ class TestCollectionGdalEnvLazyReads:
             three_tifs, gdal_env={"AWS_REQUEST_PAYER": "requester"}
         )
         restored = pickle.loads(pickle.dumps(coll))
-        assert restored._gdal_env == {
-            "AWS_REQUEST_PAYER": "requester"
-        }, f"env lost across pickle: {restored._gdal_env}"
+        assert restored._gdal_env == {"AWS_REQUEST_PAYER": "requester"}, (
+            f"env lost across pickle: {restored._gdal_env}"
+        )
 
 
 class TestBboxAndMaxItems:
@@ -416,9 +416,9 @@ class TestHorizontalBounds:
         """
         result = _horizontal_bounds([0, 0, 10, 10])
         assert result == (0.0, 0.0, 10.0, 10.0)
-        assert all(
-            isinstance(v, float) for v in result
-        ), f"members not floats: {result}"
+        assert all(isinstance(v, float) for v in result), (
+            f"members not floats: {result}"
+        )
 
     @pytest.mark.parametrize(
         "bad", [[1, 2, 3], [1, 2, 3, 4, 5], [1, 2, 3, 4, 5, 6, 7], []]
@@ -551,9 +551,9 @@ class TestValidateLonLatBbox:
         coll = DatasetCollection.from_stac(
             items, asset="data", bbox=(0.0, 0.0, 0.5, 0.5)
         )
-        assert (
-            coll.time_length == 3
-        ), f"all 3 overlapping 3D-bbox items should pass, got {coll.time_length}"
+        assert coll.time_length == 3, (
+            f"all 3 overlapping 3D-bbox items should pass, got {coll.time_length}"
+        )
 
 
 @pytest.fixture
@@ -619,11 +619,15 @@ class TestFromStacMultiAsset:
         )
         arr = coll.datasets[0].read_array()
         assert arr.shape[0] == 3, f"expected 3 bands, got {arr.shape}"
-        assert float(arr[0, 0, 0]) == pytest.approx(1.0), f"band1 should be red=1, got {arr[0, 0, 0]}"
-        assert (
-            float(arr[1, 0, 0]) == pytest.approx(2.0)
-        ), f"band2 should be green=2, got {arr[1, 0, 0]}"
-        assert float(arr[2, 0, 0]) == pytest.approx(3.0), f"band3 should be blue=3, got {arr[2, 0, 0]}"
+        assert float(arr[0, 0, 0]) == pytest.approx(1.0), (
+            f"band1 should be red=1, got {arr[0, 0, 0]}"
+        )
+        assert float(arr[1, 0, 0]) == pytest.approx(2.0), (
+            f"band2 should be green=2, got {arr[1, 0, 0]}"
+        )
+        assert float(arr[2, 0, 0]) == pytest.approx(3.0), (
+            f"band3 should be blue=3, got {arr[2, 0, 0]}"
+        )
 
     def test_band_order_follows_asset_sequence(self, multi_asset_items):
         """Reordering the asset list reorders the output bands.
@@ -635,10 +639,9 @@ class TestFromStacMultiAsset:
         first = coll.datasets[0]
         assert first.band_names == ["blue", "red"], f"band names: {first.band_names}"
         arr = first.read_array()
-        assert (
-            float(arr[0, 0, 0]) == pytest.approx(3.0)
-            and float(arr[1, 0, 0]) == pytest.approx(1.0)
-        ), f"order wrong: {arr[:, 0, 0]}"
+        assert float(arr[0, 0, 0]) == pytest.approx(3.0) and float(
+            arr[1, 0, 0]
+        ) == pytest.approx(1.0), f"order wrong: {arr[:, 0, 0]}"
 
     def test_single_asset_str_is_single_band(self, multi_asset_items):
         """A plain str keeps the single-asset (single-band) behaviour.
@@ -671,9 +674,9 @@ class TestFromStacMultiAsset:
         coll = DatasetCollection.from_stac(
             multi_asset_items, asset=["red", "blue"], skip_missing=True
         )
-        assert (
-            coll.time_length == 1
-        ), f"expected 1 surviving item, got {coll.time_length}"
+        assert coll.time_length == 1, (
+            f"expected 1 surviving item, got {coll.time_length}"
+        )
 
     def test_skip_missing_all_gone_raises(self, multi_asset_items):
         """When every item is skipped, a clear ValueError is raised.
@@ -817,9 +820,9 @@ class TestFromStacSolarDay:
         coll = DatasetCollection.from_stac(
             solar_day_items, asset="data", groupby="solar_day"
         )
-        assert (
-            coll.time_length == 2
-        ), f"expected 2 solar-day timesteps, got {coll.time_length}"
+        assert coll.time_length == 2, (
+            f"expected 2 solar-day timesteps, got {coll.time_length}"
+        )
 
     def test_chronological_order(self, solar_day_items):
         """The per-day mosaics are stacked in chronological order.
@@ -832,10 +835,12 @@ class TestFromStacSolarDay:
         )
         first = coll.datasets[0].read_array()
         last = coll.datasets[1].read_array()
-        assert (
-            float(first[0, 0]) == pytest.approx(10.0)
-        ), f"first day should be first-valid 10, got {first[0, 0]}"
-        assert float(last[0, 0]) == pytest.approx(12.0), f"second day should be 12, got {last[0, 0]}"
+        assert float(first[0, 0]) == pytest.approx(10.0), (
+            f"first day should be first-valid 10, got {first[0, 0]}"
+        )
+        assert float(last[0, 0]) == pytest.approx(12.0), (
+            f"second day should be 12, got {last[0, 0]}"
+        )
 
     def test_invalid_groupby_raises(self, solar_day_items):
         """An unsupported groupby value raises ValueError.
@@ -909,7 +914,9 @@ class TestAntimeridian:
         Test scenario:
             [170, -170] -> centroid ~180 (not the wrong ~0 from a naive mean).
         """
-        assert _item_centroid_lon({"bbox": [170.0, 0.0, -170.0, 5.0]}) == pytest.approx(180.0)
+        assert _item_centroid_lon({"bbox": [170.0, 0.0, -170.0, 5.0]}) == pytest.approx(
+            180.0
+        )
 
     def test_centroid_lon_normalised_past_dateline(self):
         """An asymmetric wrapping box normalises its centroid into [-180, 180].

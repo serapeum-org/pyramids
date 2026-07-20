@@ -136,7 +136,9 @@ class TestLabeledDatasetRead:
         """
         path = tmp_path / "v3.zarr"
         _streamflow_dataset().to_zarr(path, mode="w", zarr_format=3)
-        real_readable_arrays = LabeledDataset._readable_arrays  # @staticmethod -> plain fn
+        real_readable_arrays = (
+            LabeledDataset._readable_arrays
+        )  # @staticmethod -> plain fn
 
         def _force_skip_gage_id(grp):
             readable, skipped = real_readable_arrays(grp)

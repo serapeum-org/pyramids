@@ -96,8 +96,12 @@ class TestMeshToGridNearest:
         """
         mesh, data = grid_mesh
         grid, _ = mesh_to_grid(mesh, data, "face", cell_size=1.0)
-        assert grid[1, 0] == pytest.approx(10.0), f"Expected 10.0 at face 0 region, got {grid[1, 0]}"
-        assert grid[1, 1] == pytest.approx(20.0), f"Expected 20.0 at face 1 region, got {grid[1, 1]}"
+        assert grid[1, 0] == pytest.approx(10.0), (
+            f"Expected 10.0 at face 0 region, got {grid[1, 0]}"
+        )
+        assert grid[1, 1] == pytest.approx(20.0), (
+            f"Expected 20.0 at face 1 region, got {grid[1, 1]}"
+        )
 
     def test_nodata_outside_mesh(self, grid_mesh):
         """Test nodata for cells far from mesh.
@@ -217,9 +221,9 @@ class TestToDataset:
         """
         ds = UgridDataset.read_file(ugrid_convention_nc_path)
         raster = ds.to_dataset("mesh2d_node_z", cell_size=500.0)
-        assert (
-            abs(raster.cell_size - 500.0) < 1e-6
-        ), f"Expected cell_size 500, got {raster.cell_size}"
+        assert abs(raster.cell_size - 500.0) < 1e-6, (
+            f"Expected cell_size 500, got {raster.cell_size}"
+        )
 
     def test_to_dataset_linear(self, ugrid_convention_nc_path):
         """Test to_dataset with linear interpolation.

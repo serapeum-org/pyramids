@@ -58,6 +58,6 @@ class TestValidateOverviewDetails:
             The count and the list length agree.
         """
         report = validate(big_cog)
-        assert report.details["overview_count"] == len(
-            report.details["overviews"]
-        ), "overview_count must match the overviews list length"
+        assert report.details["overview_count"] == len(report.details["overviews"]), (
+            "overview_count must match the overviews list length"
+        )

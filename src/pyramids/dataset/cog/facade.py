@@ -355,7 +355,6 @@ def write_cog(
         report = _validate_file(output_path, strict=strict)
         if not report.is_valid:
             raise RuntimeError(
-                f"write_cog produced an invalid COG at {output_path}: "
-                f"{report.errors}"
+                f"write_cog produced an invalid COG at {output_path}: {report.errors}"
             )
     return output_path, report

@@ -15,7 +15,7 @@ branch, so minimal installs never evaluate this file.
 from __future__ import annotations
 
 import functools
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import dask_geopandas
 import geopandas
@@ -45,7 +45,7 @@ def _rebuild_lazy_fc(parent_reduce: tuple) -> LazyFeatureCollection:
         else:
             instance.__dict__.update(state)
     instance.__class__ = LazyFeatureCollection
-    return instance
+    return cast("LazyFeatureCollection", instance)
 
 
 class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
@@ -162,7 +162,7 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
         """
         result = dask_gdf.copy()
         result.__class__ = cls
-        return result
+        return cast("LazyFeatureCollection", result)
 
     # Deprecated alias kept for one release cycle. Old callsites
     # (readers inside collection.py, tests) can transition at their own

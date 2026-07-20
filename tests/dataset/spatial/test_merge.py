@@ -104,9 +104,9 @@ class TestMergeMethod:
         merge_rasters([pa, pb], out, no_data_value=-9999.0, method=method)
         arr = Dataset.read_file(str(out)).read_array()
         assert arr.shape == (4, 6), f"Expected union shape (4, 6), got {arr.shape}"
-        assert (
-            arr[0, 2] == expected_overlap and arr[0, 3] == expected_overlap
-        ), f"{method} overlap should be {expected_overlap}, got {arr[0, 2]} / {arr[0, 3]}"
+        assert arr[0, 2] == expected_overlap and arr[0, 3] == expected_overlap, (
+            f"{method} overlap should be {expected_overlap}, got {arr[0, 2]} / {arr[0, 3]}"
+        )
         assert arr[0, 0] == pytest.approx(10.0), f"A-only column changed: {arr[0, 0]}"
         assert arr[0, 5] == pytest.approx(20.0), f"B-only column changed: {arr[0, 5]}"
 
@@ -120,9 +120,9 @@ class TestMergeMethod:
         out = tmp_path / "default.tif"
         merge_rasters([pa, pb], out, no_data_value=-9999.0)
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 2] == pytest.approx(
-            20.0
-        ), f"Default should be last-wins (20), got {arr[0, 2]}"
+        assert arr[0, 2] == pytest.approx(20.0), (
+            f"Default should be last-wins (20), got {arr[0, 2]}"
+        )
 
     def test_reduce_fills_uncovered_with_nodata(self, tmp_path):
         """Reduction methods write nodata where no source covers a pixel.
@@ -139,16 +139,18 @@ class TestMergeMethod:
         out = tmp_path / "gappy.tif"
         merge_rasters([pa, pb], out, no_data_value=-1.0, method="sum")
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 0] == pytest.approx(5.0), f"Top-left should be A=5, got {arr[0, 0]}"
-        assert arr[3, 3] == pytest.approx(
-            7.0
-        ), f"Bottom-right should be B=7, got {arr[3, 3]}"
-        assert (
-            arr[0, 3] == -1.0
-        ), f"Uncovered top-right should be nodata -1, got {arr[0, 3]}"
-        assert (
-            arr[3, 0] == -1.0
-        ), f"Uncovered bottom-left should be nodata -1, got {arr[3, 0]}"
+        assert arr[0, 0] == pytest.approx(5.0), (
+            f"Top-left should be A=5, got {arr[0, 0]}"
+        )
+        assert arr[3, 3] == pytest.approx(7.0), (
+            f"Bottom-right should be B=7, got {arr[3, 3]}"
+        )
+        assert arr[0, 3] == -1.0, (
+            f"Uncovered top-right should be nodata -1, got {arr[0, 3]}"
+        )
+        assert arr[3, 0] == -1.0, (
+            f"Uncovered bottom-left should be nodata -1, got {arr[3, 0]}"
+        )
 
     def test_reduce_multiband(self, tmp_path):
         """Reduction operates per band on multi-band sources.
@@ -164,12 +166,12 @@ class TestMergeMethod:
         out = tmp_path / "mmax.tif"
         merge_rasters([pa, pb], out, no_data_value=-9999.0, method="max")
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 1, 1] == pytest.approx(
-            4.0
-        ), f"Band 0 max should be 4, got {arr[0, 1, 1]}"
-        assert arr[1, 1, 1] == pytest.approx(
-            8.0
-        ), f"Band 1 max should be 8, got {arr[1, 1, 1]}"
+        assert arr[0, 1, 1] == pytest.approx(4.0), (
+            f"Band 0 max should be 4, got {arr[0, 1, 1]}"
+        )
+        assert arr[1, 1, 1] == pytest.approx(8.0), (
+            f"Band 1 max should be 8, got {arr[1, 1, 1]}"
+        )
 
     def test_n_ignores_source_value_in_reduction(self, tmp_path):
         """The n knob makes a source pixel value count as no-data in reduction.
@@ -185,12 +187,12 @@ class TestMergeMethod:
         out = tmp_path / "n_min.tif"
         merge_rasters([pa, pb], out, no_data_value=-1.0, n=20, method="min")
         arr = Dataset.read_file(str(out)).read_array()
-        assert (
-            arr[0, 2] == pytest.approx(10.0)
-        ), f"Overlap min ignoring 20 should be 10, got {arr[0, 2]}"
-        assert (
-            arr[0, 5] == -1.0
-        ), f"B-only column was all-ignored -> nodata, got {arr[0, 5]}"
+        assert arr[0, 2] == pytest.approx(10.0), (
+            f"Overlap min ignoring 20 should be 10, got {arr[0, 2]}"
+        )
+        assert arr[0, 5] == -1.0, (
+            f"B-only column was all-ignored -> nodata, got {arr[0, 5]}"
+        )
 
     def test_invalid_method_raises(self, overlapping_pair, tmp_path):
         """An unknown method raises ValueError.
@@ -266,12 +268,12 @@ class TestMergeRastersInputContracts:
         ds = Dataset.read_file(str(out))
         arr = ds.read_array()
         assert arr.shape == (4, 12), f"Expected union shape (4, 12), got {arr.shape}"
-        assert arr[0, 5] == pytest.approx(
-            -1
-        ), f"Uncovered pixel should hold init=-1, got {arr[0, 5]}"
-        assert ds.no_data_value[0] == pytest.approx(
-            -1.0
-        ), f"Output nodata should be -1.0, got {ds.no_data_value[0]}"
+        assert arr[0, 5] == pytest.approx(-1), (
+            f"Uncovered pixel should hold init=-1, got {arr[0, 5]}"
+        )
+        assert ds.no_data_value[0] == pytest.approx(-1.0), (
+            f"Output nodata should be -1.0, got {ds.no_data_value[0]}"
+        )
 
     def test_zorder_preserves_source_dtype(self, disjoint_pair, tmp_path):
         """The z-order path keeps the sources' integer dtype.
@@ -311,12 +313,12 @@ class TestMergeRastersInputContracts:
         out = tmp_path / "n_zorder.tif"
         merge_rasters([pa, pb], out, no_data_value=-1.0, init=-1.0, n=20, method="last")
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 2] == pytest.approx(
-            10.0
-        ), f"Overlap should fall back to A=10, got {arr[0, 2]}"
-        assert arr[0, 5] == pytest.approx(
-            -1.0
-        ), f"B-only column should be init=-1, got {arr[0, 5]}"
+        assert arr[0, 2] == pytest.approx(10.0), (
+            f"Overlap should fall back to A=10, got {arr[0, 2]}"
+        )
+        assert arr[0, 5] == pytest.approx(-1.0), (
+            f"B-only column should be init=-1, got {arr[0, 5]}"
+        )
         assert arr[0, 0] == pytest.approx(10.0), f"A-only column changed: {arr[0, 0]}"
 
     def test_path_object_inputs(self, disjoint_pair, tmp_path):
@@ -331,9 +333,9 @@ class TestMergeRastersInputContracts:
         merge_rasters([Path(pa), Path(pb)], Path(out), no_data_value=-1.0, init=-1.0)
         arr = Dataset.read_file(str(out)).read_array()
         assert arr.shape == (4, 12), f"Expected union shape (4, 12), got {arr.shape}"
-        assert arr[0, 0] == pytest.approx(10) and arr[0, 11] == pytest.approx(
-            20
-        ), f"Tile values lost: left={arr[0, 0]}, right={arr[0, 11]}"
+        assert arr[0, 0] == pytest.approx(10) and arr[0, 11] == pytest.approx(20), (
+            f"Tile values lost: left={arr[0, 0]}, right={arr[0, 11]}"
+        )
 
 
 class TestDatasetCollectionMergeMethod:
@@ -355,9 +357,9 @@ class TestDatasetCollectionMergeMethod:
         out = tmp_path / "coll_sum.tif"
         collection.merge(out, no_data_value=-9999.0, method="sum")
         arr = Dataset.read_file(str(out)).read_array()
-        assert (
-            arr[0, 2] == pytest.approx(30.0)
-        ), f"Collection sum overlap should be 30, got {arr[0, 2]}"
+        assert arr[0, 2] == pytest.approx(30.0), (
+            f"Collection sum overlap should be 30, got {arr[0, 2]}"
+        )
 
 
 @pytest.fixture(scope="function")
@@ -435,9 +437,9 @@ class TestMergeRastersDstCrs:
         result = Dataset.read_file(str(out))
         arr = result.read_array()
         assert result.epsg == 4326, f"Expected output EPSG 4326, got {result.epsg}"
-        assert arr[0, 2] == pytest.approx(
-            20.0
-        ), f"Last-wins overlap should be 20, got {arr[0, 2]}"
+        assert arr[0, 2] == pytest.approx(20.0), (
+            f"Last-wins overlap should be 20, got {arr[0, 2]}"
+        )
 
     def test_disagree_reprojects_onto_first_source_crs(self, disagree_pair, tmp_path):
         """Mismatched CRSs with ``dst_crs=None`` reproject onto the first source.
@@ -450,9 +452,9 @@ class TestMergeRastersDstCrs:
         out = tmp_path / "disagree.tif"
         merge_rasters([pa, pb], out, no_data_value=-9999.0)
         result = Dataset.read_file(str(out))
-        assert (
-            result.epsg == 4326
-        ), f"Disagreeing sources should mosaic in the first source CRS 4326, got {result.epsg}"
+        assert result.epsg == 4326, (
+            f"Disagreeing sources should mosaic in the first source CRS 4326, got {result.epsg}"
+        )
 
     @pytest.mark.parametrize("method", ["last", "first", "min", "max", "sum"])
     def test_dst_crs_with_each_method(self, shared_crs_pair, tmp_path, method):
@@ -511,9 +513,9 @@ class TestMergeRastersDstCrs:
         merge_rasters(
             [pa, pb], out, dst_crs=3857, resampling=resampling, no_data_value=-9999.0
         )
-        assert (
-            Dataset.read_file(str(out)).epsg == 3857
-        ), f"{resampling} did not reproject"
+        assert Dataset.read_file(str(out)).epsg == 3857, (
+            f"{resampling} did not reproject"
+        )
 
     def test_warp_failure_raises(self, shared_crs_pair, tmp_path, monkeypatch):
         """A None from gdal.Warp during reproject raises RuntimeError.
@@ -559,12 +561,12 @@ class TestPrepareSources:
         pa, pb = shared_crs_pair
         sources, keepalive = _prepare_sources([pa, pb], None)
         assert len(sources) == 2, f"Expected two sources, got {len(sources)}"
-        assert all(
-            isinstance(s, gdal.Dataset) for s in sources
-        ), f"Cheap path should reuse open datasets, got {[type(s) for s in sources]}"
-        assert (
-            sources is keepalive
-        ), "sources and keepalive should be the same held handles"
+        assert all(isinstance(s, gdal.Dataset) for s in sources), (
+            f"Cheap path should reuse open datasets, got {[type(s) for s in sources]}"
+        )
+        assert sources is keepalive, (
+            "sources and keepalive should be the same held handles"
+        )
 
     def test_dst_crs_materialises_all_as_datasets(self, shared_crs_pair):
         """An explicit ``dst_crs`` materialises every source as a dataset.
@@ -575,12 +577,12 @@ class TestPrepareSources:
         """
         pa, pb = shared_crs_pair
         sources, keepalive = _prepare_sources([pa, pb], 3857)
-        assert all(
-            isinstance(s, gdal.Dataset) for s in sources
-        ), f"All sources should be gdal.Dataset, got {[type(s) for s in sources]}"
-        assert len(keepalive) == len(
-            sources
-        ), f"Keepalive should hold every dataset, got {len(keepalive)} vs {len(sources)}"
+        assert all(isinstance(s, gdal.Dataset) for s in sources), (
+            f"All sources should be gdal.Dataset, got {[type(s) for s in sources]}"
+        )
+        assert len(keepalive) == len(sources), (
+            f"Keepalive should hold every dataset, got {len(keepalive)} vs {len(sources)}"
+        )
 
     def test_disagree_no_dst_crs_materialises_all(self, disagree_pair):
         """Disagreeing CRSs with no ``dst_crs`` still materialise all as datasets.
@@ -591,12 +593,12 @@ class TestPrepareSources:
         """
         pa, pb = disagree_pair
         sources, keepalive = _prepare_sources([pa, pb], None)
-        assert all(
-            isinstance(s, gdal.Dataset) for s in sources
-        ), f"Disagree path should yield datasets, got {[type(s) for s in sources]}"
-        assert (
-            len(keepalive) == 2
-        ), f"Both datasets should be held, got {len(keepalive)}"
+        assert all(isinstance(s, gdal.Dataset) for s in sources), (
+            f"Disagree path should yield datasets, got {[type(s) for s in sources]}"
+        )
+        assert len(keepalive) == 2, (
+            f"Both datasets should be held, got {len(keepalive)}"
+        )
 
     def test_crs_less_source_raises(self, shared_crs_pair, tmp_path):
         """A source with no CRS raises a clear ValueError.
@@ -625,9 +627,9 @@ class TestAsSrs:
             ``_as_srs(4326)`` returns an SRS whose authority code is 4326.
         """
         srs = _as_srs(4326)
-        assert (
-            srs.GetAuthorityCode(None) == "4326"
-        ), f"Expected authority code 4326, got {srs.GetAuthorityCode(None)}"
+        assert srs.GetAuthorityCode(None) == "4326", (
+            f"Expected authority code 4326, got {srs.GetAuthorityCode(None)}"
+        )
 
     def test_crs_string(self):
         """A ``"EPSG:nnnn"`` string parses to the matching spatial reference.
@@ -636,9 +638,9 @@ class TestAsSrs:
             ``_as_srs("EPSG:3857")`` returns an SRS with authority code 3857.
         """
         srs = _as_srs("EPSG:3857")
-        assert (
-            srs.GetAuthorityCode(None) == "3857"
-        ), f"Expected authority code 3857, got {srs.GetAuthorityCode(None)}"
+        assert srs.GetAuthorityCode(None) == "3857", (
+            f"Expected authority code 3857, got {srs.GetAuthorityCode(None)}"
+        )
 
     def test_invalid_string_raises(self):
         """An unparseable CRS string raises ValueError.
@@ -696,9 +698,9 @@ class TestCloudConfigHelper:
         signer = _FakeSigner({"AWS_REGION": "us-west-2"})
         ctx = _cloud_config(signer)
         assert isinstance(ctx, CloudConfig), f"Expected CloudConfig, got {type(ctx)}"
-        assert ctx.as_gdal_config() == {
-            "AWS_REGION": "us-west-2"
-        }, f"CloudConfig should carry the signer env, got {ctx.as_gdal_config()}"
+        assert ctx.as_gdal_config() == {"AWS_REGION": "us-west-2"}, (
+            f"CloudConfig should carry the signer env, got {ctx.as_gdal_config()}"
+        )
 
 
 class TestMergeRastersSigner:
@@ -715,9 +717,9 @@ class TestMergeRastersSigner:
         out = tmp_path / "no_signer.tif"
         merge_rasters([pa, pb], out, no_data_value=-9999.0, signer=None)
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 2] == pytest.approx(
-            20.0
-        ), f"signer=None overlap should be 20, got {arr[0, 2]}"
+        assert arr[0, 2] == pytest.approx(20.0), (
+            f"signer=None overlap should be 20, got {arr[0, 2]}"
+        )
 
     def test_signer_produces_correct_output(self, shared_crs_pair, tmp_path):
         """A signer does not change the merge result for local inputs.
@@ -735,9 +737,9 @@ class TestMergeRastersSigner:
             signer=_FakeSigner({"GDAL_HTTP_TIMEOUT": "30"}),
         )
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 2] == pytest.approx(
-            20.0
-        ), f"Signed merge overlap should be 20, got {arr[0, 2]}"
+        assert arr[0, 2] == pytest.approx(20.0), (
+            f"Signed merge overlap should be 20, got {arr[0, 2]}"
+        )
 
     def test_signer_config_active_during_merge(
         self, shared_crs_pair, tmp_path, monkeypatch
@@ -765,9 +767,9 @@ class TestMergeRastersSigner:
             no_data_value=-9999.0,
             signer=_FakeSigner({"PYRAMIDS_TEST_KEY": "on"}),
         )
-        assert (
-            seen["value"] == "on"
-        ), f"Signer config should be active during BuildVRT, got {seen.get('value')!r}"
+        assert seen["value"] == "on", (
+            f"Signer config should be active during BuildVRT, got {seen.get('value')!r}"
+        )
 
     def test_no_signer_config_absent_during_merge(
         self, shared_crs_pair, tmp_path, monkeypatch
@@ -790,9 +792,9 @@ class TestMergeRastersSigner:
         monkeypatch.setattr(merge_mod.gdal, "BuildVRT", spy)
         pa, pb = shared_crs_pair
         merge_rasters([pa, pb], tmp_path / "plain.tif", no_data_value=-9999.0)
-        assert (
-            seen["value"] is None
-        ), f"No signer should leave the sentinel unset, got {seen.get('value')!r}"
+        assert seen["value"] is None, (
+            f"No signer should leave the sentinel unset, got {seen.get('value')!r}"
+        )
 
     @pytest.mark.parametrize("method", ["last", "first", "min", "max", "sum"])
     def test_signer_with_each_method(self, shared_crs_pair, tmp_path, method):
@@ -942,9 +944,9 @@ class TestStackBandsSigner:
         monkeypatch.setattr(merge_mod.Dataset, "from_band_files", spy)
         pa, pb = same_grid_bands
         stack_bands([pa, pb], signer=_FakeSigner({"PYRAMIDS_TEST_KEY": "on"}))
-        assert (
-            seen["value"] == "on"
-        ), f"Signer config should be active during stacking, got {seen.get('value')!r}"
+        assert seen["value"] == "on", (
+            f"Signer config should be active during stacking, got {seen.get('value')!r}"
+        )
 
     def test_signer_sign_href_applied_to_each_file(self, same_grid_bands):
         """H2: ``signer.sign_href`` fires once per input file before stacking.
@@ -1008,9 +1010,9 @@ class TestStackBandsUint16Align:
         result = stack_bands([pa, pb], align=True, no_data_value=0)
         assert result.band_count == 2, f"expected 2 bands, got {result.band_count}"
         assert result.dtype[0] == "uint16", f"expected uint16, got {result.dtype}"
-        assert (
-            result.no_data_value[0] == 0
-        ), f"nodata should be 0, got {result.no_data_value[0]}"
+        assert result.no_data_value[0] == 0, (
+            f"nodata should be 0, got {result.no_data_value[0]}"
+        )
 
     def test_from_band_files_uint16_align(self, uint16_mixed_res_bands):
         """from_band_files(align=True) (the underlying API) also succeeds.
@@ -1046,6 +1048,6 @@ class TestStackBandsUint16Align:
         pa, pb = uint16_mixed_res_bands
         result = Dataset.from_band_files([pa, pb], align=True)
         assert result.band_count == 2, f"expected 2 bands, got {result.band_count}"
-        assert (
-            result.no_data_value[0] == 0
-        ), f"inherited nodata should be 0, got {result.no_data_value[0]}"
+        assert result.no_data_value[0] == 0, (
+            f"inherited nodata should be 0, got {result.no_data_value[0]}"
+        )

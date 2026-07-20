@@ -363,7 +363,9 @@ class TestWarpFromGCPs:
         writable_dataset.set_gcps(corner_gcps, 4326)
         eager = writable_dataset.georeference(lazy=False)
         lazy = writable_dataset.georeference(lazy=True)
-        assert np.allclose(np.asarray(eager.read_array()), np.asarray(lazy.read_array()))
+        assert np.allclose(
+            np.asarray(eager.read_array()), np.asarray(lazy.read_array())
+        )
 
     def test_invalid_transform_raises(self, writable_dataset, corner_gcps):
         """An unsupported transform name is rejected.
@@ -418,8 +420,8 @@ class TestSetGCPs:
         """
         path = tmp_path / "plain.tif"
         Dataset.create_from_array(
-        np.ones((8, 8), dtype="float32"), top_left_corner=(0.0, 8.0), cell_size=1.0
-    ).to_file(str(path))
+            np.ones((8, 8), dtype="float32"), top_left_corner=(0.0, 8.0), cell_size=1.0
+        ).to_file(str(path))
         ds = Dataset.read_file(str(path), read_only=True)
         with pytest.raises(ReadOnlyError):
             ds.set_gcps(corner_gcps, 4326)

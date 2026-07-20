@@ -19,7 +19,9 @@ def test_read_file_defaults_to_multidim(sample_name, sample):
 
 def test_classic_mode_open(sample):
     """``open_as_multi_dimensional=False`` opens the file as a classic raster (not an MDIM container)."""
-    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1__y-asc.nc"), open_as_multi_dimensional=False)
+    nc = NetCDF.read_file(
+        sample("cf__7v__1d3-2d3-3d1__y-asc.nc"), open_as_multi_dimensional=False
+    )
     try:
         assert nc.is_md_array is False
         assert nc.variable_names, "classic open should still expose variables"

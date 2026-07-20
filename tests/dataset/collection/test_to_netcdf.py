@@ -141,9 +141,9 @@ class TestToNetcdfDefaults:
         out = tmp_path / "attrs.nc"
         col.to_netcdf(str(out))
         attrs = _root_attrs(str(out))
-        assert (
-            attrs.get("Conventions") == "CF-1.8"
-        ), f"missing Conventions=CF-1.8: {attrs!r}"
+        assert attrs.get("Conventions") == "CF-1.8", (
+            f"missing Conventions=CF-1.8: {attrs!r}"
+        )
         assert attrs.get("epsg") == 4326, f"unexpected epsg: {attrs.get('epsg')!r}"
         assert "crs_wkt" in attrs and attrs["crs_wkt"], "crs_wkt root attr missing"
         assert "GeoTransform" in attrs, "GeoTransform root attr missing"
@@ -167,9 +167,9 @@ class TestToNetcdfDefaults:
         ], "time values not 0..T-1"
         time_attrs = _array_attrs(str(out), "time")
         assert "note" in time_attrs, f"missing positional-time note: {time_attrs}"
-        assert (
-            "positional" in time_attrs["note"].lower()
-        ), f"unexpected note: {time_attrs['note']!r}"
+        assert "positional" in time_attrs["note"].lower(), (
+            f"unexpected note: {time_attrs['note']!r}"
+        )
 
     def test_data_round_trips_per_timestep(self, tmp_path):
         """Each timestep's source array survives the write/read cycle.
@@ -188,9 +188,9 @@ class TestToNetcdfDefaults:
         assert values.shape == (2, 4, 5), f"expected (2,4,5), got {values.shape}"
         for i, p in enumerate(paths):
             expected = Dataset.read_file(p).read_array()
-            assert np.array_equal(
-                values[i], expected
-            ), f"timestep {i} disk-array mismatch"
+            assert np.array_equal(values[i], expected), (
+                f"timestep {i} disk-array mismatch"
+            )
 
 
 @pytest.mark.xarray
@@ -214,9 +214,9 @@ class TestToNetcdfTimeCoords:
             10,
             20,
         ], "int time_coords lost"
-        assert "note" not in _array_attrs(
-            str(out), "time"
-        ), "note attr leaked into explicit time"
+        assert "note" not in _array_attrs(str(out), "time"), (
+            "note attr leaked into explicit time"
+        )
 
     def test_explicit_float_time_coords(self, tmp_path):
         """Float ``time_coords`` pass through as floats.
@@ -257,13 +257,13 @@ class TestToNetcdfTimeCoords:
         g = gdal.OpenEx(str(out), gdal.OF_MULTIDIM_RASTER).GetRootGroup()
         time_arr = g.OpenMDArray("time")
         unit = time_arr.GetUnit()
-        assert (
-            unit == "nanoseconds since 1970-01-01 00:00:00"
-        ), f"missing CF unit: {unit!r}"
+        assert unit == "nanoseconds since 1970-01-01 00:00:00", (
+            f"missing CF unit: {unit!r}"
+        )
         attrs = {a.GetName(): a.Read() for a in time_arr.GetAttributes()}
-        assert (
-            attrs.get("calendar") == "proleptic_gregorian"
-        ), f"missing calendar: {attrs!r}"
+        assert attrs.get("calendar") == "proleptic_gregorian", (
+            f"missing calendar: {attrs!r}"
+        )
 
     def test_list_of_datetime_objects_coerced(self, tmp_path):
         """A list of ``datetime`` objects gets coerced to datetime64 then encoded.
@@ -304,9 +304,9 @@ class TestToNetcdfTimeCoords:
         values = _array_values(str(out), "time")
         expected_ns = [1577836800 * 1_000_000_000, 1577923200 * 1_000_000_000]
         assert values.tolist() == expected_ns, f"self.time not used: {values!r}"
-        assert "note" not in _array_attrs(
-            str(out), "time"
-        ), "positional note leaked into a dated export"
+        assert "note" not in _array_attrs(str(out), "time"), (
+            "positional note leaked into a dated export"
+        )
 
     def test_explicit_time_coords_override_time_axis(self, tmp_path):
         """An explicit ``time_coords`` beats the collection's own ``time`` axis.
@@ -364,9 +364,9 @@ class TestToNetcdfTimeCoords:
         col.to_netcdf(str(out), time_coords=np.array([t0, t1], dtype="datetime64[ns]"))
         values = _array_values(str(out), "time")
         # 500ms in nanoseconds:
-        assert (
-            int(values[1] - values[0]) == 500_000_000
-        ), f"sub-second delta lost: {values!r}"
+        assert int(values[1] - values[0]) == 500_000_000, (
+            f"sub-second delta lost: {values!r}"
+        )
 
     def test_generator_time_coords_materialised(self, tmp_path):
         """Generator ``time_coords`` are materialised via ``list()`` (L3 regression).
@@ -416,9 +416,9 @@ class TestToNetcdfTimeCoords:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             col.to_netcdf(str(tmp_path / "unsorted.nc"), time_coords=[5, 3])
-        assert any(
-            "monotonically" in str(w.message) for w in caught
-        ), f"missing monotonic warning, got: {[str(w.message) for w in caught]}"
+        assert any("monotonically" in str(w.message) for w in caught), (
+            f"missing monotonic warning, got: {[str(w.message) for w in caught]}"
+        )
 
     def test_duplicate_time_coords_warns(self, tmp_path):
         """Duplicate ``time_coords`` triggers a :class:`UserWarning`.
@@ -434,9 +434,9 @@ class TestToNetcdfTimeCoords:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             col.to_netcdf(str(tmp_path / "dupes.nc"), time_coords=[1, 1])
-        assert any(
-            "duplicate" in str(w.message) for w in caught
-        ), f"missing duplicate warning, got: {[str(w.message) for w in caught]}"
+        assert any("duplicate" in str(w.message) for w in caught), (
+            f"missing duplicate warning, got: {[str(w.message) for w in caught]}"
+        )
 
     def test_custom_time_dim_name(self, tmp_path):
         """``time_dim`` renames the time dimension verbatim.
@@ -517,9 +517,9 @@ class TestToNetcdfVarPerBand:
             .GetRootGroup()
             .GetMDArrayNames()
         )
-        assert (
-            "band" not in names
-        ), f"unwanted band dim leaked into var_per_band=True: {names}"
+        assert "band" not in names, (
+            f"unwanted band dim leaked into var_per_band=True: {names}"
+        )
 
 
 @pytest.mark.xarray
@@ -540,9 +540,9 @@ class TestToNetcdfNoData:
         out = tmp_path / "nd_root.nc"
         col.to_netcdf(str(out))
         attrs = _root_attrs(str(out))
-        assert (
-            attrs.get("nodata") == -9999
-        ), f"nodata root attr missing/wrong: {attrs!r}"
+        assert attrs.get("nodata") == -9999, (
+            f"nodata root attr missing/wrong: {attrs!r}"
+        )
 
     def test_nodata_on_each_variable(self, tmp_path):
         """Every data variable carries a per-variable ``nodata`` attribute.
@@ -558,9 +558,9 @@ class TestToNetcdfNoData:
         out = tmp_path / "nd_var.nc"
         col.to_netcdf(str(out))
         attrs = _array_attrs(str(out), "Band_1")
-        assert (
-            attrs.get("nodata") == -9999
-        ), f"per-var nodata attr missing/wrong: {attrs!r}"
+        assert attrs.get("nodata") == -9999, (
+            f"per-var nodata attr missing/wrong: {attrs!r}"
+        )
 
     def test_nodata_on_var_per_band_false(self, tmp_path):
         """In the 4-D layout the ``nodata`` attr lives on the single ``data`` variable.
@@ -600,12 +600,12 @@ class TestToNetcdfNoData:
         col = DatasetCollection.from_files([p])
         out = tmp_path / "no_nd.nc"
         col.to_netcdf(str(out))
-        assert "nodata" not in _root_attrs(
-            str(out)
-        ), "nodata leaked when source has no nodata"
-        assert "nodata" not in _array_attrs(
-            str(out), "Band_1"
-        ), "per-var nodata leaked when source has no nodata"
+        assert "nodata" not in _root_attrs(str(out)), (
+            "nodata leaked when source has no nodata"
+        )
+        assert "nodata" not in _array_attrs(str(out), "Band_1"), (
+            "per-var nodata leaked when source has no nodata"
+        )
 
 
 @pytest.mark.xarray
@@ -660,9 +660,9 @@ class TestToNetcdfRoundTrip:
         out = tmp_path / "rt.nc"
         col.to_netcdf(str(out))
         nc = NetCDF.read_file(str(out))
-        assert (
-            "Band_1" in nc.variables
-        ), f"Band_1 missing from variables: {list(nc.variables)}"
+        assert "Band_1" in nc.variables, (
+            f"Band_1 missing from variables: {list(nc.variables)}"
+        )
         assert nc.epsg == 4326, f"epsg lost: {nc.epsg}"
 
     def test_single_timestep_writes_length_one_time_dim(self, tmp_path):

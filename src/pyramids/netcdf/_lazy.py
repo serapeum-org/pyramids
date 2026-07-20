@@ -261,8 +261,7 @@ def _normalize_chunks_seq(
     """
     if len(chunks) != len(shape):
         raise ValueError(
-            f"chunks tuple length {len(chunks)} does not match "
-            f"array ndim {len(shape)}."
+            f"chunks tuple length {len(chunks)} does not match array ndim {len(shape)}."
         )
     normalized: list[int] = []
     for c, axis in zip(chunks, shape):
@@ -301,12 +300,9 @@ def _normalize_chunks_dict(
             )
         if not 0 <= axis_idx < len(shape):
             raise ValueError(
-                f"chunks dict axis {axis_idx} out of range for "
-                f"ndim={len(shape)}."
+                f"chunks dict axis {axis_idx} out of range for ndim={len(shape)}."
             )
-        resolved[axis_idx] = (
-            int(shape[axis_idx]) if value in (None, -1) else int(value)
-        )
+        resolved[axis_idx] = int(shape[axis_idx]) if value in (None, -1) else int(value)
     return tuple(resolved)
 
 
@@ -686,7 +682,9 @@ def build_lazy_array(
     # SAME plane the eager `get_variable` resolved -- moving a non-trailing plane to the trailing two
     # axes when `spatial_dims` is threaded through (#728). A trailing plane makes this a no-op, so the
     # ordinary `(time, lev, lat, lon)` case is unchanged.
-    lazy = _orient_lazy_plane(lazy, da, len(shape), spatial_dims, flips, (flip_y, flip_x))
+    lazy = _orient_lazy_plane(
+        lazy, da, len(shape), spatial_dims, flips, (flip_y, flip_x)
+    )
     # The parked FILE_CACHE handle is released deterministically when this `manager` is
     # garbage-collected -- the `CachingFileManager` registers a `weakref.finalize` on itself in
     # `__init__`. Because the manager is kept alive by the chunk readers in the graph (not by this

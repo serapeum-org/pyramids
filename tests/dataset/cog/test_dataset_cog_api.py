@@ -109,7 +109,10 @@ class TestToCogCompression:
         ds = gdal.Open(str(out))
         compression = ds.GetMetadataItem("COMPRESSION", "IMAGE_STRUCTURE")
         ds = None
-        assert compression in (None, "NONE"), f"expected uncompressed, got {compression!r}"
+        assert compression in (
+            None,
+            "NONE",
+        ), f"expected uncompressed, got {compression!r}"
 
 
 class TestToCogExtra:
@@ -320,9 +323,9 @@ class TestToFileDriverCogArgForwarding:
         reopened = gdal.Open(str(out))
         bx, by = reopened.GetRasterBand(1).GetBlockSize()
         reopened = None
-        assert (
-            bx == 256 and by == 256
-        ), f"Expected blocksize (256, 256), got ({bx}, {by})"
+        assert bx == 256 and by == 256, (
+            f"Expected blocksize (256, 256), got ({bx}, {by})"
+        )
 
     def test_band_nonzero_raises(self, small_float_dataset, tmp_path):
         """driver='COG' with band != 0 is rejected loudly.
@@ -334,9 +337,9 @@ class TestToFileDriverCogArgForwarding:
         with pytest.raises(ValueError, match="band") as exc_info:
             small_float_dataset.to_file(tmp_path / "x.tif", band=1, driver="COG")
         msg = str(exc_info.value)
-        assert (
-            "band" in msg.lower() and "COG" in msg
-        ), f"Error must mention 'band' and 'COG'; got: {msg}"
+        assert "band" in msg.lower() and "COG" in msg, (
+            f"Error must mention 'band' and 'COG'; got: {msg}"
+        )
 
     def test_band_zero_is_accepted(self, small_float_dataset, tmp_path):
         """band=0 (the default) must continue to work with driver='COG'.
@@ -361,6 +364,6 @@ class TestToFileDriverCogArgForwarding:
             out, driver="COG", creation_options=["COMPRESS=LZW"]
         )
         info = gdal.Info(str(out))
-        assert (
-            "COMPRESSION=LZW" in info
-        ), f"Expected LZW in gdal.Info output: {info[:200]}"
+        assert "COMPRESSION=LZW" in info, (
+            f"Expected LZW in gdal.Info output: {info[:200]}"
+        )

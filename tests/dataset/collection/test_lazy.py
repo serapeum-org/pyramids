@@ -102,14 +102,14 @@ class TestManagerCaching:
         first_snapshot = _path_entries()
         collection.data.compute()
         second_snapshot = _path_entries()
-        assert set(first_snapshot) == set(
-            second_snapshot
-        ), "Repeated compute should not register new FILE_CACHE entries"
+        assert set(first_snapshot) == set(second_snapshot), (
+            "Repeated compute should not register new FILE_CACHE entries"
+        )
         assert len(first_snapshot) == len(three_files)
         for key, handle in first_snapshot.items():
-            assert (
-                second_snapshot[key] is handle
-            ), "Repeated compute should reuse the cached gdal.Dataset"
+            assert second_snapshot[key] is handle, (
+                "Repeated compute should reuse the cached gdal.Dataset"
+            )
 
     def test_path_and_str_share_cache_slot(self, three_files):
         """M1 regression: `_read_time_step` normalises Path → str.

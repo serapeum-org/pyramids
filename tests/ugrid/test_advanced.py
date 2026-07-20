@@ -49,12 +49,12 @@ class TestCrsHandling:
         )
         reprojected = ds.to_crs(4326)
         assert reprojected.epsg == 4326, f"Expected EPSG 4326, got {reprojected.epsg}"
-        assert (
-            reprojected.mesh.node_x[0] < 180
-        ), f"Expected longitude < 180, got {reprojected.mesh.node_x[0]}"
-        assert (
-            reprojected.mesh.node_y[0] < 90
-        ), f"Expected latitude < 90, got {reprojected.mesh.node_y[0]}"
+        assert reprojected.mesh.node_x[0] < 180, (
+            f"Expected longitude < 180, got {reprojected.mesh.node_x[0]}"
+        )
+        assert reprojected.mesh.node_y[0] < 90, (
+            f"Expected latitude < 90, got {reprojected.mesh.node_y[0]}"
+        )
 
     def test_to_crs_preserves_data(self):
         """Test that reprojection preserves data values.
@@ -71,9 +71,9 @@ class TestCrsHandling:
             epsg=32631,
         )
         reprojected = ds.to_crs(4326)
-        assert (
-            reprojected["temp"].data[0] == pytest.approx(25.0)
-        ), f"Data should be preserved, got {reprojected['temp'].data[0]}"
+        assert reprojected["temp"].data[0] == pytest.approx(25.0), (
+            f"Data should be preserved, got {reprojected['temp'].data[0]}"
+        )
 
     def test_to_crs_preserves_topology(self):
         """Test that reprojection preserves mesh topology.
@@ -201,9 +201,9 @@ class TestEdgeNodeData:
         ds = UgridDataset.read_file(ugrid_convention_nc_path)
         var = ds["mesh2d_node_z"]
         assert var.location == "node", f"Expected 'node', got '{var.location}'"
-        assert (
-            var.n_elements == ds.n_node
-        ), f"Node data elements should match n_node: {var.n_elements} vs {ds.n_node}"
+        assert var.n_elements == ds.n_node, (
+            f"Node data elements should match n_node: {var.n_elements} vs {ds.n_node}"
+        )
 
     def test_edge_data_access(self, ugrid_convention_nc_path):
         """Test accessing edge-centered data.
@@ -214,9 +214,9 @@ class TestEdgeNodeData:
         ds = UgridDataset.read_file(ugrid_convention_nc_path)
         var = ds["mesh2d_edge_type"]
         assert var.location == "edge", f"Expected 'edge', got '{var.location}'"
-        assert (
-            var.n_elements == ds.n_edge
-        ), f"Edge data elements should match n_edge: {var.n_elements} vs {ds.n_edge}"
+        assert var.n_elements == ds.n_edge, (
+            f"Edge data elements should match n_edge: {var.n_elements} vs {ds.n_edge}"
+        )
 
     def test_node_data_to_geodataframe(self):
         """Test converting node data to GeoDataFrame with Points.

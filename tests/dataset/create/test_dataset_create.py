@@ -243,11 +243,14 @@ class TestAttributesTable:
     def test_set_attribute_table(self, writable_dataset):
         writable_dataset.set_attribute_table(self.attribute_table, band=0)
         assert isinstance(
-            writable_dataset._raster.GetRasterBand(1).GetDefaultRAT(), gdal.RasterAttributeTable
+            writable_dataset._raster.GetRasterBand(1).GetDefaultRAT(),
+            gdal.RasterAttributeTable,
         )
 
     def test_overwrite_attribute_table(self, writable_dataset):
-        assert writable_dataset.set_attribute_table(self.attribute_table, band=1) is None
+        assert (
+            writable_dataset.set_attribute_table(self.attribute_table, band=1) is None
+        )
 
 
 class TestAddBand:
@@ -495,15 +498,23 @@ class TestSpatialProperties:
         north, south = origin_y + row * pixel_y, origin_y + (row + 1) * pixel_y
         gdf = gpd.GeoDataFrame(
             columns=["id"],
-            geometry=[Polygon([(west, north), (east, north), (east, south), (west, south)])],
+            geometry=[
+                Polygon([(west, north), (east, north), (east, south), (west, south)])
+            ],
             crs=dataset.epsg,
             data=[[0]],
         )
         full = dataset.read_array(band=0)
         for mode in ("cover", "nearest"):
-            assert dataset.io._convert_polygon_to_window(gdf, rounding=mode) == [col, row, 1, 1]
+            assert dataset.io._convert_polygon_to_window(gdf, rounding=mode) == [
+                col,
+                row,
+                1,
+                1,
+            ]
         assert np.array_equal(
-            np.squeeze(dataset.read_array(band=0, window=[col, row, 1, 1])), full[row, col]
+            np.squeeze(dataset.read_array(band=0, window=[col, row, 1, 1])),
+            full[row, col],
         )
         assert np.array_equal(
             np.squeeze(dataset.read_array(band=0, window=gdf)), full[row, col]

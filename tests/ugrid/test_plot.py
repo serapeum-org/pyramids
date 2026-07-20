@@ -154,9 +154,9 @@ class TestUgridDatasetPlotMethods:
             return_value="sentinel",
         ) as mock_render:
             result = ds.plot("depth")
-        assert (
-            result == "sentinel"
-        ), f"UgridDataset.plot must return mesh_render result, got {result!r}"
+        assert result == "sentinel", (
+            f"UgridDataset.plot must return mesh_render result, got {result!r}"
+        )
         mock_render.assert_called_once()
         kw = mock_render.call_args.kwargs
         assert kw.get("location") == "face"
@@ -189,15 +189,15 @@ class TestUgridDatasetPlotMethods:
             ds.plot("depth", cmap="plasma", basemap=True)
         kw = mock_render.call_args.kwargs
         assert kw.get("cmap") == "plasma", f"`cmap` must reach mesh_render; got {kw}"
-        assert (
-            kw.get("basemap") is True
-        ), f"`basemap=True` must reach mesh_render; got {kw}"
-        assert (
-            kw.get("basemap_epsg") == 4326
-        ), f"basemap_epsg should be the dataset's EPSG (4326); got {kw}"
-        assert (
-            kw.get("mesh") is ds._mesh
-        ), "mesh argument must be the dataset's Mesh2d instance"
+        assert kw.get("basemap") is True, (
+            f"`basemap=True` must reach mesh_render; got {kw}"
+        )
+        assert kw.get("basemap_epsg") == 4326, (
+            f"basemap_epsg should be the dataset's EPSG (4326); got {kw}"
+        )
+        assert kw.get("mesh") is ds._mesh, (
+            "mesh argument must be the dataset's Mesh2d instance"
+        )
 
     def test_dataset_plot_basemap_without_epsg_raises(self):
         """``basemap=True`` on a CRS-less dataset raises before dispatch.

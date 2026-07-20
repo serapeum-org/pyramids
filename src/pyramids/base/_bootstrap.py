@@ -89,6 +89,11 @@ def _register_windows_dll_dirs(pkg_dir: Path) -> None:  # pragma: no cover
     ``add_dll_directory``. The handle is anchored at module scope so the
     directory stays registered for the process lifetime.
     """
+    # os.add_dll_directory exists only on Windows. The sole call site already guards on
+    # sys.platform, but repeat it here so mypy (run on Linux in CI) narrows sys.platform
+    # and stops flagging the attribute as undefined.
+    if sys.platform != "win32":
+        return
     global _DLL_HANDLE
     for candidate in (pkg_dir / ".libs", pkg_dir.parent / "pyramids_gis.libs"):
         if candidate.is_dir():

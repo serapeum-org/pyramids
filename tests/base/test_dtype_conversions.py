@@ -204,9 +204,9 @@ class TestRequireCleopatra:
         from pyramids.base._utils import require_cleopatra
 
         result = require_cleopatra()
-        assert (
-            result is None
-        ), f"require_cleopatra must return None on success; got {result!r}"
+        assert result is None, (
+            f"require_cleopatra must return None on success; got {result!r}"
+        )
 
     def test_custom_message_returns_none_when_installed(self):
         """An explicit ``msg`` does not change the success path.
@@ -222,9 +222,9 @@ class TestRequireCleopatra:
         from pyramids.base._utils import require_cleopatra
 
         result = require_cleopatra("custom override")
-        assert (
-            result is None
-        ), f"require_cleopatra must return None on success; got {result!r}"
+        assert result is None, (
+            f"require_cleopatra must return None on success; got {result!r}"
+        )
 
     def test_default_message_mentions_viz_extra_when_missing(self, monkeypatch):
         """Default error message points at the ``[viz]`` install extra.
@@ -252,9 +252,9 @@ class TestRequireCleopatra:
         with pytest.raises(OptionalPackageDoesNotExist) as exc:
             require_cleopatra()
         msg = str(exc.value)
-        assert (
-            "viz" in msg.lower() or "cleopatra" in msg.lower()
-        ), f"Default error must mention viz/cleopatra; got {msg!r}"
+        assert "viz" in msg.lower() or "cleopatra" in msg.lower(), (
+            f"Default error must mention viz/cleopatra; got {msg!r}"
+        )
 
     def test_custom_message_passed_through_on_failure(self, monkeypatch):
         """A custom ``msg`` overrides the default error text.
@@ -281,9 +281,9 @@ class TestRequireCleopatra:
 
         with pytest.raises(OptionalPackageDoesNotExist) as exc:
             require_cleopatra(msg="custom-from-test")
-        assert "custom-from-test" in str(
-            exc.value
-        ), f"Custom msg must appear in the exception; got {exc.value!r}"
+        assert "custom-from-test" in str(exc.value), (
+            f"Custom msg must appear in the exception; got {exc.value!r}"
+        )
 
     def test_none_msg_uses_default(self, monkeypatch):
         """``require_cleopatra(msg=None)`` is identical to no argument.
@@ -310,6 +310,6 @@ class TestRequireCleopatra:
 
         with pytest.raises(OptionalPackageDoesNotExist) as exc:
             require_cleopatra(msg=None)
-        assert (
-            str(exc.value) == _DEFAULT_CLEOPATRA_MSG
-        ), f"Expected default message; got {exc.value!r}"
+        assert str(exc.value) == _DEFAULT_CLEOPATRA_MSG, (
+            f"Expected default message; got {exc.value!r}"
+        )

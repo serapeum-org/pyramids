@@ -16,9 +16,8 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import Point
 
-from pyramids.feature import FeatureCollection
-from pyramids.feature import _wfs
 from pyramids.errors import WFSError
+from pyramids.feature import FeatureCollection, _wfs
 from tests.http_mock import make_fixed_body_server
 
 CAPS_2_0_0 = """<?xml version="1.0" encoding="UTF-8"?>
@@ -94,8 +93,14 @@ class TestPureHelpers:
 
     def test_wfs_connection(self):
         assert _wfs._wfs_connection("https://h/ows", None) == "WFS:https://h/ows"
-        assert _wfs._wfs_connection("https://h/ows", "1.1.0") == "WFS:https://h/ows?VERSION=1.1.0"
-        assert _wfs._wfs_connection("https://h/ows?a=b", "2.0.0") == "WFS:https://h/ows?a=b&VERSION=2.0.0"
+        assert (
+            _wfs._wfs_connection("https://h/ows", "1.1.0")
+            == "WFS:https://h/ows?VERSION=1.1.0"
+        )
+        assert (
+            _wfs._wfs_connection("https://h/ows?a=b", "2.0.0")
+            == "WFS:https://h/ows?a=b&VERSION=2.0.0"
+        )
 
     def test_gdal_http_config(self):
         assert _wfs._gdal_http_config(None, 60.0) == {"GDAL_HTTP_TIMEOUT": "60"}
@@ -134,14 +139,21 @@ class TestPureHelpers:
             "<FeatureType><Title>t</Title><Name>a:b</Name></FeatureType>"
             "<FeatureType><Name>c:d</Name></FeatureType></FeatureTypeList></Caps>"
         )
-        assert _wfs._extract_typenames(root) == {"a:b", "c:d"}  # service <Name> + <Title> excluded
+        assert _wfs._extract_typenames(root) == {
+            "a:b",
+            "c:d",
+        }  # service <Name> + <Title> excluded
 
     def test_exception_text(self):
         root = _wfs.ET.fromstring("<R><ExceptionText>boom</ExceptionText></R>")
         assert _wfs._exception_text(root) == "boom"
-        svc = _wfs.ET.fromstring("<R><ServiceException>legacy boom</ServiceException></R>")
+        svc = _wfs.ET.fromstring(
+            "<R><ServiceException>legacy boom</ServiceException></R>"
+        )
         assert _wfs._exception_text(svc) == "legacy boom"  # WFS 1.x form
-        assert _wfs._exception_text(_wfs.ET.fromstring("<R></R>")) == "no message provided"
+        assert (
+            _wfs._exception_text(_wfs.ET.fromstring("<R></R>")) == "no message provided"
+        )
 
 
 class TestCapabilities:
@@ -201,7 +213,9 @@ class TestCapabilities:
 
 class TestFromWfs:
     def _patch_caps(self, monkeypatch, typenames=("topp:states",)):
-        monkeypatch.setattr(_wfs, "_get_capabilities", lambda *a, **k: ((), frozenset(typenames)))
+        monkeypatch.setattr(
+            _wfs, "_get_capabilities", lambda *a, **k: ((), frozenset(typenames))
+        )
 
     def test_returns_featurecollection(self, monkeypatch):
         """A successful read is wrapped into a FeatureCollection."""
@@ -223,8 +237,12 @@ class TestFromWfs:
 
         monkeypatch.setattr(_wfs.gpd, "read_file", fake_read)
         FeatureCollection.from_wfs(
-            "https://h/ows", typename="topp:states", bbox=(1.0, 2.0, 3.0, 4.0),
-            where="persons > 1000000", max_features=5, version="2.0.0",
+            "https://h/ows",
+            typename="topp:states",
+            bbox=(1.0, 2.0, 3.0, 4.0),
+            where="persons > 1000000",
+            max_features=5,
+            version="2.0.0",
         )
         assert captured["connection"] == "WFS:https://h/ows?VERSION=2.0.0"
         assert captured["kwargs"]["layer"] == "topp:states"
@@ -253,20 +271,26 @@ class TestFromWfs:
     def test_unsupported_version_raises_valueerror(self, monkeypatch):
         """A version the server does not advertise raises a clear ValueError."""
         monkeypatch.setattr(
-            _wfs, "_get_capabilities",
+            _wfs,
+            "_get_capabilities",
             lambda *a, **k: (("1.1.0", "2.0.0"), frozenset({"topp:states"})),
         )
         with pytest.raises(ValueError, match="version '3.0.0' is not advertised"):
-            FeatureCollection.from_wfs("https://h/ows", typename="topp:states", version="3.0.0")
+            FeatureCollection.from_wfs(
+                "https://h/ows", typename="topp:states", version="3.0.0"
+            )
 
     def test_advertised_version_passes(self, monkeypatch):
         """A version the server advertises is accepted and the read proceeds."""
         monkeypatch.setattr(
-            _wfs, "_get_capabilities",
+            _wfs,
+            "_get_capabilities",
             lambda *a, **k: (("1.1.0", "2.0.0"), frozenset({"topp:states"})),
         )
         monkeypatch.setattr(_wfs.gpd, "read_file", lambda *a, **k: _sample_gdf())
-        fc = FeatureCollection.from_wfs("https://h/ows", typename="topp:states", version="2.0.0")
+        fc = FeatureCollection.from_wfs(
+            "https://h/ows", typename="topp:states", version="2.0.0"
+        )
         assert isinstance(fc, FeatureCollection)
 
     def test_unknown_typename_raises_valueerror(self, monkeypatch):

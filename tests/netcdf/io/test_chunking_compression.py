@@ -146,9 +146,9 @@ class TestChunkingOnDisk:
         block = md_arr.GetBlockSize()
         ds = None
         assert block == [1, 50, 50], f"Expected [1, 50, 50], got {block}"
-        assert (
-            os.path.getsize(path) > 0
-        ), "Compressed file should exist and have content"
+        assert os.path.getsize(path) > 0, (
+            "Compressed file should exist and have content"
+        )
 
 
 class TestRoundTripDataIntegrity:
@@ -346,9 +346,9 @@ class TestChunkingViaMetadataAPI:
             chunk_sizes=(2, 30, 40),
         )
         metadata = get_metadata(path)
-        assert (
-            "precip" in metadata.variables
-        ), f"Expected 'precip' in variables, got {list(metadata.variables.keys())}"
+        assert "precip" in metadata.variables, (
+            f"Expected 'precip' in variables, got {list(metadata.variables.keys())}"
+        )
         var_info = metadata.variables["precip"]
         assert var_info.block_size == [
             2,
@@ -402,9 +402,9 @@ class TestChunkingViaMetadataAPI:
         metadata = get_metadata(path)
         var_info = metadata.variables["temp"]
         result = var_info.block_size
-        assert result is None or isinstance(
-            result, list
-        ), f"block_size should be None or list, got {type(result).__name__}"
+        assert result is None or isinstance(result, list), (
+            f"block_size should be None or list, got {type(result).__name__}"
+        )
 
     def test_chunk_with_compression_in_metadata(self, tmp_path):
         """Chunking + compression should both be reflected in metadata.
@@ -435,9 +435,9 @@ class TestChunkingViaMetadataAPI:
             40,
             50,
         ], f"Expected [1, 40, 50], got {var_info.block_size}"
-        assert (
-            var_info.structural_info is not None or True
-        ), "structural_info may contain compression details"
+        assert var_info.structural_info is not None or True, (
+            "structural_info may contain compression details"
+        )
 
     def test_read_file_preserves_chunking_info(self, tmp_path):
         """NetCDF.read_file followed by get_metadata should preserve chunking.

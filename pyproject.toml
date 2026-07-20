@@ -162,24 +162,45 @@ pyramids = [
     "_licenses/**/*",
 ]
 
-[tool.flake8]
-ignore = ["E203", "E266", "E501", "W503", "E722", "C901", "E741", "E731"]
-max-line-length = 88
-max-complexity = 18
-select = "B,C,E,F,W,T4"
-
-[tool.black]
-profile = "flake8"
+# Ruff replaces black + isort + flake8 + pyupgrade (and their nbqa notebook
+# wrappers) with one tool. Because a single engine formats and sorts imports
+# against one line-length, the formatter and the import sorter cannot disagree the
+# way black and isort did — a long trailing comment on an import made black wrap the
+# line while isort collapsed it, an endless loop. Ruff lints and formats both .py
+# and .ipynb natively, so the nbqa wrappers are gone too.
+[tool.ruff]
 line-length = 88
-skip-string-normalization = true
+target-version = "py311"  # requires-python floors at 3.11
 
-[tool.isort]
-profile = "black"
-line_length = 88
-multi_line_output = 3
+[tool.ruff.format]
+# black had skip-string-normalization = true → preserve existing quotes.
+quote-style = "preserve"
+
+[tool.ruff.lint]
+# The *effective* flake8 rule set today is E/F/W: the old config's B and T4 selectors
+# were inert (flake8-bugbear / flake8-print were never installed). Add I (isort) and
+# UP (pyupgrade) to fold in those two standalone hooks.
+select = ["E", "F", "W", "I", "UP"]
+# Mirror the old [tool.flake8].extend-ignore. E704 and W503 are dropped — ruff does not
+# implement either (both are formatter-owned pycodestyle codes black conflicts with), so
+# there is nothing to ignore. E121/E123/E126 likewise need no entry: the ruff formatter
+# owns continuation-line indentation.
+ignore = ["E203", "E226", "E266", "E501", "E701", "E722", "C901", "E741", "E731"]
+
+[tool.ruff.lint.per-file-ignores]
+# flake8 excluded examples/ and tests/ from linting, and the old bare pyupgrade never
+# modernized their typing — so drop E/F/W and UP there, keeping only import-sorting (I),
+# which isort did run everywhere. This keeps the migration's lint churn on shipped src/.
+"tests/**" = ["E", "F", "W", "UP"]
+"examples/**" = ["E", "F", "W", "UP"]
+# Tutorial notebooks import next to first use and run setup (e.g. `%matplotlib inline`)
+# before imports — both legitimately trip E402, which stays enforced for real modules.
+"*.ipynb" = ["E402"]
 
 [tool.bandit]
-exclude_dirs = ["tests", "examples", "scripts", "planning", "docs"]
+# ci/ holds non-shipped build tooling (like scripts/) — its subprocess/urllib
+# calls run trusted, fixed commands in CI, so it is excluded from the scan.
+exclude_dirs = ["ci", "tests", "examples", "scripts", "planning", "docs"]
 skips = ["B101"]
 
 [tool.coverage.run]

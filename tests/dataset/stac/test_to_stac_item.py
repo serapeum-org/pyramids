@@ -66,9 +66,9 @@ class TestToStacItem:
         bands = asset["raster:bands"]
         assert len(bands) == 1, f"expected 1 band, got {len(bands)}"
         assert bands[0]["nodata"] == -9999.0, f"nodata: {bands[0]}"
-        assert (
-            "float" in bands[0]["data_type"].lower()
-        ), f"data_type: {bands[0]['data_type']}"
+        assert "float" in bands[0]["data_type"].lower(), (
+            f"data_type: {bands[0]['data_type']}"
+        )
 
     def test_bbox_4326_matches_grid(self, wgs84_dataset):
         """The 4326 bbox equals the native grid extent (already lon/lat).
@@ -93,13 +93,13 @@ class TestToStacItem:
         )
         item = ds.to_stac_item("x", asset_href="s.tif")
         w, s, e, n = item["bbox"]
-        assert (
-            -180 <= w <= 180 and -180 <= e <= 180
-        ), f"lon out of range: {item['bbox']}"
+        assert -180 <= w <= 180 and -180 <= e <= 180, (
+            f"lon out of range: {item['bbox']}"
+        )
         assert -90 <= s <= 90 and -90 <= n <= 90, f"lat out of range: {item['bbox']}"
-        assert (
-            item["properties"]["proj:epsg"] == 32633
-        ), "native proj:epsg should be UTM"
+        assert item["properties"]["proj:epsg"] == 32633, (
+            "native proj:epsg should be UTM"
+        )
 
     def test_media_type_and_roles(self, wgs84_dataset):
         """asset media type and roles are recorded when given.
@@ -111,9 +111,9 @@ class TestToStacItem:
             "x", asset_href="s.tif", asset_media_type="image/tiff; application=geotiff"
         )
         asset = item["assets"]["data"]
-        assert (
-            asset["type"] == "image/tiff; application=geotiff"
-        ), f"type: {asset.get('type')}"
+        assert asset["type"] == "image/tiff; application=geotiff", (
+            f"type: {asset.get('type')}"
+        )
         assert asset["roles"] == ["data"], f"roles: {asset['roles']}"
 
     def test_datetime_isoformat(self, wgs84_dataset):
@@ -166,12 +166,12 @@ class TestToStacItem:
             warnings.simplefilter("always")
             item = to_stac_item(ds, "x", asset_href="s.tif")
         assert item["bbox"] == [-180.0, -90.0, 180.0, 90.0], f"bbox: {item['bbox']}"
-        assert any(
-            "no EPSG code" in str(w.message) for w in caught
-        ), "expected a no-EPSG-code warning"
-        assert not any(
-            k.startswith("proj:") for k in item["properties"]
-        ), f"a CRS-less item must not advertise proj:* fields: {item['properties']}"
+        assert any("no EPSG code" in str(w.message) for w in caught), (
+            "expected a no-EPSG-code warning"
+        )
+        assert not any(k.startswith("proj:") for k in item["properties"]), (
+            f"a CRS-less item must not advertise proj:* fields: {item['properties']}"
+        )
 
     def test_round_trip_through_from_stac(self, wgs84_dataset, tmp_path):
         """to_stac_item -> from_stac rebuilds a collection over the asset.
@@ -222,9 +222,9 @@ class TestToStacItemDatetime:
             end_datetime="2023-06-30T00:00:00Z",
         )
         props = item["properties"]
-        assert (
-            props["datetime"] is None
-        ), f"datetime should be null with a range, got {props['datetime']}"
+        assert props["datetime"] is None, (
+            f"datetime should be null with a range, got {props['datetime']}"
+        )
         assert props["start_datetime"] == "2023-06-01T00:00:00Z", props
         assert props["end_datetime"] == "2023-06-30T00:00:00Z", props
 

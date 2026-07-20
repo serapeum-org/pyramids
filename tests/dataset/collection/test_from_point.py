@@ -81,9 +81,9 @@ class TestPointAoiBbox:
             46.0, 11.0, edge_size=64, resolution=10.0, units="px"
         )
         expected_deg = 640.0 / (111_320.0 * math.cos(math.radians(46.0)))
-        assert (
-            abs((e - w) - expected_deg) < 0.1 * expected_deg
-        ), f"lon span {(e - w)} vs {expected_deg}"
+        assert abs((e - w) - expected_deg) < 0.1 * expected_deg, (
+            f"lon span {(e - w)} vs {expected_deg}"
+        )
 
     def test_units_metres(self):
         """units='m' uses edge_size directly as metres.
@@ -97,9 +97,9 @@ class TestPointAoiBbox:
         _, px_bbox = _point_aoi_bbox(
             0.0, 0.0, edge_size=64, resolution=10.0, units="px"
         )
-        assert (m_bbox[2] - m_bbox[0]) > (
-            px_bbox[2] - px_bbox[0]
-        ), "metres AOI should be wider"
+        assert (m_bbox[2] - m_bbox[0]) > (px_bbox[2] - px_bbox[0]), (
+            "metres AOI should be wider"
+        )
 
     def test_invalid_units_raises(self):
         """An unsupported units value raises ValueError.
@@ -149,16 +149,16 @@ class TestFromPoint:
             resolution=10.0,
         )
         assert result == "CUBE", "from_point should return the from_stac result"
-        assert (
-            captured["collection"] == "sentinel-2-l2a"
-        ), f"collection: {captured['collection']}"
-        assert (
-            captured["datetime"] == "2021-06-01/2021-06-10"
-        ), f"datetime: {captured['datetime']}"
+        assert captured["collection"] == "sentinel-2-l2a", (
+            f"collection: {captured['collection']}"
+        )
+        assert captured["datetime"] == "2021-06-01/2021-06-10", (
+            f"datetime: {captured['datetime']}"
+        )
         w, s, e, n = captured["bbox"]
-        assert (
-            w < 11.0 < e and s < 46.0 < n
-        ), f"AOI bbox should bracket the point: {captured['bbox']}"
+        assert w < 11.0 < e and s < 46.0 < n, (
+            f"AOI bbox should bracket the point: {captured['bbox']}"
+        )
         assert captured["items"] == [
             "ITEM1",
             "ITEM2",
@@ -198,6 +198,6 @@ class TestFromPoint:
             46.0,
             11.0,
         ), f"lat/lon not forwarded: {seen}"
-        assert (
-            seen["kwargs"]["collection"] == "c"
-        ), f"collection not forwarded: {seen['kwargs']}"
+        assert seen["kwargs"]["collection"] == "c", (
+            f"collection not forwarded: {seen['kwargs']}"
+        )

@@ -64,9 +64,9 @@ class TestUnpackWithScaleOffset:
         var = scale_offset_nc.get_variable("z")
         raw1 = var.read_array(band=0)
         raw2 = var.read_array(band=0, unpack=False)
-        assert np.array_equal(
-            raw1, raw2
-        ), "unpack=False should return identical data to default"
+        assert np.array_equal(raw1, raw2), (
+            "unpack=False should return identical data to default"
+        )
 
     def test_second_variable_also_unpacks(self, scale_offset_nc):
         """Variable 'q' with different scale/offset should also unpack.

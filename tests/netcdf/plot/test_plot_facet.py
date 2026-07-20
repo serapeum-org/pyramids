@@ -160,9 +160,9 @@ class TestNetCDFPlotFacetingEdges:
             8,
         ), f"col_wrap=8 with N=4 should yield a 1×8 grid, got {grid.axes.shape}"
         visible = [ax for ax in grid.axes.ravel() if ax.get_visible()]
-        assert (
-            len(visible) == 4
-        ), f"Exactly 4 panels should be visible, got {len(visible)}"
+        assert len(visible) == 4, (
+            f"Exactly 4 panels should be visible, got {len(visible)}"
+        )
 
     def test_col_with_single_step_degenerate_grid(self):
         """`col="time"` with N=1 yields a 1×1 grid (degenerate but valid).
@@ -204,9 +204,9 @@ class TestNetCDFPlotFacetingEdges:
         spec = FacetSpec(row="time")
         with pytest.raises(ValueError, match=r"requires `col=`") as exc_info:
             nc.plot(variable="t2m", facet=spec)
-        assert "col=" in str(
-            exc_info.value
-        ), f"Error must mention col= requirement, got: {exc_info.value}"
+        assert "col=" in str(exc_info.value), (
+            f"Error must mention col= requirement, got: {exc_info.value}"
+        )
 
     def test_facet_with_sel_pinning_other_dim(self):
         """Faceting `col="time"` plus `sel={"pressure_level": 500}` succeeds.
@@ -246,12 +246,12 @@ class TestNetCDFPlotFacetingEdges:
             mock_plot.return_value = "stub"
             nc.plot(variable="t2m", facet=FacetSpec(col="time"), kind="pcolormesh")
         call_kwargs = mock_plot.call_args.kwargs
-        assert (
-            call_kwargs.get("kind") == "pcolormesh"
-        ), f"kind should reach Analysis.plot, got: {call_kwargs}"
-        assert (
-            "facet_kwargs" in call_kwargs
-        ), f"facet_kwargs must be present, got: {list(call_kwargs)}"
+        assert call_kwargs.get("kind") == "pcolormesh", (
+            f"kind should reach Analysis.plot, got: {call_kwargs}"
+        )
+        assert "facet_kwargs" in call_kwargs, (
+            f"facet_kwargs must be present, got: {list(call_kwargs)}"
+        )
 
     def test_facet_with_curvilinear_coords_forwarded(self):
         """Faceting + curvilinear `coords=` forwards both to the engine.
@@ -300,9 +300,9 @@ class TestNetCDFPlotFacetingEdges:
                 colour=ColourOpts(robust=True),
             )
         call_kwargs = mock_plot.call_args.kwargs
-        assert (
-            call_kwargs.get("robust") is True
-        ), f"robust=True must reach Analysis.plot, got: {call_kwargs}"
+        assert call_kwargs.get("robust") is True, (
+            f"robust=True must reach Analysis.plot, got: {call_kwargs}"
+        )
         assert "facet_kwargs" in call_kwargs
 
     def test_facet_grid_exposes_fig_axes_cbar_name_dicts(self):
@@ -323,9 +323,9 @@ class TestNetCDFPlotFacetingEdges:
         spec = FacetSpec(col="time", col_wrap="three")
         with pytest.raises(ValueError, match=r"positive int") as exc_info:
             nc.plot(variable="t2m", facet=spec)
-        assert "col_wrap" in str(
-            exc_info.value
-        ), f"Error must reference col_wrap, got: {exc_info.value}"
+        assert "col_wrap" in str(exc_info.value), (
+            f"Error must reference col_wrap, got: {exc_info.value}"
+        )
 
     def test_facet_4d_col_row_grid_shape(self):
         """4-D facet with `col="time", row="pressure_level"` matches dim sizes.
@@ -346,9 +346,9 @@ class TestNetCDFPlotFacetingEdges:
             2,
             3,
         ), f"4-D col+row grid should be (nrows=2, ncols=3), got {grid.axes.shape}"
-        assert (
-            len(grid.name_dicts) == 6
-        ), f"name_dicts should have nt*nl=6 entries, got {len(grid.name_dicts)}"
+        assert len(grid.name_dicts) == 6, (
+            f"name_dicts should have nt*nl=6 entries, got {len(grid.name_dicts)}"
+        )
         for entry in grid.name_dicts:
             assert "time" in entry, f"Missing 'time' in {entry}"
             assert "pressure_level" in entry, f"Missing 'pressure_level' in {entry}"
@@ -369,7 +369,10 @@ class TestNetCDFPlotFacetingEdges:
         stack, _fkw = NetCDFPlot(sub)._build_facet_stack(
             sub, col="time", row="pressure_level", col_wrap=None
         )
-        assert stack.shape[:2] == (3, 2), f"expected (ncol=3, nrow=2) panels, got {stack.shape[:2]}"
+        assert stack.shape[:2] == (
+            3,
+            2,
+        ), f"expected (ncol=3, nrow=2) panels, got {stack.shape[:2]}"
 
         times = [0, 6, 12]
         levels = [1000, 500]
@@ -401,13 +404,13 @@ class TestNetCDFPlotFacetingEdges:
                 facet=FacetSpec(col="time"),
                 basemap=True,
             )
-        assert (
-            mock_add.call_count == 3
-        ), f"expected one add_basemap per facet panel (3), got {mock_add.call_count}"
+        assert mock_add.call_count == 3, (
+            f"expected one add_basemap per facet panel (3), got {mock_add.call_count}"
+        )
         for call in mock_add.call_args_list:
-            assert (
-                call.kwargs.get("crs") == nc.get_variable("t2m").epsg
-            ), f"each panel basemap must use the variable's CRS, got: {call.kwargs}"
+            assert call.kwargs.get("crs") == nc.get_variable("t2m").epsg, (
+                f"each panel basemap must use the variable's CRS, got: {call.kwargs}"
+            )
 
     def test_facet_with_basemap_skips_hidden_panels(self):
         """`col_wrap` hidden trailing slots get no basemap (M4).
@@ -424,9 +427,9 @@ class TestNetCDFPlotFacetingEdges:
                 facet=FacetSpec(col="time", col_wrap=3),
                 basemap=True,
             )
-        assert (
-            mock_add.call_count == 4
-        ), f"expected one add_basemap per visible panel (4), got {mock_add.call_count}"
+        assert mock_add.call_count == 4, (
+            f"expected one add_basemap per visible panel (4), got {mock_add.call_count}"
+        )
 
     def test_facet_with_basemap_string_source_propagates(self):
         """`basemap="CartoDB.Positron"` forwards the provider name to every panel."""
@@ -439,9 +442,9 @@ class TestNetCDFPlotFacetingEdges:
             )
         assert mock_add.call_count == 2
         for call in mock_add.call_args_list:
-            assert (
-                call.kwargs.get("source") == "CartoDB.Positron"
-            ), f"string basemap must pass through as `source`, got: {call.kwargs}"
+            assert call.kwargs.get("source") == "CartoDB.Positron", (
+                f"string basemap must pass through as `source`, got: {call.kwargs}"
+            )
 
     def test_facet_passes_pinned_extent_to_render(self):
         """The facet path supplies the pinned subset's bbox as the render extent (M6).
@@ -465,9 +468,9 @@ class TestNetCDFPlotFacetingEdges:
             f"facet render extent must be the pinned subset's bbox "
             f"{var.bbox}, got {extent}"
         )
-        assert (
-            mock_render.call_args.kwargs.get("mode") == "facet"
-        ), "this should have gone through the facet render path"
+        assert mock_render.call_args.kwargs.get("mode") == "facet", (
+            "this should have gone through the facet render path"
+        )
 
     def test_static_plot_still_uses_self_ds_bbox(self):
         """No `_extent` injected on the non-facet path → engine uses `self._ds.bbox` (M6).
@@ -484,7 +487,7 @@ class TestNetCDFPlotFacetingEdges:
             mock_render.return_value = "ok"
             nc.plot(variable="t2m")
         extent = mock_render.call_args.kwargs.get("extent")
-        assert (
-            extent == var.bbox
-        ), f"static render extent should be self._ds.bbox {var.bbox}, got {extent}"
+        assert extent == var.bbox, (
+            f"static render extent should be self._ds.bbox {var.bbox}, got {extent}"
+        )
         assert mock_render.call_args.kwargs.get("mode") == "plot"

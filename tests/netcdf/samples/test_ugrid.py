@@ -8,7 +8,10 @@ from tests.netcdf.samples.conftest import MESH
 pytestmark = pytest.mark.core
 
 _UNSTRUCTURED_DIMS = {"n_face", "n_node", "n_edge", "ncol"}
-DATA_ONLY = ["ugrid__1v__3d1.nc", "ugrid__1v__1d1.nc"]  # data over a mesh dim, no topology in-file
+DATA_ONLY = [
+    "ugrid__1v__3d1.nc",
+    "ugrid__1v__1d1.nc",
+]  # data over a mesh dim, no topology in-file
 
 
 @pytest.mark.samples("ugrid")
@@ -17,7 +20,9 @@ def test_ugrid_files_have_unstructured_dimensions(sample_name, sample):
     nc = NetCDF.read_file(sample(sample_name))
     try:
         dims = set(nc.dimension_sizes)
-        assert dims & _UNSTRUCTURED_DIMS, f"{sample_name}: no unstructured dimension in {sorted(dims)}"
+        assert dims & _UNSTRUCTURED_DIMS, (
+            f"{sample_name}: no unstructured dimension in {sorted(dims)}"
+        )
     finally:
         nc.close()
 

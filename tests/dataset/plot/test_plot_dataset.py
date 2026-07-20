@@ -77,9 +77,9 @@ class TestPlotDataSet:
         with_cbar = dataset.plot(band=0)
         assert with_cbar.cbar is not None, "default plot must draw a colorbar"
         without_cbar = dataset.plot(band=0, add_colorbar=False)
-        assert (
-            without_cbar.cbar is None
-        ), "add_colorbar=False must suppress the colorbar"
+        assert without_cbar.cbar is None, (
+            "add_colorbar=False must suppress the colorbar"
+        )
 
     @pytest.mark.plot
     def test_glyph_exposes_mappable_im(self, src: Dataset):
@@ -525,9 +525,7 @@ class TestPlotDatasetCollection:
             arr = (rng.random((n_bands, dim, dim), dtype="float32") * 255).astype(
                 "float32"
             )
-            ds = Dataset.create_from_array(
-                arr=arr, geo=(0, 1, 0, 0, 0, -1), epsg=4326
-            )
+            ds = Dataset.create_from_array(arr=arr, geo=(0, 1, 0, 0, 0, -1), epsg=4326)
             path = tmp_path / f"rgb_{t}.tif"
             ds.to_file(str(path))
             files.append(str(path))

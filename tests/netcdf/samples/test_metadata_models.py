@@ -12,7 +12,9 @@ def test_variable_info_shape_matches_dimensions(sample_name, sample):
     nc = NetCDF.read_file(sample(sample_name))
     try:
         for name, info in nc.get_all_metadata().variables.items():
-            assert isinstance(info.dtype, str) and info.dtype, f"{sample_name}/{name}: empty dtype"
+            assert isinstance(info.dtype, str) and info.dtype, (
+                f"{sample_name}/{name}: empty dtype"
+            )
             assert len(info.shape) == len(info.dimensions), (
                 f"{sample_name}/{name}: shape {info.shape} vs dimensions {info.dimensions}"
             )
@@ -59,9 +61,9 @@ def test_packed_variables_expose_scale_or_offset(sample_name, sample):
     nc = NetCDF.read_file(sample(sample_name))
     try:
         variables = nc.get_all_metadata().variables.values()
-        assert any(info.scale is not None or info.offset is not None for info in variables), (
-            f"{sample_name}: expected a variable with scale and/or offset"
-        )
+        assert any(
+            info.scale is not None or info.offset is not None for info in variables
+        ), f"{sample_name}: expected a variable with scale and/or offset"
     finally:
         nc.close()
 
@@ -72,7 +74,9 @@ def test_group_metadata_has_children(sample_name, sample):
     nc = NetCDF.read_file(sample(sample_name))
     try:
         groups = nc.get_all_metadata().groups
-        assert len(groups) > 1, f"{sample_name}: expected child groups, got {list(groups)}"
+        assert len(groups) > 1, (
+            f"{sample_name}: expected child groups, got {list(groups)}"
+        )
     finally:
         nc.close()
 
@@ -84,9 +88,13 @@ def test_convention_field_matches_registry(sample_name, sample, caps):
     try:
         declared = nc.global_attributes.get("Conventions")
         if expected == "none":
-            assert declared is None, f"{sample_name}: expected no convention, got {declared!r}"
+            assert declared is None, (
+                f"{sample_name}: expected no convention, got {declared!r}"
+            )
         elif expected == "coards":
-            assert declared and "COARDS" in declared, f"{sample_name}: {declared!r} not COARDS"
+            assert declared and "COARDS" in declared, (
+                f"{sample_name}: {declared!r} not COARDS"
+            )
         elif expected == "cf":
             assert declared and "CF-" in declared, f"{sample_name}: {declared!r} not CF"
     finally:

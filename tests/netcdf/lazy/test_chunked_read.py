@@ -77,9 +77,9 @@ class TestChunksNoneEager:
     def test_chunks_none_returns_numpy(self, three_d_var):
         """Default path returns a plain numpy ndarray (regression)."""
         arr = three_d_var.read_array()
-        assert isinstance(
-            arr, np.ndarray
-        ), f"Expected numpy.ndarray, got {type(arr).__name__}"
+        assert isinstance(arr, np.ndarray), (
+            f"Expected numpy.ndarray, got {type(arr).__name__}"
+        )
 
     def test_chunks_none_with_band_kw(self, three_d_var):
         """``band=0`` still works on the eager path."""
@@ -95,9 +95,9 @@ class TestChunksLazy:
     def test_chunks_auto_returns_dask(self, three_d_var):
         """``chunks='auto'`` returns a dask array."""
         arr = three_d_var.read_array(chunks="auto")
-        assert isinstance(
-            arr, dask_array.Array
-        ), f"Expected dask.array.Array, got {type(arr).__name__}"
+        assert isinstance(arr, dask_array.Array), (
+            f"Expected dask.array.Array, got {type(arr).__name__}"
+        )
 
     def test_chunks_int_returns_dask(self, three_d_var):
         """Integer chunks also return a dask array."""
@@ -165,12 +165,12 @@ class TestChunksLazy:
         """
         eager = three_d_var.read_array()
         lazy = three_d_var.read_array(chunks="auto")
-        assert (
-            lazy.dtype == eager.dtype
-        ), f"declared lazy dtype {lazy.dtype} != eager dtype {eager.dtype}"
-        assert (
-            lazy.compute().dtype == lazy.dtype
-        ), f"materialized dtype {lazy.compute().dtype} diverged from declared {lazy.dtype}"
+        assert lazy.dtype == eager.dtype, (
+            f"declared lazy dtype {lazy.dtype} != eager dtype {eager.dtype}"
+        )
+        assert lazy.compute().dtype == lazy.dtype, (
+            f"materialized dtype {lazy.compute().dtype} diverged from declared {lazy.dtype}"
+        )
 
 
 @requires_dask
@@ -239,9 +239,9 @@ class TestUnpackLazy:
         )
         var = nc.get_variable("z")
         lazy = var.read_array(chunks="auto", unpack=True)
-        assert isinstance(
-            lazy, dask_array.Array
-        ), "unpack=True on a lazy backing must stay lazy"
+        assert isinstance(lazy, dask_array.Array), (
+            "unpack=True on a lazy backing must stay lazy"
+        )
         assert lazy.dtype == np.float64, "Unpacked dask array should be float64"
         computed = lazy.compute()
         eager = var.read_array(unpack=True)
@@ -289,9 +289,9 @@ class TestLazyPickle:
                 _compute_lazy_in_subprocess,
                 (payload,),
             )
-        assert (
-            shape == expected.shape
-        ), f"Child shape {shape} != parent {expected.shape}"
+        assert shape == expected.shape, (
+            f"Child shape {shape} != parent {expected.shape}"
+        )
         expected_sum = float(np.asarray(expected, dtype=np.float64).sum())
         assert_allclose(total, expected_sum, rtol=1e-6)
 
@@ -331,10 +331,26 @@ class TestImportError:
 
 
 ORIENTATION_FIXTURES = [
-    ("tests/data/netcdf/cf__9v__1d7-2d2__geos__y-desc.nc", "CMI", "geostationary, scaled Y descends"),
-    ("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc", "Band1", "geographic, bottom-up"),
-    ("tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc", "t2m", "geographic, north-up"),
-    ("tests/data/netcdf/coards__4v__1d3-3d1__y-desc.nc", "air", "COARDS, north-up, packed"),
+    (
+        "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-desc.nc",
+        "CMI",
+        "geostationary, scaled Y descends",
+    ),
+    (
+        "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
+        "Band1",
+        "geographic, bottom-up",
+    ),
+    (
+        "tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc",
+        "t2m",
+        "geographic, north-up",
+    ),
+    (
+        "tests/data/netcdf/coards__4v__1d3-3d1__y-desc.nc",
+        "air",
+        "COARDS, north-up, packed",
+    ),
 ]
 
 
@@ -364,16 +380,24 @@ class TestLazyOrientationMatchesEager:
             whose `y` is packed with a negative `scale_factor`, the two disagreed and the chunked
             read came back vertically mirrored — #705, still live on the lazy path.
         """
-        classic = self._first_plane(gdal.Open(f'NETCDF:"{path}":{variable}').ReadAsArray())
-        eager = self._first_plane(NetCDF.read_file(path).get_variable(variable).read_array())
+        classic = self._first_plane(
+            gdal.Open(f'NETCDF:"{path}":{variable}').ReadAsArray()
+        )
+        eager = self._first_plane(
+            NetCDF.read_file(path).get_variable(variable).read_array()
+        )
         lazy = self._first_plane(
             NetCDF.read_file(path).get_variable(variable).read_array(chunks="auto")
         )
         np.testing.assert_array_equal(
-            eager, classic, err_msg=f"{label}: eager read disagrees with the classic driver"
+            eager,
+            classic,
+            err_msg=f"{label}: eager read disagrees with the classic driver",
         )
         np.testing.assert_array_equal(
-            lazy, eager, err_msg=f"{label}: chunked read is mirrored relative to the eager read"
+            lazy,
+            eager,
+            err_msg=f"{label}: chunked read is mirrored relative to the eager read",
         )
 
     def test_read_variable_matches_eager(self):
@@ -402,7 +426,9 @@ class TestLazyOrientationMatchesEager:
         # Origin at the east edge, walking west: lon = 29, 27, 25, 23, 21.
         src.SetGeoTransform((30.0, -2.0, 0.0, 10.0, 0.0, -1.0))
         src.GetRasterBand(1).WriteArray(np.arange(20, dtype=np.float32).reshape(4, 5))
-        gdal.Translate(path, src, format="netCDF", creationOptions=["WRITE_BOTTOMUP=NO"])
+        gdal.Translate(
+            path, src, format="netCDF", creationOptions=["WRITE_BOTTOMUP=NO"]
+        )
 
         container = NetCDF.read_file(path)
         var = container.get_variable("Band1")
@@ -413,10 +439,14 @@ class TestLazyOrientationMatchesEager:
         )
         direct = self._first_plane(container._read_variable("Band1"))
         np.testing.assert_array_equal(
-            lazy, eager, err_msg="chunked read is mirrored west-east relative to the eager read"
+            lazy,
+            eager,
+            err_msg="chunked read is mirrored west-east relative to the eager read",
         )
         np.testing.assert_array_equal(
-            direct, eager, err_msg="_read_variable is mirrored west-east relative to get_variable"
+            direct,
+            eager,
+            err_msg="_read_variable is mirrored west-east relative to get_variable",
         )
 
     _NON_TRAILING_FIXTURE = "tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc"
@@ -436,7 +466,9 @@ class TestLazyOrientationMatchesEager:
         """
         path = self._NON_TRAILING_FIXTURE
         eager = np.asarray(NetCDF.read_file(path).get_variable("T").read_array())
-        lazy = np.asarray(NetCDF.read_file(path).get_variable("T").read_array(chunks="auto"))
+        lazy = np.asarray(
+            NetCDF.read_file(path).get_variable("T").read_array(chunks="auto")
+        )
         np.testing.assert_array_equal(
             lazy.reshape(-1, *eager.shape[-2:]),
             eager,
@@ -453,22 +485,36 @@ class TestLazyOrientationMatchesEager:
             reproduce the historical trailing-plane normalization, matching the eager read of a
             bottom-up 2-D variable.
         """
-        path, variable, _ = ORIENTATION_FIXTURES[1]  # geographic, bottom-up `Band1` (needs a Y flip)
-        eager = self._first_plane(NetCDF.read_file(path).get_variable(variable).read_array())
-        no_plane = self._first_plane(lazy_mod.build_lazy_array(path, variable, chunks="auto"))
+        path, variable, _ = ORIENTATION_FIXTURES[
+            1
+        ]  # geographic, bottom-up `Band1` (needs a Y flip)
+        eager = self._first_plane(
+            NetCDF.read_file(path).get_variable(variable).read_array()
+        )
+        no_plane = self._first_plane(
+            lazy_mod.build_lazy_array(path, variable, chunks="auto")
+        )
         np.testing.assert_array_equal(
-            no_plane, eager, err_msg="spatial_dims=None must keep the trailing normalization"
+            no_plane,
+            eager,
+            err_msg="spatial_dims=None must keep the trailing normalization",
         )
         ndim = np.asarray(
             NetCDF.read_file(path).get_variable(variable).read_array(chunks="auto")
         ).ndim
         no_flips = self._first_plane(
             lazy_mod.build_lazy_array(
-                path, variable, chunks="auto", spatial_dims=(ndim - 1, ndim - 2), flips=None
+                path,
+                variable,
+                chunks="auto",
+                spatial_dims=(ndim - 1, ndim - 2),
+                flips=None,
             )
         )
         np.testing.assert_array_equal(
-            no_flips, eager, err_msg="flips=None must fall back to the trailing-plane decision"
+            no_flips,
+            eager,
+            err_msg="flips=None must fall back to the trailing-plane decision",
         )
 
     def test_explicit_nontrailing_plane_lazy_matches_eager(self):
@@ -486,8 +532,13 @@ class TestLazyOrientationMatchesEager:
         """
         path = self._NON_TRAILING_FIXTURE
         var = NetCDF.read_file(path).get_variable("T", x_dim="lon", y_dim="lat")
-        assert var._md_spatial_dims == (3, 1), "lon/lat must resolve to the non-trailing (x=3, y=1)"
-        assert var._md_y_flipped is True, "the fixture's ascending latitude must flip to north-up"
+        assert var._md_spatial_dims == (
+            3,
+            1,
+        ), "lon/lat must resolve to the non-trailing (x=3, y=1)"
+        assert var._md_y_flipped is True, (
+            "the fixture's ascending latitude must flip to north-up"
+        )
         eager = np.asarray(var.read_array())
         rows, cols = eager.shape[-2:]
         assert (rows, cols) == (64, 128), "eager plane must be (lat=64, lon=128)"
@@ -542,10 +593,16 @@ class TestLazyOrientationMatchesEager:
             )
         )
         ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
-        raw = np.asarray(ds.GetRootGroup().OpenMDArray("T").ReadAsArray())  # (time, lat, lev, lon)
-        reference = np.moveaxis(raw, [1, 3], [2, 3])[..., :, ::-1]  # (time, lev, lat, lon), cols flipped
+        raw = np.asarray(
+            ds.GetRootGroup().OpenMDArray("T").ReadAsArray()
+        )  # (time, lat, lev, lon)
+        reference = np.moveaxis(raw, [1, 3], [2, 3])[
+            ..., :, ::-1
+        ]  # (time, lev, lat, lon), cols flipped
         np.testing.assert_array_equal(
-            lazy, reference, err_msg="moveaxis + forced X flip diverged from the reference"
+            lazy,
+            reference,
+            err_msg="moveaxis + forced X flip diverged from the reference",
         )
 
     def test_one_dimensional_variable_is_never_flipped(self):
@@ -576,13 +633,19 @@ class TestLazyHandleLifetime:
             on the read's manager (kept alive by the dask graph) evicts its slot when the array is
             dropped, so reopening the same NetCDF in-process does not leave two live handles.
         """
-        assert len(FILE_CACHE) == 0, "the autouse fixture should leave FILE_CACHE empty at test start"
+        assert len(FILE_CACHE) == 0, (
+            "the autouse fixture should leave FILE_CACHE empty at test start"
+        )
         lazy = three_d_var.read_array(chunks="auto")
         lazy.compute()
-        assert len(FILE_CACHE) == 1, "a lazy read + compute must park exactly one handle"
+        assert len(FILE_CACHE) == 1, (
+            "a lazy read + compute must park exactly one handle"
+        )
         del lazy
         gc.collect()
-        assert len(FILE_CACHE) == 0, "dropping the lazy array must evict the parked handle"
+        assert len(FILE_CACHE) == 0, (
+            "dropping the lazy array must evict the parked handle"
+        )
 
     def test_nontrailing_moveaxis_lazy_evicts_handle_on_drop(self):
         """Dropping a non-trailing (moveaxis-graph) lazy array still evicts its parked handle (#728).
@@ -592,17 +655,23 @@ class TestLazyHandleLifetime:
             is kept alive by the base readers, not the wrapper, so the drop-time finalizer must still
             fire — mirror the trailing eviction test on the moveaxis graph.
         """
-        assert len(FILE_CACHE) == 0, "the autouse fixture should leave FILE_CACHE empty at test start"
+        assert len(FILE_CACHE) == 0, (
+            "the autouse fixture should leave FILE_CACHE empty at test start"
+        )
         lazy = (
             NetCDF.read_file("tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc")
             .get_variable("T", x_dim="lon", y_dim="lat")
             .read_array(chunks="auto")
         )
         lazy.compute()
-        assert len(FILE_CACHE) == 1, "a non-trailing lazy read + compute must park exactly one handle"
+        assert len(FILE_CACHE) == 1, (
+            "a non-trailing lazy read + compute must park exactly one handle"
+        )
         del lazy
         gc.collect()
-        assert len(FILE_CACHE) == 0, "dropping the moveaxis lazy array must evict the parked handle"
+        assert len(FILE_CACHE) == 0, (
+            "dropping the moveaxis lazy array must evict the parked handle"
+        )
 
     def test_dropping_unpack_lazy_array_evicts_handle(self, scale_offset_path):
         """Dropping an `unpack=True` lazy array — a DERIVED dask array — still evicts the handle (H1).
@@ -614,12 +683,18 @@ class TestLazyHandleLifetime:
             path a wrapper-bound finalizer silently leaked (cache stayed at 1).
         """
         nc = NetCDF.read_file(scale_offset_path, open_as_multi_dimensional=True)
-        lazy = nc.get_variable(nc.variable_names[0]).read_array(chunks="auto", unpack=True)
+        lazy = nc.get_variable(nc.variable_names[0]).read_array(
+            chunks="auto", unpack=True
+        )
         lazy.compute()
-        assert len(FILE_CACHE) == 1, "a lazy unpack read + compute must park exactly one handle"
+        assert len(FILE_CACHE) == 1, (
+            "a lazy unpack read + compute must park exactly one handle"
+        )
         del lazy
         gc.collect()
-        assert len(FILE_CACHE) == 0, "dropping a derived (unpack) lazy array must evict the handle"
+        assert len(FILE_CACHE) == 0, (
+            "dropping a derived (unpack) lazy array must evict the handle"
+        )
 
     def test_close_releases_parked_handle_while_array_alive(self, three_d_path):
         """`nc.close()` releases the lazy handle even while the array is alive — #727's exact repro.
@@ -635,8 +710,12 @@ class TestLazyHandleLifetime:
         lazy.compute()
         assert len(FILE_CACHE) == 1, "the lazy read parks a handle"
         nc.close()
-        assert len(FILE_CACHE) == 0, "close() must release the parked handle even while the array is alive"
-        assert lazy.compute().size > 0, "the lazy array stays usable after close() (its manager re-opens)"
+        assert len(FILE_CACHE) == 0, (
+            "close() must release the parked handle even while the array is alive"
+        )
+        assert lazy.compute().size > 0, (
+            "the lazy array stays usable after close() (its manager re-opens)"
+        )
 
     def test_closing_variable_subset_releases_its_handle(self, three_d_path):
         """Closing a `get_variable()` subset directly releases the handle it parked (M1).
@@ -666,7 +745,9 @@ class TestLazyHandleLifetime:
         nc.close()
         assert len(FILE_CACHE) == 0, "the first close releases the parked handle"
         lazy.compute()
-        assert len(FILE_CACHE) == 1, "recomputing after close re-parks a handle (manager re-opens)"
+        assert len(FILE_CACHE) == 1, (
+            "recomputing after close re-parks a handle (manager re-opens)"
+        )
         nc.close()
         assert len(FILE_CACHE) == 0, "a second close must release the re-parked handle"
 
@@ -678,7 +759,9 @@ class TestLazyHandleLifetime:
             del lazy
         gc.collect()
         tracked = getattr(three_d_var, "_lazy_managers", ())
-        assert len(tracked) <= 1, f"dead managers must not accumulate in the WeakSet; tracked={len(tracked)}"
+        assert len(tracked) <= 1, (
+            f"dead managers must not accumulate in the WeakSet; tracked={len(tracked)}"
+        )
 
     def test_shared_slot_kept_until_last_manager_released(self, three_d_var):
         """Two reads of the same variable share one slot; the handle survives until BOTH drop (M2).
@@ -696,7 +779,9 @@ class TestLazyHandleLifetime:
         assert len(FILE_CACHE) == 1, "two reads of one variable share a single slot"
         del first
         gc.collect()
-        assert len(FILE_CACHE) == 1, "dropping one array must NOT evict the shared handle"
+        assert len(FILE_CACHE) == 1, (
+            "dropping one array must NOT evict the shared handle"
+        )
         assert second.compute().size > 0, "the surviving array must still read"
         del second
         gc.collect()
@@ -716,7 +801,9 @@ class TestLazyHandleLifetime:
         lazy.compute()
         del lazy
         gc.collect()
-        assert len(FILE_CACHE) == 0, "the parked handle must be released before reopening"
+        assert len(FILE_CACHE) == 0, (
+            "the parked handle must be released before reopening"
+        )
         reopened = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
         eager = np.asarray(reopened.get_variable(variable).read_array())
         assert eager.size > 0, "the eager reopen read should return data"

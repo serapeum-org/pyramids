@@ -140,7 +140,7 @@ class TestGroupbySinglePass:
         grouped = DatasetCollection.from_files(four_files).groupby([0, 1, 0, 1])
         stds = grouped.std()
         variances = grouped.var()
-        assert np.allclose(stds[0], np.std([1.0, 3.0]))       # 1.0
+        assert np.allclose(stds[0], np.std([1.0, 3.0]))  # 1.0
         assert np.allclose(variances[1], np.var([2.0, 4.0]))  # 1.0
 
     @requires_dask

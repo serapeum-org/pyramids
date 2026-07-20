@@ -110,7 +110,9 @@ class TestToTerrainRgbNoData:
         """A 4326 source with nodata stays transparent after the warp to 3857."""
         arr = np.array([[100.0, -9999.0], [2000.0, 3000.0]], dtype="float32")
         dem = Dataset.create_from_array(
-            arr=arr, geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01), epsg=4326,
+            arr=arr,
+            geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01),
+            epsg=4326,
             no_data_value=-9999.0,
         )
         out = dem.to_terrain_rgb(tmp_path / "rn.png", tiles=False)
@@ -133,7 +135,9 @@ class TestToTerrainRgbOutputs:
         """A non-3857 source is reprojected, not rejected."""
         arr = np.ones((4, 4), dtype="float32") * 500.0
         dem = Dataset.create_from_array(
-            arr=arr, geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01), epsg=4326,
+            arr=arr,
+            geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01),
+            epsg=4326,
             no_data_value=None,
         )
         out = dem.to_terrain_rgb(tmp_path / "w.tif", tiles=False)
@@ -268,8 +272,11 @@ class TestTerrainRgbaStack:
     def test_no_nodata_returns_three_bands(self):
         """Without a nodata value the stack is plain 3-band RGB."""
         stack = _terrain_rgba_stack(
-            np.array([[100.0]]), None, encoding="mapbox",
-            base_val=-10000.0, interval=0.1,
+            np.array([[100.0]]),
+            None,
+            encoding="mapbox",
+            base_val=-10000.0,
+            interval=0.1,
         )
         assert stack.shape[0] == 3, f"expected 3 bands, got {stack.shape[0]}"
 
@@ -321,11 +328,15 @@ class TestToTerrainRgbClamping:
         """An elevation above the encodable range writes the max RGB, not garbage."""
         arr = np.array([[1e9, 0.0]], dtype="float64").astype("float32")
         dem = Dataset.create_from_array(
-            arr=arr, geo=_GEO_3857, epsg=3857,
+            arr=arr,
+            geo=_GEO_3857,
+            epsg=3857,
             no_data_value=None,
         )
         out = dem.to_terrain_rgb(tmp_path / "c.png", tiles=False)
         _, (r, g, b) = _read_bands(out)
-        assert (r[0, 0], g[0, 0], b[0, 0]) == (255, 255, 255), (
-            f"clamped cell must be (255,255,255), got {(r[0,0], g[0,0], b[0,0])}"
-        )
+        assert (r[0, 0], g[0, 0], b[0, 0]) == (
+            255,
+            255,
+            255,
+        ), f"clamped cell must be (255,255,255), got {(r[0, 0], g[0, 0], b[0, 0])}"

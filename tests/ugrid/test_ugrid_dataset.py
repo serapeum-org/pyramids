@@ -153,9 +153,9 @@ class TestUgridDatasetDataAccess:
         ds = UgridDataset.read_file(ugrid_convention_nc_path)
         var = ds["mesh2d_node_z"]
         assert var.data is not None, "Data should be loaded"
-        assert (
-            var.data.shape[0] == 8916
-        ), f"Expected shape[0]=8916, got {var.data.shape[0]}"
+        assert var.data.shape[0] == 8916, (
+            f"Expected shape[0]=8916, got {var.data.shape[0]}"
+        )
 
 
 class TestUgridDatasetProperties:
@@ -188,9 +188,9 @@ class TestUgridDatasetProperties:
         """
         ds = UgridDataset.read_file(ugrid_convention_nc_path)
         meta = ds.metadata
-        assert isinstance(
-            meta, UgridMetadata
-        ), f"Expected UgridMetadata, got {type(meta)}"
+        assert isinstance(meta, UgridMetadata), (
+            f"Expected UgridMetadata, got {type(meta)}"
+        )
         assert meta.n_nodes == 8916, f"Expected n_nodes=8916, got {meta.n_nodes}"
         assert meta.n_faces == 8355, f"Expected n_faces=8355, got {meta.n_faces}"
 

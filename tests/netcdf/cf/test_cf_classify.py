@@ -111,7 +111,9 @@ class TestDetectAxis:
             case of the value, so ``axis="z"`` and ``axis="Z"`` both yield ``"Z"``.
         """
         result = detect_axis("foo", {"axis": axis_value})
-        assert result == expected, f"Expected {expected} for axis={axis_value!r}, got {result}"
+        assert result == expected, (
+            f"Expected {expected} for axis={axis_value!r}, got {result}"
+        )
 
     def test_units_passed_as_separate_parameter(self):
         """The standalone ``units=`` parameter is honored when attrs omit units.
@@ -171,7 +173,9 @@ class TestDetectAxis:
             is treated as ``"X"`` rather than falling through to the weaker heuristics.
         """
         result = detect_axis("foo", {"axis": axis_value})
-        assert result == expected, f"Expected {expected} for axis={axis_value!r}, got {result}"
+        assert result == expected, (
+            f"Expected {expected} for axis={axis_value!r}, got {result}"
+        )
 
     def test_explicit_axis_is_authoritative_over_standard_name(self):
         """An explicit ``axis`` wins over a conflicting ``standard_name`` (review M1 contract).
@@ -218,9 +222,9 @@ class TestClassifyVariables:
             "crs": self._make_mock_var({"grid_mapping_name": "transverse_mercator"})
         }
         roles = classify_variables(vars_, dims)
-        assert (
-            roles["crs"] == "grid_mapping"
-        ), f"Expected grid_mapping, got {roles['crs']}"
+        assert roles["crs"] == "grid_mapping", (
+            f"Expected grid_mapping, got {roles['crs']}"
+        )
 
     def test_bounds(self):
         """Variable referenced by bounds attribute is 'bounds'."""
@@ -231,9 +235,9 @@ class TestClassifyVariables:
             "temp": self._make_mock_var({}),
         }
         roles = classify_variables(vars_, dims)
-        assert (
-            roles["time_bnds"] == "bounds"
-        ), f"Expected bounds, got {roles['time_bnds']}"
+        assert roles["time_bnds"] == "bounds", (
+            f"Expected bounds, got {roles['time_bnds']}"
+        )
         assert roles["temp"] == "data", f"Expected data, got {roles['temp']}"
 
     def test_data_default(self):
@@ -244,18 +248,18 @@ class TestClassifyVariables:
             "temperature": self._make_mock_var({}),
         }
         roles = classify_variables(vars_, dims)
-        assert (
-            roles["temperature"] == "data"
-        ), f"Expected data, got {roles['temperature']}"
+        assert roles["temperature"] == "data", (
+            f"Expected data, got {roles['temperature']}"
+        )
 
     def test_mesh_topology(self):
         """Variable with cf_role=mesh_topology is 'mesh_topology'."""
         dims = {}
         vars_ = {"mesh2d": self._make_mock_var({"cf_role": "mesh_topology"})}
         roles = classify_variables(vars_, dims)
-        assert (
-            roles["mesh2d"] == "mesh_topology"
-        ), f"Expected mesh_topology, got {roles['mesh2d']}"
+        assert roles["mesh2d"] == "mesh_topology", (
+            f"Expected mesh_topology, got {roles['mesh2d']}"
+        )
 
     def test_connectivity(self):
         """Variable with cf_role containing connectivity."""
@@ -264,9 +268,9 @@ class TestClassifyVariables:
             "face_nodes": self._make_mock_var({"cf_role": "face_node_connectivity"})
         }
         roles = classify_variables(vars_, dims)
-        assert (
-            roles["face_nodes"] == "connectivity"
-        ), f"Expected connectivity, got {roles['face_nodes']}"
+        assert roles["face_nodes"] == "connectivity", (
+            f"Expected connectivity, got {roles['face_nodes']}"
+        )
 
 
 class TestParseConventions:
@@ -282,9 +286,9 @@ class TestParseConventions:
         result = parse_conventions("CF-1.8 UGRID-1.0 Deltares-0.10")
         assert result["CF"] == "1.8", f"CF version: {result.get('CF')}"
         assert result["UGRID"] == "1.0", f"UGRID version: {result.get('UGRID')}"
-        assert (
-            result["Deltares"] == "0.10"
-        ), f"Deltares version: {result.get('Deltares')}"
+        assert result["Deltares"] == "0.10", (
+            f"Deltares version: {result.get('Deltares')}"
+        )
 
     def test_none_returns_empty(self):
         """None input returns empty dict."""
@@ -411,15 +415,15 @@ class TestCFInfoOnMetadata:
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         md = nc.meta_data
-        assert (
-            "temp" in md.cf.data_variable_names
-        ), f"temp should be in data_variable_names: {md.cf.data_variable_names}"
+        assert "temp" in md.cf.data_variable_names, (
+            f"temp should be in data_variable_names: {md.cf.data_variable_names}"
+        )
 
     def test_cf_conventions_parsed(self):
         """CFInfo.conventions contains parsed Conventions attribute."""
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         md = nc.meta_data
-        assert (
-            "CF" in md.cf.conventions
-        ), f"CF should be in conventions: {md.cf.conventions}"
+        assert "CF" in md.cf.conventions, (
+            f"CF should be in conventions: {md.cf.conventions}"
+        )

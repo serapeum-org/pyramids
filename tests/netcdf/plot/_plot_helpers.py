@@ -11,17 +11,21 @@ from pyramids.netcdf.netcdf import NetCDF
 
 def _make_capture(captured: dict):
     """Return a side-effect for patching Analysis.plot that stores the rendered slice."""
+
     def _inner(self_engine, **kw):
         captured["data"] = self_engine._ds.read_array(band=0)
         return "ok"
+
     return _inner
 
 
 def _make_fake_render(captured: dict):
     """Return a side-effect for patching _render_array that stores the call kwargs."""
+
     def _inner(**kw):
         captured["kw"] = kw
         return "ok"
+
     return _inner
 
 
@@ -169,7 +173,9 @@ def _attach_curvilinear_coords(
     x_arr = np.linspace(-110.0, -100.0, cols, dtype=np.float32)
     y_arr = np.linspace(35.0, 45.0, rows, dtype=np.float32)
     x_2d, y_2d = np.meshgrid(x_arr, y_arr)
-    x_ndim, y_ndim = (coord_ndim, coord_ndim) if isinstance(coord_ndim, int) else coord_ndim
+    x_ndim, y_ndim = (
+        (coord_ndim, coord_ndim) if isinstance(coord_ndim, int) else coord_ndim
+    )
     x_installed = x_arr if x_ndim == 1 else x_2d
     y_installed = y_arr if y_ndim == 1 else y_2d
     extra_vars = {x_name: x_installed, y_name: y_installed}

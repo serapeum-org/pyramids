@@ -461,9 +461,9 @@ class TestWithCentroidDegenerateGeometries:
             warnings.simplefilter("always", UserWarning)
             fc.with_centroid()
         user_warnings = [w for w in caught if issubclass(w.category, UserWarning)]
-        assert any(
-            "NaN centroids" in str(w.message) for w in user_warnings
-        ), f"expected NaN-centroids warning; got {user_warnings}"
+        assert any("NaN centroids" in str(w.message) for w in user_warnings), (
+            f"expected NaN-centroids warning; got {user_warnings}"
+        )
 
     def test_nan_coord_row_substituted_with_empty_point(self):
         """Test scenario: the NaN-coord row's center_point is empty."""
@@ -501,9 +501,9 @@ class TestWithCentroidDegenerateGeometries:
             warnings.simplefilter("always", UserWarning)
             fc.with_centroid()
         user_warnings = [w for w in caught if issubclass(w.category, UserWarning)]
-        assert not any(
-            "NaN centroids" in str(w.message) for w in user_warnings
-        ), f"should not warn for valid geometries; got {user_warnings}"
+        assert not any("NaN centroids" in str(w.message) for w in user_warnings), (
+            f"should not warn for valid geometries; got {user_warnings}"
+        )
 
     def test_warning_is_geometry_warning_category(self):
         """L6: the NaN-centroid warning uses ``GeometryWarning``.
@@ -533,9 +533,9 @@ class TestWithCentroidDegenerateGeometries:
             _w.simplefilter("always", GeometryWarning)
             fc.with_centroid()
         geo_warnings = [w for w in caught if issubclass(w.category, GeometryWarning)]
-        assert (
-            geo_warnings
-        ), f"expected a GeometryWarning; got {[w.category for w in caught]}"
+        assert geo_warnings, (
+            f"expected a GeometryWarning; got {[w.category for w in caught]}"
+        )
 
     def test_warning_can_be_filtered_by_category(self):
         """L6: ``filterwarnings("ignore", category=GeometryWarning)`` works.
@@ -565,9 +565,9 @@ class TestWithCentroidDegenerateGeometries:
             _w.filterwarnings("ignore", category=GeometryWarning)
             fc.with_centroid()
         geo_warnings = [w for w in caught if issubclass(w.category, GeometryWarning)]
-        assert (
-            not geo_warnings
-        ), f"GeometryWarning should have been filtered out; got {geo_warnings}"
+        assert not geo_warnings, (
+            f"GeometryWarning should have been filtered out; got {geo_warnings}"
+        )
 
     def test_warning_lists_all_bad_row_indices(self):
         """C18: multiple NaN rows are all named in the warning message.
@@ -598,9 +598,9 @@ class TestWithCentroidDegenerateGeometries:
             fc.with_centroid()
         user_warnings = [w for w in caught if issubclass(w.category, UserWarning)]
         bodies = " ".join(str(w.message) for w in user_warnings)
-        assert (
-            "2 row(s)" in bodies or "[1, 3]" in bodies
-        ), f"warning should summarise the two bad rows; got {bodies}"
+        assert "2 row(s)" in bodies or "[1, 3]" in bodies, (
+            f"warning should summarise the two bad rows; got {bodies}"
+        )
 
 
 def test_old_names_are_gone():
@@ -635,6 +635,6 @@ def test_no_inplace_kwarg_on_public_methods():
             continue
         if "inplace" in sig.parameters:
             offenders.append(name)
-    assert (
-        not offenders
-    ), f"pyramids methods must not have inplace= (ARC-16): {offenders}"
+    assert not offenders, (
+        f"pyramids methods must not have inplace= (ARC-16): {offenders}"
+    )

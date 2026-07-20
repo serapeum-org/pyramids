@@ -16,7 +16,8 @@ values. GDAL is invoked only at the write call site.
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 CreationOptions = Mapping[str, Any]
 """Alias for a mapping of GDAL creation-option names to Python values.
@@ -195,8 +196,7 @@ def validate_profile(name: str, dtype_name: str, band_count: int) -> None:
         )
     if not (min_bands <= band_count <= max_bands):
         raise ValueError(
-            f"{key} profile requires {min_bands}-{max_bands} bands; "
-            f"got {band_count}."
+            f"{key} profile requires {min_bands}-{max_bands} bands; got {band_count}."
         )
 
 

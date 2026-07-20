@@ -381,7 +381,9 @@ class TestIterFeaturesIncludeIndex:
             absolute row index.
         """
         feats = list(FeatureCollection.iter_features(small_geojson))
-        feats_indexed = list(FeatureCollection.iter_features(small_geojson, include_index=True))
+        feats_indexed = list(
+            FeatureCollection.iter_features(small_geojson, include_index=True)
+        )
         ids = [f.get("id") for f in feats]
         ids_indexed = [f["id"] for f in feats_indexed]
         # include_index=False must produce different ids than include_index=True
@@ -469,6 +471,6 @@ class TestIterFeaturesEnginePin:
         monkeypatch.setattr(geopandas, "read_file", _spy)
         list(FeatureCollection.iter_features(larger_geojson, chunksize=10))
         assert captured, "gpd.read_file must be invoked at least once"
-        assert all(
-            k.get("engine") == "pyogrio" for k in captured
-        ), f"expected engine='pyogrio' in every call; got {captured}"
+        assert all(k.get("engine") == "pyogrio" for k in captured), (
+            f"expected engine='pyogrio' in every call; got {captured}"
+        )

@@ -40,7 +40,8 @@ import math
 import operator
 import os
 import sys
-from typing import Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
 from osgeo import osr
@@ -110,7 +111,7 @@ def _bbox_disjoint(a, b) -> bool:
     """
     aminx, aminy, amaxx, amaxy = a
     bminx, bminy, bmaxx, bmaxy = b
-    return aminx >= bmaxx or amaxx <= bminx or aminy >= bmaxy or amaxy <= bminy
+    return bool(aminx >= bmaxx or amaxx <= bminx or aminy >= bmaxy or amaxy <= bminy)
 
 
 _HELP_INSPECT_RASTER = "raster path to inspect"
@@ -394,7 +395,7 @@ def _cmd_orthorectify(args: argparse.Namespace) -> int:
     return 0
 
 
-_CALC_BINOPS = {
+_CALC_BINOPS: dict[type[ast.operator], Callable[[Any, Any], Any]] = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
@@ -403,8 +404,11 @@ _CALC_BINOPS = {
     ast.Mod: operator.mod,
     ast.FloorDiv: operator.floordiv,
 }
-_CALC_UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
-_CALC_COMPARE = {
+_CALC_UNARYOPS: dict[type[ast.unaryop], Callable[[Any], Any]] = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+_CALC_COMPARE: dict[type[ast.cmpop], Callable[[Any, Any], Any]] = {
     ast.Lt: operator.lt,
     ast.Gt: operator.gt,
     ast.LtE: operator.le,
@@ -415,8 +419,16 @@ _CALC_COMPARE = {
 # The only function calls a `calc` expression may use, all from numpy.
 _CALC_NP_FUNCS = frozenset(
     {
-        "where", "clip", "log", "log10", "exp", "sqrt", "abs",
-        "minimum", "maximum", "power",
+        "where",
+        "clip",
+        "log",
+        "log10",
+        "exp",
+        "sqrt",
+        "abs",
+        "minimum",
+        "maximum",
+        "power",
     }
 )
 
@@ -446,9 +458,7 @@ def _safe_calc_eval(node: ast.AST, variables: dict) -> object:
             _safe_calc_eval(node.right, variables),
         )
     elif isinstance(node, ast.UnaryOp) and type(node.op) in _CALC_UNARYOPS:
-        result = _CALC_UNARYOPS[type(node.op)](
-            _safe_calc_eval(node.operand, variables)
-        )
+        result = _CALC_UNARYOPS[type(node.op)](_safe_calc_eval(node.operand, variables))
     elif (
         isinstance(node, ast.Compare)
         and len(node.ops) == 1
@@ -508,9 +518,7 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     _refuse_existing(output, args.overwrite)
     datasets = [Dataset.read_file(path) for path in inputs]
     names = [chr(ord("A") + index) for index in range(len(datasets))]
-    variables = {
-        name: np.asarray(ds.read_array()) for name, ds in zip(names, datasets)
-    }
+    variables = {name: np.asarray(ds.read_array()) for name, ds in zip(names, datasets)}
     result = np.asarray(_safe_calc_eval(ast.parse(args.expr, mode="eval"), variables))
     if args.dtype:
         result = result.astype(args.dtype)
@@ -818,9 +826,7 @@ def _build_parser() -> argparse.ArgumentParser:
     warp.add_argument("input", help=_HELP_SRC_RASTER)
     warp.add_argument("output", help=_HELP_DST_RASTER)
     warp.add_argument("--crs", required=True, help="target CRS (EPSG code, WKT, PROJ4)")
-    warp.add_argument(
-        "--resampling", default=DEFAULT_RESAMPLING, help=_HELP_RESAMPLING
-    )
+    warp.add_argument("--resampling", default=DEFAULT_RESAMPLING, help=_HELP_RESAMPLING)
     warp.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     warp.set_defaults(func=_cmd_warp)
 
@@ -894,9 +900,7 @@ def _build_parser() -> argparse.ArgumentParser:
     georeference.add_argument(
         "--resampling", default=DEFAULT_RESAMPLING, help=_HELP_RESAMPLING
     )
-    georeference.add_argument(
-        "--overwrite", action="store_true", help=_HELP_OVERWRITE
-    )
+    georeference.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     georeference.set_defaults(func=_cmd_georeference)
 
     orthorectify = sub.add_parser(
@@ -911,12 +915,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="constant elevation (map units) to use when no --dem is given",
     )
     orthorectify.add_argument("--to-crs", help="reproject the result to this CRS")
-    orthorectify.add_argument(
-        "--resampling", default="bilinear", help=_HELP_RESAMPLING
-    )
-    orthorectify.add_argument(
-        "--overwrite", action="store_true", help=_HELP_OVERWRITE
-    )
+    orthorectify.add_argument("--resampling", default="bilinear", help=_HELP_RESAMPLING)
+    orthorectify.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     orthorectify.set_defaults(func=_cmd_orthorectify)
 
     edit_info = sub.add_parser(
@@ -933,9 +933,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     edit_info.set_defaults(func=_cmd_edit_info)
 
-    calc = sub.add_parser(
-        "calc", help="evaluate a band expression into a new raster"
-    )
+    calc = sub.add_parser("calc", help="evaluate a band expression into a new raster")
     calc.add_argument(
         "expr",
         help="expression over inputs A, B, ... e.g. '(A - B) / (A + B)'",
@@ -972,9 +970,7 @@ def _build_parser() -> argparse.ArgumentParser:
     shapes.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     shapes.set_defaults(func=_cmd_shapes)
 
-    rasterize = sub.add_parser(
-        "rasterize", help="burn a vector into a new raster"
-    )
+    rasterize = sub.add_parser("rasterize", help="burn a vector into a new raster")
     rasterize.add_argument("input", help="source vector path")
     rasterize.add_argument("output", help=_HELP_DST_RASTER)
     rasterize.add_argument(
@@ -1015,7 +1011,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
-        result = args.func(args)
+        result: int = args.func(args)
     except (
         ValueError,
         TypeError,

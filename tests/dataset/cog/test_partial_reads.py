@@ -279,13 +279,15 @@ class TestReadPart:
             remainder of a partial window with -1.
         """
         arr = np.arange(100 * 100, dtype="float32").reshape(100, 100)
-        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326, no_data_value=-1.0)
+        ds = Dataset.create_from_array(
+            arr, geo=COG_GEOTRANSFORM, epsg=4326, no_data_value=-1.0
+        )
         out = ds.read_part(
             (0.5, 9.5, 1.5, 10.5), dst_width=100, dst_height=100, bbox_crs=4326, band=0
         )
-        assert (
-            out[10, 10] == -1.0
-        ), f"expected NoData -1 in padded region, got {out[10, 10]}"
+        assert out[10, 10] == -1.0, (
+            f"expected NoData -1 in padded region, got {out[10, 10]}"
+        )
 
 
 class TestPreview:

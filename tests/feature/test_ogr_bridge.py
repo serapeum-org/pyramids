@@ -109,9 +109,9 @@ class TestNewVsimemPath:
             guarantee of the bridge.
         """
         path = _new_vsimem_path()
-        assert path.startswith(
-            "/vsimem/"
-        ), f"Path must start with /vsimem/, got {path!r}"
+        assert path.startswith("/vsimem/"), (
+            f"Path must start with /vsimem/, got {path!r}"
+        )
 
     def test_ends_with_geojson_extension(self):
         """The path must end with ``.geojson`` so GDAL picks the GeoJSON driver.
@@ -157,9 +157,9 @@ class TestAsDatasource:
             callers (``gdal.Warp`` cutline, OGR SQL) expect it.
         """
         with as_datasource(point_gdf) as ds:
-            assert isinstance(
-                ds, ogr.DataSource
-            ), f"Expected ogr.DataSource, got {type(ds).__name__}"
+            assert isinstance(ds, ogr.DataSource), (
+                f"Expected ogr.DataSource, got {type(ds).__name__}"
+            )
 
     def test_yields_gdal_dataset_when_requested(self, point_gdf):
         """``gdal_dataset=True`` must yield a ``gdal.Dataset``.
@@ -169,9 +169,9 @@ class TestAsDatasource:
             vector argument is a Python GDAL object rather than a path.
         """
         with as_datasource(point_gdf, gdal_dataset=True) as ds:
-            assert isinstance(
-                ds, gdal.Dataset
-            ), f"Expected gdal.Dataset, got {type(ds).__name__}"
+            assert isinstance(ds, gdal.Dataset), (
+                f"Expected gdal.Dataset, got {type(ds).__name__}"
+            )
 
     def test_preserves_feature_count(self, point_gdf):
         """The yielded DataSource must expose every input feature.
@@ -235,9 +235,9 @@ class TestAsDatasource:
 
         assert len(captured) == 1, "Expected exactly one path generation"
         # After unlink, VSIStatL returns None.
-        assert (
-            gdal.VSIStatL(captured[0]) is None
-        ), f"/vsimem/ path was not unlinked: {captured[0]}"
+        assert gdal.VSIStatL(captured[0]) is None, (
+            f"/vsimem/ path was not unlinked: {captured[0]}"
+        )
 
     def test_vsimem_path_unlinked_on_exception(self, point_gdf, monkeypatch):
         """The ``/vsimem/`` file is unlinked even if the body raises.
@@ -262,9 +262,9 @@ class TestAsDatasource:
                 raise RuntimeError("boom")
 
         assert len(captured) == 1
-        assert (
-            gdal.VSIStatL(captured[0]) is None
-        ), f"/vsimem/ path leaked after exception: {captured[0]}"
+        assert gdal.VSIStatL(captured[0]) is None, (
+            f"/vsimem/ path leaked after exception: {captured[0]}"
+        )
 
     def test_preserves_crs(self, point_gdf):
         """CRS of the yielded OGR layer must match the input GeoDataFrame.
@@ -371,9 +371,9 @@ class TestAsDatasourceExceptionSafety:
             with as_datasource(point_gdf):
                 pass  # pragma: no cover
         msg = str(exc_info.value)
-        assert (
-            "/vsimem/" in msg
-        ), f"VectorDriverError message must name the vsimem path; got: {msg}"
+        assert "/vsimem/" in msg, (
+            f"VectorDriverError message must name the vsimem path; got: {msg}"
+        )
         assert ".geojson" in msg, f"expected .geojson in message; got: {msg}"
 
     def test_gdal_dataset_none_open_also_becomes_vector_driver_error(
@@ -435,9 +435,9 @@ class TestAsVsimemPath:
         """
         with as_vsimem_path(polygon_gdf) as path:
             assert isinstance(path, str), f"Expected str, got {type(path).__name__}"
-            assert path.startswith(
-                "/vsimem/"
-            ), f"Path must start with /vsimem/, got {path!r}"
+            assert path.startswith("/vsimem/"), (
+                f"Path must start with /vsimem/, got {path!r}"
+            )
 
     def test_path_is_openable_by_osgeo(self, polygon_gdf):
         """Inside the ``with`` block, ``osgeo.ogr.Open`` must succeed.
@@ -465,9 +465,9 @@ class TestAsVsimemPath:
         with as_vsimem_path(polygon_gdf) as path:
             captured = path
         assert captured is not None
-        assert (
-            gdal.VSIStatL(captured) is None
-        ), f"/vsimem/ path was not unlinked: {captured}"
+        assert gdal.VSIStatL(captured) is None, (
+            f"/vsimem/ path was not unlinked: {captured}"
+        )
 
     def test_path_unlinked_on_exception(self, polygon_gdf):
         """The ``/vsimem/`` path is unlinked even when the body raises.
@@ -481,9 +481,9 @@ class TestAsVsimemPath:
                 raise ValueError("bad")
         # `path` stays bound to the yielded /vsimem/ path after the block; the
         # context manager unlinks it on the exception, so it must be gone now.
-        assert (
-            gdal.VSIStatL(path) is None
-        ), f"/vsimem/ path leaked after exception: {path}"
+        assert gdal.VSIStatL(path) is None, (
+            f"/vsimem/ path leaked after exception: {path}"
+        )
 
     def test_accepts_featurecollection_subclass(self, polygon_gdf):
         """A ``FeatureCollection`` is accepted transparently.
@@ -512,9 +512,9 @@ class TestDatasourceToGdf:
         """
         with as_datasource(point_gdf) as ds:
             result = datasource_to_gdf(ds)
-        assert isinstance(
-            result, GeoDataFrame
-        ), f"Expected GeoDataFrame, got {type(result).__name__}"
+        assert isinstance(result, GeoDataFrame), (
+            f"Expected GeoDataFrame, got {type(result).__name__}"
+        )
 
     def test_preserves_row_count_round_trip(self, point_gdf):
         """Row count survives a GeoDataFrame → DataSource → GeoDataFrame trip.
@@ -560,13 +560,13 @@ class TestDatasourceToGdf:
             a 2-row GeoDataFrame with a ``value`` integer column.
         """
         result = datasource_to_gdf(polygonize_datasource)
-        assert isinstance(
-            result, GeoDataFrame
-        ), f"Expected GeoDataFrame, got {type(result).__name__}"
+        assert isinstance(result, GeoDataFrame), (
+            f"Expected GeoDataFrame, got {type(result).__name__}"
+        )
         assert len(result) == 2, f"Expected 2 polygons, got {len(result)}"
-        assert (
-            "value" in result.columns
-        ), f"value column missing from materialized GDF: {result.columns.tolist()}"
+        assert "value" in result.columns, (
+            f"value column missing from materialized GDF: {result.columns.tolist()}"
+        )
         assert sorted(result["value"].tolist()) == [
             1,
             2,

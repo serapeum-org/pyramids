@@ -91,4 +91,11 @@ class TestGetVariableNonTrailingPlaneGeoref:
         assert var.epsg == 4326, f"expected EPSG:4326, got {var.epsg}"
         assert gt[1] == pytest.approx(2.8125), f"unexpected lon cell size: {gt[1]}"
         assert gt[5] < 0, f"geotransform should be north-up (negative dy), got {gt[5]}"
-        assert gt != (0.0, 1.0, 0.0, 0.0, 0.0, -1.0), "geotransform is still index-space"
+        assert gt != (
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            -1.0,
+        ), "geotransform is still index-space"

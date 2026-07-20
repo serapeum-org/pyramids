@@ -83,9 +83,9 @@ class TestFeatureCollectionPlot:
 
         mock_add_basemap.assert_called_once()
         call_kwargs = mock_add_basemap.call_args
-        assert (
-            call_kwargs[1]["crs"] == 4326
-        ), f"Expected crs=4326, got {call_kwargs[1]['crs']}"
+        assert call_kwargs[1]["crs"] == 4326, (
+            f"Expected crs=4326, got {call_kwargs[1]['crs']}"
+        )
 
     @patch("pyramids.feature.collection.add_basemap")
     def test_plot_with_basemap_string_passes_source(
@@ -101,8 +101,7 @@ class TestFeatureCollectionPlot:
 
         call_kwargs = mock_add_basemap.call_args
         assert call_kwargs[1]["source"] == "CartoDB.Positron", (
-            f"Expected source='CartoDB.Positron', "
-            f"got {call_kwargs[1].get('source')}"
+            f"Expected source='CartoDB.Positron', got {call_kwargs[1].get('source')}"
         )
 
     def test_plot_without_basemap_skips_basemap(self, gdf_fc: FeatureCollection):

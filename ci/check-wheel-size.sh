@@ -102,13 +102,13 @@ for whl in "${wheels[@]}"; do
 
     if [[ "${compressed}" -gt "${compressed_budget}" ]]; then
         echo "::error::${base} exceeds ${WHEEL_SIZE_BUDGET_MB} MB compressed budget" \
-             "— see planning/bundle/wheel-size-analysis.md" >&2
+            "— see planning/bundle/wheel-size-analysis.md" >&2
         exit 1
     fi
     if [[ "${uncompressed}" -gt "${installed_budget}" ]]; then
         echo "::error::${base} exceeds ${WHEEL_INSTALLED_BUDGET_MB} MB installed (uncompressed)" \
-             "budget — install-footprint regression; see planning/bundle/size/" \
-             "wheel-size-optimization-plan.md (T3.1)" >&2
+            "budget — install-footprint regression; see planning/bundle/size/" \
+            "wheel-size-optimization-plan.md (T3.1)" >&2
         exit 1
     fi
 

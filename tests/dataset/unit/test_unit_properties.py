@@ -141,9 +141,9 @@ class TestRasterBaseBlockSizeSetter:
     def test_block_size_setter_valid(self, single_band_dataset):
         """Setting a valid block_size should update the attribute."""
         single_band_dataset.block_size = [(256, 256)]
-        assert single_band_dataset.block_size == [
-            (256, 256)
-        ], "Block size was not updated correctly"
+        assert single_band_dataset.block_size == [(256, 256)], (
+            "Block size was not updated correctly"
+        )
 
 
 class TestSetCrsAbstract:
@@ -152,9 +152,9 @@ class TestSetCrsAbstract:
     def test_set_crs_with_epsg(self, single_band_dataset):
         """Setting CRS via epsg should update the EPSG attribute."""
         single_band_dataset.set_crs(epsg=32618)
-        assert (
-            single_band_dataset.epsg == 32618
-        ), "EPSG not updated after set_crs(epsg=...)"
+        assert single_band_dataset.epsg == 32618, (
+            "EPSG not updated after set_crs(epsg=...)"
+        )
 
     def test_set_crs_with_wkt(self, single_band_dataset):
         """Setting CRS via a WKT string should update the projection."""
@@ -162,9 +162,9 @@ class TestSetCrsAbstract:
         sr.ImportFromEPSG(32618)
         wkt = sr.ExportToWkt()
         single_band_dataset.set_crs(crs=wkt)
-        assert (
-            single_band_dataset.epsg == 32618
-        ), "EPSG not updated after set_crs(crs=wkt)"
+        assert single_band_dataset.epsg == 32618, (
+            "EPSG not updated after set_crs(crs=wkt)"
+        )
 
     def test_set_crs_with_both_prefers_crs(self, single_band_dataset):
         """When both crs and epsg are given, crs takes precedence."""
@@ -173,9 +173,9 @@ class TestSetCrsAbstract:
         wkt = sr.ExportToWkt()
         # Pass both crs and epsg; the WKT (32618) should win
         single_band_dataset.set_crs(crs=wkt, epsg=4326)
-        assert (
-            single_band_dataset.epsg == 32618
-        ), "CRS WKT should take precedence over epsg arg"
+        assert single_band_dataset.epsg == 32618, (
+            "CRS WKT should take precedence over epsg arg"
+        )
 
 
 class TestUpdateInplace:
@@ -192,13 +192,13 @@ class TestUpdateInplace:
         )
         old_rows = single_band_dataset.rows
         single_band_dataset._update_inplace(new_ds.raster)
-        assert (
-            single_band_dataset.rows == 5
-        ), f"Expected 5 rows after reinit, got {single_band_dataset.rows}"
+        assert single_band_dataset.rows == 5, (
+            f"Expected 5 rows after reinit, got {single_band_dataset.rows}"
+        )
         assert single_band_dataset.columns == 7, "Columns not updated after reinit"
-        assert (
-            old_rows != single_band_dataset.rows
-        ), "reinit did not change internal state"
+        assert old_rows != single_band_dataset.rows, (
+            "reinit did not change internal state"
+        )
 
 
 class TestScaleOffset:
@@ -211,9 +211,9 @@ class TestScaleOffset:
     def test_scale_setter(self, single_band_dataset):
         """Setting scale should update GDAL band scale."""
         single_band_dataset.scale = [0.5]
-        assert (
-            single_band_dataset._iloc(0).GetScale() == pytest.approx(0.5)
-        ), "GDAL band scale not updated by setter"
+        assert single_band_dataset._iloc(0).GetScale() == pytest.approx(0.5), (
+            "GDAL band scale not updated by setter"
+        )
 
     def test_offset_default(self, single_band_dataset):
         """Default offset should be 0 for each band."""
@@ -222,9 +222,9 @@ class TestScaleOffset:
     def test_offset_setter(self, single_band_dataset):
         """Setting offset should update GDAL band offset."""
         single_band_dataset.offset = [100.0]
-        assert (
-            single_band_dataset._iloc(0).GetOffset() == pytest.approx(100.0)
-        ), "GDAL band offset not updated by setter"
+        assert single_band_dataset._iloc(0).GetOffset() == pytest.approx(100.0), (
+            "GDAL band offset not updated by setter"
+        )
 
     def test_multi_band_scale_offset(self, multi_band_dataset):
         """Scale and offset setters should work per-band for multi-band."""
@@ -252,22 +252,22 @@ class TestBandNamesUnitsSetters:
         """Setting band_names should update both GDAL and internal names."""
         new_names = ["red", "green", "blue"]
         multi_band_dataset.band_names = new_names
-        assert (
-            multi_band_dataset.band_names == new_names
-        ), "band_names setter did not update names"
+        assert multi_band_dataset.band_names == new_names, (
+            "band_names setter did not update names"
+        )
 
     def test_band_units_setter(self, multi_band_dataset):
         """Setting band_units should write units to each GDAL band."""
         new_units = ["m", "kg", "s"]
         multi_band_dataset.band_units = new_units
-        assert (
-            multi_band_dataset.band_units == new_units
-        ), "band_units setter did not update units"
+        assert multi_band_dataset.band_units == new_units, (
+            "band_units setter did not update units"
+        )
         for i, expected in enumerate(new_units):
             actual = multi_band_dataset._iloc(i).GetUnitType()
-            assert (
-                actual == expected
-            ), f"Band {i} unit mismatch: expected {expected}, got {actual}"
+            assert actual == expected, (
+                f"Band {i} unit mismatch: expected {expected}, got {actual}"
+            )
 
 
 class TestConvertUnits:
@@ -286,9 +286,9 @@ class TestConvertUnits:
         np.testing.assert_allclose(
             result.read_array(), expected, rtol=1e-6, err_msg="K->C values wrong"
         )
-        assert result.band_units == [
-            "celsius"
-        ], f"Units not updated: {result.band_units}"
+        assert result.band_units == ["celsius"], (
+            f"Units not updated: {result.band_units}"
+        )
 
     def test_multi_band_all_converted(self, multi_band_dataset):
         """convert_units converts every band when band is None.
@@ -360,9 +360,9 @@ class TestConvertUnits:
         single_band_dataset.band_units = ["K"]
         snapshot = single_band_dataset.read_array().copy()
         result = single_band_dataset.convert_units("celsius")
-        assert (
-            result is not single_band_dataset
-        ), "convert_units must return a new object"
+        assert result is not single_band_dataset, (
+            "convert_units must return a new object"
+        )
         np.testing.assert_array_equal(
             single_band_dataset.read_array(), snapshot, err_msg="source was mutated"
         )
@@ -413,9 +413,9 @@ class TestClose:
     def test_close_nullifies_raster(self, single_band_dataset):
         """After close(), the internal GDAL dataset reference should be None."""
         single_band_dataset.close()
-        assert (
-            single_band_dataset._raster is None
-        ), "Internal raster reference should be None after close()"
+        assert single_band_dataset._raster is None, (
+            "Internal raster reference should be None after close()"
+        )
 
     def test_double_close_is_safe(self, single_band_dataset):
         """Calling close() twice should not raise an error.
@@ -426,9 +426,9 @@ class TestClose:
         """
         single_band_dataset.close()
         single_band_dataset.close()
-        assert (
-            single_band_dataset._raster is None
-        ), "Raster should remain None after double close"
+        assert single_band_dataset._raster is None, (
+            "Raster should remain None after double close"
+        )
 
     def test_close_flushes_before_nullify(self):
         """close() should call FlushCache before setting _raster to None.
@@ -463,9 +463,9 @@ class TestContextManager:
         )
         with ds as ctx:
             assert ctx is ds, "Context manager should return the same Dataset instance"
-            assert (
-                ctx._raster is not None
-            ), "Raster should be available inside with block"
+            assert ctx._raster is not None, (
+                "Raster should be available inside with block"
+            )
 
     def test_raster_closed_after_with_block(self):
         """After exiting the `with` block, the dataset should be closed.
@@ -496,9 +496,9 @@ class TestContextManager:
         with pytest.raises(ValueError, match="test error"):
             with ds:
                 raise ValueError("test error")
-        assert (
-            ds._raster is None
-        ), "Raster should be None after exception inside with block"
+        assert ds._raster is None, (
+            "Raster should be None after exception inside with block"
+        )
 
     def test_operations_inside_with_block(self):
         """Dataset operations should work normally inside a with block.
@@ -573,9 +573,9 @@ class TestDatasetLike:
         """dataset_like should preserve geotransform and projection."""
         new_arr = np.zeros((3, 3), dtype=np.float32)
         result = Dataset.dataset_like(single_band_dataset, new_arr)
-        assert (
-            result.geotransform == single_band_dataset.geotransform
-        ), "Geotransform not preserved"
+        assert result.geotransform == single_band_dataset.geotransform, (
+            "Geotransform not preserved"
+        )
         assert result.epsg == single_band_dataset.epsg, "EPSG not preserved"
 
     def test_dataset_like_multi_band(self, single_band_dataset):
@@ -597,22 +597,22 @@ class TestCellGeometryMethods:
         """Center coords should be at half-cell offsets from corners."""
         coords = single_band_dataset.get_cell_coords(location="center")
         assert coords.shape == (9, 2), f"Expected (9,2) array, got {coords.shape}"
-        assert np.isclose(
-            coords[0, 0], 0.025, atol=1e-6
-        ), "First x-center coordinate is wrong"
-        assert np.isclose(
-            coords[0, 1], -0.025, atol=1e-6
-        ), "First y-center coordinate is wrong"
+        assert np.isclose(coords[0, 0], 0.025, atol=1e-6), (
+            "First x-center coordinate is wrong"
+        )
+        assert np.isclose(coords[0, 1], -0.025, atol=1e-6), (
+            "First y-center coordinate is wrong"
+        )
 
     def test_get_cell_coords_corner(self, single_band_dataset):
         """Corner coords should be the top-left of each cell."""
         coords = single_band_dataset.get_cell_coords(location="corner")
-        assert np.isclose(
-            coords[0, 0], 0.0, atol=1e-6
-        ), "First x-corner coordinate should be 0.0"
-        assert np.isclose(
-            coords[0, 1], 0.0, atol=1e-6
-        ), "First y-corner coordinate should be 0.0"
+        assert np.isclose(coords[0, 0], 0.0, atol=1e-6), (
+            "First x-corner coordinate should be 0.0"
+        )
+        assert np.isclose(coords[0, 1], 0.0, atol=1e-6), (
+            "First y-corner coordinate should be 0.0"
+        )
 
     def test_get_cell_coords_invalid_location(self, single_band_dataset):
         """An invalid location string should raise ValueError."""
@@ -632,9 +632,9 @@ class TestCellGeometryMethods:
         """get_cell_points with corner should return corner coordinates."""
         gdf = single_band_dataset.get_cell_points(location="corner")
         first_point = gdf.geometry.iloc[0]
-        assert np.isclose(
-            first_point.x, 0.0, atol=1e-6
-        ), "First corner point x should be 0.0"
+        assert np.isclose(first_point.x, 0.0, atol=1e-6), (
+            "First corner point x should be 0.0"
+        )
 
     def test_get_cell_polygons(self, single_band_dataset):
         """get_cell_polygons should return polygons covering each cell."""
@@ -646,9 +646,9 @@ class TestCellGeometryMethods:
         poly = gdf.geometry.iloc[0]
         area = poly.area
         expected_area = 0.05 * 0.05
-        assert np.isclose(
-            area, expected_area, rtol=0.01
-        ), f"Polygon area {area} differs from expected {expected_area}"
+        assert np.isclose(area, expected_area, rtol=0.01), (
+            f"Polygon area {area} differs from expected {expected_area}"
+        )
 
     def test_get_cell_polygons_with_mask(self, dataset_with_nodata):
         """With mask=True, only domain cells should get polygons."""
@@ -687,15 +687,15 @@ class TestDatasetProperties:
 
     def test_access_property(self, single_band_dataset):
         """In-memory datasets created via create_from_array have write access."""
-        assert (
-            single_band_dataset.access == "write"
-        ), "create_from_array datasets should have 'write' access"
+        assert single_band_dataset.access == "write", (
+            "create_from_array datasets should have 'write' access"
+        )
 
     def test_cell_size_property(self, single_band_dataset):
         """cell_size should match the value passed during creation."""
-        assert (
-            single_band_dataset.cell_size == pytest.approx(0.05)
-        ), "cell_size property does not match"
+        assert single_band_dataset.cell_size == pytest.approx(0.05), (
+            "cell_size property does not match"
+        )
 
     def test_driver_type_property(self, single_band_dataset):
         """In-memory dataset should have 'mem' driver type."""
@@ -755,9 +755,9 @@ class TestDatasetProperties:
 
     def test_band_count(self, multi_band_dataset):
         """band_count should reflect the number of bands."""
-        assert (
-            multi_band_dataset.band_count == 3
-        ), "Expected 3 bands in multi-band dataset"
+        assert multi_band_dataset.band_count == 3, (
+            "Expected 3 bands in multi-band dataset"
+        )
 
 
 class TestCreateSrFromEpsg:
@@ -768,9 +768,9 @@ class TestCreateSrFromEpsg:
         sr = sr_from_epsg(4326)
         assert isinstance(sr, osr.SpatialReference), "Should return SpatialReference"
         wkt = sr.ExportToWkt()
-        assert (
-            "WGS 84" in wkt or "4326" in wkt
-        ), "SpatialReference should contain WGS 84"
+        assert "WGS 84" in wkt or "4326" in wkt, (
+            "SpatialReference should contain WGS 84"
+        )
 
 
 class TestRasterProperty:
@@ -778,9 +778,9 @@ class TestRasterProperty:
 
     def test_raster_getter_returns_gdal_dataset(self, single_band_dataset):
         """The raster property should return the underlying gdal.Dataset."""
-        assert isinstance(
-            single_band_dataset.raster, gdal.Dataset
-        ), "raster property should return a gdal.Dataset"
+        assert isinstance(single_band_dataset.raster, gdal.Dataset), (
+            "raster property should return a gdal.Dataset"
+        )
 
     def test_raster_has_no_public_setter(self, single_band_dataset):
         """Assigning to .raster should raise AttributeError (no public setter)."""
@@ -904,12 +904,12 @@ class TestInplaceConsistency:
         result = single_band_dataset.resample(cell_size=0.1)
         assert result is not None, "resample should return a Dataset"
         assert isinstance(result, Dataset), f"Expected Dataset, got {type(result)}"
-        assert (
-            result.cell_size == pytest.approx(0.1)
-        ), f"Cell size should be 0.1 after resample, got {result.cell_size}"
-        assert (
-            single_band_dataset.cell_size == original_cell_size
-        ), "Original dataset cell size should not change"
+        assert result.cell_size == pytest.approx(0.1), (
+            f"Cell size should be 0.1 after resample, got {result.cell_size}"
+        )
+        assert single_band_dataset.cell_size == original_cell_size, (
+            "Original dataset cell size should not change"
+        )
 
     def test_align_returns_new_dataset(self, single_band_dataset):
         """align() should always return a new Dataset."""
@@ -922,19 +922,21 @@ class TestInplaceConsistency:
         assert result is not None, "align should return a Dataset"
         assert isinstance(result, Dataset), f"Expected Dataset, got {type(result)}"
         assert result.rows == 5, f"Rows should be 5 after align, got {result.rows}"
-        assert (
-            result.columns == 5
-        ), f"Columns should be 5 after align, got {result.columns}"
-        assert (
-            single_band_dataset.rows == original_rows
-        ), "Original dataset rows should not change"
+        assert result.columns == 5, (
+            f"Columns should be 5 after align, got {result.columns}"
+        )
+        assert single_band_dataset.rows == original_rows, (
+            "Original dataset rows should not change"
+        )
 
     def test_apply_inplace_returns_self(self, single_band_dataset):
         """apply(inplace=True) should return self and modify the dataset in place."""
         result = single_band_dataset.apply(lambda x: x * 2, inplace=True)
         assert result is single_band_dataset, "inplace apply should return self"
         arr = single_band_dataset.read_array()
-        assert arr[0, 0] == pytest.approx(2.0), f"Expected 2.0 after doubling, got {arr[0, 0]}"
+        assert arr[0, 0] == pytest.approx(2.0), (
+            f"Expected 2.0 after doubling, got {arr[0, 0]}"
+        )
 
     def test_apply_not_inplace_returns_new_dataset(self, single_band_dataset):
         """apply(inplace=False) should return a new Dataset without modifying the original."""
@@ -942,9 +944,9 @@ class TestInplaceConsistency:
         result = single_band_dataset.apply(lambda x: x * 2, inplace=False)
         assert result is not None, "non-inplace apply should return a Dataset"
         assert isinstance(result, Dataset), f"Expected Dataset, got {type(result)}"
-        assert (
-            single_band_dataset.read_array()[0, 0] == original_val
-        ), "Original dataset values should not change"
+        assert single_band_dataset.read_array()[0, 0] == original_val, (
+            "Original dataset values should not change"
+        )
 
     def test_change_no_data_value_inplace_returns_self(self):
         """change_no_data_value(inplace=True) should return self and modify the dataset in place."""
@@ -958,9 +960,9 @@ class TestInplaceConsistency:
         )
         result = ds.change_no_data_value(-1.0, old_value=-9999.0, inplace=True)
         assert result is ds, "inplace change_no_data_value should return self"
-        assert (
-            ds.no_data_value[0] == -1.0
-        ), f"No data value should be -1.0 after inplace change, got {ds.no_data_value[0]}"
+        assert ds.no_data_value[0] == -1.0, (
+            f"No data value should be -1.0 after inplace change, got {ds.no_data_value[0]}"
+        )
 
     def test_change_no_data_value_not_inplace_returns_new_dataset(self):
         """change_no_data_value(inplace=False) should return a new Dataset."""
@@ -973,13 +975,13 @@ class TestInplaceConsistency:
             no_data_value=-9999.0,
         )
         result = ds.change_no_data_value(-1.0, old_value=-9999.0, inplace=False)
-        assert (
-            result is not None
-        ), "non-inplace change_no_data_value should return a Dataset"
+        assert result is not None, (
+            "non-inplace change_no_data_value should return a Dataset"
+        )
         assert isinstance(result, Dataset), f"Expected Dataset, got {type(result)}"
-        assert (
-            ds.no_data_value[0] == -9999.0
-        ), "Original dataset no_data_value should not change"
+        assert ds.no_data_value[0] == -9999.0, (
+            "Original dataset no_data_value should not change"
+        )
 
 
 class TestPDEP8InplacePattern:
@@ -1073,9 +1075,9 @@ class TestPDEP8InplacePattern:
             The return value should be the same object, enabling chaining.
         """
         result = single_band_dataset.fill(99, inplace=True)
-        assert (
-            result is single_band_dataset
-        ), f"fill(inplace=True) should return self, got {type(result)}"
+        assert result is single_band_dataset, (
+            f"fill(inplace=True) should return self, got {type(result)}"
+        )
 
     def test_fill_not_inplace_returns_new_dataset(self, single_band_dataset):
         """fill(inplace=False) should return a new Dataset.
@@ -1105,9 +1107,9 @@ class TestPDEP8InplacePattern:
         result = ds.fill(10, inplace=True).apply(lambda x: x + 5, inplace=True)
         assert result is ds, "Chained inplace calls should return the same object"
         result_arr = ds.read_array()
-        assert np.allclose(
-            result_arr, 15.0
-        ), f"Expected all cells to be 15 after fill(10)+apply(+5), got {result_arr}"
+        assert np.allclose(result_arr, 15.0), (
+            f"Expected all cells to be 15 after fill(10)+apply(+5), got {result_arr}"
+        )
 
     def test_change_no_data_chained_with_apply(self):
         """change_no_data_value and apply should chain via inplace=True.
@@ -1126,6 +1128,6 @@ class TestPDEP8InplacePattern:
         )
         result = ds.change_no_data_value(-1.0, old_value=-9999.0, inplace=True)
         assert result is ds, "change_no_data_value(inplace=True) should return self"
-        assert (
-            ds.no_data_value[0] == -1.0
-        ), f"Expected no_data_value=-1.0, got {ds.no_data_value[0]}"
+        assert ds.no_data_value[0] == -1.0, (
+            f"Expected no_data_value=-1.0, got {ds.no_data_value[0]}"
+        )

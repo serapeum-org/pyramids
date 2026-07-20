@@ -97,9 +97,9 @@ class TestHttpRewrite:
             FeatureCollection.read_file(url)
 
         messages = [rec.getMessage() for rec in caplog.records]
-        assert any(
-            "rewritten" in m and "/vsicurl/" in m for m in messages
-        ), f"expected a /vsicurl/ rewrite log; got: {messages}"
+        assert any("rewritten" in m and "/vsicurl/" in m for m in messages), (
+            f"expected a /vsicurl/ rewrite log; got: {messages}"
+        )
 
 
 class TestFileUrlRead:

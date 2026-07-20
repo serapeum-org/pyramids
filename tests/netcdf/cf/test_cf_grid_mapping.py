@@ -43,18 +43,18 @@ class TestSrsToGridMapping:
         srs = osr.SpatialReference()
         srs.ImportFromEPSG(32637)
         name, params = srs_to_grid_mapping(srs)
-        assert (
-            name == "transverse_mercator"
-        ), f"Expected transverse_mercator, got {name}"
-        assert (
-            abs(params["longitude_of_central_meridian"] - 39.0) < 0.1
-        ), f"Expected central_meridian ~39, got {params.get('longitude_of_central_meridian')}"
-        assert (
-            abs(params["scale_factor_at_central_meridian"] - 0.9996) < 1e-6
-        ), f"Expected scale ~0.9996, got {params.get('scale_factor_at_central_meridian')}"
-        assert (
-            params.get("false_easting") == pytest.approx(500000.0)
-        ), f"Expected FE=500000, got {params.get('false_easting')}"
+        assert name == "transverse_mercator", (
+            f"Expected transverse_mercator, got {name}"
+        )
+        assert abs(params["longitude_of_central_meridian"] - 39.0) < 0.1, (
+            f"Expected central_meridian ~39, got {params.get('longitude_of_central_meridian')}"
+        )
+        assert abs(params["scale_factor_at_central_meridian"] - 0.9996) < 1e-6, (
+            f"Expected scale ~0.9996, got {params.get('scale_factor_at_central_meridian')}"
+        )
+        assert params.get("false_easting") == pytest.approx(500000.0), (
+            f"Expected FE=500000, got {params.get('false_easting')}"
+        )
 
     def test_crs_wkt_always_present(self):
         """crs_wkt should always be in the params dict.
@@ -67,9 +67,9 @@ class TestSrsToGridMapping:
             srs.ImportFromEPSG(epsg)
             _, params = srs_to_grid_mapping(srs)
             assert "crs_wkt" in params, f"crs_wkt missing for EPSG:{epsg}"
-            assert (
-                len(params["crs_wkt"]) > 10
-            ), f"crs_wkt too short for EPSG:{epsg}: {params['crs_wkt']!r}"
+            assert len(params["crs_wkt"]) > 10, (
+                f"crs_wkt too short for EPSG:{epsg}: {params['crs_wkt']!r}"
+            )
 
 
 class TestGridMappingInCreateFromArray:
@@ -99,12 +99,12 @@ class TestGridMappingInCreateFromArray:
         gm_arr = rg.OpenMDArray("spatial_ref")
         assert gm_arr is not None, "spatial_ref variable should exist"
         attrs = self._read_var_attrs(nc, "spatial_ref")
-        assert (
-            "grid_mapping_name" in attrs
-        ), f"grid_mapping_name missing from spatial_ref attrs: {list(attrs.keys())}"
-        assert (
-            attrs["grid_mapping_name"] == "latitude_longitude"
-        ), f"Expected latitude_longitude, got {attrs['grid_mapping_name']}"
+        assert "grid_mapping_name" in attrs, (
+            f"grid_mapping_name missing from spatial_ref attrs: {list(attrs.keys())}"
+        )
+        assert attrs["grid_mapping_name"] == "latitude_longitude", (
+            f"Expected latitude_longitude, got {attrs['grid_mapping_name']}"
+        )
         assert "crs_wkt" in attrs, "crs_wkt should be on spatial_ref"
 
     def test_data_var_has_grid_mapping_attr(self):
@@ -116,9 +116,9 @@ class TestGridMappingInCreateFromArray:
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         attrs = self._read_var_attrs(nc, "temp")
-        assert (
-            attrs.get("grid_mapping") == "spatial_ref"
-        ), f"Expected grid_mapping=spatial_ref, got {attrs.get('grid_mapping')}"
+        assert attrs.get("grid_mapping") == "spatial_ref", (
+            f"Expected grid_mapping=spatial_ref, got {attrs.get('grid_mapping')}"
+        )
 
     def test_utm_grid_mapping_name(self):
         """UTM CRS should produce transverse_mercator grid_mapping.
@@ -132,9 +132,9 @@ class TestGridMappingInCreateFromArray:
             arr=arr, geo=GEO_UTM, epsg=32637, variable_name="temp"
         )
         attrs = self._read_var_attrs(nc, "spatial_ref")
-        assert (
-            attrs.get("grid_mapping_name") == "transverse_mercator"
-        ), f"Expected transverse_mercator, got {attrs.get('grid_mapping_name')}"
+        assert attrs.get("grid_mapping_name") == "transverse_mercator", (
+            f"Expected transverse_mercator, got {attrs.get('grid_mapping_name')}"
+        )
 
     def test_spatial_ref_not_in_variable_names(self):
         """spatial_ref (0-dim) should NOT appear in variable_names.
@@ -145,9 +145,9 @@ class TestGridMappingInCreateFromArray:
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
-        assert (
-            "spatial_ref" not in nc.variable_names
-        ), f"spatial_ref should be filtered from variable_names: {nc.variable_names}"
+        assert "spatial_ref" not in nc.variable_names, (
+            f"spatial_ref should be filtered from variable_names: {nc.variable_names}"
+        )
 
     def test_round_trip_grid_mapping(self, tmp_path):
         """Grid mapping survives write-to-disk and reload.

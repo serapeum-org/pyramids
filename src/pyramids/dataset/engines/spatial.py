@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, overload
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape  # nosec B406 - output escaping only
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
@@ -65,8 +65,12 @@ def _dst_srs_arg(dst_sr: osr.SpatialReference) -> str:
 def _resolve_resolution(
     cell_size: float | tuple[float, float] | list[float],
 ) -> tuple[float, float]: ...
+
+
 @overload
 def _resolve_resolution(cell_size: None) -> tuple[None, None]: ...
+
+
 def _resolve_resolution(
     cell_size: float | tuple[float, float] | list[float] | None,
 ) -> tuple[float | None, float | None]:
@@ -120,10 +124,7 @@ def _check_lon_halves_concatenable(
         ValueError: The halves have mismatched row/band counts, or the grid has no
             cell boundary at the seam so the halves are not seam-aligned.
     """
-    if (
-        west_part.rows != east_part.rows
-        or west_part.band_count != east_part.band_count
-    ):
+    if west_part.rows != east_part.rows or west_part.band_count != east_part.band_count:
         raise ValueError(
             "antimeridian halves are not concatenable "
             f"(rows {west_part.rows}/{east_part.rows}, "
@@ -300,7 +301,7 @@ def _crop_seam_halves(
     return result
 
 
-def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> "Dataset":
+def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Dataset:
     """Concatenate two longitude-adjacent crops into one contiguous raster Dataset.
 
     `west_part` (pre-seam) sits to the left of `east_part` (wrapped past the seam);
@@ -338,7 +339,6 @@ def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> "Datas
 
 
 class Spatial(_Engine["Dataset"]):
-
     def _get_crs(self) -> str:
         """Get coordinate reference system."""
         return str(self._ds.raster.GetProjection())
@@ -838,7 +838,11 @@ class Spatial(_Engine["Dataset"]):
         # Use an absolute path so the in-memory VRT resolves the source regardless of CWD; leave
         # non-path descriptions (e.g. `NETCDF:"file":var` subdatasets) untouched.
         description = src.GetDescription()
-        source_name = str(Path(description).resolve()) if Path(description).exists() else description
+        source_name = (
+            str(Path(description).resolve())
+            if Path(description).exists()
+            else description
+        )
         source_name = escape(source_name)
 
         vrt = gdal.GetDriverByName("VRT").Create("", n_columns, n_rows, 0)
@@ -848,7 +852,9 @@ class Spatial(_Engine["Dataset"]):
             vrt.SetProjection(projection)
         vrt.SetMetadata(src.GetMetadata())
 
-        def simple_source(band_index: int, src_x_off: int, dst_x_off: int, width: int) -> str:
+        def simple_source(
+            band_index: int, src_x_off: int, dst_x_off: int, width: int
+        ) -> str:
             dtype = gdal.GetDataTypeName(src.GetRasterBand(band_index).DataType)
             return (
                 f"<SimpleSource>"
@@ -1274,7 +1280,9 @@ class Spatial(_Engine["Dataset"]):
         else:
             src_array[mask_no_data] = self._ds.no_data_value[0]
 
-    def _write_bands(self, dst_obj: Any, src_array: np.ndarray, band_count: int) -> None:
+    def _write_bands(
+        self, dst_obj: Any, src_array: np.ndarray, band_count: int
+    ) -> None:
         """Write the (possibly multi-band) array into the destination raster."""
         if band_count > 1:
             for band in range(band_count):

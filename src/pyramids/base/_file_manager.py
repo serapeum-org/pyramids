@@ -34,8 +34,9 @@ import uuid
 import weakref
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from contextlib import contextmanager
-from typing import Any, Callable, Hashable, Iterator, MutableMapping
+from collections.abc import Callable, Hashable, Iterable, Iterator, MutableMapping
+from contextlib import AbstractContextManager, contextmanager
+from typing import Any, cast
 
 import numpy as np  # noqa: F401 - imported so type checkers see np.ndarray refs
 from osgeo import gdal, ogr
@@ -95,10 +96,9 @@ def _resolve_access(access: str) -> int:
         flag = _ACCESS_FLAGS[access]
     except KeyError as exc:
         raise ValueError(
-            f"Unknown access mode {access!r}; expected one of "
-            f"{sorted(_ACCESS_FLAGS)}"
+            f"Unknown access mode {access!r}; expected one of {sorted(_ACCESS_FLAGS)}"
         ) from exc
-    return flag
+    return cast(int, flag)
 
 
 def gdal_raster_open(path: str, access: str = "read_only", **_: Any) -> gdal.Dataset:
@@ -399,7 +399,7 @@ class _HashedSequence(list):
 
     __slots__ = ("hashvalue",)
 
-    def __init__(self, iterable: Iterator[Any]):
+    def __init__(self, iterable: Iterable[Any]):
         super().__init__(iterable)
         self.hashvalue = hash(tuple(self))
 
@@ -435,7 +435,7 @@ class FileManager(ABC):
         """Return an open GDAL/OGR handle. Opens the file on first call."""
 
     @abstractmethod
-    def acquire_context(self) -> contextmanager[Any]:  # type: ignore[type-arg]
+    def acquire_context(self) -> AbstractContextManager[Any]:
         """Context manager yielding an open handle; releases on exit."""
 
     @abstractmethod
@@ -499,6 +499,7 @@ class CachingFileManager(FileManager):
         self._access = access
         self._kwargs = dict(kwargs or {})
         self._use_default_lock = lock is None
+        self._lock: Any
         if lock is False:
             self._lock = _NULL_LOCK
         elif lock is None:
@@ -541,7 +542,8 @@ class CachingFileManager(FileManager):
         # intentionally unsupported (mixed-version dask.distributed clusters are not a target).
         opener, path, access, kwargs, lock, manager_id, *rest = state
         auto_release = rest[0] if rest else False
-        self.__init__(
+        type(self).__init__(
+            self,
             opener,
             path,
             access,
@@ -664,7 +666,7 @@ class ThreadLocalFileManager(FileManager):
 
     def __setstate__(self, state: tuple) -> None:
         opener, path, access, kwargs = state
-        self.__init__(opener, path, access, kwargs)
+        type(self).__init__(self, opener, path, access, kwargs)
 
     def acquire(self) -> Any:
         """Return this thread's handle, opening one on first call (or after close)."""
@@ -699,7 +701,7 @@ def _close_all_cached_handles() -> None:  # pragma: no cover - invoked at exit
     """Close every handle in :data:`FILE_CACHE` at interpreter shutdown."""
     try:
         FILE_CACHE.clear()
-    except Exception:
+    except Exception:  # nosec B110 - best-effort cache clear; must not raise
         pass
 
 

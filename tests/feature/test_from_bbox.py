@@ -21,9 +21,9 @@ class TestFeatureCollectionFromBbox:
             a ``FeatureCollection`` of length 1 (the rectangle).
         """
         fc = FeatureCollection.from_bbox((0.0, 0.0, 1.0, 1.0), epsg=4326)
-        assert isinstance(
-            fc, FeatureCollection
-        ), f"expected FeatureCollection, got {type(fc)}"
+        assert isinstance(fc, FeatureCollection), (
+            f"expected FeatureCollection, got {type(fc)}"
+        )
         assert len(fc) == 1, f"expected one row, got {len(fc)}"
 
     def test_geometry_matches_shapely_box(self):
@@ -35,9 +35,9 @@ class TestFeatureCollectionFromBbox:
         """
         fc = FeatureCollection.from_bbox((10, 20, 30, 40), epsg=4326)
         expected = box(10, 20, 30, 40)
-        assert next(iter(fc.geometry)).equals(
-            expected
-        ), f"unexpected geometry: {next(iter(fc.geometry)).wkt}"
+        assert next(iter(fc.geometry)).equals(expected), (
+            f"unexpected geometry: {next(iter(fc.geometry)).wkt}"
+        )
 
     def test_total_bounds_round_trip(self):
         """``total_bounds`` on the result matches the input ``(w, s, e, n)``.
@@ -78,9 +78,9 @@ class TestFeatureCollectionFromBbox:
         """
         fc = FeatureCollection.from_bbox((0, 0, 1, 1), epsg=epsg_form)
         assert fc.crs is not None, f"CRS not set for {epsg_form!r}"
-        assert (
-            fc.crs.to_epsg() == 4326
-        ), f"expected EPSG 4326 from {epsg_form!r}, got {fc.crs.to_epsg()}"
+        assert fc.crs.to_epsg() == 4326, (
+            f"expected EPSG 4326 from {epsg_form!r}, got {fc.crs.to_epsg()}"
+        )
 
     def test_accepts_list_in_addition_to_tuple(self):
         """A 4-element ``list`` works as well as a tuple.
@@ -91,9 +91,9 @@ class TestFeatureCollectionFromBbox:
         """
         a = FeatureCollection.from_bbox([0, 0, 1, 1], epsg=4326)
         b = FeatureCollection.from_bbox((0, 0, 1, 1), epsg=4326)
-        assert next(iter(a.geometry)).equals(
-            next(iter(b.geometry))
-        ), "list and tuple inputs produced different geometries"
+        assert next(iter(a.geometry)).equals(next(iter(b.geometry))), (
+            "list and tuple inputs produced different geometries"
+        )
 
     def test_accepts_integer_coordinates(self):
         """Integer coordinates are accepted and cast to float internally.
@@ -143,9 +143,9 @@ class TestFeatureCollectionFromBbox:
         """
         with pytest.raises(ValueError, match=r"4 elements") as exc:
             FeatureCollection.from_bbox(bad, epsg=4326)
-        assert f"got {n}" in str(
-            exc.value
-        ), f"missing actual length in message: {exc.value}"
+        assert f"got {n}" in str(exc.value), (
+            f"missing actual length in message: {exc.value}"
+        )
 
     def test_non_iterable_raises(self):
         """A non-sequence bbox raises ``ValueError`` from the ``list()`` coercion.
@@ -231,6 +231,6 @@ class TestFeatureCollectionFromBbox:
         """
         a = FeatureCollection.from_bbox((0, 0, 1, 1), epsg=4326)
         b = FeatureCollection.from_bbox((10, 10, 11, 11), epsg=4326)
-        assert tuple(a.total_bounds) != tuple(
-            b.total_bounds
-        ), "from_bbox shared state across calls"
+        assert tuple(a.total_bounds) != tuple(b.total_bounds), (
+            "from_bbox shared state across calls"
+        )

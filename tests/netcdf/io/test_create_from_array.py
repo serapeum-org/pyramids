@@ -36,9 +36,9 @@ class TestCreateFromArray2D:
             variable_name="elevation",
             path=None,
         )
-        assert (
-            "elevation" in nc.variable_names
-        ), f"Expected 'elevation' in {nc.variable_names}"
+        assert "elevation" in nc.variable_names, (
+            f"Expected 'elevation' in {nc.variable_names}"
+        )
 
     def test_dimensions_are_x_y_only(self):
         """A 2-D array should produce exactly two spatial dimensions.
@@ -172,9 +172,9 @@ class TestCreateFromArray3D:
             extra_dim_name="depth",
             path=None,
         )
-        assert (
-            "depth" in nc.dimension_names
-        ), f"Expected 'depth' in {nc.dimension_names}"
+        assert "depth" in nc.dimension_names, (
+            f"Expected 'depth' in {nc.dimension_names}"
+        )
 
     def test_custom_dim_values(self):
         """Explicit coordinate values should be stored on the dimension.
@@ -368,9 +368,9 @@ class TestCreateFromArrayValidation:
             extra_dim_values=[0, 6, 12],
             path=None,
         )
-        assert (
-            "v" in nc.variable_names
-        ), f"Variable should exist, got {nc.variable_names}"
+        assert "v" in nc.variable_names, (
+            f"Variable should exist, got {nc.variable_names}"
+        )
 
 
 class TestCreateFromArrayDefaults:
@@ -442,9 +442,9 @@ class TestCreateFromArrayDiskRoundTrip:
         out = str(tmp_path / "test_2d.nc")
         nc.to_file(out)
         reloaded = NetCDF.read_file(out, open_as_multi_dimensional=True)
-        assert (
-            "elev" in reloaded.variable_names
-        ), f"Expected 'elev' in {reloaded.variable_names}"
+        assert "elev" in reloaded.variable_names, (
+            f"Expected 'elev' in {reloaded.variable_names}"
+        )
         var = reloaded.get_variable("elev")
         assert_allclose(
             var.read_array(band=0),
@@ -472,9 +472,9 @@ class TestCreateFromArrayDiskRoundTrip:
         out = str(tmp_path / "test_3d.nc")
         nc.to_file(out)
         reloaded = NetCDF.read_file(out, open_as_multi_dimensional=True)
-        assert (
-            "temperature" in reloaded.variable_names
-        ), f"Expected 'temperature' in {reloaded.variable_names}"
+        assert "temperature" in reloaded.variable_names, (
+            f"Expected 'temperature' in {reloaded.variable_names}"
+        )
         var = reloaded.get_variable("temperature")
         assert var.band_count == 4, f"Expected 4 bands (levels), got {var.band_count}"
         assert_allclose(
@@ -545,9 +545,9 @@ class TestCreateFromArrayDtypes:
         )
         var = nc.get_variable("typed")
         read_back = var.read_array(band=0)
-        assert (
-            read_back.dtype == dtype
-        ), f"Expected dtype {dtype}, got {read_back.dtype}"
+        assert read_back.dtype == dtype, (
+            f"Expected dtype {dtype}, got {read_back.dtype}"
+        )
 
 
 class TestCreateFromArraySetVariableRoundTrip:
@@ -580,9 +580,9 @@ class TestCreateFromArraySetVariableRoundTrip:
         ds._band_dim_name = var._band_dim_name
         ds._band_dim_values = var._band_dim_values
         nc.set_variable("doubled", ds)
-        assert (
-            "doubled" in nc.variable_names
-        ), f"Expected 'doubled' in {nc.variable_names}"
+        assert "doubled" in nc.variable_names, (
+            f"Expected 'doubled' in {nc.variable_names}"
+        )
         rg = nc._raster.GetRootGroup()
         stored = rg.OpenMDArray("doubled").ReadAsArray()
         assert_allclose(
@@ -620,9 +620,9 @@ class TestCreateFromArraySetVariableRoundTrip:
         out = str(tmp_path / "workflow.nc")
         nc.to_file(out)
         reloaded = NetCDF.read_file(out, open_as_multi_dimensional=True)
-        assert (
-            "precip_offset" in reloaded.variable_names
-        ), f"Expected 'precip_offset' in {reloaded.variable_names}"
+        assert "precip_offset" in reloaded.variable_names, (
+            f"Expected 'precip_offset' in {reloaded.variable_names}"
+        )
         var_reloaded = reloaded.get_variable("precip_offset")
         assert_allclose(
             var_reloaded.read_array(),

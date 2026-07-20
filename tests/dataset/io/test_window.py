@@ -107,9 +107,9 @@ class TestWindow:
         """
         w = Window.from_bounds((1.0, 1.0, 3.0, 3.0), GT_UNIT)
         assert w == Window(1, 1, 2, 2), f"unexpected window {w}"
-        assert w.to_bounds(GT_UNIT) == pytest.approx(
-            (1.0, 1.0, 3.0, 3.0)
-        ), "bounds round-trip failed"
+        assert w.to_bounds(GT_UNIT) == pytest.approx((1.0, 1.0, 3.0, 3.0)), (
+            "bounds round-trip failed"
+        )
 
     def test_from_bounds_unaligned_covers(self):
         """A bbox not on pixel edges expands to fully cover it.
@@ -284,9 +284,9 @@ class TestBlockIteration:
         roi = Window(1, 1, 3, 3)
         blocks = list(ramp_dataset.block_windows(window=roi))
         assert blocks, "ROI must intersect at least one block"
-        assert all(
-            w.intersection(roi) == w for w in blocks
-        ), "blocks not clipped to ROI"
+        assert all(w.intersection(roi) == w for w in blocks), (
+            "blocks not clipped to ROI"
+        )
         assert sum(w.cols * w.rows for w in blocks) == 9, "ROI coverage must be exact"
 
     def test_block_windows_disjoint_roi_yields_nothing(self, ramp_dataset):
@@ -297,9 +297,9 @@ class TestBlockIteration:
             column/row 10 intersects none of them, so the generator is empty.
         """
         roi = Window(10, 10, 2, 2)
-        assert (
-            list(ramp_dataset.block_windows(window=roi)) == []
-        ), "an ROI outside the raster must yield no blocks"
+        assert list(ramp_dataset.block_windows(window=roi)) == [], (
+            "an ROI outside the raster must yield no blocks"
+        )
 
     def test_iter_blocks_rebuilds_raster(self, ramp_dataset):
         """Streaming blocks and reassembling them reproduces the raster."""
@@ -378,24 +378,24 @@ class TestBlockIteration:
 
         inside = Window(col_off=300, row_off=300, cols=100, rows=100)
         blocks = list(tiled.block_windows(window=inside))
-        assert (
-            len(blocks) == 1
-        ), f"ROI inside one tile must yield one block, got {len(blocks)}"
-        assert (
-            blocks[0] == inside
-        ), f"the single block must clip to the ROI: {blocks[0]}"
+        assert len(blocks) == 1, (
+            f"ROI inside one tile must yield one block, got {len(blocks)}"
+        )
+        assert blocks[0] == inside, (
+            f"the single block must clip to the ROI: {blocks[0]}"
+        )
 
         spanning = Window(col_off=200, row_off=300, cols=120, rows=100)
         spanned = list(tiled.block_windows(window=spanning))
-        assert (
-            len(spanned) == 2
-        ), f"ROI spanning two tiles must yield two blocks, got {len(spanned)}"
-        assert all(
-            w.intersection(spanning) == w for w in spanned
-        ), "blocks must be ROI-clipped"
-        assert (
-            sum(w.cols * w.rows for w in spanned) == spanning.cols * spanning.rows
-        ), "the ROI-clipped blocks must cover the ROI exactly"
+        assert len(spanned) == 2, (
+            f"ROI spanning two tiles must yield two blocks, got {len(spanned)}"
+        )
+        assert all(w.intersection(spanning) == w for w in spanned), (
+            "blocks must be ROI-clipped"
+        )
+        assert sum(w.cols * w.rows for w in spanned) == spanning.cols * spanning.rows, (
+            "the ROI-clipped blocks must cover the ROI exactly"
+        )
 
 
 class TestWindowConveniences:

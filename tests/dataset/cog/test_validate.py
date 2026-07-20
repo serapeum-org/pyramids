@@ -156,11 +156,7 @@ class TestValidate:
         with pytest.raises(FileNotFoundError):
             validate("/vsicurl/https://127.0.0.1:1/nope.tif")
 
-        vsi_calls = [
-            p
-            for p in path_exists_calls
-            if p.startswith(("/vsi", "\\vsi"))
-        ]
+        vsi_calls = [p for p in path_exists_calls if p.startswith(("/vsi", "\\vsi"))]
         assert vsi_calls == [], (
             f"Path.exists must not be called on /vsi* paths; "
             f"observed calls: {vsi_calls}"
@@ -200,9 +196,9 @@ class TestOsgeoValidate:
         path = str(missing)
         with pytest.raises(FileNotFoundError) as exc_info:
             _osgeo_validate(path)
-        assert str(missing) in str(
-            exc_info.value
-        ), f"FileNotFoundError must name the missing path; got: {exc_info.value}"
+        assert str(missing) in str(exc_info.value), (
+            f"FileNotFoundError must name the missing path; got: {exc_info.value}"
+        )
 
 
 class TestRaiseIfMissing:

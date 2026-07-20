@@ -103,9 +103,9 @@ class TestMetadataAttrs:
             "x",
         ], f"cube dims wrong: {root['data'].attrs.get('_ARRAY_DIMENSIONS')}"
         assert root["data"].attrs["grid_mapping"] == "spatial_ref", "grid_mapping unset"
-        assert "crs_wkt" in dict(
-            root["spatial_ref"].attrs
-        ), "spatial_ref missing crs_wkt"
+        assert "crs_wkt" in dict(root["spatial_ref"].attrs), (
+            "spatial_ref missing crs_wkt"
+        )
 
 
 class TestComputeFalse:
@@ -159,12 +159,12 @@ class TestErrors:
         with pytest.raises(OptionalPackageDoesNotExist) as exc_info:
             collection.to_zarr(path)
         message = str(exc_info.value)
-        assert (
-            "pip install 'pyramids-gis[lazy]'" in message
-        ), f"PyPI install hint missing from message: {message!r}"
-        assert (
-            "conda install -c conda-forge pyramids-lazy" in message
-        ), f"conda-forge install hint missing from message: {message!r}"
+        assert "pip install 'pyramids-gis[lazy]'" in message, (
+            f"PyPI install hint missing from message: {message!r}"
+        )
+        assert "conda install -c conda-forge pyramids-lazy" in message, (
+            f"conda-forge install hint missing from message: {message!r}"
+        )
 
 
 class TestFromZarrRoundtrip:
@@ -199,9 +199,9 @@ class TestFromZarrRoundtrip:
         root = zarr.open_group(out, mode="a")
         root.attrs["time_length"] = 3.0
         rt = DatasetCollection.from_zarr(out)
-        assert isinstance(
-            rt.time_length, int
-        ), f"time_length not coerced: {type(rt.time_length)}"
+        assert isinstance(rt.time_length, int), (
+            f"time_length not coerced: {type(rt.time_length)}"
+        )
         assert rt.time_length == 3, f"time_length {rt.time_length}"
 
     @requires_zarr

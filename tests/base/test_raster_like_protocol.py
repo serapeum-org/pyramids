@@ -128,17 +128,13 @@ class TestRasterLikeNegative:
             columns = 1
             band_count = 1
 
-            def read_array(self, *a, **k):
-                ...
+            def read_array(self, *a, **k): ...
 
-            def read_file(self, *a, **k):
-                ...
+            def read_file(self, *a, **k): ...
 
-            def to_file(self, *a, **k):
-                ...
+            def to_file(self, *a, **k): ...
 
-            def plot(self, *a, **k):
-                ...
+            def plot(self, *a, **k): ...
 
             # deliberately NO crop / to_crs / overlay / extract / overview ops
 
@@ -156,4 +152,6 @@ class TestRasterLikeNegative:
             gpd.GeoDataFrame({"v": [1]}, geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
         )
         assert isinstance(fc, SpatialObject), "fixture must be a SpatialObject"
-        assert not isinstance(fc, RasterLike), "a vector SpatialObject must not be RasterLike"
+        assert not isinstance(fc, RasterLike), (
+            "a vector SpatialObject must not be RasterLike"
+        )

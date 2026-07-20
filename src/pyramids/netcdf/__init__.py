@@ -12,7 +12,7 @@ from pyramids.netcdf.models import (
     StructuralInfo,
     VariableInfo,
 )
-from pyramids.netcdf.netcdf import NetCDF, Container, Variable
+from pyramids.netcdf.netcdf import Container, NetCDF, Variable
 from pyramids.netcdf.plot_options import (
     ColorOpts,
     ColourOpts,

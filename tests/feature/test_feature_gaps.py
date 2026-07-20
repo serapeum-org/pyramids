@@ -17,8 +17,7 @@ from shapely.geometry import Point
 
 from pyramids.base._errors import InvalidGeometryError
 from pyramids.dataset import Dataset
-from pyramids.feature import FeatureCollection
-from pyramids.feature import _h3
+from pyramids.feature import FeatureCollection, _h3
 from pyramids.feature import tessellation as tess
 
 pytestmark = pytest.mark.core
@@ -26,7 +25,13 @@ pytestmark = pytest.mark.core
 
 def _h3_vectors():
     """Load the committed H3 ground-truth fixtures (generated from the h3 library)."""
-    path = Path(__file__).resolve().parents[2] / "tests" / "data" / "h3" / "h3_vectors.json"
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "tests"
+        / "data"
+        / "h3"
+        / "h3_vectors.json"
+    )
     return json.loads(path.read_text())
 
 
@@ -116,13 +121,17 @@ class TestInterpolateToRaster:
 
     def test_n_neighbors_branch(self, corner_points: FeatureCollection) -> None:
         """The n_neighbors path (invdistnn) also produces a Dataset of the expected grid."""
-        surface = corner_points.interpolate_to_raster("rain", cell_size=1.0, n_neighbors=3)
+        surface = corner_points.interpolate_to_raster(
+            "rain", cell_size=1.0, n_neighbors=3
+        )
         assert isinstance(surface, Dataset)
         assert surface.shape == (1, 3, 3)
 
     def test_bounds_override(self, corner_points: FeatureCollection) -> None:
         """An explicit bounds box drives the output extent."""
-        surface = corner_points.interpolate_to_raster("rain", cell_size=1.0, bounds=(0, 0, 2, 2))
+        surface = corner_points.interpolate_to_raster(
+            "rain", cell_size=1.0, bounds=(0, 0, 2, 2)
+        )
         assert surface.shape == (1, 2, 2), f"unexpected shape {surface.shape}"
 
     def test_unknown_method_raises(self, corner_points: FeatureCollection) -> None:
@@ -133,7 +142,9 @@ class TestInterpolateToRaster:
     def test_too_few_points_raises(self) -> None:
         """Fewer than three points cannot be interpolated."""
         fc = FeatureCollection(
-            gpd.GeoDataFrame({"v": [1.0, 2.0]}, geometry=[Point(0, 0), Point(1, 1)], crs="EPSG:4326")
+            gpd.GeoDataFrame(
+                {"v": [1.0, 2.0]}, geometry=[Point(0, 0), Point(1, 1)], crs="EPSG:4326"
+            )
         )
         with pytest.raises(ValueError, match="at least 3 points"):
             fc.interpolate_to_raster("v")
@@ -170,16 +181,22 @@ class TestInterpolateToRaster:
     def test_non_point_raises(self) -> None:
         """Non-point geometries are rejected (point-only operation)."""
         polys = FeatureCollection(
-            gpd.GeoDataFrame({"v": [1.0]}, geometry=[Point(0, 0).buffer(1.0)], crs="EPSG:4326")
+            gpd.GeoDataFrame(
+                {"v": [1.0]}, geometry=[Point(0, 0).buffer(1.0)], crs="EPSG:4326"
+            )
         )
         with pytest.raises(InvalidGeometryError):
             polys.interpolate_to_raster("v")
 
 
 class TestVectorTileWriters:
-    def test_to_pmtiles_writes_and_roundtrips(self, small_points: FeatureCollection) -> None:
+    def test_to_pmtiles_writes_and_roundtrips(
+        self, small_points: FeatureCollection
+    ) -> None:
         """to_pmtiles writes a .pmtiles archive (returned as Path) that reopens via read_file."""
-        out = small_points.to_pmtiles(Path(tempfile.mkdtemp()) / "layer.pmtiles", max_zoom=5)
+        out = small_points.to_pmtiles(
+            Path(tempfile.mkdtemp()) / "layer.pmtiles", max_zoom=5
+        )
         assert isinstance(out, Path)
         assert out.exists() and out.suffix == ".pmtiles"
         assert len(FeatureCollection.read_file(out)) >= 1
@@ -217,7 +234,9 @@ class TestReadGpxLayers:
     def test_layer_contents(self, gpx_path: Path) -> None:
         """The waypoints layer carries the single waypoint."""
         layers = FeatureCollection.read_gpx_layers(gpx_path)
-        assert len(layers["waypoints"]) == 1, f"expected 1 waypoint, got {len(layers['waypoints'])}"
+        assert len(layers["waypoints"]) == 1, (
+            f"expected 1 waypoint, got {len(layers['waypoints'])}"
+        )
 
 
 def _page_factory(total: int, page_size: int):
@@ -246,7 +265,9 @@ class TestFromFeatureserver:
         """Pagination keeps requesting pages until a short page, accumulating every feature."""
         fake, calls = _page_factory(total=3, page_size=2)
         monkeypatch.setattr(FeatureCollection, "_read_featureserver_page", fake)
-        fc = FeatureCollection.from_featureserver("https://x/FeatureServer/0", page_size=2)
+        fc = FeatureCollection.from_featureserver(
+            "https://x/FeatureServer/0", page_size=2
+        )
         assert len(fc) == 3, f"expected 3 rows, got {len(fc)}"
         assert len(calls) == 2, f"expected 2 page requests, got {len(calls)}"
         assert fc.crs.to_epsg() == 4326
@@ -255,7 +276,9 @@ class TestFromFeatureserver:
         """max_records caps the total fetched and stops paging early."""
         fake, calls = _page_factory(total=10, page_size=2)
         monkeypatch.setattr(FeatureCollection, "_read_featureserver_page", fake)
-        fc = FeatureCollection.from_featureserver("https://x/FeatureServer/0", page_size=2, max_records=2)
+        fc = FeatureCollection.from_featureserver(
+            "https://x/FeatureServer/0", page_size=2, max_records=2
+        )
         assert len(fc) == 2, f"expected 2 rows, got {len(fc)}"
         assert len(calls) == 1, f"expected 1 page request, got {len(calls)}"
 
@@ -278,9 +301,13 @@ class TestFromFeatureserver:
                 )
             )
 
-        monkeypatch.setattr(FeatureCollection, "_read_featureserver_page", classmethod(always_full))
+        monkeypatch.setattr(
+            FeatureCollection, "_read_featureserver_page", classmethod(always_full)
+        )
         with pytest.warns(UserWarning, match="max_pages"):
-            fc = FeatureCollection.from_featureserver("https://x/FeatureServer/0", page_size=2, max_pages=3)
+            fc = FeatureCollection.from_featureserver(
+                "https://x/FeatureServer/0", page_size=2, max_pages=3
+            )
         assert len(fc) == 6, f"expected 3 pages x 2 rows = 6, got {len(fc)}"
 
     def test_query_url_construction(self, monkeypatch) -> None:
@@ -296,7 +323,10 @@ class TestFromFeatureserver:
 
     @pytest.mark.parametrize(
         "kwargs, match",
-        [({"page_size": 0}, "page_size must be >= 1"), ({"max_records": -1}, "max_records must be >= 0")],
+        [
+            ({"page_size": 0}, "page_size must be >= 1"),
+            ({"max_records": -1}, "max_records must be >= 0"),
+        ],
     )
     def test_invalid_paging_args_raise(self, kwargs, match) -> None:
         """Non-positive page_size or negative max_records is rejected up front."""
@@ -320,7 +350,8 @@ class TestH3Engine:
         for cell, expected in _h3_vectors()["cell_to_boundary"]:
             got = _h3.cell_to_boundary(cell)
             ok = len(got) == len(expected) and all(
-                abs(g[0] - e[0]) < 1e-6 and abs(((g[1] - e[1] + 180) % 360) - 180) < 1e-6
+                abs(g[0] - e[0]) < 1e-6
+                and abs(((g[1] - e[1] + 180) % 360) - 180) < 1e-6
                 for g, e in zip(got, expected)
             )
             if not ok:
@@ -372,12 +403,16 @@ class TestToH3:
         assert merc.to_h3(9)["h3"].tolist() == sf_points.to_h3(9)["h3"].tolist()
 
     def test_non_point_raises(self) -> None:
-        polys = FeatureCollection(gpd.GeoDataFrame(geometry=[Point(0, 0).buffer(1.0)], crs="EPSG:4326"))
+        polys = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[Point(0, 0).buffer(1.0)], crs="EPSG:4326")
+        )
         with pytest.raises(InvalidGeometryError):
             polys.to_h3(9)
 
     @pytest.mark.parametrize("res", [-1, 16])
-    def test_bad_resolution_raises(self, sf_points: FeatureCollection, res: int) -> None:
+    def test_bad_resolution_raises(
+        self, sf_points: FeatureCollection, res: int
+    ) -> None:
         with pytest.raises(ValueError, match="0-15"):
             sf_points.to_h3(res)
 
@@ -409,7 +444,9 @@ class TestH3Bin:
         assert len(cell.exterior.coords) - 1 == 6
 
     def test_non_point_raises(self) -> None:
-        polys = FeatureCollection(gpd.GeoDataFrame(geometry=[Point(0, 0).buffer(1.0)], crs="EPSG:4326"))
+        polys = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[Point(0, 0).buffer(1.0)], crs="EPSG:4326")
+        )
         with pytest.raises(InvalidGeometryError):
             polys.h3_bin(9)
 

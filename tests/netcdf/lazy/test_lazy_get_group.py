@@ -48,12 +48,16 @@ def _build_grouped_mem() -> Container:
     rg.CreateMDArray("elevation", [dim_y, dim_x], dtype).Write(np.full((5, 8), 100.0))
 
     forecast = rg.CreateGroup("forecast")
-    forecast.CreateMDArray("temperature", [dim_y, dim_x], dtype).Write(np.full((5, 8), 300.0))
+    forecast.CreateMDArray("temperature", [dim_y, dim_x], dtype).Write(
+        np.full((5, 8), 300.0)
+    )
     surface = forecast.CreateGroup("surface")
     surface.CreateMDArray("t2m", [dim_y, dim_x], dtype).Write(np.full((5, 8), 288.0))
 
     analysis = rg.CreateGroup("analysis")
-    analysis.CreateMDArray("wind_speed", [dim_y, dim_x], dtype).Write(np.full((5, 8), 5.5))
+    analysis.CreateMDArray("wind_speed", [dim_y, dim_x], dtype).Write(
+        np.full((5, 8), 5.5)
+    )
     return Container(src)
 
 
@@ -64,7 +68,9 @@ class TestZeroCopyView:
         """The returned view's raster IS the parent's dataset (no MEM copy)."""
         nc = _build_grouped_mem()
         view = nc.get_group("forecast")
-        assert view._raster is nc._raster, "group view must share the parent's gdal.Dataset"
+        assert view._raster is nc._raster, (
+            "group view must share the parent's gdal.Dataset"
+        )
         assert isinstance(view, Container), "group view must be a Container"
         assert view._group_path == "forecast", "view must record its sub-group path"
 
@@ -73,8 +79,12 @@ class TestZeroCopyView:
         nc = _build_grouped_mem()
         view = nc.get_group("forecast")
         assert "temperature" in view.variable_names, "view must see its own variable"
-        assert "elevation" not in view.variable_names, "view must not see the root variable"
-        assert "wind_speed" not in view.variable_names, "view must not see a sibling group"
+        assert "elevation" not in view.variable_names, (
+            "view must not see the root variable"
+        )
+        assert "wind_speed" not in view.variable_names, (
+            "view must not see a sibling group"
+        )
 
     def test_variable_names_stable_after_metadata_cache(self):
         """Caching meta_data must not flip variable_names to full paths (review H1)."""
@@ -96,12 +106,13 @@ class TestZeroCopyView:
         # The fixture defines x/y at the root; forecast/temperature references them.
         nc = _build_grouped_mem()
         view = nc.get_group("forecast")
-        assert set(view.dimension_names) >= {"x", "y"}, (
-            f"view must report inherited root dims, got {view.dimension_names}"
-        )
-        assert view.dimension_sizes.get("x") == 8 and view.dimension_sizes.get("y") == 5, (
-            f"inherited dim sizes must be correct, got {view.dimension_sizes}"
-        )
+        assert set(view.dimension_names) >= {
+            "x",
+            "y",
+        }, f"view must report inherited root dims, got {view.dimension_names}"
+        assert (
+            view.dimension_sizes.get("x") == 8 and view.dimension_sizes.get("y") == 5
+        ), f"inherited dim sizes must be correct, got {view.dimension_sizes}"
 
     def test_view_metadata_is_group_scoped(self):
         """`meta_data` traversal is scoped to the sub-group."""
@@ -109,9 +120,13 @@ class TestZeroCopyView:
         view = nc.get_group("analysis")
         # Metadata keys variables by full path (e.g. "analysis/wind_speed"); compare leaf names.
         leaves = {name.split("/")[-1] for name in view.meta_data.variables}
-        assert "wind_speed" in leaves, "group metadata must include the group's variable"
+        assert "wind_speed" in leaves, (
+            "group metadata must include the group's variable"
+        )
         assert "temperature" not in leaves, "group metadata must exclude other groups"
-        assert "elevation" not in leaves, "group metadata must exclude the root variable"
+        assert "elevation" not in leaves, (
+            "group metadata must exclude the root variable"
+        )
 
 
 class TestViewReads:
@@ -122,8 +137,12 @@ class TestViewReads:
         nc = _build_grouped_mem()
         view = nc.get_group("forecast")
         via_view = np.asarray(view.get_variable("temperature").read_array(band=0))
-        via_root = np.asarray(nc.get_variable("forecast/temperature").read_array(band=0))
-        assert_allclose(via_view, via_root, err_msg="view read must match the qualified path")
+        via_root = np.asarray(
+            nc.get_variable("forecast/temperature").read_array(band=0)
+        )
+        assert_allclose(
+            via_view, via_root, err_msg="view read must match the qualified path"
+        )
         assert_allclose(
             via_view, np.full((5, 8), 300.0), err_msg="view must read the stored values"
         )
@@ -139,7 +158,9 @@ class TestNestedChaining:
         slashed = nc.get_group("forecast/surface")
         assert chained._group_path == "forecast/surface", "chained path must compose"
         assert slashed._group_path == "forecast/surface", "slashed path must match"
-        assert "t2m" in chained.variable_names, "nested group's variable must be visible"
+        assert "t2m" in chained.variable_names, (
+            "nested group's variable must be visible"
+        )
         assert_allclose(
             np.asarray(chained.get_variable("t2m").read_array(band=0)),
             np.full((5, 8), 288.0),
@@ -169,7 +190,9 @@ class TestCloseRefcount:
         nc = _build_grouped_mem()
         view = nc.get_group("forecast")
         nc.close()
-        assert "temperature" in view.variable_names, "view must still read after parent close()"
+        assert "temperature" in view.variable_names, (
+            "view must still read after parent close()"
+        )
 
 
 class TestNoEagerCopy:
@@ -205,7 +228,9 @@ class TestFileBackedMutation:
 
         view.set_variable("precip", source)
 
-        assert "precip" in view.variable_names, "written variable must be visible in the group view"
+        assert "precip" in view.variable_names, (
+            "written variable must be visible in the group view"
+        )
         assert_allclose(
             np.asarray(view.get_variable("precip").read_array(band=0)),
             np.full((5, 8), 7.0),
@@ -223,6 +248,6 @@ class TestPickleRoundTrip:
         view = nc.get_group(group_name)
         restored = pickle.loads(pickle.dumps(view))
         assert restored._group_path == group_name, "pickle must preserve the group path"
-        assert sorted(restored.variable_names) == sorted(
-            view.variable_names
-        ), "restored view must expose the same group variables"
+        assert sorted(restored.variable_names) == sorted(view.variable_names), (
+            "restored view must expose the same group variables"
+        )

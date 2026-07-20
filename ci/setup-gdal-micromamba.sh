@@ -97,9 +97,9 @@ if [[ ! -f "${GDAL_PIN}" ]]; then
 fi
 
 { read -r GDAL_SPEC; read -r LIBGDAL_NETCDF_SPEC; \
-  read -r LIBGDAL_HDF4_SPEC; read -r LIBGDAL_GRIB_SPEC; \
-  read -r LIBGDAL_JP2_SPEC; read -r SWIG_SPEC; } \
-  < <(python3 "${GDAL_PIN}" gdal libgdal-netcdf libgdal-hdf4 libgdal-grib libgdal-jp2openjpeg swig)
+        read -r LIBGDAL_HDF4_SPEC; read -r LIBGDAL_GRIB_SPEC; \
+    read -r LIBGDAL_JP2_SPEC; read -r SWIG_SPEC; } \
+    < <(python3 "${GDAL_PIN}" gdal libgdal-netcdf libgdal-hdf4 libgdal-grib libgdal-jp2openjpeg swig)
 
 echo "--- Wheel-build pins (from pyproject.toml) ---"
 echo "  gdal${GDAL_SPEC}"

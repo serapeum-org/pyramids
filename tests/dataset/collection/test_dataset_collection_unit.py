@@ -69,9 +69,9 @@ class TestCreateCube:
     def test_returns_dataset_collection(self, base_dataset: Dataset):
         """create_cube should return a DatasetCollection instance."""
         md = DatasetCollection.create_cube(base_dataset, dataset_length=4)
-        assert isinstance(
-            md, DatasetCollection
-        ), f"Expected DatasetCollection, got {type(md)}"
+        assert isinstance(md, DatasetCollection), (
+            f"Expected DatasetCollection, got {type(md)}"
+        )
 
     def test_time_length_matches(self, base_dataset: Dataset):
         """The time_length should match the given dataset_length."""
@@ -116,9 +116,9 @@ class TestStringRepresentation:
         md = DatasetCollection(base_dataset, time_length=2)
         assert md.files is None
         text = str(md)
-        assert (
-            "in-memory" in text
-        ), f"in-memory cube should label itself as such; got: {text}"
+        assert "in-memory" in text, (
+            f"in-memory cube should label itself as such; got: {text}"
+        )
         assert "Time length: 2" in text
 
     def test_repr_works_without_files(self, base_dataset: Dataset):
@@ -135,21 +135,21 @@ class TestShapeProperties:
     def test_shape(self, cube_with_values: DatasetCollection):
         """shape should be (time_length, rows, columns)."""
         expected = (3, 5, 6)
-        assert (
-            cube_with_values.shape == expected
-        ), f"Expected shape {expected}, got {cube_with_values.shape}"
+        assert cube_with_values.shape == expected, (
+            f"Expected shape {expected}, got {cube_with_values.shape}"
+        )
 
     def test_rows(self, cube_with_values: DatasetCollection):
         """rows should match the base dataset."""
-        assert (
-            cube_with_values.rows == 5
-        ), f"Expected rows=5, got {cube_with_values.rows}"
+        assert cube_with_values.rows == 5, (
+            f"Expected rows=5, got {cube_with_values.rows}"
+        )
 
     def test_columns(self, cube_with_values: DatasetCollection):
         """columns should match the base dataset."""
-        assert (
-            cube_with_values.columns == 6
-        ), f"Expected columns=6, got {cube_with_values.columns}"
+        assert cube_with_values.columns == 6, (
+            f"Expected columns=6, got {cube_with_values.columns}"
+        )
 
 
 class TestIterationMethods:
@@ -205,9 +205,9 @@ class TestItemAccess:
 
     def test_len(self, cube_with_values: DatasetCollection):
         """len() should return the number of time steps."""
-        assert (
-            len(cube_with_values) == 3
-        ), f"Expected len=3, got {len(cube_with_values)}"
+        assert len(cube_with_values) == 3, (
+            f"Expected len=3, got {len(cube_with_values)}"
+        )
 
     def test_getitem(self, cube_with_values: DatasetCollection):
         """Indexing should return a 2D slice."""
@@ -260,9 +260,9 @@ class TestApply:
         result = md.apply(np.abs)
         # Non-nodata cells should now be positive in the returned collection.
         non_nodata = result.values[:, :, :-1]
-        assert np.all(
-            non_nodata >= 0
-        ), "All non-nodata values should be positive after np.abs"
+        assert np.all(non_nodata >= 0), (
+            "All non-nodata values should be positive after np.abs"
+        )
 
     def test_apply_custom_ufunc(self, base_dataset: Dataset):
         """apply with a custom function via np.frompyfunc.
@@ -276,9 +276,9 @@ class TestApply:
         md.values = values
         double_fn = np.frompyfunc(lambda x: x * 2, 1, 1)
         result = md.apply(double_fn)
-        assert (
-            result.values[0, 1, 0] == pytest.approx(20.0)
-        ), f"Expected 20.0 after doubling, got {result.values[0, 1, 0]}"
+        assert result.values[0, 1, 0] == pytest.approx(20.0), (
+            f"Expected 20.0 after doubling, got {result.values[0, 1, 0]}"
+        )
 
     def test_apply_non_callable_raises(self, cube_with_values: DatasetCollection):
         """apply with a non-callable argument should raise TypeError."""
@@ -446,9 +446,9 @@ class TestReadMultipleFilesErrors:
             start=2,
             end=3,
         )
-        assert (
-            md.time_length == 2
-        ), f"Expected time_length=2 after filtering, got {md.time_length}"
+        assert md.time_length == 2, (
+            f"Expected time_length=2 after filtering, got {md.time_length}"
+        )
 
 
 # Tests for "without values raises" deleted: after the L-3 refactor

@@ -69,10 +69,12 @@ class TestEngineWiring:
         """
         assert isinstance(mdim_container.interop, Interop), "interop engine missing"
         assert isinstance(mdim_container.varops, Variables), "varops engine missing"
-        assert isinstance(mdim_container.selection, Selection), "selection engine missing"
-        assert not isinstance(
-            mdim_container.variables, Variables
-        ), "`variables` must stay the read-side property, not the engine"
+        assert isinstance(mdim_container.selection, Selection), (
+            "selection engine missing"
+        )
+        assert not isinstance(mdim_container.variables, Variables), (
+            "`variables` must stay the read-side property, not the engine"
+        )
 
     def test_engine_back_reference_points_at_owner(self, mdim_container):
         """Each engine's weakref back-reference resolves to its owning container.
@@ -227,9 +229,10 @@ class TestVariablesEngine:
             np.zeros((4, 5), dtype=np.float32), geo=geo, variable_name="b"
         )
         dst.add_variable(src)
-        assert sorted(dst.variable_names) == ["a", "b"], (
-            f"copy-all did not merge variables: {dst.variable_names}"
-        )
+        assert sorted(dst.variable_names) == [
+            "a",
+            "b",
+        ], f"copy-all did not merge variables: {dst.variable_names}"
 
     def test_create_from_array_4d_uses_anonymous_extra_dims(self):
         """A 4-D array with no ``extra_dims`` materialises anonymous dimensions.
@@ -244,9 +247,10 @@ class TestVariablesEngine:
             np.zeros((2, 3, 4, 5), dtype=np.float32), geo=geo, variable_name="v"
         )
         var = nc.get_variable("v")
-        assert var._band_dim_names == ("dim_0", "dim_1"), (
-            f"anonymous dim names not assigned: {var._band_dim_names}"
-        )
+        assert var._band_dim_names == (
+            "dim_0",
+            "dim_1",
+        ), f"anonymous dim names not assigned: {var._band_dim_names}"
         assert var.band_count == 6, f"expected 6 flattened bands, got {var.band_count}"
 
     def test_create_from_array_extra_dims_none_values_fill_indices(self):
@@ -264,7 +268,9 @@ class TestVariablesEngine:
             variable_name="w",
             extra_dims=[("lev", None)],
         )
-        assert "w" in nc.variable_names, "variable not created with None-filled dim values"
+        assert "w" in nc.variable_names, (
+            "variable not created with None-filled dim values"
+        )
 
     def test_create_from_array_corner_and_cell_size(self):
         """``create_from_array`` builds ``geo`` from ``top_left_corner`` + ``cell_size``.

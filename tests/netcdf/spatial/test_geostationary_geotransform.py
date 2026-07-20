@@ -63,7 +63,9 @@ class TestGeostationaryGeotransform:
         assert goes_cube._md_view_materialized is True
         assert goes_cube.raster.GetDriver().ShortName == "MEM"
 
-    def test_coordinate_derived_geotransform_does_not_clobber_metres(self, goes_cube: NetCDF):
+    def test_coordinate_derived_geotransform_does_not_clobber_metres(
+        self, goes_cube: NetCDF
+    ):
         # The file's 1-D x/y are packed scan angles, so _georeference_index_subset must leave a
         # geostationary cube alone; adopting a coordinate-derived geotransform would replace the
         # metre grid with the raw index-space one.
@@ -80,20 +82,35 @@ class TestGeostationaryGeotransform:
         assert goes_cube._md_x_flipped is False and goes_cube._md_y_flipped is False
         assert goes_cube.geotransform[1] > 0 and goes_cube.geotransform[5] < 0
 
-    def test_adopted_geotransform_is_reanchored_for_a_reversed_x_axis(self, goes_cube, monkeypatch):
+    def test_adopted_geotransform_is_reanchored_for_a_reversed_x_axis(
+        self, goes_cube, monkeypatch
+    ):
         # The classic driver flips a bottom-up Y but never reverses X: it reports a negative gt[1]
         # instead. A geostationary file whose scaled x descended would be X-reversed by
         # _read_md_array, so adopting that geotransform unchanged would mirror the raster east-west.
         # No producer writes one, so drive the reconciliation directly.
-        mirrored = (3627271.340967355, -2004.017315487541, 0.0, 4589199.764884492, 0.0, -2004.017315487541)
-        monkeypatch.setattr(netcdf_module.NetCDF, "_classic_geotransform", lambda self: mirrored)
+        mirrored = (
+            3627271.340967355,
+            -2004.017315487541,
+            0.0,
+            4589199.764884492,
+            0.0,
+            -2004.017315487541,
+        )
+        monkeypatch.setattr(
+            netcdf_module.NetCDF, "_classic_geotransform", lambda self: mirrored
+        )
         goes_cube._md_x_flipped = True
         goes_cube._geostationary_scaled = False
         goes_cube._normalize_geostationary_geotransform()
         gt = goes_cube.geotransform
-        assert gt[1] > 0, f"pixel width must be positive after re-anchoring, got {gt[1]}"
+        assert gt[1] > 0, (
+            f"pixel width must be positive after re-anchoring, got {gt[1]}"
+        )
         expected_west = mirrored[0] + mirrored[1] * goes_cube.columns
-        assert gt[0] == pytest.approx(expected_west), "origin must move to the west edge"
+        assert gt[0] == pytest.approx(expected_west), (
+            "origin must move to the west edge"
+        )
         assert goes_cube.cell_size == pytest.approx(abs(mirrored[1]))
 
     def test_central_meridian_is_sub_satellite_longitude(self, goes_cube: NetCDF):
@@ -133,18 +150,26 @@ class TestGeostationaryGeotransform:
         # so this warns, rather than dying on an AttributeError from a None raster. Warn instead of
         # silently leaving a dataset whose wrapper claims metres while the grid is raw scan angles.
         container = NetCDF.read_file(GOES16_FIXTURE)
-        monkeypatch.setattr(netcdf_module.NetCDF, "_materialize_from_raw_view", lambda self: None)
+        monkeypatch.setattr(
+            netcdf_module.NetCDF, "_materialize_from_raw_view", lambda self: None
+        )
         monkeypatch.setattr(gdal.Driver, "CreateCopy", lambda *args, **kwargs: None)
-        with pytest.warns(UserWarning, match="could not materialize the geostationary view") as caught:
+        with pytest.warns(
+            UserWarning, match="could not materialize the geostationary view"
+        ) as caught:
             cube = container.get_variable("CMI")
-        assert cube._md_view_materialized is False, "materialize should have failed soft"
+        assert cube._md_view_materialized is False, (
+            "materialize should have failed soft"
+        )
         assert abs(cube.geotransform[1]) > 1000
         # One failure, one warning: the generic multidim message is suppressed in favour of this
         # geostationary-specific one, which names the actual consequence.
         materialize_warnings = [
             w for w in caught.list if "could not materialize" in str(w.message)
         ]
-        assert len(materialize_warnings) == 1, [str(w.message) for w in materialize_warnings]
+        assert len(materialize_warnings) == 1, [
+            str(w.message) for w in materialize_warnings
+        ]
 
 
 class TestNonGeostationaryUnaffected:

@@ -99,9 +99,7 @@ def _output_size(
             ``size`` is not two positive integers.
     """
     if size is not None and resolution is not None:
-        raise ValueError(
-            "pass either size=(width, height) or resolution=, not both."
-        )
+        raise ValueError("pass either size=(width, height) or resolution=, not both.")
     if size is not None:
         width, height = int(size[0]), int(size[1])
         if width <= 0 or height <= 0:
@@ -165,9 +163,7 @@ def _wms_descriptor(
     )
 
 
-def _wmts_connection(
-    endpoint: str, layer: str, tile_matrix_set: str | None
-) -> str:
+def _wmts_connection(endpoint: str, layer: str, tile_matrix_set: str | None) -> str:
     """Build the GDAL ``WMTS:`` connection string for one layer.
 
     ``endpoint`` is the WMTS ``GetCapabilities`` URL; GDAL fetches it and exposes
@@ -180,7 +176,7 @@ def _wmts_connection(
     return conn
 
 
-def _open(connection: str, layer: str, hint: str) -> "gdal.Dataset":
+def _open(connection: str, layer: str, hint: str) -> gdal.Dataset:
     """Open a WMS descriptor / WMTS connection with GDAL, classifying failures.
 
     Raises:
@@ -217,12 +213,12 @@ def _available_wmts_layers(endpoint: str) -> list[str]:
 
 
 def _translate_window(
-    src: "gdal.Dataset",
+    src: gdal.Dataset,
     projwin: list[float],
     layer: str,
     resolution: tuple[float, float] | None,
     resample: str,
-) -> "gdal.Dataset":
+) -> gdal.Dataset:
     """Crop the requested ``projWin`` out of a WMTS pyramid into MEM.
 
     When ``resolution`` is given GDAL reads from the matching overview level; when
@@ -244,7 +240,7 @@ def _translate_window(
     return mem
 
 
-def _render_wms(src: "gdal.Dataset", layers: str) -> "gdal.Dataset":
+def _render_wms(src: gdal.Dataset, layers: str) -> gdal.Dataset:
     """Fetch the WMS ``GetMap`` window into MEM, classifying failures as WMSError.
 
     The ``GetMap`` HTTP request fires during :func:`gdal.Translate` (``gdal.Open``
@@ -264,7 +260,7 @@ def _render_wms(src: "gdal.Dataset", layers: str) -> "gdal.Dataset":
     return mem
 
 
-def _reproject_tail(ds: "Dataset", output_crs: str | None, resample: str) -> "Dataset":
+def _reproject_tail(ds: Dataset, output_crs: str | None, resample: str) -> Dataset:
     """Reproject the result into ``output_crs`` when one was requested.
 
     Only a CRS change happens here — the requested ``resolution`` is already
@@ -280,7 +276,7 @@ def _reproject_tail(ds: "Dataset", output_crs: str | None, resample: str) -> "Da
 
 
 def from_wms(
-    dataset_cls: type["Dataset"],
+    dataset_cls: type[Dataset],
     endpoint: str,
     *,
     layers: str | list[str] | tuple[str, ...],
@@ -296,7 +292,7 @@ def from_wms(
     resample: str,
     auth: tuple[str, str] | None,
     timeout: float,
-) -> "Dataset":
+) -> Dataset:
     """Render a WMS ``GetMap`` window and return a :class:`Dataset`.
 
     Private implementation; the public API is
@@ -338,7 +334,7 @@ def from_wms(
 
 
 def from_wmts(
-    dataset_cls: type["Dataset"],
+    dataset_cls: type[Dataset],
     endpoint: str,
     *,
     layer: str,
@@ -352,7 +348,7 @@ def from_wmts(
     resample: str,
     auth: tuple[str, str] | None,
     timeout: float,
-) -> "Dataset":
+) -> Dataset:
     """Crop a WMTS layer to ``bbox`` and return a :class:`Dataset`.
 
     Private implementation; the public API is
@@ -395,7 +391,7 @@ def from_wmts(
     return ds
 
 
-def _resolve_native_srs(src: "gdal.Dataset", layer_crs: str | None):
+def _resolve_native_srs(src: gdal.Dataset, layer_crs: str | None):
     """Resolve the WMTS layer's native CRS, re-branding CoverageError as WMSError."""
     try:
         return _resolve_native_srs_neutral(src, layer_crs)

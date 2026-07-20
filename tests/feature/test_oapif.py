@@ -25,9 +25,8 @@ from osgeo import gdal
 from shapely.geometry import Point
 
 from pyramids.base import _ogc_api
-from pyramids.feature import FeatureCollection
-from pyramids.feature import _oapif
 from pyramids.errors import OGCAPIError
+from pyramids.feature import FeatureCollection, _oapif
 from tests.http_mock import make_fixed_body_server
 
 COLLECTIONS_DOC = json.dumps(
@@ -40,7 +39,9 @@ COLLECTIONS_DOC = json.dumps(
     }
 )
 
-ERROR_DOC = json.dumps({"code": "NoApplicableCode", "description": "OGC API service error."})
+ERROR_DOC = json.dumps(
+    {"code": "NoApplicableCode", "description": "OGC API service error."}
+)
 
 
 @pytest.fixture(autouse=True)
@@ -76,8 +77,14 @@ def _sample_gdf(crs="EPSG:4326") -> gpd.GeoDataFrame:
 
 class TestPureHelpers:
     def test_collections_url(self):
-        assert _ogc_api.collections_url("https://h/api") == "https://h/api/collections?f=json"
-        assert _ogc_api.collections_url("https://h/api/") == "https://h/api/collections?f=json"
+        assert (
+            _ogc_api.collections_url("https://h/api")
+            == "https://h/api/collections?f=json"
+        )
+        assert (
+            _ogc_api.collections_url("https://h/api/")
+            == "https://h/api/collections?f=json"
+        )
 
     def test_collections_url_preserves_query_auth(self):
         """A query-string-auth endpoint keeps its query; /collections goes before it."""
@@ -125,12 +132,15 @@ class TestPureHelpers:
 
     def test_error_text(self):
         assert _ogc_api.error_text({"description": "boom"}) == "boom"
-        assert _ogc_api.error_text({"title": "bad"}) == "bad"  # description/detail absent -> title
+        assert (
+            _ogc_api.error_text({"title": "bad"}) == "bad"
+        )  # description/detail absent -> title
         assert _ogc_api.error_text({}) == "no message provided"
         assert _ogc_api.error_text("not a dict") == "no message provided"
 
     def test_http_error_detail_unreadable_body(self):
         """An HTTPError whose body cannot be read falls back to the reason phrase."""
+
         class _Unreadable:
             reason = "Server Error"
 
@@ -141,6 +151,7 @@ class TestPureHelpers:
 
     def test_http_error_detail_non_json_body(self):
         """A non-JSON HTTPError body is returned as truncated plain text."""
+
         class _Plain:
             reason = "Bad Gateway"
 
@@ -151,6 +162,7 @@ class TestPureHelpers:
 
     def test_http_error_detail_json_body_extracts_description(self):
         """A JSON (RFC 7807) HTTPError body is parsed and its description surfaced."""
+
         class _Json:
             code = 400
             reason = "Bad Request"
@@ -175,6 +187,7 @@ class TestPureHelpers:
 
     def test_read_http_error_returns_code_raw_and_text(self):
         """read_http_error returns the status code, the raw bytes, and the decoded stripped text."""
+
         class _Err:
             code = 422
             reason = "Unprocessable Entity"
@@ -183,11 +196,14 @@ class TestPureHelpers:
                 return b'  {"message": "nope"}  '
 
         assert _ogc_api.read_http_error(_Err()) == (
-            422, b'  {"message": "nope"}  ', '{"message": "nope"}'
+            422,
+            b'  {"message": "nope"}  ',
+            '{"message": "nope"}',
         )
 
     def test_read_http_error_falls_back_to_reason(self):
         """An empty or unreadable body yields empty raw bytes and the reason phrase as text."""
+
         class _Empty:
             code = 500
             reason = "Server Error"
@@ -203,7 +219,11 @@ class TestPureHelpers:
                 raise OSError("connection gone")
 
         assert _ogc_api.read_http_error(_Empty()) == (500, b"", "Server Error")
-        assert _ogc_api.read_http_error(_Unreadable()) == (503, b"", "Service Unavailable")
+        assert _ogc_api.read_http_error(_Unreadable()) == (
+            503,
+            b"",
+            "Service Unavailable",
+        )
 
 
 class TestCollections:
@@ -315,7 +335,9 @@ class TestCollections:
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         try:
             with pytest.raises(OGCAPIError, match="collection backend down"):
-                _oapif._get_collections(f"http://127.0.0.1:{httpd.server_address[1]}", None, 30.0)
+                _oapif._get_collections(
+                    f"http://127.0.0.1:{httpd.server_address[1]}", None, 30.0
+                )
         finally:
             httpd.shutdown()
             httpd.server_close()
@@ -349,7 +371,9 @@ class TestCollections:
         httpd = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         try:
-            _oapif._get_collections(f"http://127.0.0.1:{httpd.server_address[1]}", None, 30.0)
+            _oapif._get_collections(
+                f"http://127.0.0.1:{httpd.server_address[1]}", None, 30.0
+            )
         finally:
             httpd.shutdown()
             httpd.server_close()
@@ -381,8 +405,11 @@ class TestFromOgcApiFeatures:
 
         monkeypatch.setattr(_oapif.gpd, "read_file", fake_read)
         FeatureCollection.from_ogc_features(
-            "https://h/api", collection="lakes", bbox=(1.0, 2.0, 3.0, 4.0),
-            where="scalerank <= 2", max_features=5,
+            "https://h/api",
+            collection="lakes",
+            bbox=(1.0, 2.0, 3.0, 4.0),
+            where="scalerank <= 2",
+            max_features=5,
         )
         assert captured["connection"] == "OAPIF:https://h/api"
         assert captured["kwargs"]["layer"] == "lakes"
@@ -474,7 +501,9 @@ class TestReadKwargsContract:
 
     def test_bbox_kwarg_filters(self, sample_file):
         """`bbox` is a valid read kwarg and restricts to intersecting features."""
-        gdf = gpd.read_file(sample_file, **_oapif._read_kwargs((0.0, 0.0, 5.5, 53.0), None, None))
+        gdf = gpd.read_file(
+            sample_file, **_oapif._read_kwargs((0.0, 0.0, 5.5, 53.0), None, None)
+        )
         assert list(gdf["name"]) == ["a"]
 
     def test_oapif_driver_is_available_to_the_reader(self):
@@ -517,52 +546,109 @@ class _OapifHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         base = f"http://{self.headers.get('Host')}"
         path = self.path.split("?", 1)[0]
-        query = self.path[len(path):]
+        query = self.path[len(path) :]
         if path in ("", "/"):
-            self._json({"title": "Mock OAPIF", "links": [
-                {"rel": "self", "href": f"{base}/", "type": "application/json"},
-                {"rel": "conformance", "href": f"{base}/conformance", "type": "application/json"},
-                {"rel": "data", "href": f"{base}/collections", "type": "application/json"},
-            ]})
+            self._json(
+                {
+                    "title": "Mock OAPIF",
+                    "links": [
+                        {"rel": "self", "href": f"{base}/", "type": "application/json"},
+                        {
+                            "rel": "conformance",
+                            "href": f"{base}/conformance",
+                            "type": "application/json",
+                        },
+                        {
+                            "rel": "data",
+                            "href": f"{base}/collections",
+                            "type": "application/json",
+                        },
+                    ],
+                }
+            )
         elif path == "/conformance":
-            self._json({"conformsTo": [
-                "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core",
-                "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson",
-                "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/oas30",
-            ]})
+            self._json(
+                {
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core",
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson",
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/oas30",
+                    ]
+                }
+            )
         elif path == "/collections":
-            self._json({"links": [{"rel": "self", "href": f"{base}/collections"}], "collections": [{
-                "id": "lakes", "title": "Lakes",
-                "extent": {"spatial": {"bbox": [[-180, -90, 180, 90]]}},
-                "links": [
-                    {"rel": "items", "href": f"{base}/collections/lakes/items",
-                     "type": "application/geo+json"},
-                    {"rel": "self", "href": f"{base}/collections/lakes"},
-                ],
-            }]})
+            self._json(
+                {
+                    "links": [{"rel": "self", "href": f"{base}/collections"}],
+                    "collections": [
+                        {
+                            "id": "lakes",
+                            "title": "Lakes",
+                            "extent": {"spatial": {"bbox": [[-180, -90, 180, 90]]}},
+                            "links": [
+                                {
+                                    "rel": "items",
+                                    "href": f"{base}/collections/lakes/items",
+                                    "type": "application/geo+json",
+                                },
+                                {"rel": "self", "href": f"{base}/collections/lakes"},
+                            ],
+                        }
+                    ],
+                }
+            )
         elif path == "/collections/lakes":
-            self._json({
-                "id": "lakes", "title": "Lakes",
-                "extent": {"spatial": {"bbox": [[-180, -90, 180, 90]]}},
-                "links": [{"rel": "items", "href": f"{base}/collections/lakes/items",
-                           "type": "application/geo+json"}],
-            })
+            self._json(
+                {
+                    "id": "lakes",
+                    "title": "Lakes",
+                    "extent": {"spatial": {"bbox": [[-180, -90, 180, 90]]}},
+                    "links": [
+                        {
+                            "rel": "items",
+                            "href": f"{base}/collections/lakes/items",
+                            "type": "application/geo+json",
+                        }
+                    ],
+                }
+            )
         elif path == "/collections/lakes/items" and "offset=2" not in query:
-            self._json({
-                "type": "FeatureCollection", "numberMatched": 3, "numberReturned": 2,
-                "features": [_feature("1", 5.0, 52.0, "a"), _feature("2", 6.0, 51.0, "b")],
-                "links": [
-                    {"rel": "self", "href": f"{base}/collections/lakes/items"},
-                    {"rel": "next", "href": f"{base}/collections/lakes/items?offset=2",
-                     "type": "application/geo+json"},
-                ],
-            }, content_type="application/geo+json")
+            self._json(
+                {
+                    "type": "FeatureCollection",
+                    "numberMatched": 3,
+                    "numberReturned": 2,
+                    "features": [
+                        _feature("1", 5.0, 52.0, "a"),
+                        _feature("2", 6.0, 51.0, "b"),
+                    ],
+                    "links": [
+                        {"rel": "self", "href": f"{base}/collections/lakes/items"},
+                        {
+                            "rel": "next",
+                            "href": f"{base}/collections/lakes/items?offset=2",
+                            "type": "application/geo+json",
+                        },
+                    ],
+                },
+                content_type="application/geo+json",
+            )
         elif path == "/collections/lakes/items":
-            self._json({
-                "type": "FeatureCollection", "numberMatched": 3, "numberReturned": 1,
-                "features": [_feature("3", 7.0, 50.0, "c")],
-                "links": [{"rel": "self", "href": f"{base}/collections/lakes/items?offset=2"}],
-            }, content_type="application/geo+json")
+            self._json(
+                {
+                    "type": "FeatureCollection",
+                    "numberMatched": 3,
+                    "numberReturned": 1,
+                    "features": [_feature("3", 7.0, 50.0, "c")],
+                    "links": [
+                        {
+                            "rel": "self",
+                            "href": f"{base}/collections/lakes/items?offset=2",
+                        }
+                    ],
+                },
+                content_type="application/geo+json",
+            )
         else:
             self.send_error(404)
 
@@ -614,6 +700,8 @@ class TestLiveOapif:
         """Exercise the real OGR OAPIF driver against a public endpoint (override via env)."""
         endpoint = os.environ.get("PYRAMIDS_OAPIF_ENDPOINT", self.ENDPOINT)
         collection = os.environ.get("PYRAMIDS_OAPIF_COLLECTION", "lakes")
-        fc = FeatureCollection.from_ogc_features(endpoint, collection=collection, max_features=5)
+        fc = FeatureCollection.from_ogc_features(
+            endpoint, collection=collection, max_features=5
+        )
         assert isinstance(fc, FeatureCollection)
         assert len(fc) <= 5

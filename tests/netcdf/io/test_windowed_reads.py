@@ -149,9 +149,9 @@ class TestReadVariableNoWindow:
             Reading 'no_such_var' should return None, not raise.
         """
         result = nc_3d._read_variable("no_such_var")
-        assert (
-            result is None
-        ), f"Expected None for nonexistent variable, got {type(result)}"
+        assert result is None, (
+            f"Expected None for nonexistent variable, got {type(result)}"
+        )
 
 
 class TestReadVariableWithWindow:
@@ -410,15 +410,15 @@ class TestSelChaining:
         var = nc.get_variable("temperature")
         first = var.sel(time=[0, 6, 12])
         second = first.sel(time=6)
-        assert (
-            second._band_dim_name == "time"
-        ), f"Expected band_dim_name='time', got {second._band_dim_name}"
-        assert (
-            second._is_subset is True
-        ), f"Expected _is_subset=True, got {second._is_subset}"
-        assert isinstance(
-            second, NetCDF
-        ), f"Expected NetCDF, got {type(second).__name__}"
+        assert second._band_dim_name == "time", (
+            f"Expected band_dim_name='time', got {second._band_dim_name}"
+        )
+        assert second._is_subset is True, (
+            f"Expected _is_subset=True, got {second._is_subset}"
+        )
+        assert isinstance(second, NetCDF), (
+            f"Expected NetCDF, got {type(second).__name__}"
+        )
 
 
 class TestSelEdgeCases:
@@ -454,9 +454,9 @@ class TestSelReturnTypeAndMetadata:
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         result = var.sel(time=6)
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
 
     def test_preserves_band_dim_name(self):
         """sel() preserves _band_dim_name='time'.
@@ -467,9 +467,9 @@ class TestSelReturnTypeAndMetadata:
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         result = var.sel(time=[6, 12])
-        assert (
-            result._band_dim_name == "time"
-        ), f"Expected 'time', got {result._band_dim_name}"
+        assert result._band_dim_name == "time", (
+            f"Expected 'time', got {result._band_dim_name}"
+        )
 
     def test_preserves_scale_offset(self):
         """sel() preserves _scale and _offset for CF unpacking.
@@ -482,8 +482,12 @@ class TestSelReturnTypeAndMetadata:
         var._scale = 0.01
         var._offset = 273.15
         result = var.sel(time=12)
-        assert result._scale == pytest.approx(0.01), f"Expected scale=0.01, got {result._scale}"
-        assert result._offset == pytest.approx(273.15), f"Expected offset=273.15, got {result._offset}"
+        assert result._scale == pytest.approx(0.01), (
+            f"Expected scale=0.01, got {result._scale}"
+        )
+        assert result._offset == pytest.approx(273.15), (
+            f"Expected offset=273.15, got {result._offset}"
+        )
 
     def test_sel_result_supports_unpack(self):
         """read_array(unpack=True) works on a sel() result.
@@ -614,9 +618,9 @@ class TestReadVariableWindowBoundary:
             "temperature",
             window=[(0, 2), (0, 3), (0, 4)],
         )
-        assert isinstance(
-            result, np.ndarray
-        ), f"Expected np.ndarray, got {type(result).__name__}"
+        assert isinstance(result, np.ndarray), (
+            f"Expected np.ndarray, got {type(result).__name__}"
+        )
 
     def test_window_preserves_dtype(self, nc_3d):
         """Windowed read preserves the original data type.
@@ -630,9 +634,9 @@ class TestReadVariableWindowBoundary:
             "temperature",
             window=[(0, 1), (0, 2), (0, 3)],
         )
-        assert (
-            windowed.dtype == full.dtype
-        ), f"Expected dtype {full.dtype}, got {windowed.dtype}"
+        assert windowed.dtype == full.dtype, (
+            f"Expected dtype {full.dtype}, got {windowed.dtype}"
+        )
 
 
 class TestSelOnDiskFile:
@@ -653,9 +657,9 @@ class TestSelOnDiskFile:
         var = nc.get_variable(nc.variable_names[0])
         first_coord = var._band_dim_values[0]
         result = var.sel(**{var._band_dim_name: first_coord})
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF, got {type(result).__name__}"
+        )
         assert result.rows > 0, "Result should have spatial rows"
         assert result.columns > 0, "Result should have spatial columns"
 
@@ -701,6 +705,6 @@ class TestReadVariableWindowMultiDimFallback:
         assert full_time is not None, "time should be readable"
         windowed_time = nc_3d._read_variable("time", window=[(1, 3)])
         assert windowed_time is not None, "Windowed 1D time read should succeed"
-        assert (
-            windowed_time.shape[0] == 3
-        ), f"Expected 3 elements, got {windowed_time.shape[0]}"
+        assert windowed_time.shape[0] == 3, (
+            f"Expected 3 elements, got {windowed_time.shape[0]}"
+        )

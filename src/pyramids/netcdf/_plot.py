@@ -423,6 +423,10 @@ class NetCDFPlot:
 
         Returns:
             int: The 0-based flat band index of the selected 2-D slice.
+
+        Raises:
+            ValueError: A pinned band dimension carries no coordinate values, so its
+                selector cannot be resolved to band indices (mirrors `Selection.sel`).
         """
         flat_index = 0
         if resolved_sel:
@@ -437,6 +441,10 @@ class NetCDFPlot:
             candidate: set[int] | None = None
             for dim_name, value in resolved_sel.items():
                 coords = nc._band_dim_values_map[dim_name]
+                if coords is None:
+                    raise ValueError(
+                        f"No coordinate values available for dimension {dim_name!r}."
+                    )
                 dim_indices = _resolve_dim_indices(coords, value)
                 dim_axis = nc._band_dim_names.index(dim_name)
                 bands = set(_map_dim_to_band_indices(dim_axis, sizes, dim_indices))
@@ -1522,9 +1530,9 @@ class NetCDFPlot:
         """
         if data_shape is None:
             return False
-        return NetCDFPlot._matches_x_axis(x_arr, data_shape) and NetCDFPlot._matches_y_axis(
-            y_arr, data_shape
-        )
+        return NetCDFPlot._matches_x_axis(
+            x_arr, data_shape
+        ) and NetCDFPlot._matches_y_axis(y_arr, data_shape)
 
     def _cf_coordinates_pair(
         self,
@@ -1695,7 +1703,11 @@ class NetCDFPlot:
                 ```
         """
         finite = arr[np.isfinite(arr)]
-        return bool(finite.size) and float(finite.min()) >= -90.5 and float(finite.max()) <= 90.5
+        return (
+            bool(finite.size)
+            and float(finite.min()) >= -90.5
+            and float(finite.max()) <= 90.5
+        )
 
     @staticmethod
     def _looks_like_x_then_y(x_name: str, y_name: str) -> bool:

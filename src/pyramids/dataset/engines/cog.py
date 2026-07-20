@@ -10,8 +10,9 @@ from __future__ import annotations
 import math
 import uuid
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from osgeo import gdal
@@ -40,7 +41,9 @@ from pyramids.dataset.cog.validate import _resolve_read_config, config_context
 from pyramids.dataset.engines._base import _Engine
 
 if TYPE_CHECKING:
-    from pyramids.dataset.dataset import Dataset  # noqa: F401  (forward ref in _Engine["Dataset"])
+    from pyramids.dataset.dataset import (  # noqa: F401  (forward ref in _Engine["Dataset"])
+        Dataset,
+    )
 
 _AVERAGING_RESAMPLERS: frozenset[str] = frozenset(
     {"average", "bilinear", "cubic", "cubicspline", "lanczos"}
@@ -93,8 +96,7 @@ def _resolve_read_resampling(resampling: str) -> int:
     key = resampling.lower().strip()
     if key not in _RESAMPLING_ALG:
         raise ValueError(
-            f"unknown resampling {resampling!r}; "
-            f"choose from {sorted(_RESAMPLING_ALG)}"
+            f"unknown resampling {resampling!r}; choose from {sorted(_RESAMPLING_ALG)}"
         )
     return _RESAMPLING_ALG[key]
 
@@ -1212,7 +1214,9 @@ class COG(_Engine["Dataset"]):
         min_x, min_y, max_x, max_y = bbox
         if self._ds.epsg == bbox_crs:
             return min_x, min_y, max_x, max_y
-        transformer = Transformer.from_crs(bbox_crs, self._ds.epsg or self._ds.crs, always_xy=True)
+        transformer = Transformer.from_crs(
+            bbox_crs, self._ds.epsg or self._ds.crs, always_xy=True
+        )
         corners = [
             transformer.transform(min_x, min_y),
             transformer.transform(min_x, max_y),
@@ -1235,7 +1239,9 @@ class COG(_Engine["Dataset"]):
             `(col, row)` integer pixel indices (floored).
         """
         if self._ds.epsg != point_crs:
-            transformer = Transformer.from_crs(point_crs, self._ds.epsg or self._ds.crs, always_xy=True)
+            transformer = Transformer.from_crs(
+                point_crs, self._ds.epsg or self._ds.crs, always_xy=True
+            )
             x, y = transformer.transform(x, y)
         inv = gdal.InvGeoTransform(self._ds._raster.GetGeoTransform())
         col, row = gdal.ApplyGeoTransform(inv, x, y)

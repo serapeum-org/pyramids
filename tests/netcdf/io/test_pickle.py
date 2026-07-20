@@ -58,7 +58,7 @@ def _read_subset_on_subprocess(payload: bytes) -> tuple[str, int]:
     return (nc._source_var_name or "", int(arr.size))
 
 
-def _read_subset_on_cluster(nc: "NetCDF") -> tuple[str, int]:
+def _read_subset_on_cluster(nc: NetCDF) -> tuple[str, int]:
     """Worker run on a dask-distributed worker: read the subset it was handed.
 
     ``distributed`` pickles ``nc`` over the wire to the worker process, so this

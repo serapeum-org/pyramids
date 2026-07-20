@@ -61,9 +61,9 @@ class TestAnalysisPlotEngine:
         )
 
         result = dataset.analysis.plot(band=2)
-        assert isinstance(
-            result, ArrayGlyph
-        ), f"Expected ArrayGlyph, got {type(result).__name__}"
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph, got {type(result).__name__}"
+        )
 
     @pytest.mark.plot
     def test_out_of_range_band_raises(self):
@@ -170,9 +170,9 @@ class TestRenderArrayKwargRouting:
             )
         for key in ("cmap", "vmin", "vmax", "levels", "cbar_kwargs"):
             assert key in ctor, f"`{key}` must land on the constructor; ctor={ctor}"
-            assert (
-                key not in plot
-            ), f"`{key}` must NOT also reach cleo.plot; plot={plot}"
+            assert key not in plot, (
+                f"`{key}` must NOT also reach cleo.plot; plot={plot}"
+            )
 
     def test_render_call_only_kwargs_reach_plot(self):
         """Render-call-only kwargs reach ``ArrayGlyph.plot`` and nothing else.
@@ -208,9 +208,9 @@ class TestRenderArrayKwargRouting:
             )
         for key in render_only_kwargs:
             assert key in plot, f"`{key}` must reach cleo.plot; plot={plot}"
-            assert (
-                key not in ctor
-            ), f"`{key}` must NOT also be on the constructor; ctor={ctor}"
+            assert key not in ctor, (
+                f"`{key}` must NOT also be on the constructor; ctor={ctor}"
+            )
 
     def test_animate_mode_merges_both_buckets_into_animate_call(self):
         """``mode='animate'`` — every kwarg flows into ``cleo.animate(...)``.
@@ -241,12 +241,11 @@ class TestRenderArrayKwargRouting:
                 f"animate kwargs={animate}"
             )
             assert key not in ctor, (
-                f"In animate mode, `{key}` must NOT be on the constructor; "
-                f"ctor={ctor}"
+                f"In animate mode, `{key}` must NOT be on the constructor; ctor={ctor}"
             )
-        assert anim_args == [
-            [0, 1, 2]
-        ], f"animation_axis_values must be positional; got {anim_args}"
+        assert anim_args == [[0, 1, 2]], (
+            f"animation_axis_values must be positional; got {anim_args}"
+        )
 
     def test_facet_mode_routes_kind_to_facet_call(self):
         """``kind`` (render-call-only) reaches ``cleo.facet``, not the ctor.
@@ -272,9 +271,9 @@ class TestRenderArrayKwargRouting:
             )
         assert "kind" in facet, f"`kind` should reach cleo.facet; facet kwargs={facet}"
         assert "cmap" in ctor, f"`cmap` should remain on the constructor; ctor={ctor}"
-        assert (
-            facet.get("col") == "time"
-        ), f"facet_kwargs must reach cleo.facet via merge; got {facet}"
+        assert facet.get("col") == "time", (
+            f"facet_kwargs must reach cleo.facet via merge; got {facet}"
+        )
 
     def test_split_is_driven_by_option_keys(self):
         """The ctor/render split comes from ``ArrayGlyph.option_keys()``.
@@ -302,12 +301,12 @@ class TestRenderArrayKwargRouting:
                 add_colorbar=False,
                 kind="imshow",
             )
-        assert (
-            "add_colorbar" in ctor and "add_colorbar" not in plot
-        ), f"`add_colorbar` is an option_keys() ctor option; ctor={ctor}"
-        assert (
-            "kind" in plot and "kind" not in ctor
-        ), f"`kind` must be force-routed to the render call; plot={plot}"
+        assert "add_colorbar" in ctor and "add_colorbar" not in plot, (
+            f"`add_colorbar` is an option_keys() ctor option; ctor={ctor}"
+        )
+        assert "kind" in plot and "kind" not in ctor, (
+            f"`kind` must be force-routed to the render call; plot={plot}"
+        )
 
     @pytest.mark.plot
     def test_kind_contourf_reaches_plot_not_clobbered(self):
@@ -380,9 +379,7 @@ class TestStyleHillshadePresets:
         )
         assert isinstance(glyph, ArrayGlyph)
 
-    @pytest.mark.skipif(
-        not _supports_style, reason="cleopatra < 0.24 has no hillshade"
-    )
+    @pytest.mark.skipif(not _supports_style, reason="cleopatra < 0.24 has no hillshade")
     def test_hillshade_renders(self):
         """A ``hillshade`` blend renders end to end."""
         rng = np.random.default_rng(738)
@@ -558,7 +555,10 @@ class TestStyleHillshadePresets:
         with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
             with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
                 render_array(
-                    arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", style="topography"
+                    arr=arr,
+                    extent=[0.0, 0.0, 1.0, 1.0],
+                    mode="plot",
+                    style="topography",
                 )
 
     def test_no_preset_kwargs_unaffected_on_old_cleopatra(self):
@@ -597,7 +597,9 @@ class TestStyleHillshadePresets:
         glyph = dataset.plot(band=0, style="flow_accumulation")
         assert glyph.style == "flow_accumulation"
         glyph.apply_style("topography")
-        assert glyph.style == "topography", "apply_style must restyle the glyph in place"
+        assert glyph.style == "topography", (
+            "apply_style must restyle the glyph in place"
+        )
 
 
 class TestMeshRenderHelper:
@@ -642,9 +644,9 @@ class TestMeshRenderHelper:
                     data=np.array([1.0]),
                     location="face",
                 )
-        assert (
-            result is sentinel
-        ), f"mesh_render must return plot_mesh_data's result; got {result!r}"
+        assert result is sentinel, (
+            f"mesh_render must return plot_mesh_data's result; got {result!r}"
+        )
         mock_add.assert_not_called()
 
     def test_mesh_render_forwards_kwargs_to_plot_mesh_data(self):
@@ -716,9 +718,9 @@ class TestMeshRenderHelper:
         mock_add.assert_called_once()
         kwargs = mock_add.call_args.kwargs
         assert kwargs.get("crs") == 3857, f"`crs` must equal basemap_epsg; got {kwargs}"
-        assert (
-            kwargs.get("source") is None
-        ), f"`source` should be None when basemap=True (no provider); got {kwargs}"
+        assert kwargs.get("source") is None, (
+            f"`source` should be None when basemap=True (no provider); got {kwargs}"
+        )
 
     def test_mesh_render_basemap_string_passes_source(self):
         """``basemap='CartoDB.Positron'`` forwards the string as ``source=``.
@@ -746,14 +748,12 @@ class TestMeshRenderHelper:
                     basemap_epsg=4326,
                 )
         kwargs = mock_add.call_args.kwargs
-        assert (
-            kwargs.get("source") == "CartoDB.Positron"
-        ), f"`source` must equal the basemap string; got {kwargs}"
+        assert kwargs.get("source") == "CartoDB.Positron", (
+            f"`source` must equal the basemap string; got {kwargs}"
+        )
 
 
-@pytest.mark.skipif(
-    PointOverlay is None, reason="cleopatra < 0.26 has no PointOverlay"
-)
+@pytest.mark.skipif(PointOverlay is None, reason="cleopatra < 0.26 has no PointOverlay")
 class TestPointOverlay:
     """The `points=` overlay reaches cleopatra from the plot facade (cleopatra 0.26).
 
@@ -839,4 +839,3 @@ class TestFrameLabel:
             frame_label=FrameLabel(location=(1, 3)),
         )
         assert isinstance(glyph, ArrayGlyph)
-

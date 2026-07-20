@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pyramids.netcdf import NetCDF, Container, Variable
+from pyramids.netcdf import Container, NetCDF, Variable
 
 pytestmark = pytest.mark.core
 
@@ -191,17 +191,29 @@ class TestTypePreservation:
             source's MDIM mode, keeps CF scale/offset, reads its own data — but is no longer a
             parent subset (``is_subset`` is False, no ``_source_var_name``/``_parent_nc``).
         """
-        assert variable.is_subset is True, "precondition: the extracted variable is a subset"
+        assert variable.is_subset is True, (
+            "precondition: the extracted variable is a subset"
+        )
         copied = variable.copy()
         assert isinstance(copied, Variable), "copy must keep the variable type"
-        assert copied.is_subset is False, "a copy is standalone, not a live parent subset"
-        assert copied.is_md_array is False, "a copied variable is a standalone classic raster"
-        assert copied._source_var_name is None, "a copy must not carry the parent's var name"
-        assert copied._parent_nc is None, "a copy must not reference the parent container"
+        assert copied.is_subset is False, (
+            "a copy is standalone, not a live parent subset"
+        )
+        assert copied.is_md_array is False, (
+            "a copied variable is a standalone classic raster"
+        )
+        assert copied._source_var_name is None, (
+            "a copy must not carry the parent's var name"
+        )
+        assert copied._parent_nc is None, (
+            "a copy must not reference the parent container"
+        )
         assert copied.scale == variable.scale, "copy lost the CF scale"
         assert copied.read_array() is not None, "copy must be a readable raster"
 
-    def test_on_disk_copy_pickle_recipe_is_standalone_not_parent(self, variable, tmp_path):
+    def test_on_disk_copy_pickle_recipe_is_standalone_not_parent(
+        self, variable, tmp_path
+    ):
         """A copied variable's pickle recipe targets its own file, never the parent (review C1).
 
         Test scenario:
@@ -216,7 +228,9 @@ class TestTypePreservation:
         copied = variable.copy(str(out))
         _func, args = copied.__reduce__()
         path, _access, _is_md, is_subset, source_var, group_path = args
-        assert Path(path).name == "var_copy.nc", f"recipe must target the copy, got {path!r}"
+        assert Path(path).name == "var_copy.nc", (
+            f"recipe must target the copy, got {path!r}"
+        )
         assert is_subset is False, "a copy must not be pickled as a parent subset"
         assert source_var is None, "a copy must not carry a parent source-variable name"
         assert group_path is None, "a copy must not be pickled as a group view"
@@ -255,7 +269,9 @@ class TestContainerGuard:
             is always a valid raster.
         """
         arr = variable.read_array()
-        assert arr is not None and arr.size > 0, "variable read_array should return data"
+        assert arr is not None and arr.size > 0, (
+            "variable read_array should return data"
+        )
 
     def test_variable_check_not_container_is_noop(self, variable):
         """``Variable._check_not_container`` returns None and never raises.

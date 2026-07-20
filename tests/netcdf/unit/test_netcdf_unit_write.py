@@ -10,7 +10,11 @@ from osgeo import gdal
 from pyramids.netcdf.models import DimensionInfo, NetCDFMetadata
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_2d_nc
-from tests.netcdf.unit._netcdf_unit_helpers import _make_3d_nc, _make_dataset_2d, _make_dataset_3d
+from tests.netcdf.unit._netcdf_unit_helpers import (
+    _make_3d_nc,
+    _make_dataset_2d,
+    _make_dataset_3d,
+)
 
 pytestmark = pytest.mark.core
 
@@ -27,9 +31,9 @@ class TestNoDataValueSetter:
         nc = make_2d_nc()
         var = nc.get_variable("elevation")
         var.no_data_value = -1.0
-        assert (
-            var.no_data_value[0] == -1.0
-        ), f"Expected -1.0, got {var.no_data_value[0]}"
+        assert var.no_data_value[0] == -1.0, (
+            f"Expected -1.0, got {var.no_data_value[0]}"
+        )
 
     def test_setter_with_list_value(self):
         """Verify no_data_value setter handles a list of values.
@@ -42,9 +46,9 @@ class TestNoDataValueSetter:
         new_values = [-1.0, -2.0, -3.0]
         var.no_data_value = new_values
         for i, expected in enumerate(new_values):
-            assert (
-                var.no_data_value[i] == expected
-            ), f"Band {i}: expected {expected}, got {var.no_data_value[i]}"
+            assert var.no_data_value[i] == expected, (
+                f"Band {i}: expected {expected}, got {var.no_data_value[i]}"
+            )
 
 
 class TestMetaDataSetter:
@@ -59,9 +63,9 @@ class TestMetaDataSetter:
         nc = make_2d_nc()
         nc.meta_data = {"source": "test", "version": "1.0"}
         gdal_meta = nc._raster.GetMetadata()
-        assert (
-            gdal_meta.get("source") == "test"
-        ), f"Expected 'test', got {gdal_meta.get('source')}"
+        assert gdal_meta.get("source") == "test", (
+            f"Expected 'test', got {gdal_meta.get('source')}"
+        )
 
     def test_setter_with_netcdf_metadata(self):
         """Verify meta_data setter accepts a NetCDFMetadata object.
@@ -83,9 +87,9 @@ class TestMetaDataSetter:
             created_with={"gdal": "3.12"},
         )
         nc.meta_data = custom_meta
-        assert (
-            nc._cached_meta_data is custom_meta
-        ), "Expected _cached_meta_data to be the assigned object"
+        assert nc._cached_meta_data is custom_meta, (
+            "Expected _cached_meta_data to be the assigned object"
+        )
 
 
 class TestAddMdArrayToGroupFallback:
@@ -137,9 +141,9 @@ class TestSetVariableAttributes:
         rg = nc._raster.GetRootGroup()
         md_arr = rg.OpenMDArray("pressure")
         attr_names = [a.GetName() for a in md_arr.GetAttributes()]
-        assert (
-            "scale_factor" in attr_names
-        ), f"Expected 'scale_factor' attribute, got {attr_names}"
+        assert "scale_factor" in attr_names, (
+            f"Expected 'scale_factor' attribute, got {attr_names}"
+        )
 
     def test_set_variable_with_int_attr(self):
         """Verify set_variable writes integer attributes.
@@ -214,13 +218,13 @@ class TestSetVariableAttributes:
         ds1 = _make_dataset_2d()
         ds2 = _make_dataset_2d(rows=10, cols=12)
         nc.set_variable("replace_me", ds1)
-        assert (
-            "replace_me" in nc.variable_names
-        ), "Variable should exist before replacement"
+        assert "replace_me" in nc.variable_names, (
+            "Variable should exist before replacement"
+        )
         nc.set_variable("replace_me", ds2)
-        assert (
-            "replace_me" in nc.variable_names
-        ), "Variable should still exist after replacement"
+        assert "replace_me" in nc.variable_names, (
+            "Variable should still exist after replacement"
+        )
 
     def test_set_variable_3d_with_no_band_dim(self):
         """Verify set_variable auto-names band dim as 'bands'.
@@ -235,9 +239,9 @@ class TestSetVariableAttributes:
         dims = md_arr.GetDimensions()
         assert len(dims) == 3, f"Expected 3 dims for 3D var, got {len(dims)}"
         dim_names = [d.GetName() for d in dims]
-        assert "bands" in dim_names or any(
-            "band" in n for n in dim_names
-        ), f"Expected a 'bands' dimension, got {dim_names}"
+        assert "bands" in dim_names or any("band" in n for n in dim_names), (
+            f"Expected a 'bands' dimension, got {dim_names}"
+        )
 
     def test_set_variable_attr_exception_silenced(self):
         """Verify set_variable silences exceptions when writing attributes.
@@ -281,9 +285,9 @@ class TestAddVariable:
         nc = _make_3d_nc(variable_name="temp")
         nc2 = _make_3d_nc(variable_name="precip")
         nc.add_variable(nc2, variable_name="precip")
-        assert (
-            "precip" in nc.variable_names
-        ), f"Expected 'precip' in {nc.variable_names}"
+        assert "precip" in nc.variable_names, (
+            f"Expected 'precip' in {nc.variable_names}"
+        )
 
     def test_add_variable_non_netcdf_dataset(self):
         """Verify add_variable with a plain Dataset gives empty names_to_copy.
@@ -302,9 +306,9 @@ class TestAddVariable:
         ds._raster.GetRootGroup.return_value = mock_rg
         nc.add_variable(ds)
         # Variable names should not change since names_to_copy is empty
-        assert (
-            nc.variable_names == original_names
-        ), f"Variable names should not change, got {nc.variable_names}"
+        assert nc.variable_names == original_names, (
+            f"Variable names should not change, got {nc.variable_names}"
+        )
 
 
 class TestRemoveVariable:
@@ -324,9 +328,9 @@ class TestRemoveVariable:
             read_only=False,
             open_as_multi_dimensional=True,
         )
-        assert (
-            "temp" in file_nc.variable_names
-        ), "Variable 'temp' should exist before removal"
+        assert "temp" in file_nc.variable_names, (
+            "Variable 'temp' should exist before removal"
+        )
         file_nc.remove_variable("temp")
         assert "temp" not in file_nc.variable_names, "Variable 'temp' should be removed"
 
@@ -338,9 +342,9 @@ class TestRemoveVariable:
         nc = _make_3d_nc(variable_name="temp")
         assert "temp" in nc.variable_names, "Variable should exist before removal"
         nc.remove_variable("temp")
-        assert (
-            "temp" not in nc.variable_names
-        ), "Variable should be removed from in-memory dataset"
+        assert "temp" not in nc.variable_names, (
+            "Variable should be removed from in-memory dataset"
+        )
 
 
 class TestSetVariableAttrWriteException:
@@ -413,6 +417,8 @@ class TestSetVariableAttrException:
 
         rg = nc._raster.GetRootGroup()
         md_arr = rg.OpenMDArray("attr_err_var")
-        assert md_arr is not None, "Variable should still be created despite attr failure"
+        assert md_arr is not None, (
+            "Variable should still be created despite attr failure"
+        )
         attr_names = [a.GetName() for a in (md_arr.GetAttributes() or [])]
         assert "units" not in attr_names, "the failed attribute must not be written"

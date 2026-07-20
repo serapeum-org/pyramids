@@ -61,10 +61,9 @@ class TestResample:
         dst_arr = dst.raster.ReadAsArray()
         assert dst.rows == resampled_multi_band_dims[0]
         assert dst.columns == resampled_multi_band_dims[1]
-        assert (
-            dst.raster.GetGeoTransform()[1] == pytest.approx(cell_size)
-            and dst.raster.GetGeoTransform()[-1] == pytest.approx(-1 * cell_size)
-        )
+        assert dst.raster.GetGeoTransform()[1] == pytest.approx(
+            cell_size
+        ) and dst.raster.GetGeoTransform()[-1] == pytest.approx(-1 * cell_size)
 
         # GDAL bilinear output drifts across minor versions (e.g. 3.12 -> 3.13
         # shifts up to ~5% of pixels by 100+ counts; max diff observed ~986 on
@@ -153,9 +152,9 @@ class TestReproject:
         dst = src_ds.to_crs(to_epsg="ESRI:54030")
         dst_sr = osr.SpatialReference(wkt=dst.crs)
         assert dst_sr.IsProjected() == 1
-        assert (
-            "Robinson" in dst_sr.GetName()
-        ), f"expected Robinson in dst CRS name, got {dst_sr.GetName()!r}"
+        assert "Robinson" in dst_sr.GetName(), (
+            f"expected Robinson in dst CRS name, got {dst_sr.GetName()!r}"
+        )
 
     def test_mollweide_esri_authority_string_maintain_alignment(
         self,
@@ -173,9 +172,9 @@ class TestReproject:
         dst = src_ds.to_crs(to_epsg="ESRI:54009", maintain_alignment=True)
         dst_sr = osr.SpatialReference(wkt=dst.crs)
         assert dst_sr.IsProjected() == 1
-        assert (
-            "Mollweide" in dst_sr.GetName()
-        ), f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
+        assert "Mollweide" in dst_sr.GetName(), (
+            f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
+        )
         dst_shape = dst.raster.ReadAsArray().shape
         # Mollweide projects so differently from the source CRS that the
         # corner-sampled cell-step calculation can drift by a single
@@ -246,9 +245,9 @@ class TestReproject:
         out = dst.read_array()
         nodata = dst.no_data_value[0]
         corners = np.array([out[0, 0], out[0, -1], out[-1, 0], out[-1, -1]])
-        assert np.allclose(
-            corners, nodata
-        ), f"off-disc corner pixels should equal nodata={nodata}, got {corners}"
+        assert np.allclose(corners, nodata), (
+            f"off-disc corner pixels should equal nodata={nodata}, got {corners}"
+        )
 
     def test_to_crs_non_epsg_with_bilinear_resampling(self):
         """to_crs runs the bilinear resampling path against a non-EPSG target (#418).
@@ -270,9 +269,9 @@ class TestReproject:
         )
         dst = ds.to_crs(to_epsg="ESRI:54009", method="bilinear")
         dst_sr = osr.SpatialReference(wkt=dst.crs)
-        assert (
-            "Mollweide" in dst_sr.GetName()
-        ), f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
+        assert "Mollweide" in dst_sr.GetName(), (
+            f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
+        )
         out = dst.read_array()
         finite = out[out != dst.no_data_value[0]]
         assert finite.size > 0, "bilinear warp should produce at least one finite cell"
@@ -326,9 +325,9 @@ class TestReproject:
             no_data_value=-9999.0,
         )
         dst = ds.to_crs(to_epsg="ESRI:54030")
-        assert (
-            dst.band_count == ds.band_count
-        ), f"band count drift: src={ds.band_count}, dst={dst.band_count}"
+        assert dst.band_count == ds.band_count, (
+            f"band count drift: src={ds.band_count}, dst={dst.band_count}"
+        )
 
     def test_to_crs_same_epsg_maintain_alignment_is_identity(self):
         """to_crs(source_epsg, maintain_alignment=True) returns a bit-identical raster (M1).
@@ -550,7 +549,6 @@ class TestCrop:
 
 
 class TestCropWithPolygon:
-
     def test_inplace(
         self,
         rhine_raster: gdal.Dataset,
@@ -684,9 +682,9 @@ class TestCropWithPolygon:
         assert isinstance(cropped, Dataset)
         arr = cropped.raster.ReadAsArray()
         values = arr[~np.isclose(arr, dataset.no_data_value[0], rtol=0.0001)]
-        assert np.array_equal(
-            values, rasterized_mask_values
-        ), "the extracted values in the dataframe do not equal the real values in the array"
+        assert np.array_equal(values, rasterized_mask_values), (
+            "the extracted values in the dataframe do not equal the real values in the array"
+        )
 
 
 class TestCluster2:

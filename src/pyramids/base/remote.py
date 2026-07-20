@@ -25,10 +25,10 @@ import re
 import urllib.error
 import urllib.request
 import warnings
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, cast
 from urllib.parse import ParseResult, urlparse
 
 from osgeo import gdal
@@ -771,7 +771,7 @@ class CloudConfig:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool | None:
         """Exit the context, restore the previous GDAL config, and clear _ctx."""
-        result = self._ctx.__exit__(exc_type, exc_val, exc_tb)
+        result = cast(bool | None, self._ctx.__exit__(exc_type, exc_val, exc_tb))
         self._ctx = None
         logger.debug("CloudConfig exited")
         return result

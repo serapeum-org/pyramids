@@ -341,9 +341,9 @@ class TestGeometryHardeningChain:
 
         # D-H1: with_coordinates explodes internally and must NOT mutate ``fc``.
         exploded = fc.with_coordinates()
-        assert [
-            g.geom_type for g in fc.geometry
-        ] == original_types, "input FC's geometries mutated by with_coordinates"
+        assert [g.geom_type for g in fc.geometry] == original_types, (
+            "input FC's geometries mutated by with_coordinates"
+        )
         # Exploded output carries the split child rows (triangle + 2 boxes).
         assert len(exploded) == 3
 

@@ -93,9 +93,9 @@ class TestDownloadItemWiring:
             True,
         ), f"Config args mismatch: {fake_stac_asset['config']}"
         assert fake_stac_asset["item"] == "ITEM", "item should be forwarded"
-        assert fake_stac_asset["directory"] == str(
-            tmp_path
-        ), "directory should be stringified"
+        assert fake_stac_asset["directory"] == str(tmp_path), (
+            "directory should be stringified"
+        )
 
     def test_defaults_empty_filters(self, fake_stac_asset, tmp_path):
         """Omitted include/exclude become empty lists in the Config.

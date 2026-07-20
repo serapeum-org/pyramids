@@ -113,12 +113,12 @@ class TestLazyDispatch:
             drop_axis=0,
             dtype=np.float32,
         )
-        assert hasattr(
-            result, "dask"
-        ), "Expected a dask.array.Array when chunks= is provided"
-        assert (
-            result.ndim == 1
-        ), f"drop_axis=0 must reduce rank by 1; got ndim={result.ndim}"
+        assert hasattr(result, "dask"), (
+            "Expected a dask.array.Array when chunks= is provided"
+        )
+        assert result.ndim == 1, (
+            f"drop_axis=0 must reduce rank by 1; got ndim={result.ndim}"
+        )
         np.testing.assert_array_equal(
             result.compute(),
             square_dataset.read_array().sum(axis=0),
@@ -142,12 +142,12 @@ class TestLazyDispatch:
             new_axis=0,
             dtype=np.float32,
         )
-        assert hasattr(
-            result, "dask"
-        ), "Expected a dask.array.Array when chunks= is provided"
-        assert (
-            result.ndim == 3
-        ), f"new_axis=0 must increase rank by 1; got ndim={result.ndim}"
+        assert hasattr(result, "dask"), (
+            "Expected a dask.array.Array when chunks= is provided"
+        )
+        assert result.ndim == 3, (
+            f"new_axis=0 must increase rank by 1; got ndim={result.ndim}"
+        )
 
 
 class TestImportErrorWithoutDask:

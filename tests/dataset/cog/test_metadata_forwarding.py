@@ -99,9 +99,9 @@ class TestMetadataForwarding:
         )
         src_band = byte_dataset._raster.GetRasterBand(1)
         assert src_band.GetColorTable() is None, "source colour table was mutated"
-        assert (
-            byte_dataset._raster.GetMetadataItem("STAMP") is None
-        ), "source metadata mutated"
+        assert byte_dataset._raster.GetMetadataItem("STAMP") is None, (
+            "source metadata mutated"
+        )
 
     def test_colormap_on_float_raises(self, tmp_path):
         """A colormap on a non-Byte/UInt16 band raises a clear ValueError (L2).

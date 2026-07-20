@@ -27,6 +27,10 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
 )
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg, sr_from_user_input
+from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
+from pyramids.dataset._wcs import from_wcs as _from_wcs
+from pyramids.dataset._wms import from_wms as _from_wms
+from pyramids.dataset._wms import from_wmts as _from_wmts
 from pyramids.dataset.abstract_dataset import (
     DEFAULT_NO_DATA_VALUE,
     RasterBase,
@@ -57,10 +61,6 @@ from pyramids.dataset.ops._zonal import zonal_stats as _zonal_stats
 from pyramids.dataset.ops.interpolate import grid_points
 from pyramids.dataset.ops.units import convert_array
 from pyramids.dataset.ops.vectorize import rasterize_features
-from pyramids.dataset._wcs import from_wcs as _from_wcs
-from pyramids.dataset._wms import from_wms as _from_wms
-from pyramids.dataset._wms import from_wmts as _from_wmts
-from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
 from pyramids.feature import FeatureCollection, create_polygon
 
 # tuple of collaborator attribute names. Used by

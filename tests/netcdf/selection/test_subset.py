@@ -77,6 +77,7 @@ def _write_multidim(path, data_vars, coords):
     src = None
     return NetCDF.read_file(str(path), read_only=True)
 
+
 NWM_LDASOUT = "s3://noaa-nwm-retrospective-3-0-pds/CONUS/zarr/ldasout.zarr"
 
 
@@ -678,7 +679,9 @@ class TestSubsetOffline:
 
         out = tmp_path / "subset_after_gc.tif"
         result.to_file(out)
-        assert out.exists() and out.stat().st_size > 0, "result not writable after source GC"
+        assert out.exists() and out.stat().st_size > 0, (
+            "result not writable after source GC"
+        )
 
     def test_extra_dim_selection(self, tmp_path):
         nc = _synthetic_cube(tmp_path, with_extra=True)

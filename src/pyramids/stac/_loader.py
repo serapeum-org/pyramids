@@ -20,7 +20,7 @@ resolve to pyramids' GDAL-backed wrappers.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from pyramids.base._errors import UnsupportedAssetError
 from pyramids.base._utils import import_zarr, lazy_extra_hint
@@ -299,7 +299,7 @@ def load_asset(
             result = NetCDF.read_file(href)
         else:
             result = Dataset.read_file(href, vsi=vsi)
-    return result
+    return cast(Dataset, result)
 
 
 def _load_zarr(href: str):
@@ -320,6 +320,7 @@ def _load_zarr(href: str):
 
     Raises:
         OptionalPackageDoesNotExist: When the `[lazy]` extra (zarr) is missing.
+        TypeError: The detected data variable is a group rather than an array.
     """
     import_zarr(
         lazy_extra_hint(
@@ -329,6 +330,13 @@ def _load_zarr(href: str):
     import zarr
 
     root = zarr.open_group(_resolve_store(href, None), mode="r")
-    if root[detect_data_var(root)].ndim >= 4:
+    data_name = detect_data_var(root)
+    data = root[data_name]
+    if not isinstance(data, zarr.Array):
+        raise TypeError(
+            f"GeoZarr data variable {data_name!r} is a group, not an array; "
+            "cannot determine its dimensionality."
+        )
+    if data.ndim >= 4:
         return DatasetCollection.from_zarr(href)
     return Dataset.from_zarr(href)

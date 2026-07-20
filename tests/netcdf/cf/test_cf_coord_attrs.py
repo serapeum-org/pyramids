@@ -46,9 +46,9 @@ class TestBuildCoordinateAttrs:
             axis, standard_name, and units combination.
         """
         attrs = build_coordinate_attrs(dim_name, is_geographic=is_geo)
-        assert (
-            attrs["axis"] == expected_axis
-        ), f"For {dim_name}: expected axis={expected_axis}, got {attrs.get('axis')}"
+        assert attrs["axis"] == expected_axis, (
+            f"For {dim_name}: expected axis={expected_axis}, got {attrs.get('axis')}"
+        )
         if expected_stdname is not None:
             assert attrs.get("standard_name") == expected_stdname, (
                 f"For {dim_name}: expected standard_name={expected_stdname}, "
@@ -78,9 +78,9 @@ class TestBuildCoordinateAttrs:
         """
         attrs_upper = build_coordinate_attrs("X", is_geographic=True)
         attrs_lower = build_coordinate_attrs("x", is_geographic=True)
-        assert (
-            attrs_upper == attrs_lower
-        ), f"Case mismatch: upper={attrs_upper}, lower={attrs_lower}"
+        assert attrs_upper == attrs_lower, (
+            f"Case mismatch: upper={attrs_upper}, lower={attrs_lower}"
+        )
 
 
 class TestCreateDimensionCFAttrs:
@@ -108,12 +108,12 @@ class TestCreateDimensionCFAttrs:
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, epsg=4326, variable_name="temp")
         attrs = self._read_coord_attrs(nc, "x")
         assert attrs.get("axis") == "X", f"Expected axis=X, got {attrs.get('axis')}"
-        assert (
-            attrs.get("standard_name") == "longitude"
-        ), f"Expected standard_name=longitude, got {attrs.get('standard_name')}"
-        assert (
-            attrs.get("units") == "degrees_east"
-        ), f"Expected units=degrees_east, got {attrs.get('units')}"
+        assert attrs.get("standard_name") == "longitude", (
+            f"Expected standard_name=longitude, got {attrs.get('standard_name')}"
+        )
+        assert attrs.get("units") == "degrees_east", (
+            f"Expected units=degrees_east, got {attrs.get('units')}"
+        )
 
     def test_y_geographic_has_cf_attrs(self):
         """Y dimension with geographic CRS has latitude attributes.
@@ -126,12 +126,12 @@ class TestCreateDimensionCFAttrs:
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, epsg=4326, variable_name="temp")
         attrs = self._read_coord_attrs(nc, "y")
         assert attrs.get("axis") == "Y", f"Expected axis=Y, got {attrs.get('axis')}"
-        assert (
-            attrs.get("standard_name") == "latitude"
-        ), f"Expected standard_name=latitude, got {attrs.get('standard_name')}"
-        assert (
-            attrs.get("units") == "degrees_north"
-        ), f"Expected units=degrees_north, got {attrs.get('units')}"
+        assert attrs.get("standard_name") == "latitude", (
+            f"Expected standard_name=latitude, got {attrs.get('standard_name')}"
+        )
+        assert attrs.get("units") == "degrees_north", (
+            f"Expected units=degrees_north, got {attrs.get('units')}"
+        )
 
     def test_x_projected_has_cf_attrs(self):
         """X dimension with projected CRS has projection_x_coordinate.
@@ -147,9 +147,9 @@ class TestCreateDimensionCFAttrs:
         )
         attrs = self._read_coord_attrs(nc, "x")
         assert attrs.get("axis") == "X", f"Expected axis=X, got {attrs.get('axis')}"
-        assert (
-            attrs.get("standard_name") == "projection_x_coordinate"
-        ), f"Expected projection_x_coordinate, got {attrs.get('standard_name')}"
+        assert attrs.get("standard_name") == "projection_x_coordinate", (
+            f"Expected projection_x_coordinate, got {attrs.get('standard_name')}"
+        )
         assert attrs.get("units") == "m", f"Expected units=m, got {attrs.get('units')}"
 
     def test_time_dimension_has_cf_attrs(self):
@@ -165,9 +165,9 @@ class TestCreateDimensionCFAttrs:
         )
         attrs = self._read_coord_attrs(nc, "time")
         assert attrs.get("axis") == "T", f"Expected axis=T, got {attrs.get('axis')}"
-        assert (
-            attrs.get("standard_name") == "time"
-        ), f"Expected standard_name=time, got {attrs.get('standard_name')}"
+        assert attrs.get("standard_name") == "time", (
+            f"Expected standard_name=time, got {attrs.get('standard_name')}"
+        )
 
     def test_round_trip_preserves_coord_attrs(self, tmp_path):
         """CF coordinate attributes survive write-to-disk and reload.
@@ -186,6 +186,6 @@ class TestCreateDimensionCFAttrs:
         x_attrs = (
             {a.GetName(): a.Read() for a in x_arr.GetAttributes()} if x_arr else {}
         )
-        assert (
-            x_attrs.get("axis") == "X"
-        ), f"axis=X lost after round-trip, got {x_attrs.get('axis')}"
+        assert x_attrs.get("axis") == "X", (
+            f"axis=X lost after round-trip, got {x_attrs.get('axis')}"
+        )

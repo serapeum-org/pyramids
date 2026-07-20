@@ -1,9 +1,9 @@
 import pytest
 
 from pyramids.netcdf.dimensions import (
-    DimensionsIndex,
     ClassicDimensionInfo,
     ClassicDimMetadata,
+    DimensionsIndex,
     parse_dimension_attributes,
 )
 
@@ -177,7 +177,9 @@ class TestClassicDimMetadataFromMetadata:
             "time#axis": "T",
             "lat#units": "degrees_north",
         }
-        meta = ClassicDimMetadata.from_metadata(md, prefix="CUSTOM_DIM_", names=["time"])
+        meta = ClassicDimMetadata.from_metadata(
+            md, prefix="CUSTOM_DIM_", names=["time"]
+        )
         assert meta.names == ["time"]
         assert meta.get_attrs("time") == {"axis": "T"}
         assert meta.get_attrs("lat") == {}
@@ -420,7 +422,9 @@ class TestClassicDimMetadataStr:
                     "time": ClassicDimensionInfo(
                         name="time", size=2, values=[0, 31], def_fields=(2, 6)
                     ),
-                    "level": ClassicDimensionInfo(name="level", size=3, def_fields=(3, 6)),
+                    "level": ClassicDimensionInfo(
+                        name="level", size=3, def_fields=(3, 6)
+                    ),
                 }
             ),
             attrs={
@@ -429,7 +433,9 @@ class TestClassicDimMetadataStr:
         )
         s = str(meta)
         # Header
-        assert s.splitlines()[0].startswith("ClassicDimMetadata(2 dims, attrs for 1 names)")
+        assert s.splitlines()[0].startswith(
+            "ClassicDimMetadata(2 dims, attrs for 1 names)"
+        )
         # time details
         assert any(
             line.startswith("- time:")

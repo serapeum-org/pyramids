@@ -41,9 +41,9 @@ class TestSignerCloudConfig:
         Test scenario:
             ``signer_cloud_config(None)`` installs no GDAL config.
         """
-        assert isinstance(
-            signer_cloud_config(None), nullcontext
-        ), "expected a no-op context"
+        assert isinstance(signer_cloud_config(None), nullcontext), (
+            "expected a no-op context"
+        )
 
     def test_signer_returns_seeded_cloudconfig(self):
         """A signer yields a CloudConfig carrying its ``gdal_env()``.
@@ -53,9 +53,9 @@ class TestSignerCloudConfig:
         """
         ctx = signer_cloud_config(_EnvSigner({"AWS_REQUEST_PAYER": "requester"}))
         assert isinstance(ctx, CloudConfig), f"expected CloudConfig, got {type(ctx)}"
-        assert ctx.as_gdal_config() == {
-            "AWS_REQUEST_PAYER": "requester"
-        }, f"unexpected config: {ctx.as_gdal_config()}"
+        assert ctx.as_gdal_config() == {"AWS_REQUEST_PAYER": "requester"}, (
+            f"unexpected config: {ctx.as_gdal_config()}"
+        )
 
     def test_config_active_within_block(self):
         """The signer's config is live inside the block and torn down after.
@@ -65,12 +65,12 @@ class TestSignerCloudConfig:
         """
         assert gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") is None, "precondition: unset"
         with signer_cloud_config(_EnvSigner({"GDAL_HTTP_TIMEOUT": "42"})):
-            assert (
-                gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") == "42"
-            ), "config not active in block"
-        assert (
-            gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") is None
-        ), "config not restored after block"
+            assert gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") == "42", (
+                "config not active in block"
+            )
+        assert gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") is None, (
+            "config not restored after block"
+        )
 
 
 class TestToVsi:
@@ -141,7 +141,10 @@ class TestToVsi:
 
     def test_dods_uppercase_scheme(self):
         # scheme match is case-insensitive; the slice uses the lower-cased length.
-        assert _to_vsi("DODS://test.opendap.org/data.nc") == 'NETCDF:"https://test.opendap.org/data.nc"'
+        assert (
+            _to_vsi("DODS://test.opendap.org/data.nc")
+            == 'NETCDF:"https://test.opendap.org/data.nc"'
+        )
 
     def test_dods_routed_through_parse_path(self):
         # The read path (read_file -> _parse_path -> _to_vsi) must yield the NETCDF: form.
@@ -261,9 +264,9 @@ class TestCloudConfigAsGdalConfig:
         """
         cfg = CloudConfig(aws_region="ap-south-1").as_gdal_config()
         assert cfg["AWS_REGION"] == "ap-south-1", f"AWS_REGION wrong: {cfg}"
-        assert (
-            cfg["AWS_DEFAULT_REGION"] == "ap-south-1"
-        ), f"AWS_DEFAULT_REGION wrong: {cfg}"
+        assert cfg["AWS_DEFAULT_REGION"] == "ap-south-1", (
+            f"AWS_DEFAULT_REGION wrong: {cfg}"
+        )
 
     def test_no_default_region_without_region(self):
         """AWS_DEFAULT_REGION is absent when aws_region is not provided.
@@ -430,49 +433,49 @@ class TestToVsiArchiveChaining:
         """HTTPS URL pointing into .tar archive gets /vsitar/ prefix."""
         url = "https://example.com/archive.tar/inner.tif"
         result = _to_vsi(url)
-        assert (
-            result == "/vsitar//vsicurl/https://example.com/archive.tar/inner.tif"
-        ), f"Expected chained /vsitar/ + /vsicurl/, got: {result}"
+        assert result == "/vsitar//vsicurl/https://example.com/archive.tar/inner.tif", (
+            f"Expected chained /vsitar/ + /vsicurl/, got: {result}"
+        )
 
     def test_zip_inside_s3(self):
         """S3 URL pointing into .zip archive gets /vsizip/ prefix."""
         url = "s3://bucket/archive.zip/inner.tif"
         result = _to_vsi(url)
-        assert (
-            result == "/vsizip//vsis3/bucket/archive.zip/inner.tif"
-        ), f"Expected chained /vsizip/ + /vsis3/, got: {result}"
+        assert result == "/vsizip//vsis3/bucket/archive.zip/inner.tif", (
+            f"Expected chained /vsizip/ + /vsis3/, got: {result}"
+        )
 
     def test_gz_inside_https(self):
         """HTTPS URL pointing into .gz file gets /vsigzip/ prefix."""
         url = "https://example.com/data.gz/inner.asc"
         result = _to_vsi(url)
-        assert (
-            result == "/vsigzip//vsicurl/https://example.com/data.gz/inner.asc"
-        ), f"Expected chained /vsigzip/ + /vsicurl/, got: {result}"
+        assert result == "/vsigzip//vsicurl/https://example.com/data.gz/inner.asc", (
+            f"Expected chained /vsigzip/ + /vsicurl/, got: {result}"
+        )
 
     def test_tar_gz_inside_https(self):
         """HTTPS URL pointing into .tar.gz archive routes via /vsitar/."""
         url = "https://example.com/archive.tar.gz/inner.tif"
         result = _to_vsi(url)
-        assert (
-            "/vsitar/" in result
-        ), f".tar.gz must route through /vsitar/, got: {result}"
+        assert "/vsitar/" in result, (
+            f".tar.gz must route through /vsitar/, got: {result}"
+        )
 
     def test_tgz_inside_gs(self):
         """GCS URL pointing into .tgz archive routes via /vsitar/."""
         url = "gs://bucket/data.tgz/inner.tif"
         result = _to_vsi(url)
-        assert result.startswith(
-            "/vsitar//vsigs/"
-        ), f".tgz must chain /vsitar/ + /vsigs/, got: {result}"
+        assert result.startswith("/vsitar//vsigs/"), (
+            f".tgz must chain /vsitar/ + /vsigs/, got: {result}"
+        )
 
     def test_plain_tif_over_https_no_chain(self):
         """URL without an archive segment is not chained."""
         url = "https://example.com/scene.tif"
         result = _to_vsi(url)
-        assert (
-            result == "/vsicurl/https://example.com/scene.tif"
-        ), f"Non-archive URL must not chain; got: {result}"
+        assert result == "/vsicurl/https://example.com/scene.tif", (
+            f"Non-archive URL must not chain; got: {result}"
+        )
 
     def test_archive_named_in_url_but_not_traversed(self):
         """URL ending at archive name (no trailing /) is not chained.
@@ -484,17 +487,17 @@ class TestToVsiArchiveChaining:
         """
         url = "https://example.com/archive.tar"
         result = _to_vsi(url)
-        assert (
-            result == "/vsicurl/https://example.com/archive.tar"
-        ), f"Archive-name-only URL must not chain; got: {result}"
+        assert result == "/vsicurl/https://example.com/archive.tar", (
+            f"Archive-name-only URL must not chain; got: {result}"
+        )
 
     def test_local_zip_path_unchanged_by_chain(self):
         """Local .zip/foo.tif is left for pyramids._io._parse_path to handle."""
         p = "/local/path/archive.zip/inner.tif"
         result = _to_vsi(p)
-        assert (
-            result == p
-        ), f"Local archive paths must be left to _parse_path, got: {result}"
+        assert result == p, (
+            f"Local archive paths must be left to _parse_path, got: {result}"
+        )
 
 
 class TestCloudConfigCtxAttribute:
@@ -503,9 +506,9 @@ class TestCloudConfigCtxAttribute:
     def test_ctx_is_none_before_enter(self):
         """Fresh CloudConfig has _ctx as None, not an undefined attribute."""
         cfg = CloudConfig(aws_region="us-east-1")
-        assert (
-            cfg._ctx is None
-        ), f"Fresh CloudConfig must have _ctx is None, got: {cfg._ctx!r}"
+        assert cfg._ctx is None, (
+            f"Fresh CloudConfig must have _ctx is None, got: {cfg._ctx!r}"
+        )
 
     def test_ctx_is_cleared_after_exit(self):
         """After __exit__, _ctx returns to None (no lingering reference)."""
@@ -517,9 +520,9 @@ class TestCloudConfigCtxAttribute:
     def test_ctx_not_in_repr(self):
         """_ctx is declared repr=False so it does not leak into repr()."""
         cfg = CloudConfig(aws_region="us-east-1")
-        assert "_ctx" not in repr(
-            cfg
-        ), f"_ctx must be excluded from repr; got: {repr(cfg)}"
+        assert "_ctx" not in repr(cfg), (
+            f"_ctx must be excluded from repr; got: {repr(cfg)}"
+        )
 
     def test_ctx_not_in_equality_comparison(self):
         """_ctx is compare=False so __eq__ still works across with-blocks."""
@@ -552,25 +555,25 @@ class TestToVsiArchiveChainingEdgeCases:
         """
         url = "https://foo.com/x.tif?key=archive.tar/inner&sig=abc"
         result = _to_vsi(url)
-        assert (
-            result == f"/vsicurl/{url}"
-        ), f"Query-string .tar/ must not trigger archive chaining; got: {result}"
+        assert result == f"/vsicurl/{url}", (
+            f"Query-string .tar/ must not trigger archive chaining; got: {result}"
+        )
 
     def test_query_string_with_dot_zip_not_chained(self):
         """Same protection for .zip inside a query string."""
         url = "https://foo.com/scene.tif?asset=pkg.zip/inner.tif"
         result = _to_vsi(url)
-        assert (
-            result == f"/vsicurl/{url}"
-        ), f"Query-string .zip/ must not trigger archive chaining; got: {result}"
+        assert result == f"/vsicurl/{url}", (
+            f"Query-string .zip/ must not trigger archive chaining; got: {result}"
+        )
 
     def test_query_string_with_dot_gz_not_chained(self):
         """Same protection for .gz inside a query string."""
         url = "https://foo.com/scene.tif?backup=data.gz/inner"
         result = _to_vsi(url)
-        assert (
-            result == f"/vsicurl/{url}"
-        ), f"Query-string .gz/ must not trigger archive chaining; got: {result}"
+        assert result == f"/vsicurl/{url}", (
+            f"Query-string .gz/ must not trigger archive chaining; got: {result}"
+        )
 
     def test_hostname_ending_in_gz_not_chained(self):
         """Hostname whose label ends in .gz must not trigger archive chaining.
@@ -583,17 +586,17 @@ class TestToVsiArchiveChainingEdgeCases:
         """
         url = "https://weird.gz/file.tif"
         result = _to_vsi(url)
-        assert (
-            result == f"/vsicurl/{url}"
-        ), f"Hostname ending in .gz must not trigger archive chaining; got: {result}"
+        assert result == f"/vsicurl/{url}", (
+            f"Hostname ending in .gz must not trigger archive chaining; got: {result}"
+        )
 
     def test_hostname_with_dot_tar_not_chained(self):
         """Hostname containing .tar (e.g. tar.example.com) is not an archive."""
         url = "https://tar.example.com/file.tif"
         result = _to_vsi(url)
-        assert (
-            result == f"/vsicurl/{url}"
-        ), f"Hostname containing .tar must not trigger archive chaining; got: {result}"
+        assert result == f"/vsicurl/{url}", (
+            f"Hostname containing .tar must not trigger archive chaining; got: {result}"
+        )
 
     def test_nested_outer_archive_wins(self):
         """Nested archive path only applies the outermost archive prefix.
@@ -608,9 +611,9 @@ class TestToVsiArchiveChainingEdgeCases:
         url = "https://foo.com/outer.zip/inner.tar/file.tif"
         result = _to_vsi(url)
         expected = "/vsizip//vsicurl/https://foo.com/outer.zip/inner.tar/file.tif"
-        assert (
-            result == expected
-        ), f"Nested archive: only outermost (.zip) should chain; got: {result}"
+        assert result == expected, (
+            f"Nested archive: only outermost (.zip) should chain; got: {result}"
+        )
 
     def test_path_with_dot_tar_in_directory_name_chained(self):
         """A legitimate `archive.tar/` segment in the path IS chained.
@@ -623,44 +626,44 @@ class TestToVsiArchiveChainingEdgeCases:
         """
         url = "https://foo.com/path/archive.tar/inner.tif"
         result = _to_vsi(url)
-        assert result.startswith(
-            "/vsitar//vsicurl/"
-        ), f"Legitimate archive segment must chain; got: {result}"
+        assert result.startswith("/vsitar//vsicurl/"), (
+            f"Legitimate archive segment must chain; got: {result}"
+        )
 
     def test_s3_key_with_dot_zip_segment_chained(self):
         """S3 key that traverses a .zip segment is correctly chained."""
         url = "s3://bucket/folder/archive.zip/inner.tif"
         result = _to_vsi(url)
-        assert (
-            result == "/vsizip//vsis3/bucket/folder/archive.zip/inner.tif"
-        ), f"S3 archive segment must chain; got: {result}"
+        assert result == "/vsizip//vsis3/bucket/folder/archive.zip/inner.tif", (
+            f"S3 archive segment must chain; got: {result}"
+        )
 
     def test_tar_gz_prefers_vsitar_over_vsigzip(self):
         """.tar.gz/ must match before .gz/ in the regex alternation."""
         url = "https://foo.com/archive.tar.gz/inner.tif"
         result = _to_vsi(url)
-        assert result.startswith(
-            "/vsitar//vsicurl/"
-        ), f".tar.gz/ must route through /vsitar/, got: {result}"
-        assert not result.startswith(
-            "/vsigzip/"
-        ), f".tar.gz/ must NOT route through /vsigzip/, got: {result}"
+        assert result.startswith("/vsitar//vsicurl/"), (
+            f".tar.gz/ must route through /vsitar/, got: {result}"
+        )
+        assert not result.startswith("/vsigzip/"), (
+            f".tar.gz/ must NOT route through /vsigzip/, got: {result}"
+        )
 
     def test_uppercase_archive_extension_matched(self):
         """Case-insensitive matching — `.ZIP/` is treated like `.zip/`."""
         url = "https://foo.com/ARCHIVE.ZIP/INNER.TIF"
         result = _to_vsi(url)
-        assert result.startswith(
-            "/vsizip//vsicurl/"
-        ), f"Uppercase .ZIP/ must still chain; got: {result}"
+        assert result.startswith("/vsizip//vsicurl/"), (
+            f"Uppercase .ZIP/ must still chain; got: {result}"
+        )
 
     def test_non_archive_extension_not_chained(self):
         """Non-archive extensions at path boundaries are not chained."""
         url = "https://foo.com/container.tif/inner.tif"
         result = _to_vsi(url)
-        assert (
-            result == f"/vsicurl/{url}"
-        ), f".tif/ is not an archive; must not chain; got: {result}"
+        assert result == f"/vsicurl/{url}", (
+            f".tif/ is not an archive; must not chain; got: {result}"
+        )
 
 
 @pytest.mark.slow
@@ -677,6 +680,8 @@ class TestLiveOpenDAP:
     def test_read_opendap_schema(self):
         """A dods:// URL opens as a NetCDF and its variable schema is read without a full download."""
         nc = NetCDF.read_file(self.URL)
-        assert self.VAR in list(nc.variables), f"{self.VAR!r} not in {list(nc.variables)[:8]}"
+        assert self.VAR in list(nc.variables), (
+            f"{self.VAR!r} not in {list(nc.variables)[:8]}"
+        )
         variable = nc.get_variable(self.VAR)
         assert variable.shape[0] >= 1

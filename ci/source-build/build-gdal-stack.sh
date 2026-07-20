@@ -113,7 +113,7 @@ else
     for d in "${work}"/*/; do
         dep=$(basename "${d}")
         for f in LICENSE LICENSE.TXT LICENSE.txt LICENSE.md LICENSES.txt COPYING \
-                 COPYING.txt COPYING.LIB COPYING.LESSER COPYRIGHT LICENCE license.txt; do
+            COPYING.txt COPYING.LIB COPYING.LESSER COPYRIGHT LICENCE license.txt; do
             if [[ -f "${d}${f}" ]]; then
                 mkdir -p "${LIC_DST}/${dep}"
                 cp "${d}${f}" "${LIC_DST}/${dep}/${f}"
@@ -136,7 +136,7 @@ echo "${GDAL_VERSION}" > "${BUILD_PREFIX}/GDAL_VERSION"
 # bootstrap point GDAL/curl at it.
 mkdir -p "${BUILD_PREFIX}/ssl"
 for ca in /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt \
-          /etc/ssl/cert.pem; do
+    /etc/ssl/cert.pem; do
     if [[ -f "${ca}" ]]; then
         cp "${ca}" "${BUILD_PREFIX}/ssl/cacert.pem"
         echo "CA bundle staged from ${ca}"
@@ -184,8 +184,8 @@ grep -E "netCDF|GTiff|HDF5|Zarr|GRIB" <<<"${_gdal_formats}" || true
 echo "=== license-completeness gate ==="
 _lic_missing=0
 for dep in c-blosc curl expat gdal geos giflib hdf5 json-c lcms2 lerc libaec libdeflate \
-           libjpeg-turbo libpng libwebp netcdf-c nghttp2 openjpeg openssl pcre2 proj \
-           tiff xz zlib zstd; do
+    libjpeg-turbo libpng libwebp netcdf-c nghttp2 openjpeg openssl pcre2 proj \
+    tiff xz zlib zstd; do
     if ! ls -d "${BUILD_PREFIX}/share/pyramids-bundled-licenses/${dep}-"[0-9]* >/dev/null 2>&1; then
         echo "MISSING bundled license dir for: ${dep}" >&2; _lic_missing=1
     fi

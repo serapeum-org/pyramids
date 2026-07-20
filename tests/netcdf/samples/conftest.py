@@ -23,10 +23,10 @@ from pyramids.netcdf import NetCDF
 DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "netcdf"
 
 # Shared sample-file name constants — imported by individual test modules to avoid duplication.
-TOS = "cf__7v__1d3-2d3-3d1__y-asc.nc"   # tos(time=24, lat=170, lon=180), EPSG:4326, non-square cells
+TOS = "cf__7v__1d3-2d3-3d1__y-asc.nc"  # tos(time=24, lat=170, lon=180), EPSG:4326, non-square cells
 RHUM = "coards__5v__1d4-4d1__y-desc.nc"  # rhum(time=12, level=4, lat=37, lon=72)
-AIR = "coards__4v__1d3-3d1__y-desc.nc"   # air(time, lat, lon) — has a concat 'time' dim
-MESH = "ugrid__6v__1d5-2d1.nc"   # quad-hexagon UGRID mesh: 16 nodes, 4 faces
+AIR = "coards__4v__1d3-3d1__y-desc.nc"  # air(time, lat, lon) — has a concat 'time' dim
+MESH = "ugrid__6v__1d5-2d1.nc"  # quad-hexagon UGRID mesh: 16 nodes, 4 faces
 
 # Capability registry — the single source of truth for which files exercise which behaviours.
 #
@@ -37,52 +37,103 @@ MESH = "ugrid__6v__1d5-2d1.nc"   # quad-hexagon UGRID mesh: 16 nodes, 4 faces
 SAMPLES = {
     "none__1v__1d1.nc": {"convention": "none"},
     "cf__7v__1d3-2d3-3d1__y-asc.nc": {
-        "convention": "cf", "gridded": True, "time": True, "bounds": True,
+        "convention": "cf",
+        "gridded": True,
+        "time": True,
+        "bounds": True,
     },
     "coards__4v__1d3-3d1__y-desc.nc": {
-        "convention": "coards", "gridded": True, "time": True, "packed": True,
+        "convention": "coards",
+        "gridded": True,
+        "time": True,
+        "packed": True,
     },
     "cf__12v__1d4-2d5-3d2-4d1__y-asc.nc": {
-        "convention": "cf", "gridded": True, "time": True, "level": True, "fourd": True,
-        "multivar": True, "bounds": True,
+        "convention": "cf",
+        "gridded": True,
+        "time": True,
+        "level": True,
+        "fourd": True,
+        "multivar": True,
+        "bounds": True,
     },
     "cf__20v__1d3-3d17__y-desc.nc": {
-        "convention": "cf", "gridded": True, "time": True, "packed": True, "multivar": True,
+        "convention": "cf",
+        "gridded": True,
+        "time": True,
+        "packed": True,
+        "multivar": True,
     },
     "cf__48v__1d17-3d21-4d10__y-asc.nc": {
-        "convention": "cf", "gridded": True, "time": True, "level": True, "fourd": True,
-        "multivar": True, "string_vars": True,
+        "convention": "cf",
+        "gridded": True,
+        "time": True,
+        "level": True,
+        "fourd": True,
+        "multivar": True,
+        "string_vars": True,
     },
     "coards__5v__1d4-4d1__y-desc.nc": {
-        "convention": "coards", "gridded": True, "time": True, "level": True, "fourd": True,
+        "convention": "coards",
+        "gridded": True,
+        "time": True,
+        "level": True,
+        "fourd": True,
         "packed": True,
     },
     "cf__40v__1d28-2d9-3d3__nc4.nc": {
-        "convention": "cf", "nc4": True, "multivar": True,
+        "convention": "cf",
+        "nc4": True,
+        "multivar": True,
     },
     "cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc": {
-        "convention": "cf", "gridded": True, "time": True, "level": True, "fourd": True,
+        "convention": "cf",
+        "gridded": True,
+        "time": True,
+        "level": True,
+        "fourd": True,
         "curvilinear": True,
     },
     "none__4v__1d1-2d2-3d1__curv.nc": {
-        "convention": "none", "gridded": True, "time": True, "curvilinear": True,
+        "convention": "none",
+        "gridded": True,
+        "time": True,
+        "curvilinear": True,
     },
     "none__17v__1d1-2d5-3d6-4d5__stag-str.nc": {
-        "convention": "none", "gridded": True, "time": True, "level": True, "fourd": True,
-        "staggered": True, "string_vars": True, "multivar": True,
+        "convention": "none",
+        "gridded": True,
+        "time": True,
+        "level": True,
+        "fourd": True,
+        "staggered": True,
+        "string_vars": True,
+        "multivar": True,
     },
     "none__5v__1d2-2d2-3d1__curv.nc": {
-        "convention": "none", "gridded": True, "curvilinear": True, "string_vars": True,
+        "convention": "none",
+        "gridded": True,
+        "curvilinear": True,
+        "string_vars": True,
         "multivar": True,
     },
     "none__111v__1d96-2d13-3d2__str.nc": {
-        "convention": "none", "string_vars": True, "multivar": True, "labeled": True,
+        "convention": "none",
+        "string_vars": True,
+        "multivar": True,
+        "labeled": True,
     },
     "none__11v__1d11.nc": {
-        "convention": "none", "time": True, "multivar": True,
+        "convention": "none",
+        "time": True,
+        "multivar": True,
     },
     "none__35v__1d35__groups-nc4.nc": {
-        "convention": "none", "groups": True, "nc4": True, "string_vars": True, "multivar": True,
+        "convention": "none",
+        "groups": True,
+        "nc4": True,
+        "string_vars": True,
+        "multivar": True,
     },
     "ugrid__6v__1d5-2d1.nc": {"ugrid": True},
     "ugrid__1v__3d1.nc": {"ugrid": True, "time": True, "level": True},
@@ -94,7 +145,9 @@ SAMPLE_NAMES = list(SAMPLES)
 
 def files_with(*flags):
     """Return the sample filenames whose registry entry has every flag in ``flags`` truthy."""
-    return [name for name, caps in SAMPLES.items() if all(caps.get(flag) for flag in flags)]
+    return [
+        name for name, caps in SAMPLES.items() if all(caps.get(flag) for flag in flags)
+    ]
 
 
 def parse_structural_name(filename):

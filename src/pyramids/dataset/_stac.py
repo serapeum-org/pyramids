@@ -19,10 +19,10 @@ from __future__ import annotations
 import os
 import warnings
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from datetime import UTC, timedelta
 from datetime import datetime as _datetime_cls
-from datetime import timedelta, timezone
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from osgeo import osr
 from pyproj import Transformer
@@ -474,13 +474,12 @@ def _item_datetime(item: Any) -> _datetime_cls:
         when = (props or {}).get("datetime")
     if when is None:
         raise ValueError(
-            f"item {_item_id(item)} has no datetime; required for "
-            "groupby='solar_day'."
+            f"item {_item_id(item)} has no datetime; required for groupby='solar_day'."
         )
     if isinstance(when, str):
         when = _datetime_cls.fromisoformat(when.replace("Z", "+00:00"))
     if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
+        when = when.replace(tzinfo=UTC)
     return when
 
 
@@ -997,7 +996,7 @@ def to_stac_item(
     # caller gives neither, default to "now" so the Item is always valid
     # instead of silently emitting a null-datetime Feature.
     if datetime is None and not (start_datetime and end_datetime):
-        datetime = _datetime_cls.now(timezone.utc)
+        datetime = _datetime_cls.now(UTC)
     properties: dict[str, Any] = {"datetime": _to_iso(datetime)}
     if start_datetime is not None:
         properties["start_datetime"] = _to_iso(start_datetime)

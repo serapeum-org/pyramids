@@ -79,7 +79,7 @@ class SerializableLock:
         return self.token
 
     def __setstate__(self, token: str) -> None:
-        self.__init__(token)
+        type(self).__init__(self, token)
 
     def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
         return self.lock.acquire(blocking, timeout)
@@ -174,9 +174,13 @@ def default_lock() -> Any:
         from dask.distributed import Lock as _DistributedLock
         from dask.distributed import get_client
 
-        client = get_client()
+        # Probe for a running distributed client; raises ValueError when there
+        # is none, which selects the single-process SerializableLock below.
+        get_client()
     except (ImportError, ValueError):
         lock: Any = SerializableLock()
     else:
-        lock = _DistributedLock(name=f"pyramids-{uuid.uuid4()}", client=client)
+        # `distributed.Lock` takes no `client` kwarg -- it resolves the ambient
+        # client itself (the same one `get_client()` just returned).
+        lock = _DistributedLock(name=f"pyramids-{uuid.uuid4()}")
     return lock

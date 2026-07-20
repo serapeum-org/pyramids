@@ -180,9 +180,9 @@ class TestLazyFeatureCollection:
         pre = {k for k in vars(ddf).keys() if not k.startswith("__")}
         lfc = LazyFeatureCollection.from_dask_gdf(ddf)
         post = {k for k in vars(lfc).keys() if not k.startswith("__")}
-        assert (
-            pre == post
-        ), f"class-swap leaked state: added={post - pre}, dropped={pre - post}"
+        assert pre == post, (
+            f"class-swap leaked state: added={post - pre}, dropped={pre - post}"
+        )
 
     def test_no_extra_slots(self):
         """ARC-V2: pin that LazyFeatureCollection declares no ``__slots__``.

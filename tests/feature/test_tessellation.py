@@ -45,7 +45,9 @@ class TestVoronoi:
         assert cells.crs.to_epsg() == 32618
         assert set(cells.geom_type.unique()) == {"Polygon"}
 
-    def test_values_carried_to_containing_cell(self, point_fc: FeatureCollection) -> None:
+    def test_values_carried_to_containing_cell(
+        self, point_fc: FeatureCollection
+    ) -> None:
         cells = point_fc.voronoi(values="v")
         assert "v" in cells.columns
         assert sorted(cells["v"].tolist()) == list(range(1, 10))
@@ -54,14 +56,18 @@ class TestVoronoi:
             match = cells[cells.contains(point_row.geometry)]
             assert match["v"].tolist() == [point_row["v"]]
 
-    def test_clip_shrinks_cells(self, point_fc: FeatureCollection, boundary_fc: FeatureCollection) -> None:
+    def test_clip_shrinks_cells(
+        self, point_fc: FeatureCollection, boundary_fc: FeatureCollection
+    ) -> None:
         full = point_fc.voronoi()
         clipped = point_fc.voronoi(clip=boundary_fc)
         assert clipped.area.sum() < full.area.sum()
         boundary = boundary_fc.geometry.union_all()
         assert clipped.geometry.apply(lambda g: g.within(boundary.buffer(1e-6))).all()
 
-    def test_reprojected_clip(self, point_fc: FeatureCollection, boundary_fc: FeatureCollection) -> None:
+    def test_reprojected_clip(
+        self, point_fc: FeatureCollection, boundary_fc: FeatureCollection
+    ) -> None:
         clip_wgs84 = FeatureCollection(boundary_fc.to_crs(4326))
         clipped = point_fc.voronoi(clip=clip_wgs84)
         assert clipped.crs.to_epsg() == 32618
@@ -97,12 +103,20 @@ class TestVoronoi:
         fc = FeatureCollection(
             gpd.GeoDataFrame(
                 {"v": [1, 2, 3, 4, 5]},
-                geometry=[Point(0, 0), Point(0, 0), Point(2, 0), Point(0, 2), Point(2, 2)],
+                geometry=[
+                    Point(0, 0),
+                    Point(0, 0),
+                    Point(2, 0),
+                    Point(0, 2),
+                    Point(2, 2),
+                ],
                 crs="EPSG:32618",
             )
         )
         cells = fc.voronoi(values="v")
-        assert len(cells) == 4, f"duplicate point should yield one empty cell, got {len(cells)} cells"
+        assert len(cells) == 4, (
+            f"duplicate point should yield one empty cell, got {len(cells)} cells"
+        )
 
     def test_collinear_points_do_not_crash(self) -> None:
         fc = FeatureCollection(
@@ -111,14 +125,20 @@ class TestVoronoi:
             )
         )
         cells = fc.voronoi()
-        assert len(cells) >= 1, "collinear points should still tessellate into at least one cell"
+        assert len(cells) >= 1, (
+            "collinear points should still tessellate into at least one cell"
+        )
         assert set(cells.geom_type.unique()) == {"Polygon"}
 
-    def test_clip_excluding_all_cells_is_empty(self, point_fc: FeatureCollection) -> None:
+    def test_clip_excluding_all_cells_is_empty(
+        self, point_fc: FeatureCollection
+    ) -> None:
         far = Point(1000.0, 1000.0).buffer(1.0).envelope
         clip = FeatureCollection(gpd.GeoDataFrame(geometry=[far], crs="EPSG:32618"))
         cells = point_fc.voronoi(clip=clip)
-        assert len(cells) == 0, f"a disjoint clip should exclude every cell, got {len(cells)}"
+        assert len(cells) == 0, (
+            f"a disjoint clip should exclude every cell, got {len(cells)}"
+        )
         assert cells.crs.to_epsg() == 32618
 
     def test_missing_values_column_raises(self, point_fc: FeatureCollection) -> None:
@@ -134,10 +154,17 @@ class TestVoronoi:
             )
         )
         two_boxes = MultiPolygon([box(1, 1, 2, 2), box(3, 3, 4, 4)])
-        clip = FeatureCollection(gpd.GeoDataFrame(geometry=[two_boxes], crs="EPSG:32618"))
+        clip = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[two_boxes], crs="EPSG:32618")
+        )
         cells = corners.voronoi(values="v", clip=clip)
-        assert len(cells) == 2, "the two clip boxes both fall in one Voronoi cell, splitting it in two"
-        assert cells["v"].tolist() == [100, 100], "both split parts carry the source point's value"
+        assert len(cells) == 2, (
+            "the two clip boxes both fall in one Voronoi cell, splitting it in two"
+        )
+        assert cells["v"].tolist() == [
+            100,
+            100,
+        ], "both split parts carry the source point's value"
 
 
 class TestQuadtree:
@@ -154,7 +181,9 @@ class TestQuadtree:
         assert len(fine) > len(coarse)
         assert len(coarse) == 1
 
-    @pytest.mark.parametrize("agg", ["mean", "sum", "median", "min", "max", "std", "count"])
+    @pytest.mark.parametrize(
+        "agg", ["mean", "sum", "median", "min", "max", "std", "count"]
+    )
     def test_named_reducers(self, point_fc: FeatureCollection, agg: str) -> None:
         cells = point_fc.quadtree(column="v", agg=agg, nmax=100)
         assert len(cells) == 1
@@ -177,7 +206,9 @@ class TestQuadtree:
         cells = point_fc.quadtree(nmax=1, nmin=2)
         assert len(cells) == 0
 
-    def test_clip_intersection(self, point_fc: FeatureCollection, boundary_fc: FeatureCollection) -> None:
+    def test_clip_intersection(
+        self, point_fc: FeatureCollection, boundary_fc: FeatureCollection
+    ) -> None:
         clipped = point_fc.quadtree(nmax=1, clip=boundary_fc)
         boundary = boundary_fc.geometry.union_all()
         assert clipped.geometry.apply(lambda g: g.within(boundary.buffer(1e-6))).all()
@@ -196,13 +227,19 @@ class TestQuadtree:
     def test_callable_agg_returning_nan(self, point_fc: FeatureCollection) -> None:
         cells = point_fc.quadtree(column="v", agg=lambda a: float("nan"), nmax=100)
         assert len(cells) == 1
-        assert np.isnan(cells["v"].iloc[0]), "a NaN-returning reducer should propagate NaN to the cell"
+        assert np.isnan(cells["v"].iloc[0]), (
+            "a NaN-returning reducer should propagate NaN to the cell"
+        )
 
-    def test_clip_excluding_all_cells_is_empty(self, point_fc: FeatureCollection) -> None:
+    def test_clip_excluding_all_cells_is_empty(
+        self, point_fc: FeatureCollection
+    ) -> None:
         far = Point(1000.0, 1000.0).buffer(1.0).envelope
         clip = FeatureCollection(gpd.GeoDataFrame(geometry=[far], crs="EPSG:32618"))
         cells = point_fc.quadtree(nmax=1, clip=clip)
-        assert len(cells) == 0, f"a disjoint clip should exclude every cell, got {len(cells)}"
+        assert len(cells) == 0, (
+            f"a disjoint clip should exclude every cell, got {len(cells)}"
+        )
 
     def test_single_point_bins_to_one_cell(self) -> None:
         single = FeatureCollection(
@@ -222,7 +259,9 @@ class TestQuadtree:
             point_fc.quadtree(column="nope")
 
     @pytest.mark.parametrize("nmax", [0, -1])
-    def test_nmax_below_one_raises(self, point_fc: FeatureCollection, nmax: int) -> None:
+    def test_nmax_below_one_raises(
+        self, point_fc: FeatureCollection, nmax: int
+    ) -> None:
         with pytest.raises(ValueError, match="nmax must be >= 1"):
             point_fc.quadtree(nmax=nmax)
 

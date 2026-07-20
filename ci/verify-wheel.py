@@ -302,10 +302,32 @@ def _check_netcdf_driver() -> None:
 # silently absent from the first from-source builds while CI stayed
 # green.
 _COMMON_DRIVERS = (
-    "GTiff", "COG", "netCDF", "GRIB", "HDF5", "JP2OpenJPEG", "Zarr",
-    "PNG", "JPEG", "WCS", "OGCAPI", "VRT", "MEM",
-    "GeoJSON", "ESRI Shapefile", "GPKG", "GPX", "PMTiles", "MVT",
-    "GML", "KML", "WFS", "OAPIF", "FlatGeobuf", "SQLite", "OSM",
+    "GTiff",
+    "COG",
+    "netCDF",
+    "GRIB",
+    "HDF5",
+    "JP2OpenJPEG",
+    "Zarr",
+    "PNG",
+    "JPEG",
+    "WCS",
+    "OGCAPI",
+    "VRT",
+    "MEM",
+    "GeoJSON",
+    "ESRI Shapefile",
+    "GPKG",
+    "GPX",
+    "PMTiles",
+    "MVT",
+    "GML",
+    "KML",
+    "WFS",
+    "OAPIF",
+    "FlatGeobuf",
+    "SQLite",
+    "OSM",
 )
 # Platform extras: HDF4 ships only in the conda-extract wheels (macOS +
 # Windows AMD64). The from-source builds deliberately drop it — the
@@ -336,10 +358,7 @@ def _check_driver_set() -> None:
         expected.append("HDF4")
     missing = [name for name in expected if gdal.GetDriverByName(name) is None]
     if missing:
-        _fail(
-            "bundled GDAL is missing promised drivers: "
-            + ", ".join(missing)
-        )
+        _fail("bundled GDAL is missing promised drivers: " + ", ".join(missing))
     print(f"driver-set check OK — all {len(expected)} promised drivers registered.")
 
 
@@ -412,15 +431,15 @@ def _check_licenses() -> None:
     no license source at all and every CI job stayed green).
     """
     lic_dir = Path(pyramids.__file__).parent / "_licenses"
-    packages = (
-        [p for p in lic_dir.iterdir() if p.is_dir()] if lic_dir.is_dir() else []
-    )
+    packages = [p for p in lic_dir.iterdir() if p.is_dir()] if lic_dir.is_dir() else []
     if len(packages) < 10:
         _fail(
             f"wheel ships only {len(packages)} third-party license dirs at "
             f"{lic_dir} — the bundled native libraries require their notices"
         )
-    print(f"license check OK — {len(packages)} third-party license dirs ship in the wheel.")
+    print(
+        f"license check OK — {len(packages)} third-party license dirs ship in the wheel."
+    )
 
 
 def _check_jp2_driver() -> None:
@@ -442,10 +461,14 @@ def _check_jp2_driver() -> None:
         mem = gdal.GetDriverByName("MEM").Create("", 32, 32, 1, gdal.GDT_Byte)
         mem.GetRasterBand(1).Fill(128)
         if drv.CreateCopy(path, mem) is None:
-            _fail("JP2OpenJPEG CreateCopy returned None — bundled driver cannot write (#600)")
+            _fail(
+                "JP2OpenJPEG CreateCopy returned None — bundled driver cannot write (#600)"
+            )
         ds = gdal.Open(path)
         if ds is None or ds.GetRasterBand(1).ReadAsArray() is None:
-            _fail(f"gdal.Open({path}) failed — JP2OpenJPEG read produced no band (#600)")
+            _fail(
+                f"gdal.Open({path}) failed — JP2OpenJPEG read produced no band (#600)"
+            )
         ds = None  # release the GDAL handle so Windows can delete the temp file
     print("JP2OpenJPEG round-trip OK — bundled driver reads/writes JPEG2000 (#600).")
 

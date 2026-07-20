@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 import warnings
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 Number = int | float
 
@@ -311,8 +312,7 @@ class ClassicDimensionInfo:
             raise ValueError("Dimension name cannot be empty.")
         if self.size is not None and self.size < 0:
             raise ValueError(
-                f"Dimension '{self.name}': size cannot be negative, "
-                f"got {self.size}."
+                f"Dimension '{self.name}': size cannot be negative, got {self.size}."
             )
         if self.values is not None and self.size is not None:
             if len(self.values) != self.size:

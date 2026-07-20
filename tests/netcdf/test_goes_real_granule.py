@@ -106,9 +106,9 @@ class TestRealGoesGranule:
 
             srs = cube.raster.GetSpatialRef()
             lon_0 = srs.GetProjParm("central_meridian", 999.0)
-            assert lon_0 == pytest.approx(
-                expected_lon_0, abs=1.0
-            ), f"sub-satellite longitude {lon_0} != expected {expected_lon_0}"
+            assert lon_0 == pytest.approx(expected_lon_0, abs=1.0), (
+                f"sub-satellite longitude {lon_0} != expected {expected_lon_0}"
+            )
 
             warped = cube.to_crs(4326)
             minx, miny, maxx, maxy = warped.bbox

@@ -49,9 +49,9 @@ class TestGlobalAttributesProperty:
         nc.set_global_attribute("Conventions", "CF-1.8")
         attrs = nc.global_attributes
         assert "Conventions" in attrs, f"Expected 'Conventions' in {attrs}"
-        assert (
-            attrs["Conventions"] == "CF-1.8"
-        ), f"Expected 'CF-1.8', got {attrs['Conventions']}"
+        assert attrs["Conventions"] == "CF-1.8", (
+            f"Expected 'CF-1.8', got {attrs['Conventions']}"
+        )
 
     def test_returns_fresh_copy_each_time(self):
         """global_attributes should read live from GDAL, not a stale cache.
@@ -88,9 +88,9 @@ class TestSetGlobalAttribute:
         """
         nc = _make_nc()
         nc.set_global_attribute("history", "created by test")
-        assert (
-            nc.global_attributes["history"] == "created by test"
-        ), "String not stored correctly"
+        assert nc.global_attributes["history"] == "created by test", (
+            "String not stored correctly"
+        )
 
     def test_float_value(self):
         """Setting a float attribute should store it correctly.
@@ -100,7 +100,9 @@ class TestSetGlobalAttribute:
         """
         nc = _make_nc()
         nc.set_global_attribute("version", 2.5)
-        assert nc.global_attributes["version"] == pytest.approx(2.5), "Float not stored correctly"
+        assert nc.global_attributes["version"] == pytest.approx(2.5), (
+            "Float not stored correctly"
+        )
 
     def test_int_value(self):
         """Setting an int attribute should store it correctly.
@@ -134,9 +136,9 @@ class TestSetGlobalAttribute:
         nc.set_global_attribute("b", 2.0)
         nc.set_global_attribute("c", 3)
         attrs = nc.global_attributes
-        assert (
-            "a" in attrs and "b" in attrs and "c" in attrs
-        ), f"Not all attrs present: {list(attrs.keys())}"
+        assert "a" in attrs and "b" in attrs and "c" in attrs, (
+            f"Not all attrs present: {list(attrs.keys())}"
+        )
 
     def test_requires_mdim_container(self):
         """set_global_attribute on classic mode should raise.
@@ -206,9 +208,9 @@ class TestGlobalAttributesDiskRoundTrip:
         nc.to_file(out)
         reloaded = NetCDF.read_file(out)
         attrs = reloaded.global_attributes
-        assert (
-            "Conventions" in attrs
-        ), f"Conventions not preserved: {list(attrs.keys())}"
-        assert (
-            attrs["Conventions"] == "CF-1.8"
-        ), f"Expected 'CF-1.8', got {attrs['Conventions']}"
+        assert "Conventions" in attrs, (
+            f"Conventions not preserved: {list(attrs.keys())}"
+        )
+        assert attrs["Conventions"] == "CF-1.8", (
+            f"Expected 'CF-1.8', got {attrs['Conventions']}"
+        )

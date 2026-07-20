@@ -136,9 +136,9 @@ class TestGetAttributeTable:
         )
         single_band_dataset.set_attribute_table(df)
         result = single_band_dataset.get_attribute_table()
-        assert (
-            result is not None
-        ), "get_attribute_table should return DataFrame after setting RAT"
+        assert result is not None, (
+            "get_attribute_table should return DataFrame after setting RAT"
+        )
         assert len(result) == 3, f"Expected 3 rows in RAT, got {len(result)}"
         assert "class_id" in result.columns, "RAT should contain class_id column"
 
@@ -168,9 +168,9 @@ class TestGetAttributeTable:
         result = Bands._attribute_table_to_df(rat)
         assert len(result) == 2, "Should have 2 rows"
         assert "float_col" in result.columns, "Should contain float_col"
-        assert (
-            abs(result["float_col"].iloc[0] - 1.5) < 0.01
-        ), "Float value should round-trip"
+        assert abs(result["float_col"].iloc[0] - 1.5) < 0.01, (
+            "Float value should round-trip"
+        )
 
 
 class TestStatsEdgeCases:
@@ -212,7 +212,9 @@ class TestStatsWithMask:
         """
         dataset = Dataset(era5_image)
         stats = dataset.stats(mask=era5_mask)
-        assert isinstance(stats, pd.DataFrame), "stats with mask should return DataFrame"
+        assert isinstance(stats, pd.DataFrame), (
+            "stats with mask should return DataFrame"
+        )
         assert list(stats.columns) == ["min", "max", "mean", "std"]
         arr = dataset.read_array()
         mean = arr[:, 1, :].mean(axis=1)

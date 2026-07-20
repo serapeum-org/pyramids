@@ -79,12 +79,12 @@ class TestOutShapeReads:
         )
         assert result.shape == (16, 16), f"unexpected shape {result.shape}"
         window_values = ramp_dataset.read_array(band=0)[:32, :32]
-        assert (
-            result.min() >= window_values.min()
-        ), "values leaked from outside the window"
-        assert (
-            result.max() <= window_values.max()
-        ), "values leaked from outside the window"
+        assert result.min() >= window_values.min(), (
+            "values leaked from outside the window"
+        )
+        assert result.max() <= window_values.max(), (
+            "values leaked from outside the window"
+        )
         slice_ds = Dataset.create_from_array(
             window_values, top_left_corner=(0, 32), cell_size=1.0, epsg=4326
         )

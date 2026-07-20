@@ -19,9 +19,10 @@ index bookkeeping applied at read time, so `select` / `select_time` /
 from __future__ import annotations
 
 import warnings
+from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, Literal, Sequence, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd

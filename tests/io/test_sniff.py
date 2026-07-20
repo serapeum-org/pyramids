@@ -236,9 +236,9 @@ class TestLoadParquet:
             No GeoParquet `geo` metadata → DataFrame with the rows.
         """
         df = _load_parquet(Path(parquet_file))
-        assert isinstance(
-            df, pd.DataFrame
-        ), f"Expected DataFrame, got {type(df).__name__}"
+        assert isinstance(df, pd.DataFrame), (
+            f"Expected DataFrame, got {type(df).__name__}"
+        )
         assert list(df["x"]) == [1, 2, 3], f"Unexpected rows: {df}"
 
 
@@ -308,9 +308,9 @@ class TestLoadResource:
         Test scenario:
             The Parquet returns a DataFrame.
         """
-        assert isinstance(
-            load_resource(parquet_file), pd.DataFrame
-        ), "Expected DataFrame"
+        assert isinstance(load_resource(parquet_file), pd.DataFrame), (
+            "Expected DataFrame"
+        )
 
     def test_zip_single_member_redispatches(self, tmp_path):
         """A ZIP with one primary member re-dispatches to that member.
@@ -325,9 +325,9 @@ class TestLoadResource:
         with zipfile.ZipFile(zp, "w") as archive:
             archive.write(_GEOJSON, "basin.geojson")
         result = load_resource(zp, extract_to=tmp_path / "ext")
-        assert isinstance(
-            result, FeatureCollection
-        ), f"Expected FC, got {type(result).__name__}"
+        assert isinstance(result, FeatureCollection), (
+            f"Expected FC, got {type(result).__name__}"
+        )
 
     def test_zip_shapefile_redispatches(self, tmp_path):
         """A ZIP with a shapefile set re-dispatches to the .shp (the HDX case).
@@ -347,9 +347,9 @@ class TestLoadResource:
             for member in shp_dir.iterdir():
                 archive.write(member, member.name)
         result = load_resource(zp, extract_to=tmp_path / "ext_shp")
-        assert isinstance(
-            result, FeatureCollection
-        ), f"Expected FC from shapefile zip, got {type(result).__name__}"
+        assert isinstance(result, FeatureCollection), (
+            f"Expected FC from shapefile zip, got {type(result).__name__}"
+        )
 
     def test_zip_no_primary_returns_dir(self, tmp_path):
         """A ZIP with no recognisable primary returns the extraction dir.
@@ -383,9 +383,9 @@ class TestLoadResource:
         with zipfile.ZipFile(zp, "w") as archive:
             archive.write(_NETCDF, "precip.nc4")
         result = load_resource(zp, extract_to=tmp_path / "ext_nc4")
-        assert isinstance(
-            result, NetCDF
-        ), f"Expected NetCDF from .nc4 zip, got {type(result).__name__}"
+        assert isinstance(result, NetCDF), (
+            f"Expected NetCDF from .nc4 zip, got {type(result).__name__}"
+        )
 
     def test_expected_format_override(self):
         """expected_format skips sniffing and forces the reader.
@@ -393,9 +393,9 @@ class TestLoadResource:
         Test scenario:
             Forcing `nc` opens the NetCDF without magic detection.
         """
-        assert isinstance(
-            load_resource(_NETCDF, expected_format="nc"), NetCDF
-        ), "expected_format override should open as NetCDF"
+        assert isinstance(load_resource(_NETCDF, expected_format="nc"), NetCDF), (
+            "expected_format override should open as NetCDF"
+        )
 
     def test_unknown_returns_bytes(self, tmp_path):
         """An unrecognised resource is returned as raw bytes.
@@ -409,6 +409,6 @@ class TestLoadResource:
         p = tmp_path / "blob.bin"
         p.write_bytes(b"\x00\x01raw")
         result = load_resource(p)
-        assert (
-            result == b"\x00\x01raw"
-        ), f"Expected raw bytes, got {type(result).__name__}"
+        assert result == b"\x00\x01raw", (
+            f"Expected raw bytes, got {type(result).__name__}"
+        )

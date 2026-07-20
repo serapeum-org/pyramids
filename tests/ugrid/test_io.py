@@ -12,8 +12,8 @@ from osgeo import gdal
 
 from pyramids.netcdf.ugrid.connectivity import Connectivity
 from pyramids.netcdf.ugrid.io import (
-    _MeshArrayScan,
     _detect_face_dim,
+    _MeshArrayScan,
     _parse_single_topology,
     parse_ugrid_topology,
     write_ugrid_topology,
@@ -46,13 +46,13 @@ class TestParseUgridTopology:
             that should be detected.
         """
         topologies = parse_ugrid_topology(ugrid_convention_nc_rg)
-        assert (
-            len(topologies) >= 1
-        ), f"Expected at least 1 topology, got {len(topologies)}"
+        assert len(topologies) >= 1, (
+            f"Expected at least 1 topology, got {len(topologies)}"
+        )
         topo = topologies[0]
-        assert (
-            topo.mesh_name == "mesh2d"
-        ), f"Expected mesh_name 'mesh2d', got '{topo.mesh_name}'"
+        assert topo.mesh_name == "mesh2d", (
+            f"Expected mesh_name 'mesh2d', got '{topo.mesh_name}'"
+        )
 
     def test_topology_dimension(self, ugrid_convention_nc_rg):
         """Test that topology_dimension is 2 for the UGRID convention NC mesh.
@@ -62,9 +62,9 @@ class TestParseUgridTopology:
         """
         topologies = parse_ugrid_topology(ugrid_convention_nc_rg)
         topo = topologies[0]
-        assert (
-            topo.topology_dimension == 2
-        ), f"Expected topology_dimension 2, got {topo.topology_dimension}"
+        assert topo.topology_dimension == 2, (
+            f"Expected topology_dimension 2, got {topo.topology_dimension}"
+        )
 
     def test_node_coordinate_vars(self, ugrid_convention_nc_rg):
         """Test that node coordinate variable names are parsed.
@@ -74,12 +74,12 @@ class TestParseUgridTopology:
         """
         topologies = parse_ugrid_topology(ugrid_convention_nc_rg)
         topo = topologies[0]
-        assert (
-            topo.node_x_var == "mesh2d_node_x"
-        ), f"Expected node_x_var 'mesh2d_node_x', got '{topo.node_x_var}'"
-        assert (
-            topo.node_y_var == "mesh2d_node_y"
-        ), f"Expected node_y_var 'mesh2d_node_y', got '{topo.node_y_var}'"
+        assert topo.node_x_var == "mesh2d_node_x", (
+            f"Expected node_x_var 'mesh2d_node_x', got '{topo.node_x_var}'"
+        )
+        assert topo.node_y_var == "mesh2d_node_y", (
+            f"Expected node_y_var 'mesh2d_node_y', got '{topo.node_y_var}'"
+        )
 
     def test_face_node_connectivity_var(self, ugrid_convention_nc_rg):
         """Test that face_node_connectivity variable name is parsed.
@@ -89,9 +89,9 @@ class TestParseUgridTopology:
         """
         topologies = parse_ugrid_topology(ugrid_convention_nc_rg)
         topo = topologies[0]
-        assert (
-            topo.face_node_var == "mesh2d_face_nodes"
-        ), f"Expected 'mesh2d_face_nodes', got '{topo.face_node_var}'"
+        assert topo.face_node_var == "mesh2d_face_nodes", (
+            f"Expected 'mesh2d_face_nodes', got '{topo.face_node_var}'"
+        )
 
     def test_edge_node_connectivity_var(self, ugrid_convention_nc_rg):
         """Test that edge_node_connectivity variable name is parsed.
@@ -101,9 +101,9 @@ class TestParseUgridTopology:
         """
         topologies = parse_ugrid_topology(ugrid_convention_nc_rg)
         topo = topologies[0]
-        assert (
-            topo.edge_node_var == "mesh2d_edge_nodes"
-        ), f"Expected 'mesh2d_edge_nodes', got '{topo.edge_node_var}'"
+        assert topo.edge_node_var == "mesh2d_edge_nodes", (
+            f"Expected 'mesh2d_edge_nodes', got '{topo.edge_node_var}'"
+        )
 
     def test_data_variables_detected(self, ugrid_convention_nc_rg):
         """Test that data variables with mesh= attribute are detected.
@@ -114,15 +114,15 @@ class TestParseUgridTopology:
         """
         topologies = parse_ugrid_topology(ugrid_convention_nc_rg)
         topo = topologies[0]
-        assert (
-            len(topo.data_variables) >= 2
-        ), f"Expected at least 2 data variables, got {len(topo.data_variables)}"
-        assert (
-            "mesh2d_node_z" in topo.data_variables
-        ), f"Expected 'mesh2d_node_z' in data_variables, got {list(topo.data_variables.keys())}"
-        assert (
-            topo.data_variables["mesh2d_node_z"] == "node"
-        ), f"Expected location 'node', got '{topo.data_variables['mesh2d_node_z']}'"
+        assert len(topo.data_variables) >= 2, (
+            f"Expected at least 2 data variables, got {len(topo.data_variables)}"
+        )
+        assert "mesh2d_node_z" in topo.data_variables, (
+            f"Expected 'mesh2d_node_z' in data_variables, got {list(topo.data_variables.keys())}"
+        )
+        assert topo.data_variables["mesh2d_node_z"] == "node", (
+            f"Expected location 'node', got '{topo.data_variables['mesh2d_node_z']}'"
+        )
 
     def test_face_coordinates_detected(self, ugrid_convention_nc_rg):
         """Test that face center coordinate variables are detected.
@@ -163,9 +163,9 @@ class TestTopologyParsingEdgeCases:
         rg = ds.GetRootGroup()
         topologies = parse_ugrid_topology(rg)
         topo = topologies[0]
-        assert (
-            topo.edge_node_var is not None
-        ), "Expected edge_node_connectivity to be detected"
+        assert topo.edge_node_var is not None, (
+            "Expected edge_node_connectivity to be detected"
+        )
 
     def test_data_variable_locations(self, ugrid_convention_nc_path):
         """Test that data variable locations are correctly parsed.
@@ -177,12 +177,12 @@ class TestTopologyParsingEdgeCases:
         rg = ds.GetRootGroup()
         topologies = parse_ugrid_topology(rg)
         topo = topologies[0]
-        assert (
-            topo.data_variables.get("mesh2d_node_z") == "node"
-        ), f"Expected 'node', got '{topo.data_variables.get('mesh2d_node_z')}'"
-        assert (
-            topo.data_variables.get("mesh2d_edge_type") == "edge"
-        ), f"Expected 'edge', got '{topo.data_variables.get('mesh2d_edge_type')}'"
+        assert topo.data_variables.get("mesh2d_node_z") == "node", (
+            f"Expected 'node', got '{topo.data_variables.get('mesh2d_node_z')}'"
+        )
+        assert topo.data_variables.get("mesh2d_edge_type") == "edge", (
+            f"Expected 'edge', got '{topo.data_variables.get('mesh2d_edge_type')}'"
+        )
 
     def test_parse_single_topology_no_topo_dim_returns_none(
         self, ugrid_convention_nc_path
@@ -260,12 +260,12 @@ class TestWriteUgridTopology:
         _, rg = self._write_and_reopen(tmp_path, mesh)
         topo_arr = rg.OpenMDArray("mesh2d")
         attrs = _read_attributes(topo_arr)
-        assert (
-            attrs.get("cf_role") == "mesh_topology"
-        ), f"Expected cf_role='mesh_topology', got '{attrs.get('cf_role')}'"
-        assert (
-            attrs.get("topology_dimension") == 2
-        ), f"Expected topology_dimension=2, got {attrs.get('topology_dimension')}"
+        assert attrs.get("cf_role") == "mesh_topology", (
+            f"Expected cf_role='mesh_topology', got '{attrs.get('cf_role')}'"
+        )
+        assert attrs.get("topology_dimension") == 2, (
+            f"Expected topology_dimension=2, got {attrs.get('topology_dimension')}"
+        )
 
     def test_writes_node_coordinates(self, tmp_path):
         """Test that node coordinate arrays are written correctly.
@@ -311,16 +311,16 @@ class TestWriteUgridTopology:
         _, rg = self._write_and_reopen(tmp_path, mesh)
         fnc_arr = rg.OpenMDArray("mesh2d_face_nodes")
         attrs = _read_attributes(fnc_arr)
-        assert (
-            attrs.get("cf_role") == "face_node_connectivity"
-        ), f"Expected cf_role 'face_node_connectivity', got '{attrs.get('cf_role')}'"
-        assert (
-            attrs.get("start_index") == 0
-        ), f"Expected start_index=0, got {attrs.get('start_index')}"
+        assert attrs.get("cf_role") == "face_node_connectivity", (
+            f"Expected cf_role 'face_node_connectivity', got '{attrs.get('cf_role')}'"
+        )
+        assert attrs.get("start_index") == 0, (
+            f"Expected start_index=0, got {attrs.get('start_index')}"
+        )
         raw_data = fnc_arr.ReadAsArray()
-        assert (
-            raw_data[1, 3] == -999
-        ), f"Expected fill value -999 at [1,3], got {raw_data[1, 3]}"
+        assert raw_data[1, 3] == -999, (
+            f"Expected fill value -999 at [1,3], got {raw_data[1, 3]}"
+        )
 
     def test_writes_crs_variable(self, tmp_path):
         """Test that CRS variable is written when crs_wkt provided.
@@ -398,12 +398,14 @@ class TestDetectFaceDim:
             longitude) on n_face. Detection must return 'n_face', NOT conn_dims[0]
             ('max_face_nodes').
         """
-        _, rg, conn_dims, _ = _face_node_group(reversed_order=True, with_face_coord=True)
+        _, rg, conn_dims, _ = _face_node_group(
+            reversed_order=True, with_face_coord=True
+        )
         assert conn_dims[0] == "max_face_nodes", f"fixture not reversed: {conn_dims}"
         face_dim = _detect_face_dim(_MeshArrayScan(rg), conn_dims)
-        assert (
-            face_dim == "n_face"
-        ), f"expected 'n_face' from the face coordinate variable, got {face_dim!r}"
+        assert face_dim == "n_face", (
+            f"expected 'n_face' from the face coordinate variable, got {face_dim!r}"
+        )
 
     def test_falls_back_to_first_conn_dim_without_face_signal(self):
         """With no face-located variable, detection falls back to the first connectivity dim.
@@ -412,8 +414,10 @@ class TestDetectFaceDim:
             Connectivity stored (n_face, max_face_nodes) and no face coordinate / location=face
             variable — detection returns conn_dims[0] (the conventional (face, node) order).
         """
-        _, rg, conn_dims, _ = _face_node_group(reversed_order=False, with_face_coord=False)
+        _, rg, conn_dims, _ = _face_node_group(
+            reversed_order=False, with_face_coord=False
+        )
         face_dim = _detect_face_dim(_MeshArrayScan(rg), conn_dims)
-        assert (
-            face_dim == conn_dims[0]
-        ), f"expected fallback to conn_dims[0]={conn_dims[0]!r}, got {face_dim!r}"
+        assert face_dim == conn_dims[0], (
+            f"expected fallback to conn_dims[0]={conn_dims[0]!r}, got {face_dim!r}"
+        )

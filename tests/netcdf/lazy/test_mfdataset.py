@@ -86,9 +86,11 @@ class TestParallelMode:
             parallel=True,
         )
         # da.stack adds the leading axis; one block per file means chunks[0] == (1, 1, 1).
-        assert stack.chunks[0] == (1, 1, 1), (
-            f"expected one block per file on the stacked axis, got {stack.chunks[0]}"
-        )
+        assert stack.chunks[0] == (
+            1,
+            1,
+            1,
+        ), f"expected one block per file on the stacked axis, got {stack.chunks[0]}"
 
 
 class TestPreprocessHook:

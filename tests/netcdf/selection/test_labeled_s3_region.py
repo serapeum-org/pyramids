@@ -42,7 +42,7 @@ class _FakeResponse:
     def __init__(self, headers: dict):
         self.headers = headers
 
-    def __enter__(self) -> "_FakeResponse":
+    def __enter__(self) -> _FakeResponse:
         return self
 
     def __exit__(self, *exc) -> bool:
@@ -176,7 +176,11 @@ class TestResolveS3Region:
             guard returns ``None`` instead of raising ``AttributeError``.
         """
         err = urllib.error.HTTPError(
-            url="https://b.s3.amazonaws.com", code=403, msg="Forbidden", hdrs=None, fp=None
+            url="https://b.s3.amazonaws.com",
+            code=403,
+            msg="Forbidden",
+            hdrs=None,
+            fp=None,
         )
         opener = _FakeOpener(error=err)
         monkeypatch.setattr(
@@ -195,9 +199,9 @@ class TestResolveS3Region:
             ``test_real_301_flow_reads_region_header``.
         """
         handler = remote_mod._NoRedirectHandler()
-        assert isinstance(
-            handler, urllib.request.HTTPRedirectHandler
-        ), "must subclass urllib's redirect handler"
+        assert isinstance(handler, urllib.request.HTTPRedirectHandler), (
+            "must subclass urllib's redirect handler"
+        )
         handler.redirect_request("request", "fp", 301, "Moved", {}, "https://elsewhere")
 
     def test_real_301_flow_reads_region_header(self, monkeypatch):
@@ -311,7 +315,10 @@ class TestReadFileRegionWiring:
         captured = self._capture_open(monkeypatch)
         with pytest.raises(ValueError):
             LabeledDataset.read_file("s3://bucket/store.zarr", anon=True)
-        assert captured["region"] in (None, ""), f"region should be unset, got {captured['region']!r}"
+        assert captured["region"] in (
+            None,
+            "",
+        ), f"region should be unset, got {captured['region']!r}"
 
     def test_explicit_region_overrides_and_skips_probe(self, monkeypatch):
         """An explicit ``region`` is used verbatim and the probe is not called.
@@ -339,7 +346,9 @@ class TestReadFileRegionWiring:
         """
 
         def _boom(bucket):
-            raise AssertionError("resolve_s3_region must not be called for signed reads")
+            raise AssertionError(
+                "resolve_s3_region must not be called for signed reads"
+            )
 
         monkeypatch.setattr(labeled_mod, "resolve_s3_region", _boom)
         captured = self._capture_open(monkeypatch)
@@ -388,7 +397,9 @@ class TestS3PathStyleAddressing:
             Path-style addressing avoids the unfollowed 301 on the data-chunk GET
             that otherwise reads zeros (#560).
         """
-        monkeypatch.setattr(labeled_mod, "resolve_s3_region", lambda bucket: "us-east-1")
+        monkeypatch.setattr(
+            labeled_mod, "resolve_s3_region", lambda bucket: "us-east-1"
+        )
         captured = self._capture_open_vhost(monkeypatch)
         with pytest.raises(ValueError):
             LabeledDataset.read_file(
@@ -485,9 +496,9 @@ class TestS3PathStyleAddressing:
         sentinel = CloudConfig(aws_virtual_hosting=False)
         store = self._mem_store_with_variable(sentinel)
         child = store.select(x=[10, 30])
-        assert (
-            child._cloud_config is sentinel
-        ), "child view must reuse the parent's cloud config, not a fresh empty one"
+        assert child._cloud_config is sentinel, (
+            "child view must reuse the parent's cloud config, not a fresh empty one"
+        )
 
     def test_classification_runs_under_path_style_config(self, monkeypatch):
         """Post-open array classification reads run under the path-style config (#560).
@@ -506,7 +517,9 @@ class TestS3PathStyleAddressing:
             captured["vhost"] = gdal.GetConfigOption("AWS_VIRTUAL_HOSTING")
             raise RuntimeError("stop after capturing config during classification")
 
-        monkeypatch.setattr(labeled_mod, "resolve_s3_region", lambda bucket: "us-east-1")
+        monkeypatch.setattr(
+            labeled_mod, "resolve_s3_region", lambda bucket: "us-east-1"
+        )
         monkeypatch.setattr(
             labeled_mod.LabeledDataset,
             "_readable_arrays",

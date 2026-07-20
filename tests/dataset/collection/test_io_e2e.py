@@ -22,7 +22,8 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection
-from tests._marks import requires_kerchunk, requires_lazy as requires_zarr
+from tests._marks import requires_kerchunk
+from tests._marks import requires_lazy as requires_zarr
 from tests.dataset.collection.conftest import NC_FIXTURE
 
 try:

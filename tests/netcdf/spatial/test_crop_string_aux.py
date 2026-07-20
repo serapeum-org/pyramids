@@ -41,7 +41,9 @@ class TestCropStringAux:
         try:
             assert "expver" in masked.variable_names, "string aux var must survive crop"
             assert _read_expver(masked) == source_expver, "carried values must match"
-            dropped = [str(w.message) for w in caught if "could not carry" in str(w.message)]
+            dropped = [
+                str(w.message) for w in caught if "could not carry" in str(w.message)
+            ]
             assert not dropped, f"expected no drop warning, got: {dropped}"
         finally:
             cube.close()
@@ -57,7 +59,9 @@ class TestAddMdArrayString:
         src = gdal.GetDriverByName("MEM").CreateMultiDimensional("src")
         src_rg = src.GetRootGroup()
         dim = src_rg.CreateDimension("t", "", "", len(values))
-        src_md = src_rg.CreateMDArray("expver", [dim], gdal.ExtendedDataType.CreateString())
+        src_md = src_rg.CreateMDArray(
+            "expver", [dim], gdal.ExtendedDataType.CreateString()
+        )
         src_md.Write(values)
 
         dst = gdal.GetDriverByName("MEM").CreateMultiDimensional("dst")

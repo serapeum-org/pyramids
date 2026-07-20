@@ -102,9 +102,9 @@ class TestWriteBlocksStreaming:
 
         calls = md_arr.Write.call_args_list
         assert len(calls) == 2, f"expected 2 windowed writes, got {len(calls)}"
-        assert all(
-            call.kwargs["count"][0] < source.shape[0] for call in calls
-        ), "no single write may span the whole outer dimension (not memory-bounded)"
+        assert all(call.kwargs["count"][0] < source.shape[0] for call in calls), (
+            "no single write may span the whole outer dimension (not memory-bounded)"
+        )
         reconstructed = np.empty_like(source)
         for call in calls:
             block = np.asarray(call.args[0])
@@ -156,7 +156,9 @@ class TestStreamingParity:
         )
         assert stream_var.epsg == eager_var.epsg, "epsg must match the eager path"
         assert_allclose(
-            stream_var.geotransform, eager_var.geotransform, err_msg="geotransform must match"
+            stream_var.geotransform,
+            eager_var.geotransform,
+            err_msg="geotransform must match",
         )
 
     def test_mem_parity(self):
@@ -189,7 +191,9 @@ class TestStreamingParity:
 
         var = NetCDF.read_file(path).get_variable("v")
         assert_allclose(
-            np.asarray(var.read_array()), source, err_msg="single-block stream must match source"
+            np.asarray(var.read_array()),
+            source,
+            err_msg="single-block stream must match source",
         )
 
 
@@ -207,7 +211,11 @@ class TestStreamingStorageChunks:
         )
 
         var_info = get_metadata(NetCDF.read_file(path)).variables["v"]
-        assert var_info.block_size == [1, 10, 15], (
+        assert var_info.block_size == [
+            1,
+            10,
+            15,
+        ], (
             f"expected storage block size [1, 10, 15] from dask chunks, got {var_info.block_size}"
         )
 
@@ -227,6 +235,8 @@ class TestStreamingStorageChunks:
         )
 
         var_info = get_metadata(NetCDF.read_file(path)).variables["v"]
-        assert var_info.block_size == [2, 5, 5], (
-            f"explicit chunk_sizes must win, got {var_info.block_size}"
-        )
+        assert var_info.block_size == [
+            2,
+            5,
+            5,
+        ], f"explicit chunk_sizes must win, got {var_info.block_size}"

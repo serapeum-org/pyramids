@@ -56,7 +56,15 @@ NUM_DIGITS = 7
 IJ, KI, JK = 1, 2, 3
 NO_OVERAGE, FACE_EDGE, NEW_FACE = 0, 1, 2
 
-UNIT_VECS = ((0, 0, 0), (0, 0, 1), (0, 1, 0), (0, 1, 1), (1, 0, 0), (1, 0, 1), (1, 1, 0))
+UNIT_VECS = (
+    (0, 0, 0),
+    (0, 0, 1),
+    (0, 1, 0),
+    (0, 1, 1),
+    (1, 0, 0),
+    (1, 0, 1),
+    (1, 1, 0),
+)
 
 
 def _lround(x: float) -> int:
@@ -166,7 +174,11 @@ def _hex2d_to_coord_ijk(x, y):
 def _unit_ijk_to_digit(ijk):
     c = _ijk_normalize(list(ijk))
     for d in range(CENTER_DIGIT, NUM_DIGITS):
-        if c[0] == UNIT_VECS[d][0] and c[1] == UNIT_VECS[d][1] and c[2] == UNIT_VECS[d][2]:
+        if (
+            c[0] == UNIT_VECS[d][0]
+            and c[1] == UNIT_VECS[d][1]
+            and c[2] == UNIT_VECS[d][2]
+        ):
             return d
     return INVALID_DIGIT
 
@@ -265,7 +277,11 @@ def _v3_lincomb(a, v1, b, v2):
 
 
 def _v3_cross(a, b):
-    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
 
 
 def _v3_dot(a, b):
@@ -432,7 +448,8 @@ def _vec3_to_hex2d(p, res):
     if r < EPSILON:
         return face, 0.0, 0.0
     theta = _pos_angle_rads(
-        FACE_AXES_AZ_RADS_CII[face][0] - _pos_angle_rads(_vec3_azimuth_rads(FACE_CENTER_POINT[face], p))
+        FACE_AXES_AZ_RADS_CII[face][0]
+        - _pos_angle_rads(_vec3_azimuth_rads(FACE_CENTER_POINT[face], p))
     )
     if is_class_iii(res):
         theta = _pos_angle_rads(theta - M_AP7_ROT_RADS)
@@ -466,7 +483,9 @@ def _hex2d_to_vec3(x, y, face, res, substrate):
     theta = _pos_angle_rads(FACE_AXES_AZ_RADS_CII[face][0] - theta)
     north, east = _vec3_tangent_basis(FACE_CENTER_POINT[face])
     direction = _v3_lincomb(math.cos(theta), north, math.sin(theta), east)
-    return _v3_normalize(_v3_lincomb(math.cos(r), FACE_CENTER_POINT[face], math.sin(r), direction))
+    return _v3_normalize(
+        _v3_lincomb(math.cos(r), FACE_CENTER_POINT[face], math.sin(r), direction)
+    )
 
 
 def _overage_orient(face, ijk, max_dim, pent_leading4):
@@ -500,7 +519,9 @@ def _adjust_overage_class_ii(face, ijk, res, pent_leading4, substrate):
     for _ in range(orient[4]):
         _ijk_rotate60ccw(ijk)
     unit_scale = UNIT_SCALE_BY_CII_RES[res] * (3 if substrate else 1)
-    ijk[:] = _ijk_normalize(_ijk_add(ijk, _ijk_scale([orient[1], orient[2], orient[3]], unit_scale)))
+    ijk[:] = _ijk_normalize(
+        _ijk_add(ijk, _ijk_scale([orient[1], orient[2], orient[3]], unit_scale))
+    )
     if substrate and ijk[0] + ijk[1] + ijk[2] == max_dim:
         overage = FACE_EDGE
     return face, overage
@@ -560,14 +581,27 @@ def _faceijk_hex_boundary(face, coord, res):
         v = vert % NUM_HEX_VERTS
         vface, vcoord = fijk_verts[v][0], list(fijk_verts[v][1])
         vface, overage = _adjust_overage_class_ii(vface, vcoord, adj_res, 0, 1)
-        if is_class_iii(res) and vert > 0 and vface != last_face and last_overage != FACE_EDGE:
+        if (
+            is_class_iii(res)
+            and vert > 0
+            and vface != last_face
+            and last_overage != FACE_EDGE
+        ):
             orig2d0 = _ijk_to_hex2d(fijk_verts[(v + 5) % NUM_HEX_VERTS][1])
             orig2d1 = _ijk_to_hex2d(fijk_verts[v][1])
             face2 = vface if last_face == center_face else last_face
-            edge0, edge1 = _icosa_edge_endpoints(MAX_DIM_BY_CII_RES[adj_res], ADJACENT_FACE_DIR[center_face][face2])
+            edge0, edge1 = _icosa_edge_endpoints(
+                MAX_DIM_BY_CII_RES[adj_res], ADJACENT_FACE_DIR[center_face][face2]
+            )
             inter = _v2d_intersect(orig2d0, orig2d1, edge0, edge1)
-            if not (_v2d_almost_equals(orig2d0, inter) or _v2d_almost_equals(orig2d1, inter)):
-                out.append(_vec3_to_latlng(_hex2d_to_vec3(inter[0], inter[1], center_face, adj_res, 1)))
+            if not (
+                _v2d_almost_equals(orig2d0, inter) or _v2d_almost_equals(orig2d1, inter)
+            ):
+                out.append(
+                    _vec3_to_latlng(
+                        _hex2d_to_vec3(inter[0], inter[1], center_face, adj_res, 1)
+                    )
+                )
         if vert < NUM_HEX_VERTS:
             out.append(_project_coord(vcoord, vface, adj_res))
         last_face = vface
@@ -583,10 +617,14 @@ def _pent_edge_point(last_fijk, vface, vcoord, adj_res):
     tmp_face = orient[0]
     for _ in range(orient[4]):
         _ijk_rotate60ccw(tmp_coord)
-    trans = _ijk_scale([orient[1], orient[2], orient[3]], UNIT_SCALE_BY_CII_RES[adj_res] * 3)
+    trans = _ijk_scale(
+        [orient[1], orient[2], orient[3]], UNIT_SCALE_BY_CII_RES[adj_res] * 3
+    )
     tmp_coord = _ijk_normalize(_ijk_add(tmp_coord, trans))
     orig2d1 = _ijk_to_hex2d(tmp_coord)
-    edge0, edge1 = _icosa_edge_endpoints(MAX_DIM_BY_CII_RES[adj_res], ADJACENT_FACE_DIR[tmp_face][vface])
+    edge0, edge1 = _icosa_edge_endpoints(
+        MAX_DIM_BY_CII_RES[adj_res], ADJACENT_FACE_DIR[tmp_face][vface]
+    )
     inter = _v2d_intersect(orig2d0, orig2d1, edge0, edge1)
     return _vec3_to_latlng(_hex2d_to_vec3(inter[0], inter[1], tmp_face, adj_res, 1))
 
@@ -669,8 +707,12 @@ def _h3_faceijk_overage(face, coord, h, base_cell, res, orig):
     if is_class_iii(res):
         _down_ap7r(coord)
         adj_res += 1
-    pent_leading4 = _is_base_cell_pentagon(base_cell) and _h3_leading_nonzero_digit(h) == 4
-    face, overage = _adjust_overage_class_ii(face, coord, adj_res, 1 if pent_leading4 else 0, 0)
+    pent_leading4 = (
+        _is_base_cell_pentagon(base_cell) and _h3_leading_nonzero_digit(h) == 4
+    )
+    face, overage = _adjust_overage_class_ii(
+        face, coord, adj_res, 1 if pent_leading4 else 0, 0
+    )
     if overage == NO_OVERAGE:
         return face, (list(orig) if adj_res != res else coord)
     if _is_base_cell_pentagon(base_cell):

@@ -5,9 +5,9 @@ Covers create / create_empty / dataset_like / empty_like / from_features / from_
 netCDF-in-archive is a GDAL limitation.)
 """
 
+import geopandas as gpd
 import numpy as np
 import pytest
-import geopandas as gpd
 from shapely.geometry import Point, box
 
 from pyramids.feature import FeatureCollection

@@ -7,8 +7,7 @@ import numpy as np
 import pytest
 from osgeo import osr
 
-from pyramids.netcdf import NetCDF
-from pyramids.netcdf import cf
+from pyramids.netcdf import NetCDF, cf
 
 pytestmark = pytest.mark.core
 
@@ -26,10 +25,16 @@ def test_cfinfo_matches_declared_convention(sample_name, sample, caps):
     try:
         meta = nc.get_all_metadata()
         if caps.get("convention") == "cf":
-            assert meta.cf is not None and meta.cf.cf_version, f"{sample_name}: missing CF version"
-            assert meta.cf.data_variable_names, f"{sample_name}: no data variables classified"
+            assert meta.cf is not None and meta.cf.cf_version, (
+                f"{sample_name}: missing CF version"
+            )
+            assert meta.cf.data_variable_names, (
+                f"{sample_name}: no data variables classified"
+            )
         elif caps.get("convention") == "coards":
-            assert "COARDS" in (meta.cf.conventions if meta.cf else {}), f"{sample_name}: not COARDS"
+            assert "COARDS" in (meta.cf.conventions if meta.cf else {}), (
+                f"{sample_name}: not COARDS"
+            )
     finally:
         nc.close()
 
@@ -81,7 +86,9 @@ def test_apply_valid_range_mask():
 
 def test_decode_flags():
     """``decode_flags`` maps a packed value to its flag meanings."""
-    meanings = cf.decode_flags(1, flag_values=[0, 1, 2], flag_meanings=["land", "water", "ice"])
+    meanings = cf.decode_flags(
+        1, flag_values=[0, 1, 2], flag_meanings=["land", "water", "ice"]
+    )
     assert "water" in meanings
 
 

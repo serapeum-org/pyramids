@@ -18,8 +18,8 @@ from __future__ import annotations
 import io
 import itertools
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 import geopandas as gpd
 from geopandas import GeoDataFrame
@@ -314,8 +314,7 @@ def datasource_to_gdf(ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
         result = gdal.VectorTranslate(mem_path, ds, format="GeoJSON")
         if result is None:
             raise VectorDriverError(
-                "gdal.VectorTranslate failed to materialize the DataSource "
-                "to GeoJSON."
+                "gdal.VectorTranslate failed to materialize the DataSource to GeoJSON."
             )
         file_written = True
         # Drop the translation handle before reading the /vsimem/ file
