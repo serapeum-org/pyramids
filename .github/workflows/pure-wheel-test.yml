@@ -108,7 +108,7 @@ jobs:
 
       - name: Install wheel (no extras)
         shell: bash -el {0}
-        run: pip install dist/*.whl
+        run: "pip install dist/*.whl --only-binary=:all:"
 
       - name: Verify package import
         shell: bash -el {0}
@@ -116,7 +116,7 @@ jobs:
 
       - name: Install test runner
         shell: bash -el {0}
-        run: pip install pytest pytest-env pytest-mock
+        run: "pip install pytest pytest-env pytest-mock --only-binary=:all:"
 
       - name: Run core tests
         shell: bash -el {0}
@@ -213,7 +213,7 @@ jobs:
 
       - name: Install test runner
         shell: bash -el {0}
-        run: pip install pytest pytest-env pytest-mock
+        run: "pip install pytest pytest-env pytest-mock --only-binary=:all:"
 
       - name: Run ${{ matrix.extra.marker }}-marked tests
         shell: bash -el {0}
