@@ -33,6 +33,11 @@ repos:
         args: [ --fix=auto ]
       - id: pretty-format-json
         name: "[json - format] pretty json"
+        # Exclude notebooks: .ipynb is JSON, but jupyter/nbformat owns its serialization
+        # (indent=1, ensure_ascii=False). pretty-format-json's --indent=4 + ascii escapes
+        # rewrite every notebook into a huge spurious diff on each run (and re-break the
+        # code cells' unicode). Notebook code is already handled by ruff.
+        exclude: \.ipynb$
         args: [ --autofix,
                 --indent=4,
                 --no-sort-keys ]
