@@ -6,7 +6,7 @@ repos:
       - id: check-toml
         name: "[py -  check] check toml"
       - id: end-of-file-fixer
-        name: "[py -  check] validate yaml"
+        name: "[file - format] end of file"
       - id: no-commit-to-branch
         name: "[git -  check] no commit to branch"
         args: [ --branch=main ]
