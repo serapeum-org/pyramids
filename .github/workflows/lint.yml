@@ -26,9 +26,15 @@ jobs:
   #
   # SKIP drops the hooks that need the pixi dev env: pytest-check and notebook-check are
   # already the tests.yml matrix's job (running them here would duplicate it and pin to
-  # one Python), while mypy and doctest run in the `static` job below. pixi-lock-check
-  # needs pixi + a network re-solve. no-commit-to-branch is a local commit guard that
-  # would misfire in CI, which legitimately runs on main.
+  # one Python), while mypy and doctest run in the `static` job below. no-commit-to-branch
+  # is a local commit guard that would misfire in CI, which legitimately runs on main.
+  #
+  # pixi-lock-check is deliberately out of CI scope: `pixi lock --check` re-solves against
+  # live conda/PyPI channels, so it fails on *upstream* churn (a new build of an unrelated
+  # transitive dep), not just on our own pyproject-vs-lock drift — that would make every
+  # PR flaky. Lock freshness stays enforced by the local pixi-lock-check hook (scoped to
+  # pyproject.toml/pixi.lock edits) plus PR review; a stale-lock PR still installs and runs
+  # against the resolved env, so tests.yml exercises real code either way.
   pre-commit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
