@@ -100,14 +100,13 @@ repos:
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.0
     hooks:
+      # The repo's single secret scanner (replaced detect-secrets + its 5k-line
+      # .secrets.baseline). This hook scans staged changes at commit time; CI runs a
+      # full-tree `gitleaks dir` in lint.yml. Both share the ci/gitleaks.toml allowlist.
       - id: gitleaks
+        name: "[cred -  check] gitleaks"
+        args: ["--config", "ci/gitleaks.toml"]
 
-  - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.5.0
-    hooks:
-      - id: detect-secrets
-        args: ['--baseline', '.secrets.baseline']
-        exclude: '\.(ipynb|drawio)$'
   - repo: https://github.com/bridgecrewio/checkov
     rev: 3.3.8
     hooks:

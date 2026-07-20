@@ -61,9 +61,12 @@ jobs:
       - name: Run pre-commit hooks
         # --show-diff-on-failure prints exactly what the auto-fixers (ruff-format,
         # end-of-file-fixer, ...) would change, so a contributor sees the fix to apply.
+        # gitleaks is skipped here: its hook scans only staged changes (empty after a CI
+        # checkout), so it is inert in --all-files; the dedicated `gitleaks` job below
+        # scans the whole tree and is the real CI secret gate.
         run: pre-commit run --all-files --show-diff-on-failure --color=always
         env:
-          SKIP: no-commit-to-branch,mypy,pytest-check,doctest,notebook-check,pixi-lock-check
+          SKIP: no-commit-to-branch,gitleaks,mypy,pytest-check,doctest,notebook-check,pixi-lock-check
 
   # Type check and doctests. Both need the full `dev` pixi env (typed deps and an
   # importable package) but neither is platform- or Python-version-sensitive, so one
@@ -93,3 +96,25 @@ jobs:
         env:
           MPLBACKEND: Agg
         run: pixi run -e dev pytest --doctest-modules src -p no:cacheprovider
+
+  # The repo's secret gate. gitleaks is the single secret scanner (it replaced
+  # detect-secrets). The pre-commit hook only scans staged changes, which are empty in
+  # CI, so this job scans the whole working tree — every tracked file, notebooks
+  # included — with the ci/gitleaks.toml allowlist.
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Scan for secrets (gitleaks)
+        # Pinned binary + SHA256 verification (avoids the gitleaks-action org-license
+        # requirement). `gitleaks dir` exits non-zero on a leak, which fails the job.
+        run: |
+          VER=8.30.0
+          SHA=79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e
+          curl -sSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          echo "${SHA}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks dir . -c ci/gitleaks.toml --redact --no-banner
