@@ -620,9 +620,6 @@ class Bands(_Engine["Dataset"]):
             band = colors.index(color_name)
         return band
 
-    # TODO: find a better way to handle the color table in accordance with attribute_table
-    # and figure out how to take a color ramp and convert it to a color table.
-    # use the SetColorInterpretation method to assign the color (R/G/B) to a band.
     @property
     def color_table(self) -> DataFrame:
         """Color table.
