@@ -70,6 +70,10 @@ repos:
     hooks:
       - id: shellcheck
         name: "[bash -   lint] shellcheck"
+        # SC2218 (false positive on our define-then-dispatch build scripts), SC2012
+        # (ls vs find) and SC2001 (sed vs ${//}) are intentional — excluded inline
+        # here instead of via a separate .shellcheckrc file.
+        args: ["--exclude=SC2218,SC2012,SC2001"]
 
   - repo: https://github.com/rlindsgaard/pre-commit-commit-msg-hooks
     rev: 0.1.0
