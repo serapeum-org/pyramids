@@ -139,7 +139,9 @@ repos:
         entry: pixi run --frozen -e dev python -c 'import matplotlib; matplotlib.use("Agg"); import pytest; import sys; sys.exit(pytest.main(["--doctest-modules", "src", "-p", "no:cacheprovider"]))'
         language: system
         always_run: true
-        pass_filenames: true
+        # The entry hardcodes `--doctest-modules src`, so staged filenames would land
+        # unused in sys.argv[2:]. Match pytest-check: run the fixed sweep, pass no names.
+        pass_filenames: false
 
   - repo: local
     hooks:
