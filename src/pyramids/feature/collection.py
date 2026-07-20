@@ -2148,7 +2148,14 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        resolved = _pyramids_io._parse_path(path)
+        # geopandas and dask-geopandas read Parquet through pyarrow + fsspec, which
+        # speak s3://, gs:// and az:// natively. Unlike GDAL they do not understand
+        # the /vsis3/ form _parse_path produces, and on Windows a leading "/vsis3/"
+        # resolves against the drive root ("C:/vsis3/..."), so the read dies with
+        # FileNotFoundError. Hand fsspec the URL untouched; local paths still go
+        # through _parse_path for its zip/tar handling.
+        path_str = str(path)
+        resolved = path_str if is_remote(path_str) else _pyramids_io._parse_path(path)
         if backend == "dask":
             return cls._read_parquet_dask(
                 resolved,

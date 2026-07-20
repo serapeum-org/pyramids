@@ -142,8 +142,19 @@ repos:
         name: nbval
         entry: pixi run --frozen -e dev pytest --nbval --nbval-lax --verbose -p no:cacheprovider
         language: system
-        files: .*\.ipynb$
-        always_run: true
+        # Gate strictly on notebooks. With always_run, a commit touching no .ipynb
+        # passed zero filenames, so pytest fell back to testpaths=["tests"] and ran
+        # the regular suite instead of the notebooks (duplicating pytest-check).
+        files: \.ipynb$
+        # These two read live external data, so they cannot gate a commit: AWS
+        # revoked anonymous access to the ERA5 bucket outright, and Overture keeps
+        # only the two most recent releases, so any pinned date expires within
+        # months. Run them by hand when editing them.
+        exclude: ^docs/examples/(feature/dask-lazy-features|netcdf/dask-lazy-netcdf)\.ipynb$
+        # One pytest session for every notebook passed. Otherwise pre-commit splits
+        # the files across concurrent processes, producing several independent
+        # sessions and letting notebooks that write into docs/examples/ collide.
+        require_serial: true
 
   - repo: local
     hooks:
