@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../../_images/branding/logo-layers-v2.svg">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6944,12 +6944,11 @@ so we just move the band axis last and <code>imshow</code> it).</p>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">WMSError</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">show_rgb</span><span class="p">(</span><span class="n">ds</span><span class="p">,</span> <span class="n">title</span><span class="p">):</span>
     <span class="c1"># Plot a returned RGB(A) Dataset on its georeferenced lon/lat extent.</span>
-    <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">())</span>              <span class="c1"># (bands, rows, cols)</span>
+    <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">())</span>  <span class="c1"># (bands, rows, cols)</span>
     <span class="n">rgb</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">moveaxis</span><span class="p">(</span><span class="n">arr</span><span class="p">[:</span><span class="mi">3</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"uint8"</span><span class="p">)</span>
     <span class="n">minx</span><span class="p">,</span> <span class="n">miny</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">maxy</span> <span class="o">=</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">ds</span><span class="o">.</span><span class="n">bbox</span><span class="p">)</span>
     <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
@@ -6963,12 +6962,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from pyramids.dataset import Dataset
-from pyramids.errors import WMSError
 
 
 def show_rgb(ds, title):
     # Plot a returned RGB(A) Dataset on its georeferenced lon/lat extent.
-    arr = np.asarray(ds.read_array())              # (bands, rows, cols)
+    arr = np.asarray(ds.read_array())  # (bands, rows, cols)
     rgb = np.moveaxis(arr[:3], 0, -1).astype("uint8")
     minx, miny, maxx, maxy = (float(v) for v in ds.bbox)
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -7030,13 +7028,13 @@ the Netherlands as a 512×512 image.</p>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">OSM</span> <span class="o">=</span> <span class="s2">"https://ows.terrestris.de/osm/service?"</span>
-<span class="n">BBOX</span> <span class="o">=</span> <span class="p">(</span><span class="mf">5.0</span><span class="p">,</span> <span class="mf">51.0</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">,</span> <span class="mf">52.0</span><span class="p">)</span>   <span class="c1"># (minx, miny, maxx, maxy) in lon/lat</span>
+<span class="n">BBOX</span> <span class="o">=</span> <span class="p">(</span><span class="mf">5.0</span><span class="p">,</span> <span class="mf">51.0</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">,</span> <span class="mf">52.0</span><span class="p">)</span>  <span class="c1"># (minx, miny, maxx, maxy) in lon/lat</span>
 
 <span class="n">osm</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_wms</span><span class="p">(</span><span class="n">OSM</span><span class="p">,</span> <span class="n">layers</span><span class="o">=</span><span class="s2">"OSM-WMS"</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="n">BBOX</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">512</span><span class="p">,</span> <span class="mi">512</span><span class="p">))</span>
 <span class="n">osm</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">osm</span><span class="o">.</span><span class="n">bbox</span><span class="p">],</span> <span class="n">osm</span><span class="o">.</span><span class="n">epsg</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2">OSM = "https://ows.terrestris.de/osm/service?"
-BBOX = (5.0, 51.0, 6.0, 52.0)   # (minx, miny, maxx, maxy) in lon/lat
+BBOX = (5.0, 51.0, 6.0, 52.0)  # (minx, miny, maxx, maxy) in lon/lat
 
 osm = Dataset.from_wms(OSM, layers="OSM-WMS", bbox=BBOX, size=(512, 512))
 osm.shape, [round(v, 3) for v in osm.bbox], osm.epsg</div>
@@ -7208,10 +7206,7 @@ overview level (so a wide bbox does not pull the finest, globe-sized level).</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">GIBS</span> <span class="o">=</span> <span class="p">(</span>
-    <span class="s2">"https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/"</span>
-    <span class="s2">"WMTSCapabilities.xml"</span>
-<span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">GIBS</span> <span class="o">=</span> <span class="s2">"https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/WMTSCapabilities.xml"</span>
 
 <span class="n">truecolor</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_wmts</span><span class="p">(</span>
     <span class="n">GIBS</span><span class="p">,</span>
@@ -7221,10 +7216,7 @@ overview level (so a wide bbox does not pull the finest, globe-sized level).</p>
 <span class="p">)</span>
 <span class="n">truecolor</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">truecolor</span><span class="o">.</span><span class="n">bbox</span><span class="p">],</span> <span class="n">truecolor</span><span class="o">.</span><span class="n">epsg</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5">GIBS = (
-    "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/"
-    "WMTSCapabilities.xml"
-)
+<div class="clipboard-copy-txt" id="cell-5">GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/WMTSCapabilities.xml"
 
 truecolor = Dataset.from_wmts(
     GIBS,
@@ -7524,7 +7516,7 @@ parameter list (<code>image_format</code>, <code>version</code>, <code>bands</co
       <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.tracking", "navigation.footer", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "content.code.copy", "content.code.annotate", "content.action.edit", "content.action.view", "content.tooltips", "search.highlight", "search.suggest", "toc.follow", "announce.dismiss"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="../../../assets/javascripts/panzoom.min.js"></script>
       

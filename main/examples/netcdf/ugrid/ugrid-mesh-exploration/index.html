@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../../../_images/branding/logo-layers-v2.svg">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7121,11 +7121,7 @@ output covering the UGRID convention NC river estuary in the Netherlands.</p>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.ugrid</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">Connectivity</span><span class="p">,</span>
-    <span class="n">Mesh2d</span><span class="p">,</span>
     <span class="n">MeshSpatialIndex</span><span class="p">,</span>
-    <span class="n">MeshTopologyInfo</span><span class="p">,</span>
-    <span class="n">MeshVariable</span><span class="p">,</span>
     <span class="n">UgridDataset</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
@@ -7135,11 +7131,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from pyramids.netcdf.ugrid import (
-    Connectivity,
-    Mesh2d,
     MeshSpatialIndex,
-    MeshTopologyInfo,
-    MeshVariable,
     UgridDataset,
 )</div>
 </div>
@@ -8021,7 +8013,7 @@ plt.show()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">shapely.geometry</span><span class="w"> </span><span class="kn">import</span> <span class="n">Polygon</span><span class="p">,</span> <span class="n">box</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">shapely.geometry</span><span class="w"> </span><span class="kn">import</span> <span class="n">Polygon</span>
 
 <span class="c1"># Clip to a custom polygon (diamond shape in the estuary)</span>
 <span class="n">clip_poly</span> <span class="o">=</span> <span class="n">Polygon</span><span class="p">(</span>
@@ -8043,7 +8035,7 @@ plt.show()</div>
 <span class="p">)</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-18">from shapely.geometry import Polygon, box
+<div class="clipboard-copy-txt" id="cell-18">from shapely.geometry import Polygon
 
 # Clip to a custom polygon (diamond shape in the estuary)
 clip_poly = Polygon(
@@ -8464,7 +8456,7 @@ print(
 
 <span class="c1"># Read it back and verify</span>
 <span class="n">ds_roundtrip</span> <span class="o">=</span> <span class="n">UgridDataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">out_path</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">Round-trip verification:"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">Round-trip verification:"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  Nodes: </span><span class="si">{</span><span class="n">ds_roundtrip</span><span class="o">.</span><span class="n">n_node</span><span class="si">}</span><span class="s2"> (expected </span><span class="si">{</span><span class="n">synth_ds</span><span class="o">.</span><span class="n">n_node</span><span class="si">}</span><span class="s2">)"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  Faces: </span><span class="si">{</span><span class="n">ds_roundtrip</span><span class="o">.</span><span class="n">n_face</span><span class="si">}</span><span class="s2"> (expected </span><span class="si">{</span><span class="n">synth_ds</span><span class="o">.</span><span class="n">n_face</span><span class="si">}</span><span class="s2">)"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  Variables: </span><span class="si">{</span><span class="n">ds_roundtrip</span><span class="o">.</span><span class="n">data_variable_names</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
@@ -8476,7 +8468,7 @@ print(f"Written to {out_path} ({out_path.stat().st_size / 1024:.0f} KB)")
 
 # Read it back and verify
 ds_roundtrip = UgridDataset.read_file(out_path)
-print(f"\nRound-trip verification:")
+print("\nRound-trip verification:")
 print(f"  Nodes: {ds_roundtrip.n_node} (expected {synth_ds.n_node})")
 print(f"  Faces: {ds_roundtrip.n_face} (expected {synth_ds.n_face})")
 print(f"  Variables: {ds_roundtrip.data_variable_names}")</div>
@@ -9008,7 +9000,7 @@ HTML(anim.to_jshtml())</div>
       <script id="__config" type="application/json">{"annotate": null, "base": "../../../..", "features": ["navigation.instant", "navigation.tracking", "navigation.footer", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "content.code.copy", "content.code.annotate", "content.action.edit", "content.action.view", "content.tooltips", "search.highlight", "search.suggest", "toc.follow", "announce.dismiss"], "search": "../../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="../../../../assets/javascripts/panzoom.min.js"></script>
       

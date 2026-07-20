@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../../_images/branding/logo-layers-v2.svg">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6439,8 +6439,7 @@ name (e.g., <code>{"axis": "T", "units": "days since..."}</code>).</p>
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>src/pyramids/netcdf/dimensions.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-243">243</a></span>
-<span class="normal"><a href="#__codelineno-0-244">244</a></span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-244">244</a></span>
 <span class="normal"><a href="#__codelineno-0-245">245</a></span>
 <span class="normal"><a href="#__codelineno-0-246">246</a></span>
 <span class="normal"><a href="#__codelineno-0-247">247</a></span>
@@ -6536,79 +6535,78 @@ name (e.g., <code>{"axis": "T", "units": "days since..."}</code>).</p>
 <span class="normal"><a href="#__codelineno-0-337">337</a></span>
 <span class="normal"><a href="#__codelineno-0-338">338</a></span>
 <span class="normal"><a href="#__codelineno-0-339">339</a></span>
-<span class="normal"><a href="#__codelineno-0-340">340</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-243" name="__codelineno-0-243"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-244" name="__codelineno-0-244"></a><span class="k">class</span><span class="w"> </span><span class="nc">ClassicDimensionInfo</span><span class="p">:</span>
-<a id="__codelineno-0-245" name="__codelineno-0-245"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Unified information for a single netCDF dimension.</span>
-<a id="__codelineno-0-246" name="__codelineno-0-246"></a>
-<a id="__codelineno-0-247" name="__codelineno-0-247"></a><span class="sd">    This immutable dataclass captures both the structural information the GDAL</span>
-<a id="__codelineno-0-248" name="__codelineno-0-248"></a><span class="sd">    netCDF driver exposes via `NETCDF_DIM_*` keys and, optionally, the</span>
-<a id="__codelineno-0-249" name="__codelineno-0-249"></a><span class="sd">    per-dimension attribute mapping collected from keys of the form</span>
-<a id="__codelineno-0-250" name="__codelineno-0-250"></a><span class="sd">    `&quot;&lt;name&gt;#&lt;attr&gt;&quot;` (e.g., `time#units`).</span>
-<a id="__codelineno-0-251" name="__codelineno-0-251"></a>
-<a id="__codelineno-0-252" name="__codelineno-0-252"></a><span class="sd">    It subsumes the previous &quot;Dimension&quot; helper by adding an `attrs` field</span>
-<a id="__codelineno-0-253" name="__codelineno-0-253"></a><span class="sd">    while still preserving the original `raw` bucket that stores the exact</span>
-<a id="__codelineno-0-254" name="__codelineno-0-254"></a><span class="sd">    strings parsed from metadata.</span>
-<a id="__codelineno-0-255" name="__codelineno-0-255"></a>
-<a id="__codelineno-0-256" name="__codelineno-0-256"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-257" name="__codelineno-0-257"></a><span class="sd">        name (str):</span>
-<a id="__codelineno-0-258" name="__codelineno-0-258"></a><span class="sd">            Dimension name (e.g., &quot;time&quot;, &quot;level0&quot;).</span>
-<a id="__codelineno-0-259" name="__codelineno-0-259"></a><span class="sd">        size (int | None):</span>
-<a id="__codelineno-0-260" name="__codelineno-0-260"></a><span class="sd">            Dimension length (if known). Often derived from the first integer</span>
-<a id="__codelineno-0-261" name="__codelineno-0-261"></a><span class="sd">            in `*_DEF` or the length of `*_VALUES`.</span>
-<a id="__codelineno-0-262" name="__codelineno-0-262"></a><span class="sd">        values (list[str | Number] | None):</span>
-<a id="__codelineno-0-263" name="__codelineno-0-263"></a><span class="sd">            Parsed scalar values from the `*_VALUES` entry, if provided by the</span>
-<a id="__codelineno-0-264" name="__codelineno-0-264"></a><span class="sd">            GDAL netCDF driver.</span>
-<a id="__codelineno-0-265" name="__codelineno-0-265"></a><span class="sd">        def_fields (tuple[int,...] | None):</span>
-<a id="__codelineno-0-266" name="__codelineno-0-266"></a><span class="sd">            Parsed integers from the `*_DEF` entry. The meaning is driver-</span>
-<a id="__codelineno-0-267" name="__codelineno-0-267"></a><span class="sd">            specific; commonly the first value corresponds to the dimension size.</span>
-<a id="__codelineno-0-268" name="__codelineno-0-268"></a><span class="sd">        raw (dict[str, str]):</span>
-<a id="__codelineno-0-269" name="__codelineno-0-269"></a><span class="sd">            Raw strings captured from metadata for this dimension (e.g., the</span>
-<a id="__codelineno-0-270" name="__codelineno-0-270"></a><span class="sd">            original `DEF` and `VALUES` content).</span>
-<a id="__codelineno-0-271" name="__codelineno-0-271"></a><span class="sd">        attrs (dict[str, str]):</span>
-<a id="__codelineno-0-272" name="__codelineno-0-272"></a><span class="sd">            Optional attribute dictionary associated with the same dimension</span>
-<a id="__codelineno-0-273" name="__codelineno-0-273"></a><span class="sd">            name (e.g., `{&quot;axis&quot;: &quot;T&quot;, &quot;units&quot;: &quot;days since...&quot;}`).</span>
-<a id="__codelineno-0-274" name="__codelineno-0-274"></a>
-<a id="__codelineno-0-275" name="__codelineno-0-275"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-276" name="__codelineno-0-276"></a><span class="sd">        ValueError: If `size` is negative.</span>
-<a id="__codelineno-0-277" name="__codelineno-0-277"></a>
-<a id="__codelineno-0-278" name="__codelineno-0-278"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-279" name="__codelineno-0-279"></a><span class="sd">        - Construct manually for testing</span>
-<a id="__codelineno-0-280" name="__codelineno-0-280"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-281" name="__codelineno-0-281"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.dimensions import ClassicDimensionInfo</span>
-<a id="__codelineno-0-282" name="__codelineno-0-282"></a><span class="sd">            &gt;&gt;&gt; d = ClassicDimensionInfo(name=&#39;time&#39;, size=2, values=[0, 31], def_fields=(2, 6))</span>
-<a id="__codelineno-0-283" name="__codelineno-0-283"></a><span class="sd">            &gt;&gt;&gt; d.name, d.size, d.values, d.def_fields</span>
-<a id="__codelineno-0-284" name="__codelineno-0-284"></a><span class="sd">            (&#39;time&#39;, 2, [0, 31], (2, 6))</span>
-<a id="__codelineno-0-285" name="__codelineno-0-285"></a>
-<a id="__codelineno-0-286" name="__codelineno-0-286"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-287" name="__codelineno-0-287"></a><span class="sd">        - With attributes merged</span>
-<a id="__codelineno-0-288" name="__codelineno-0-288"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-289" name="__codelineno-0-289"></a>
-<a id="__codelineno-0-290" name="__codelineno-0-290"></a><span class="sd">            &gt;&gt;&gt; d = ClassicDimensionInfo(name=&#39;time&#39;, size=2, values=[0, 31], def_fields=(2, 6), attrs={&#39;axis&#39;: &#39;T&#39;})</span>
-<a id="__codelineno-0-291" name="__codelineno-0-291"></a><span class="sd">            &gt;&gt;&gt; d.attrs[&#39;axis&#39;]</span>
-<a id="__codelineno-0-292" name="__codelineno-0-292"></a><span class="sd">            &#39;T&#39;</span>
-<a id="__codelineno-0-293" name="__codelineno-0-293"></a>
-<a id="__codelineno-0-294" name="__codelineno-0-294"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-295" name="__codelineno-0-295"></a>
-<a id="__codelineno-0-296" name="__codelineno-0-296"></a><span class="sd">    See Also:</span>
-<a id="__codelineno-0-297" name="__codelineno-0-297"></a><span class="sd">        - :class:`DimensionsIndex`: Factory that populates structural entries.</span>
-<a id="__codelineno-0-298" name="__codelineno-0-298"></a><span class="sd">        - :class:`ClassicDimMetadata`: Provides convenient construction with merged attrs.</span>
-<a id="__codelineno-0-299" name="__codelineno-0-299"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-300" name="__codelineno-0-300"></a>
-<a id="__codelineno-0-301" name="__codelineno-0-301"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
-<a id="__codelineno-0-302" name="__codelineno-0-302"></a>    <span class="n">size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-303" name="__codelineno-0-303"></a>    <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">Number</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-304" name="__codelineno-0-304"></a>    <span class="n">def_fields</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-305" name="__codelineno-0-305"></a>    <span class="n">raw</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
-<a id="__codelineno-0-306" name="__codelineno-0-306"></a>    <span class="n">attrs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
-<a id="__codelineno-0-307" name="__codelineno-0-307"></a>
-<a id="__codelineno-0-308" name="__codelineno-0-308"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<a id="__codelineno-0-309" name="__codelineno-0-309"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Validate dimension fields for consistency.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-310" name="__codelineno-0-310"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
-<a id="__codelineno-0-311" name="__codelineno-0-311"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Dimension name cannot be empty.&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-312" name="__codelineno-0-312"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-313" name="__codelineno-0-313"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-314" name="__codelineno-0-314"></a>                <span class="sa">f</span><span class="s2">&quot;Dimension &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;: size cannot be negative, &quot;</span>
-<a id="__codelineno-0-315" name="__codelineno-0-315"></a>                <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2">.&quot;</span>
+<span class="normal"><a href="#__codelineno-0-340">340</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-244" name="__codelineno-0-244"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-245" name="__codelineno-0-245"></a><span class="k">class</span><span class="w"> </span><span class="nc">ClassicDimensionInfo</span><span class="p">:</span>
+<a id="__codelineno-0-246" name="__codelineno-0-246"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Unified information for a single netCDF dimension.</span>
+<a id="__codelineno-0-247" name="__codelineno-0-247"></a>
+<a id="__codelineno-0-248" name="__codelineno-0-248"></a><span class="sd">    This immutable dataclass captures both the structural information the GDAL</span>
+<a id="__codelineno-0-249" name="__codelineno-0-249"></a><span class="sd">    netCDF driver exposes via `NETCDF_DIM_*` keys and, optionally, the</span>
+<a id="__codelineno-0-250" name="__codelineno-0-250"></a><span class="sd">    per-dimension attribute mapping collected from keys of the form</span>
+<a id="__codelineno-0-251" name="__codelineno-0-251"></a><span class="sd">    `&quot;&lt;name&gt;#&lt;attr&gt;&quot;` (e.g., `time#units`).</span>
+<a id="__codelineno-0-252" name="__codelineno-0-252"></a>
+<a id="__codelineno-0-253" name="__codelineno-0-253"></a><span class="sd">    It subsumes the previous &quot;Dimension&quot; helper by adding an `attrs` field</span>
+<a id="__codelineno-0-254" name="__codelineno-0-254"></a><span class="sd">    while still preserving the original `raw` bucket that stores the exact</span>
+<a id="__codelineno-0-255" name="__codelineno-0-255"></a><span class="sd">    strings parsed from metadata.</span>
+<a id="__codelineno-0-256" name="__codelineno-0-256"></a>
+<a id="__codelineno-0-257" name="__codelineno-0-257"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-258" name="__codelineno-0-258"></a><span class="sd">        name (str):</span>
+<a id="__codelineno-0-259" name="__codelineno-0-259"></a><span class="sd">            Dimension name (e.g., &quot;time&quot;, &quot;level0&quot;).</span>
+<a id="__codelineno-0-260" name="__codelineno-0-260"></a><span class="sd">        size (int | None):</span>
+<a id="__codelineno-0-261" name="__codelineno-0-261"></a><span class="sd">            Dimension length (if known). Often derived from the first integer</span>
+<a id="__codelineno-0-262" name="__codelineno-0-262"></a><span class="sd">            in `*_DEF` or the length of `*_VALUES`.</span>
+<a id="__codelineno-0-263" name="__codelineno-0-263"></a><span class="sd">        values (list[str | Number] | None):</span>
+<a id="__codelineno-0-264" name="__codelineno-0-264"></a><span class="sd">            Parsed scalar values from the `*_VALUES` entry, if provided by the</span>
+<a id="__codelineno-0-265" name="__codelineno-0-265"></a><span class="sd">            GDAL netCDF driver.</span>
+<a id="__codelineno-0-266" name="__codelineno-0-266"></a><span class="sd">        def_fields (tuple[int,...] | None):</span>
+<a id="__codelineno-0-267" name="__codelineno-0-267"></a><span class="sd">            Parsed integers from the `*_DEF` entry. The meaning is driver-</span>
+<a id="__codelineno-0-268" name="__codelineno-0-268"></a><span class="sd">            specific; commonly the first value corresponds to the dimension size.</span>
+<a id="__codelineno-0-269" name="__codelineno-0-269"></a><span class="sd">        raw (dict[str, str]):</span>
+<a id="__codelineno-0-270" name="__codelineno-0-270"></a><span class="sd">            Raw strings captured from metadata for this dimension (e.g., the</span>
+<a id="__codelineno-0-271" name="__codelineno-0-271"></a><span class="sd">            original `DEF` and `VALUES` content).</span>
+<a id="__codelineno-0-272" name="__codelineno-0-272"></a><span class="sd">        attrs (dict[str, str]):</span>
+<a id="__codelineno-0-273" name="__codelineno-0-273"></a><span class="sd">            Optional attribute dictionary associated with the same dimension</span>
+<a id="__codelineno-0-274" name="__codelineno-0-274"></a><span class="sd">            name (e.g., `{&quot;axis&quot;: &quot;T&quot;, &quot;units&quot;: &quot;days since...&quot;}`).</span>
+<a id="__codelineno-0-275" name="__codelineno-0-275"></a>
+<a id="__codelineno-0-276" name="__codelineno-0-276"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-277" name="__codelineno-0-277"></a><span class="sd">        ValueError: If `size` is negative.</span>
+<a id="__codelineno-0-278" name="__codelineno-0-278"></a>
+<a id="__codelineno-0-279" name="__codelineno-0-279"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-280" name="__codelineno-0-280"></a><span class="sd">        - Construct manually for testing</span>
+<a id="__codelineno-0-281" name="__codelineno-0-281"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-282" name="__codelineno-0-282"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.dimensions import ClassicDimensionInfo</span>
+<a id="__codelineno-0-283" name="__codelineno-0-283"></a><span class="sd">            &gt;&gt;&gt; d = ClassicDimensionInfo(name=&#39;time&#39;, size=2, values=[0, 31], def_fields=(2, 6))</span>
+<a id="__codelineno-0-284" name="__codelineno-0-284"></a><span class="sd">            &gt;&gt;&gt; d.name, d.size, d.values, d.def_fields</span>
+<a id="__codelineno-0-285" name="__codelineno-0-285"></a><span class="sd">            (&#39;time&#39;, 2, [0, 31], (2, 6))</span>
+<a id="__codelineno-0-286" name="__codelineno-0-286"></a>
+<a id="__codelineno-0-287" name="__codelineno-0-287"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-288" name="__codelineno-0-288"></a><span class="sd">        - With attributes merged</span>
+<a id="__codelineno-0-289" name="__codelineno-0-289"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-290" name="__codelineno-0-290"></a>
+<a id="__codelineno-0-291" name="__codelineno-0-291"></a><span class="sd">            &gt;&gt;&gt; d = ClassicDimensionInfo(name=&#39;time&#39;, size=2, values=[0, 31], def_fields=(2, 6), attrs={&#39;axis&#39;: &#39;T&#39;})</span>
+<a id="__codelineno-0-292" name="__codelineno-0-292"></a><span class="sd">            &gt;&gt;&gt; d.attrs[&#39;axis&#39;]</span>
+<a id="__codelineno-0-293" name="__codelineno-0-293"></a><span class="sd">            &#39;T&#39;</span>
+<a id="__codelineno-0-294" name="__codelineno-0-294"></a>
+<a id="__codelineno-0-295" name="__codelineno-0-295"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-296" name="__codelineno-0-296"></a>
+<a id="__codelineno-0-297" name="__codelineno-0-297"></a><span class="sd">    See Also:</span>
+<a id="__codelineno-0-298" name="__codelineno-0-298"></a><span class="sd">        - :class:`DimensionsIndex`: Factory that populates structural entries.</span>
+<a id="__codelineno-0-299" name="__codelineno-0-299"></a><span class="sd">        - :class:`ClassicDimMetadata`: Provides convenient construction with merged attrs.</span>
+<a id="__codelineno-0-300" name="__codelineno-0-300"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-301" name="__codelineno-0-301"></a>
+<a id="__codelineno-0-302" name="__codelineno-0-302"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-0-303" name="__codelineno-0-303"></a>    <span class="n">size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-304" name="__codelineno-0-304"></a>    <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">Number</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-305" name="__codelineno-0-305"></a>    <span class="n">def_fields</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-306" name="__codelineno-0-306"></a>    <span class="n">raw</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+<a id="__codelineno-0-307" name="__codelineno-0-307"></a>    <span class="n">attrs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+<a id="__codelineno-0-308" name="__codelineno-0-308"></a>
+<a id="__codelineno-0-309" name="__codelineno-0-309"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-0-310" name="__codelineno-0-310"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Validate dimension fields for consistency.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-311" name="__codelineno-0-311"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
+<a id="__codelineno-0-312" name="__codelineno-0-312"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Dimension name cannot be empty.&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-313" name="__codelineno-0-313"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-314" name="__codelineno-0-314"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-315" name="__codelineno-0-315"></a>                <span class="sa">f</span><span class="s2">&quot;Dimension &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;: size cannot be negative, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2">.&quot;</span>
 <a id="__codelineno-0-316" name="__codelineno-0-316"></a>            <span class="p">)</span>
 <a id="__codelineno-0-317" name="__codelineno-0-317"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">values</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-318" name="__codelineno-0-318"></a>            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">values</span><span class="p">)</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
@@ -6666,8 +6664,7 @@ name (e.g., <code>{"axis": "T", "units": "days since..."}</code>).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/dimensions.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-308">308</a></span>
-<span class="normal"><a href="#__codelineno-0-309">309</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-309">309</a></span>
 <span class="normal"><a href="#__codelineno-0-310">310</a></span>
 <span class="normal"><a href="#__codelineno-0-311">311</a></span>
 <span class="normal"><a href="#__codelineno-0-312">312</a></span>
@@ -6681,14 +6678,13 @@ name (e.g., <code>{"axis": "T", "units": "days since..."}</code>).</p>
 <span class="normal"><a href="#__codelineno-0-320">320</a></span>
 <span class="normal"><a href="#__codelineno-0-321">321</a></span>
 <span class="normal"><a href="#__codelineno-0-322">322</a></span>
-<span class="normal"><a href="#__codelineno-0-323">323</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-308" name="__codelineno-0-308"></a><span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<a id="__codelineno-0-309" name="__codelineno-0-309"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Validate dimension fields for consistency.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-310" name="__codelineno-0-310"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
-<a id="__codelineno-0-311" name="__codelineno-0-311"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Dimension name cannot be empty.&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-312" name="__codelineno-0-312"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-313" name="__codelineno-0-313"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-314" name="__codelineno-0-314"></a>            <span class="sa">f</span><span class="s2">&quot;Dimension &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;: size cannot be negative, &quot;</span>
-<a id="__codelineno-0-315" name="__codelineno-0-315"></a>            <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2">.&quot;</span>
+<span class="normal"><a href="#__codelineno-0-323">323</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-309" name="__codelineno-0-309"></a><span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-0-310" name="__codelineno-0-310"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Validate dimension fields for consistency.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-311" name="__codelineno-0-311"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
+<a id="__codelineno-0-312" name="__codelineno-0-312"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Dimension name cannot be empty.&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-313" name="__codelineno-0-313"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-314" name="__codelineno-0-314"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-315" name="__codelineno-0-315"></a>            <span class="sa">f</span><span class="s2">&quot;Dimension &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;: size cannot be negative, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2">.&quot;</span>
 <a id="__codelineno-0-316" name="__codelineno-0-316"></a>        <span class="p">)</span>
 <a id="__codelineno-0-317" name="__codelineno-0-317"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">values</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-318" name="__codelineno-0-318"></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">values</span><span class="p">)</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
@@ -7762,7 +7758,7 @@ from a GDAL metadata mapping (e.g., <code>gdal.Dataset.GetMetadata()</code>).</p
                 <code>metadata</code>
             </td>
             <td>
-                  <code><span title="typing.Mapping">Mapping</span>[<span title="str">str</span>, <span title="str">str</span>]</code>
+                  <code><span title="collections.abc.Mapping">Mapping</span>[<span title="str">str</span>, <span title="str">str</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -8223,7 +8219,7 @@ keys/values.</p>
       <tbody>
           <tr class="doc-section-item">
 <td><code>ClassicDimensionInfo</code></td>            <td>
-                  <code><span title="typing.Iterable">Iterable</span>[<a class="autorefs autorefs-internal" title="&lt;code&gt;ClassicDimensionInfo&lt;/code&gt;
+                  <code><span title="collections.abc.Iterable">Iterable</span>[<a class="autorefs autorefs-internal" title="&lt;code&gt;ClassicDimensionInfo&lt;/code&gt;
 
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
@@ -9806,7 +9802,7 @@ exposed by the GDAL netCDF driver:
                 <code>metadata</code>
             </td>
             <td>
-                  <code><span title="typing.Mapping">Mapping</span>[<span title="str">str</span>, <span title="str">str</span>]</code>
+                  <code><span title="collections.abc.Mapping">Mapping</span>[<span title="str">str</span>, <span title="str">str</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -9854,7 +9850,7 @@ exposed by the GDAL netCDF driver:
                 <code>names</code>
             </td>
             <td>
-                  <code><span title="typing.Iterable">Iterable</span>[<span title="str">str</span>] | None</code>
+                  <code><span title="collections.abc.Iterable">Iterable</span>[<span title="str">str</span>] | None</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -10400,7 +10396,7 @@ attribute dictionary captured for the same name and returns a new
       <tbody>
           <tr class="doc-section-item">
 <td><code>ClassicDimensionInfo</code></td>            <td>
-                  <code><span title="typing.Iterable">Iterable</span>[<a class="autorefs autorefs-internal" title="&lt;code&gt;ClassicDimensionInfo&lt;/code&gt;
+                  <code><span title="collections.abc.Iterable">Iterable</span>[<a class="autorefs autorefs-internal" title="&lt;code&gt;ClassicDimensionInfo&lt;/code&gt;
 
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
@@ -10903,7 +10899,7 @@ uses the default <code>NETCDF_DIM_</code> prefix.</p>
                 <code>metadata</code>
             </td>
             <td>
-                  <code><span title="typing.Mapping">Mapping</span>[<span title="str">str</span>, <span title="str">str</span>]</code>
+                  <code><span title="collections.abc.Mapping">Mapping</span>[<span title="str">str</span>, <span title="str">str</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -11112,7 +11108,7 @@ dimension name.</p>
                 <code>metadata</code>
             </td>
             <td>
-                  <code><span title="typing.Mapping">Mapping</span>[<span title="str">str</span>, <span title="str">str</span>]</code>
+                  <code><span title="collections.abc.Mapping">Mapping</span>[<span title="str">str</span>, <span title="str">str</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -11128,7 +11124,7 @@ dimension name.</p>
                 <code>names</code>
             </td>
             <td>
-                  <code><span title="typing.Iterable">Iterable</span>[<span title="str">str</span>] | None</code>
+                  <code><span title="collections.abc.Iterable">Iterable</span>[<span title="str">str</span>] | None</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -11568,7 +11564,7 @@ the output. If False, original case is preserved.</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.tracking", "navigation.footer", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "content.code.copy", "content.code.annotate", "content.action.edit", "content.action.view", "content.tooltips", "search.highlight", "search.suggest", "toc.follow", "announce.dismiss"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="../../../assets/javascripts/panzoom.min.js"></script>
       
