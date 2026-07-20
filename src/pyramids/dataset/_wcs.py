@@ -43,7 +43,7 @@ import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
-from xml.etree import ElementTree as ET  # nosec B405 - trusted OGC XML
+from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted, no XXE
 
 from osgeo import gdal
 from pyproj import CRS as _PyprojCRS
@@ -276,7 +276,7 @@ def _get_capabilities(
     payload = _http_get(url, auth, timeout, "GetCapabilities")
 
     try:
-        root = ET.fromstring(payload)  # nosec B314 - trusted OGC XML
+        root = ET.fromstring(payload)  # nosec B314 - server XML; DoS accepted, no XXE
     except ET.ParseError as exc:
         raise WCSError(
             f"WCS GetCapabilities returned a non-XML body from {endpoint!r}: {exc}"
