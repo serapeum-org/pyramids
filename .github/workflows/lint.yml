@@ -48,7 +48,9 @@ jobs:
           key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: pre-commit-
 
-      - run: python -m pip install pre-commit
+      # Pin the resolved version (reproducible CI, and satisfies the supply-chain
+      # "lock resolved versions" check); bump deliberately or via dependabot.
+      - run: python -m pip install pre-commit==4.5.1
 
       - name: Run pre-commit hooks
         # --show-diff-on-failure prints exactly what the auto-fixers (ruff-format,
