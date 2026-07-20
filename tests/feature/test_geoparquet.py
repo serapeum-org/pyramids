@@ -174,7 +174,9 @@ class TestReadParquetUrlRouting:
 
         def fake(path, **kwargs):
             seen["path"] = path
-            return gpd.GeoDataFrame({"id": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326")
+            return gpd.GeoDataFrame(
+                {"id": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326"
+            )
 
         monkeypatch.setattr(gpd, "read_parquet", fake)
         FeatureCollection.read_parquet(url)
@@ -187,7 +189,9 @@ class TestReadParquetUrlRouting:
 
         def fake(path, **kwargs):
             seen["path"] = path
-            return gpd.GeoDataFrame({"id": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326")
+            return gpd.GeoDataFrame(
+                {"id": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326"
+            )
 
         monkeypatch.setattr(gpd, "read_parquet", fake)
         local = tmp_path / "x.parquet"
