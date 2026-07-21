@@ -38,7 +38,7 @@ jobs:
           ref: ${{ inputs.branch || github.ref }}
 
       - name: Set up Pixi
-        uses: serapeum-org/github-actions/actions/python-setup/pixi@cb1baebe72f571981605ab895a45dae7bfb566ba # pixi/v1
+        uses: serapeum-org/github-actions/actions/python-setup/pixi@a7076ffa6ad76831d1fee433b0cf93c42fd31443 # pixi/v1
         with:
           environments: dev
           activate-environment: dev
