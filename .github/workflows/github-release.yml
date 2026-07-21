@@ -63,7 +63,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release with Commitizen
-        uses: serapeum-org/github-actions/actions/release/github@cb1baebe72f571981605ab895a45dae7bfb566ba  # github-release/v1.2.0
+        uses: serapeum-org/github-actions/actions/release/github@a7076ffa6ad76831d1fee433b0cf93c42fd31443  # github-release/v1.4.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           increment: ${{ github.event.inputs.increment }}
