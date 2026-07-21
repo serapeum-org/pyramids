@@ -59,6 +59,22 @@ repos:
       - id: ruff-format
         name: "[py   - format] ruff-format"
 
+  # Strip outputs / execution counts from notebooks on commit. The example notebooks are
+  # docs source and the docs build (github-pages-mkdocs.yml) re-executes them in CI, so
+  # committed outputs are throwaway — this enforces that invariant, keeping a stray "ran it
+  # locally" commit from reintroducing multi-MB output blobs or notebook diff noise.
+  #   --keep-id: keep the original cell ids instead of renumbering them 0,1,2,… — positional
+  #     ids reshuffle every subsequent cell whenever one is inserted, which is pure diff churn.
+  #   exclude wms-wmts-readers: it hits live OGC endpoints and is on the docs' notebooks-exclude
+  #     list (not re-executed in CI), so its committed outputs are what the docs render — keep them.
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.9.1
+    hooks:
+      - id: nbstripout
+        name: "[ipynb - format] nbstripout"
+        args: [--keep-id]
+        exclude: ^docs/examples/dataset/wms-wmts-readers\.ipynb$
+
   - repo: https://github.com/lovesegfault/beautysh
     rev: v6.4.3
     hooks:
