@@ -201,10 +201,10 @@ jobs:
         shell: bash -el {0}
         run: |
           WHEEL=$(ls dist/*.whl)
-          pip install "${WHEEL}[${{ matrix.extra.pip_extra }}]"
+          pip install "${WHEEL}[${{ matrix.extra.pip_extra }}]" --only-binary=:all:
           # Peer interop deps that are not pyramids extras (e.g. xarray).
           if [ -n "${{ matrix.extra.extra_pip }}" ]; then
-            pip install "${{ matrix.extra.extra_pip }}"
+            pip install "${{ matrix.extra.extra_pip }}" --only-binary=:all:
           fi
 
       - name: Verify package import
