@@ -784,7 +784,7 @@ jobs:
           PYTAG="cp$(echo '${{ matrix.python-version }}' | tr -d .)"
           WHEEL=$(ls dist/pyramids_gis-*-${PYTAG}-${PYTAG}-*macosx*x86_64.whl | head -1)
           echo "Installing: $WHEEL"
-          arch -x86_64 "$UVX86" pip install --only-binary=:all: --python .venv-x86/bin/python "$WHEEL"
+          arch -x86_64 "$UVX86" pip install --python .venv-x86/bin/python "$WHEEL" --only-binary=:all:
 
       - name: Verify GDAL import + drivers (x86_64 under Rosetta)
         run: |
