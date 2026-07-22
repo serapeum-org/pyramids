@@ -664,9 +664,9 @@ jobs:
           tests/dataset tests/feature
 
   # Native win_arm64 verification (no emulation — the runner executes
-  # its own arch), one cell per shipped Python: a bare `pip install
-  # <wheel>` must resolve on its own (the dependency markers skip
-  # shapely/geopandas; the wheel vendors them), then verify-wheel checks
+  # its own arch), one cell per shipped Python: `pip install <wheel>`
+  # resolves the closure wheels-only (--only-binary; the dependency markers
+  # skip shapely/geopandas, which the wheel vendors), then verify-wheel checks
   # drivers, the vendored vector stack, licenses, netCDF, JP2, and
   # schannel TLS. The full hermetic suite runs once, on 3.12.
   verify-winarm64:
@@ -693,7 +693,7 @@ jobs:
           name: wheels-winarm64
           path: wheelhouse
 
-      - name: Install wheel (plain pip resolution — the real user path)
+      - name: Install wheel (wheels-only resolution — no source builds)
         shell: bash
         run: |
           PYTAG="cp$(echo '${{ matrix.python-version }}' | tr -d .)"
