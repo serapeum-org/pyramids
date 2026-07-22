@@ -58,6 +58,11 @@ jobs:
           ref: ${{ github.ref }}
 
       - name: Build and publish sdist only (emergency fallback)
+        # release/pypi exposes no version/package-manager-version input yet, so the
+        # pixi it installs floats to latest here (every other pixi step in CI is
+        # pinned to v0.73.0). Tracked upstream at serapeum-org/github-actions#41.
+        # Low-risk: admin-gated, workflow_dispatch-only, sdist-only — sdist builds
+        # are largely pixi-version-insensitive. Wire a version pin in once it ships.
         uses: serapeum-org/github-actions/actions/release/pypi@38c111084f99d5ff5f4a1e63bedce48fe33a10c0  # pypi-release/v1.0.3
         with:
           pypi-username: __token__
