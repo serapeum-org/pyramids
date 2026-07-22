@@ -52,13 +52,13 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ github.ref }}
 
       - name: Build and publish sdist only (emergency fallback)
-        uses: serapeum-org/github-actions/actions/release/pypi@cb1baebe72f571981605ab895a45dae7bfb566ba  # pypi-release/v1.2.0
+        uses: serapeum-org/github-actions/actions/release/pypi@38c111084f99d5ff5f4a1e63bedce48fe33a10c0  # pypi-release/v1.0.3
         with:
           pypi-username: __token__
           pypi-password: ${{ secrets.PYPI_PUBLISH }}
