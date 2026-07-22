@@ -460,7 +460,7 @@ jobs:
           PYTAG=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
           WHEEL=$(ls dist/pyramids_gis-*-${PYTAG}-${PYTAG}-*${{ matrix.wheel-tag }}*.whl | head -1)
           echo "Installing: $WHEEL"
-          pip install "$WHEEL"
+          pip install "$WHEEL" --only-binary=:all:
           pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import
@@ -513,7 +513,7 @@ jobs:
         shell: bash
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_x86_64.whl)
-          pip install "${WHEEL}"
+          pip install "${WHEEL}" --only-binary=:all:
           pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
@@ -550,7 +550,7 @@ jobs:
         shell: bash
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_x86_64.whl)
-          python3.12 -m pip install "${WHEEL}"
+          python3.12 -m pip install "${WHEEL}" --only-binary=:all:
           python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
@@ -593,7 +593,7 @@ jobs:
         shell: bash
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_aarch64.whl)
-          python3.12 -m pip install "${WHEEL}"
+          python3.12 -m pip install "${WHEEL}" --only-binary=:all:
           python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
@@ -698,7 +698,7 @@ jobs:
         run: |
           PYTAG="cp$(echo '${{ matrix.python-version }}' | tr -d .)"
           WHEEL=$(ls wheelhouse/pyramids_gis-*${PYTAG}*win_arm64.whl)
-          pip install "${WHEEL}"
+          pip install "${WHEEL}" --only-binary=:all:
 
       # Runs against the bare install closure, BEFORE the test deps land:
       # pytest itself requires `packaging`, which the vendored geopandas
@@ -784,7 +784,7 @@ jobs:
           PYTAG="cp$(echo '${{ matrix.python-version }}' | tr -d .)"
           WHEEL=$(ls dist/pyramids_gis-*-${PYTAG}-${PYTAG}-*macosx*x86_64.whl | head -1)
           echo "Installing: $WHEEL"
-          arch -x86_64 "$UVX86" pip install --python .venv-x86/bin/python "$WHEEL"
+          arch -x86_64 "$UVX86" pip install --only-binary=:all: --python .venv-x86/bin/python "$WHEEL"
 
       - name: Verify GDAL import + drivers (x86_64 under Rosetta)
         run: |
