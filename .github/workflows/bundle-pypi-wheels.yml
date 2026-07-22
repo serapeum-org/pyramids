@@ -86,7 +86,7 @@ jobs:
 
       - name: Build sdist
         run: |
-          pip install build
+          pip install build --only-binary=:all:
           python -m build --sdist
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -460,8 +460,8 @@ jobs:
           PYTAG=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
           WHEEL=$(ls dist/pyramids_gis-*-${PYTAG}-${PYTAG}-*${{ matrix.wheel-tag }}*.whl | head -1)
           echo "Installing: $WHEEL"
-          pip install "$WHEEL"
-          pip install pytest pytest-env pytest-mock pytest-timeout
+          pip install "$WHEEL" --only-binary=:all:
+          pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import
         run: python ci/verify-wheel.py
@@ -513,8 +513,8 @@ jobs:
         shell: bash
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_x86_64.whl)
-          pip install "${WHEEL}"
-          pip install pytest pytest-env pytest-mock pytest-timeout
+          pip install "${WHEEL}" --only-binary=:all:
+          pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
         run: python ci/verify-wheel.py
@@ -550,8 +550,8 @@ jobs:
         shell: bash
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_x86_64.whl)
-          python3.12 -m pip install "${WHEEL}"
-          python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout
+          python3.12 -m pip install "${WHEEL}" --only-binary=:all:
+          python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
         run: python3.12 ci/verify-wheel.py
@@ -593,8 +593,8 @@ jobs:
         shell: bash
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_aarch64.whl)
-          python3.12 -m pip install "${WHEEL}"
-          python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout
+          python3.12 -m pip install "${WHEEL}" --only-binary=:all:
+          python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
         run: python3.12 ci/verify-wheel.py
@@ -648,10 +648,10 @@ jobs:
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*musllinux_1_2_x86_64.whl)
           pip install "${WHEEL}" --no-deps
-          pip install pyogrio-wheelhouse/pyogrio-*.whl
-          pip install numpy pandas scipy shapely pyproj PyYAML cftime hpc-utils packaging
-          pip install geopandas
-          pip install pytest pytest-env pytest-mock pytest-timeout
+          pip install pyogrio-wheelhouse/pyogrio-*.whl --only-binary=:all:
+          pip install numpy pandas scipy shapely pyproj PyYAML cftime hpc-utils packaging --only-binary=:all:
+          pip install geopandas --only-binary=:all:
+          pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
         run: python ci/verify-wheel.py
@@ -664,9 +664,9 @@ jobs:
           tests/dataset tests/feature
 
   # Native win_arm64 verification (no emulation — the runner executes
-  # its own arch), one cell per shipped Python: a bare `pip install
-  # <wheel>` must resolve on its own (the dependency markers skip
-  # shapely/geopandas; the wheel vendors them), then verify-wheel checks
+  # its own arch), one cell per shipped Python: `pip install <wheel>`
+  # resolves the closure wheels-only (--only-binary; the dependency markers
+  # skip shapely/geopandas, which the wheel vendors), then verify-wheel checks
   # drivers, the vendored vector stack, licenses, netCDF, JP2, and
   # schannel TLS. The full hermetic suite runs once, on 3.12.
   verify-winarm64:
@@ -693,12 +693,12 @@ jobs:
           name: wheels-winarm64
           path: wheelhouse
 
-      - name: Install wheel (plain pip resolution — the real user path)
+      - name: Install wheel (wheels-only resolution — no source builds)
         shell: bash
         run: |
           PYTAG="cp$(echo '${{ matrix.python-version }}' | tr -d .)"
           WHEEL=$(ls wheelhouse/pyramids_gis-*${PYTAG}*win_arm64.whl)
-          pip install "${WHEEL}"
+          pip install "${WHEEL}" --only-binary=:all:
 
       # Runs against the bare install closure, BEFORE the test deps land:
       # pytest itself requires `packaging`, which the vendored geopandas
@@ -709,7 +709,7 @@ jobs:
 
       - name: Install test dependencies
         if: matrix.python-version == '3.12'
-        run: pip install pytest pytest-env pytest-mock pytest-timeout
+        run: "pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:"
 
       - name: Run hermetic core test suite
         if: matrix.python-version == '3.12'
@@ -761,7 +761,7 @@ jobs:
       - name: Install a pinned, checksummed x86_64 uv (runs under Rosetta)
         run: |
           set -euo pipefail
-          curl -fsSL -o uv-x86_64.tar.gz \
+          curl -fsSL --proto '=https' --proto-redir '=https' -o uv-x86_64.tar.gz \
             "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-apple-darwin.tar.gz"
           echo "${UV_SHA256}  uv-x86_64.tar.gz" | shasum -a 256 -c -
           tar -xzf uv-x86_64.tar.gz
@@ -784,7 +784,7 @@ jobs:
           PYTAG="cp$(echo '${{ matrix.python-version }}' | tr -d .)"
           WHEEL=$(ls dist/pyramids_gis-*-${PYTAG}-${PYTAG}-*macosx*x86_64.whl | head -1)
           echo "Installing: $WHEEL"
-          arch -x86_64 "$UVX86" pip install --python .venv-x86/bin/python "$WHEEL"
+          arch -x86_64 "$UVX86" pip install --python .venv-x86/bin/python "$WHEEL" --only-binary=:all:
 
       - name: Verify GDAL import + drivers (x86_64 under Rosetta)
         run: |

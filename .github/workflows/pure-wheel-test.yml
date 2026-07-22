@@ -108,7 +108,7 @@ jobs:
 
       - name: Install wheel (no extras)
         shell: bash -el {0}
-        run: pip install dist/*.whl
+        run: "pip install dist/*.whl --only-binary=:all:"
 
       - name: Verify package import
         shell: bash -el {0}
@@ -116,7 +116,7 @@ jobs:
 
       - name: Install test runner
         shell: bash -el {0}
-        run: pip install pytest pytest-env pytest-mock
+        run: "pip install pytest pytest-env pytest-mock --only-binary=:all:"
 
       - name: Run core tests
         shell: bash -el {0}
@@ -201,10 +201,10 @@ jobs:
         shell: bash -el {0}
         run: |
           WHEEL=$(ls dist/*.whl)
-          pip install "${WHEEL}[${{ matrix.extra.pip_extra }}]"
+          pip install "${WHEEL}[${{ matrix.extra.pip_extra }}]" --only-binary=:all:
           # Peer interop deps that are not pyramids extras (e.g. xarray).
           if [ -n "${{ matrix.extra.extra_pip }}" ]; then
-            pip install "${{ matrix.extra.extra_pip }}"
+            pip install "${{ matrix.extra.extra_pip }}" --only-binary=:all:
           fi
 
       - name: Verify package import
@@ -213,7 +213,7 @@ jobs:
 
       - name: Install test runner
         shell: bash -el {0}
-        run: pip install pytest pytest-env pytest-mock
+        run: "pip install pytest pytest-env pytest-mock --only-binary=:all:"
 
       - name: Run ${{ matrix.extra.marker }}-marked tests
         shell: bash -el {0}
