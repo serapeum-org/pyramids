@@ -36,6 +36,7 @@ jobs:
           environments: py311
           activate-environment: py311
           cache: true
+          version: v0.73.0
 
       - name: Audit dependencies with pip-audit
         # pip-audit checks installed packages against the PyPI/OSV advisory DB. Conda

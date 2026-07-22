@@ -43,6 +43,7 @@ jobs:
           environments: dev
           activate-environment: dev
           cache: true
+          version: v0.73.0
 
       - name: Build wheel
         run: pixi run -e dev python -m build --wheel --outdir dist/

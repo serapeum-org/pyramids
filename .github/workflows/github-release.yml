@@ -70,6 +70,7 @@ jobs:
           prerelease-type: ${{ github.event.inputs.prerelease_type }}
           draft: ${{ github.event.inputs.draft }}
           package-manager: pixi
+          package-manager-version: v0.73.0
           install-groups: "dev"
 
       - name: Update lockfile after version bump

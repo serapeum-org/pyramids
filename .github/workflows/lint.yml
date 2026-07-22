@@ -85,6 +85,7 @@ jobs:
           environments: dev
           activate-environment: dev
           cache: true
+          version: v0.73.0
 
       - name: Type check with mypy
         run: pixi run -e dev mypy

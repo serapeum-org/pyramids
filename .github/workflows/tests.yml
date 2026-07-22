@@ -46,6 +46,7 @@ jobs:
           environments: ${{ matrix.environment }}
           activate-environment: ${{ matrix.environment }}
           cache: true
+          version: v0.73.0
 
       - name: Run main tests (not plot, not xarray, not vfs, not live)
         # Run pytest directly (not the `main` task) so we can append `not vfs`/`not live`
@@ -102,6 +103,7 @@ jobs:
           environments: ${{ matrix.target.env }}
           activate-environment: ${{ matrix.target.env }}
           cache: true
+          version: v0.73.0
 
       - name: Run ${{ matrix.target.name }} tests
         # ``--cov-fail-under=0`` overrides the 90% gate from
