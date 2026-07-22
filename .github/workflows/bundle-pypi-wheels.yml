@@ -89,7 +89,7 @@ jobs:
           pip install build --only-binary=:all:
           python -m build --sdist
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sdist
           path: dist/*.tar.gz
@@ -159,7 +159,7 @@ jobs:
           # Non-fatal — never block the build on the comparison.
           python3 ci/wheel-size-delta.py wheelhouse || true
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheels-linux-${{ matrix.arch }}
           path: wheelhouse/*.whl
@@ -259,12 +259,12 @@ jobs:
             '
           ls -lah pyogrio-wheelhouse/
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: canary-pyogrio-${{ matrix.arch }}
           path: pyogrio-wheelhouse/*.whl
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: canary-musl-${{ matrix.arch }}
           path: wheelhouse/*.whl
@@ -304,7 +304,7 @@ jobs:
       # changes wheel size (install-and-vendor-osgeo.py) already runs on every
       # platform; only the post-build *assertion* is Linux-only. See #474 / the
       # PR review notes.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheels-macos-${{ matrix.arch }}
           path: wheelhouse/*.whl
@@ -340,7 +340,7 @@ jobs:
 
       # See the macOS job: the size/leak gate is Linux-only to avoid CodeQL's
       # cache-poisoning rule; the size-changing trim runs on all platforms.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheels-windows-${{ matrix.arch }}
           path: wheelhouse/*.whl
@@ -405,7 +405,7 @@ jobs:
       # The vector stack (shapely/pyogrio/geopandas) is vendored inside
       # each wheel by install-and-vendor-osgeo.py during before-build —
       # no separate canary wheels exist anymore.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheels-winarm64
           path: wheelhouse/*.whl
@@ -449,7 +449,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ matrix.artifact }}
           path: dist/
@@ -496,7 +496,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wheels-linux-x86_64
           path: wheelhouse
@@ -536,7 +536,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wheels-linux-x86_64
           path: wheelhouse
@@ -579,7 +579,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wheels-linux-aarch64
           path: wheelhouse
@@ -627,12 +627,12 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: canary-musl-x86_64
           path: wheelhouse
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: canary-pyogrio-x86_64
           path: pyogrio-wheelhouse
@@ -688,7 +688,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wheels-winarm64
           path: wheelhouse
@@ -767,7 +767,7 @@ jobs:
           tar -xzf uv-x86_64.tar.gz
           echo "UVX86=$PWD/uv-x86_64-apple-darwin/uv" >> "$GITHUB_ENV"
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wheels-macos-x86_64
           path: dist
@@ -827,7 +827,7 @@ jobs:
       # download-artifact v4+ `merge-multiple` to collect them all into dist/.
       # Keep the per-job names unique if you add build matrix entries.
       - name: Download release artifacts from this run (excludes musl canaries)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: dist/
           pattern: "{sdist,wheels-*}"
