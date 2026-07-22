@@ -551,7 +551,7 @@ jobs:
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_x86_64.whl)
           python3.12 -m pip install "${WHEEL}"
-          python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout
+          python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
         run: python3.12 ci/verify-wheel.py
@@ -594,7 +594,7 @@ jobs:
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_aarch64.whl)
           python3.12 -m pip install "${WHEEL}"
-          python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout
+          python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
         run: python3.12 ci/verify-wheel.py
@@ -709,7 +709,7 @@ jobs:
 
       - name: Install test dependencies
         if: matrix.python-version == '3.12'
-        run: pip install pytest pytest-env pytest-mock pytest-timeout
+        run: "pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:"
 
       - name: Run hermetic core test suite
         if: matrix.python-version == '3.12'
