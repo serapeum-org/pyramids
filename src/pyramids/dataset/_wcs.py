@@ -693,10 +693,15 @@ def from_wcs(
         config = _gdal_http_config(auth, timeout)
         with gdal.config_options(config):
             src = _open_service(descriptor, coverage)
-            native_srs = _resolve_native_srs(src, coverage_crs)
-            projwin = _native_projwin(window, crs, native_srs)
-            mem = _translate_window(src, projwin, coverage)
-            src = None
+            try:
+                native_srs = _resolve_native_srs(src, coverage_crs)
+                projwin = _native_projwin(window, crs, native_srs)
+                mem = _translate_window(src, projwin, coverage)
+            finally:
+                # Release the opened coverage handle on every path, error or not
+                # (mirrors from_wmts / from_ogc_coverages); a raise from resolve /
+                # projwin / translate must not leak the live network handle.
+                src = None
         mem.SetSpatialRef(native_srs)
         ds = dataset_cls(mem, access="write")
         # WKT round-trips more faithfully than proj4 for exotic / compound CRS.
