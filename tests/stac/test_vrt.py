@@ -65,7 +65,9 @@ def mismatched_band_tiles(tmp_path):
     Returns:
         list[dict]: two raw STAC items exposing a "data" asset each.
     """
-    one = write_raster(tmp_path / "one.tif", np.full((4, 4), 1.0, "float32"), (0.0, 4.0))
+    one = write_raster(
+        tmp_path / "one.tif", np.full((4, 4), 1.0, "float32"), (0.0, 4.0)
+    )
     three = write_raster(
         tmp_path / "three.tif", np.full((3, 4, 4), 2.0, "float32"), (4.0, 4.0)
     )
@@ -183,7 +185,8 @@ class TestDroppedSources:
         Test scenario:
             Extra entries in the retained list (e.g. the VRT itself) are ignored.
         """
-        assert _dropped_sources([("a.tif", "a.tif")], ["a.tif", "/vsimem/x.vrt"]) == [], (
+        kept = _dropped_sources([("a.tif", "a.tif")], ["a.tif", "/vsimem/x.vrt"])
+        assert kept == [], (
             "an extra retained entry must not make a kept source look dropped"
         )
 
@@ -271,7 +274,9 @@ class TestCredentialsStayOutOfMessages:
             An expired href is the *expected* failure on a large mosaic, so its
             error is the most likely thing to reach a log aggregator.
         """
-        good = write_raster(tmp_path / "g.tif", np.full((2, 2), 1.0, "float32"), (0.0, 2.0))
+        good = write_raster(
+            tmp_path / "g.tif", np.full((2, 2), 1.0, "float32"), (0.0, 2.0)
+        )
         items = [
             {"assets": {"d": {"href": good}}},
             {"assets": {"d": {"href": "https://host.invalid/gone.tif"}}},
@@ -291,7 +296,9 @@ class TestCredentialsStayOutOfMessages:
         Test scenario:
             `strict=False` warns instead of raising — same exposure risk.
         """
-        good = write_raster(tmp_path / "w.tif", np.full((2, 2), 1.0, "float32"), (0.0, 2.0))
+        good = write_raster(
+            tmp_path / "w.tif", np.full((2, 2), 1.0, "float32"), (0.0, 2.0)
+        )
         items = [
             {"assets": {"d": {"href": good}}},
             {"assets": {"d": {"href": "https://host.invalid/gone.tif"}}},
@@ -307,7 +314,9 @@ class TestCredentialsStayOutOfMessages:
         Test scenario:
             URL-signing signers put the credential in the query string.
         """
-        good = write_raster(tmp_path / "s.tif", np.full((2, 2), 1.0, "float32"), (0.0, 2.0))
+        good = write_raster(
+            tmp_path / "s.tif", np.full((2, 2), 1.0, "float32"), (0.0, 2.0)
+        )
 
         class _SasSigner:
             def sign_href(self, href):
@@ -557,8 +566,12 @@ class TestSourceCredentialEmbedding:
             The `/vsicurl?` form is only produced for HTTP hrefs, so this covers
             the local fallback end to end: the mosaic is unaffected.
         """
-        a = write_raster(tmp_path / "e1.tif", np.full((2, 2), 3.0, "float32"), (0.0, 2.0))
-        b = write_raster(tmp_path / "e2.tif", np.full((2, 2), 4.0, "float32"), (2.0, 2.0))
+        a = write_raster(
+            tmp_path / "e1.tif", np.full((2, 2), 3.0, "float32"), (0.0, 2.0)
+        )
+        b = write_raster(
+            tmp_path / "e2.tif", np.full((2, 2), 4.0, "float32"), (2.0, 2.0)
+        )
 
         class _HeaderSigner:
             def sign_href(self, href):
@@ -618,9 +631,8 @@ class TestUnembeddableCredentialWarning:
         Test scenario:
             `GDAL_HTTP_MULTIPLEX` alone must not trip the warning.
         """
-        _warn_unembeddable_credentials(
-            {"GDAL_HTTP_MULTIPLEX": "YES"}, ["https://h/a.tif"]
-        )
+        env = {"GDAL_HTTP_MULTIPLEX": "YES"}
+        _warn_unembeddable_credentials(env, ["https://h/a.tif"])
         assert len(recwarn) == 0, f"unexpected warnings: {[str(w) for w in recwarn]}"
 
     def test_local_sources_do_not_warn(self, recwarn):
@@ -792,4 +804,6 @@ class TestStrictDefaultDeprecation:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             build_vrt_from_stac(adjacent_tiles, asset="data")
-        assert not caught, f"a complete build should not warn: {[str(w) for w in caught]}"
+        assert not caught, (
+            f"a complete build should not warn: {[str(w) for w in caught]}"
+        )

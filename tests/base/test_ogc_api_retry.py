@@ -91,7 +91,9 @@ class TestHttpGetWithRetry:
             "https://h/x", 5, opener=opener, sleep=lambda _s: None
         )
         assert result == b"ok", f"body not recovered after a {status}: {result!r}"
-        assert len(opener.calls) == 2, f"expected a retry, got {len(opener.calls)} call(s)"
+        assert len(opener.calls) == 2, (
+            f"expected a retry, got {len(opener.calls)} call(s)"
+        )
 
     @pytest.mark.parametrize("status", [400, 401, 403, 404, 410, 422])
     def test_client_error_is_not_retried(self, status):
@@ -168,7 +170,9 @@ class TestHttpGetWithRetry:
         """
         opener = _Opener([_http_error(503), b"ok"])
         http_get_with_retry("https://h/x", 7.5, opener=opener, sleep=lambda _s: None)
-        assert opener.timeouts == [7.5, 7.5], f"timeout not forwarded: {opener.timeouts}"
+        assert opener.timeouts == [7.5, 7.5], (
+            f"timeout not forwarded: {opener.timeouts}"
+        )
 
     def test_error_body_is_not_consumed(self):
         """The helper never reads an HTTPError's body.
@@ -201,7 +205,9 @@ class TestRetryEdgeCases:
             failure would surface far from its cause.
         """
         with pytest.raises(ValueError, match="attempts must be >= 1"):
-            http_get_with_retry("https://h/x", 5, opener=_Opener([b"never"]), attempts=attempts)
+            http_get_with_retry(
+                "https://h/x", 5, opener=_Opener([b"never"]), attempts=attempts
+            )
 
     def test_retry_after_header_is_honoured(self):
         """A 429's `Retry-After` overrides the computed backoff.
@@ -211,9 +217,13 @@ class TestRetryEdgeCases:
             back into the same rate limit.
         """
         waits = []
-        error = urllib.error.HTTPError("https://h/x", 429, "slow down", {"Retry-After": "4"}, None)
+        error = urllib.error.HTTPError(
+            "https://h/x", 429, "slow down", {"Retry-After": "4"}, None
+        )
         opener = _Opener([error, b"ok"])
-        http_get_with_retry("https://h/x", 5, opener=opener, delay=0.5, sleep=waits.append)
+        http_get_with_retry(
+            "https://h/x", 5, opener=opener, delay=0.5, sleep=waits.append
+        )
         assert waits == [4.0], f"Retry-After not honoured: {waits}"
 
     @pytest.mark.parametrize("value", ["not-a-number", "-1", "3600"])
@@ -228,9 +238,13 @@ class TestRetryEdgeCases:
             taken at face value by a discovery pre-check.
         """
         waits = []
-        error = urllib.error.HTTPError("https://h/x", 503, "busy", {"Retry-After": value}, None)
+        error = urllib.error.HTTPError(
+            "https://h/x", 503, "busy", {"Retry-After": value}, None
+        )
         opener = _Opener([error, b"ok"])
-        http_get_with_retry("https://h/x", 5, opener=opener, delay=0.5, sleep=waits.append)
+        http_get_with_retry(
+            "https://h/x", 5, opener=opener, delay=0.5, sleep=waits.append
+        )
         assert waits == [0.5], f"expected the computed backoff, got {waits}"
 
     def test_gdal_retry_budget_matches_the_urllib_one(self):

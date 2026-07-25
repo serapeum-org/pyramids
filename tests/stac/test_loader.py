@@ -557,6 +557,7 @@ class TestOpenConfig:
         Test scenario:
             A readdir skip is also wrong for a directory-style store.
         """
+
         class _S:
             def gdal_env(self):
                 return {"AWS_REQUEST_PAYER": "requester"}
@@ -572,6 +573,7 @@ class TestOpenConfig:
         Test scenario:
             An explicit HTTP version must survive the merge.
         """
+
         class _S:
             def gdal_env(self):
                 return {"GDAL_HTTP_VERSION": "1.1"}

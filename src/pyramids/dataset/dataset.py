@@ -2120,9 +2120,7 @@ class Dataset(RasterBase):
         """
         with cloud_config_from_env(gdal_env):
             src = _io.read_file(path, read_only=read_only, file_i=file_i, vsi=vsi)
-        return cls(
-            src, access="read_only" if read_only else "write", gdal_env=gdal_env
-        )
+        return cls(src, access="read_only" if read_only else "write", gdal_env=gdal_env)
 
     @classmethod
     def from_bytes(
