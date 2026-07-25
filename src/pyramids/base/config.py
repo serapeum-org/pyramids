@@ -406,10 +406,14 @@ class LoggerManager:
             # restore propagation, so `Config()` after a `Config(level=...)` returns
             # to "the host owns logging" rather than leaving the opt-in state stuck
             # for the life of the process.
-            for handler in list(package_logger.handlers):
-                if getattr(handler, _OWNED_HANDLER_FLAG, False):
-                    package_logger.removeHandler(handler)
-                    handler.close()
+            owned = [
+                handler
+                for handler in package_logger.handlers
+                if getattr(handler, _OWNED_HANDLER_FLAG, False)
+            ]
+            for handler in owned:
+                package_logger.removeHandler(handler)
+                handler.close()
             package_logger.propagate = True
         else:
             level = self._normalize_level(level)

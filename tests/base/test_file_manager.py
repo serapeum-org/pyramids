@@ -61,6 +61,17 @@ class _FakeHandle:
         return f"_FakeHandle({self.tag!r})"
 
 
+def _raise_inside_acquire_context(manager, error):
+    """Enter `manager`'s context and raise `error` from inside the block.
+
+    Module-level so the `pytest.raises` blocks below wrap a single call:
+    entering the context manager can itself raise, and a `raises` block
+    containing two throwing statements cannot show which one fired.
+    """
+    with manager.acquire_context():
+        raise error
+
+
 _counter = {"n": 0}
 
 
@@ -693,8 +704,7 @@ class TestCachingFileManagerEvictionSafety:
         fm = CachingFileManager(_fake_opener, "a.tif", cache=cache, lock=False)
         fm.acquire()  # pre-cache so the failure path keeps the handle
         with pytest.raises(RuntimeError):
-            with fm.acquire_context():
-                raise RuntimeError("boom")
+            _raise_inside_acquire_context(fm, RuntimeError("boom"))
         assert cache._pins.get(fm._key) is None, (
             f"the pin must be dropped on the error path, got {cache._pins}"
         )
@@ -708,8 +718,7 @@ class TestCachingFileManagerEvictionSafety:
         cache = _LRUCache(maxsize=2, on_evict=_close_handle)
         fm = CachingFileManager(_broken_opener, "a.tif", cache=cache, lock=False)
         with pytest.raises(OSError):
-            with fm.acquire_context():
-                pass
+            fm.acquire_context().__enter__()
         assert cache._pins.get(fm._key) is None, (
             f"a failed open must not leak a pin, got {cache._pins}"
         )

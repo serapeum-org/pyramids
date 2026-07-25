@@ -417,8 +417,9 @@ class TestDtypeLookupTables:
 
     def test_unmapped_numpy_dtype_raises_value_error(self):
         """A numpy dtype with no GDAL counterpart raises, not `IndexError`."""
+        unmapped = np.dtype("float16")
         with pytest.raises(ValueError, match="not supported"):
-            numpy_to_gdal_dtype(np.dtype("float16"))
+            numpy_to_gdal_dtype(unmapped)
 
     def test_complex_band_has_no_ogr_equivalent(self):
         """A complex-typed band raises instead of `int(None)`-ing.

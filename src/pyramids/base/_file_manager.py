@@ -279,11 +279,13 @@ class _LRUCache(MutableMapping):
         """
         evicted: list[tuple[Hashable, Any]] = []
         if len(self._cache) > target:
-            for key in list(self._cache):
+            # Materialize the candidates before popping any: the comprehension runs
+            # to completion first, so the cache is never mutated mid-iteration.
+            # LRU order is preserved, and pinned keys are excluded outright.
+            candidates = [key for key in self._cache if not self._pins.get(key)]
+            for key in candidates:
                 if len(self._cache) <= target:
                     break
-                if self._pins.get(key):
-                    continue
                 evicted.append((key, self._cache.pop(key)))
         if len(self._cache) > target:
             # Report the configured limit, not `target`: an insert passes `maxsize - 1`,
