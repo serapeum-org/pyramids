@@ -10,9 +10,14 @@ This module exposes helpers to:
 Logging is **opt-in**. Importing pyramids runs `Config()` with no `level`, which
 attaches a `logging.NullHandler` to the `"pyramids"` logger and nothing else — the
 root logger is never touched, no handler is installed on it, and nothing is printed.
-Pass an explicit level (`Config(level="INFO")`) to get the coloured console handler,
-or configure logging yourself with `logging.basicConfig()`; pyramids' records
-propagate normally either way.
+In that state pyramids' records propagate normally, so `logging.basicConfig()` (or
+any other host configuration) picks them up.
+
+Passing an explicit level (`Config(level="INFO")`) instead hands the namespace to
+pyramids: it installs the coloured console handler, the optional file handler, and
+sets `propagate = False` on the `"pyramids"` logger so records are not *also*
+emitted by the host's root handlers. Choose one or the other — either configure
+logging yourself and leave `level` unset, or let pyramids own its namespace.
 
 Examples:
 - Set up logging and route GDAL errors into Python logging
@@ -240,6 +245,7 @@ class LoggerManager:
         self,
         level: int | str | None = None,
         log_file: str | Path | None = None,
+        quiet_third_party: bool = False,
     ):
         """Create a LoggerManager and configure logging.
 
@@ -250,6 +256,11 @@ class LoggerManager:
                 to the host application.
             log_file (str | pathlib.Path | None, optional): Optional path to a log file to
                 also write logs to. Ignored when `level` is None. Defaults to None.
+            quiet_third_party (bool, optional): Pin the loggers in
+                :data:`_NOISY_THIRD_PARTY_LOGGERS` to WARNING. Off by default: those are
+                other libraries' loggers, and silently reverting a host that deliberately
+                set, say, matplotlib to DEBUG is not pyramids' call to make. Ignored when
+                `level` is None.
 
         Raises:
             ValueError: If an invalid level string is provided (e.g., "VERBOS").
@@ -264,7 +275,9 @@ class LoggerManager:
 
             ```
         """
-        self._setup_logging(level=level, log_file=log_file)
+        self._setup_logging(
+            level=level, log_file=log_file, quiet_third_party=quiet_third_party
+        )
         self._set_error_handler()
 
     def _normalize_level(self, level: int | str) -> int:
@@ -335,6 +348,7 @@ class LoggerManager:
         self,
         level: int | str | None = None,
         log_file: str | Path | None = None,
+        quiet_third_party: bool = False,
     ) -> None:
         """Configure the `"pyramids"` logger, or leave logging alone when `level` is None.
 
@@ -345,10 +359,14 @@ class LoggerManager:
                 handler, no output — the host application keeps full control of logging.
             log_file (str | pathlib.Path | None, optional): Optional path to a log file to
                 write logs to in addition to console output. If None, no file is used.
+            quiet_third_party (bool, optional): Pin the loggers in
+                :data:`_NOISY_THIRD_PARTY_LOGGERS` to WARNING. Off by default.
 
         Returns:
             None: This method configures the `"pyramids"` logger in-place. The root
-                logger is never modified.
+                logger is never modified. When it installs a handler it also sets
+                `propagate = False` on that logger, so records are not emitted a
+                second time by a host that configured root logging.
 
         Raises:
             ValueError: If an invalid level string is provided.
@@ -389,10 +407,17 @@ class LoggerManager:
             self._ensure_file_handler(
                 package_logger, log_file, level, file_handler_exists_for
             )
+            # pyramids now owns a handler for this namespace, so stop the records
+            # from also reaching the host's root handlers -- otherwise every
+            # pyramids line is formatted twice for the (very common) application
+            # that called `logging.basicConfig()`. Only done on the opt-in path:
+            # with `level=None` propagation is left alone so a host-configured
+            # root handler still receives pyramids records.
+            package_logger.propagate = False
 
-            # Reduce noise from common third-party libraries
-            for noisy in _NOISY_THIRD_PARTY_LOGGERS:
-                logging.getLogger(noisy).setLevel(logging.WARNING)
+            if quiet_third_party:
+                for noisy in _NOISY_THIRD_PARTY_LOGGERS:
+                    logging.getLogger(noisy).setLevel(logging.WARNING)
 
             # Announce configuration via the module logger so tests can assert on it.
             # DEBUG, not INFO: an INFO line here is printed by every caller that opts
@@ -690,6 +715,7 @@ class Config:
         level: int | str | None = None,
         log_file: str | Path | None = None,
         config_file="config.yaml",
+        quiet_third_party: bool = False,
     ):
         """Construct a Config, load YAML, configure logging, and initialize GDAL.
 
@@ -702,6 +728,10 @@ class Config:
                 Optional path to a log file.
             config_file (str, optional):
                 Name of the YAML configuration file shipped in pyramids/base. Defaults to "config.yaml".
+            quiet_third_party (bool, optional):
+                Pin fiona / rasterio / shapely / matplotlib / urllib3 / osgeo to WARNING.
+                Off by default — those belong to other libraries, and a host that
+                deliberately raised one of them should keep its setting.
 
         Raises:
             FileNotFoundError: If the YAML file cannot be found.
@@ -716,7 +746,9 @@ class Config:
 
                 ```
         """
-        self.setup_logging(level=level, log_file=log_file)
+        self.setup_logging(
+            level=level, log_file=log_file, quiet_third_party=quiet_third_party
+        )
         self.config_file = config_file
         self.settings = self.load_config()
         self.initialize_gdal()
@@ -928,6 +960,7 @@ class Config:
         self,
         level: int | str | None = None,
         log_file: str | Path | None = None,
+        quiet_third_party: bool = False,
     ):
         """
         Configure the `"pyramids"` logger by delegating to LoggerManager.
@@ -940,7 +973,11 @@ class Config:
             level (int | str | None, optional): Logging level, or `None` (default) to install
                 no handlers and change no level.
             log_file (str | pathlib.Path | None, optional): Optional log-file path.
+            quiet_third_party (bool, optional): Pin the noisy third-party loggers to
+                WARNING. Off by default.
         """
-        LoggerManager(level=level, log_file=log_file)
+        LoggerManager(
+            level=level, log_file=log_file, quiet_third_party=quiet_third_party
+        )
         self._logging_configured = True
         self.logger = logging.getLogger(__name__)

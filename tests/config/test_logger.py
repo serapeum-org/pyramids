@@ -31,6 +31,10 @@ def isolated_package_logging():
     package_logger = logging.getLogger(PACKAGE_LOGGER_NAME)
     old_level = package_logger.level
     old_handlers = list(package_logger.handlers)
+    # `propagate` must be restored too: opting into logging sets it False, and
+    # leaking that would silently cut pytest's caplog (whose handler lives on the
+    # root logger) off from every pyramids record for the rest of the session.
+    old_propagate = package_logger.propagate
     try:
         for h in package_logger.handlers[:]:
             package_logger.removeHandler(h)
@@ -41,6 +45,7 @@ def isolated_package_logging():
         for h in old_handlers:
             package_logger.addHandler(h)
         package_logger.setLevel(old_level)
+        package_logger.propagate = old_propagate
 
 
 @contextmanager
@@ -323,3 +328,85 @@ def test_error_handler_exception_fallback_logs_error(capsys):
     assert "GDAL(class=" in err
     assert "code=66" in err
     assert "boom" in err
+
+
+def test_opt_in_logging_does_not_double_print_under_basicconfig(capsys):
+    """S3: pyramids records reach the console once, not twice.
+
+    Test scenario:
+        A host that ran ``logging.basicConfig()`` has a root handler. With
+        pyramids' own handler on the ``pyramids`` logger and propagation
+        left on, every record was formatted by both. Owning a handler must
+        therefore also stop propagation.
+    """
+    root = logging.getLogger()
+    saved_handlers = list(root.handlers)
+    saved_level = root.level
+    stream = io.StringIO()
+    host_handler = logging.StreamHandler(stream)
+    host_handler.setFormatter(logging.Formatter("ROOT:%(name)s:%(message)s"))
+    try:
+        for handler in root.handlers[:]:
+            root.removeHandler(handler)
+        root.addHandler(host_handler)
+        root.setLevel(logging.DEBUG)
+        with isolated_package_logging():
+            LoggerManager(level="INFO")
+            capsys.readouterr()
+            logging.getLogger("pyramids.tests.double").info("only once please")
+            captured = capsys.readouterr()
+    finally:
+        for handler in root.handlers[:]:
+            root.removeHandler(handler)
+        for handler in saved_handlers:
+            root.addHandler(handler)
+        root.setLevel(saved_level)
+
+    assert captured.err.count("only once please") == 1, (
+        f"pyramids' own handler must emit the record exactly once, got {captured.err!r}"
+    )
+    assert "only once please" not in stream.getvalue(), (
+        "the record must not also reach the host's root handler; got "
+        f"{stream.getvalue()!r}"
+    )
+
+
+def test_default_level_leaves_propagation_intact():
+    """With no level, host-configured root logging still sees pyramids records.
+
+    Test scenario:
+        The import path must not claim the namespace. Propagation stays on
+        so an application that configures root logging keeps receiving
+        pyramids output — the whole point of the opt-in default.
+    """
+    with isolated_package_logging() as package_logger:
+        package_logger.propagate = True
+        LoggerManager()
+        assert package_logger.propagate is True, (
+            "the no-level path must leave propagation alone"
+        )
+
+
+def test_third_party_loggers_untouched_by_default():
+    """S5: opting into pyramids logging does not re-level other libraries.
+
+    Test scenario:
+        A host that deliberately set matplotlib to DEBUG must keep it.
+        The convenience is still available, but only when asked for.
+    """
+    victim = logging.getLogger("matplotlib")
+    saved = victim.level
+    try:
+        victim.setLevel(logging.DEBUG)
+        with isolated_package_logging():
+            LoggerManager(level="INFO")
+        assert victim.level == logging.DEBUG, (
+            "the host's third-party log level must survive by default"
+        )
+        with isolated_package_logging():
+            LoggerManager(level="INFO", quiet_third_party=True)
+        assert victim.level == logging.WARNING, (
+            "quiet_third_party=True must still pin the noisy loggers"
+        )
+    finally:
+        victim.setLevel(saved)
