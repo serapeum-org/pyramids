@@ -719,8 +719,15 @@ class NetCDF(Dataset):
                 collab._ds = self_proxy
 
     def __str__(self):
-        """Return a human-readable summary of the NetCDF dataset."""
-        message = f"""
+        """Return a human-readable summary, or a `<Dataset: closed>` sentinel when closed.
+
+        Mirrors `Dataset.__str__`: a closed handle returns the sentinel rather than
+        raising, so the repr/str stays total for debuggers and logging (`__repr__`
+        already inherits this via `super()`).
+        """
+        message = "<Dataset: closed>"
+        if self._raster is not None:
+            message = f"""
             Cell size: {self.cell_size}
             Dimension: {self.rows} * {self.columns}
             EPSG: {self.epsg}
@@ -3075,7 +3082,11 @@ class NetCDF(Dataset):
 
         Returns:
             NetCDFMetadata
+
+        Raises:
+            RuntimeError: The dataset has been closed (matching the base getter).
         """
+        self._require_open()
         if self._cached_meta_data is None:
             open_options = {
                 "Open Mode": "SHARED" if self.is_subset else "MULTIDIM_RASTER"
@@ -3090,8 +3101,15 @@ class NetCDF(Dataset):
 
     @meta_data.setter
     def meta_data(self, value: dict[str, str] | NetCDFMetadata) -> None:
-        """Set metadata on this NetCDF dataset."""
+        """Set metadata on this NetCDF dataset.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (a bare
+                `SetMetadataItem` would otherwise silently spill a PAM sidecar),
+                matching `Dataset.meta_data`.
+        """
         if isinstance(value, dict):
+            self._require_writable("set metadata")
             for key, val in value.items():
                 self._raster.SetMetadataItem(key, val)
         else:
