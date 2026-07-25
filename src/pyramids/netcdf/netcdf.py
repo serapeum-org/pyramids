@@ -837,8 +837,15 @@ class NetCDF(Dataset):
             else:
                 y_cell = self.cell_size
                 y_top = float(self.lat[0]) + y_cell / 2
+            # West edge = min(lon) - half a cell, mirroring the north-up lat branch above. Taking
+            # `lon[0]` unguarded put the origin at the EAST edge for a descending-longitude container,
+            # mirroring the X origin (ARC-32).
+            if len(self.lon) >= 2:
+                x_west = min(float(self.lon[0]), float(self.lon[-1])) - x_cell / 2
+            else:
+                x_west = float(self.lon[0]) - x_cell / 2
             return (
-                self.lon[0] - x_cell / 2,
+                x_west,
                 x_cell,
                 0,
                 y_top,
