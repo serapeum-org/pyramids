@@ -51,8 +51,19 @@ GDAL_HTTP_AUTH_VAR = "GDAL_HTTP_USER" + "PWD"
 HTTP_RETRY_ATTEMPTS = 3
 """Total attempts (initial + retries) for a transient discovery-request failure."""
 
+GDAL_HTTP_MAX_RETRY = HTTP_RETRY_ATTEMPTS - 1
+"""The same budget in GDAL's units.
+
+``GDAL_HTTP_MAX_RETRY`` counts retries *after* the first attempt, while
+:data:`HTTP_RETRY_ATTEMPTS` counts attempts including it. Emitting the latter
+verbatim gave the driver read one more attempt than the urllib pre-check.
+"""
+
 HTTP_RETRY_DELAY = 0.5
 """Base backoff in seconds; attempt *n* waits ``HTTP_RETRY_DELAY * 2 ** n``."""
+
+_MAX_RETRY_AFTER = 60.0
+"""Ceiling for an honoured ``Retry-After``; a longer one is a stall, not a retry."""
 
 RETRYABLE_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 """HTTP statuses worth retrying: rate limiting and transient server/gateway faults.
@@ -87,7 +98,7 @@ def gdal_http_config(auth: tuple[str, str] | None, timeout: float) -> dict[str, 
             >>> config["GDAL_HTTP_TIMEOUT"]
             '60'
             >>> config["GDAL_HTTP_MAX_RETRY"]
-            '3'
+            '2'
 
             ```
         - Credentials are sent as GDAL's user:password pair:
@@ -113,7 +124,7 @@ def gdal_http_config(auth: tuple[str, str] | None, timeout: float) -> dict[str, 
     # not truncated to "0", which GDAL reads as "no timeout".
     config = {
         "GDAL_HTTP_TIMEOUT": str(max(1, int(timeout))),
-        "GDAL_HTTP_MAX_RETRY": str(HTTP_RETRY_ATTEMPTS),
+        "GDAL_HTTP_MAX_RETRY": str(GDAL_HTTP_MAX_RETRY),
         "GDAL_HTTP_RETRY_DELAY": str(HTTP_RETRY_DELAY),
     }
     if auth is not None:
@@ -150,13 +161,16 @@ def http_get_with_retry(
         opener: Optional opener (e.g. one carrying a Basic-auth handler).
             Defaults to :func:`urllib.request.urlopen`.
         attempts: Total attempts including the first. `1` disables retrying.
-        delay: Base backoff in seconds; attempt *n* waits ``delay * 2 ** n``.
+        delay: Base backoff in seconds; attempt *n* waits ``delay * 2 ** n``,
+            unless the server sent a usable `Retry-After`.
         sleep: Sleep callable, injectable so tests need not wait.
 
     Returns:
         The response body as bytes.
 
     Raises:
+        ValueError: `attempts` is less than 1 — a zero budget would otherwise
+            fall out of the loop and hand the caller `None`.
         urllib.error.HTTPError: The server returned a non-retryable status, or a
             retryable one on the final attempt.
         OSError: The transport failed on the final attempt (`URLError` and
@@ -198,10 +212,13 @@ def http_get_with_retry(
 
             ```
     """
+    if attempts < 1:
+        raise ValueError(f"attempts must be >= 1, got {attempts}.")
     open_fn = opener.open if opener is not None else urllib.request.urlopen
     payload: bytes | None = None
     for attempt in range(attempts):
         last = attempt == attempts - 1
+        wait = delay * 2**attempt
         try:
             with open_fn(target, timeout=timeout) as response:  # nosec B310
                 payload = response.read()
@@ -209,14 +226,45 @@ def http_get_with_retry(
         except urllib.error.HTTPError as exc:
             if last or exc.code not in RETRYABLE_STATUS:
                 raise
-            logger.debug("retrying %s after HTTP %s", target, exc.code)
+            wait = _retry_after(exc, wait)
+            logger.debug("retrying %s after HTTP %s in %.1fs", target, exc.code, wait)
+            # The body is the caller's to read on a *final* failure; on a retry
+            # nothing will, so release the socket instead of leaving it to GC.
+            exc.close()
         except OSError as exc:
             if last:
                 raise
             logger.debug("retrying %s after %s", target, exc)
-        sleep(delay * 2**attempt)
+        sleep(wait)
     # Unreachable with payload unset: the final attempt either breaks or raises.
     return cast(bytes, payload)
+
+
+def _retry_after(exc: urllib.error.HTTPError, default: float) -> float:
+    """Return the server's `Retry-After` delay in seconds, else `default`.
+
+    A 429 is the one status where the server states the correct delay; guessing
+    an exponential backoff instead can retry into the same rate limit. Only the
+    numeric (delta-seconds) form is honoured — the HTTP-date form needs clock
+    agreement that a discovery pre-check should not depend on.
+
+    Args:
+        exc: The HTTP error carrying the response headers.
+        default: The computed backoff to fall back to.
+
+    Returns:
+        The header's value when it is a sane non-negative number, else `default`.
+    """
+    raw = exc.headers.get("Retry-After") if exc.headers else None
+    delay = default
+    if raw is not None:
+        try:
+            parsed = float(str(raw).strip())
+        except ValueError:
+            parsed = -1.0
+        if 0.0 <= parsed <= _MAX_RETRY_AFTER:
+            delay = parsed
+    return delay
 
 
 def append_path(endpoint: str, suffix: str) -> tuple[SplitResult, str]:

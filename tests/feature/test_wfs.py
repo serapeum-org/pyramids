@@ -115,7 +115,9 @@ class TestPureHelpers:
     def test_gdal_http_config_carries_retry_knobs(self):
         """The driver read rides out a transient fault like the urllib fetch does."""
         cfg = _wfs._gdal_http_config(None, 60.0)
-        assert cfg["GDAL_HTTP_MAX_RETRY"] == "3", f"no retry budget: {cfg}"
+        assert cfg["GDAL_HTTP_MAX_RETRY"] == "2", (
+            f"GDAL counts retries after the first attempt, not attempts: {cfg}"
+        )
         assert cfg["GDAL_HTTP_RETRY_DELAY"] == "0.5", f"no retry delay: {cfg}"
 
     def test_read_kwargs(self):
