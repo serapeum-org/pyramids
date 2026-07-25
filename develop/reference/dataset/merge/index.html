@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6970,9 +6970,7 @@ unchanged.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/merge.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-466">466</a></span>
-<span class="normal"><a href="#__codelineno-0-467">467</a></span>
-<span class="normal"><a href="#__codelineno-0-468">468</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-468">468</a></span>
 <span class="normal"><a href="#__codelineno-0-469">469</a></span>
 <span class="normal"><a href="#__codelineno-0-470">470</a></span>
 <span class="normal"><a href="#__codelineno-0-471">471</a></span>
@@ -7017,54 +7015,56 @@ unchanged.</p>
 <span class="normal"><a href="#__codelineno-0-510">510</a></span>
 <span class="normal"><a href="#__codelineno-0-511">511</a></span>
 <span class="normal"><a href="#__codelineno-0-512">512</a></span>
-<span class="normal"><a href="#__codelineno-0-513">513</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-466" name="__codelineno-0-466"></a><span class="k">def</span><span class="w"> </span><span class="nf">stack_bands</span><span class="p">(</span>
-<a id="__codelineno-0-467" name="__codelineno-0-467"></a>    <span class="n">files</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">],</span>
-<a id="__codelineno-0-468" name="__codelineno-0-468"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-469" name="__codelineno-0-469"></a>    <span class="n">band_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-470" name="__codelineno-0-470"></a>    <span class="n">align</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-471" name="__codelineno-0-471"></a>    <span class="n">no_data_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">_INHERIT_NO_DATA</span><span class="p">,</span>
-<a id="__codelineno-0-472" name="__codelineno-0-472"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-473" name="__codelineno-0-473"></a>    <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-474" name="__codelineno-0-474"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dataset</span><span class="p">:</span>
-<a id="__codelineno-0-475" name="__codelineno-0-475"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Stack N single-band rasters into one multi-band :class:`Dataset`.</span>
-<a id="__codelineno-0-476" name="__codelineno-0-476"></a>
-<a id="__codelineno-0-477" name="__codelineno-0-477"></a><span class="sd">    Free-function alias for :meth:`pyramids.dataset.Dataset.from_band_files`</span>
-<a id="__codelineno-0-478" name="__codelineno-0-478"></a><span class="sd">    — see that method for the full contract, edge cases, and examples.</span>
-<a id="__codelineno-0-479" name="__codelineno-0-479"></a>
-<a id="__codelineno-0-480" name="__codelineno-0-480"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-481" name="__codelineno-0-481"></a><span class="sd">        files: Single-band raster paths/URLs to stack (order = band order).</span>
-<a id="__codelineno-0-482" name="__codelineno-0-482"></a><span class="sd">        band_names: Explicit per-band names; ``None`` derives them from the</span>
-<a id="__codelineno-0-483" name="__codelineno-0-483"></a><span class="sd">            file names.</span>
-<a id="__codelineno-0-484" name="__codelineno-0-484"></a><span class="sd">        align: When ``True``, resample mismatched inputs onto ``files[0]``&#39;s</span>
-<a id="__codelineno-0-485" name="__codelineno-0-485"></a><span class="sd">            grid instead of raising :class:`~pyramids.base._errors.AlignmentError`.</span>
-<a id="__codelineno-0-486" name="__codelineno-0-486"></a><span class="sd">        no_data_value: No-data value for the output bands; omitted means</span>
-<a id="__codelineno-0-487" name="__codelineno-0-487"></a><span class="sd">            &quot;inherit from the source rasters&quot;.</span>
-<a id="__codelineno-0-488" name="__codelineno-0-488"></a><span class="sd">        path: Output ``.tif`` path; ``None`` keeps the result in memory.</span>
-<a id="__codelineno-0-489" name="__codelineno-0-489"></a><span class="sd">        signer: Optional signer exposing ``sign_href(str) -&gt; str`` and</span>
-<a id="__codelineno-0-490" name="__codelineno-0-490"></a><span class="sd">            ``gdal_env() -&gt; dict[str, str]`` (e.g. a</span>
-<a id="__codelineno-0-491" name="__codelineno-0-491"></a><span class="sd">            :class:`pyramids.stac.signers.Signer`). When given, **both** hooks</span>
-<a id="__codelineno-0-492" name="__codelineno-0-492"></a><span class="sd">            are applied (as in :func:`pyramids.stac.load_asset`): every input</span>
-<a id="__codelineno-0-493" name="__codelineno-0-493"></a><span class="sd">            href is rewritten through ``signer.sign_href`` first, then</span>
-<a id="__codelineno-0-494" name="__codelineno-0-494"></a><span class="sd">            ``signer.gdal_env()`` is installed via</span>
-<a id="__codelineno-0-495" name="__codelineno-0-495"></a><span class="sd">            :class:`~pyramids.base.remote.CloudConfig` for the duration of the</span>
-<a id="__codelineno-0-496" name="__codelineno-0-496"></a><span class="sd">            stack, so authenticated cloud inputs (URL-signed or env-credentialed)</span>
-<a id="__codelineno-0-497" name="__codelineno-0-497"></a><span class="sd">            read with the right credentials. ``None`` (default) leaves behaviour</span>
-<a id="__codelineno-0-498" name="__codelineno-0-498"></a><span class="sd">            unchanged.</span>
-<a id="__codelineno-0-499" name="__codelineno-0-499"></a>
-<a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="sd">        Dataset: A multi-band dataset, one band per input file.</span>
-<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-503" name="__codelineno-0-503"></a>    <span class="k">if</span> <span class="n">signer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-504" name="__codelineno-0-504"></a>        <span class="n">files</span> <span class="o">=</span> <span class="p">[</span><span class="n">signer</span><span class="o">.</span><span class="n">sign_href</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">f</span><span class="p">))</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">files</span><span class="p">]</span>
-<a id="__codelineno-0-505" name="__codelineno-0-505"></a>    <span class="k">with</span> <span class="n">_cloud_config</span><span class="p">(</span><span class="n">signer</span><span class="p">):</span>
-<a id="__codelineno-0-506" name="__codelineno-0-506"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_band_files</span><span class="p">(</span>
-<a id="__codelineno-0-507" name="__codelineno-0-507"></a>            <span class="n">files</span><span class="p">,</span>
-<a id="__codelineno-0-508" name="__codelineno-0-508"></a>            <span class="n">band_names</span><span class="o">=</span><span class="n">band_names</span><span class="p">,</span>
-<a id="__codelineno-0-509" name="__codelineno-0-509"></a>            <span class="n">align</span><span class="o">=</span><span class="n">align</span><span class="p">,</span>
-<a id="__codelineno-0-510" name="__codelineno-0-510"></a>            <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
-<a id="__codelineno-0-511" name="__codelineno-0-511"></a>            <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
-<a id="__codelineno-0-512" name="__codelineno-0-512"></a>        <span class="p">)</span>
-<a id="__codelineno-0-513" name="__codelineno-0-513"></a>    <span class="k">return</span> <span class="n">result</span>
+<span class="normal"><a href="#__codelineno-0-513">513</a></span>
+<span class="normal"><a href="#__codelineno-0-514">514</a></span>
+<span class="normal"><a href="#__codelineno-0-515">515</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-468" name="__codelineno-0-468"></a><span class="k">def</span><span class="w"> </span><span class="nf">stack_bands</span><span class="p">(</span>
+<a id="__codelineno-0-469" name="__codelineno-0-469"></a>    <span class="n">files</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">],</span>
+<a id="__codelineno-0-470" name="__codelineno-0-470"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-471" name="__codelineno-0-471"></a>    <span class="n">band_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-472" name="__codelineno-0-472"></a>    <span class="n">align</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-473" name="__codelineno-0-473"></a>    <span class="n">no_data_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">_INHERIT_NO_DATA</span><span class="p">,</span>
+<a id="__codelineno-0-474" name="__codelineno-0-474"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-475" name="__codelineno-0-475"></a>    <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-476" name="__codelineno-0-476"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dataset</span><span class="p">:</span>
+<a id="__codelineno-0-477" name="__codelineno-0-477"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Stack N single-band rasters into one multi-band :class:`Dataset`.</span>
+<a id="__codelineno-0-478" name="__codelineno-0-478"></a>
+<a id="__codelineno-0-479" name="__codelineno-0-479"></a><span class="sd">    Free-function alias for :meth:`pyramids.dataset.Dataset.from_band_files`</span>
+<a id="__codelineno-0-480" name="__codelineno-0-480"></a><span class="sd">    — see that method for the full contract, edge cases, and examples.</span>
+<a id="__codelineno-0-481" name="__codelineno-0-481"></a>
+<a id="__codelineno-0-482" name="__codelineno-0-482"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-483" name="__codelineno-0-483"></a><span class="sd">        files: Single-band raster paths/URLs to stack (order = band order).</span>
+<a id="__codelineno-0-484" name="__codelineno-0-484"></a><span class="sd">        band_names: Explicit per-band names; ``None`` derives them from the</span>
+<a id="__codelineno-0-485" name="__codelineno-0-485"></a><span class="sd">            file names.</span>
+<a id="__codelineno-0-486" name="__codelineno-0-486"></a><span class="sd">        align: When ``True``, resample mismatched inputs onto ``files[0]``&#39;s</span>
+<a id="__codelineno-0-487" name="__codelineno-0-487"></a><span class="sd">            grid instead of raising :class:`~pyramids.base._errors.AlignmentError`.</span>
+<a id="__codelineno-0-488" name="__codelineno-0-488"></a><span class="sd">        no_data_value: No-data value for the output bands; omitted means</span>
+<a id="__codelineno-0-489" name="__codelineno-0-489"></a><span class="sd">            &quot;inherit from the source rasters&quot;.</span>
+<a id="__codelineno-0-490" name="__codelineno-0-490"></a><span class="sd">        path: Output ``.tif`` path; ``None`` keeps the result in memory.</span>
+<a id="__codelineno-0-491" name="__codelineno-0-491"></a><span class="sd">        signer: Optional signer exposing ``sign_href(str) -&gt; str`` and</span>
+<a id="__codelineno-0-492" name="__codelineno-0-492"></a><span class="sd">            ``gdal_env() -&gt; dict[str, str]`` (e.g. a</span>
+<a id="__codelineno-0-493" name="__codelineno-0-493"></a><span class="sd">            :class:`pyramids.stac.signers.Signer`). When given, **both** hooks</span>
+<a id="__codelineno-0-494" name="__codelineno-0-494"></a><span class="sd">            are applied (as in :func:`pyramids.stac.load_asset`): every input</span>
+<a id="__codelineno-0-495" name="__codelineno-0-495"></a><span class="sd">            href is rewritten through ``signer.sign_href`` first, then</span>
+<a id="__codelineno-0-496" name="__codelineno-0-496"></a><span class="sd">            ``signer.gdal_env()`` is installed via</span>
+<a id="__codelineno-0-497" name="__codelineno-0-497"></a><span class="sd">            :class:`~pyramids.base.remote.CloudConfig` for the duration of the</span>
+<a id="__codelineno-0-498" name="__codelineno-0-498"></a><span class="sd">            stack, so authenticated cloud inputs (URL-signed or env-credentialed)</span>
+<a id="__codelineno-0-499" name="__codelineno-0-499"></a><span class="sd">            read with the right credentials. ``None`` (default) leaves behaviour</span>
+<a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="sd">            unchanged.</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-503" name="__codelineno-0-503"></a><span class="sd">        Dataset: A multi-band dataset, one band per input file.</span>
+<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-505" name="__codelineno-0-505"></a>    <span class="k">if</span> <span class="n">signer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-506" name="__codelineno-0-506"></a>        <span class="n">files</span> <span class="o">=</span> <span class="p">[</span><span class="n">signer</span><span class="o">.</span><span class="n">sign_href</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">f</span><span class="p">))</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">files</span><span class="p">]</span>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a>    <span class="k">with</span> <span class="n">_cloud_config</span><span class="p">(</span><span class="n">signer</span><span class="p">):</span>
+<a id="__codelineno-0-508" name="__codelineno-0-508"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_band_files</span><span class="p">(</span>
+<a id="__codelineno-0-509" name="__codelineno-0-509"></a>            <span class="n">files</span><span class="p">,</span>
+<a id="__codelineno-0-510" name="__codelineno-0-510"></a>            <span class="n">band_names</span><span class="o">=</span><span class="n">band_names</span><span class="p">,</span>
+<a id="__codelineno-0-511" name="__codelineno-0-511"></a>            <span class="n">align</span><span class="o">=</span><span class="n">align</span><span class="p">,</span>
+<a id="__codelineno-0-512" name="__codelineno-0-512"></a>            <span class="n">no_data_value</span><span class="o">=</span><span class="n">no_data_value</span><span class="p">,</span>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a>            <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a>        <span class="p">)</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
