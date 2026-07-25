@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import yaml
@@ -99,7 +100,9 @@ DTYPE_CONVERSION_DF = DataFrame(
 )
 
 
-def _first_wins(keys: list, values: list) -> dict:
+def _first_wins(
+    keys: Sequence[Any], values: Sequence[Any]
+) -> dict[Any, Any]:
     """Zip `keys` onto `values`, keeping the first pair for a duplicated key.
 
     Mirrors the ``.values[0]`` semantics of the DataFrame masks these lookup
@@ -109,13 +112,14 @@ def _first_wins(keys: list, values: list) -> dict:
     returning a bogus ``None``.
 
     Args:
-        keys (list): Lookup keys, in table order.
-        values (list): Values positionally paired with `keys`.
+        keys (Sequence[Any]): Lookup keys, in table order.
+        values (Sequence[Any]): Values positionally paired with `keys`.
 
     Returns:
-        dict: The first-wins mapping, with ``None``-bearing pairs removed.
+        dict[Any, Any]: The first-wins mapping, with ``None``-bearing pairs
+        removed.
     """
-    mapping: dict = {}
+    mapping: dict[Any, Any] = {}
     for key, value in zip(keys, values):
         if key is None or value is None:
             continue
@@ -124,21 +128,18 @@ def _first_wins(keys: list, values: list) -> dict:
     return mapping
 
 
-_NUMPY_TO_GDAL: dict = _first_wins(
+# Precomputed dtype lookups. The conversion helpers below used to run a
+# full-column pandas boolean mask over `DTYPE_CONVERSION_DF` on every call --
+# roughly 250 us for what is a fixed 16-row table lookup, paid per band and per
+# timestep. These dicts are built once at import; `DTYPE_CONVERSION_DF` is kept
+# because it is part of the module's public surface and still supplies the
+# "available types" listings in the error messages.
+_NUMPY_TO_GDAL: dict[Any, Any] = _first_wins(
     [None if dtype is None else np.dtype(dtype) for dtype in NUMPY_DTYPE], GDAL_DTYPE
 )
-_GDAL_TO_NUMPY: dict = _first_wins(GDAL_DTYPE, NUMPY_DTYPE)
-_GDAL_TO_OGR: dict = _first_wins(GDAL_DTYPE, OGR_DTYPE)
-_OGR_TO_NUMPY: dict = _first_wins(OGR_DTYPE, NUMPY_DTYPE)
-"""Precomputed dtype lookups.
-
-The conversion helpers below used to run a full-column pandas boolean mask over
-`DTYPE_CONVERSION_DF` on every call — roughly 250 µs for what is a fixed
-16-row table lookup, paid per band and per timestep. These dicts are built once
-at import; `DTYPE_CONVERSION_DF` is kept because it is part of the module's
-public surface and still supplies the "available types" listings in the error
-messages.
-"""
+_GDAL_TO_NUMPY: dict[Any, Any] = _first_wins(GDAL_DTYPE, NUMPY_DTYPE)
+_GDAL_TO_OGR: dict[Any, Any] = _first_wins(GDAL_DTYPE, OGR_DTYPE)
+_OGR_TO_NUMPY: dict[Any, Any] = _first_wins(OGR_DTYPE, NUMPY_DTYPE)
 
 COLOR_INTERPRETATIONS = [
     gdal.GCI_Undefined,  # 0
@@ -661,20 +662,24 @@ def require_optional(module_name: str, message: str, *, return_module: bool = Fa
         OptionalPackageDoesNotExist: When the module cannot be imported.
 
     Examples:
-        - A module from the standard library always resolves, and the guard-only
-          form returns nothing:
+        - An installed dependency resolves, and the guard-only form returns
+          nothing:
             ```python
             >>> from pyramids.base._utils import require_optional
-            >>> require_optional("json", "json is missing") is None
+            >>> require_optional("numpy", "install the [x] extra") is None
             True
 
             ```
-        - Ask for the module object back when the caller needs to use it:
+        - Ask for the module object back when the caller needs to use it. A
+          dotted name resolves to the submodule itself, not its top-level
+          package:
             ```python
             >>> from pyramids.base._utils import require_optional
-            >>> mod = require_optional("json", "json is missing", return_module=True)
-            >>> mod.dumps({"a": 1})
-            '{"a": 1}'
+            >>> mod = require_optional(
+            ...     "numpy.linalg", "install the [x] extra", return_module=True
+            ... )
+            >>> mod.__name__
+            'numpy.linalg'
 
             ```
         - A missing package raises the supplied hint verbatim:
@@ -691,8 +696,8 @@ def require_optional(module_name: str, message: str, *, return_module: bool = Fa
     """
     try:
         __import__(module_name)
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    except ImportError as exc:
+        raise OptionalPackageDoesNotExist(message) from exc
     # `__import__` returns the top-level package for a dotted name, so read the
     # requested module back out of sys.modules instead of using its return value.
     return sys.modules[module_name] if return_module else None
