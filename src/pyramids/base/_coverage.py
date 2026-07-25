@@ -129,9 +129,7 @@ DEFAULT_MAX_PX = 1024
 MAX_PX = 25000
 
 
-def read_size(
-    projwin: list[float], res: tuple[float, float] | None
-) -> tuple[int, int]:
+def read_size(projwin: list[float], res: tuple[float, float] | None) -> tuple[int, int]:
     """Compute the capped ``(width, height)`` pixel size for a windowed read.
 
     ``projwin`` is ``[ulx, uly, lrx, lry]`` in the native CRS; its span gives the
@@ -156,12 +154,16 @@ def read_size(
     elif span_x >= span_y:
         width = DEFAULT_MAX_PX
         height = (
-            max(1, round(DEFAULT_MAX_PX * span_y / span_x)) if span_x else DEFAULT_MAX_PX
+            max(1, round(DEFAULT_MAX_PX * span_y / span_x))
+            if span_x
+            else DEFAULT_MAX_PX
         )
     else:
         height = DEFAULT_MAX_PX
         width = (
-            max(1, round(DEFAULT_MAX_PX * span_x / span_y)) if span_y else DEFAULT_MAX_PX
+            max(1, round(DEFAULT_MAX_PX * span_x / span_y))
+            if span_y
+            else DEFAULT_MAX_PX
         )
     if width > MAX_PX or height > MAX_PX:
         raise ValueError(

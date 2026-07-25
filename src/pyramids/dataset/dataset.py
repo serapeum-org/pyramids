@@ -1440,7 +1440,6 @@ class Dataset(RasterBase):
         """Shape (bands, rows, columns)."""
         return self.band_count, self.rows, self.columns
 
-
     @property
     def epsg(self) -> int | None:
         """EPSG number, or ``None`` for a CRS with no EPSG code (e.g. geostationary)."""

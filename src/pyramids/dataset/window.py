@@ -189,7 +189,9 @@ class Window:
         """
         gt = list(geotransform)
         corners = [
-            gdal.ApplyGeoTransform(gt, float(self.col_off + dc), float(self.row_off + dr))
+            gdal.ApplyGeoTransform(
+                gt, float(self.col_off + dc), float(self.row_off + dr)
+            )
             for dc in (0, self.cols)
             for dr in (0, self.rows)
         ]
