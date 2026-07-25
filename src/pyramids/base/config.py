@@ -81,20 +81,11 @@ _NOISY_THIRD_PARTY_LOGGERS = (
 )
 """Third-party loggers pinned to WARNING when a caller opts into pyramids logging."""
 
-_gdal_error_handler_installed = False
-"""Guard so the GDAL error handler is pushed once per process.
-
-`gdal.PushErrorHandler` stacks and pyramids never calls `PopErrorHandler`, so
-without this every extra `Config()` / `LoggerManager()` construction added another
-handler and every GDAL error was logged once per push.
-"""
-
 _gdal_error_handler_lock = threading.Lock()
-"""Serialises the check-and-set on `_gdal_error_handler_installed`.
+"""Serialises installation of the GDAL error handler.
 
-Two threads constructing `Config()` concurrently would otherwise both read the
-flag as `False` and both push, which is the exact stacking the flag exists to
-prevent.
+`gdal.SetErrorHandler` is itself idempotent, so this only stops two threads
+racing through `_set_error_handler` from interleaving inside GDAL.
 """
 
 
@@ -426,23 +417,27 @@ class LoggerManager:
 
     @staticmethod
     def _set_error_handler() -> None:
-        """Install the GDAL→logging error bridge, exactly once per process.
+        """Install the GDAL→logging error bridge for the whole process.
 
         The handler maps GDAL error classes to Python logging levels. Messages below
         CE_Warning are printed to stdout to preserve expected behaviors in some
         GDAL workflows and tests.
 
-        `gdal.PushErrorHandler` pushes onto a stack and pyramids never pops, so
-        repeated installation made GDAL log each error once per push. The
-        module-level guard makes re-construction of `Config` / `LoggerManager`
-        idempotent, and the lock keeps two threads constructing `Config()`
-        concurrently from both reading the flag as unset and both pushing.
+        Uses `gdal.SetErrorHandler`, not `gdal.PushErrorHandler`. The push variant
+        maps to `CPLPushErrorHandlerEx`, which pushes onto GDAL's **per-thread**
+        error context: it stacks on repeated calls (so every `Config()` made GDAL
+        log each error one more time), and it only ever covers the installing
+        thread — a worker thread's warnings fall straight through to GDAL's default
+        stderr handler, bypassing the `pyramids.base.config.gdal` logger. Verified
+        empirically: with a pushed handler, an error raised on a second thread is
+        not delivered to it.
+
+        `SetErrorHandler` replaces rather than stacks and is process-wide, so it is
+        naturally idempotent and covers every thread. The lock only keeps two
+        racing installers from interleaving inside GDAL.
         """
-        global _gdal_error_handler_installed
         with _gdal_error_handler_lock:
-            if not _gdal_error_handler_installed:
-                gdal.PushErrorHandler(_gdal_error_handler)
-                _gdal_error_handler_installed = True
+            gdal.SetErrorHandler(_gdal_error_handler)
 
 
 @dataclass

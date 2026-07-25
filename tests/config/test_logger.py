@@ -48,17 +48,6 @@ def isolated_package_logging():
         package_logger.propagate = old_propagate
 
 
-@contextmanager
-def reinstallable_error_handler():
-    """Let a test observe ``_set_error_handler`` installing, then restore the guard."""
-    saved = config_mod._gdal_error_handler_installed
-    config_mod._gdal_error_handler_installed = False
-    try:
-        yield
-    finally:
-        config_mod._gdal_error_handler_installed = saved
-
-
 def test_console_logging_colored_and_message(capsys):
     with isolated_package_logging():
         # An explicit level opts into the coloured console handler.
@@ -88,18 +77,22 @@ def test_default_level_configures_nothing(capsys):
         belongs to the host application.
     """
     with isolated_package_logging() as package_logger:
+        # Establish a non-default level so "unchanged" is a real assertion rather
+        # than a statement about whatever the session happened to leave behind.
+        package_logger.setLevel(logging.WARNING)
         LoggerManager()
         out = capsys.readouterr()
         assert out.err == "", f"default LoggerManager must be silent; got {out.err!r}"
         assert out.out == "", f"default LoggerManager must be silent; got {out.out!r}"
-        assert all(
-            isinstance(h, logging.NullHandler) for h in package_logger.handlers
-        ), (
-            "default LoggerManager must add only a NullHandler; got "
+        assert len(package_logger.handlers) == 1, (
+            "expected exactly one handler (the NullHandler); got "
             f"{[type(h).__name__ for h in package_logger.handlers]}"
         )
-        assert package_logger.level == logging.NOTSET, (
-            "default LoggerManager must not set a level on the pyramids logger"
+        assert isinstance(package_logger.handlers[0], logging.NullHandler), (
+            f"expected a NullHandler, got {type(package_logger.handlers[0]).__name__}"
+        )
+        assert package_logger.level == logging.WARNING, (
+            "default LoggerManager must leave the existing level untouched"
         )
 
 
@@ -201,68 +194,66 @@ def test_set_error_handler_logs_severities(capsys):
         )
 
 
-@patch("osgeo.gdal.PushErrorHandler")
-def test_error_handler_installed_only_once(mock_push):
-    """ARC-40: repeated construction must not stack GDAL error handlers.
+@patch("osgeo.gdal.SetErrorHandler")
+def test_error_handler_uses_the_process_wide_setter(mock_set):
+    """ARC-40: the bridge is installed with SetErrorHandler, not PushErrorHandler.
 
     Test scenario:
-        ``gdal.PushErrorHandler`` pushes onto a stack that pyramids never pops,
-        so an unguarded install made GDAL log every error once per push. Two
-        LoggerManager constructions must produce at most one push.
+        ``PushErrorHandler`` maps to ``CPLPushErrorHandlerEx``, which pushes
+        onto GDAL's *per-thread* error context: it stacks on every
+        construction, and it only covers the installing thread. ``SetErrorHandler``
+        replaces process-wide, so it is idempotent and reaches every thread.
     """
-    with reinstallable_error_handler(), isolated_package_logging():
+    with patch("osgeo.gdal.PushErrorHandler") as mock_push, isolated_package_logging():
         LoggerManager()
         LoggerManager()
-    assert mock_push.call_count == 1, (
-        f"expected exactly one PushErrorHandler call, got {mock_push.call_count}"
+    assert mock_push.call_count == 0, (
+        "the thread-local PushErrorHandler must not be used"
     )
-    assert mock_push.call_args[0][0] is _gdal_error_handler
+    assert mock_set.call_count == 2, (
+        f"each construction installs process-wide; got {mock_set.call_count}"
+    )
+    assert mock_set.call_args[0][0] is _gdal_error_handler
 
 
-@patch("osgeo.gdal.PushErrorHandler")
-def test_error_handler_not_reinstalled_when_already_present(mock_push):
-    """The install guard short-circuits once the handler is in place.
-
-    Test scenario:
-        Set the flag explicitly rather than relying on the package import
-        having already set it — asserting against ambient module state
-        would pass just as happily against a `_set_error_handler` that did
-        nothing at all.
-    """
-    with reinstallable_error_handler():
-        config_mod._gdal_error_handler_installed = True
-        with isolated_package_logging():
-            LoggerManager()
-    mock_push.assert_not_called()
-
-
-def test_error_handler_install_is_serialised_across_threads():
-    """Concurrent `Config()` construction still pushes exactly one handler.
+def test_error_handler_reaches_every_thread():
+    """The installed bridge routes GDAL errors raised on worker threads.
 
     Test scenario:
-        The guard is a check-then-set on a module global. Without the lock,
-        several threads can all read it as unset and each push a handler —
-        reintroducing the stacking (and the duplicated GDAL log lines) the
-        guard exists to prevent.
+        This is the invariant the push-based install silently broke — GDAL's
+        handler *stack* is per-thread, so a pushed handler leaves every thread
+        but the installer falling through to the default stderr handler. Raise
+        a GDAL warning on a worker and assert the pyramids logger sees it.
+
+        `gdal.Error()` is only delivered to a custom handler while exceptions
+        are disabled (with `UseExceptions()`, which pyramids enables at import,
+        the binding raises instead), so the probe toggles that off and restores
+        it — otherwise the test would pass vacuously.
     """
-    pushed: list = []
-    barrier = threading.Barrier(8)
-
-    def install():
-        barrier.wait()
-        LoggerManager._set_error_handler()
-
-    with reinstallable_error_handler(), patch(
-        "osgeo.gdal.PushErrorHandler", side_effect=lambda h: pushed.append(h)
-    ):
-        config_mod._gdal_error_handler_installed = False
-        threads = [threading.Thread(target=install) for _ in range(8)]
-        for thread in threads:
+    records: list = []
+    sink = logging.Handler()
+    sink.emit = records.append
+    gdal_logger = logging.getLogger("pyramids.base.config.gdal")
+    exceptions_were_enabled = gdal.GetUseExceptions()
+    with isolated_package_logging():
+        LoggerManager(level="DEBUG")
+        gdal_logger.addHandler(sink)
+        if exceptions_were_enabled:
+            gdal.DontUseExceptions()
+        try:
+            LoggerManager._set_error_handler()
+            thread = threading.Thread(
+                target=lambda: gdal.Error(gdal.CE_Warning, 77, "from-a-worker")
+            )
             thread.start()
-        for thread in threads:
             thread.join()
-    assert len(pushed) == 1, (
-        f"8 racing installs must push exactly one handler, got {len(pushed)}"
+        finally:
+            if exceptions_were_enabled:
+                gdal.UseExceptions()
+            gdal_logger.removeHandler(sink)
+    assert any("from-a-worker" in r.getMessage() for r in records), (
+        "a worker thread's GDAL error must reach the bridge; got "
+        f"{[r.getMessage() for r in records]}"
     )
 
 
