@@ -23,6 +23,7 @@ from pyramids.dataset import Dataset
 from pyramids.dataset.merge import (
     _as_srs,
     _cloud_config,
+    _merge_reduce,
     _prepare_sources,
     merge_rasters,
     stack_bands,
@@ -1051,3 +1052,23 @@ class TestStackBandsUint16Align:
         assert result.no_data_value[0] == 0, (
             f"inherited nodata should be 0, got {result.no_data_value[0]}"
         )
+
+
+class TestMergeNoneGuards:
+    """gdal.Translate / gdal.Warp returning None raises a clear RuntimeError (ARC-22)."""
+
+    def test_translate_none_raises(self, overlapping_pair, tmp_path, monkeypatch):
+        """A None from the mosaic gdal.Translate raises RuntimeError, not AttributeError."""
+        pa, pb = overlapping_pair
+        monkeypatch.setattr(gdal, "Translate", lambda *a, **k: None)
+        with pytest.raises(RuntimeError, match="Translate returned None"):
+            merge_rasters(
+                [pa, pb], str(tmp_path / "o.tif"), no_data_value=-1.0, method="last"
+            )
+
+    def test_reduce_warp_none_raises(self, overlapping_pair, tmp_path, monkeypatch):
+        """A None from the per-source gdal.Warp raises RuntimeError in _merge_reduce."""
+        pa, pb = overlapping_pair
+        monkeypatch.setattr(gdal, "Warp", lambda *a, **k: None)
+        with pytest.raises(RuntimeError, match="Warp returned None"):
+            _merge_reduce([pa, pb], str(tmp_path / "o.tif"), "min", -1.0, "nan")
