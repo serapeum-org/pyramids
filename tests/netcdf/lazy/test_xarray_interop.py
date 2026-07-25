@@ -58,6 +58,17 @@ class TestEncodeTemporalArray:
         assert np.isnan(encoded[1]), f"NaT must encode to NaN, got {encoded[1]}"
         assert encoded[0] == 1.0, f"real timedelta must stay finite, got {encoded[0]}"
 
+    def test_scalar_datetime64_encodes_without_crash(self):
+        """A 0-d datetime64 encodes to a finite 0-d value (no in-place-assignment crash) (r2 M1)."""
+        encoded, _ = _encode_temporal_array(np.array("2020-06-01", dtype="datetime64[ns]"))
+        assert np.ndim(encoded) == 0, f"expected a 0-d result, got shape {np.shape(encoded)}"
+        assert np.isfinite(encoded), f"a real instant must encode finite, got {encoded}"
+
+    def test_scalar_nat_encodes_to_nan(self):
+        """A 0-d NaT encodes to NaN rather than crashing on item assignment (r2 M1)."""
+        encoded, _ = _encode_temporal_array(np.array("NaT", dtype="datetime64[ns]"))
+        assert np.isnan(encoded), f"a 0-d NaT must encode to NaN, got {encoded}"
+
     def test_non_temporal_array_passes_through_unchanged(self):
         """A numeric array is returned unchanged with no CF attributes."""
         vals = np.array([1.5, 2.5, 3.5])

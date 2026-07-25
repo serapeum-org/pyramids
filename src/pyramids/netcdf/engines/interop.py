@@ -255,7 +255,9 @@ def _encode_temporal_array(values: np.ndarray) -> tuple[np.ndarray, dict[str, An
     if np.issubdtype(values.dtype, np.datetime64):
         as_ns = values.astype("datetime64[ns]")
         seconds = as_ns.astype("int64").astype("float64") / 1e9
-        seconds[np.isnat(as_ns)] = np.nan
+        # `np.where` keeps this scalar-safe: a 0-d input's `/ 1e9` is a NumPy scalar that does not
+        # support in-place item assignment (review round-2 M1).
+        seconds = np.where(np.isnat(as_ns), np.nan, seconds)
         return seconds, {
             "units": "seconds since 1970-01-01 00:00:00",
             "calendar": "proleptic_gregorian",
@@ -263,7 +265,7 @@ def _encode_temporal_array(values: np.ndarray) -> tuple[np.ndarray, dict[str, An
     if np.issubdtype(values.dtype, np.timedelta64):
         as_ns = values.astype("timedelta64[ns]")
         seconds = as_ns.astype("int64").astype("float64") / 1e9
-        seconds[np.isnat(as_ns)] = np.nan
+        seconds = np.where(np.isnat(as_ns), np.nan, seconds)
         return seconds, {"units": "seconds"}
     return values, {}
 
