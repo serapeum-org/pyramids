@@ -569,10 +569,10 @@ class Spatial(_Engine["Dataset"]):
             )
             dst_obj = self._ds.__class__(dst)
             # A warped VRT reads through to the source on every access, so the source
-            # must outlive it. Without this pin `ds.to_crs(...)` yields a result that
-            # reads freed memory once `ds` is closed or collected -- the same reason
-            # `warped_view`, `georeference` and `orthorectify` pin theirs.
-            dst_obj._warp_source = self._ds
+            # must outlive it. Pin the source *raster*, not `self._ds`: the engine's
+            # back-reference is a `weakref.proxy`, so storing it would keep nothing
+            # alive. See the `_warp_source` note on `Dataset`.
+            dst_obj._warp_source = self._ds.raster
 
         return dst_obj
 
@@ -694,7 +694,7 @@ class Spatial(_Engine["Dataset"]):
         view = self._ds.__class__(vrt, access="read_only")
         # The VRT references the source GDAL handle; pin the source Dataset on
         # the view so Python cannot garbage-collect it underneath the VRT.
-        view._warp_source = self._ds
+        view._warp_source = self._ds.raster
         return view
 
     def _get_epsg(self) -> int | None:

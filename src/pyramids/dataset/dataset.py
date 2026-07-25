@@ -249,7 +249,11 @@ class Dataset(RasterBase):
     # ``NetCDF.__init__``). Declared here so the checker knows the surface;
     # the runtime values are set where each is produced.
     _backend: str
-    _warp_source: Dataset | None
+    # Strong reference to the *source GDAL raster* a warped VRT reads through, kept
+    # so it outlives the VRT. It must not be the pyramids `Dataset`: engines reach
+    # their parent through a `weakref.proxy`, so pinning that would keep nothing
+    # alive. `NetCDF.warped_view` carries this across when it re-wraps a view.
+    _warp_source: gdal.Dataset | None
     _vsimem_path: str
     _band_dim_name: str | None
     _band_dim_values: list[Any] | None

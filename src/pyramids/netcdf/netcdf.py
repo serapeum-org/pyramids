@@ -2578,7 +2578,9 @@ class NetCDF(Dataset):
         # Carry the GC pin: the VRT references the source GDAL handle, so the
         # re-wrapped NetCDF view must keep the source alive too. _preserve_netcdf
         # _metadata builds a fresh NetCDF and would otherwise drop _warp_source.
-        result._warp_source = getattr(pinned, "_warp_source", self)
+        # The fallback is this instance's raster, not the instance itself, matching
+        # what `Spatial.warped_view` pins -- the GDAL handle the VRT reads through.
+        result._warp_source = getattr(pinned, "_warp_source", self.raster)
         return result
 
     def _materialize_md_view(self) -> None:

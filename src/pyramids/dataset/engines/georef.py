@@ -262,7 +262,7 @@ class Georef(_Engine["Dataset"]):
             raise RuntimeError("GDAL could not orthorectify the dataset.")
         result = self._ds.__class__(dst, access="read_only")
         if lazy:
-            result._warp_source = self._ds
+            result._warp_source = self._ds.raster
         elif dem_path is not None and dem_path.startswith("/vsimem/orthorectify_dem_"):
             # A materialised result no longer references the staged DEM, so free
             # the /vsimem copy we made from a MEM Dataset (a lazy result keeps it).
@@ -439,5 +439,5 @@ class Georef(_Engine["Dataset"]):
         if lazy:
             # The VRT references the source GDAL handle; pin the source Dataset so
             # it cannot be garbage-collected underneath the view.
-            result._warp_source = self._ds
+            result._warp_source = self._ds.raster
         return result
