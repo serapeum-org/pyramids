@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -5523,34 +5523,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#base" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        base
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="base">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#0461" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        0.46.1
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#netcdf" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6109,34 +6081,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#base" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        base
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="base">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#0461" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        0.46.1
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#netcdf" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6296,98 +6240,6 @@ every deprecated call site:</p>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="ne">DeprecationWarning</span><span class="p">)</span>
 </code></pre></div>
 <p>This catches the deprecations; the hard behavior changes do <strong>not</strong> warn — search for them manually.</p>
-<h2 id="base"><a class="toclink" href="#base">base</a><a class="headerlink" href="#base" title="Permanent link">#</a></h2>
-<h3 id="0461"><a class="toclink" href="#0461">0.46.1</a><a class="headerlink" href="#0461" title="Permanent link">#</a></h3>
-<p><strong><code>import pyramids</code> no longer configures logging.</strong> Previously, importing the package ran <code>Config()</code>, which
-added a handler to the <strong>root</strong> logger, called <code>root.setLevel(logging.INFO)</code>, pinned six third-party loggers to
-<code>WARNING</code>, and printed <code>Logging is configured.</code> to stderr. A library reconfiguring the root logger silently
-takes over logging for the whole host application, so that is gone.</p>
-<table>
-<thead>
-<tr>
-<th>Change</th>
-<th>Kind</th>
-<th>What you do</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Import no longer installs a console handler</td>
-<td>behavior</td>
-<td>Configure logging yourself, or ask pyramids for it</td>
-</tr>
-<tr>
-<td>Root logger untouched (no handler, no <code>setLevel</code>)</td>
-<td>behavior</td>
-<td>Nothing — this is the fix</td>
-</tr>
-<tr>
-<td><code>Config</code> / <code>LoggerManager</code> default <code>level=INFO</code> → <code>None</code></td>
-<td>behavior</td>
-<td>Pass a level to get console output</td>
-</tr>
-<tr>
-<td><code>Logging is configured.</code> announce moved from INFO to DEBUG</td>
-<td>behavior</td>
-<td>Nothing</td>
-</tr>
-<tr>
-<td>Third-party loggers only quieted on request</td>
-<td>behavior</td>
-<td>Pass <code>quiet_third_party=True</code> to restore</td>
-</tr>
-</tbody>
-</table>
-<p><strong>If you saw pyramids log lines and want them back</strong>, pick one:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Option A — you own logging (recommended for applications)</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pyramids</span>  <span class="c1"># pyramids records propagate to your handler</span>
-</code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Option B — let pyramids install its coloured console handler</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">Config</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">Config</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="s2">&quot;INFO&quot;</span><span class="p">)</span>
-</code></pre></div>
-<p>Option B sets <code>propagate = False</code> on the <code>pyramids</code> logger, so records are emitted once by pyramids' own
-handler rather than twice (once more through your root handler). Do not combine it with Option A expecting
-both to print.</p>
-<p>Option B is reversible: a bare <code>Config()</code> removes the handlers pyramids installed and restores propagation.
-That matters for test suites — pytest's <code>caplog</code> attaches to the <em>root</em> logger, so while <code>propagate</code> is
-<code>False</code> a <code>caplog</code> assertion on a <code>pyramids.*</code> logger captures nothing and passes vacuously. If a dependency
-opts in on your behalf, call <code>Config()</code> to hand the namespace back.</p>
-<p><strong>If you relied on the third-party quieting</strong>, pass it explicitly:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">Config</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span> <span class="n">quiet_third_party</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># pins fiona/rasterio/shapely/matplotlib/urllib3/osgeo to WARNING</span>
-</code></pre></div>
-<p><strong>Exception types on three dtype helpers changed</strong> to a descriptive <code>ValueError</code>, from the incidental error
-that leaked out of an empty table lookup. Only affects code catching the old type:</p>
-<table>
-<thead>
-<tr>
-<th>Call</th>
-<th>Before</th>
-<th>After</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>numpy_to_gdal_dtype(&lt;unmapped dtype&gt;)</code></td>
-<td><code>IndexError</code></td>
-<td><code>ValueError</code></td>
-</tr>
-<tr>
-<td><code>gdal_to_numpy_dtype(gdal.GDT_Unknown)</code></td>
-<td><code>AttributeError</code></td>
-<td><code>ValueError</code></td>
-</tr>
-<tr>
-<td><code>gdal_to_ogr_dtype(&lt;complex band&gt;)</code></td>
-<td><code>TypeError</code></td>
-<td><code>ValueError</code></td>
-</tr>
-</tbody>
-</table>
 <h2 id="netcdf"><a class="toclink" href="#netcdf">netcdf</a><a class="headerlink" href="#netcdf" title="Permanent link">#</a></h2>
 <h3 id="0370"><a class="toclink" href="#0370">0.37.0</a><a class="headerlink" href="#0370" title="Permanent link">#</a></h3>
 <p>Introduces the <code>Container</code> / <code>Variable</code> type split plus a wave of API consolidation. Each change below shows
@@ -6459,83 +6311,83 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 <p><strong>1. Opening a store returns <code>Container</code>; extracting a variable returns <code>Variable</code>.</strong>
 <code>NetCDF</code> is now a base class with two concrete subclasses. Both still pass <code>isinstance(x, NetCDF)</code>, so only
 <em>exact-type</em> checks break.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Before — everything was a NetCDF</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;cube.nc&quot;</span><span class="p">)</span>     <span class="c1"># NetCDF</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">)</span>            <span class="c1"># NetCDF</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nb">type</span><span class="p">(</span><span class="n">nc</span><span class="p">)</span> <span class="ow">is</span> <span class="n">NetCDF</span>                    <span class="c1"># True</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="c1"># After</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;cube.nc&quot;</span><span class="p">)</span>     <span class="c1"># Container</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">)</span>            <span class="c1"># Variable</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="nb">isinstance</span><span class="p">(</span><span class="n">nc</span><span class="p">,</span> <span class="n">NetCDF</span><span class="p">)</span>                <span class="c1"># True   &lt;- use this</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="nb">type</span><span class="p">(</span><span class="n">nc</span><span class="p">)</span> <span class="ow">is</span> <span class="n">NetCDF</span>                    <span class="c1"># False  &lt;- this no longer holds</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Before — everything was a NetCDF</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;cube.nc&quot;</span><span class="p">)</span>     <span class="c1"># NetCDF</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">)</span>            <span class="c1"># NetCDF</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nb">type</span><span class="p">(</span><span class="n">nc</span><span class="p">)</span> <span class="ow">is</span> <span class="n">NetCDF</span>                    <span class="c1"># True</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="c1"># After</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;cube.nc&quot;</span><span class="p">)</span>     <span class="c1"># Container</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">)</span>            <span class="c1"># Variable</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="nb">isinstance</span><span class="p">(</span><span class="n">nc</span><span class="p">,</span> <span class="n">NetCDF</span><span class="p">)</span>                <span class="c1"># True   &lt;- use this</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="nb">type</span><span class="p">(</span><span class="n">nc</span><span class="p">)</span> <span class="ow">is</span> <span class="n">NetCDF</span>                    <span class="c1"># False  &lt;- this no longer holds</span>
 </code></pre></div>
 <p><strong>2. <code>subset()</code> returns a <code>NetCDF</code> (a <code>Variable</code>), not a plain <code>Dataset</code>.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">subset</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>           <span class="c1"># Dataset</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># After</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">subset</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>          <span class="c1"># Variable (a NetCDF); read_array()/crop()/sel() all still work</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">subset</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>           <span class="c1"># Dataset</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># After</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">subset</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>          <span class="c1"># Variable (a NetCDF); read_array()/crop()/sel() all still work</span>
 </code></pre></div>
 <p><strong>3. <code>CFInfo</code> is immutable (frozen).</strong> In-place assignment now raises <code>dataclasses.FrozenInstanceError</code>.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">cf</span><span class="o">.&lt;</span><span class="n">field</span><span class="o">&gt;</span> <span class="o">=</span> <span class="n">new_value</span>                <span class="c1"># mutated in place</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># After</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="kn">import</span><span class="w"> </span><span class="nn">dataclasses</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="n">cf</span> <span class="o">=</span> <span class="n">dataclasses</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">cf</span><span class="p">,</span> <span class="o">&lt;</span><span class="n">field</span><span class="o">&gt;=</span><span class="n">new_value</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">cf</span><span class="o">.&lt;</span><span class="n">field</span><span class="o">&gt;</span> <span class="o">=</span> <span class="n">new_value</span>                <span class="c1"># mutated in place</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># After</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="kn">import</span><span class="w"> </span><span class="nn">dataclasses</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">cf</span> <span class="o">=</span> <span class="n">dataclasses</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">cf</span><span class="p">,</span> <span class="o">&lt;</span><span class="n">field</span><span class="o">&gt;=</span><span class="n">new_value</span><span class="p">)</span>
 </code></pre></div>
 <p><strong>4. <code>LabeledDataset.read_file(engine=...)</code> validates the engine.</strong> An unrecognised value now raises
 <code>ValueError</code> instead of being silently ignored.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">LabeledDataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;zar&quot;</span><span class="p">)</span>    <span class="c1"># typo silently ignored</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># After — valid: &quot;zarr&quot;, &quot;netcdf&quot;, &quot;netcdf4&quot;, &quot;hdf5&quot;, &quot;h5netcdf&quot;, or None</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">LabeledDataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;zarr&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">LabeledDataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;zar&quot;</span><span class="p">)</span>    <span class="c1"># typo silently ignored</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># After — valid: &quot;zarr&quot;, &quot;netcdf&quot;, &quot;netcdf4&quot;, &quot;hdf5&quot;, &quot;h5netcdf&quot;, or None</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">LabeledDataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">store</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;zarr&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h4 id="deprecations-old-still-works-warns-update-when-convenient"><a class="toclink" href="#deprecations-old-still-works-warns-update-when-convenient">Deprecations (old still works, warns — update when convenient)</a><a class="headerlink" href="#deprecations-old-still-works-warns-update-when-convenient" title="Permanent link">#</a></h4>
 <p><strong>5. Constructing the base <code>NetCDF(...)</code> directly is deprecated.</strong> Use the typed entry points.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="p">(</span><span class="n">gdal_dataset</span><span class="p">)</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># After</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;cube.nc&quot;</span><span class="p">)</span>     <span class="c1"># -&gt; Container</span>
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">)</span>            <span class="c1"># -&gt; Variable</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="p">(</span><span class="n">gdal_dataset</span><span class="p">)</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># After</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">nc</span>  <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;cube.nc&quot;</span><span class="p">)</span>     <span class="c1"># -&gt; Container</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">var</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">)</span>            <span class="c1"># -&gt; Variable</span>
 </code></pre></div>
 <p><strong>6. <code>get_variable_names()</code> -&gt; the <code>variable_names</code> property.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">names</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable_names</span><span class="p">()</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="c1"># After</span>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">names</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">names</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable_names</span><span class="p">()</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># After</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">names</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>
 </code></pre></div>
 <p><strong>7. <code>ColourOpts</code> -&gt; <code>ColorOpts</code>.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColourOpts</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">opts</span> <span class="o">=</span> <span class="n">ColourOpts</span><span class="p">(</span><span class="n">cmap</span><span class="o">=</span><span class="s2">&quot;viridis&quot;</span><span class="p">)</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># After</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColorOpts</span>
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="n">opts</span> <span class="o">=</span> <span class="n">ColorOpts</span><span class="p">(</span><span class="n">cmap</span><span class="o">=</span><span class="s2">&quot;viridis&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColourOpts</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">opts</span> <span class="o">=</span> <span class="n">ColourOpts</span><span class="p">(</span><span class="n">cmap</span><span class="o">=</span><span class="s2">&quot;viridis&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># After</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColorOpts</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="n">opts</span> <span class="o">=</span> <span class="n">ColorOpts</span><span class="p">(</span><span class="n">cmap</span><span class="o">=</span><span class="s2">&quot;viridis&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p><strong>8. Classic dimension models renamed.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.dimensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">MetaData</span><span class="p">,</span> <span class="n">DimMetaData</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="c1"># After</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.dimensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClassicDimMetadata</span><span class="p">,</span> <span class="n">ClassicDimensionInfo</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.dimensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">MetaData</span><span class="p">,</span> <span class="n">DimMetaData</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="c1"># After</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.dimensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClassicDimMetadata</span><span class="p">,</span> <span class="n">ClassicDimensionInfo</span>
 </code></pre></div>
 <p><strong>9. kerchunk <code>backend="kerchunk"</code> -&gt; <code>backend="legacy"</code>.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">nc</span><span class="o">.</span><span class="n">to_kerchunk</span><span class="p">(</span><span class="s2">&quot;refs.json&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;kerchunk&quot;</span><span class="p">)</span>
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="c1"># After</span>
-<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">nc</span><span class="o">.</span><span class="n">to_kerchunk</span><span class="p">(</span><span class="s2">&quot;refs.json&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;legacy&quot;</span><span class="p">)</span>   <span class="c1"># or omit backend= for the native default</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">nc</span><span class="o">.</span><span class="n">to_kerchunk</span><span class="p">(</span><span class="s2">&quot;refs.json&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;kerchunk&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="c1"># After</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">nc</span><span class="o">.</span><span class="n">to_kerchunk</span><span class="p">(</span><span class="s2">&quot;refs.json&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;legacy&quot;</span><span class="p">)</span>   <span class="c1"># or omit backend= for the native default</span>
 </code></pre></div>
 <h4 id="renames-where-the-old-name-still-works-no-rush"><a class="toclink" href="#renames-where-the-old-name-still-works-no-rush">Renames where the old name still works (no rush)</a><a class="headerlink" href="#renames-where-the-old-name-still-works-no-rush" title="Permanent link">#</a></h4>
 <p><strong>10. Promoted internals (underscore aliases kept).</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># Before</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.labeled</span><span class="w"> </span><span class="kn">import</span> <span class="n">_LabeledArray</span>
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf._lazy</span><span class="w"> </span><span class="kn">import</span> <span class="n">_apply_unpack</span>
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="c1"># After</span>
-<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">LabeledArray</span>
-<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf._lazy</span><span class="w"> </span><span class="kn">import</span> <span class="n">apply_unpack</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Before</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf.labeled</span><span class="w"> </span><span class="kn">import</span> <span class="n">_LabeledArray</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf._lazy</span><span class="w"> </span><span class="kn">import</span> <span class="n">_apply_unpack</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># After</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">LabeledArray</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf._lazy</span><span class="w"> </span><span class="kn">import</span> <span class="n">apply_unpack</span>
 </code></pre></div>
 <p>Also: the private modules <code>_kerchunk.py</code> -&gt; <code>_kerchunk_facade.py</code> and <code>_kerchunk_native.py</code> -&gt; <code>_kerchunk_builder.py</code>
 were renamed. They are internal — use <code>NetCDF.to_kerchunk</code> / <code>NetCDF.combine_kerchunk</code> rather than importing them.</p>
@@ -6550,7 +6402,7 @@ were renamed. They are internal — use <code>NetCDF.to_kerchunk</code> / <code>
 <p>The new public types are named <code>Container</code> and <code>Variable</code>. They read cleanly when namespace-qualified
 (<code>pyramids.netcdf.Container</code>). If you <code>from pyramids.netcdf import Variable</code> in a module that also uses <code>xarray</code>,
 the name collides conceptually with <code>xarray.Variable</code> — prefer the namespace-qualified form, or alias on import:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">Variable</span> <span class="k">as</span> <span class="n">NcVariable</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">Variable</span> <span class="k">as</span> <span class="n">NcVariable</span>
 </code></pre></div>
 <h4 id="migration-checklist"><a class="toclink" href="#migration-checklist">Migration checklist</a><a class="headerlink" href="#migration-checklist" title="Permanent link">#</a></h4>
 <ol>
