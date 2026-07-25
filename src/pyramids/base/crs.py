@@ -715,14 +715,20 @@ def reproject_coordinates(
     xs, ys = transformer.transform(
         np.asarray(x, dtype=float), np.asarray(y, dtype=float)
     )
-    xs = np.asarray(xs, dtype=float)
-    ys = np.asarray(ys, dtype=float)
+    out_x = np.asarray(xs, dtype=float).tolist()
+    out_y = np.asarray(ys, dtype=float).tolist()
     if precision is not None:
-        # `np.round` and the built-in `round` both round half-to-even, so the
-        # returned values are unchanged from the per-point implementation.
-        xs = np.round(xs, precision)
-        ys = np.round(ys, precision)
-    return xs.tolist(), ys.tolist()
+        # Round with the built-in, NOT `np.round`. They are not interchangeable:
+        # `round` is correctly rounded in decimal, while `np.round` scales by
+        # `10**precision`, rounds, and divides back, so the two disagree on values
+        # that are not exactly representable -- `round(2.675, 2)` is `2.67` but
+        # `np.round(2.675, 2)` is `2.68`, and at the default `precision=6` they
+        # differ on roughly 1 in 3000 Web-Mercator-magnitude coordinates. Keeping
+        # the built-in preserves the per-point implementation's output exactly;
+        # the expensive part was the PROJ round trip, which is already vectorized.
+        out_x = [round(value, precision) for value in out_x]
+        out_y = [round(value, precision) for value in out_y]
+    return out_x, out_y
 
 
 __all__ = [
