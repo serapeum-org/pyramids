@@ -22,7 +22,7 @@ from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import sr_from_user_input
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.engines._base import _Engine
-from pyramids.dataset.engines.spatial import _dst_srs_arg
+from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset

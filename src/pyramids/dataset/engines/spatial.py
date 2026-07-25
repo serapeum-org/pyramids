@@ -33,32 +33,9 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
 from pyramids.dataset.engines.vectorize import Vectorize
 
-
-def _dst_srs_arg(dst_sr: osr.SpatialReference) -> str:
-    """Derive the ``dstSRS`` argument to hand to :func:`gdal.Warp`.
-
-    Prefer the ``"<AUTHORITY>:<code>"`` form when one exists so the output WKT
-    GDAL writes is the canonical GDAL/PROJ form (matching historical bytes for
-    EPSG codes and avoiding a GDAL warning when the authority is ESRI). Fall
-    back to the explicit WKT for CRSes carrying no authority at all (custom
-    orthographic proj4 strings, etc.). See #418.
-
-    Args:
-        dst_sr: The target spatial reference.
-
-    Returns:
-        str: An authority string such as ``"EPSG:3857"``, or the full WKT when
-            the SRS carries no authority.
-    """
-    dst_auth = dst_sr.GetAuthorityName(None)
-    dst_code = dst_sr.GetAuthorityCode(None)
-    if dst_auth is not None and dst_code is not None:
-        srs_arg = f"{dst_auth}:{dst_code}"
-    else:
-        srs_arg = dst_sr.ExportToWkt()
-    return srs_arg
 
 
 @overload
