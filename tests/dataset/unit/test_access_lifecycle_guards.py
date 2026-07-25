@@ -78,6 +78,15 @@ class TestReadOnlyMetadataSetters:
         ds.epsg = 3857
         assert ds.epsg == 3857, "/vsimem raster should accept the epsg setter"
 
+    def test_set_crs_missing_args_raises_value_error_before_guard(self, ro_dataset):
+        """set_crs() with neither crs nor epsg raises ValueError before the read-only guard."""
+        ds, _ = ro_dataset
+        with pytest.raises(ValueError, match="Either crs or epsg") as exc:
+            ds.set_crs()
+        assert not isinstance(exc.value, ReadOnlyError), (
+            "the neither-crs-nor-epsg ValueError must take precedence over the read-only guard"
+        )
+
 
 _CLOSED_READS = [
     pytest.param(lambda ds: ds.meta_data, id="meta_data"),
