@@ -69,14 +69,19 @@ _VALID_BLOCKSIZES: frozenset[int] = frozenset({64, 128, 256, 512, 1024, 2048, 40
 
 COG_READ_DEFAULTS: dict[str, str] = {
     "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
-    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff",
     "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
     "VSI_CACHE": "TRUE",
 }
 """GDAL config options that make remote ``/vsicurl/`` COG reads efficient.
 
 Without ``GDAL_DISABLE_READDIR_ON_OPEN`` a remote open issues a directory
-listing — often the single biggest latency hit. Applied by
+listing — often the single biggest latency hit, and the reason this preset
+exists. Deliberately **not** included: ``CPL_VSIL_CURL_ALLOWED_EXTENSIONS``.
+Restricting `/vsicurl/` to ``.tif,.tiff`` makes GDAL refuse any URL whose path
+does not end in one — extensionless object keys, presigned S3 links carrying a
+query string, Planetary Computer and STAC asset hrefs — so a preset meant to
+speed reads up instead made them impossible. The readdir-skip above already
+delivers the latency win on its own. Applied by
 :func:`pyramids.dataset.cog.validate.validate` and
 :func:`pyramids.dataset.cog.inspect.cog_info` for remote paths when the caller
 passes no explicit ``config``. Pure strings (no GDAL dependency here)."""
