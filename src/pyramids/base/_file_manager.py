@@ -815,7 +815,8 @@ class CachingFileManager(FileManager):
         Safe against an in-flight read regardless of pins: the entry
         leaves the cache but the handle is never closed, so a reader
         holding it keeps a live object and later callers simply miss
-        and re-open.
+        and re-open. The reader's own `unpin` clears the pin entry
+        afterwards, so nothing is left behind.
         """
         try:
             del self._cache[self._key]

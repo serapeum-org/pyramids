@@ -695,7 +695,7 @@ class TestCachingFileManagerEvictionSafety:
         with pytest.raises(RuntimeError):
             with fm.acquire_context():
                 raise RuntimeError("boom")
-        assert cache._pins.get(fm._key) in (None, 0), (
+        assert cache._pins.get(fm._key) is None, (
             f"the pin must be dropped on the error path, got {cache._pins}"
         )
 
@@ -710,7 +710,7 @@ class TestCachingFileManagerEvictionSafety:
         with pytest.raises(OSError):
             with fm.acquire_context():
                 pass
-        assert cache._pins.get(fm._key) in (None, 0), (
+        assert cache._pins.get(fm._key) is None, (
             f"a failed open must not leak a pin, got {cache._pins}"
         )
 
