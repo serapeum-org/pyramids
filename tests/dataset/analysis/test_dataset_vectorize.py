@@ -416,3 +416,70 @@ class TestFootPrint:
         assert len(set(extent[dataset.band_names[0]])) == 1
         # the class should be 2
         assert next(iter(set(extent[dataset.band_names[0]]))) == 2
+
+
+class TestToFeatureCollectionMaskTiling:
+    """The mask must be honoured on both the tiled and the non-tiled path."""
+
+    @pytest.fixture(scope="function")
+    def masked_dataset(self) -> Dataset:
+        """A 10x10 raster of 0..99 on a unit grid anchored at (0, 10).
+
+        Returns:
+            Dataset: In-memory single-band dataset.
+        """
+        array = np.arange(100, dtype="float32").reshape(10, 10)
+        raster = gdal.GetDriverByName("MEM").Create("", 10, 10, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 10.0, 0.0, -1.0))
+        raster.SetProjection('GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
+                             'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]]')
+        band = raster.GetRasterBand(1)
+        band.WriteArray(array)
+        band.SetNoDataValue(-9999.0)
+        return Dataset(raster)
+
+    @pytest.fixture(scope="function")
+    def box_mask(self) -> GeoDataFrame:
+        """A 4x4 box covering a strict subset of the raster.
+
+        Returns:
+            GeoDataFrame: Single-polygon mask in EPSG:4326.
+        """
+        polygon = Polygon([(2.0, 4.0), (6.0, 4.0), (6.0, 8.0), (2.0, 8.0)])
+        return gpd.GeoDataFrame(geometry=[polygon], crs="EPSG:4326")
+
+    def test_tiled_and_untiled_agree_under_a_mask(
+        self, masked_dataset: Dataset, box_mask: GeoDataFrame
+    ) -> None:
+        """`tile=True` and `tile=False` return the same rows for the same mask.
+
+        Test scenario:
+            The tiled branch previously read the uncropped dataset, so a mask
+            covering 16 of 100 cells still produced 100 rows while the
+            non-tiled branch produced 16 — and the geometry attached afterwards
+            came from the cropped extent, so values and geometry disagreed.
+        """
+        tiled = masked_dataset.to_feature_collection(
+            mask=box_mask, tile=True, tile_size=4
+        )
+        untiled = masked_dataset.to_feature_collection(mask=box_mask, tile=False)
+        assert len(tiled) == len(untiled), (
+            f"tiled returned {len(tiled)} rows, non-tiled {len(untiled)}; the mask "
+            "must apply to both paths"
+        )
+        assert len(tiled) < 100, (
+            f"the mask must exclude cells, but {len(tiled)} of 100 survived"
+        )
+
+    def test_tiled_without_a_mask_still_covers_the_raster(
+        self, masked_dataset: Dataset
+    ) -> None:
+        """Passing no mask leaves the tiled path reading the whole raster.
+
+        Test scenario:
+            Guards the other direction of the fix — routing the tiled branch
+            through the (possibly uncropped) source must not start dropping
+            cells when no mask was given.
+        """
+        tiled = masked_dataset.to_feature_collection(tile=True, tile_size=4)
+        assert len(tiled) == 100, f"expected all 100 cells, got {len(tiled)}"

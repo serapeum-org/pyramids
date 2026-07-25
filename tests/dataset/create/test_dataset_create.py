@@ -583,6 +583,73 @@ class TestCountDomainCells:
         src = Dataset(era5_image)
         assert src.count_domain_cells() == 5
 
+    @staticmethod
+    def _dataset_with_no_data(array: np.ndarray, no_data_value: float) -> Dataset:
+        """Build a single-band in-memory Dataset carrying `no_data_value`.
+
+        Args:
+            array: Pixel values to write into the band.
+            no_data_value: Sentinel to register on the band.
+
+        Returns:
+            Dataset: An in-memory dataset wrapping `array`.
+        """
+        rows, cols = array.shape
+        raster = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, float(rows), 0.0, -1.0))
+        raster.SetProjection(sr_from_epsg(4326).ExportToWkt())
+        band = raster.GetRasterBand(1)
+        band.WriteArray(array.astype("float32"))
+        band.SetNoDataValue(no_data_value)
+        return Dataset(raster)
+
+    @pytest.mark.parametrize("no_data_value", [0.0, -9999.0, 3.0])
+    def test_counts_domain_for_any_sentinel(self, no_data_value: float):
+        """The domain count does not depend on which value marks no-data.
+
+        Args:
+            no_data_value: Sentinel under test.
+
+        Test scenario:
+            The same 2x3 layout is built three times, each with a different
+            sentinel occupying two cells; every case must report the four
+            remaining cells. ``0.0`` is the regression case: the previous
+            implementation counted the *non-zero* values among the no-data
+            cells, which is zero when the sentinel itself is zero, so nothing
+            was subtracted and all six cells counted as domain.
+        """
+        array = np.array(
+            [[no_data_value, 1.0, 2.0], [no_data_value, 4.0, 5.0]], dtype="float32"
+        )
+        dataset = self._dataset_with_no_data(array, no_data_value)
+        counted = dataset.count_domain_cells()
+        assert counted == 4, (
+            f"expected 4 domain cells with no_data_value={no_data_value}, got {counted}"
+        )
+
+    def test_all_cells_are_no_data(self):
+        """A band holding only the sentinel has an empty domain.
+
+        Test scenario:
+            Every cell equals a ``0.0`` sentinel, so the domain is empty. Under
+            the old arithmetic this returned the full cell count.
+        """
+        dataset = self._dataset_with_no_data(np.zeros((2, 2), dtype="float32"), 0.0)
+        counted = dataset.count_domain_cells()
+        assert counted == 0, f"an all-no-data band must count 0, got {counted}"
+
+    def test_no_cells_are_no_data(self):
+        """A band where the sentinel never occurs counts every cell.
+
+        Test scenario:
+            Guards the opposite direction: a ``0.0`` sentinel that appears
+            nowhere must not cause any cell to be excluded.
+        """
+        array = np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
+        dataset = self._dataset_with_no_data(array, 0.0)
+        counted = dataset.count_domain_cells()
+        assert counted == 4, f"expected all 4 cells, got {counted}"
+
 
 class TestGetCellCoordsAndCreateCellGeometry:
     def test_cell_center_masked_cells(
