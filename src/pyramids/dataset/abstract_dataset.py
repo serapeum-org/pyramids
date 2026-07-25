@@ -243,6 +243,13 @@ class RasterBase(ABC):
         `AttributeError` (or, for `__repr__`, silently returns `'None'`). Call this
         first so every such member raises the same clear error instead.
 
+        Scope: this guard is wired into the members ARC-43 flagged — the ones that
+        misbehaved most visibly (`meta_data`, `driver_type`, `_iloc`), plus
+        `__str__`/`__repr__` (which return the `<Dataset: closed>` sentinel). It is
+        deliberately not applied to every GDAL-dereferencing reader (`crs`, `bbox`,
+        `scale`, `offset`, ...); those still raise a bare `AttributeError` on a closed
+        handle as before — broadening the guard there is future work, not a regression.
+
         Raises:
             RuntimeError: The dataset has been closed.
         """
