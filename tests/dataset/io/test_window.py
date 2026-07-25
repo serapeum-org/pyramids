@@ -111,6 +111,20 @@ class TestWindow:
             "bounds round-trip failed"
         )
 
+    def test_to_bounds_rotated_geotransform_uses_all_corners(self):
+        """Under a rotated/skewed geotransform to_bounds spans all four corners.
+
+        Test scenario:
+            With rotation terms gt[2]/gt[4] non-zero, the extent is not on the
+            TL/BR diagonal; the two off-diagonal corners set the true min/max, so
+            a two-corner bbox would under-report the y extent [192, 202].
+        """
+        gt = (100.0, 1.0, 0.3, 200.0, 0.2, -1.0)
+        w = Window(col_off=0, row_off=0, cols=10, rows=8)
+        assert w.to_bounds(gt) == pytest.approx((100.0, 192.0, 112.4, 202.0)), (
+            "rotated to_bounds must use all four corners"
+        )
+
     def test_from_bounds_unaligned_covers(self):
         """A bbox not on pixel edges expands to fully cover it.
 
