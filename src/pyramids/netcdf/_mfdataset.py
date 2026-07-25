@@ -97,12 +97,10 @@ def open_mfdataset(
             (the default) reads each file lazily with `"auto"`
             (native-ish) chunking so the files are not all materialised
             into RAM before stacking; pass an explicit spec to override.
-        parallel: Retained for API compatibility. Under the default lazy
-            per-file read the per-file arrays are already dask arrays whose
-            chunk reads the scheduler parallelises at compute time, so this
-            flag has no effect there. It only wraps the per-file open in
-            :func:`dask.delayed` when the reads are eager — which the current
-            lazy default never produces.
+        parallel: Retained for API compatibility only; it has no effect.
+            Every per-file read returns a lazy dask array, so the scheduler
+            already parallelises the per-chunk reads at compute time and
+            there is no separate eager `dask.delayed` fan-out to enable.
         preprocess: Optional callable applied to each
             :class:`NetCDF` subset before its array is extracted —
             for example to unpack scale/offset, crop, or drop
