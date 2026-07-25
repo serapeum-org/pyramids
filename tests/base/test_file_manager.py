@@ -703,8 +703,9 @@ class TestCachingFileManagerEvictionSafety:
         cache = _LRUCache(maxsize=2, on_evict=_close_handle)
         fm = CachingFileManager(_fake_opener, "a.tif", cache=cache, lock=False)
         fm.acquire()  # pre-cache so the failure path keeps the handle
+        boom = RuntimeError("boom")
         with pytest.raises(RuntimeError):
-            _raise_inside_acquire_context(fm, RuntimeError("boom"))
+            _raise_inside_acquire_context(fm, boom)
         assert cache._pins.get(fm._key) is None, (
             f"the pin must be dropped on the error path, got {cache._pins}"
         )
@@ -717,8 +718,9 @@ class TestCachingFileManagerEvictionSafety:
 
         cache = _LRUCache(maxsize=2, on_evict=_close_handle)
         fm = CachingFileManager(_broken_opener, "a.tif", cache=cache, lock=False)
+        context = fm.acquire_context()
         with pytest.raises(OSError):
-            fm.acquire_context().__enter__()
+            context.__enter__()
         assert cache._pins.get(fm._key) is None, (
             f"a failed open must not leak a pin, got {cache._pins}"
         )

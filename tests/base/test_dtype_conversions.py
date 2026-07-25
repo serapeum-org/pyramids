@@ -4,14 +4,14 @@ from osgeo import gdal, gdalconst, ogr
 
 from pyramids.base._errors import DriverNotExistError, OptionalPackageDoesNotExist
 from pyramids.base._utils import (
+    _GDAL_TO_NUMPY,
+    _GDAL_TO_OGR,
+    _NUMPY_TO_GDAL,
     DTYPE_CONVERSION_DF,
     GDAL_DTYPE,
     NUMPY_DTYPE,
     OGR_DTYPE,
     Catalog,
-    _GDAL_TO_NUMPY,
-    _GDAL_TO_OGR,
-    _NUMPY_TO_GDAL,
     color_name_to_gdal_constant,
     gdal_constant_to_color_name,
     gdal_to_numpy_dtype,
