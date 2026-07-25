@@ -515,14 +515,57 @@ class TestLRUCachePinning:
         cache["b"] = 2
         assert evicted == [], f"One unpin of two must keep 'a' pinned, got {evicted}"
 
+    def test_all_pinned_overflow_logs_the_configured_limit(self, caplog):
+        """The over-limit DEBUG line names `maxsize`, not the insert's target.
+
+        Test scenario:
+            `__setitem__` trims to `maxsize - 1` so the new entry lands
+            at exactly `maxsize`, but that internal target must not
+            reach the operator: on a 128-entry cache the message would
+            otherwise read "over its 127 limit". Filling a cache with
+            pinned entries is the only way to reach the branch.
+        """
+        cache = _LRUCache(maxsize=2, on_evict=lambda k, v: None)
+        for key in ("a", "b"):
+            cache[key] = key
+            cache.pin(key)
+        with caplog.at_level("DEBUG", logger="pyramids.base._file_manager"):
+            cache["c"] = "c"
+        messages = [
+            r.getMessage() for r in caplog.records if "file cache is" in r.getMessage()
+        ]
+        assert messages, (
+            f"the all-pinned overflow must log at DEBUG; got {[r.getMessage() for r in caplog.records]}"
+        )
+        assert "over its 2 limit" in messages[0], (
+            f"the message must report maxsize=2, got {messages[0]!r}"
+        )
+
     def test_unpin_untracked_key_is_a_noop(self):
-        """`unpin` on a key wiped by `clear()` must not underflow."""
+        """`unpin` on a key wiped by `clear()` must not underflow.
+
+        Test scenario:
+            `clear()` drops the pin table wholesale, so a reader still
+            inside `acquire_context()` unpins a key the cache no longer
+            tracks. That must leave the pin count absent rather than
+            going negative — a negative count would read as truthy and
+            silently make the key permanently un-evictable.
+        """
         cache = _LRUCache(maxsize=2)
         cache["a"] = 1
         cache.pin("a")
         cache.clear()
         cache.unpin("a")
         cache.unpin("never-pinned")
+        assert cache._pins == {}, (
+            f"an untracked unpin must not record a count, got {cache._pins}"
+        )
+        cache["a"] = 1
+        cache["b"] = 2
+        cache["c"] = 3
+        assert "a" not in cache, (
+            "the post-clear key must be evictable, not stuck behind a stale pin"
+        )
 
     def test_maxsize_setter_skips_pinned_entries(self):
         """Shrinking `maxsize` also honours pins."""

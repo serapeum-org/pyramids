@@ -261,6 +261,16 @@ class _LRUCache(MutableMapping):
         read must not be closed underneath the reader, so when every
         remaining candidate is pinned the cache is allowed to sit
         above `target` until those reads finish.
+
+        Args:
+            target: Maximum number of entries to leave behind. Callers
+                inserting a new entry pass `maxsize - 1` so the cache
+                lands exactly at `maxsize` once the insert completes.
+
+        Returns:
+            list[tuple[Hashable, Any]]: The evicted `(key, value)`
+            pairs, in eviction order, for the caller to pass to
+            `on_evict` once the lock is released.
         """
         evicted: list[tuple[Hashable, Any]] = []
         for key in list(self._cache):
@@ -270,11 +280,13 @@ class _LRUCache(MutableMapping):
                 continue
             evicted.append((key, self._cache.pop(key)))
         if len(self._cache) > target:
+            # Report the configured limit, not `target`: an insert passes `maxsize - 1`,
+            # which would otherwise render as "over its 127 limit" on a 128-entry cache.
             logger.debug(
                 "file cache is %d entr(ies) over its %d limit: every eviction "
                 "candidate is pinned by an in-flight read",
                 len(self._cache) - target,
-                target,
+                self._maxsize,
             )
         return evicted
 
