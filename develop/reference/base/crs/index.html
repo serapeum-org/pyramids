@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7579,8 +7579,12 @@ or a :class:<code>pyproj.CRS</code> instance. Default <code>4326</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Decimal places to round each returned coordinate to. Pass
-<code>None</code> to disable rounding. Default <code>6</code>.</p>
+                <p>Decimal places to round each returned coordinate to, using
+Python's built-in <code>round</code> — correctly rounded in decimal,
+which is <em>not</em> the same as <code>numpy.round</code> on values that are
+not exactly representable (<code>round(2.675, 2)</code> is <code>2.67</code>,
+<code>numpy.round(2.675, 2)</code> is <code>2.68</code>). Pass <code>None</code> to disable
+rounding and get the transformer's full output. Default <code>6</code>.</p>
               </div>
             </td>
             <td>
@@ -7757,7 +7761,21 @@ user input.</p>
 <span class="normal"><a href="#__codelineno-0-718">718</a></span>
 <span class="normal"><a href="#__codelineno-0-719">719</a></span>
 <span class="normal"><a href="#__codelineno-0-720">720</a></span>
-<span class="normal"><a href="#__codelineno-0-721">721</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-638" name="__codelineno-0-638"></a><span class="k">def</span><span class="w"> </span><span class="nf">reproject_coordinates</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-721">721</a></span>
+<span class="normal"><a href="#__codelineno-0-722">722</a></span>
+<span class="normal"><a href="#__codelineno-0-723">723</a></span>
+<span class="normal"><a href="#__codelineno-0-724">724</a></span>
+<span class="normal"><a href="#__codelineno-0-725">725</a></span>
+<span class="normal"><a href="#__codelineno-0-726">726</a></span>
+<span class="normal"><a href="#__codelineno-0-727">727</a></span>
+<span class="normal"><a href="#__codelineno-0-728">728</a></span>
+<span class="normal"><a href="#__codelineno-0-729">729</a></span>
+<span class="normal"><a href="#__codelineno-0-730">730</a></span>
+<span class="normal"><a href="#__codelineno-0-731">731</a></span>
+<span class="normal"><a href="#__codelineno-0-732">732</a></span>
+<span class="normal"><a href="#__codelineno-0-733">733</a></span>
+<span class="normal"><a href="#__codelineno-0-734">734</a></span>
+<span class="normal"><a href="#__codelineno-0-735">735</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-638" name="__codelineno-0-638"></a><span class="k">def</span><span class="w"> </span><span class="nf">reproject_coordinates</span><span class="p">(</span>
 <a id="__codelineno-0-639" name="__codelineno-0-639"></a>    <span class="n">x</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
 <a id="__codelineno-0-640" name="__codelineno-0-640"></a>    <span class="n">y</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
 <a id="__codelineno-0-641" name="__codelineno-0-641"></a>    <span class="o">*</span><span class="p">,</span>
@@ -7786,61 +7804,75 @@ user input.</p>
 <a id="__codelineno-0-664" name="__codelineno-0-664"></a><span class="sd">        to_crs:</span>
 <a id="__codelineno-0-665" name="__codelineno-0-665"></a><span class="sd">            Target CRS, same forms as `from_crs`. Default `3857`.</span>
 <a id="__codelineno-0-666" name="__codelineno-0-666"></a><span class="sd">        precision (int | None):</span>
-<a id="__codelineno-0-667" name="__codelineno-0-667"></a><span class="sd">            Decimal places to round each returned coordinate to. Pass</span>
-<a id="__codelineno-0-668" name="__codelineno-0-668"></a><span class="sd">            `None` to disable rounding. Default `6`.</span>
-<a id="__codelineno-0-669" name="__codelineno-0-669"></a>
-<a id="__codelineno-0-670" name="__codelineno-0-670"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-671" name="__codelineno-0-671"></a><span class="sd">        tuple[list[float], list[float]]: `(x, y)` in the target CRS.</span>
-<a id="__codelineno-0-672" name="__codelineno-0-672"></a>
-<a id="__codelineno-0-673" name="__codelineno-0-673"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-674" name="__codelineno-0-674"></a><span class="sd">        ValueError: If `len(x)!= len(y)`.</span>
-<a id="__codelineno-0-675" name="__codelineno-0-675"></a><span class="sd">        CRSError: If :meth:`pyproj.Transformer.from_crs` raises one</span>
-<a id="__codelineno-0-676" name="__codelineno-0-676"></a><span class="sd">            of `pyproj.exceptions.CRSError` (malformed WKT / proj</span>
-<a id="__codelineno-0-677" name="__codelineno-0-677"></a><span class="sd">            string), `TypeError` (input is not CRS-like — e.g. a</span>
-<a id="__codelineno-0-678" name="__codelineno-0-678"></a><span class="sd">            bare `object()`), or `ValueError` (out-of-range EPSG</span>
-<a id="__codelineno-0-679" name="__codelineno-0-679"></a><span class="sd">            integer). The wrapper converts each into pyramids&#39;</span>
-<a id="__codelineno-0-680" name="__codelineno-0-680"></a><span class="sd">            :class:`pyramids.base._errors.CRSError` so callers do not</span>
-<a id="__codelineno-0-681" name="__codelineno-0-681"></a><span class="sd">            need to import pyproj to catch bad-CRS failures, and the</span>
-<a id="__codelineno-0-682" name="__codelineno-0-682"></a><span class="sd">            message names both CRSes plus the underlying explanation.</span>
-<a id="__codelineno-0-683" name="__codelineno-0-683"></a><span class="sd">            Other exception types (`AttributeError`, `ImportError`,</span>
-<a id="__codelineno-0-684" name="__codelineno-0-684"></a><span class="sd">            …) propagate unchanged — they signal a real bug, not a bad</span>
-<a id="__codelineno-0-685" name="__codelineno-0-685"></a><span class="sd">            user input.</span>
-<a id="__codelineno-0-686" name="__codelineno-0-686"></a>
-<a id="__codelineno-0-687" name="__codelineno-0-687"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-688" name="__codelineno-0-688"></a><span class="sd">        - Reproject a WGS84 point into Web Mercator:</span>
-<a id="__codelineno-0-689" name="__codelineno-0-689"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-690" name="__codelineno-0-690"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import reproject_coordinates</span>
-<a id="__codelineno-0-691" name="__codelineno-0-691"></a><span class="sd">            &gt;&gt;&gt; x, y = reproject_coordinates(</span>
-<a id="__codelineno-0-692" name="__codelineno-0-692"></a><span class="sd">            ...     [31.0], [30.0], from_crs=4326, to_crs=3857</span>
-<a id="__codelineno-0-693" name="__codelineno-0-693"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-694" name="__codelineno-0-694"></a><span class="sd">            &gt;&gt;&gt; round(x[0])</span>
-<a id="__codelineno-0-695" name="__codelineno-0-695"></a><span class="sd">            3450904</span>
-<a id="__codelineno-0-696" name="__codelineno-0-696"></a><span class="sd">            &gt;&gt;&gt; round(y[0])</span>
-<a id="__codelineno-0-697" name="__codelineno-0-697"></a><span class="sd">            3503550</span>
-<a id="__codelineno-0-698" name="__codelineno-0-698"></a>
-<a id="__codelineno-0-699" name="__codelineno-0-699"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-700" name="__codelineno-0-700"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-701" name="__codelineno-0-701"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">):</span>
-<a id="__codelineno-0-702" name="__codelineno-0-702"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-703" name="__codelineno-0-703"></a>            <span class="sa">f</span><span class="s2">&quot;x and y must have equal length; got len(x)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="si">}</span><span class="s2"> vs. len(y)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span>
-<a id="__codelineno-0-704" name="__codelineno-0-704"></a>        <span class="p">)</span>
-<a id="__codelineno-0-705" name="__codelineno-0-705"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-706" name="__codelineno-0-706"></a>        <span class="n">transformer</span> <span class="o">=</span> <span class="n">Transformer</span><span class="o">.</span><span class="n">from_crs</span><span class="p">(</span><span class="n">from_crs</span><span class="p">,</span> <span class="n">to_crs</span><span class="p">,</span> <span class="n">always_xy</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-707" name="__codelineno-0-707"></a>    <span class="k">except</span> <span class="p">(</span><span class="n">pyproj</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CRSError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-<a id="__codelineno-0-708" name="__codelineno-0-708"></a>        <span class="k">raise</span> <span class="n">CRSError</span><span class="p">(</span>
-<a id="__codelineno-0-709" name="__codelineno-0-709"></a>            <span class="sa">f</span><span class="s2">&quot;reproject_coordinates failed to parse CRS &quot;</span>
-<a id="__codelineno-0-710" name="__codelineno-0-710"></a>            <span class="sa">f</span><span class="s2">&quot;(from_crs=</span><span class="si">{</span><span class="n">from_crs</span><span class="si">!r}</span><span class="s2">, to_crs=</span><span class="si">{</span><span class="n">to_crs</span><span class="si">!r}</span><span class="s2">): </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-711" name="__codelineno-0-711"></a>        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-<a id="__codelineno-0-712" name="__codelineno-0-712"></a>    <span class="n">xs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
-<a id="__codelineno-0-713" name="__codelineno-0-713"></a>    <span class="n">ys</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
-<a id="__codelineno-0-714" name="__codelineno-0-714"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)):</span>
-<a id="__codelineno-0-715" name="__codelineno-0-715"></a>        <span class="n">nx</span><span class="p">,</span> <span class="n">ny</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">y</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
-<a id="__codelineno-0-716" name="__codelineno-0-716"></a>        <span class="k">if</span> <span class="n">precision</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-717" name="__codelineno-0-717"></a>            <span class="n">nx</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">nx</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span>
-<a id="__codelineno-0-718" name="__codelineno-0-718"></a>            <span class="n">ny</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">ny</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span>
-<a id="__codelineno-0-719" name="__codelineno-0-719"></a>        <span class="n">xs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">nx</span>
-<a id="__codelineno-0-720" name="__codelineno-0-720"></a>        <span class="n">ys</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">ny</span>
-<a id="__codelineno-0-721" name="__codelineno-0-721"></a>    <span class="k">return</span> <span class="n">xs</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="n">ys</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+<a id="__codelineno-0-667" name="__codelineno-0-667"></a><span class="sd">            Decimal places to round each returned coordinate to, using</span>
+<a id="__codelineno-0-668" name="__codelineno-0-668"></a><span class="sd">            Python&#39;s built-in `round` — correctly rounded in decimal,</span>
+<a id="__codelineno-0-669" name="__codelineno-0-669"></a><span class="sd">            which is *not* the same as `numpy.round` on values that are</span>
+<a id="__codelineno-0-670" name="__codelineno-0-670"></a><span class="sd">            not exactly representable (`round(2.675, 2)` is `2.67`,</span>
+<a id="__codelineno-0-671" name="__codelineno-0-671"></a><span class="sd">            `numpy.round(2.675, 2)` is `2.68`). Pass `None` to disable</span>
+<a id="__codelineno-0-672" name="__codelineno-0-672"></a><span class="sd">            rounding and get the transformer&#39;s full output. Default `6`.</span>
+<a id="__codelineno-0-673" name="__codelineno-0-673"></a>
+<a id="__codelineno-0-674" name="__codelineno-0-674"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-675" name="__codelineno-0-675"></a><span class="sd">        tuple[list[float], list[float]]: `(x, y)` in the target CRS.</span>
+<a id="__codelineno-0-676" name="__codelineno-0-676"></a>
+<a id="__codelineno-0-677" name="__codelineno-0-677"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-678" name="__codelineno-0-678"></a><span class="sd">        ValueError: If `len(x)!= len(y)`.</span>
+<a id="__codelineno-0-679" name="__codelineno-0-679"></a><span class="sd">        CRSError: If :meth:`pyproj.Transformer.from_crs` raises one</span>
+<a id="__codelineno-0-680" name="__codelineno-0-680"></a><span class="sd">            of `pyproj.exceptions.CRSError` (malformed WKT / proj</span>
+<a id="__codelineno-0-681" name="__codelineno-0-681"></a><span class="sd">            string), `TypeError` (input is not CRS-like — e.g. a</span>
+<a id="__codelineno-0-682" name="__codelineno-0-682"></a><span class="sd">            bare `object()`), or `ValueError` (out-of-range EPSG</span>
+<a id="__codelineno-0-683" name="__codelineno-0-683"></a><span class="sd">            integer). The wrapper converts each into pyramids&#39;</span>
+<a id="__codelineno-0-684" name="__codelineno-0-684"></a><span class="sd">            :class:`pyramids.base._errors.CRSError` so callers do not</span>
+<a id="__codelineno-0-685" name="__codelineno-0-685"></a><span class="sd">            need to import pyproj to catch bad-CRS failures, and the</span>
+<a id="__codelineno-0-686" name="__codelineno-0-686"></a><span class="sd">            message names both CRSes plus the underlying explanation.</span>
+<a id="__codelineno-0-687" name="__codelineno-0-687"></a><span class="sd">            Other exception types (`AttributeError`, `ImportError`,</span>
+<a id="__codelineno-0-688" name="__codelineno-0-688"></a><span class="sd">            …) propagate unchanged — they signal a real bug, not a bad</span>
+<a id="__codelineno-0-689" name="__codelineno-0-689"></a><span class="sd">            user input.</span>
+<a id="__codelineno-0-690" name="__codelineno-0-690"></a>
+<a id="__codelineno-0-691" name="__codelineno-0-691"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-692" name="__codelineno-0-692"></a><span class="sd">        - Reproject a WGS84 point into Web Mercator:</span>
+<a id="__codelineno-0-693" name="__codelineno-0-693"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-694" name="__codelineno-0-694"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import reproject_coordinates</span>
+<a id="__codelineno-0-695" name="__codelineno-0-695"></a><span class="sd">            &gt;&gt;&gt; x, y = reproject_coordinates(</span>
+<a id="__codelineno-0-696" name="__codelineno-0-696"></a><span class="sd">            ...     [31.0], [30.0], from_crs=4326, to_crs=3857</span>
+<a id="__codelineno-0-697" name="__codelineno-0-697"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-698" name="__codelineno-0-698"></a><span class="sd">            &gt;&gt;&gt; round(x[0])</span>
+<a id="__codelineno-0-699" name="__codelineno-0-699"></a><span class="sd">            3450904</span>
+<a id="__codelineno-0-700" name="__codelineno-0-700"></a><span class="sd">            &gt;&gt;&gt; round(y[0])</span>
+<a id="__codelineno-0-701" name="__codelineno-0-701"></a><span class="sd">            3503550</span>
+<a id="__codelineno-0-702" name="__codelineno-0-702"></a>
+<a id="__codelineno-0-703" name="__codelineno-0-703"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-704" name="__codelineno-0-704"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-705" name="__codelineno-0-705"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">):</span>
+<a id="__codelineno-0-706" name="__codelineno-0-706"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-707" name="__codelineno-0-707"></a>            <span class="sa">f</span><span class="s2">&quot;x and y must have equal length; got len(x)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="si">}</span><span class="s2"> vs. len(y)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span>
+<a id="__codelineno-0-708" name="__codelineno-0-708"></a>        <span class="p">)</span>
+<a id="__codelineno-0-709" name="__codelineno-0-709"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-710" name="__codelineno-0-710"></a>        <span class="n">transformer</span> <span class="o">=</span> <span class="n">Transformer</span><span class="o">.</span><span class="n">from_crs</span><span class="p">(</span><span class="n">from_crs</span><span class="p">,</span> <span class="n">to_crs</span><span class="p">,</span> <span class="n">always_xy</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-711" name="__codelineno-0-711"></a>    <span class="k">except</span> <span class="p">(</span><span class="n">pyproj</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CRSError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-0-712" name="__codelineno-0-712"></a>        <span class="k">raise</span> <span class="n">CRSError</span><span class="p">(</span>
+<a id="__codelineno-0-713" name="__codelineno-0-713"></a>            <span class="sa">f</span><span class="s2">&quot;reproject_coordinates failed to parse CRS &quot;</span>
+<a id="__codelineno-0-714" name="__codelineno-0-714"></a>            <span class="sa">f</span><span class="s2">&quot;(from_crs=</span><span class="si">{</span><span class="n">from_crs</span><span class="si">!r}</span><span class="s2">, to_crs=</span><span class="si">{</span><span class="n">to_crs</span><span class="si">!r}</span><span class="s2">): </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-715" name="__codelineno-0-715"></a>        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+<a id="__codelineno-0-716" name="__codelineno-0-716"></a>    <span class="c1"># One vectorized call over the whole arrays rather than one call per point:</span>
+<a id="__codelineno-0-717" name="__codelineno-0-717"></a>    <span class="c1"># `Transformer.transform` accepts array input and does the loop in PROJ, so a</span>
+<a id="__codelineno-0-718" name="__codelineno-0-718"></a>    <span class="c1"># polygon ring with thousands of vertices costs one Python call, not thousands.</span>
+<a id="__codelineno-0-719" name="__codelineno-0-719"></a>    <span class="n">xs</span><span class="p">,</span> <span class="n">ys</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span>
+<a id="__codelineno-0-720" name="__codelineno-0-720"></a>        <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+<a id="__codelineno-0-721" name="__codelineno-0-721"></a>    <span class="p">)</span>
+<a id="__codelineno-0-722" name="__codelineno-0-722"></a>    <span class="n">out_x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">xs</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+<a id="__codelineno-0-723" name="__codelineno-0-723"></a>    <span class="n">out_y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">ys</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+<a id="__codelineno-0-724" name="__codelineno-0-724"></a>    <span class="k">if</span> <span class="n">precision</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-725" name="__codelineno-0-725"></a>        <span class="c1"># Round with the built-in, NOT `np.round`. They are not interchangeable:</span>
+<a id="__codelineno-0-726" name="__codelineno-0-726"></a>        <span class="c1"># `round` is correctly rounded in decimal, while `np.round` scales by</span>
+<a id="__codelineno-0-727" name="__codelineno-0-727"></a>        <span class="c1"># `10**precision`, rounds, and divides back, so the two disagree on values</span>
+<a id="__codelineno-0-728" name="__codelineno-0-728"></a>        <span class="c1"># that are not exactly representable -- `round(2.675, 2)` is `2.67` but</span>
+<a id="__codelineno-0-729" name="__codelineno-0-729"></a>        <span class="c1"># `np.round(2.675, 2)` is `2.68`, and at the default `precision=6` they</span>
+<a id="__codelineno-0-730" name="__codelineno-0-730"></a>        <span class="c1"># differ on roughly 1 in 3000 Web-Mercator-magnitude coordinates. Keeping</span>
+<a id="__codelineno-0-731" name="__codelineno-0-731"></a>        <span class="c1"># the built-in preserves the per-point implementation&#39;s output exactly;</span>
+<a id="__codelineno-0-732" name="__codelineno-0-732"></a>        <span class="c1"># the expensive part was the PROJ round trip, which is already vectorized.</span>
+<a id="__codelineno-0-733" name="__codelineno-0-733"></a>        <span class="n">out_x</span> <span class="o">=</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">out_x</span><span class="p">]</span>
+<a id="__codelineno-0-734" name="__codelineno-0-734"></a>        <span class="n">out_y</span> <span class="o">=</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">out_y</span><span class="p">]</span>
+<a id="__codelineno-0-735" name="__codelineno-0-735"></a>    <span class="k">return</span> <span class="n">out_x</span><span class="p">,</span> <span class="n">out_y</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>

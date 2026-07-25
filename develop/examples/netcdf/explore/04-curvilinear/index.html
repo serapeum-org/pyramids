@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6686,8 +6686,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=a3e15f54">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a3e15f54">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -6730,19 +6730,6 @@ from pyramids.feature import FeatureCollection
 from pyramids.netcdf import ColorOpts, NetCDF
 
 DATA = Path('../../../../examples/data/netcdf/samples')</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-25 17:16:58 | <span class="ansi-green-fg">INFO</span> | pyramids.base.config | Logging is configured.
-</pre>
 </div>
 </div>
 </div>
@@ -6868,34 +6855,6 @@ print(meta)</div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-25 17:16:59 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[1] Cannot find variable corresponding to coordinate hc
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-25 17:16:59 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[1] Cannot find variable corresponding to coordinate Vtransform
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-25 17:16:59 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[1] Cannot find variable corresponding to coordinate hc
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-25 17:16:59 | <span class="ansi-yellow-fg">WARNING</span> | pyramids.base.config.gdal | GDAL[1] Cannot find variable corresponding to coordinate Vtransform
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>NetCDFMetadata
   Driver: netCDF
@@ -6915,6 +6874,16 @@ print(meta)</div>
     salt dims=('/ocean_time', '/s_rho', '/eta_rho', '/xi_rho') shape=(2, 6, 191, 371) dtype=float32
     zeta dims=('/ocean_time', '/eta_rho', '/xi_rho') shape=(2, 191, 371) dtype=float32 unit='meter'
   Global attributes: Conventions, file, format, type, title, ... (34 total)
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>Warning 1: Cannot find variable corresponding to coordinate hc
+Warning 1: Cannot find variable corresponding to coordinate Vtransform
+Warning 1: Cannot find variable corresponding to coordinate hc
+Warning 1: Cannot find variable corresponding to coordinate Vtransform
 </pre>
 </div>
 </div>
@@ -8212,7 +8181,7 @@ print(meta)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[22]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fd606fb3360&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fa9999775c0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
