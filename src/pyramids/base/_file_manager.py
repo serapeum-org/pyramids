@@ -416,6 +416,12 @@ class _LRUCache(MutableMapping):
         accounting for (which could otherwise be a re-opened handle a live array is still reading). A
         manager that survives a `clear()` therefore falls back to pure LRU / interpreter-exit lifetime;
         that is an accepted trade-off, since `clear()` is an explicit hard reset.
+
+        A pinned key is left in the cache untouched. Unlike `close()`, this path is driven by garbage
+        collection rather than by a caller saying "I am done", so it can fire at an arbitrary moment --
+        including while another manager sharing the slot is mid-read inside `acquire_context()`.
+        Closing there would be a use-after-close, so the refcount is dropped and the entry is left for
+        LRU to reclaim once the reader unpins.
         """
         handle = None
         with self._lock:
@@ -425,7 +431,8 @@ class _LRUCache(MutableMapping):
                     self._refcounts[key] = tracked - 1
                 else:
                     self._refcounts.pop(key, None)
-                    handle = self._cache.pop(key, None)
+                    if not self._pins.get(key):
+                        handle = self._cache.pop(key, None)
         if handle is not None and self._on_evict is not None:
             # release() runs from a `weakref.finalize` callback, which has no caller to surface a close
             # failure to -- so log any error (e.g. an OSError flushing a remote `/vsi` handle, which
@@ -692,10 +699,17 @@ class CachingFileManager(FileManager):
     def acquire_context(self) -> Iterator[Any]:
         """Context manager yielding the handle; lock is held inside `with`.
 
-        The cache slot is pinned for the whole block, so another
-        manager's insert cannot LRU-evict and `Close()` the handle
-        mid-read (per-manager locks do not protect against that on
-        their own).
+        The cache slot is pinned for the whole block, so no *implicit*
+        reclaim can `Close()` the handle mid-read: LRU eviction, an
+        overwrite by a manager that lost the open race, and the
+        `auto_release` finalizer all skip pinned keys (per-manager
+        locks do not protect against any of those on their own).
+
+        The pin does **not** override an explicit teardown — a
+        concurrent :meth:`close` on a manager sharing this cache key,
+        or :meth:`_LRUCache.clear`, still closes the handle. Both are
+        a caller stating the handle is finished with; do not call
+        either while another thread is reading through the slot.
 
         On any exception raised inside the `with` block, the handle
         is preserved in the cache (other callers may still need it);
@@ -723,14 +737,28 @@ class CachingFileManager(FileManager):
                 self._cache.unpin(self._key)
 
     def _drop(self) -> None:
-        """Remove the handle from the cache without calling `on_evict`."""
+        """Remove the handle from the cache without calling `on_evict`.
+
+        Safe against an in-flight read regardless of pins: the entry
+        leaves the cache but the handle is never closed, so a reader
+        holding it keeps a live object and later callers simply miss
+        and re-open.
+        """
         try:
             del self._cache[self._key]
         except KeyError:
             pass
 
     def close(self) -> None:
-        """Remove the handle from the cache and close it."""
+        """Remove the handle from the cache and close it.
+
+        Explicit teardown: this closes the handle even when the slot is
+        pinned by an in-flight :meth:`acquire_context` on a manager
+        sharing the cache key. Pins guard against *implicit* reclaim
+        (LRU pressure, a lost open race, the `auto_release` finalizer),
+        not against a caller declaring the handle finished. Do not call
+        this while another thread is reading through the same slot.
+        """
         with self._lock:
             try:
                 handle = self._cache[self._key]

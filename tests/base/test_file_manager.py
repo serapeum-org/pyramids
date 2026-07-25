@@ -561,6 +561,53 @@ class TestCachingFileManagerEvictionSafety:
                 "another manager's cache insert"
             )
 
+    def test_auto_release_finalizer_leaves_a_pinned_slot_alone(self):
+        """The GC-driven `release()` path must not close a handle being read.
+
+        Test scenario:
+            `release()` fires from a `weakref.finalize`, so it lands at
+            an arbitrary moment — including while a manager sharing the
+            cache key is mid-read inside `acquire_context()`. Unlike
+            `close()`, nobody asked for teardown here, so a pinned slot
+            must survive and be left for the LRU.
+        """
+        cache = _LRUCache(maxsize=8, on_evict=_close_handle)
+        owner = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", auto_release=True
+        )
+        reader = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", lock=False
+        )
+        with reader.acquire_context() as handle:
+            del owner
+            gc.collect()
+            assert handle.closed is False, (
+                "the auto-release finalizer must not close a pinned handle"
+            )
+            assert reader._key in cache, "the pinned entry must stay cached"
+
+    def test_close_still_tears_down_a_pinned_slot(self):
+        """`close()` is explicit teardown and deliberately overrides the pin.
+
+        Test scenario:
+            Pins guard against implicit reclaim, not against a caller
+            declaring the handle finished. This documents the sharp
+            edge that `close()` and `clear()` retain, so the behaviour
+            is a decision rather than an oversight.
+        """
+        cache = _LRUCache(maxsize=8, on_evict=_close_handle)
+        first = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", lock=False
+        )
+        second = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", lock=False
+        )
+        with first.acquire_context() as handle:
+            second.close()
+            assert handle.closed is True, (
+                "close() is explicit teardown and overrides the pin by design"
+            )
+
     def test_slot_is_evictable_again_after_the_block(self):
         """The pin is released on exit, so the LRU bound is restored."""
         cache = _LRUCache(maxsize=1, on_evict=_close_handle)
