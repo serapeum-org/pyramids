@@ -685,8 +685,9 @@ class UgridDataset:
             geometries = MeshSpatialIndex(self._mesh).face_polygons
         elif location == "node":
             # Vectorized point construction — meshes routinely have 1e5-1e7 nodes, so a per-node
-            # Python `Point(...)` loop is a hot spot (ARC-59).
-            geometries = shapely.points(self._mesh.node_x, self._mesh.node_y)
+            # Python `Point(...)` loop is a hot spot (ARC-59). `list(...)` keeps the return type
+            # consistent with the face/edge branches (review N2).
+            geometries = list(shapely.points(self._mesh.node_x, self._mesh.node_y))
         elif location == "edge":
             if self._mesh.edge_node_connectivity is None:
                 raise ValueError("Edge connectivity not available.")
@@ -703,7 +704,7 @@ class UgridDataset:
         ):
             xs = self._mesh.node_x[node_idx]
             ys = self._mesh.node_y[node_idx]
-            return shapely.linestrings(np.stack([xs, ys], axis=-1))
+            return list(shapely.linestrings(np.stack([xs, ys], axis=-1)))
         # Rare ragged / filled edge connectivity: fall back to a per-edge build.
         return [
             LineString(
