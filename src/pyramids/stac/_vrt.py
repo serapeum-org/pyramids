@@ -15,9 +15,10 @@ Completeness note: GDAL treats a source it cannot use — an unreadable href, a
 band count or CRS that disagrees with the first source — as a *warning*, drops
 it, and builds the mosaic from what is left. That turns an expired signed URL
 into a silently incomplete mosaic whose missing tiles read as nodata, so
-:func:`build_vrt_from_stac` raises when any requested source was skipped
-(``strict=True``, the default); pass ``strict=False`` for best-effort behaviour
-with a warning instead.
+:func:`build_vrt_from_stac` reports the skip. Today it warns
+(``strict=None``, the default) and adds a ``DeprecationWarning``; **from the
+next minor release the default becomes ``strict=True`` and the skip raises**.
+Pass ``strict=True`` or ``strict=False`` explicitly to pin either behaviour.
 
 Signer note: a VRT opens its sources lazily, on the first *pixel* read, and GDAL
 does not consult the thread-local config (what ``CloudConfig`` installs) when it
@@ -369,7 +370,7 @@ def redact(href: str) -> str:
 
 
 def _check_dropped_sources(
-    dropped: list[str], total: int, asset: str, strict: bool
+    dropped: list[str], total: int, asset: str, strict: bool | None
 ) -> None:
     """Raise (or warn) when `gdal.BuildVRT` skipped part of the requested mosaic.
 
@@ -379,13 +380,17 @@ def _check_dropped_sources(
             into the message this raises.
         total: How many sources were requested.
         asset: The asset key being mosaicked (for the message).
-        strict: Raise :class:`RuntimeError` when `True`, warn when `False`.
+        strict: Raise :class:`RuntimeError` when `True`; warn when `False`;
+            when `None` (the current default) warn and add a
+            :class:`DeprecationWarning` that the default flips to `True`.
 
     Raises:
         RuntimeError: `strict` is `True` and at least one source was skipped.
 
     Warns:
-        UserWarning: `strict` is `False` and at least one source was skipped.
+        UserWarning: `strict` is not `True` and at least one source was skipped.
+        DeprecationWarning: `strict` is `None` and at least one source was
+            skipped — the caller is relying on a default that is about to change.
 
     Examples:
         - A complete build passes silently:
@@ -429,6 +434,16 @@ def _check_dropped_sources(
                 f"{message} Pass strict=False to build the partial mosaic anyway."
             )
         warnings.warn(message, UserWarning, stacklevel=3)
+        if strict is None:
+            warnings.warn(
+                "build_vrt_from_stac returned this incomplete mosaic because "
+                "strict defaults to None. That default becomes True in the next "
+                "minor release, and the skip above will raise instead. Pass "
+                "strict=True to adopt that now, or strict=False to keep the "
+                "partial mosaic and silence this warning.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
 
 
 def build_vrt_from_stac(
@@ -437,7 +452,7 @@ def build_vrt_from_stac(
     *,
     signer: Any = None,
     separate: bool = False,
-    strict: bool = True,
+    strict: bool | None = None,
 ) -> Dataset:
     """Mosaic one STAC asset across items into a lazy VRT-backed `Dataset`.
 
@@ -454,9 +469,12 @@ def build_vrt_from_stac(
             (overlapping/tiling sources compose into one image — the stac-vrt
             model). When `True`, each source becomes a separate band (a
             band-stack VRT), which requires the sources to share a grid.
-        strict: When `True` (default), raise if GDAL skipped any requested
-            source, so a partially-built mosaic is never mistaken for a
-            complete one. When `False`, warn and return the partial mosaic.
+        strict: What to do when GDAL skips a requested source. `True` raises,
+            so a partially-built mosaic is never mistaken for a complete one.
+            `False` warns and returns the partial mosaic. `None` (the current
+            default) behaves like `False` and adds a `DeprecationWarning`:
+            **the default becomes `True` in the next minor release**. Pass an
+            explicit value to pin the behaviour you want across that change.
 
     Returns:
         Dataset: A lazy `Dataset` over an in-memory `.vrt`; GDAL reads the
@@ -470,7 +488,9 @@ def build_vrt_from_stac(
             some of them (unreadable href, mismatched band count or CRS).
 
     Warns:
-        UserWarning: With `strict=False`, when some sources were skipped.
+        UserWarning: When some sources were skipped and `strict` is not `True`.
+        DeprecationWarning: When some sources were skipped and `strict` was left
+            at its default, which is about to change.
 
     Examples:
         - Mosaic the `visual` asset of several items into one lazy Dataset

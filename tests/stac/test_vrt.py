@@ -6,6 +6,8 @@ GeoTIFF tiles (no network); the VRT references them and reads lazily.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 from osgeo import gdal
@@ -275,7 +277,7 @@ class TestCredentialsStayOutOfMessages:
             {"assets": {"d": {"href": "https://host.invalid/gone.tif"}}},
         ]
         with pytest.raises(RuntimeError) as exc:
-            build_vrt_from_stac(items, asset="d", signer=self._signer())
+            build_vrt_from_stac(items, asset="d", signer=self._signer(), strict=True)
         assert "SUPERSECRET" not in str(exc.value), (
             f"the bearer token leaked into the error: {exc.value}"
         )
@@ -319,7 +321,7 @@ class TestCredentialsStayOutOfMessages:
             {"assets": {"d": {"href": "https://host.invalid/gone.tif"}}},
         ]
         with pytest.raises(RuntimeError) as exc:
-            build_vrt_from_stac(items, asset="d", signer=_SasSigner())
+            build_vrt_from_stac(items, asset="d", signer=_SasSigner(), strict=True)
         assert "SASSECRET" not in str(exc.value), (
             f"the SAS token leaked into the error: {exc.value}"
         )
@@ -387,7 +389,7 @@ class TestBuildVrtSourceCompleteness:
             so the mosaic would silently cover half the requested footprint.
         """
         with pytest.raises(RuntimeError, match="skipped 1 of 2"):
-            build_vrt_from_stac(mismatched_band_tiles, asset="data")
+            build_vrt_from_stac(mismatched_band_tiles, asset="data", strict=True)
 
     def test_unreadable_source_raises(self, adjacent_tiles, tmp_path):
         """An unreadable href (404 / expired URL) fails the build.
@@ -400,7 +402,7 @@ class TestBuildVrtSourceCompleteness:
             {"assets": {"data": {"href": str(tmp_path / "gone.tif")}}},
         ]
         with pytest.raises(RuntimeError, match="skipped 1 of 2"):
-            build_vrt_from_stac(items, asset="data")
+            build_vrt_from_stac(items, asset="data", strict=True)
 
     def test_error_names_the_dropped_source(self, mismatched_band_tiles):
         """The error lists the href that was dropped, not just a count.
@@ -410,7 +412,7 @@ class TestBuildVrtSourceCompleteness:
         """
         dropped_href = mismatched_band_tiles[1]["assets"]["data"]["href"]
         with pytest.raises(RuntimeError) as exc:
-            build_vrt_from_stac(mismatched_band_tiles, asset="data")
+            build_vrt_from_stac(mismatched_band_tiles, asset="data", strict=True)
         assert dropped_href in str(exc.value), (
             f"dropped href {dropped_href!r} missing from: {exc.value}"
         )
@@ -445,7 +447,7 @@ class TestBuildVrtSourceCompleteness:
         """
         items = [{"assets": {"data": {"href": str(tmp_path / "nope.tif")}}}]
         with pytest.raises(RuntimeError, match="returned None"):
-            build_vrt_from_stac(items, asset="data")
+            build_vrt_from_stac(items, asset="data", strict=True)
 
 
 class TestSourceCredentialEmbedding:
@@ -738,7 +740,56 @@ class TestBuildVrtArtifactCleanup:
         """
         before = vsimem_entries()
         with pytest.raises(RuntimeError, match="skipped"):
-            build_vrt_from_stac(mismatched_band_tiles, asset="data")
+            build_vrt_from_stac(mismatched_band_tiles, asset="data", strict=True)
         assert vsimem_entries() - before == set(), (
             "the VRT must be unlinked when the completeness guard fails"
         )
+
+
+class TestStrictDefaultDeprecation:
+    """The default flips to strict=True next minor, so the default warns now."""
+
+    def test_default_warns_and_returns_the_partial_mosaic(self, mismatched_band_tiles):
+        """Leaving strict unset keeps today's behaviour and flags the change.
+
+        Test scenario:
+            A skipped source warns twice — once about the incomplete mosaic, once
+            that this default is going away — and still returns the partial VRT.
+        """
+        with pytest.warns(DeprecationWarning, match="becomes True in the next"):
+            ds = build_vrt_from_stac(mismatched_band_tiles, asset="data")
+        assert ds.read_array().shape == (4, 4), "the partial mosaic should be returned"
+
+    def test_default_also_warns_about_the_skip(self, mismatched_band_tiles):
+        """The completeness warning still fires under the default.
+
+        Test scenario:
+            The deprecation notice must not replace the actual problem report.
+        """
+        with pytest.warns(UserWarning, match="skipped 1 of 2"):
+            build_vrt_from_stac(mismatched_band_tiles, asset="data")
+
+    def test_explicit_false_does_not_deprecation_warn(self, mismatched_band_tiles):
+        """A caller who pinned strict=False has nothing to migrate.
+
+        Test scenario:
+            Only the completeness warning fires.
+        """
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            build_vrt_from_stac(mismatched_band_tiles, asset="data", strict=False)
+        kinds = [w.category for w in caught]
+        assert DeprecationWarning not in kinds, f"unexpected deprecation: {kinds}"
+        assert UserWarning in kinds, f"the skip should still warn: {kinds}"
+
+    def test_complete_build_never_warns(self, adjacent_tiles):
+        """A clean build under the default is silent.
+
+        Test scenario:
+            The deprecation notice fires only when the default actually changes
+            the outcome — i.e. only when a source was skipped.
+        """
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            build_vrt_from_stac(adjacent_tiles, asset="data")
+        assert not caught, f"a complete build should not warn: {[str(w) for w in caught]}"
