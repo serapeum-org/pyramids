@@ -212,6 +212,8 @@ class Vectorize(_Engine["Dataset"]):
                 Default is None.
             tile (bool):
                 True to use tiles in extracting the values from the raster. Default is False.
+                Tiling is a memory strategy only — it reads the same cells as the untiled
+                path, `mask` included, and returns the same rows.
             tile_size (int):
                 Tile size. Default is 1500.
             touch (bool):
