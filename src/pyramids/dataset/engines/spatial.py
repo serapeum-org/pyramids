@@ -1629,15 +1629,20 @@ class Spatial(_Engine["Dataset"]):
         """
         big_array = src.read_array()
         value_to_remove = src.no_data_value[0]
+        # `is_no_data`, not `==`: a NaN sentinel never equals itself, so `==` marks
+        # nothing and the all-no-data frame GDAL leaves after a cutline warp
+        # survives -- an oversized crop carrying a no-data border. The helper is
+        # already imported and used for exactly this three times in this module.
+        no_data_mask = is_no_data(big_array, value_to_remove)
         # Find rows and columns to be removed
         if big_array.ndim == 2:
-            rows_to_remove = np.all(big_array == value_to_remove, axis=1)
-            cols_to_remove = np.all(big_array == value_to_remove, axis=0)
+            rows_to_remove = np.all(no_data_mask, axis=1)
+            cols_to_remove = np.all(no_data_mask, axis=0)
             # Use boolean indexing to remove rows and columns
             small_array = big_array[~rows_to_remove][:, ~cols_to_remove]
         elif big_array.ndim == 3:
-            rows_to_remove = np.all(big_array == value_to_remove, axis=(0, 2))
-            cols_to_remove = np.all(big_array == value_to_remove, axis=(0, 1))
+            rows_to_remove = np.all(no_data_mask, axis=(0, 2))
+            cols_to_remove = np.all(no_data_mask, axis=(0, 1))
             # Use boolean indexing to remove rows and columns
             # first remove the rows then the columns
             small_array = big_array[:, ~rows_to_remove, :]
