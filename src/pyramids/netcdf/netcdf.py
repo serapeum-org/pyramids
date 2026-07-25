@@ -9,6 +9,7 @@ from __future__ import annotations
 import gc
 import itertools
 import math
+import os
 import threading
 import warnings
 import weakref
@@ -23,6 +24,7 @@ from pyramids import _io
 from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg
 from pyramids.base.protocols import ArrayLike
+from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset
 from pyramids.dataset.dataset import _COLLABORATOR_ATTRS
 from pyramids.feature import FeatureCollection
@@ -2361,6 +2363,27 @@ class NetCDF(Dataset):
         return scalar_no_data(no_data_value)
 
     @staticmethod
+    def _is_file_backed(var: NetCDF) -> bool:
+        """True when the variable's data lives in a reopenable file, so a lazy chunk read is possible.
+
+        An in-memory container (`create_from_array` / `from_xarray`) has no file for the lazy chunk
+        graph to reopen; streaming it saves nothing and the reopen would fail.
+
+        Args:
+            var: The variable subset to probe.
+
+        Returns:
+            True when the source path exists on disk or is a remote (`/vsi*` / cloud) URL.
+        """
+        parent = var._parent_nc if var._parent_nc is not None else var
+        path = parent._file_name
+        if not path:
+            return False
+        if path.startswith("NETCDF"):
+            path = path.split(":")[1][1:-1]
+        return os.path.exists(path) or is_remote(path)
+
+    @staticmethod
     def _materialize_variable_array(var: NetCDF, lazy: bool = False) -> Any:
         """Read a variable as `(*band_dim_sizes, rows, cols)` (or `(rows, cols)`).
 
@@ -2371,14 +2394,15 @@ class NetCDF(Dataset):
         read (undoing `read_array`'s singleton-band squeeze and GDAL's row-major band flatten) when
         `lazy` is False or dask (the `[lazy]` extra) is not installed.
         """
-        if lazy:
+        if lazy and NetCDF._is_file_backed(var):
+            # Only stream a genuinely file-backed variable: an in-memory container has no file for the
+            # chunk graph to reopen and is already fully in RAM, so streaming saves nothing. Checking
+            # file-backing up front (rather than a broad except) lets a real file-backed read error
+            # propagate instead of silently degrading to a whole-cube eager read / OOM (review M1).
             try:
                 return var.read_array(chunks="auto")
-            except (ImportError, RuntimeError, ValueError):
-                # dask missing, or the variable is not file-backed (an in-memory container has no
-                # file for the chunk graph to reopen). An in-memory array is already fully in RAM, so
-                # streaming it would save nothing -- fall through to the eager read.
-                pass
+            except ImportError:
+                pass  # dask (the [lazy] extra) not installed -> eager fallback below
         arr = var.read_array()
         if var._band_dim_names:
             if arr.ndim == 2:
