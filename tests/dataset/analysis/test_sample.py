@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from geopandas import GeoDataFrame
+from osgeo import gdal, osr
 from shapely.geometry import Point
 
 from pyramids.base._errors import OutOfBoundsError
@@ -244,3 +245,70 @@ class TestSample:
         df = pd.DataFrame({"lon": [0.5], "lat": [4.5]})
         with pytest.raises(ValueError, match="must have 'x' and 'y' columns"):
             two_band.sample(df, bands=0)
+
+
+class TestHistogramEdgesAndStatsPrecision:
+    """ARC-27: bucket edges must describe the buckets that were counted."""
+
+    @staticmethod
+    def _ramp() -> Dataset:
+        """A 10x10 raster holding 0..99.
+
+        Returns:
+            Dataset: In-memory single-band dataset.
+        """
+        array = np.arange(100, dtype="float32").reshape(10, 10)
+        raster = gdal.GetDriverByName("MEM").Create("", 10, 10, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 10.0, 0.0, -1.0))
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        raster.SetProjection(srs.ExportToWkt())
+        band = raster.GetRasterBand(1)
+        band.WriteArray(array)
+        band.SetNoDataValue(-9999.0)
+        return Dataset(raster)
+
+    def test_edges_follow_the_requested_range(self):
+        """Narrowing the range moves the reported edges with it.
+
+        Test scenario:
+            `bin_width` came from the caller's `min_value`/`max_value` but the
+            edges were anchored at the raster minimum, so a narrowed request
+            returned edges describing buckets `GetHistogram` never filled.
+        """
+        dataset = self._ramp()
+        _, ranges = dataset.get_histogram(band=0, bins=5, min_value=50, max_value=100)
+        assert ranges[0][0] == pytest.approx(50.0), (
+            f"first edge should be the requested min_value 50, got {ranges[0][0]}"
+        )
+        assert ranges[-1][1] == pytest.approx(100.0), (
+            f"last edge should be the requested max_value 100, got {ranges[-1][1]}"
+        )
+
+    def test_default_range_still_spans_the_raster(self):
+        """With no narrowing the edges still start at the raster minimum."""
+        dataset = self._ramp()
+        _, ranges = dataset.get_histogram(band=0, bins=5)
+        assert ranges[0][0] == pytest.approx(0.0), (
+            f"the default range must start at the raster min, got {ranges[0][0]}"
+        )
+
+    def test_stats_exposes_approx_ok(self):
+        """`stats` lets the caller demand exact figures.
+
+        Test scenario:
+            `GetStatistics(True, True)` was hard-coded, so the returned
+            min/max/mean/std could come from overviews or a subsample with no
+            way to ask for the exact values.
+        """
+        dataset = self._ramp()
+        exact = dataset.stats(approx_ok=False)
+        assert list(exact.columns) == ["min", "max", "mean", "std"], (
+            f"unexpected columns: {list(exact.columns)}"
+        )
+        assert float(exact["min"].iloc[0]) == pytest.approx(0.0), (
+            f"exact min over 0..99 should be 0, got {exact['min'].iloc[0]}"
+        )
+        assert float(exact["max"].iloc[0]) == pytest.approx(99.0), (
+            f"exact max over 0..99 should be 99, got {exact['max'].iloc[0]}"
+        )

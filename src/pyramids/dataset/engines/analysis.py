@@ -38,7 +38,11 @@ class Analysis(_Engine["Dataset"]):
     """Mixin providing analysis, statistics, and data extraction operations for Dataset."""
 
     def stats(
-        self, band: int | None = None, mask: GeoDataFrame | None = None
+        self,
+        band: int | None = None,
+        mask: GeoDataFrame | None = None,
+        *,
+        approx_ok: bool = True,
     ) -> DataFrame:
         """Get statistics of a band [Min, max, mean, std].
 
@@ -47,6 +51,11 @@ class Analysis(_Engine["Dataset"]):
                 Band index. If None, the statistics of all bands will be returned.
             mask (Polygon GeoDataFrame or Dataset, optional):
                 GeodataFrame with a geometry of polygon type.
+            approx_ok (bool, optional):
+                Allow GDAL to answer from overviews or a subsample rather than
+                reading every pixel. Default `True`, which is fast but can return
+                values that differ from the exact ones -- pass `False` when the
+                figures must be exact.
 
         Returns:
             DataFrame:
@@ -136,9 +145,9 @@ class Analysis(_Engine["Dataset"]):
             )
             for i in range(self._ds.band_count):
                 if mask is not None and dst is not None:
-                    df.iloc[i, :] = dst.analysis._get_stats(i)
+                    df.iloc[i, :] = dst.analysis._get_stats(i, approx_ok=approx_ok)
                 else:
-                    df.iloc[i, :] = self._get_stats(i)
+                    df.iloc[i, :] = self._get_stats(i, approx_ok=approx_ok)
         else:
             df = pd.DataFrame(
                 index=[self._ds.band_names[band]],
@@ -146,13 +155,15 @@ class Analysis(_Engine["Dataset"]):
                 dtype=np.float32,
             )
             if mask is not None and dst is not None:
-                df.iloc[0, :] = dst.analysis._get_stats(band)
+                df.iloc[0, :] = dst.analysis._get_stats(band, approx_ok=approx_ok)
             else:
-                df.iloc[0, :] = self._get_stats(band)
+                df.iloc[0, :] = self._get_stats(band, approx_ok=approx_ok)
 
         return df
 
-    def _get_stats(self, band: int | None = None) -> list[float]:
+    def _get_stats(
+        self, band: int | None = None, *, approx_ok: bool = True
+    ) -> list[float]:
         """Return summary statistics for one band.
 
         Reads GDAL band statistics, computing them on the fly when the cached values are
@@ -168,7 +179,12 @@ class Analysis(_Engine["Dataset"]):
         band_index = band if band is not None else 0
         band_i = self._ds._iloc(band_index)
         try:
-            vals = band_i.GetStatistics(True, True)
+            # First argument is GDAL's `approx_ok`: True lets it answer from
+            # overviews or a subsample. It was hard-coded, so `stats()` could
+            # silently return approximated figures with no way to ask for exact
+            # ones; it is now the caller's choice, defaulting to the old
+            # behaviour.
+            vals = band_i.GetStatistics(approx_ok, True)
         except RuntimeError:
             # when the GetStatistics gives an error "RuntimeError: Failed to compute statistics, no valid pixels
             # found in sampling."
@@ -1465,8 +1481,12 @@ class Analysis(_Engine["Dataset"]):
             max_value = max_val
 
         bin_width = (max_value - min_value) / bins
+        # Anchor the edges at `min_value`, the range the buckets were actually
+        # computed over, not at the raster minimum. When a caller narrowed the
+        # range the two differ, so the returned edges described buckets that
+        # `GetHistogram` never filled.
         ranges = [
-            (min_val + i * bin_width, min_val + (i + 1) * bin_width)
+            (min_value + i * bin_width, min_value + (i + 1) * bin_width)
             for i in range(bins)
         ]
 
