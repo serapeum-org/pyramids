@@ -284,8 +284,9 @@ class TestContainerGuard:
             Each raster-only method (band_count == 0 store) must reject the container with the
             "use get_variable(...)" message instead of an opaque GDAL error.
         """
+        bound_method = getattr(container, method)
         with pytest.raises(ValueError, match="get_variable"):
-            getattr(container, method)()
+            bound_method()
 
     def test_variable_allows_read_array(self, variable):
         """A Variable's container guard is a no-op, so read_array works.
