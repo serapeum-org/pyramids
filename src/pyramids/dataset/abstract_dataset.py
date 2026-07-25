@@ -1027,6 +1027,11 @@ class RasterBase(ABC):
             raise TypeError(
                 "Setting CRS for ASCII file is not possible, you can save the files to a geotiff and then reset the crs"
             )
+        # Validate the arguments before the read-only guard so an invalid call
+        # (neither crs nor epsg) reports the actionable ValueError regardless of
+        # access mode, rather than a ReadOnlyError that hides the real mistake.
+        if crs is None and epsg is None:
+            raise ValueError("Either crs or epsg must be provided.")
         self._require_writable("set the CRS")
         # first change the projection of the gdal dataset object
         # second change the epsg attribute of the Dataset object
@@ -1036,12 +1041,10 @@ class RasterBase(ABC):
             # epsg_from_wkt absorbs the historical 4326 fallback so
             # datasets with a missing projection still get tagged.
             self._epsg = epsg_from_wkt(crs)
-        elif epsg is not None:
+        else:
             sr = sr_from_epsg(epsg)
             self.raster.SetProjection(sr.ExportToWkt())
             self._epsg = epsg
-        else:
-            raise ValueError("Either crs or epsg must be provided.")
 
     @abstractmethod
     def to_crs(
