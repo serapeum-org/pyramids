@@ -232,6 +232,12 @@ class _LRUCache(MutableMapping):
         # one `acquire_context()` block and only makes the slot un-evictable for that window, it
         # never closes anything. Without it a manager's insert can LRU-evict and `Close()` a handle
         # another manager is mid-read through, since every manager carries its own lock.
+        #
+        # EVERY path that removes or replaces a cached value must consult `_pins` before handing the
+        # old value to `on_evict` -- closing a handle a reader still holds is undefined behaviour in
+        # GDAL, whereas skipping the close only defers it to the reader's own reference. The
+        # size-driven paths (`_select_evictions`) and the overwrite path (`__setitem__`) both do;
+        # `clear()` and `close()` deliberately do not and say so in their docstrings.
         self._pins: dict[Hashable, int] = {}
 
     @property
@@ -300,11 +306,17 @@ class _LRUCache(MutableMapping):
                 displaced = self._cache[key]
                 self._cache.move_to_end(key)
                 self._cache[key] = value
-                if displaced is not value:
+                if displaced is not value and not self._pins.get(key):
                     # Overwriting a live key drops the old handle; hand it to `on_evict` or the
                     # file descriptor leaks. Reachable whenever two managers share a `manager_id`
                     # with `lock=False` (e.g. `_read_time_step`'s `manager_id=path`): both can
                     # miss, both open, and both assign.
+                    #
+                    # A pinned key is exactly that interleaving with a reader inside
+                    # `acquire_context()`, and the handle being displaced is the one it is reading
+                    # through -- closing it there is a use-after-close, strictly worse than the
+                    # descriptor leak. Leave it to the reader's own reference (SWIG closes the
+                    # orphan when the last one drops), the same trade-off `_select_evictions` makes.
                     to_evict.append((key, displaced))
             else:
                 # Trim to `maxsize - 1` first so the cache lands exactly at `maxsize` after the

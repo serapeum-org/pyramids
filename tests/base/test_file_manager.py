@@ -196,6 +196,34 @@ class TestLRUCache:
         )
         assert cache["a"] is handle
 
+    def test_setitem_does_not_close_a_pinned_displaced_value(self):
+        """Overwriting a *pinned* key must not release what it displaces.
+
+        Test scenario:
+            The overwrite path exists because two managers sharing a
+            `manager_id` can both miss, both open and both assign. When
+            the first of them is inside `acquire_context()` the handle
+            being displaced is the one it is actively reading through,
+            so closing it is a use-after-close — strictly worse than the
+            descriptor leak the release was added to prevent. The pin
+            must suppress the release exactly as it does for LRU
+            eviction.
+        """
+        evicted: list = []
+        cache = _LRUCache(maxsize=4, on_evict=lambda k, v: evicted.append((k, v)))
+        cache["a"] = 1
+        cache.pin("a")
+        cache["a"] = 99
+        assert evicted == [], (
+            f"A pinned key's displaced value must not be released, got {evicted}"
+        )
+        assert cache["a"] == 99, "the new value must still be installed"
+        cache.unpin("a")
+        cache["a"] = 100
+        assert evicted == [("a", 99)], (
+            f"Once unpinned the overwrite releases again, got {evicted}"
+        )
+
     def test_iter_yields_keys_in_lru_order(self):
         """Iterating the cache returns keys snapshot-safely.
 
