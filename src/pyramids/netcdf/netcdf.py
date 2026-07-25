@@ -3151,7 +3151,8 @@ class NetCDF(Dataset):
             variable: Name of the variable to extract from each file.
             chunks: Chunk spec forwarded to
                 :meth:`NetCDF.read_array`.
-            parallel: Fan out per-file opens through `dask.delayed`.
+            parallel: Deprecated and inert; kept for backward compatibility.
+                Passing a truthy value emits a `DeprecationWarning`.
             preprocess: Optional callable applied to each
                 :class:`NetCDF` before extraction.
 

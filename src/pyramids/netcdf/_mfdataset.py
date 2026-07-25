@@ -14,14 +14,16 @@ along time) that narrowness is the whole point — no metadata
 inference means no failure modes when one file has a different
 schema.
 
-`parallel=True` wraps each file's metadata read in
-:func:`dask.delayed`, so opening 500 files on a distributed cluster
-fans out over workers rather than blocking sequentially.
+The `parallel` argument is deprecated and inert: every per-file read
+is already lazy, so dask parallelises the per-chunk reads at compute
+time without an eager `dask.delayed` fan-out. Passing it emits a
+:class:`DeprecationWarning`.
 """
 
 from __future__ import annotations
 
 import glob
+import warnings
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -97,10 +99,11 @@ def open_mfdataset(
             (the default) reads each file lazily with `"auto"`
             (native-ish) chunking so the files are not all materialised
             into RAM before stacking; pass an explicit spec to override.
-        parallel: Retained for API compatibility only; it has no effect.
-            Every per-file read returns a lazy dask array, so the scheduler
-            already parallelises the per-chunk reads at compute time and
-            there is no separate eager `dask.delayed` fan-out to enable.
+        parallel: Deprecated and inert; retained only for backward-compatible
+            call signatures. Every per-file read returns a lazy dask array, so
+            the scheduler already parallelises the per-chunk reads at compute
+            time and there is no separate eager `dask.delayed` fan-out to
+            enable. Passing a truthy value emits a `DeprecationWarning`.
         preprocess: Optional callable applied to each
             :class:`NetCDF` subset before its array is extracted —
             for example to unpack scale/offset, crop, or drop
@@ -131,6 +134,15 @@ def open_mfdataset(
         import dask.array as da
     except ImportError as exc:
         raise ImportError(_LAZY_IMPORT_ERROR) from exc
+
+    if parallel:
+        warnings.warn(
+            "open_mfdataset(parallel=...) is deprecated and has no effect: the default lazy "
+            "per-file read already parallelises chunk reads at compute time. The argument is "
+            "accepted for backward compatibility and will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     resolved = _resolve_paths(paths)
     # Default to a lazy per-file read (native-ish `"auto"` chunking) so the stack does not

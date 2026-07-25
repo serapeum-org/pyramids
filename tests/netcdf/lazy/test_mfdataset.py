@@ -1,8 +1,8 @@
 """Tests for :meth:`NetCDF.open_mfdataset`.
 
 DASK-12: multi-file NetCDF open — stacks one named variable from every
-file into a single lazy :class:`dask.array.Array`. ``parallel=True``
-fans out metadata reads via :func:`dask.delayed`.
+file into a single lazy :class:`dask.array.Array`. ``parallel`` is a
+deprecated, inert flag kept only for backward compatibility.
 """
 
 from __future__ import annotations
@@ -54,7 +54,19 @@ class TestMultiFile:
 
 
 class TestParallelMode:
-    """parallel=True routes per-file opens through dask.delayed."""
+    """`parallel` is a deprecated, inert flag identical to the default lazy path."""
+
+    @requires_dask
+    def test_parallel_true_emits_deprecation_warning(self):
+        """Passing `parallel=True` warns that the flag is deprecated and inert.
+
+        Test scenario:
+            A truthy `parallel` must raise a `DeprecationWarning` mentioning it is deprecated,
+            while still returning the same lazy stack as the default.
+        """
+        with pytest.warns(DeprecationWarning, match="deprecated"):
+            stack = NetCDF.open_mfdataset([FIXTURE], variable="values", parallel=True)
+        assert stack.shape[0] == 1, f"expected a 1-element stack, got {stack.shape}"
 
     @requires_dask
     def test_parallel_equivalent_to_sequential(self):
@@ -63,11 +75,12 @@ class TestParallelMode:
             variable="values",
             parallel=False,
         ).compute()
-        par = NetCDF.open_mfdataset(
-            [FIXTURE, FIXTURE],
-            variable="values",
-            parallel=True,
-        ).compute()
+        with pytest.warns(DeprecationWarning):
+            par = NetCDF.open_mfdataset(
+                [FIXTURE, FIXTURE],
+                variable="values",
+                parallel=True,
+            ).compute()
         assert seq.shape == par.shape
 
     @requires_dask
@@ -75,35 +88,34 @@ class TestParallelMode:
         """With the default (lazy) per-file read, parallel and sequential stacks are identical (ARC-48).
 
         Test scenario:
-            The lazy default returns dask arrays per file; the parallel path must read them directly
-            (not nest them in `dask.delayed`), so both modes compute the same values.
+            The lazy default returns dask arrays per file; the (inert) parallel path reads them
+            directly, so both modes compute the same values.
         """
         seq = NetCDF.open_mfdataset(
             [FIXTURE, FIXTURE], variable="values", parallel=False
         ).compute()
-        par = NetCDF.open_mfdataset(
-            [FIXTURE, FIXTURE], variable="values", parallel=True
-        ).compute()
+        with pytest.warns(DeprecationWarning):
+            par = NetCDF.open_mfdataset(
+                [FIXTURE, FIXTURE], variable="values", parallel=True
+            ).compute()
         np.testing.assert_array_equal(
             par, seq, err_msg="parallel stack diverged from sequential under the lazy default"
         )
 
     @requires_dask
     def test_parallel_frames_have_uniform_chunks(self):
-        """Element 0 has the same chunk structure as the delayed frames (review L3).
+        """Every stacked frame is a single block along the stacked axis (review L3).
 
         Test scenario:
-            In ``parallel=True`` mode element 0 used to be wrapped with
-            ``da.from_array(..., chunks="auto")`` while the other frames came from
-            ``da.from_delayed`` (one block per file). Stack three copies and assert every
-            stacked frame is a single block along the stacked axis, so the chunking is
-            uniform across frames (no element-0 outlier).
+            Stack three copies via the (inert) parallel path and assert every stacked frame is a
+            single block along the stacked axis, so the chunking is uniform across frames.
         """
-        stack = NetCDF.open_mfdataset(
-            [FIXTURE, FIXTURE, FIXTURE],
-            variable="values",
-            parallel=True,
-        )
+        with pytest.warns(DeprecationWarning):
+            stack = NetCDF.open_mfdataset(
+                [FIXTURE, FIXTURE, FIXTURE],
+                variable="values",
+                parallel=True,
+            )
         # da.stack adds the leading axis; one block per file means chunks[0] == (1, 1, 1).
         assert stack.chunks[0] == (
             1,
