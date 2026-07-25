@@ -1504,7 +1504,13 @@ class Dataset(RasterBase):
 
     @band_names.setter
     def band_names(self, name_list: list):
-        """Band names."""
+        """Band names setter.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (a bare
+                `SetDescription` would otherwise silently spill a PAM sidecar).
+        """
+        self._require_writable("set band names")
         self.bands._set_band_names(name_list)
 
     @property

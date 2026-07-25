@@ -31,6 +31,7 @@ _METADATA_SETTERS = [
     pytest.param(lambda ds: setattr(ds, "scale", [2.0]), id="scale"),
     pytest.param(lambda ds: setattr(ds, "offset", [1.0]), id="offset"),
     pytest.param(lambda ds: setattr(ds, "band_units", ["m"]), id="band_units"),
+    pytest.param(lambda ds: setattr(ds, "band_names", ["renamed"]), id="band_names"),
 ]
 
 
