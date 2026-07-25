@@ -1019,6 +1019,9 @@ class RasterBase(ABC):
                 Optional if crs is specified. EPSG code specifying the projection.
 
         Raises:
+            TypeError: The dataset is backed by an ASCII driver, which cannot store a CRS.
+            ValueError: Neither `crs` nor `epsg` was provided. Validated before the
+                read-only guard, so an invalid call reports this regardless of access mode.
             ReadOnlyError: The dataset is opened read-only.
         """
         # ASCII cannot store a CRS in any mode, so that TypeError takes precedence
