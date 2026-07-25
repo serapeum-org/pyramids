@@ -390,8 +390,11 @@ class Spatial(_Engine["Dataset"]):
             # (get_epsg_from_prj raises in that case); epsg_from_wkt
             # absorbs the fallback in one place.
             self._ds._epsg = epsg_from_wkt(crs)
-        elif epsg is not None:
-            sr = sr_from_epsg(epsg)
+        else:
+            # crs is None here, so epsg is not None (the neither-None check above
+            # rejects both being None); cast narrows it for the type checker without
+            # a redundant always-true runtime condition.
+            sr = sr_from_epsg(cast(int, epsg))
             self._ds.raster.SetProjection(sr.ExportToWkt())
             self._ds._epsg = epsg
 
