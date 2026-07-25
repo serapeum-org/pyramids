@@ -1385,9 +1385,16 @@ class Dataset(RasterBase):
         )
 
     def __str__(self) -> str:
-        """__str__."""
-        self._require_open()
-        message = f"""
+        """Human-readable multi-line summary, or a `<Dataset: closed>` sentinel.
+
+        `repr()` / `str()` run in debuggers, logging, and pytest introspection, so a
+        closed dataset returns a sentinel rather than raising (a raising `__repr__`
+        would mask the surrounding error). Reads that must fail loudly use
+        `_require_open` instead.
+        """
+        message = "<Dataset: closed>"
+        if self._raster is not None:
+            message = f"""
             Top Left Corner: {self.top_left_corner}
             Cell size: {self.cell_size}
             Dimension: {self.rows} * {self.columns}
@@ -1405,9 +1412,11 @@ class Dataset(RasterBase):
         return message
 
     def __repr__(self) -> str:
-        """__repr__."""
-        self._require_open()
-        return str(gdal.Info(self.raster))
+        """GDAL info string, or a `<Dataset: closed>` sentinel on a closed dataset."""
+        info = "<Dataset: closed>"
+        if self._raster is not None:
+            info = str(gdal.Info(self.raster))
+        return info
 
     @property
     def access(self) -> str:

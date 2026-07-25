@@ -80,8 +80,6 @@ class TestReadOnlyMetadataSetters:
 _CLOSED_READS = [
     pytest.param(lambda ds: ds.meta_data, id="meta_data"),
     pytest.param(lambda ds: ds.driver_type, id="driver_type"),
-    pytest.param(lambda ds: repr(ds), id="repr"),
-    pytest.param(lambda ds: str(ds), id="str"),
     pytest.param(lambda ds: ds._iloc(0), id="_iloc"),
 ]
 
@@ -97,9 +95,9 @@ class TestClosedDatasetGuards:
         with pytest.raises(RuntimeError, match="closed dataset"):
             read(ds)
 
-    def test_repr_does_not_return_none_string(self, ro_dataset):
-        """repr() raises rather than silently returning the string 'None'."""
+    def test_repr_str_return_closed_sentinel(self, ro_dataset):
+        """repr()/str() on a closed dataset return a sentinel, never 'None' nor a raise."""
         ds, _ = ro_dataset
         ds.close()
-        with pytest.raises(RuntimeError):
-            repr(ds)
+        assert repr(ds) == "<Dataset: closed>", "repr must not raise or return 'None'"
+        assert str(ds) == "<Dataset: closed>", "str must not raise or return 'None'"
