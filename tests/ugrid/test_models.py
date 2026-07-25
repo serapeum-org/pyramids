@@ -391,6 +391,30 @@ class TestMeshVariable:
         assert var.has_time is True, "a 2-D variable with unknown dims falls back to temporal"
         assert var.time_index == 0, f"fallback time_index should be 0, got {var.time_index}"
 
+    @pytest.mark.parametrize(
+        "name, is_time",
+        [
+            ("runtime", False),
+            ("lifetime", False),
+            ("daytime", False),
+            ("t", True),
+            ("time", True),
+            ("time1", True),
+            ("nmesh2d_data_time", True),
+        ],
+    )
+    def test_time_dim_name_word_boundary_matching(self, name, is_time):
+        """`t`/`time`/`…_time` are temporal; substring-only names like `runtime` are not (review L3)."""
+        var = MeshVariable(
+            name="v",
+            location="face",
+            mesh_name="m",
+            shape=(2, 3),
+            dimensions=(name, "nmesh2d_face"),
+            _data=np.zeros((2, 3)),
+        )
+        assert var.has_time is is_time, f"{name!r}: expected has_time={is_time}, got {var.has_time}"
+
     def test_n_time_steps_no_time(self, face_var_1d):
         """Test n_time_steps returns 0 for non-temporal variable.
 
