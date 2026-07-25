@@ -2302,8 +2302,12 @@ class IO(_Engine["Dataset"]):
 
         - Default / `chunks=None`: reads the raster tile-by-tile via GDAL,
           applies `func` to each tile, and writes the result into a fresh
-          in-memory Dataset. Neither input nor output needs to fit in RAM at
-          once. Returns a :class:`~pyramids.dataset.Dataset`.
+          in-memory Dataset. The **input** is never fully materialised — only
+          one tile is held at a time — but the destination is a GDAL ``MEM``
+          raster, so the **output** does occupy RAM in full. Sizing therefore
+          follows the output, not the input. Returns a
+          :class:`~pyramids.dataset.Dataset`; pass `chunks=` (below) or write
+          the result to disk when the output is too large to hold.
         - `chunks=<spec>`: reads lazily via
           :meth:`read_array(chunks=<spec>) <pyramids.dataset.engines.IO.read_array>`
           and dispatches to :func:`dask.array.map_blocks`. Returns a
