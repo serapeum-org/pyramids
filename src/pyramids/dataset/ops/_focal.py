@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from scipy import ndimage
 
+from pyramids.base._domain import is_no_data
+
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
 
@@ -52,10 +54,38 @@ def _apply_eager_or_lazy(
 
     `func` must accept a 2-D numpy array and return a 2-D numpy
     array of the same shape.
+
+    No-data cells are replaced with NaN before the kernel runs and the
+    sentinel is written back afterwards. Feeding a sentinel such as
+    ``-9999`` straight into a gradient or a box filter does not merely
+    produce a wrong value at that cell — it contaminates every cell in
+    the window around it, silently and with a plausible-looking result.
+    NaN propagates through the same neighbourhood instead, which marks
+    those cells as undefined rather than inventing terrain; they are
+    then folded back onto the sentinel so the output carries the same
+    no-data marker as the source band.
     """
+    no_data_value = ds.no_data_value[band]
+
+    def _guarded(block: np.ndarray) -> np.ndarray:
+        """Run `func` with no-data blanked to NaN, then restore the sentinel."""
+        masked = is_no_data(block, no_data_value)
+        if not masked.any():
+            return func(block)
+        blanked = np.where(masked, np.nan, block)
+        out = np.asarray(func(blanked), dtype=dtype)
+        # A cell that had no value has no derivative either. `np.gradient` uses a
+        # centred difference, so it computes a finite slope *at* the no-data cell
+        # from its neighbours -- blanking the input alone would leave that
+        # invented value in place. Mask those cells explicitly, along with the
+        # neighbours the kernel could not define (NaN), onto the band's sentinel.
+        undefined = masked | ~np.isfinite(out)
+        fill = np.nan if no_data_value is None else no_data_value
+        return np.where(undefined, fill, out)
+
     if chunks is None:
         arr = np.asarray(ds.read_array(band=band), dtype=dtype)
-        result = func(arr)
+        result = _guarded(arr)
     else:
         try:
             import dask.array as da
@@ -65,8 +95,10 @@ def _apply_eager_or_lazy(
         if not hasattr(lazy, "dask"):
             lazy = da.from_array(np.asarray(lazy), chunks="auto")
         lazy = lazy.astype(dtype)
+        # `_guarded` runs per block, inside the overlap, so each block sees the
+        # halo it needs to blank neighbouring no-data before filtering.
         result = lazy.map_overlap(
-            func,
+            _guarded,
             depth=radius,
             boundary="reflect",
             trim=True,
