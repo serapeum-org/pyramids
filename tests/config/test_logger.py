@@ -401,3 +401,62 @@ def test_third_party_loggers_untouched_by_default():
         )
     finally:
         victim.setLevel(saved)
+
+
+def test_opt_in_is_reversible_with_a_bare_config():
+    """S2: `LoggerManager()` hands the namespace back after an opt-in.
+
+    Test scenario:
+        Without a way back, one `Config(level=...)` anywhere in a
+        downstream conftest leaves `propagate` False for the process, and
+        every `caplog`-based assertion on a pyramids logger silently
+        captures nothing — a vacuous pass, not a loud failure.
+    """
+    with isolated_package_logging() as package_logger:
+        LoggerManager(level="INFO")
+        assert package_logger.propagate is False, "precondition: opt-in disables it"
+        owned = [
+            h
+            for h in package_logger.handlers
+            if getattr(h, config_mod._OWNED_HANDLER_FLAG, False)
+        ]
+        assert owned, "precondition: pyramids installed a handler"
+
+        LoggerManager()
+        assert package_logger.propagate is True, (
+            "a bare LoggerManager() must restore propagation"
+        )
+        assert not [
+            h
+            for h in package_logger.handlers
+            if getattr(h, config_mod._OWNED_HANDLER_FLAG, False)
+        ], "a bare LoggerManager() must remove the handlers pyramids installed"
+
+
+def test_host_installed_handler_is_left_alone():
+    """S7: pyramids only reconfigures handlers it installed itself.
+
+    Test scenario:
+        Attaching a handler to `logging.getLogger("pyramids")` is the
+        canonical way for an application to capture a library's output.
+        Opting into pyramids logging must not overwrite that handler's
+        level or swap its formatter for the coloured console one.
+    """
+    with isolated_package_logging() as package_logger:
+        host_handler = logging.StreamHandler(io.StringIO())
+        host_formatter = logging.Formatter("HOST:%(message)s")
+        host_handler.setFormatter(host_formatter)
+        host_handler.setLevel(logging.CRITICAL)
+        package_logger.addHandler(host_handler)
+
+        LoggerManager(level="DEBUG")
+
+        assert host_handler.formatter is host_formatter, (
+            "the host's formatter must survive pyramids' opt-in"
+        )
+        assert host_handler.level == logging.CRITICAL, (
+            f"the host's handler level must survive; got {host_handler.level}"
+        )
+        assert host_handler in package_logger.handlers, (
+            "the host's handler must not be removed"
+        )

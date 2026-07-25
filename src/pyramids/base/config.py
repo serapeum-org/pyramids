@@ -71,6 +71,9 @@ adds handlers to root hijacks logging for the whole host application."""
 
 _GDAL_LOGGER_NAME = f"{__name__}.gdal"
 
+_OWNED_HANDLER_FLAG = "_pyramids_owned"
+"""Marks a handler pyramids installed, so it never reconfigures a host's own."""
+
 _NOISY_THIRD_PARTY_LOGGERS = (
     "fiona",
     "rasterio",
@@ -283,10 +286,19 @@ class LoggerManager:
     def _existing_handlers(
         package_logger: logging.Logger,
     ) -> tuple[logging.Handler | None, set[Path]]:
-        """Return the current console handler (if any) and the set of file-handler paths."""
+        """Return pyramids' own console handler (if any) and its file-handler paths.
+
+        Only handlers pyramids installed are considered. A host is entitled to
+        attach its own handler to the `"pyramids"` logger -- that is the canonical
+        way to customise a library's output -- and reconfiguring its level or
+        swapping its formatter for the coloured console one would silently undo
+        that.
+        """
         console_handler: logging.Handler | None = None
         file_paths: set[Path] = set()
         for h in package_logger.handlers:
+            if not getattr(h, _OWNED_HANDLER_FLAG, False):
+                continue
             if isinstance(h, logging.StreamHandler) and not isinstance(
                 h, logging.FileHandler
             ):
@@ -307,6 +319,7 @@ class LoggerManager:
         """Add a coloured console handler, or update the existing one's level/format."""
         if console_handler is None:
             console_handler = logging.StreamHandler()
+            setattr(console_handler, _OWNED_HANDLER_FLAG, True)
             console_handler.setLevel(level)
             console_handler.setFormatter(
                 ColorFormatter(fmt=self.FMT, datefmt=self.DATE_FMT)
@@ -331,6 +344,7 @@ class LoggerManager:
             log_file_path = Path(log_file)
             if log_file_path not in existing_paths:
                 fh = logging.FileHandler(log_file_path, encoding="utf-8")
+                setattr(fh, _OWNED_HANDLER_FLAG, True)
                 fh.setLevel(level)
                 fh.setFormatter(logging.Formatter(fmt=self.FMT, datefmt=self.DATE_FMT))
                 package_logger.addHandler(fh)
@@ -387,7 +401,17 @@ class LoggerManager:
         if not any(isinstance(h, logging.NullHandler) for h in package_logger.handlers):
             package_logger.addHandler(logging.NullHandler())
 
-        if level is not None:
+        if level is None:
+            # Handing the namespace back: drop the handlers pyramids installed and
+            # restore propagation, so `Config()` after a `Config(level=...)` returns
+            # to "the host owns logging" rather than leaving the opt-in state stuck
+            # for the life of the process.
+            for handler in list(package_logger.handlers):
+                if getattr(handler, _OWNED_HANDLER_FLAG, False):
+                    package_logger.removeHandler(handler)
+                    handler.close()
+            package_logger.propagate = True
+        else:
             level = self._normalize_level(level)
             package_logger.setLevel(level)
 
@@ -401,9 +425,9 @@ class LoggerManager:
             # pyramids now owns a handler for this namespace, so stop the records
             # from also reaching the host's root handlers -- otherwise every
             # pyramids line is formatted twice for the (very common) application
-            # that called `logging.basicConfig()`. Only done on the opt-in path:
-            # with `level=None` propagation is left alone so a host-configured
-            # root handler still receives pyramids records.
+            # that called `logging.basicConfig()`. Reversible: `Config()` with no
+            # level restores propagation (see the branch above), so a downstream
+            # test suite is not stuck with `caplog` capturing nothing.
             package_logger.propagate = False
 
             if quiet_third_party:

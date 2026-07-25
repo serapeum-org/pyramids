@@ -63,6 +63,11 @@ Option B sets `propagate = False` on the `pyramids` logger, so records are emitt
 handler rather than twice (once more through your root handler). Do not combine it with Option A expecting
 both to print.
 
+Option B is reversible: a bare `Config()` removes the handlers pyramids installed and restores propagation.
+That matters for test suites — pytest's `caplog` attaches to the *root* logger, so while `propagate` is
+`False` a `caplog` assertion on a `pyramids.*` logger captures nothing and passes vacuously. If a dependency
+opts in on your behalf, call `Config()` to hand the namespace back.
+
 **If you relied on the third-party quieting**, pass it explicitly:
 
 ```python
