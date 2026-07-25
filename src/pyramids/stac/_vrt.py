@@ -66,7 +66,7 @@ from urllib.parse import quote
 
 from osgeo import gdal
 
-from pyramids.base._artifacts import register_vsimem
+from pyramids.base._artifacts import register_vsimem, unregister_vsimem
 from pyramids.base.remote import (
     CloudConfig,
     _to_vsi,
@@ -603,9 +603,12 @@ def build_vrt_from_stac(
             # sources lazily on the first pixel read, i.e. after this block has
             # exited, so without it an env-credentialed signer's reads 401.
             dataset = Dataset.read_file(vrt_path, gdal_env=gdal_env)
-        except Exception:
+        except BaseException:
             # Nothing references the VRT on this path — reclaim it now rather
-            # than leaving it in /vsimem until interpreter shutdown.
+            # than leaving it in /vsimem until interpreter shutdown. BaseException
+            # rather than Exception because a KeyboardInterrupt mid-open orphans
+            # the artefact just as surely as a read failure does.
             gdal.Unlink(vrt_path)
+            unregister_vsimem(vrt_path)
             raise
     return dataset

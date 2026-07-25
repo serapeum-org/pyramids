@@ -32,6 +32,21 @@ from osgeo import gdal
 
 _ROOT: str | None = None
 _VSIMEM_PATHS: list[str] = []
+_CLEANUP_ARMED = False
+
+
+def _arm_cleanup() -> None:
+    """Register the exit sweep, once per process.
+
+    Both artefact kinds need it and a process may use only one of them: hanging
+    the registration off the temp-root creation meant a process that only ever
+    called :func:`build_vrt_from_stac` — which uses `/vsimem`, never the temp
+    root — never armed the sweep, so its tracked VRTs were never reclaimed.
+    """
+    global _CLEANUP_ARMED
+    if not _CLEANUP_ARMED:
+        atexit.register(cleanup)
+        _CLEANUP_ARMED = True
 
 
 def _root() -> str:
@@ -39,7 +54,7 @@ def _root() -> str:
     global _ROOT
     if _ROOT is None:
         _ROOT = tempfile.mkdtemp(prefix="pyramids_stac_")
-        atexit.register(cleanup)
+        _arm_cleanup()
     return _ROOT
 
 
@@ -72,18 +87,37 @@ def artifact_dir() -> str:
 def register_vsimem(path: str) -> None:
     """Track a ``/vsimem`` path to be unlinked at process exit.
 
+    Arms the exit sweep, so a process that produces only in-memory artefacts
+    (one ``build_vrt_from_stac`` per request, say) still reclaims them at
+    shutdown rather than growing an in-memory VRT per call for its lifetime.
+
     Args:
         path: The in-memory GDAL path (e.g. ``/vsimem/foo.vrt``).
     """
     _VSIMEM_PATHS.append(path)
+    _arm_cleanup()
+
+
+def unregister_vsimem(path: str) -> None:
+    """Stop tracking a ``/vsimem`` path, for a caller that unlinked it early.
+
+    Keeps the registry from accruing dead entries when a build fails and
+    reclaims its own artefact — otherwise :func:`cleanup` later unlinks paths
+    that no longer exist.
+
+    Args:
+        path: The in-memory GDAL path to forget. Unknown paths are ignored.
+    """
+    while path in _VSIMEM_PATHS:
+        _VSIMEM_PATHS.remove(path)
 
 
 def cleanup() -> None:
     """Remove the artefact root and unlink every tracked ``/vsimem`` path.
 
-    Registered as an ``atexit`` hook the first time the root is created; safe to
-    call directly (e.g. from tests). Best-effort — errors are swallowed so a
-    locked file at shutdown never raises.
+    Registered as an ``atexit`` hook the first time either artefact kind is
+    used; safe to call directly (e.g. from tests). Best-effort — errors are
+    swallowed so a locked file at shutdown never raises.
     """
     global _ROOT
     while _VSIMEM_PATHS:
