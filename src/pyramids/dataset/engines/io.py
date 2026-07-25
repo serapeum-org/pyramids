@@ -192,6 +192,13 @@ def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
         )
 
 
+# Tiling reads the reprojected source once per tile per zoom level. Building a
+# pyramid on it lets GDAL answer a low-zoom tile from a decimated level instead
+# of resampling full-resolution pixels every time. "average" suits the
+# continuous elevation data terrain-RGB encodes.
+_OVERVIEW_RESAMPLING_FOR_TILES = "average"
+_TERRAIN_TILE_OVERVIEW_LEVELS = [2, 4, 8, 16, 32]
+
 _TERRAIN_RGB_ENCODINGS = ("mapbox", "terrarium")
 """Supported terrain-RGB elevation encodings (Mapbox Terrain-RGB / Mapzen Terrarium)."""
 
@@ -2609,6 +2616,16 @@ class IO(_Engine["Dataset"]):
             if self._ds.epsg == 3857
             else self._ds.to_crs(3857, method=resampling)
         )
+        if tiles and source is not self._ds:
+            # `to_crs` hands back a warped VRT, which re-warps from the original
+            # raster on every read. Tiling then pays that warp once per tile, at
+            # full source resolution, however small the tile. Materialise the
+            # reprojection once and build overviews on it so GDAL can serve each
+            # zoom level from a matching pyramid level instead.
+            source = source.copy()
+            source.raster.BuildOverviews(
+                _OVERVIEW_RESAMPLING_FOR_TILES, _TERRAIN_TILE_OVERVIEW_LEVELS
+            )
         if tiles:
             result = self._terrain_rgb_tiles(
                 source,
