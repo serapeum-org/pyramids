@@ -119,3 +119,60 @@ def native_projwin(
             "native CRS; pass a bbox within the coverage's extent / CRS area of use"
         )
     return projwin
+
+
+# Pixel-count caps for a windowed coverage read, shared by the WCS / WMTS / OGC
+# API readers. DEFAULT_MAX_PX bounds the longer side of a no-resolution "preview"
+# read; MAX_PX is the hard ceiling enforced on every read (even with a resolution)
+# so a fine resolution over a wide bbox cannot request an unbounded allocation.
+DEFAULT_MAX_PX = 1024
+MAX_PX = 25000
+
+
+def read_size(
+    projwin: list[float], res: tuple[float, float] | None
+) -> tuple[int, int]:
+    """Compute the capped ``(width, height)`` pixel size for a windowed read.
+
+    ``projwin`` is ``[ulx, uly, lrx, lry]`` in the native CRS; its span gives the
+    window extent in that CRS's units. With a ``res`` the size follows directly
+    (``span / res``); without one the longer side is capped at :data:`DEFAULT_MAX_PX`
+    and the shorter scaled to preserve the aspect ratio. Every dimension is clamped
+    to at least 1 and rejected above the hard :data:`MAX_PX` ceiling, so even a fine
+    ``res`` over a wide ``bbox`` cannot request an unbounded read. Callers that read
+    at native resolution should pass :func:`native_resolution` as ``res`` to bound
+    that read at the ceiling.
+
+    Raises:
+        ValueError: the requested window exceeds :data:`MAX_PX` on either side.
+    """
+    ulx, uly, lrx, lry = projwin
+    span_x = abs(lrx - ulx)
+    span_y = abs(uly - lry)
+    if res is not None:
+        x_res, y_res = res
+        width = max(1, round(span_x / x_res))
+        height = max(1, round(span_y / y_res))
+    elif span_x >= span_y:
+        width = DEFAULT_MAX_PX
+        height = (
+            max(1, round(DEFAULT_MAX_PX * span_y / span_x)) if span_x else DEFAULT_MAX_PX
+        )
+    else:
+        height = DEFAULT_MAX_PX
+        width = (
+            max(1, round(DEFAULT_MAX_PX * span_x / span_y)) if span_y else DEFAULT_MAX_PX
+        )
+    if width > MAX_PX or height > MAX_PX:
+        raise ValueError(
+            f"the requested window is {width}x{height} px (over the {MAX_PX} px "
+            "limit); pass a coarser resolution or a smaller bbox to keep the read "
+            "bounded"
+        )
+    return width, height
+
+
+def native_resolution(src: gdal.Dataset) -> tuple[float, float]:
+    """Return the source raster's absolute native ``(x_res, y_res)`` from its geotransform."""
+    gt = src.GetGeoTransform()
+    return (abs(gt[1]), abs(gt[5]))

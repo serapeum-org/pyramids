@@ -39,6 +39,8 @@ from typing import TYPE_CHECKING
 from osgeo import gdal
 
 from pyramids.base._coverage import native_projwin as _native_projwin
+from pyramids.base._coverage import native_resolution as _native_resolution
+from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
 from pyramids.base._coverage import validate_bbox as _validate_bbox
@@ -222,12 +224,18 @@ def _translate_window(
     """Crop the requested ``projWin`` out of a WMTS pyramid into MEM.
 
     When ``resolution`` is given GDAL reads from the matching overview level; when
-    it is ``None`` the finest level is used (which can be very large for a wide
-    bbox — that is the caller's choice, documented on ``from_wmts``).
+    it is ``None`` the finest level is used. Either way the read is bounded by the
+    shared pixel ceiling (:data:`~pyramids.base._coverage.MAX_PX`): a read that would
+    exceed it — the finest level over a very wide bbox, or a fine resolution — is
+    rejected before allocation rather than materialising an unbounded MEM raster.
 
     Raises:
+        ValueError: the requested window exceeds the pixel ceiling.
         WMSError: GDAL could not produce a raster for the requested window.
     """
+    # Bound the allocation: reject a read that would exceed the pixel ceiling. A
+    # native (resolution=None) read is sized from the source's own resolution.
+    _read_size(projwin, resolution or _native_resolution(src))
     kwargs: dict = {"format": "MEM", "projWin": projwin, "resampleAlg": resample}
     if resolution is not None:
         kwargs["xRes"], kwargs["yRes"] = resolution

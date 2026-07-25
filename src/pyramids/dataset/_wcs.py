@@ -50,6 +50,8 @@ from pyproj import CRS as _PyprojCRS
 from pyproj.exceptions import CRSError as _PyprojCRSError
 
 from pyramids.base._coverage import native_projwin as _native_projwin
+from pyramids.base._coverage import native_resolution as _native_resolution
+from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
 from pyramids.base._coverage import validate_bbox as _validate_bbox
@@ -719,11 +721,17 @@ def _translate_window(
     Translating into an in-memory dataset (never directly to the user's output
     path) guarantees an ``<ows:ExceptionReport>`` body can never be written to a
     ``.tif``: a non-raster response makes ``gdal.Translate`` fail and we raise
-    :class:`WCSError` here, before any file is produced.
+    :class:`WCSError` here, before any file is produced. The native-resolution read
+    is bounded by the shared pixel ceiling
+    (:data:`~pyramids.base._coverage.MAX_PX`) so a wide bbox over a fine coverage
+    cannot materialise an unbounded MEM raster.
 
     Raises:
+        ValueError: the requested window exceeds the pixel ceiling.
         WCSError: GDAL could not produce a raster for the requested window.
     """
+    # Bound the allocation from the coverage's own native resolution.
+    _read_size(projwin, _native_resolution(src))
     options = gdal.TranslateOptions(format="MEM", projWin=projwin)
     try:
         mem = gdal.Translate("", src, options=options)
