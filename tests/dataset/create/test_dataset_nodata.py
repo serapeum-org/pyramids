@@ -25,19 +25,20 @@ class TestNoDataValue:
         with pytest.raises(ReadOnlyError):
             src.bands._set_no_data_value(-99999.0)
 
-    def test_no_data_value_setter_allowed_read_only(
+    def test_no_data_value_setter_rejects_read_only(
         self,
         src_set_no_data_value: gdal.Dataset,
     ):
-        """Setting the no_data_value marker (metadata only) stays valid read-only (N3).
+        """The no_data_value setter raises ReadOnlyError on a read-only on-disk dataset.
 
-        The setter changes only the attribute, not pixels, so GDAL permits it on a
-        read-only handle; the read-only guard applies only to the fill-based path.
+        Consistent with the other metadata setters: mutating the marker on a read-only
+        on-disk handle would change only the in-memory attribute without persisting, so
+        it is rejected. Reopen with read_only=False (or edit an in-memory copy) instead.
         """
         src = Dataset(src_set_no_data_value)
         assert src.access == "read_only", "fixture must be read-only for this test"
-        src.no_data_value = -123.0
-        assert src.no_data_value[0] == -123.0, "metadata-only setter must still work"
+        with pytest.raises(ReadOnlyError, match="read-only"):
+            src.no_data_value = -123.0
 
     def test_set_no_data_value(
         self,
@@ -80,7 +81,9 @@ class TestNoDataValue:
         """
         check setting the gdal attribute only but not the value of the nodata cells
         """
-        dataset = Dataset(chang_no_data_dataset)
+        # copy() yields a writable in-memory dataset; the metadata setter is guarded
+        # against a read-only on-disk handle (the fixture opens GA_ReadOnly).
+        dataset = Dataset(chang_no_data_dataset).copy()
         new_val = -6666
         dataset.no_data_value = new_val
         # check if the no_data_value in the Dataset object is set

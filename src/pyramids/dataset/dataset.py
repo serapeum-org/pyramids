@@ -1660,6 +1660,9 @@ class Dataset(RasterBase):
                 A 0-D ndarray is treated as a scalar.
 
         Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (a bare
+                `SetNoDataValue` would otherwise silently mutate only the
+                in-memory attribute, persisting nothing).
             ValueError: When `value` is a sequence whose length
                 differs from `band_count`, or a multi-dimensional
                 ndarray (only 0-D scalars and 1-D sequences are
@@ -1674,6 +1677,7 @@ class Dataset(RasterBase):
         See Also:
             - Dataset.change_no_data_value: Change the No Data Value.
         """
+        self._require_writable("set the no-data value")
         if isinstance(value, np.ndarray):
             if value.ndim == 0:
                 value = value.item()
