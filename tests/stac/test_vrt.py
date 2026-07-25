@@ -20,6 +20,7 @@ from pyramids.stac._vrt import (
     _source_config,
     _warn_unembeddable_credentials,
     build_vrt_from_stac,
+    redact,
 )
 from tests._helpers import write_raster
 
@@ -164,12 +165,13 @@ class TestDroppedSources:
     """Tests for the _dropped_sources helper."""
 
     def test_reports_source_absent_from_the_vrt(self):
-        """A requested source the VRT does not reference is reported.
+        """A requested source the VRT does not reference is reported by href.
 
         Test scenario:
             Two requested, one retained -> the other is reported as dropped.
         """
-        assert _dropped_sources(["a.tif", "b.tif"], ["a.tif"]) == ["b.tif"], (
+        pairs = [("a.tif", "a.tif"), ("b.tif", "b.tif")]
+        assert _dropped_sources(pairs, ["a.tif"]) == ["b.tif"], (
             "the retained-source difference should name b.tif"
         )
 
@@ -179,7 +181,7 @@ class TestDroppedSources:
         Test scenario:
             Extra entries in the retained list (e.g. the VRT itself) are ignored.
         """
-        assert _dropped_sources(["a.tif"], ["a.tif", "/vsimem/x.vrt"]) == [], (
+        assert _dropped_sources([("a.tif", "a.tif")], ["a.tif", "/vsimem/x.vrt"]) == [], (
             "an extra retained entry must not make a kept source look dropped"
         )
 
@@ -189,7 +191,8 @@ class TestDroppedSources:
         Test scenario:
             Three requested, the middle one kept -> [first, last].
         """
-        dropped = _dropped_sources(["a.tif", "b.tif", "c.tif"], ["b.tif"])
+        pairs = [(n, n) for n in ("a.tif", "b.tif", "c.tif")]
+        dropped = _dropped_sources(pairs, ["b.tif"])
         assert dropped == ["a.tif", "c.tif"], f"order not preserved: {dropped}"
 
     def test_empty_retained_drops_everything(self):
@@ -198,8 +201,127 @@ class TestDroppedSources:
         Test scenario:
             `GetFileList()` returning nothing -> every source is dropped.
         """
-        assert _dropped_sources(["a.tif", "b.tif"], []) == ["a.tif", "b.tif"], (
+        pairs = [("a.tif", "a.tif"), ("b.tif", "b.tif")]
+        assert _dropped_sources(pairs, []) == ["a.tif", "b.tif"], (
             "an empty retained list should report every requested source"
+        )
+
+
+class TestRedact:
+    """Tests for the redact helper that keeps credentials out of messages."""
+
+    def test_query_string_is_replaced(self):
+        """A SAS-signed href keeps its identity but loses the token.
+
+        Test scenario:
+            The path stays readable so the message is still actionable.
+        """
+        assert redact("https://h/B04.tif?sv=2021&sig=SECRET") == (
+            "https://h/B04.tif?<redacted>"
+        ), "the query string should be replaced wholesale"
+
+    def test_unsigned_href_passes_through(self):
+        """An href with no query string is unchanged.
+
+        Test scenario:
+            Nothing to hide -> nothing altered.
+        """
+        assert redact("https://h/B04.tif") == "https://h/B04.tif"
+
+    def test_local_windows_path_passes_through(self):
+        """A drive-letter path is not mistaken for a query string.
+
+        Test scenario:
+            `C:/data/a.tif` has no `?` and must survive intact.
+        """
+        assert redact("C:/data/a.tif") == "C:/data/a.tif"
+
+    def test_embedded_source_path_is_redacted(self):
+        """The `/vsicurl?` form this module builds is redacted to its prefix.
+
+        Test scenario:
+            Everything after the `?` — including `header.Authorization` — goes.
+        """
+        embedded = "/vsicurl?header.Authorization=Bearer%20tok&url=https%3A%2F%2Fh%2Fa"
+        assert redact(embedded) == "/vsicurl?<redacted>", "the header must not survive"
+
+
+class TestCredentialsStayOutOfMessages:
+    """A credential must never reach an exception, a warning, or a log."""
+
+    @staticmethod
+    def _signer():
+        """Return a bearer signer whose token is easy to grep for."""
+
+        class _BearerSigner:
+            def sign_href(self, href):
+                return href
+
+            def gdal_env(self):
+                return {"GDAL_HTTP_HEADERS": "Authorization: Bearer SUPERSECRET"}
+
+        return _BearerSigner()
+
+    def test_strict_error_hides_the_token(self, tmp_path):
+        """The drop error names the href, never the embedded credential.
+
+        Test scenario:
+            An expired href is the *expected* failure on a large mosaic, so its
+            error is the most likely thing to reach a log aggregator.
+        """
+        good = write_raster(tmp_path / "g.tif", np.full((2, 2), 1.0, "float32"), (0.0, 2.0))
+        items = [
+            {"assets": {"d": {"href": good}}},
+            {"assets": {"d": {"href": "https://host.invalid/gone.tif"}}},
+        ]
+        with pytest.raises(RuntimeError) as exc:
+            build_vrt_from_stac(items, asset="d", signer=self._signer())
+        assert "SUPERSECRET" not in str(exc.value), (
+            f"the bearer token leaked into the error: {exc.value}"
+        )
+        assert "host.invalid/gone.tif" in str(exc.value), (
+            f"the dropped href should still be named: {exc.value}"
+        )
+
+    def test_warning_hides_the_token(self, tmp_path):
+        """The non-strict warning is redacted the same way.
+
+        Test scenario:
+            `strict=False` warns instead of raising — same exposure risk.
+        """
+        good = write_raster(tmp_path / "w.tif", np.full((2, 2), 1.0, "float32"), (0.0, 2.0))
+        items = [
+            {"assets": {"d": {"href": good}}},
+            {"assets": {"d": {"href": "https://host.invalid/gone.tif"}}},
+        ]
+        with pytest.warns(UserWarning) as caught:
+            build_vrt_from_stac(items, asset="d", signer=self._signer(), strict=False)
+        joined = " ".join(str(w.message) for w in caught)
+        assert "SUPERSECRET" not in joined, f"the token leaked into a warning: {joined}"
+
+    def test_url_signed_token_is_hidden_too(self, tmp_path):
+        """A SAS token in the href itself is redacted, not just embedded headers.
+
+        Test scenario:
+            URL-signing signers put the credential in the query string.
+        """
+        good = write_raster(tmp_path / "s.tif", np.full((2, 2), 1.0, "float32"), (0.0, 2.0))
+
+        class _SasSigner:
+            def sign_href(self, href):
+                return f"{href}?sig=SASSECRET" if href.startswith("http") else href
+
+            def gdal_env(self):
+                return {}
+
+        items = [
+            {"assets": {"d": {"href": good}}},
+            {"assets": {"d": {"href": "https://host.invalid/gone.tif"}}},
+        ]
+        with pytest.raises(RuntimeError) as exc:
+            build_vrt_from_stac(items, asset="d", signer=_SasSigner())
+        assert "SASSECRET" not in str(exc.value), (
+            f"the SAS token leaked into the error: {exc.value}"
         )
 
 

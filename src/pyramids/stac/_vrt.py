@@ -33,6 +33,20 @@ have to travel *with the source path*:
   keys) cannot be carried into the source opens; the build warns, and those
   assets should be read one at a time with :func:`pyramids.stac.load_asset` or
   fetched with :func:`pyramids.stac.download_item`.
+
+**Credential exposure.** Both supported mechanisms put the credential *in the
+source path*, which is unavoidable — it is the only place GDAL still reads it
+from at source-open time. Consequences to plan for:
+
+* The returned ``Dataset`` carries live credentials. ``to_file("m.vrt")`` writes
+  them into the VRT XML in cleartext, and pickling it (a dask graph, say) ships
+  them too. Treat such a mosaic as a secret; do not persist it to a shared
+  location.
+* GDAL echoes the full source path in its own ``Warning 1: Can't open …``
+  messages on stderr. pyramids redacts every href it puts in an exception or
+  warning of its own (:func:`redact`), but it cannot redact GDAL's.
+* Prefer a short-lived token, and prefer a URL-signing signer where the provider
+  offers one — a SAS token is scoped and expiring, a bearer token usually is not.
 """
 
 from __future__ import annotations
@@ -40,6 +54,7 @@ from __future__ import annotations
 import uuid
 import warnings
 from collections.abc import Iterable
+from contextlib import AbstractContextManager
 from typing import Any
 from urllib.parse import quote
 
@@ -156,7 +171,7 @@ def _embed_source_options(href: str, gdal_env: dict[str, str] | None) -> str:
 
 
 def _warn_unembeddable_credentials(
-    gdal_env: dict[str, str] | None, sources: list[str]
+    gdal_env: dict[str, str] | None, hrefs: list[str]
 ) -> None:
     """Warn when signer credentials cannot reach the VRT's read-time opens.
 
@@ -167,7 +182,8 @@ def _warn_unembeddable_credentials(
 
     Args:
         gdal_env: The signer's GDAL config, or `None`.
-        sources: The VSI source paths of the build.
+        hrefs: The resolved source hrefs of the build (not the rewritten VSI
+            paths — see :func:`_source_config` for why).
 
     Warns:
         UserWarning: The env carries non-header credentials and at least one
@@ -179,7 +195,7 @@ def _warn_unembeddable_credentials(
         if key != _HTTP_HEADERS_KEY
         and (key.startswith(_CREDENTIAL_PREFIXES) or key in _CREDENTIAL_KEYS)
     )
-    if stranded and any(is_remote(path) for path in sources):
+    if stranded and any(is_remote(href) for href in hrefs):
         warnings.warn(
             f"the signer's credentials ({', '.join(stranded)}) authenticate the VRT "
             "build but cannot be carried into its read-time source opens: GDAL "
@@ -193,40 +209,56 @@ def _warn_unembeddable_credentials(
         )
 
 
-def _dropped_sources(requested: list[str], retained: Iterable[str]) -> list[str]:
-    """Return the requested sources GDAL left out of the built VRT.
+def _dropped_sources(
+    sources: list[tuple[str, str]], retained: Iterable[str]
+) -> list[str]:
+    """Return the redacted hrefs of the sources GDAL left out of the built VRT.
 
     :meth:`gdal.Dataset.GetFileList` on a freshly built VRT reports exactly the
-    sources it kept, so anything requested but absent from that list was skipped
-    during the build (GDAL logs a warning and carries on).
+    VSI paths it kept, so anything requested but absent from that list was
+    skipped during the build (GDAL logs a warning and carries on). The *href*
+    of each dropped source is what comes back — redacted, and never the VSI path,
+    which may carry an embedded credential.
 
     Args:
-        requested: The VSI paths handed to :func:`gdal.BuildVRT`, in order.
+        sources: The `(href, vsi_path)` pairs handed to :func:`gdal.BuildVRT`,
+            in order.
         retained: The source paths the built VRT actually references.
 
     Returns:
-        The requested paths missing from `retained`, in the requested order.
+        The redacted hrefs of the dropped sources, in the requested order.
 
     Examples:
-        - A source GDAL skipped is reported back:
+        - A source GDAL skipped is reported by href, not by VSI path:
             ```python
             >>> from pyramids.stac._vrt import _dropped_sources
-            >>> _dropped_sources(["a.tif", "b.tif"], ["a.tif"])
-            ['b.tif']
+            >>> pairs = [("https://h/a.tif", "/vsicurl/https://h/a.tif"),
+            ...          ("https://h/b.tif", "/vsicurl/https://h/b.tif")]
+            >>> _dropped_sources(pairs, ["/vsicurl/https://h/a.tif"])
+            ['https://h/b.tif']
+
+            ```
+        - A dropped source's credential never reaches the caller:
+            ```python
+            >>> pairs = [("https://h/b.tif?sig=SECRET", "/vsicurl?header.X=SECRET")]
+            >>> _dropped_sources(pairs, [])
+            ['https://h/b.tif?<redacted>']
 
             ```
         - Nothing is reported when every source was kept:
             ```python
-            >>> _dropped_sources(["a.tif"], ["a.tif", "/vsimem/x.vrt"])
+            >>> _dropped_sources([("a.tif", "a.tif")], ["a.tif", "/vsimem/x.vrt"])
             []
 
             ```
     """
     kept = set(retained)
-    return [path for path in requested if path not in kept]
+    return [redact(href) for href, vsi_path in sources if vsi_path not in kept]
 
 
-def _source_config(vsi_paths: list[str], gdal_env: dict[str, str] | None) -> Any:
+def _source_config(
+    hrefs: list[str], gdal_env: dict[str, str] | None
+) -> AbstractContextManager[Any]:
     """Return the GDAL config context the VRT build should run under.
 
     Remote sources get the `/vsicurl/` fast-read preset (readdir skip, HTTP/2
@@ -235,8 +267,15 @@ def _source_config(vsi_paths: list[str], gdal_env: dict[str, str] | None) -> Any
     the preset's `GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR` would stop GDAL
     finding a local source's `.aux.xml` / world-file sidecars.
 
+    Remoteness is decided on the **hrefs**, before
+    :func:`_embed_source_options` rewrites them: an embedded `/vsicurl?…` path
+    is not matched by :func:`~pyramids.base.remote.is_remote`, whose prefix set
+    holds `/vsicurl/` with a trailing slash, so classifying the rewritten paths
+    would silently opt the header-signed builds out of the preset.
+
     Args:
-        vsi_paths: The VSI-rewritten source paths for this build.
+        hrefs: The resolved source hrefs for this build (not the rewritten VSI
+            paths).
         gdal_env: The signer's GDAL config, or `None`.
 
     Returns:
@@ -246,14 +285,14 @@ def _source_config(vsi_paths: list[str], gdal_env: dict[str, str] | None) -> Any
         - Remote sources pull in the fast-read preset:
             ```python
             >>> from pyramids.stac._vrt import _source_config
-            >>> cfg = _source_config(["/vsicurl/https://h/a.tif"], None)
+            >>> cfg = _source_config(["https://h/a.tif"], None)
             >>> cfg.as_gdal_config()["GDAL_HTTP_MULTIRANGE"]
             'YES'
 
             ```
         - A signer env overrides a preset knob and survives either way:
             ```python
-            >>> cfg = _source_config(["/vsis3/b/a.tif"], {"AWS_REQUEST_PAYER": "requester"})
+            >>> cfg = _source_config(["s3://b/a.tif"], {"AWS_REQUEST_PAYER": "requester"})
             >>> cfg.as_gdal_config()["AWS_REQUEST_PAYER"]
             'requester'
 
@@ -266,11 +305,46 @@ def _source_config(vsi_paths: list[str], gdal_env: dict[str, str] | None) -> Any
 
             ```
     """
-    if any(is_remote(path) for path in vsi_paths):
+    if any(is_remote(path) for path in hrefs):
         config: Any = CloudConfig(vsicurl_tuning=True, extra=dict(gdal_env or {}))
     else:
         config = cloud_config_from_env(gdal_env)
     return config
+
+
+def redact(href: str) -> str:
+    """Return `href` with its query string replaced by a placeholder.
+
+    A signed href carries its credential in the query string — a SAS token from
+    a URL-signing signer, or the `header.Authorization` this module embeds for a
+    bearer signer. Anything that reaches an exception message, a warning or a log
+    has to go through here first: those strings routinely end up in application
+    logs, CI output and error trackers.
+
+    Args:
+        href: The href or VSI path to redact.
+
+    Returns:
+        The href up to its `?`, with `?<redacted>` appended when it carried a
+        query string; unchanged when it carried none.
+
+    Examples:
+        - A SAS-signed href keeps its identity but loses the token:
+            ```python
+            >>> from pyramids.stac._vrt import redact
+            >>> redact("https://host/B04.tif?sv=2021&sig=SECRET")
+            'https://host/B04.tif?<redacted>'
+
+            ```
+        - An unsigned href passes through untouched:
+            ```python
+            >>> redact("https://host/B04.tif")
+            'https://host/B04.tif'
+
+            ```
+    """
+    base, sep, _query = href.partition("?")
+    return f"{base}?<redacted>" if sep else base
 
 
 def _check_dropped_sources(
@@ -279,7 +353,9 @@ def _check_dropped_sources(
     """Raise (or warn) when `gdal.BuildVRT` skipped part of the requested mosaic.
 
     Args:
-        dropped: The requested sources missing from the built VRT.
+        dropped: The requested sources missing from the built VRT, already
+            redacted by :func:`redact` — they must never carry a live credential
+            into the message this raises.
         total: How many sources were requested.
         asset: The asset key being mosaicked (for the message).
         strict: Raise :class:`RuntimeError` when `True`, warn when `False`.
@@ -404,21 +480,23 @@ def build_vrt_from_stac(
         raise ValueError("build_vrt_from_stac received no items.")
 
     gdal_env = signer.gdal_env() if signer is not None else None
+    hrefs = [resolved_href(item, asset, signer=signer) for item in item_list]
     # Header credentials are baked into each source path so they survive into
-    # the VRT's lazy, read-time source opens (see _embed_source_options).
-    vsi_paths = [
-        _embed_source_options(resolved_href(item, asset, signer=signer), gdal_env)
-        for item in item_list
-    ]
-    _warn_unembeddable_credentials(gdal_env, vsi_paths)
+    # the VRT's lazy, read-time source opens (see _embed_source_options). The
+    # hrefs are kept alongside: an embedded path carries a live credential and
+    # must never be the thing a message, warning or log names.
+    sources = [(href, _embed_source_options(href, gdal_env)) for href in hrefs]
+    vsi_paths = [vsi_path for _href, vsi_path in sources]
+    _warn_unembeddable_credentials(gdal_env, hrefs)
     vrt_path = f"/vsimem/pyramids_stac_{uuid.uuid4().hex}.vrt"
 
     # BuildVRT opens every source. Over `/vsicurl/` that costs a directory
     # listing plus a fan of sidecar probes per source unless the fast-read
     # preset is installed, so pay for it once here — but only when a source is
     # actually remote: the preset's readdir skip would also hide a *local*
-    # source's `.aux.xml` / world-file sidecars.
-    with _source_config(vsi_paths, gdal_env):
+    # source's `.aux.xml` / world-file sidecars. Remoteness is decided on the
+    # hrefs, not the rewritten paths, which `is_remote` does not classify.
+    with _source_config(hrefs, gdal_env):
         vrt_ds = gdal.BuildVRT(
             vrt_path, vsi_paths, options=gdal.BuildVRTOptions(separate=separate)
         )
@@ -430,7 +508,7 @@ def build_vrt_from_stac(
             )
         # GDAL lists exactly the sources it kept, so the difference against what
         # was requested is what it silently skipped.
-        dropped = _dropped_sources(vsi_paths, vrt_ds.GetFileList() or ())
+        dropped = _dropped_sources(sources, vrt_ds.GetFileList() or ())
         vrt_ds.FlushCache()
         vrt_ds = None
         # Track the in-memory VRT *before* anything else can raise, so a failure
