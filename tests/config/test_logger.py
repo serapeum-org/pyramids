@@ -7,38 +7,56 @@ from unittest.mock import patch
 import pytest
 from osgeo import gdal
 
-from pyramids.base.config import Config, LoggerManager
+from pyramids.base import config as config_mod
+from pyramids.base.config import (
+    PACKAGE_LOGGER_NAME,
+    Config,
+    LoggerManager,
+    _gdal_error_handler,
+)
 
 pytestmark = pytest.mark.core
 
 
 @contextmanager
-def isolated_root_logging():
+def isolated_package_logging():
     """
-    Temporarily isolate root logger handlers and level so tests don't
-    interfere with each other or the global test suite.
+    Temporarily isolate the ``pyramids`` logger's handlers and level so tests
+    don't interfere with each other or the global test suite.
+
+    ARC-40: pyramids configures its own namespace, never the root logger, so the
+    isolation target is ``logging.getLogger("pyramids")``.
     """
-    root = logging.getLogger()
-    old_level = root.level
-    old_handlers = list(root.handlers)
+    package_logger = logging.getLogger(PACKAGE_LOGGER_NAME)
+    old_level = package_logger.level
+    old_handlers = list(package_logger.handlers)
     try:
-        for h in root.handlers[:]:
-            root.removeHandler(h)
-        yield root
+        for h in package_logger.handlers[:]:
+            package_logger.removeHandler(h)
+        yield package_logger
     finally:
-        # Clear any handlers added by the test
-        for h in root.handlers[:]:
-            root.removeHandler(h)
-        # Restore originals
+        for h in package_logger.handlers[:]:
+            package_logger.removeHandler(h)
         for h in old_handlers:
-            root.addHandler(h)
-        root.setLevel(old_level)
+            package_logger.addHandler(h)
+        package_logger.setLevel(old_level)
+
+
+@contextmanager
+def reinstallable_error_handler():
+    """Let a test observe ``_set_error_handler`` installing, then restore the guard."""
+    saved = config_mod._gdal_error_handler_installed
+    config_mod._gdal_error_handler_installed = False
+    try:
+        yield
+    finally:
+        config_mod._gdal_error_handler_installed = saved
 
 
 def test_console_logging_colored_and_message(capsys):
-    with isolated_root_logging():
-        # Configure logging at INFO level using LoggerManager
-        LoggerManager(level="INFO")
+    with isolated_package_logging():
+        # An explicit level opts into the coloured console handler.
+        LoggerManager(level="DEBUG")
 
         # Emitted by setup_logging
         out = capsys.readouterr()
@@ -48,21 +66,64 @@ def test_console_logging_colored_and_message(capsys):
         assert "Logging is configured." in stderr_text
         assert "pyramids.base.config" in stderr_text  # logger name
 
-        # Also test that subsequent logs go to the console
-        logging.getLogger(__name__).info("hello world")
+        # Also test that subsequent pyramids logs go to the console
+        logging.getLogger("pyramids.tests.console").info("hello world")
         out2 = capsys.readouterr()
         assert "hello world" in out2.err
         assert "\x1b[" in out2.err  # colored level name
 
 
+def test_default_level_configures_nothing(capsys):
+    """ARC-40: ``LoggerManager()`` with no level installs only a NullHandler.
+
+    Test scenario:
+        Importing pyramids runs ``Config()``. That must not print anything, must
+        not add a console handler, and must not set a level — logging policy
+        belongs to the host application.
+    """
+    with isolated_package_logging() as package_logger:
+        LoggerManager()
+        out = capsys.readouterr()
+        assert out.err == "", f"default LoggerManager must be silent; got {out.err!r}"
+        assert out.out == "", f"default LoggerManager must be silent; got {out.out!r}"
+        assert all(
+            isinstance(h, logging.NullHandler) for h in package_logger.handlers
+        ), (
+            "default LoggerManager must add only a NullHandler; got "
+            f"{[type(h).__name__ for h in package_logger.handlers]}"
+        )
+        assert package_logger.level == logging.NOTSET, (
+            "default LoggerManager must not set a level on the pyramids logger"
+        )
+
+
+def test_root_logger_is_never_touched():
+    """ARC-40: no pyramids handler ever lands on the root logger.
+
+    Test scenario:
+        Configuring pyramids at DEBUG must leave the root logger's handler list
+        and level exactly as they were — a library that adds a root handler
+        silently reconfigures logging for the whole application.
+    """
+    root = logging.getLogger()
+    handlers_before = list(root.handlers)
+    level_before = root.level
+    with isolated_package_logging():
+        LoggerManager(level="DEBUG", log_file=None)
+    assert list(root.handlers) == handlers_before, (
+        "pyramids must not add or remove root logger handlers"
+    )
+    assert root.level == level_before, "pyramids must not change the root logger level"
+
+
 def test_file_logging_no_colors_and_writes(tmp_path: Path):
     log_file = tmp_path / "test.log"
-    with isolated_root_logging():
+    with isolated_package_logging():
         LoggerManager(level=logging.DEBUG, log_file=log_file)
 
         # setup_logging should log a message already
         # Now log something extra
-        logging.getLogger("tests.config.test_logger").debug("file handler check")
+        logging.getLogger("pyramids.tests.file_handler").debug("file handler check")
 
     # Read file and assert contents
     text = log_file.read_text(encoding="utf-8")
@@ -74,7 +135,7 @@ def test_file_logging_no_colors_and_writes(tmp_path: Path):
 
 def test_idempotent_handlers(tmp_path: Path):
     log_file = tmp_path / "dup.log"
-    with isolated_root_logging() as root:
+    with isolated_package_logging() as package_logger:
         LoggerManager(level="INFO", log_file=log_file)
         # Call again with the same parameters
         LoggerManager(level="INFO", log_file=log_file)
@@ -82,27 +143,24 @@ def test_idempotent_handlers(tmp_path: Path):
         # Expect exactly one StreamHandler (console) and one FileHandler
         stream_handlers = [
             h
-            for h in root.handlers
+            for h in package_logger.handlers
             if isinstance(h, logging.StreamHandler)
             and not isinstance(h, logging.FileHandler)
         ]
-        file_handlers = [h for h in root.handlers if isinstance(h, logging.FileHandler)]
+        file_handlers = [
+            h for h in package_logger.handlers if isinstance(h, logging.FileHandler)
+        ]
         assert len(stream_handlers) == 1
         assert len(file_handlers) == 1
         # And that file handler targets the same file
         assert Path(file_handlers[0].baseFilename) == log_file
 
 
-@patch("osgeo.gdal.PushErrorHandler")
-def test_set_error_handler_prints_for_low_error_class(mock_push):
-    # Install the handler via LoggerManager and capture it from the patched GDAL entry point
-    LoggerManager()
-    handler = mock_push.call_args[0][0]
-
+def test_set_error_handler_prints_for_low_error_class():
     # Invoke the handler with an error class lower than CE_Warning to trigger printing
     buf = io.StringIO()
     with redirect_stdout(buf):
-        handler(0, 42, "oops")
+        _gdal_error_handler(0, 42, "oops")
     out = buf.getvalue().strip()
 
     assert out == "GDAL error (class 0, number 42): oops"
@@ -112,21 +170,18 @@ def _collect_log_messages(records, logger_name: str):
     return [r for r in records if r.name == logger_name]
 
 
-@patch("osgeo.gdal.PushErrorHandler")
-def test_set_error_handler_logs_severities(mock_push, capsys):
-    # Isolate root logging and configure
-    with isolated_root_logging():
+def test_set_error_handler_logs_severities(capsys):
+    # Isolate pyramids logging and configure
+    with isolated_package_logging():
         LoggerManager(level="DEBUG")
-
-        # Capture the handler installed during construction
-        handler = mock_push.call_args[0][0]
+        capsys.readouterr()  # drop the "Logging is configured." line
 
         # Emit messages: warning and higher are routed to the configured logger -> console (stderr)
-        handler(gdal.CE_Warning, 22, "warn msg")
-        handler(gdal.CE_Failure, 33, "fail msg")
-        handler(gdal.CE_Fatal, 44, "fatal msg")
+        _gdal_error_handler(gdal.CE_Warning, 22, "warn msg")
+        _gdal_error_handler(gdal.CE_Failure, 33, "fail msg")
+        _gdal_error_handler(gdal.CE_Fatal, 44, "fatal msg")
         # Unknown class -> ERROR fallback
-        handler(999, 55, "unknown class msg")
+        _gdal_error_handler(999, 55, "unknown class msg")
 
         out = capsys.readouterr()
         err_text = out.err
@@ -140,8 +195,34 @@ def test_set_error_handler_logs_severities(mock_push, capsys):
         )
 
 
+@patch("osgeo.gdal.PushErrorHandler")
+def test_error_handler_installed_only_once(mock_push):
+    """ARC-40: repeated construction must not stack GDAL error handlers.
+
+    Test scenario:
+        ``gdal.PushErrorHandler`` pushes onto a stack that pyramids never pops,
+        so an unguarded install made GDAL log every error once per push. Two
+        LoggerManager constructions must produce at most one push.
+    """
+    with reinstallable_error_handler(), isolated_package_logging():
+        LoggerManager()
+        LoggerManager()
+    assert mock_push.call_count == 1, (
+        f"expected exactly one PushErrorHandler call, got {mock_push.call_count}"
+    )
+    assert mock_push.call_args[0][0] is _gdal_error_handler
+
+
+@patch("osgeo.gdal.PushErrorHandler")
+def test_error_handler_not_reinstalled_when_already_present(mock_push):
+    """The install guard short-circuits once the handler is in place."""
+    with isolated_package_logging():
+        LoggerManager()
+    mock_push.assert_not_called()
+
+
 def test_setup_logging_invalid_level_string_raises():
-    with isolated_root_logging():
+    with isolated_package_logging():
         with pytest.raises(ValueError):
             LoggerManager(level="NOT_A_LEVEL")
 
@@ -191,14 +272,12 @@ def test_initialize_gdal_sets_options_and_conditional_driver_path(
     mock_register.assert_called()
 
 
-@patch("osgeo.gdal.PushErrorHandler")
-def test_error_handler_exception_fallback_logs_error(mock_push, capsys):
+def test_error_handler_exception_fallback_logs_error(capsys):
     # Install handler via LoggerManager
-    with isolated_root_logging():
+    with isolated_package_logging():
         LoggerManager(level="DEBUG")
-        handler = mock_push.call_args[0][0]
         # Cause a TypeError inside the handler's try block by passing a non-orderable err_class
-        handler(object(), 66, "boom")
+        _gdal_error_handler(object(), 66, "boom")
         err = capsys.readouterr().err
     # The fallback except path logs an error with the generic format
     assert "GDAL(class=" in err
