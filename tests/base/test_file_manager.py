@@ -475,6 +475,35 @@ class TestLRUCachePinning:
             f"Both unpinned entries must be reclaimed, got {evicted}"
         )
 
+    def test_releasing_the_last_pin_trims_the_overflow_immediately(self):
+        """Dropping the last pin restores `maxsize` without waiting for an insert.
+
+        Test scenario:
+            Pinned reads are the one thing allowed to push the cache
+            past its limit. If the trim only ran on the next insert, a
+            workload that finishes its reads and stops would hold every
+            over-limit handle open forever — 20 GDAL datasets on a cache
+            configured for 2. Releasing the pins must reclaim them there
+            and then.
+        """
+        evicted: list = []
+        cache = _LRUCache(maxsize=2, on_evict=lambda k, v: evicted.append(k))
+        for index in range(6):
+            key = f"k{index}"
+            cache[key] = index
+            cache.pin(key)
+        assert len(cache) == 6, (
+            f"pinned reads must be allowed to exceed maxsize, got {len(cache)}"
+        )
+        for index in range(6):
+            cache.unpin(f"k{index}")
+        assert len(cache) == 2, (
+            f"the cache must be back at maxsize once unpinned, got {len(cache)}"
+        )
+        assert evicted == ["k0", "k1", "k2", "k3"], (
+            f"the four least-recently-used entries must be released, got {evicted}"
+        )
+
     def test_pins_nest(self):
         """N pins need N unpins before the slot is evictable."""
         evicted: list = []

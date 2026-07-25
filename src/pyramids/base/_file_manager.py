@@ -364,6 +364,9 @@ class _LRUCache(MutableMapping):
         the cache is allowed — :meth:`CachingFileManager.acquire_context`
         pins before opening so the slot is covered from the moment it
         lands.
+
+        Args:
+            key: The cache key to protect.
         """
         with self._lock:
             self._pins[key] = self._pins.get(key, 0) + 1
@@ -371,9 +374,20 @@ class _LRUCache(MutableMapping):
     def unpin(self, key: Hashable) -> None:
         """Drop one pin from `key`; the slot is evictable again at zero.
 
+        Dropping the last pin re-applies the size limit immediately.
+        Pinned reads are the one thing allowed to push the cache over
+        `maxsize`, so without this the overflow would persist until
+        some *other* key happened to be inserted — on a workload that
+        finishes its reads and stops, that is never, leaving handles
+        open on a cache configured for far fewer.
+
         An untracked key -- e.g. wiped by :meth:`clear` while a read
         was in flight -- is a no-op rather than an underflow.
+
+        Args:
+            key: The cache key to release.
         """
+        released = False
         with self._lock:
             pinned = self._pins.get(key)
             if pinned is not None:
@@ -381,6 +395,11 @@ class _LRUCache(MutableMapping):
                     self._pins[key] = pinned - 1
                 else:
                     self._pins.pop(key, None)
+                    released = True
+        # Outside the lock: `_enforce_size_limit` runs `on_evict` (which closes GDAL
+        # handles) with the cache lock released, and re-taking it here would nest.
+        if released:
+            self._enforce_size_limit(self._maxsize)
 
     def retain(self, key: Hashable) -> None:
         """Register one live referent for `key` (see the `_refcounts` note in `__init__`)."""
