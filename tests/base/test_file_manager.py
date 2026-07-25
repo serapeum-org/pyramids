@@ -1088,3 +1088,88 @@ class TestCachingFileManagerAutoRelease:
             "handle close failed during finalizer release" in r.getMessage()
             for r in caplog.records
         ), "the finalizer-invoked close error must be logged at WARNING"
+
+
+class TestThreadLocalFileManagerReaping:
+    """ARC-3: handles must not accumulate as worker threads come and go."""
+
+    def test_dead_threads_release_their_handles(self):
+        """A handle is closed once the thread that opened it has exited.
+
+        Test scenario:
+            `read_windows` builds a fresh `ThreadPoolExecutor` per call, so a
+            manager cached on a long-lived Dataset saw brand-new threads every
+            time. Each opened a handle that only `close()` released, so the
+            count grew without bound. Acquiring from a new thread must first
+            reclaim the handles of threads that have since finished.
+        """
+        manager = ThreadLocalFileManager(_fake_opener, "t.tif", "read_only")
+        opened: list = []
+
+        def grab():
+            opened.append(manager.acquire())
+
+        for _ in range(5):
+            thread = threading.Thread(target=grab)
+            thread.start()
+            thread.join()
+
+        assert len(manager._handles) <= 2, (
+            "handles from exited threads must be reclaimed, still tracking "
+            f"{len(manager._handles)} after 5 sequential threads"
+        )
+        assert sum(1 for h in opened if h.closed) >= 3, (
+            "the reaped handles must actually be closed, not merely dropped; "
+            f"closed={[h.closed for h in opened]}"
+        )
+
+    def test_live_threads_keep_their_handles(self):
+        """A handle belonging to a running thread is never reclaimed.
+
+        Test scenario:
+            Reaping keys on thread liveness, so it must not touch a handle
+            whose owner is still inside a read. Five threads park on a barrier
+            while a sixth acquires, which is what triggers the sweep.
+        """
+        manager = ThreadLocalFileManager(_fake_opener, "t.tif", "read_only")
+        holding = threading.Barrier(6)
+        release = threading.Event()
+        handles: list = []
+
+        def hold():
+            handles.append(manager.acquire())
+            holding.wait()
+            release.wait(timeout=10)
+
+        threads = [threading.Thread(target=hold) for _ in range(5)]
+        for thread in threads:
+            thread.start()
+        holding.wait(timeout=10)
+        manager.acquire()
+        assert all(not h.closed for h in handles), (
+            f"live threads' handles must survive the sweep: {[h.closed for h in handles]}"
+        )
+        release.set()
+        for thread in threads:
+            thread.join(timeout=10)
+
+    def test_close_still_releases_every_thread_handle(self):
+        """`close()` keeps releasing handles across all threads.
+
+        Test scenario:
+            Regression guard for the entry-shape change: the tracked list now
+            holds `(thread, handle)` pairs, so `close()` must unpack them.
+        """
+        manager = ThreadLocalFileManager(_fake_opener, "t.tif", "read_only")
+        worker_handles: list = []
+
+        def grab():
+            worker_handles.append(manager.acquire())
+
+        thread = threading.Thread(target=grab)
+        thread.start()
+        thread.join()
+        main_handle = manager.acquire()
+        manager.close()
+        assert main_handle.closed is True, "the caller's handle must be closed"
+        assert manager._handles == [], "close() must clear the tracked entries"

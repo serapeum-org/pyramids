@@ -898,8 +898,14 @@ class ThreadLocalFileManager(FileManager):
         # closing thread). The generation counter lets a thread whose handle was
         # closed by close() reopen on its next acquire() instead of reusing a
         # now-dead handle.
+        # Each entry is (owning thread, handle). The thread is kept so a handle
+        # can be reclaimed once its owner has exited: a manager cached on a
+        # long-lived Dataset otherwise accumulates one handle per worker thread
+        # that ever touched it, and short-lived pools (a fresh
+        # `ThreadPoolExecutor` per `read_windows` call) mint new threads every
+        # time, so the count grows without bound until `close()`.
         self._handles_lock = threading.Lock()
-        self._handles: list[Any] = []
+        self._handles: list[tuple[threading.Thread, Any]] = []
         self._generation = 0
 
     def __getstate__(self) -> tuple:
@@ -909,14 +915,44 @@ class ThreadLocalFileManager(FileManager):
         opener, path, access, kwargs = state
         type(self).__init__(self, opener, path, access, kwargs)
 
+    def _reap_dead_threads(self) -> list[Any]:
+        """Drop entries whose owning thread has exited; return their handles.
+
+        The caller closes them with the lock released, matching the rest of
+        this module. A dead thread can never call :meth:`acquire` again, so its
+        handle is unreachable and safe to release.
+
+        Returns:
+            list[Any]: Handles whose owning thread is no longer alive.
+        """
+        with self._handles_lock:
+            live: list[tuple[threading.Thread, Any]] = []
+            orphaned: list[Any] = []
+            for owner, handle in self._handles:
+                if owner.is_alive():
+                    live.append((owner, handle))
+                else:
+                    orphaned.append(handle)
+            self._handles = live
+        return orphaned
+
     def acquire(self) -> Any:
-        """Return this thread's handle, opening one on first call (or after close)."""
+        """Return this thread's handle, opening one on first call (or after close).
+
+        Handles belonging to threads that have since exited are closed here, so
+        a manager cached on a long-lived Dataset does not accumulate one handle
+        per worker thread that ever read through it.
+        """
         entry = getattr(self._local, "entry", None)
         if entry is not None and entry[1] == self._generation:
             return entry[0]
+        # Reap before opening: a new thread arriving is exactly when a previous
+        # pool's threads are likely to have finished.
+        for orphan in self._reap_dead_threads():
+            _close_handle(None, orphan)
         handle = self._opener(self._path, self._access, **self._kwargs)
         with self._handles_lock:
-            self._handles.append(handle)
+            self._handles.append((threading.current_thread(), handle))
             generation = self._generation
         self._local.entry = (handle, generation)
         return handle
@@ -929,9 +965,9 @@ class ThreadLocalFileManager(FileManager):
     def close(self) -> None:
         """Close every open handle across all threads and reset for reuse."""
         with self._handles_lock:
-            handles, self._handles = self._handles, []
+            entries, self._handles = self._handles, []
             self._generation += 1
-        for handle in handles:
+        for _owner, handle in entries:
             _close_handle(None, handle)
         # Drop the calling thread's cached entry; other threads reopen on their
         # next acquire() because the generation no longer matches.
