@@ -51,6 +51,7 @@ import logging
 import os
 import site
 import sys
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -65,12 +66,30 @@ adds handlers to root hijacks logging for the whole host application."""
 
 _GDAL_LOGGER_NAME = f"{__name__}.gdal"
 
+_NOISY_THIRD_PARTY_LOGGERS = (
+    "fiona",
+    "rasterio",
+    "shapely",
+    "matplotlib",
+    "urllib3",
+    "osgeo",
+)
+"""Third-party loggers pinned to WARNING when a caller opts into pyramids logging."""
+
 _gdal_error_handler_installed = False
 """Guard so the GDAL error handler is pushed once per process.
 
 `gdal.PushErrorHandler` stacks and pyramids never calls `PopErrorHandler`, so
 without this every extra `Config()` / `LoggerManager()` construction added another
 handler and every GDAL error was logged once per push.
+"""
+
+_gdal_error_handler_lock = threading.Lock()
+"""Serialises the check-and-set on `_gdal_error_handler_installed`.
+
+Two threads constructing `Config()` concurrently would otherwise both read the
+flag as `False` and both push, which is the exact stacking the flag exists to
+prevent.
 """
 
 
@@ -88,14 +107,11 @@ def _gdal_error_handler(err_class, err_num, err_msg):
     """
     log = logging.getLogger(_GDAL_LOGGER_NAME)
     try:
-        # For error classes lower than CE_Warning, print to stdout (expected by tests)
+        # Anything below CE_Warning -- CE_None (0) and CE_Debug (1) -- goes to stdout
+        # rather than the logger. That is why there is no CE_Debug branch below: it
+        # would be unreachable, since this test already swallows the class.
         if err_class is not None and err_class < getattr(gdal, "CE_Warning", 2):
             print(f"GDAL error (class {err_class}, number {err_num}): {err_msg}")
-            return
-
-        # Map GDAL error classes to logging levels
-        if err_class == gdal.CE_Debug:
-            log.debug(f"GDAL[{err_num}] {err_msg}")
         elif err_class == gdal.CE_Warning:
             log.warning(f"GDAL[{err_num}] {err_msg}")
         elif err_class == gdal.CE_Failure:
@@ -362,28 +378,26 @@ class LoggerManager:
         if not any(isinstance(h, logging.NullHandler) for h in package_logger.handlers):
             package_logger.addHandler(logging.NullHandler())
 
-        if level is None:
-            return
+        if level is not None:
+            level = self._normalize_level(level)
+            package_logger.setLevel(level)
 
-        level = self._normalize_level(level)
-        package_logger.setLevel(level)
+            console_handler, file_handler_exists_for = self._existing_handlers(
+                package_logger
+            )
+            self._ensure_console_handler(package_logger, console_handler, level)
+            self._ensure_file_handler(
+                package_logger, log_file, level, file_handler_exists_for
+            )
 
-        console_handler, file_handler_exists_for = self._existing_handlers(
-            package_logger
-        )
-        self._ensure_console_handler(package_logger, console_handler, level)
-        self._ensure_file_handler(
-            package_logger, log_file, level, file_handler_exists_for
-        )
+            # Reduce noise from common third-party libraries
+            for noisy in _NOISY_THIRD_PARTY_LOGGERS:
+                logging.getLogger(noisy).setLevel(logging.WARNING)
 
-        # Reduce noise from common third-party libraries
-        for noisy in ("fiona", "rasterio", "shapely", "matplotlib", "urllib3", "osgeo"):
-            logging.getLogger(noisy).setLevel(logging.WARNING)
-
-        # Announce configuration via the module logger so tests can assert on it. DEBUG,
-        # not INFO: an INFO line here is printed by every caller that opts into logging,
-        # and used to be printed by a bare `import pyramids`.
-        logging.getLogger(__name__).debug("Logging is configured.")
+            # Announce configuration via the module logger so tests can assert on it.
+            # DEBUG, not INFO: an INFO line here is printed by every caller that opts
+            # into logging, and used to be printed by a bare `import pyramids`.
+            logging.getLogger(__name__).debug("Logging is configured.")
 
     @staticmethod
     def _set_error_handler() -> None:
@@ -396,12 +410,14 @@ class LoggerManager:
         `gdal.PushErrorHandler` pushes onto a stack and pyramids never pops, so
         repeated installation made GDAL log each error once per push. The
         module-level guard makes re-construction of `Config` / `LoggerManager`
-        idempotent.
+        idempotent, and the lock keeps two threads constructing `Config()`
+        concurrently from both reading the flag as unset and both pushing.
         """
         global _gdal_error_handler_installed
-        if not _gdal_error_handler_installed:
-            gdal.PushErrorHandler(_gdal_error_handler)
-            _gdal_error_handler_installed = True
+        with _gdal_error_handler_lock:
+            if not _gdal_error_handler_installed:
+                gdal.PushErrorHandler(_gdal_error_handler)
+                _gdal_error_handler_installed = True
 
 
 @dataclass

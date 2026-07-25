@@ -1,5 +1,6 @@
 import io
 import logging
+import threading
 from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
@@ -215,10 +216,49 @@ def test_error_handler_installed_only_once(mock_push):
 
 @patch("osgeo.gdal.PushErrorHandler")
 def test_error_handler_not_reinstalled_when_already_present(mock_push):
-    """The install guard short-circuits once the handler is in place."""
-    with isolated_package_logging():
-        LoggerManager()
+    """The install guard short-circuits once the handler is in place.
+
+    Test scenario:
+        Set the flag explicitly rather than relying on the package import
+        having already set it — asserting against ambient module state
+        would pass just as happily against a `_set_error_handler` that did
+        nothing at all.
+    """
+    with reinstallable_error_handler():
+        config_mod._gdal_error_handler_installed = True
+        with isolated_package_logging():
+            LoggerManager()
     mock_push.assert_not_called()
+
+
+def test_error_handler_install_is_serialised_across_threads():
+    """Concurrent `Config()` construction still pushes exactly one handler.
+
+    Test scenario:
+        The guard is a check-then-set on a module global. Without the lock,
+        several threads can all read it as unset and each push a handler —
+        reintroducing the stacking (and the duplicated GDAL log lines) the
+        guard exists to prevent.
+    """
+    pushed: list = []
+    barrier = threading.Barrier(8)
+
+    def install():
+        barrier.wait()
+        LoggerManager._set_error_handler()
+
+    with reinstallable_error_handler(), patch(
+        "osgeo.gdal.PushErrorHandler", side_effect=lambda h: pushed.append(h)
+    ):
+        config_mod._gdal_error_handler_installed = False
+        threads = [threading.Thread(target=install) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    assert len(pushed) == 1, (
+        f"8 racing installs must push exactly one handler, got {len(pushed)}"
+    )
 
 
 def test_setup_logging_invalid_level_string_raises():
