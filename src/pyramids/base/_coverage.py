@@ -142,13 +142,23 @@ def read_size(projwin: list[float], res: tuple[float, float] | None) -> tuple[in
     that read at the ceiling.
 
     Raises:
-        ValueError: the requested window exceeds :data:`MAX_PX` on either side.
+        ValueError: `res` has a non-positive axis (a degenerate or fully rotated
+            geotransform yields a zero native pixel size), or the requested window
+            exceeds :data:`MAX_PX` on either side.
     """
     ulx, uly, lrx, lry = projwin
     span_x = abs(lrx - ulx)
     span_y = abs(uly - lry)
     if res is not None:
         x_res, y_res = res
+        if x_res <= 0 or y_res <= 0:
+            # native_resolution() can yield a zero axis for a degenerate or fully
+            # rotated geotransform (the pixel scale lives in gt[2]/gt[4], not
+            # gt[1]/gt[5]); reject it clearly instead of dividing by zero.
+            raise ValueError(
+                f"resolution must be strictly positive on each axis to size a read, "
+                f"got {res!r}; pass an explicit positive resolution"
+            )
         width = max(1, round(span_x / x_res))
         height = max(1, round(span_y / y_res))
     elif span_x >= span_y:

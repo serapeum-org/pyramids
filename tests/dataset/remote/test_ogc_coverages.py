@@ -135,6 +135,11 @@ class TestPureHelpers:
         with pytest.raises(ValueError, match="px limit"):
             _ogc_coverages._read_size([0.0, 2.0, 2.0, 0.0], (1e-5, 1e-5))
 
+    def test_read_size_rejects_zero_resolution_axis(self):
+        """A zero native-resolution axis is rejected with a clear error, not ZeroDivisionError."""
+        with pytest.raises(ValueError, match="strictly positive"):
+            _ogc_coverages._read_size([2.0, 5.0, 4.0, 3.0], (0.0, 0.01))
+
 
 class TestOpenCoverage:
     def test_missing_driver_raises_ogcapierror(self, monkeypatch):
