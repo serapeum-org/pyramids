@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import yaml
@@ -96,6 +98,48 @@ DTYPE_CONVERSION_DF = DataFrame(
     columns=["id", "name", "numpy", "gdal", "ogr"],
     data=list(zip(GDAL_DTYPE_CODE, DTYPE_NAMES, NUMPY_DTYPE, GDAL_DTYPE, OGR_DTYPE)),
 )
+
+
+def _first_wins(keys: Sequence[Any], values: Sequence[Any]) -> dict[Any, Any]:
+    """Zip `keys` onto `values`, keeping the first pair for a duplicated key.
+
+    Mirrors the ``.values[0]`` semantics of the DataFrame masks these lookup
+    tables replace: ``NUMPY_DTYPE`` maps ``np.complex64`` onto three different
+    GDAL codes, and the earliest row wins. Pairs with a ``None`` on either side
+    are dropped so the "unsupported dtype" guards still raise instead of
+    returning a bogus ``None``.
+
+    Args:
+        keys (Sequence[Any]): Lookup keys, in table order.
+        values (Sequence[Any]): Values positionally paired with `keys`.
+
+    Returns:
+        dict[Any, Any]: The first-wins mapping, with ``None``-bearing pairs
+        removed.
+    """
+    mapping: dict[Any, Any] = {}
+    for key, value in zip(keys, values):
+        if key is None or value is None:
+            continue
+        if key not in mapping:
+            mapping[key] = value
+    return mapping
+
+
+# Precomputed dtype lookups. The conversion helpers below used to run a
+# full-column pandas boolean mask over `DTYPE_CONVERSION_DF` on every call --
+# roughly 250 us for what is a fixed 16-row table lookup, paid per band and per
+# timestep. These dicts are built once at import; `DTYPE_CONVERSION_DF` is kept
+# because it is part of the module's public surface and still supplies the
+# "available types" listings in the error messages.
+_NUMPY_TO_GDAL: dict[Any, Any] = _first_wins(
+    [None if dtype is None else np.dtype(dtype) for dtype in NUMPY_DTYPE], GDAL_DTYPE
+)
+_GDAL_TO_NUMPY: dict[Any, Any] = _first_wins(GDAL_DTYPE, NUMPY_DTYPE)
+_GDAL_TO_OGR: dict[Any, Any] = _first_wins(GDAL_DTYPE, OGR_DTYPE)
+# No OGR->numpy table: `OGR_DTYPE` holds only OFTInteger (0), OFTReal (2) and
+# OFTInteger64 (12), and `ogr_to_numpy_dtype` answers all three directly, so
+# such a dict could never be read.
 
 COLOR_INTERPRETATIONS = [
     gdal.GCI_Undefined,  # 0
@@ -373,6 +417,10 @@ def numpy_to_gdal_dtype(arr: np.ndarray | np.dtype | str) -> int:
 
     Returns:
         int: GDAL data type code.
+
+    Raises:
+        ValueError: If the input is not array/dtype/str-like, or if the numpy
+            dtype has no GDAL counterpart.
     """
     if isinstance(arr, np.ndarray):
         np_dtype = arr.dtype
@@ -385,12 +433,13 @@ def numpy_to_gdal_dtype(arr: np.ndarray | np.dtype | str) -> int:
             "The given input is not a numpy array or a numpy data type, please provide a valid input"
         )
     # integer as gdal does not accept the dtype if it is int64
-    gdal_type = int(
-        DTYPE_CONVERSION_DF.loc[
-            DTYPE_CONVERSION_DF["numpy"] == np_dtype, "gdal"
-        ].values[0]
-    )
-    return gdal_type
+    matched = _NUMPY_TO_GDAL.get(np_dtype)
+    if matched is None:
+        raise ValueError(
+            f"The given numpy data type is not supported: {np_dtype}, available types are: "
+            f"{DTYPE_CONVERSION_DF['numpy'].dropna().tolist()}"
+        )
+    return int(matched)
 
 
 def ogr_to_numpy_dtype(dtype_code: int):
@@ -415,6 +464,10 @@ def ogr_to_numpy_dtype(dtype_code: int):
 
     Returns:
         numpy.dtype: Numpy data type corresponding to the OGR code.
+
+    Raises:
+        ValueError: If `dtype_code` is not one of the three OGR types the
+            conversion table covers.
     """
     # since there are more than one numpy dtype for the ogr.OFTInteger (0), and the ogr.OFTInteger64 (12),
     # we will return int32 for 0 and int64 for 12.
@@ -426,17 +479,12 @@ def ogr_to_numpy_dtype(dtype_code: int):
     elif dtype_code == 2:
         result_dtype = np.float64
     else:
-        matched = DTYPE_CONVERSION_DF.loc[
-            DTYPE_CONVERSION_DF["ogr"] == dtype_code, "numpy"
-        ]
-
-        if len(matched) == 0:
-            raise ValueError(
-                f"The given OGR data type is not supported: {dtype_code}, available types are: "
-                f"{DTYPE_CONVERSION_DF['ogr'].unique().tolist()}"
-            )
-        else:
-            result_dtype = matched.values[0]
+        # `OGR_DTYPE` contains only these three codes, so anything else is
+        # unsupported by definition -- there is no table left to consult.
+        raise ValueError(
+            f"The given OGR data type is not supported: {dtype_code}, available types are: "
+            f"{DTYPE_CONVERSION_DF['ogr'].unique().tolist()}"
+        )
 
     return result_dtype
 
@@ -449,16 +497,19 @@ def gdal_to_numpy_dtype(dtype: int) -> str:
 
     Returns:
         str: Name of the corresponding numpy dtype.
+
+    Raises:
+        ValueError: If `dtype` has no numpy counterpart — including the
+            placeholder codes ``GDT_Unknown`` and ``GDT_TypeCount``, whose table
+            rows carry no numpy type.
     """
-    matched_dtypes = DTYPE_CONVERSION_DF.loc[
-        DTYPE_CONVERSION_DF["gdal"] == dtype, "numpy"
-    ]
-    if len(matched_dtypes) == 0:
+    matched = _GDAL_TO_NUMPY.get(dtype)
+    if matched is None:
         raise ValueError(
             f"The given GDAL data type is not supported: {dtype}, available types are: "
             f"{DTYPE_CONVERSION_DF['gdal'].unique().tolist()}"
         )
-    result_name = str(matched_dtypes.values[0].__name__)
+    result_name = str(matched.__name__)
     return result_name
 
 
@@ -471,14 +522,21 @@ def gdal_to_ogr_dtype(src: Dataset, band: int = 1):
 
     Returns:
         int: OGR data type code corresponding to the band GDAL dtype.
+
+    Raises:
+        ValueError: If the band's GDAL dtype has no OGR counterpart (the
+            complex types and the ``GDT_Unknown`` / ``GDT_TypeCount``
+            placeholders).
     """
     raster_band = src.GetRasterBand(band)
     gdal_dtype = raster_band.DataType
-    return int(
-        DTYPE_CONVERSION_DF.loc[
-            DTYPE_CONVERSION_DF["gdal"] == gdal_dtype, "ogr"
-        ].values[0]
-    )
+    matched = _GDAL_TO_OGR.get(gdal_dtype)
+    if matched is None:
+        raise ValueError(
+            f"The given GDAL data type has no OGR equivalent: {gdal_dtype}, available types are: "
+            f"{DTYPE_CONVERSION_DF['gdal'].unique().tolist()}"
+        )
+    return int(matched)
 
 
 class Catalog:
@@ -575,12 +633,96 @@ _DEFAULT_CLEOPATRA_MSG = (
 )
 
 
+def require_optional(module_name: str, message: str, *, return_module: bool = False):
+    """Import an optional dependency, or raise the extra's install hint.
+
+    One implementation behind every `import_<package>` guard in this module.
+    Each of those had its own copy of the same `try: import X except
+    ImportError: raise OptionalPackageDoesNotExist(message)` body; they are now
+    one-line delegations to this helper, keeping their names so call sites (and
+    the tests that monkeypatch them per module) are unaffected.
+
+    The import goes through the builtin `__import__` rather than
+    `importlib.import_module`, so it stays interceptable by call sites and tests
+    that patch `builtins.__import__` — which several guard tests do to simulate
+    a missing package.
+
+    One nuance for dotted names: `import_basemap` previously spelled
+    `from cleopatra import tiles`, which calls
+    `__import__("cleopatra", ..., fromlist=("tiles",))`. Here it becomes
+    `__import__("cleopatra.tiles")`, so the parent package resolves internally
+    rather than through `builtins.__import__`. A patch keyed on
+    `name == "cleopatra"` no longer intercepts it; key on the dotted name
+    instead. No in-tree test depends on this.
+
+    Args:
+        module_name: Dotted module path to import, e.g. ``"zarr"`` or
+            ``"cleopatra.tiles"``.
+        message: The install hint raised when the import fails. Compose it with
+            :func:`lazy_extra_hint` for the ``[lazy]`` extra.
+        return_module: When `True` the imported module object is returned so the
+            caller can use it without a bare inline import of its own. The
+            guard-only callers leave it `False` and get `None`.
+
+    Returns:
+        The imported module when `return_module` is `True`, otherwise `None`.
+
+    Raises:
+        OptionalPackageDoesNotExist: When the module cannot be imported.
+
+    Examples:
+        - An installed dependency resolves, and the guard-only form returns
+          nothing:
+            ```python
+            >>> from pyramids.base._utils import require_optional
+            >>> require_optional("numpy", "install the [x] extra") is None
+            True
+
+            ```
+        - Ask for the module object back when the caller needs to use it. A
+          dotted name resolves to the submodule itself, not its top-level
+          package:
+            ```python
+            >>> from pyramids.base._utils import require_optional
+            >>> mod = require_optional(
+            ...     "numpy.linalg", "install the [x] extra", return_module=True
+            ... )
+            >>> mod.__name__
+            'numpy.linalg'
+
+            ```
+        - A missing package raises the supplied hint verbatim:
+            ```python
+            >>> from pyramids.base._utils import require_optional
+            >>> from pyramids.base._errors import OptionalPackageDoesNotExist
+            >>> try:
+            ...     require_optional("not_a_real_package", "install the [x] extra")
+            ... except OptionalPackageDoesNotExist as exc:
+            ...     print(exc)
+            install the [x] extra
+
+            ```
+    """
+    try:
+        __import__(module_name)
+    except ImportError as exc:
+        raise OptionalPackageDoesNotExist(message) from exc
+    module = None
+    if return_module:
+        # `__import__` returns the top-level package for a dotted name, so read the
+        # requested module back out of sys.modules instead of using its return value.
+        # A module that removed itself from sys.modules during import would give a
+        # bare KeyError here; surface the branded error instead.
+        try:
+            module = sys.modules[module_name]
+        except KeyError as exc:
+            raise OptionalPackageDoesNotExist(message) from exc
+    return module
+
+
 def import_cleopatra(message: str):
     """Import cleopatra."""
-    try:
-        import cleopatra  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("cleopatra", message)
 
 
 def require_cleopatra(msg: str | None = None) -> None:
@@ -690,42 +832,27 @@ def lazy_extra_hint(prefix: str) -> str:
 
 def import_zarr(message: str):
     """Import zarr."""
-    try:
-        import zarr  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("zarr", message)
 
 
 def import_dask_geopandas(message: str):
     """Import dask_geopandas."""
-    try:
-        import dask_geopandas  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("dask_geopandas", message)
 
 
 def import_pyarrow(message: str):
     """Import pyarrow."""
-    try:
-        import pyarrow  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("pyarrow", message)
 
 
 def import_pystac_client(message: str):
     """Import pystac_client."""
-    try:
-        import pystac_client  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("pystac_client", message)
 
 
 def import_stac_asset(message: str):
     """Import stac_asset (ships via the optional [stac] extra)."""
-    try:
-        import stac_asset  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("stac_asset", message)
 
 
 def import_dask(message: str):
@@ -735,19 +862,12 @@ def import_dask(message: str):
     their own (dask is optional, so it cannot be a top-level import). Callers
     that only need the guard may ignore the return value.
     """
-    try:
-        import dask
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
-    return dask
+    return require_optional("dask", message, return_module=True)
 
 
 def import_kerchunk(message: str):
     """Import kerchunk."""
-    try:
-        import kerchunk  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("kerchunk", message)
 
 
 def import_h5py(message: str):
@@ -766,19 +886,12 @@ def import_h5py(message: str):
     Raises:
         OptionalPackageDoesNotExist: When h5py is not installed.
     """
-    try:
-        import h5py
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
-    return h5py
+    return require_optional("h5py", message, return_module=True)
 
 
 def import_basemap(message: str):
     """Import the web-tile basemap backend (``cleopatra.tiles``, the ``[tiles]`` extra)."""
-    try:
-        from cleopatra import tiles  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("cleopatra.tiles", message)
 
 
 def ogr_ds_to_gdal_dataset(ogr_ds: ogr.DataSource) -> gdal.Dataset:

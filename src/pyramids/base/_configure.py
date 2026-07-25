@@ -134,6 +134,23 @@ def configure(
     return env
 
 
+def _register_plugin(client: Any, plugin: Any, name: str) -> None:
+    """Register `plugin` on `client`, falling back to the pre-2023 dask API.
+
+    `Client.register_plugin` replaced `Client.register_worker_plugin` in dask
+    2023.9; both registrars below need the same two-step, so it lives here once.
+
+    Args:
+        client: A :class:`dask.distributed.Client`.
+        plugin: The :class:`WorkerPlugin` instance to register.
+        name: Registration name, used by dask to de-duplicate plugins.
+    """
+    try:
+        client.register_plugin(plugin, name=name)
+    except AttributeError:  # pragma: no cover - old dask API
+        client.register_worker_plugin(plugin, name=name)
+
+
 def _register_worker_plugin(client: Any, env: dict[str, str]) -> None:
     """Register a WorkerPlugin that replays `env` on each dask worker."""
     from dask.distributed import WorkerPlugin
@@ -150,11 +167,7 @@ def _register_worker_plugin(client: Any, env: dict[str, str]) -> None:
             for key, value in self._env.items():
                 gdal.SetConfigOption(key, value)
 
-    plugin = PyramidsConfigPlugin(env)
-    try:
-        client.register_plugin(plugin, name="pyramids-configure")
-    except AttributeError:  # pragma: no cover - old dask API
-        client.register_worker_plugin(plugin, name="pyramids-configure")
+    _register_plugin(client, PyramidsConfigPlugin(env), "pyramids-configure")
 
 
 def configure_lazy_vector(
@@ -264,11 +277,8 @@ def _register_lazy_vector_worker_plugin(
                     self._settings["target_bytes_per_partition"]
                 )
 
-    plugin = PyramidsLazyVectorPlugin(settings)
-    try:
-        client.register_plugin(plugin, name="pyramids-configure-lazy-vector")
-    except AttributeError:  # pragma: no cover - old dask API
-        client.register_worker_plugin(
-            plugin,
-            name="pyramids-configure-lazy-vector",
-        )
+    _register_plugin(
+        client,
+        PyramidsLazyVectorPlugin(settings),
+        "pyramids-configure-lazy-vector",
+    )

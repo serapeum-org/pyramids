@@ -7,6 +7,18 @@ This module exposes helpers to:
 - Initialize GDAL/OGR (errors routed to Python logging).
 - Discover and export environment variables (e.g., GDAL_DRIVER_PATH) across platforms.
 
+Logging is **opt-in**. Importing pyramids runs `Config()` with no `level`, which
+attaches a `logging.NullHandler` to the `"pyramids"` logger and nothing else — the
+root logger is never touched, no handler is installed on it, and nothing is printed.
+In that state pyramids' records propagate normally, so `logging.basicConfig()` (or
+any other host configuration) picks them up.
+
+Passing an explicit level (`Config(level="INFO")`) instead hands the namespace to
+pyramids: it installs the coloured console handler, the optional file handler, and
+sets `propagate = False` on the `"pyramids"` logger so records are not *also*
+emitted by the host's root handlers. Choose one or the other — either configure
+logging yourself and leave `level` unset, or let pyramids own its namespace.
+
 Examples:
 - Set up logging and route GDAL errors into Python logging
 
@@ -44,6 +56,7 @@ import logging
 import os
 import site
 import sys
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -51,6 +64,64 @@ import yaml
 from osgeo import gdal, ogr
 
 from pyramids import __path__ as root_path
+
+PACKAGE_LOGGER_NAME = "pyramids"
+"""Logger namespace pyramids configures. Never the root logger — a library that
+adds handlers to root hijacks logging for the whole host application."""
+
+_GDAL_LOGGER_NAME = f"{__name__}.gdal"
+
+_OWNED_HANDLER_FLAG = "_pyramids_owned"
+"""Marks a handler pyramids installed, so it never reconfigures a host's own."""
+
+_NOISY_THIRD_PARTY_LOGGERS = (
+    "fiona",
+    "rasterio",
+    "shapely",
+    "matplotlib",
+    "urllib3",
+    "osgeo",
+)
+"""Third-party loggers pinned to WARNING when a caller opts into pyramids logging."""
+
+_gdal_error_handler_lock = threading.Lock()
+"""Serialises installation of the GDAL error handler.
+
+`gdal.SetErrorHandler` is itself idempotent, so this only stops two threads
+racing through `_set_error_handler` from interleaving inside GDAL.
+"""
+
+
+def _gdal_error_handler(err_class, err_num, err_msg):
+    """Route a GDAL error onto the `pyramids.base.config.gdal` logger.
+
+    Module-level (not a closure) so it is a stable, importable object: the
+    once-only install guard needs a single identity, and tests can invoke it
+    directly instead of fishing it out of a patched `gdal.PushErrorHandler`.
+
+    Args:
+        err_class (int): GDAL error class (`gdal.CE_*`).
+        err_num (int): GDAL error number.
+        err_msg (str): The message text.
+    """
+    log = logging.getLogger(_GDAL_LOGGER_NAME)
+    try:
+        # Anything below CE_Warning -- CE_None (0) and CE_Debug (1) -- goes to stdout
+        # rather than the logger. That is why there is no CE_Debug branch below: it
+        # would be unreachable, since this test already swallows the class.
+        if err_class is not None and err_class < getattr(gdal, "CE_Warning", 2):
+            print(f"GDAL error (class {err_class}, number {err_num}): {err_msg}")
+        elif err_class == gdal.CE_Warning:
+            log.warning(f"GDAL[{err_num}] {err_msg}")
+        elif err_class == gdal.CE_Failure:
+            log.error(f"GDAL[{err_num}] {err_msg}")
+        elif err_class == gdal.CE_Fatal:
+            log.critical(f"GDAL[{err_num}] {err_msg}")
+        else:
+            log.error(f"GDAL(class={err_class}, code={err_num}) {err_msg}")
+    except Exception:
+        # Fallback to error level if mapping fails for any reason
+        log.error(f"GDAL(class={err_class}, code={err_num}) {err_msg}")
 
 
 class ColorFormatter(logging.Formatter):
@@ -132,6 +203,16 @@ class LoggerManager:
     configuration class can remain small. It configures a colored console handler,
     an optional file handler, and redirects GDAL errors to the logging subsystem.
 
+    Everything it configures lives under the :data:`PACKAGE_LOGGER_NAME`
+    (`"pyramids"`) namespace. The root logger is never modified: a library that
+    adds a handler to root, or calls `root.setLevel(...)`, silently reconfigures
+    logging for the entire host application.
+
+    Handler installation is **opt-in**. With `level=None` (the default, and what
+    the package import uses) the manager only attaches a `logging.NullHandler`
+    and installs the GDAL error bridge; nothing is printed and no level is
+    changed. Pass an explicit level to get the coloured console handler.
+
     Examples:
     - Basic usage to configure logging and register the GDAL error handler
 
@@ -139,7 +220,6 @@ class LoggerManager:
 
         >>> from pyramids.base.config import LoggerManager
         >>> _ = LoggerManager(level="INFO")  # doctest: +SKIP
-        2025-09-09 23:01:39 | INFO | pyramids.base.config | Logging is configured.
         >>> # - Creates a console handler with colorized levels
         >>> # - Optionally creates a file handler when log_file is provided
         >>> # - Installs a GDAL error handler that forwards messages to logging
@@ -157,16 +237,24 @@ class LoggerManager:
 
     def __init__(
         self,
-        level: int | str = logging.INFO,
+        level: int | str | None = None,
         log_file: str | Path | None = None,
+        quiet_third_party: bool = False,
     ):
         """Create a LoggerManager and configure logging.
 
         Args:
-            level (int | str, optional): Logging level as an int (e.g., logging.INFO)
-                or as a case-insensitive string ("DEBUG", "INFO", ...). Defaults to logging.INFO.
+            level (int | str | None, optional): Logging level as an int (e.g., logging.INFO)
+                or as a case-insensitive string ("DEBUG", "INFO", ...). `None` — the default —
+                installs no handlers and changes no level, leaving log configuration entirely
+                to the host application.
             log_file (str | pathlib.Path | None, optional): Optional path to a log file to
-                also write logs to. If None, no file handler is added. Defaults to None.
+                also write logs to. Ignored when `level` is None. Defaults to None.
+            quiet_third_party (bool, optional): Pin the loggers in
+                :data:`_NOISY_THIRD_PARTY_LOGGERS` to WARNING. Off by default: those are
+                other libraries' loggers, and silently reverting a host that deliberately
+                set, say, matplotlib to DEBUG is not pyramids' call to make. Ignored when
+                `level` is None.
 
         Raises:
             ValueError: If an invalid level string is provided (e.g., "VERBOS").
@@ -178,11 +266,12 @@ class LoggerManager:
 
             >>> from pyramids.base.config import LoggerManager
             >>> _ = LoggerManager(level="DEBUG", log_file="pyramids.log")  # doctest: +SKIP
-            2025-09-09 23:02:23 | INFO | pyramids.base.config | Logging is configured.
 
             ```
         """
-        self._setup_logging(level=level, log_file=log_file)
+        self._setup_logging(
+            level=level, log_file=log_file, quiet_third_party=quiet_third_party
+        )
         self._set_error_handler()
 
     def _normalize_level(self, level: int | str) -> int:
@@ -195,12 +284,21 @@ class LoggerManager:
 
     @staticmethod
     def _existing_handlers(
-        root_logger: logging.Logger,
+        package_logger: logging.Logger,
     ) -> tuple[logging.Handler | None, set[Path]]:
-        """Return the current console handler (if any) and the set of file-handler paths."""
+        """Return pyramids' own console handler (if any) and its file-handler paths.
+
+        Only handlers pyramids installed are considered. A host is entitled to
+        attach its own handler to the `"pyramids"` logger -- that is the canonical
+        way to customise a library's output -- and reconfiguring its level or
+        swapping its formatter for the coloured console one would silently undo
+        that.
+        """
         console_handler: logging.Handler | None = None
         file_paths: set[Path] = set()
-        for h in root_logger.handlers:
+        for h in package_logger.handlers:
+            if not getattr(h, _OWNED_HANDLER_FLAG, False):
+                continue
             if isinstance(h, logging.StreamHandler) and not isinstance(
                 h, logging.FileHandler
             ):
@@ -214,18 +312,19 @@ class LoggerManager:
 
     def _ensure_console_handler(
         self,
-        root_logger: logging.Logger,
+        package_logger: logging.Logger,
         console_handler: logging.Handler | None,
         level: int,
     ) -> None:
         """Add a coloured console handler, or update the existing one's level/format."""
         if console_handler is None:
             console_handler = logging.StreamHandler()
+            setattr(console_handler, _OWNED_HANDLER_FLAG, True)
             console_handler.setLevel(level)
             console_handler.setFormatter(
                 ColorFormatter(fmt=self.FMT, datefmt=self.DATE_FMT)
             )
-            root_logger.addHandler(console_handler)
+            package_logger.addHandler(console_handler)
         else:
             console_handler.setLevel(level)
             if not isinstance(console_handler.formatter, ColorFormatter):
@@ -235,7 +334,7 @@ class LoggerManager:
 
     def _ensure_file_handler(
         self,
-        root_logger: logging.Logger,
+        package_logger: logging.Logger,
         log_file: str | Path | None,
         level: int,
         existing_paths: set[Path],
@@ -245,26 +344,34 @@ class LoggerManager:
             log_file_path = Path(log_file)
             if log_file_path not in existing_paths:
                 fh = logging.FileHandler(log_file_path, encoding="utf-8")
+                setattr(fh, _OWNED_HANDLER_FLAG, True)
                 fh.setLevel(level)
                 fh.setFormatter(logging.Formatter(fmt=self.FMT, datefmt=self.DATE_FMT))
-                root_logger.addHandler(fh)
+                package_logger.addHandler(fh)
 
     def _setup_logging(
         self,
-        level: int | str = logging.INFO,
+        level: int | str | None = None,
         log_file: str | Path | None = None,
+        quiet_third_party: bool = False,
     ) -> None:
-        """Configure application-wide logging for Pyramids.
+        """Configure the `"pyramids"` logger, or leave logging alone when `level` is None.
 
         Args:
-            level (int | str, optional): Logging level as an int or one of
+            level (int | str | None, optional): Logging level as an int or one of
                 "FATAL", "CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG" (case-insensitive).
-                Defaults to logging.INFO.
+                `None` (default) installs only a `NullHandler`: no level change, no console
+                handler, no output — the host application keeps full control of logging.
             log_file (str | pathlib.Path | None, optional): Optional path to a log file to
                 write logs to in addition to console output. If None, no file is used.
+            quiet_third_party (bool, optional): Pin the loggers in
+                :data:`_NOISY_THIRD_PARTY_LOGGERS` to WARNING. Off by default.
 
         Returns:
-            None: This method configures the root logger in-place.
+            None: This method configures the `"pyramids"` logger in-place. The root
+                logger is never modified. When it installs a handler it also sets
+                `propagate = False` on that logger, so records are not emitted a
+                second time by a host that configured root logging.
 
         Raises:
             ValueError: If an invalid level string is provided.
@@ -288,59 +395,77 @@ class LoggerManager:
         See Also:
             ColorFormatter: Colorizes level names for console output.
         """
-        level = self._normalize_level(level)
+        package_logger = logging.getLogger(PACKAGE_LOGGER_NAME)
+        # A NullHandler on the package root keeps the "No handlers could be found"
+        # warning away without emitting anything or claiming a format.
+        if not any(isinstance(h, logging.NullHandler) for h in package_logger.handlers):
+            package_logger.addHandler(logging.NullHandler())
 
-        root_logger = logging.getLogger()
-        root_logger.setLevel(level)
+        if level is None:
+            # Handing the namespace back: drop the handlers pyramids installed and
+            # restore propagation, so `Config()` after a `Config(level=...)` returns
+            # to "the host owns logging" rather than leaving the opt-in state stuck
+            # for the life of the process.
+            owned = [
+                handler
+                for handler in package_logger.handlers
+                if getattr(handler, _OWNED_HANDLER_FLAG, False)
+            ]
+            for handler in owned:
+                package_logger.removeHandler(handler)
+                handler.close()
+            package_logger.propagate = True
+        else:
+            level = self._normalize_level(level)
+            package_logger.setLevel(level)
 
-        console_handler, file_handler_exists_for = self._existing_handlers(root_logger)
-        self._ensure_console_handler(root_logger, console_handler, level)
-        self._ensure_file_handler(root_logger, log_file, level, file_handler_exists_for)
+            console_handler, file_handler_exists_for = self._existing_handlers(
+                package_logger
+            )
+            self._ensure_console_handler(package_logger, console_handler, level)
+            self._ensure_file_handler(
+                package_logger, log_file, level, file_handler_exists_for
+            )
+            # pyramids now owns a handler for this namespace, so stop the records
+            # from also reaching the host's root handlers -- otherwise every
+            # pyramids line is formatted twice for the (very common) application
+            # that called `logging.basicConfig()`. Reversible: `Config()` with no
+            # level restores propagation (see the branch above), so a downstream
+            # test suite is not stuck with `caplog` capturing nothing.
+            package_logger.propagate = False
 
-        # Reduce noise from common third-party libraries
-        for noisy in ("fiona", "rasterio", "shapely", "matplotlib", "urllib3", "osgeo"):
-            logging.getLogger(noisy).setLevel(logging.WARNING)
+            if quiet_third_party:
+                for noisy in _NOISY_THIRD_PARTY_LOGGERS:
+                    logging.getLogger(noisy).setLevel(logging.WARNING)
 
-        # Announce configuration via the module logger so tests can assert on it
-        logging.getLogger(__name__).info("Logging is configured.")
+            # Announce configuration via the module logger so tests can assert on it.
+            # DEBUG, not INFO: an INFO line here is printed by every caller that opts
+            # into logging, and used to be printed by a bare `import pyramids`.
+            logging.getLogger(__name__).debug("Logging is configured.")
 
     @staticmethod
     def _set_error_handler() -> None:
-        """Install a GDAL error handler that forwards messages to logging.
+        """Install the GDAL→logging error bridge for the whole process.
 
         The handler maps GDAL error classes to Python logging levels. Messages below
         CE_Warning are printed to stdout to preserve expected behaviors in some
         GDAL workflows and tests.
+
+        Uses `gdal.SetErrorHandler`, not `gdal.PushErrorHandler`. The push variant
+        maps to `CPLPushErrorHandlerEx`, which pushes onto GDAL's **per-thread**
+        error context: it stacks on repeated calls (so every `Config()` made GDAL
+        log each error one more time), and it only ever covers the installing
+        thread — a worker thread's warnings fall straight through to GDAL's default
+        stderr handler, bypassing the `pyramids.base.config.gdal` logger. Verified
+        empirically: with a pushed handler, an error raised on a second thread is
+        not delivered to it.
+
+        `SetErrorHandler` replaces rather than stacks and is process-wide, so it is
+        naturally idempotent and covers every thread. The lock only keeps two
+        racing installers from interleaving inside GDAL.
         """
-        # Use a child of the module logger so it inherits the handlers/format configured in setup_logging()
-        log = logging.getLogger(__name__).getChild("gdal")
-
-        def gdal_error_handler(err_class, err_num, err_msg):
-            """Error handler for GDAL mapped to logging levels."""
-            try:
-                # For error classes lower than CE_Warning, print to stdout (expected by tests)
-                if err_class is not None and err_class < getattr(gdal, "CE_Warning", 2):
-                    print(
-                        f"GDAL error (class {err_class}, number {err_num}): {err_msg}"
-                    )
-                    return
-
-                # Map GDAL error classes to logging levels
-                if err_class == gdal.CE_Debug:
-                    log.debug(f"GDAL[{err_num}] {err_msg}")
-                elif err_class == gdal.CE_Warning:
-                    log.warning(f"GDAL[{err_num}] {err_msg}")
-                elif err_class == gdal.CE_Failure:
-                    log.error(f"GDAL[{err_num}] {err_msg}")
-                elif err_class == gdal.CE_Fatal:
-                    log.critical(f"GDAL[{err_num}] {err_msg}")
-                else:
-                    log.error(f"GDAL(class={err_class}, code={err_num}) {err_msg}")
-            except Exception:
-                # Fallback to error level if mapping fails for any reason
-                log.error(f"GDAL(class={err_class}, code={err_num}) {err_msg}")
-
-        gdal.PushErrorHandler(gdal_error_handler)
+        with _gdal_error_handler_lock:
+            gdal.SetErrorHandler(_gdal_error_handler)
 
 
 @dataclass
@@ -574,7 +699,8 @@ class Config:
     - Initializing GDAL/OGR and discovering GDAL-related environment variables.
 
     Args:
-        level (int | str, optional): Logging level. Defaults to logging.INFO.
+        level (int | str | None, optional): Logging level. `None` (default) leaves logging
+            configuration to the host application — see the module docstring.
         log_file (str | pathlib.Path | None, optional): Optional path to a file for logs.
         config_file (str, optional): YAML filename to read from the package's base folder.
             Defaults to "config.yaml".
@@ -590,7 +716,6 @@ class Config:
 
         >>> from pyramids.base.config import Config  # doctest: +SKIP
         >>> cfg = Config(level="INFO")  # doctest: +SKIP
-        2025-09-09 23:10:28 | INFO | pyramids.base.config | Logging is configured.
         >>> print(cfg.settings)  # doctest: +SKIP
         {'gdal': {'GDAL_CACHEMAX': '512',
           'GDAL_PAM_ENABLED': 'YES',
@@ -610,19 +735,26 @@ class Config:
 
     def __init__(
         self,
-        level: int | str = logging.INFO,
+        level: int | str | None = None,
         log_file: str | Path | None = None,
         config_file="config.yaml",
+        quiet_third_party: bool = False,
     ):
         """Construct a Config, load YAML, configure logging, and initialize GDAL.
 
         Args:
-            level (int | str, optional):
-                Logging level (e.g., logging.INFO or "DEBUG").
+            level (int | str | None, optional):
+                Logging level (e.g., logging.INFO or "DEBUG"). `None` — the default, and
+                what the package import uses — installs no handlers and changes no level,
+                so importing pyramids does not reconfigure the host application's logging.
             log_file (str | pathlib.Path | None, optional):
                 Optional path to a log file.
             config_file (str, optional):
                 Name of the YAML configuration file shipped in pyramids/base. Defaults to "config.yaml".
+            quiet_third_party (bool, optional):
+                Pin fiona / rasterio / shapely / matplotlib / urllib3 / osgeo to WARNING.
+                Off by default — those belong to other libraries, and a host that
+                deliberately raised one of them should keep its setting.
 
         Raises:
             FileNotFoundError: If the YAML file cannot be found.
@@ -634,11 +766,12 @@ class Config:
                 ```python
                 >>> from pyramids.base.config import Config  # doctest: +SKIP
                 >>> cfg = Config(level="INFO")  # doctest: +SKIP
-                2025-09-09 23:11:52 | INFO | pyramids.base.config | Logging is configured.
 
                 ```
         """
-        self.setup_logging(level=level, log_file=log_file)
+        self.setup_logging(
+            level=level, log_file=log_file, quiet_third_party=quiet_third_party
+        )
         self.config_file = config_file
         self.settings = self.load_config()
         self.initialize_gdal()
@@ -848,16 +981,26 @@ class Config:
 
     def setup_logging(
         self,
-        level: int | str = logging.INFO,
+        level: int | str | None = None,
         log_file: str | Path | None = None,
+        quiet_third_party: bool = False,
     ):
         """
-        Configure application-wide logging for Pyramids by delegating to LoggerManager.
+        Configure the `"pyramids"` logger by delegating to LoggerManager.
 
         This method preserves the public API while separating responsibilities. It delegates
         the actual logging configuration to the LoggerManager constructor and then sets
         self.logger and self._logging_configured for convenience/compatibility.
+
+        Args:
+            level (int | str | None, optional): Logging level, or `None` (default) to install
+                no handlers and change no level.
+            log_file (str | pathlib.Path | None, optional): Optional log-file path.
+            quiet_third_party (bool, optional): Pin the noisy third-party loggers to
+                WARNING. Off by default.
         """
-        LoggerManager(level=level, log_file=log_file)
+        LoggerManager(
+            level=level, log_file=log_file, quiet_third_party=quiet_third_party
+        )
         self._logging_configured = True
         self.logger = logging.getLogger(__name__)

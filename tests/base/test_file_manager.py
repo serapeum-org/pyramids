@@ -61,6 +61,17 @@ class _FakeHandle:
         return f"_FakeHandle({self.tag!r})"
 
 
+def _raise_inside_acquire_context(manager, error):
+    """Enter `manager`'s context and raise `error` from inside the block.
+
+    Module-level so the `pytest.raises` blocks below wrap a single call:
+    entering the context manager can itself raise, and a `raises` block
+    containing two throwing statements cannot show which one fired.
+    """
+    with manager.acquire_context():
+        raise error
+
+
 _counter = {"n": 0}
 
 
@@ -156,22 +167,73 @@ class TestLRUCache:
         with pytest.raises(ValueError, match="maxsize must be >= 1"):
             cache.maxsize = 0
 
-    def test_setitem_existing_key_updates_in_place(self):
-        """Re-setting an existing key updates the value without evicting.
+    def test_setitem_existing_key_closes_displaced_value(self):
+        """ARC-11: overwriting a live key hands the displaced value to `on_evict`.
 
         Test scenario:
-            The LRU must bump the key to most-recently-used and swap
-            the stored value, without firing `on_evict` — because no
-            entry actually leaves the cache. This covers the `if key
-            in self._cache` fast-return branch.
+            The LRU must bump the key to most-recently-used and swap the
+            stored value — but the value it replaced is a GDAL handle
+            nobody else will ever close. Pre-fix the overwrite dropped
+            it silently, leaking a file descriptor; the displaced value
+            must now be released while the key itself stays cached.
         """
         evicted: list = []
-        cache = _LRUCache(maxsize=2, on_evict=lambda k, v: evicted.append(k))
+        cache = _LRUCache(maxsize=2, on_evict=lambda k, v: evicted.append((k, v)))
         cache["a"] = 1
         cache["b"] = 2
         cache["a"] = 99
         assert cache["a"] == 99, f"Expected updated value 99, got {cache['a']}"
-        assert evicted == [], f"No eviction expected on in-place update, got {evicted}"
+        assert evicted == [("a", 1)], (
+            f"The displaced value must be released exactly once, got {evicted}"
+        )
+        assert "b" in cache, "Overwriting one key must not evict another"
+
+    def test_setitem_same_object_is_a_noop(self):
+        """Re-setting the identical object releases nothing.
+
+        Test scenario:
+            `acquire()` re-assigning the handle it just read back would
+            otherwise close the handle it is about to return. Identity
+            (not equality) is the guard, so re-setting the same object
+            must not fire `on_evict`.
+        """
+        evicted: list = []
+        cache = _LRUCache(maxsize=2, on_evict=lambda k, v: evicted.append(k))
+        handle = object()
+        cache["a"] = handle
+        cache["a"] = handle
+        assert evicted == [], (
+            f"Re-setting the same object must not evict, got {evicted}"
+        )
+        assert cache["a"] is handle
+
+    def test_setitem_does_not_close_a_pinned_displaced_value(self):
+        """Overwriting a *pinned* key must not release what it displaces.
+
+        Test scenario:
+            The overwrite path exists because two managers sharing a
+            `manager_id` can both miss, both open and both assign. When
+            the first of them is inside `acquire_context()` the handle
+            being displaced is the one it is actively reading through,
+            so closing it is a use-after-close — strictly worse than the
+            descriptor leak the release was added to prevent. The pin
+            must suppress the release exactly as it does for LRU
+            eviction.
+        """
+        evicted: list = []
+        cache = _LRUCache(maxsize=4, on_evict=lambda k, v: evicted.append((k, v)))
+        cache["a"] = 1
+        cache.pin("a")
+        cache["a"] = 99
+        assert evicted == [], (
+            f"A pinned key's displaced value must not be released, got {evicted}"
+        )
+        assert cache["a"] == 99, "the new value must still be installed"
+        cache.unpin("a")
+        cache["a"] = 100
+        assert evicted == [("a", 99)], (
+            f"Once unpinned the overwrite releases again, got {evicted}"
+        )
 
     def test_iter_yields_keys_in_lru_order(self):
         """Iterating the cache returns keys snapshot-safely.
@@ -387,6 +449,281 @@ class TestCachingFileManagerLRUEviction:
             assert handles[2].closed is False
         finally:
             FILE_CACHE.maxsize = 128
+
+
+class TestLRUCachePinning:
+    """ARC-4: pinned slots survive eviction pressure."""
+
+    def test_pinned_key_is_not_evicted(self):
+        """A pinned entry is skipped and the cache overflows instead.
+
+        Test scenario:
+            Correctness beats the soft size bound: closing a handle a
+            reader is mid-way through is a use-after-close, whereas
+            holding one extra descriptor for the length of that read is
+            merely untidy.
+        """
+        evicted: list = []
+        cache = _LRUCache(maxsize=1, on_evict=lambda k, v: evicted.append(k))
+        cache["a"] = 1
+        cache.pin("a")
+        cache["b"] = 2
+        assert evicted == [], f"A pinned key must not be evicted, got {evicted}"
+        assert sorted(cache) == ["a", "b"], (
+            f"Both entries must remain while 'a' is pinned, got {sorted(cache)}"
+        )
+
+    def test_unpin_makes_the_slot_evictable_again(self):
+        """After the last `unpin` the LRU reclaims the slot normally."""
+        evicted: list = []
+        cache = _LRUCache(maxsize=1, on_evict=lambda k, v: evicted.append(k))
+        cache["a"] = 1
+        cache.pin("a")
+        cache["b"] = 2
+        cache.unpin("a")
+        cache["c"] = 3
+        assert evicted == ["a", "b"], (
+            f"Both unpinned entries must be reclaimed, got {evicted}"
+        )
+
+    def test_releasing_the_last_pin_trims_the_overflow_immediately(self):
+        """Dropping the last pin restores `maxsize` without waiting for an insert.
+
+        Test scenario:
+            Pinned reads are the one thing allowed to push the cache
+            past its limit. If the trim only ran on the next insert, a
+            workload that finishes its reads and stops would hold every
+            over-limit handle open forever — 20 GDAL datasets on a cache
+            configured for 2. Releasing the pins must reclaim them there
+            and then.
+        """
+        evicted: list = []
+        cache = _LRUCache(maxsize=2, on_evict=lambda k, v: evicted.append(k))
+        for index in range(6):
+            key = f"k{index}"
+            cache[key] = index
+            cache.pin(key)
+        assert len(cache) == 6, (
+            f"pinned reads must be allowed to exceed maxsize, got {len(cache)}"
+        )
+        for index in range(6):
+            cache.unpin(f"k{index}")
+        assert len(cache) == 2, (
+            f"the cache must be back at maxsize once unpinned, got {len(cache)}"
+        )
+        assert evicted == ["k0", "k1", "k2", "k3"], (
+            f"the four least-recently-used entries must be released, got {evicted}"
+        )
+
+    def test_pins_nest(self):
+        """N pins need N unpins before the slot is evictable."""
+        evicted: list = []
+        cache = _LRUCache(maxsize=1, on_evict=lambda k, v: evicted.append(k))
+        cache["a"] = 1
+        cache.pin("a")
+        cache.pin("a")
+        cache.unpin("a")
+        cache["b"] = 2
+        assert evicted == [], f"One unpin of two must keep 'a' pinned, got {evicted}"
+
+    def test_all_pinned_overflow_logs_the_configured_limit(self, caplog):
+        """The over-limit DEBUG line names `maxsize`, not the insert's target.
+
+        Test scenario:
+            `__setitem__` trims to `maxsize - 1` so the new entry lands
+            at exactly `maxsize`, but that internal target must not
+            reach the operator: on a 128-entry cache the message would
+            otherwise read "over its 127 limit". Filling a cache with
+            pinned entries is the only way to reach the branch.
+        """
+        cache = _LRUCache(maxsize=2, on_evict=lambda k, v: None)
+        for key in ("a", "b"):
+            cache[key] = key
+            cache.pin(key)
+        with caplog.at_level("DEBUG", logger="pyramids.base._file_manager"):
+            cache["c"] = "c"
+        messages = [
+            r.getMessage() for r in caplog.records if "file cache is" in r.getMessage()
+        ]
+        assert messages, (
+            f"the all-pinned overflow must log at DEBUG; got {[r.getMessage() for r in caplog.records]}"
+        )
+        assert "over its 2 limit" in messages[0], (
+            f"the message must report maxsize=2, got {messages[0]!r}"
+        )
+
+    def test_unpin_untracked_key_is_a_noop(self):
+        """`unpin` on a key wiped by `clear()` must not underflow.
+
+        Test scenario:
+            `clear()` drops the pin table wholesale, so a reader still
+            inside `acquire_context()` unpins a key the cache no longer
+            tracks. That must leave the pin count absent rather than
+            going negative — a negative count would read as truthy and
+            silently make the key permanently un-evictable.
+        """
+        cache = _LRUCache(maxsize=2)
+        cache["a"] = 1
+        cache.pin("a")
+        cache.clear()
+        cache.unpin("a")
+        cache.unpin("never-pinned")
+        assert cache._pins == {}, (
+            f"an untracked unpin must not record a count, got {cache._pins}"
+        )
+        cache["a"] = 1
+        cache["b"] = 2
+        cache["c"] = 3
+        assert "a" not in cache, (
+            "the post-clear key must be evictable, not stuck behind a stale pin"
+        )
+
+    def test_maxsize_setter_skips_pinned_entries(self):
+        """Shrinking `maxsize` also honours pins."""
+        evicted: list = []
+        cache = _LRUCache(maxsize=4, on_evict=lambda k, v: evicted.append(k))
+        for key in ("a", "b", "c", "d"):
+            cache[key] = key
+        cache.pin("a")
+        cache.maxsize = 1
+        assert "a" in cache, "The pinned entry must survive a maxsize shrink"
+        assert sorted(evicted) == ["b", "c", "d"], (
+            f"Every unpinned entry must be reclaimed, got {evicted}"
+        )
+
+
+class TestCachingFileManagerEvictionSafety:
+    """ARC-4: `acquire_context` protects the handle for the whole read."""
+
+    def test_acquire_context_handle_survives_cross_manager_pressure(self):
+        """Another manager's insert cannot close a handle being read.
+
+        Test scenario:
+            Manager A holds its handle inside `acquire_context()`.
+            Manager B — a different cache key, therefore a different
+            per-manager lock — inserts into the full shared cache.
+            Pre-fix B's insert evicted and `Close()`d A's handle
+            mid-read; post-fix the pin makes A's slot ineligible.
+        """
+        cache = _LRUCache(maxsize=1, on_evict=_close_handle)
+        first = CachingFileManager(_fake_opener, "a.tif", cache=cache, lock=False)
+        second = CachingFileManager(_fake_opener, "b.tif", cache=cache, lock=False)
+        with first.acquire_context() as handle:
+            second.acquire()
+            assert handle.closed is False, (
+                "a handle held inside acquire_context() must not be closed by "
+                "another manager's cache insert"
+            )
+
+    def test_auto_release_finalizer_defers_the_close_of_a_pinned_slot(self):
+        """The GC-driven `release()` must defer, not skip, a pinned handle's close.
+
+        Test scenario:
+            `release()` fires from a `weakref.finalize`, so it lands at
+            an arbitrary moment — including while a manager sharing the
+            cache key is mid-read. Closing there is a use-after-close;
+            merely leaving the entry behind would forfeit the
+            deterministic release this path exists for. It must park
+            the handle and let the last reader release it.
+        """
+        cache = _LRUCache(maxsize=8, on_evict=_close_handle)
+        owner = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", auto_release=True
+        )
+        reader = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", lock=False
+        )
+        with reader.acquire_context() as handle:
+            del owner
+            gc.collect()
+            assert handle.closed is False, (
+                "the auto-release finalizer must not close a pinned handle"
+            )
+        assert handle.closed is True, (
+            "the deferred close must run once the last reader unpins"
+        )
+        assert cache._pending_close == {}, (
+            f"the deferred entry must be drained, got {cache._pending_close}"
+        )
+
+    def test_close_defers_teardown_of_a_pinned_slot(self):
+        """`close()` unpublishes immediately but closes only after the read ends.
+
+        Test scenario:
+            `close()` is reachable from public API — `NetCDF.close()`
+            walks its lazy managers and calls it — while dask workers
+            may still be inside `acquire_context()`. A GDAL
+            use-after-close is a segfault, not an exception, so the
+            handle must outlive the call; the slot still has to leave
+            the cache at once so no new caller picks it up.
+        """
+        cache = _LRUCache(maxsize=8, on_evict=_close_handle)
+        first = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", lock=False
+        )
+        second = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", lock=False
+        )
+        with first.acquire_context() as handle:
+            second.close()
+            assert handle.closed is False, (
+                "close() must not close a handle another reader is using"
+            )
+            assert first._key not in cache, (
+                "the slot must leave the cache immediately so no new caller finds it"
+            )
+        assert handle.closed is True, (
+            "the deferred close must run once the reader unpins"
+        )
+
+    def test_close_of_an_unpinned_slot_is_immediate(self):
+        """With no reader present `close()` still closes on the spot."""
+        cache = _LRUCache(maxsize=8, on_evict=_close_handle)
+        fm = CachingFileManager(_fake_opener, "a.tif", cache=cache, lock=False)
+        handle = fm.acquire()
+        fm.close()
+        assert handle.closed is True, "an unpinned close must not be deferred"
+        assert cache._pending_close == {}, "nothing should be parked"
+
+    def test_slot_is_evictable_again_after_the_block(self):
+        """The pin is released on exit, so the LRU bound is restored."""
+        cache = _LRUCache(maxsize=1, on_evict=_close_handle)
+        first = CachingFileManager(_fake_opener, "a.tif", cache=cache, lock=False)
+        second = CachingFileManager(_fake_opener, "b.tif", cache=cache, lock=False)
+        with first.acquire_context() as handle:
+            pass
+        second.acquire()
+        assert handle.closed is True, (
+            "once the read finishes the handle must be reclaimable by the LRU"
+        )
+        assert len(cache) == 1, f"cache must be back at maxsize, got {len(cache)}"
+
+    def test_pin_is_released_when_the_block_raises(self):
+        """An exception inside the block still unpins the slot."""
+        cache = _LRUCache(maxsize=2, on_evict=_close_handle)
+        fm = CachingFileManager(_fake_opener, "a.tif", cache=cache, lock=False)
+        fm.acquire()  # pre-cache so the failure path keeps the handle
+        boom = RuntimeError("boom")
+        with pytest.raises(RuntimeError):
+            _raise_inside_acquire_context(fm, boom)
+        assert cache._pins.get(fm._key) is None, (
+            f"the pin must be dropped on the error path, got {cache._pins}"
+        )
+
+    def test_pin_is_released_when_the_opener_raises(self):
+        """A failure to open must not leave the key pinned forever."""
+
+        def _broken_opener(path, access="read_only", **kwargs):
+            raise OSError("cannot open")
+
+        cache = _LRUCache(maxsize=2, on_evict=_close_handle)
+        fm = CachingFileManager(_broken_opener, "a.tif", cache=cache, lock=False)
+        context = fm.acquire_context()
+        with pytest.raises(OSError):
+            context.__enter__()
+        assert cache._pins.get(fm._key) is None, (
+            f"a failed open must not leak a pin, got {cache._pins}"
+        )
 
 
 class TestThreadLocalFileManager:
