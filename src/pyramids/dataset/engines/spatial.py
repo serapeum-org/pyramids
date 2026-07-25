@@ -390,7 +390,7 @@ class Spatial(_Engine["Dataset"]):
             # (get_epsg_from_prj raises in that case); epsg_from_wkt
             # absorbs the fallback in one place.
             self._ds._epsg = epsg_from_wkt(crs)
-        else:
+        elif epsg is not None:
             sr = sr_from_epsg(epsg)
             self._ds.raster.SetProjection(sr.ExportToWkt())
             self._ds._epsg = epsg

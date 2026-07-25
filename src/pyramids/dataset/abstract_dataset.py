@@ -1041,7 +1041,7 @@ class RasterBase(ABC):
             # epsg_from_wkt absorbs the historical 4326 fallback so
             # datasets with a missing projection still get tagged.
             self._epsg = epsg_from_wkt(crs)
-        else:
+        elif epsg is not None:
             sr = sr_from_epsg(epsg)
             self.raster.SetProjection(sr.ExportToWkt())
             self._epsg = epsg
