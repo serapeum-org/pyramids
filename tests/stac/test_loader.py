@@ -620,18 +620,42 @@ class TestLoadAssetPersistsEnv:
         assert captured["gdal_env"] is None, f"unexpected env: {captured}"
 
     def test_non_gdal_engine_gets_the_env_attached(self, monkeypatch):
-        """GRIB / NetCDF / Zarr readers take no gdal_env=, so it is set after.
+        """GRIB / NetCDF readers take no gdal_env=, so it is attached after.
 
         Test scenario:
-            The opened object carries `_gdal_env` for its later reads.
+            The capture goes through the declared `attach_gdal_env` hook rather
+            than a private attribute poked onto a foreign object.
         """
+
         class _Reader:
-            _gdal_env: dict = {}
+            def __init__(self):
+                self.attached = None
+
+            def attach_gdal_env(self, env):
+                self.attached = env
 
         opened = _Reader()
         monkeypatch.setattr(_loader, "open_grib", lambda href, vsi=None: opened)
         signer = _AppendSigner(suffix="", env={"GDAL_HTTP_HEADERS": "Authorization: x"})
         load_asset({"href": "https://h/f.grib2"}, signer=signer)
-        assert opened._gdal_env == {"GDAL_HTTP_HEADERS": "Authorization: x"}, (
-            f"env not attached to the reader: {opened._gdal_env}"
+        assert opened.attached == {"GDAL_HTTP_HEADERS": "Authorization: x"}, (
+            f"env not attached to the reader: {opened.attached}"
         )
+
+    def test_reader_without_the_hook_is_left_alone(self, monkeypatch):
+        """A reader exposing no hook is not poked at.
+
+        Test scenario:
+            The Zarr branch reads through fsspec, which never consults GDAL
+            config, so attaching credentials there would only widen their blast
+            radius for no read-time benefit.
+        """
+
+        class _Bare:
+            pass
+
+        opened = _Bare()
+        monkeypatch.setattr(_loader, "_load_zarr", lambda href: opened)
+        signer = _AppendSigner(suffix="", env={"AWS_REQUEST_PAYER": "requester"})
+        load_asset({"href": "s3://b/store.zarr"}, signer=signer)
+        assert not hasattr(opened, "_gdal_env"), "the zarr reader should be untouched"

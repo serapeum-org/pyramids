@@ -237,6 +237,39 @@ class RasterBase(ABC):
         """
         return cloud_config_from_env(self._gdal_env)
 
+    def attach_gdal_env(self, gdal_env: dict[str, str] | None) -> None:
+        """Capture `gdal_env` on an already-open dataset.
+
+        The supported way for a reader that cannot take `gdal_env=` at open time
+        — :func:`pyramids.grib.open_grib`, :meth:`pyramids.netcdf.NetCDF.read_file`
+        — to hand its caller's credentials to the object it just built, instead
+        of the caller reaching in and setting the private attribute.
+
+        Args:
+            gdal_env: The GDAL config to capture. `None` or empty clears it.
+
+        Examples:
+            - Attach credentials to a dataset opened without them:
+                ```python
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.read_file("tests/data/acc4000.tif")
+                >>> ds.attach_gdal_env({"AWS_REQUEST_PAYER": "requester"})
+                >>> ds.gdal_env["AWS_REQUEST_PAYER"]
+                'requester'
+
+                ```
+            - Clearing it leaves the dataset reading with no extra config:
+                ```python
+                >>> ds = Dataset.read_file("tests/data/acc4000.tif")
+                >>> ds.attach_gdal_env({"AWS_REQUEST_PAYER": "requester"})
+                >>> ds.attach_gdal_env(None)
+                >>> ds.gdal_env
+                {}
+
+                ```
+        """
+        self._gdal_env = dict(gdal_env) if gdal_env else {}
+
     def __reduce__(self):
         """Return a recipe tuple that re-opens the dataset on unpickle.
 
