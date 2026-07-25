@@ -230,6 +230,34 @@ def from_xarray(
     return result
 
 
+def _encode_temporal_array(values: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+    """Encode datetime64/timedelta64 arrays to CF-numeric seconds (GDAL has no datetime dtype).
+
+    A CF-decoded xarray time axis is `datetime64[ns]`, which `numpy_to_gdal_dtype` cannot map, so
+    `from_xarray` crashed on any Dataset opened with the default `decode_cf=True`. Encode such arrays to
+    float64 seconds with a CF `units` (and `calendar` for absolute times) so the MDArray stores a
+    numeric axis that CF-decodes back to the same instants (ARC-17).
+
+    Args:
+        values: The raw coordinate / variable array.
+
+    Returns:
+        A `(encoded_values, cf_attrs)` pair. For a non-temporal array the values are returned unchanged
+        with an empty attribute dict; for a temporal array the values are float64 seconds and `cf_attrs`
+        carries the CF `units` (plus `calendar` for absolute datetimes).
+    """
+    if np.issubdtype(values.dtype, np.datetime64):
+        seconds = values.astype("datetime64[ns]").astype("int64").astype("float64") / 1e9
+        return seconds, {
+            "units": "seconds since 1970-01-01 00:00:00",
+            "calendar": "proleptic_gregorian",
+        }
+    if np.issubdtype(values.dtype, np.timedelta64):
+        seconds = values.astype("timedelta64[ns]").astype("int64").astype("float64") / 1e9
+        return seconds, {"units": "seconds"}
+    return values, {}
+
+
 def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from an xarray Dataset.
 
@@ -275,6 +303,7 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
         if coord_name not in gdal_dims:
             continue
         values = np.asarray(coord.values)
+        values, cf_attrs = _encode_temporal_array(values)
         ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
         md_arr = root.CreateMDArray(
             coord_name,
@@ -282,10 +311,13 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
             ext,
         )
         md_arr.Write(np.ascontiguousarray(values))
-        _apply_attrs(md_arr, dict(coord.attrs))
+        attrs = dict(coord.attrs)
+        attrs.update(cf_attrs)
+        _apply_attrs(md_arr, attrs)
 
     for var_name, var in dataset.data_vars.items():
         values = np.asarray(var.values)
+        values, cf_attrs = _encode_temporal_array(values)
         ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
         md_arr = root.CreateMDArray(
             var_name,
@@ -293,7 +325,9 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
             ext,
         )
         md_arr.Write(np.ascontiguousarray(values))
-        _apply_attrs(md_arr, dict(var.attrs))
+        attrs = dict(var.attrs)
+        attrs.update(cf_attrs)
+        _apply_attrs(md_arr, attrs)
 
     if dataset.attrs:
         write_global_attributes(root, dict(dataset.attrs))

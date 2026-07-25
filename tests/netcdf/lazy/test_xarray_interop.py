@@ -323,6 +323,36 @@ class TestToXarrayFileBacked:
         assert "q" in ds.data_vars, "'q' should be in data_vars"
 
 
+class TestFromXarrayDatetimeCoord:
+    """from_xarray() handles a CF-decoded datetime64 time coordinate (ARC-17)."""
+
+    def test_datetime64_time_coord_does_not_crash(self):
+        """A Dataset with a datetime64[ns] `time` coord builds without raising, preserving the data.
+
+        Test scenario:
+            The default `decode_cf=True` yields a datetime64 time axis, which numpy_to_gdal_dtype
+            cannot map — from_xarray used to raise. The time axis is now encoded to CF-numeric seconds,
+            so the container is created and the data variable round-trips unchanged.
+        """
+        times = np.array(
+            ["2020-01-01", "2020-01-02", "2020-01-03"], dtype="datetime64[ns]"
+        )
+        data = np.arange(3 * 2 * 2, dtype=np.float64).reshape(3, 2, 2)
+        ds = xr.Dataset(
+            {"t2m": (("time", "lat", "lon"), data)},
+            # lat descends (already north-up) so the read is not flipped and the data compares directly.
+            coords={"time": times, "lat": [11.0, 10.0], "lon": [20.0, 21.0]},
+        )
+        nc = NetCDF.from_xarray(ds)
+        assert "t2m" in nc.variable_names, f"expected 't2m' in {nc.variable_names}"
+        got = np.asarray(nc.get_variable("t2m").read_array())
+        assert_allclose(
+            got,
+            data,
+            err_msg="t2m data should survive from_xarray with a datetime64 time coord",
+        )
+
+
 class TestFromXarrayRoundTrip:
     """from_xarray() round-trip data integrity."""
 
