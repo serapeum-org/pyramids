@@ -439,7 +439,10 @@ class _LRUCache(MutableMapping):
                 self._on_evict(key, deferred)
             except Exception as exc:  # noqa: BLE001 - a teardown path must not raise
                 logger.warning(
-                    "handle close failed for deferred key %r: %s", key, exc, exc_info=True
+                    "handle close failed for deferred key %r: %s",
+                    key,
+                    exc,
+                    exc_info=True,
                 )
         if over_limit:
             self._enforce_size_limit(self._maxsize)
