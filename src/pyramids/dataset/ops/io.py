@@ -59,10 +59,12 @@ def _read_chunk(
             (`SerializableLock`, :class:`DummyLock`, or a
             `dask.distributed.Lock`). Held around the
             :class:`osgeo.gdal.Band.ReadAsArray` call. The manager is
-            entered *inside* it via
-            :meth:`CachingFileManager.acquire_context`, which pins the
-            shared cache slot so a concurrent chunk read on another
-            file cannot LRU-evict and close this handle mid-read.
+            entered *inside* it via `acquire_context`. For the shared
+            :class:`CachingFileManager` that pins the cache slot, so a
+            concurrent chunk read on another file cannot LRU-evict and
+            close this handle mid-read; for the `threadsafe=True`
+            :class:`ThreadLocalFileManager` there is no shared cache to
+            evict from and the context manager is a plain passthrough.
         band: Zero-based band index when reading one band, or
             `None` when every band is read into a 3-D array.
         out_dtype: Output numpy dtype — matches the band dtype so
