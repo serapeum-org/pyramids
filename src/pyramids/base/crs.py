@@ -709,15 +709,19 @@ def reproject_coordinates(
             f"reproject_coordinates failed to parse CRS "
             f"(from_crs={from_crs!r}, to_crs={to_crs!r}): {exc}"
         ) from exc
-    xs = np.full(len(x), np.nan)
-    ys = np.full(len(x), np.nan)
-    for i in range(len(x)):
-        nx, ny = transformer.transform(x[i], y[i])
-        if precision is not None:
-            nx = round(nx, precision)
-            ny = round(ny, precision)
-        xs[i] = nx
-        ys[i] = ny
+    # One vectorized call over the whole arrays rather than one call per point:
+    # `Transformer.transform` accepts array input and does the loop in PROJ, so a
+    # polygon ring with thousands of vertices costs one Python call, not thousands.
+    xs, ys = transformer.transform(
+        np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    )
+    xs = np.asarray(xs, dtype=float)
+    ys = np.asarray(ys, dtype=float)
+    if precision is not None:
+        # `np.round` and the built-in `round` both round half-to-even, so the
+        # returned values are unchanged from the per-point implementation.
+        xs = np.round(xs, precision)
+        ys = np.round(ys, precision)
     return xs.tolist(), ys.tolist()
 
 
