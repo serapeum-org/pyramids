@@ -328,6 +328,12 @@ def _read_time_step(
     callers passing ``pathlib.Path`` and ``str`` for the same file
     hit one cache slot, not two — avoiding silent FILE_CACHE
     fragmentation under mixed-type call sites.
+
+    The read runs inside :meth:`CachingFileManager.acquire_context`,
+    which pins the cache slot: a cube of more than ``maxsize`` files
+    keeps the LRU under constant pressure, and an unpinned handle can
+    be evicted and closed by another worker's insert while this read
+    is still going through it.
     """
     path = str(path)
     with cloud_config_from_env(gdal_env):
@@ -338,13 +344,13 @@ def _read_time_step(
             lock=False,
             manager_id=path,
         )
-        handle = manager.acquire()
-        band_count = handle.RasterCount
-        if band_count == 1:
-            arr = handle.GetRasterBand(1).ReadAsArray()
-            arr = arr[np.newaxis, :, :]
-        else:
-            arr = handle.ReadAsArray()
+        with manager.acquire_context() as handle:
+            band_count = handle.RasterCount
+            if band_count == 1:
+                arr = handle.GetRasterBand(1).ReadAsArray()
+                arr = arr[np.newaxis, :, :]
+            else:
+                arr = handle.ReadAsArray()
     return np.ascontiguousarray(arr)
 
 

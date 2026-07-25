@@ -194,6 +194,25 @@ class _LRUCache(MutableMapping):
             ['x']
 
             ```
+        - A pinned key is never the eviction victim; the cache grows
+          past `maxsize` instead of closing a handle mid-read:
+            ```python
+            >>> from pyramids.base._file_manager import _LRUCache
+            >>> evicted = []
+            >>> cache = _LRUCache(maxsize=1, on_evict=lambda k, v: evicted.append(k))
+            >>> cache["x"] = 1
+            >>> cache.pin("x")
+            >>> cache["y"] = 2
+            >>> evicted
+            []
+            >>> sorted(cache)
+            ['x', 'y']
+            >>> cache.unpin("x")
+            >>> cache["z"] = 3
+            >>> evicted
+            ['x', 'y']
+
+            ```
     """
 
     def __init__(
@@ -209,6 +228,11 @@ class _LRUCache(MutableMapping):
         # manager for a key is finalized, so a manager whose array is dropped never evicts a handle
         # another manager (sharing the same `manager_id`) is still reading through.
         self._refcounts: dict[Hashable, int] = {}
+        # Number of in-flight reads holding each key. Distinct from `_refcounts`: a pin is scoped to
+        # one `acquire_context()` block and only makes the slot un-evictable for that window, it
+        # never closes anything. Without it a manager's insert can LRU-evict and `Close()` a handle
+        # another manager is mid-read through, since every manager carries its own lock.
+        self._pins: dict[Hashable, int] = {}
 
     @property
     def maxsize(self) -> int:
@@ -222,6 +246,32 @@ class _LRUCache(MutableMapping):
         self._maxsize = value
         self._enforce_size_limit(value)
 
+    def _select_evictions(self, target: int) -> list[tuple[Hashable, Any]]:
+        """Pop least-recently-used, unpinned entries until `len(self) <= target`.
+
+        The caller must already hold :attr:`_lock`; the popped
+        `(key, value)` pairs are returned so `on_evict` can run
+        outside it. Pinned keys are skipped: a slot with an in-flight
+        read must not be closed underneath the reader, so when every
+        remaining candidate is pinned the cache is allowed to sit
+        above `target` until those reads finish.
+        """
+        evicted: list[tuple[Hashable, Any]] = []
+        for key in list(self._cache):
+            if len(self._cache) <= target:
+                break
+            if self._pins.get(key):
+                continue
+            evicted.append((key, self._cache.pop(key)))
+        if len(self._cache) > target:
+            logger.debug(
+                "file cache is %d entr(ies) over its %d limit: every eviction "
+                "candidate is pinned by an in-flight read",
+                len(self._cache) - target,
+                target,
+            )
+        return evicted
+
     def _enforce_size_limit(self, target: int) -> None:
         """Evict LRU entries until `len(self) <= target`.
 
@@ -231,10 +281,8 @@ class _LRUCache(MutableMapping):
         risking a deadlock against concurrent `acquire()` calls
         on other threads.
         """
-        to_evict: list[tuple[Hashable, Any]] = []
         with self._lock:
-            while len(self._cache) > target:
-                to_evict.append(self._cache.popitem(last=False))
+            to_evict = self._select_evictions(target)
         if self._on_evict is not None:
             for key, value in to_evict:
                 self._on_evict(key, value)
@@ -249,12 +297,20 @@ class _LRUCache(MutableMapping):
         to_evict: list[tuple[Hashable, Any]] = []
         with self._lock:
             if key in self._cache:
+                displaced = self._cache[key]
                 self._cache.move_to_end(key)
                 self._cache[key] = value
-                return
-            while len(self._cache) >= self._maxsize:
-                to_evict.append(self._cache.popitem(last=False))
-            self._cache[key] = value
+                if displaced is not value:
+                    # Overwriting a live key drops the old handle; hand it to `on_evict` or the
+                    # file descriptor leaks. Reachable whenever two managers share a `manager_id`
+                    # with `lock=False` (e.g. `_read_time_step`'s `manager_id=path`): both can
+                    # miss, both open, and both assign.
+                    to_evict.append((key, displaced))
+            else:
+                # Trim to `maxsize - 1` first so the cache lands exactly at `maxsize` after the
+                # insert, and so the entry being added is never itself an eviction candidate.
+                to_evict.extend(self._select_evictions(self._maxsize - 1))
+                self._cache[key] = value
         if self._on_evict is not None:
             for evicted_key, evicted_value in to_evict:
                 self._on_evict(evicted_key, evicted_value)
@@ -274,15 +330,45 @@ class _LRUCache(MutableMapping):
         """Evict every entry, calling `on_evict` for each one.
 
         `on_evict` runs with the cache lock released so callback
-        code can take other locks without deadlock.
+        code can take other locks without deadlock. Unlike LRU
+        eviction this ignores pins — `clear()` is the documented hard
+        reset (interpreter exit, test fixtures), not a size-driven
+        reclaim.
         """
         with self._lock:
             items = list(self._cache.items())
             self._cache.clear()
             self._refcounts.clear()
+            self._pins.clear()
         if self._on_evict is not None:
             for key, value in items:
                 self._on_evict(key, value)
+
+    def pin(self, key: Hashable) -> None:
+        """Protect `key` from LRU eviction until the matching :meth:`unpin`.
+
+        Pins nest: N `pin()` calls need N `unpin()` calls before the
+        slot is evictable again. Pinning a key that is not (yet) in
+        the cache is allowed — :meth:`CachingFileManager.acquire_context`
+        pins before opening so the slot is covered from the moment it
+        lands.
+        """
+        with self._lock:
+            self._pins[key] = self._pins.get(key, 0) + 1
+
+    def unpin(self, key: Hashable) -> None:
+        """Drop one pin from `key`; the slot is evictable again at zero.
+
+        An untracked key -- e.g. wiped by :meth:`clear` while a read
+        was in flight -- is a no-op rather than an underflow.
+        """
+        with self._lock:
+            pinned = self._pins.get(key)
+            if pinned is not None:
+                if pinned > 1:
+                    self._pins[key] = pinned - 1
+                else:
+                    self._pins.pop(key, None)
 
     def retain(self, key: Hashable) -> None:
         """Register one live referent for `key` (see the `_refcounts` note in `__init__`)."""
@@ -554,7 +640,15 @@ class CachingFileManager(FileManager):
         )
 
     def acquire(self) -> Any:
-        """Return the handle, opening it if not already cached."""
+        """Return the handle, opening it if not already cached.
+
+        The returned handle is **not** pinned: it is only guaranteed
+        live for as long as it stays in the cache, and a concurrent
+        `acquire()` on a *different* manager can push it out of the
+        shared LRU and close it. Use :meth:`acquire_context` for any
+        read that outlives this call — it pins the slot for the
+        duration of the `with` block so eviction cannot reclaim it.
+        """
         with self._lock:
             try:
                 handle = self._cache[self._key]
@@ -567,24 +661,35 @@ class CachingFileManager(FileManager):
     def acquire_context(self) -> Iterator[Any]:
         """Context manager yielding the handle; lock is held inside `with`.
 
+        The cache slot is pinned for the whole block, so another
+        manager's insert cannot LRU-evict and `Close()` the handle
+        mid-read (per-manager locks do not protect against that on
+        their own).
+
         On any exception raised inside the `with` block, the handle
         is preserved in the cache (other callers may still need it);
         only explicit :meth:`close` removes it.
         """
         with self._lock:
+            # Pin before the lookup, not after the insert: a freshly opened handle is otherwise
+            # evictable in the window between `__setitem__` returning and the pin landing.
+            self._cache.pin(self._key)
             try:
-                handle = self._cache[self._key]
-                was_cached = True
-            except KeyError:
-                handle = self._opener(self._path, self._access, **self._kwargs)
-                self._cache[self._key] = handle
-                was_cached = False
-            try:
-                yield handle
-            except Exception:
-                if not was_cached:
-                    self._drop()
-                raise
+                try:
+                    handle = self._cache[self._key]
+                    was_cached = True
+                except KeyError:
+                    handle = self._opener(self._path, self._access, **self._kwargs)
+                    self._cache[self._key] = handle
+                    was_cached = False
+                try:
+                    yield handle
+                except Exception:
+                    if not was_cached:
+                        self._drop()
+                    raise
+            finally:
+                self._cache.unpin(self._key)
 
     def _drop(self) -> None:
         """Remove the handle from the cache without calling `on_evict`."""
