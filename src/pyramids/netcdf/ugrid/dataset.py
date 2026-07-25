@@ -979,6 +979,7 @@ def _read_data_variables(
         attrs = _read_attributes(md_arr)
         dims = md_arr.GetDimensions()
         shape = tuple(d.GetSize() for d in dims) if dims else ()
+        dim_names = tuple(d.GetName() for d in dims) if dims else ()
 
         nodata = attrs.get("_FillValue")
         if nodata is not None:
@@ -999,6 +1000,7 @@ def _read_data_variables(
             nodata=nodata,
             units=units,
             standard_name=standard_name,
+            dimensions=dim_names,
             _loader=_make_variable_loader(path, var_name),
             _dtype=dtype,
         )
