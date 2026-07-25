@@ -30,6 +30,7 @@ import numpy as np
 from osgeo import gdal
 from pyproj import CRS
 
+from pyramids.base._errors import ReadOnlyError
 from pyramids.base._utils import resolve_cog_predictor
 from pyramids.dataset.cog.options import CreationOptions
 from pyramids.dataset.cog.validate import ValidationReport
@@ -216,7 +217,10 @@ def _normalize_to_dataset(
         crs: Required only for the NumPy-array form.
         transform: Required only for the NumPy-array form.
         nodata: Optional NoData scalar; applied to array-built datasets and
-            set on pre-built datasets when provided.
+            set on pre-built datasets when provided. For a read-only pre-built
+            input (a path, or a read-only ``gdal.Dataset`` / ``Dataset``) the value
+            is set on an in-memory copy so the source is never mutated and
+            ``write_cog(<path>, ..., nodata=...)`` keeps working.
 
     Returns:
         A :class:`Dataset` ready to be written as a COG.
@@ -247,7 +251,16 @@ def _normalize_to_dataset(
         )
 
     if nodata is not None:
-        ds.no_data_value = [nodata] * ds.band_count
+        # write_cog CreateCopies ds into the COG, so the nodata marker must be set on
+        # ds first. A path / gdal.Dataset / Dataset input may be opened read-only
+        # (read_file / Dataset() default to read_only), which the metadata-setter guard
+        # now rejects to prevent a silent PAM spill — so apply nodata on an in-memory
+        # copy in that case rather than mutating (or writing PAM next to) the source.
+        try:
+            ds.no_data_value = [nodata] * ds.band_count
+        except ReadOnlyError:
+            ds = ds.copy()
+            ds.no_data_value = [nodata] * ds.band_count
     return ds
 
 
