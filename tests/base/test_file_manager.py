@@ -191,7 +191,9 @@ class TestLRUCache:
         handle = object()
         cache["a"] = handle
         cache["a"] = handle
-        assert evicted == [], f"Re-setting the same object must not evict, got {evicted}"
+        assert evicted == [], (
+            f"Re-setting the same object must not evict, got {evicted}"
+        )
         assert cache["a"] is handle
 
     def test_iter_yields_keys_in_lru_order(self):
