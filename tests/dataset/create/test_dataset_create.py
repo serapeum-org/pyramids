@@ -736,3 +736,107 @@ class TestMathOperations:
         vals = arr[~np.isclose(arr, nodataval, rtol=0.00000000000001)]
         vals = list(set(vals))
         assert vals == [1.0, 2.0, 3.0, 4.0, 5.0]
+
+
+class TestCellGeometryOnIrregularGrids:
+    """ARC-18: cell geometry must follow the full affine, not the pixel width."""
+
+    @staticmethod
+    def _dataset(geotransform: tuple) -> Dataset:
+        """Build a 2x2 in-memory dataset with the given geotransform.
+
+        Args:
+            geotransform: The six GDAL affine coefficients.
+
+        Returns:
+            Dataset: In-memory single-band dataset.
+        """
+        raster = gdal.GetDriverByName("MEM").Create("", 2, 2, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform(geotransform)
+        raster.SetProjection(sr_from_epsg(4326).ExportToWkt())
+        band = raster.GetRasterBand(1)
+        band.WriteArray(np.ones((2, 2), dtype="float32"))
+        band.SetNoDataValue(-9999.0)
+        return Dataset(raster)
+
+    def test_non_square_cells_keep_their_height(self):
+        """A 2-wide, 5-tall pixel produces a 2x5 polygon, not 2x2.
+
+        Test scenario:
+            `get_cell_polygons` offset both axes by `geotransform[1]` — the
+            pixel *width* — so every cell came out square regardless of the
+            pixel height. Areas and any downstream zonal maths computed from
+            these polygons were wrong by the width/height ratio.
+        """
+        dataset = self._dataset((0.0, 2.0, 0.0, 10.0, 0.0, -5.0))
+        minx, miny, maxx, maxy = dataset.cell.get_cell_polygons().geometry.iloc[0].bounds
+        assert (maxx - minx) == pytest.approx(2.0), (
+            f"cell width should be 2.0, got {maxx - minx}"
+        )
+        assert (maxy - miny) == pytest.approx(5.0), (
+            f"cell height should follow geotransform[5], got {maxy - miny}"
+        )
+
+    def test_square_cells_are_unchanged(self):
+        """The square, north-up case still produces unit cells."""
+        dataset = self._dataset((0.0, 1.0, 0.0, 2.0, 0.0, -1.0))
+        minx, miny, maxx, maxy = dataset.cell.get_cell_polygons().geometry.iloc[0].bounds
+        assert (maxx - minx, maxy - miny) == pytest.approx((1.0, 1.0)), (
+            f"square cells must stay 1x1, got {(maxx - minx, maxy - miny)}"
+        )
+
+    def test_rotated_grid_coords_follow_the_affine(self):
+        """Cell coordinates honour the rotation terms geotransform[2] and [4].
+
+        Test scenario:
+            The coordinate maths scaled each axis independently and dropped the
+            skew terms, so on a rotated raster every cell landed at the wrong
+            place while the output still looked like a well-formed grid.
+        """
+        geotransform = (100.0, 2.0, 0.5, 200.0, 0.3, -2.0)
+        dataset = self._dataset(geotransform)
+        coords = dataset.cell.get_cell_coords(location="corner")
+        origin_x, col_dx, row_dx, origin_y, col_dy, row_dy = geotransform
+        for index, (row, col) in enumerate([(0, 0), (0, 1), (1, 0), (1, 1)]):
+            expected = (
+                origin_x + col_dx * col + row_dx * row,
+                origin_y + col_dy * col + row_dy * row,
+            )
+            assert tuple(coords[index]) == pytest.approx(expected), (
+                f"cell (row={row}, col={col}) should sit at {expected}, got "
+                f"{tuple(coords[index])}"
+            )
+
+    @pytest.mark.parametrize(
+        "frame",
+        [
+            pd.DataFrame({"x": [0.5]}),
+            pd.DataFrame({"y": [0.5]}),
+            pd.DataFrame({"a": [1]}),
+        ],
+        ids=["only-x", "only-y", "neither"],
+    )
+    def test_dataframe_missing_a_coordinate_column_raises(self, frame: pd.DataFrame):
+        """A frame lacking either column is rejected, not just one lacking both.
+
+        Args:
+            frame: DataFrame missing `x`, `y`, or both.
+
+        Test scenario:
+            The guard read `all(elem not in columns ...)`, which is only true
+            when *both* are absent — so a frame carrying just `x` slipped
+            through to a bare `KeyError` further down.
+        """
+        dataset = self._dataset((0.0, 1.0, 0.0, 2.0, 0.0, -1.0))
+        with pytest.raises(ValueError, match="two columns x, and y"):
+            dataset.map_to_array_coordinates(frame)
+
+    def test_dataframe_with_both_columns_is_accepted(self):
+        """The valid case still resolves to array indices."""
+        dataset = self._dataset((0.0, 1.0, 0.0, 2.0, 0.0, -1.0))
+        located = dataset.map_to_array_coordinates(
+            pd.DataFrame({"x": [0.5], "y": [1.5]})
+        )
+        assert np.asarray(located).tolist() == [[0, 0]], (
+            f"expected the top-left cell, got {np.asarray(located).tolist()}"
+        )

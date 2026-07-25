@@ -146,11 +146,17 @@ class Cell(_Engine["Dataset"]):
         mask_values: list[Any] | None = [no_val] if domain_only else None
         indices = get_indices2(arr, mask=mask_values)
 
-        f1 = [i[0] for i in indices]
-        f2 = [i[1] for i in indices]
-        x = [x_init + cell_size_x * (i + add_value) for i in f2]
-        y = [y_init + cell_size_y * (i + add_value) for i in f1]
-        coords = np.array(list(zip(x, y)))
+        rows = np.asarray([i[0] for i in indices], dtype=float) + add_value
+        cols = np.asarray([i[1] for i in indices], dtype=float) + add_value
+        # Full affine, not axis-wise scaling. `xy_span` / `yy_span` (geotransform
+        # [2] and [4]) are the rotation/skew terms; dropping them places every cell
+        # of a rotated raster at the wrong location -- silently, because the result
+        # still looks like a well-formed grid. They are zero for a north-up raster,
+        # so this is identical to the previous arithmetic in the common case.
+        # Vectorised over the index arrays rather than per cell (ARC-57).
+        x = x_init + cell_size_x * cols + xy_span * rows
+        y = y_init + yy_span * cols + cell_size_y * rows
+        coords = np.column_stack((x, y))
 
         return coords
 
@@ -202,18 +208,23 @@ class Cell(_Engine["Dataset"]):
         ![get_cell_polygons](./../../_images/dataset/get_cell_polygons.png)
         """
         coords = self.get_cell_coords(location="corner", domain_only=domain_only)
-        cell_size = self._ds.geotransform[1]
+        # Step one column and one row through the affine rather than offsetting both
+        # axes by the pixel *width*. Using geotransform[1] for x and y made every
+        # cell square: on a raster with 2 x 5 pixels the polygons came back 2 x 2.
+        # Expressed as vector steps it also carries the rotation terms, so a skewed
+        # raster yields the right parallelogram instead of an axis-aligned box.
+        _, col_dx, row_dx, _, col_dy, row_dy = self._ds.geotransform
         epsg = self._ds._get_epsg()
         x = np.zeros((coords.shape[0], 4))
         y = np.zeros((coords.shape[0], 4))
         x[:, 0] = coords[:, 0]
         y[:, 0] = coords[:, 1]
-        x[:, 1] = x[:, 0] + cell_size
-        y[:, 1] = y[:, 0]
-        x[:, 2] = x[:, 0] + cell_size
-        y[:, 2] = y[:, 0] - cell_size
-        x[:, 3] = x[:, 0]
-        y[:, 3] = y[:, 0] - cell_size
+        x[:, 1] = x[:, 0] + col_dx
+        y[:, 1] = y[:, 0] + col_dy
+        x[:, 2] = x[:, 0] + col_dx + row_dx
+        y[:, 2] = y[:, 0] + col_dy + row_dy
+        x[:, 3] = x[:, 0] + row_dx
+        y[:, 3] = y[:, 0] + row_dy
 
         coords_tuples = [list(zip(x[:, i], y[:, i])) for i in range(4)]
         polys_coords = [
@@ -383,7 +394,10 @@ class Cell(_Engine["Dataset"]):
             verts = FeatureCollection(points).with_coordinates()
             points = verts.loc[:, ["x", "y"]].values
         elif isinstance(points, DataFrame):
-            if all(elem not in points.columns for elem in ["x", "y"]):
+            # `any`, not `all`: a frame carrying only "x" is just as unusable as one
+            # carrying neither, but `all(... not in ...)` only fires when *both* are
+            # missing, so the half-formed case fell through to a KeyError below.
+            if any(elem not in points.columns for elem in ["x", "y"]):
                 raise ValueError(
                     "If the input is a DataFrame, it should have two columns x, and y"
                 )
