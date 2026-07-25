@@ -1386,6 +1386,7 @@ class Dataset(RasterBase):
 
     def __str__(self) -> str:
         """__str__."""
+        self._require_open()
         message = f"""
             Top Left Corner: {self.top_left_corner}
             Cell size: {self.cell_size}
@@ -1405,6 +1406,7 @@ class Dataset(RasterBase):
 
     def __repr__(self) -> str:
         """__repr__."""
+        self._require_open()
         return str(gdal.Info(self.raster))
 
     @property
@@ -1458,7 +1460,12 @@ class Dataset(RasterBase):
 
     @epsg.setter
     def epsg(self, value: int):
-        """EPSG number."""
+        """EPSG number.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+        """
+        self._require_writable("set the EPSG code")
         sr = sr_from_epsg(value)
         self.raster.SetProjection(sr.ExportToWkt())
         self._update_inplace(self._raster)
@@ -1520,7 +1527,12 @@ class Dataset(RasterBase):
 
     @band_units.setter
     def band_units(self, value: list[str]):
-        """Band units setter."""
+        """Band units setter.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+        """
+        self._require_writable("set band units")
         self._band_units = value
         for i, val in enumerate(value):
             self._iloc(i).SetUnitType(val)
@@ -1696,7 +1708,12 @@ class Dataset(RasterBase):
 
     @meta_data.setter
     def meta_data(self, value: dict[str, str]):
-        """Meta-data."""
+        """Meta-data.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+        """
+        self._require_writable("set metadata")
         for key, val in value.items():
             self._raster.SetMetadataItem(key, val)
 
@@ -1751,7 +1768,12 @@ class Dataset(RasterBase):
 
     @scale.setter
     def scale(self, value: list[float]):
-        """Scale."""
+        """Scale.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+        """
+        self._require_writable("set the band scale")
         for i, val in enumerate(value):
             self._iloc(i).SetScale(val)
 
@@ -1769,7 +1791,12 @@ class Dataset(RasterBase):
 
     @offset.setter
     def offset(self, value: list[float]):
-        """Offset."""
+        """Offset.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+        """
+        self._require_writable("set the band offset")
         for i, val in enumerate(value):
             self._iloc(i).SetOffset(val)
 

@@ -365,29 +365,32 @@ class Spatial(_Engine["Dataset"]):
             None: The CRS is set on the underlying dataset in place.
 
         Raises:
+            ReadOnlyError: If the dataset is opened read-only.
             TypeError: If the dataset is backed by an ASCII driver, which cannot store a CRS.
             ValueError: If neither ``crs`` nor ``epsg`` is provided.
         """
-        # first change the projection of the gdal dataset object
-        # second change the epsg attribute of the Dataset object
+        # ASCII cannot store a CRS in any mode, so that TypeError takes precedence
+        # over the read-only guard below.
         if self._ds.driver_type == "ascii":
             raise TypeError(
                 "Setting CRS for ASCII file is not possible, you can save the files to a geotiff and then "
                 "reset the crs"
             )
+        self._ds._require_writable("set the CRS")
+        # first change the projection of the gdal dataset object
+        # second change the epsg attribute of the Dataset object
+        if crs is not None:
+            self._ds.raster.SetProjection(crs)
+            # fallback to 4326 when crs is an empty string
+            # (get_epsg_from_prj raises in that case); epsg_from_wkt
+            # absorbs the fallback in one place.
+            self._ds._epsg = epsg_from_wkt(crs)
+        elif epsg is not None:
+            sr = sr_from_epsg(epsg)
+            self._ds.raster.SetProjection(sr.ExportToWkt())
+            self._ds._epsg = epsg
         else:
-            if crs is not None:
-                self._ds.raster.SetProjection(crs)
-                # fallback to 4326 when crs is an empty string
-                # (get_epsg_from_prj raises in that case); epsg_from_wkt
-                # absorbs the fallback in one place.
-                self._ds._epsg = epsg_from_wkt(crs)
-            elif epsg is not None:
-                sr = sr_from_epsg(epsg)
-                self._ds.raster.SetProjection(sr.ExportToWkt())
-                self._ds._epsg = epsg
-            else:
-                raise ValueError("Either crs or epsg must be provided.")
+            raise ValueError("Either crs or epsg must be provided.")
 
     def to_crs(
         self,

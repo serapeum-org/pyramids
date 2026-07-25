@@ -65,15 +65,9 @@ class Bands(_Engine["Dataset"]):
             IndexError: If the index is negative or out of bounds.
             RuntimeError: If the dataset has been closed.
         """
-        # RuntimeError is intentional here: the dataset is *closed*, not
-        # read-only, so ReadOnlyError would be misleading.  There is no
-        # DatasetClosedError in the hierarchy; RuntimeError is the standard
-        # Python choice for invalid runtime state.
-        if self._ds._raster is None:
-            raise RuntimeError(
-                "Cannot access band on a closed dataset. "
-                "The dataset has been closed via close() or a context manager."
-            )
+        # RuntimeError (via _require_open) is intentional here: the dataset is
+        # *closed*, not read-only, so ReadOnlyError would be misleading.
+        self._ds._require_open()
         if i < 0:
             raise IndexError("negative index not supported")
 

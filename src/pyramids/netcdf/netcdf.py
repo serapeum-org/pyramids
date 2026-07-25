@@ -175,10 +175,12 @@ def _reconstruct_netcdf(
     Returns:
         NetCDF: Container, group view, or variable-subset instance.
     """
-    read_only = access == "read_only"
+    # Always reopen read-only, regardless of the pickled access mode (ARC-5):
+    # distributed consumers read the reconstructed handle, and N update-mode
+    # handles on one file across workers risk lock contention / a corrupt write.
     container = NetCDF.read_file(
         path,
-        read_only=read_only,
+        read_only=True,
         open_as_multi_dimensional=is_md_array,
     )
     if group_path:

@@ -26,6 +26,7 @@ import numpy as np
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal
 
+from pyramids.base._errors import ReadOnlyError
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
     Catalog,
@@ -73,14 +74,20 @@ def _reconstruct_dataset(cls: type[RasterBase], path: str, access: str) -> Raste
         cls: The concrete :class:`RasterBase` subclass to
             reconstruct (`Dataset`, `NetCDF`, etc.).
         path: The on-disk path or VSI URL to re-open.
-        access: Access mode string; `"read_only"` opens read-only,
-            any other value opens for update.
+        access: Access mode string carried by the pickle recipe. **Ignored** for the
+            open mode — the dataset is always reopened read-only (see below). Kept in
+            the signature so existing recipe tuples still unpickle.
 
     Returns:
-        RasterBase: A freshly opened instance of `cls`.
+        RasterBase: A freshly opened instance of `cls`, opened read-only.
     """
-    read_only = access == "read_only"
-    return cls.read_file(path, read_only=read_only)
+    # Always reopen read-only, regardless of the pickled access mode: every
+    # distributed consumer reads the reconstructed handle (the lazy read fan-out
+    # ships its own read-only file manager; the delayed to_file task only reads the
+    # source for a CreateCopy), and reopening N update-mode handles on one file
+    # across workers risks lock contention / a corrupt write. A caller that truly
+    # needs a writable handle should reopen it explicitly on the worker.
+    return cls.read_file(path, read_only=True)
 
 
 class RasterBase(ABC):
@@ -185,6 +192,65 @@ class RasterBase(ABC):
     def access(self):
         """Access mode (read_only/write)."""
         return self._access
+
+    def _require_writable(self, action: str) -> None:
+        """Guard a metadata write that would spill a PAM sidecar to a read-only file.
+
+        The metadata setters (crs, epsg, scale, offset, band_units, meta_data) call
+        GDAL `Set*` with no access check, so on a read-only **on-disk** file GDAL
+        silently mutates the in-memory object and spills a PAM `.aux.xml` sidecar next
+        to it. Call this at the top of every metadata setter so they fail loudly
+        instead. (A pixel-write's GDAL-error shim cannot catch a pure metadata `Set*`
+        — GDAL just writes PAM — so an explicit check is the only reliable guard, and
+        the SWIG binding exposes no handle-level `GetAccess`.)
+
+        The condition is "read-only access **and** backed by a real on-disk file":
+        an in-memory dataset (`copy`, `create_from_array()` with no path, a `/vsimem/`
+        raster, a `MEM`-driver container) reports `access == "read_only"` by
+        constructor default yet is a genuinely writable in-RAM handle that cannot spill
+        a sidecar, so it is *not* blocked — that is the established
+        edit-in-memory-then-save workflow. Only a real on-disk file opened read-only
+        can spill PAM, and only that is rejected. In-memory is detected by the `MEM`
+        driver or a `/vsimem/` / empty path (a `MEM` container may still carry a
+        placeholder `file_name` like `'netcdf'`, so the driver is the reliable signal).
+
+        Args:
+            action: Short phrase completing "...read_only=False to <action>." — used
+                in the error message (e.g. "set the CRS").
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+            RuntimeError: The dataset has been closed.
+        """
+        self._require_open()
+        file_name = self._file_name
+        in_memory = (
+            not file_name
+            or file_name.startswith("/vsimem/")
+            or self.driver_type == "memory"
+        )
+        if self._access == "read_only" and not in_memory:
+            raise ReadOnlyError(
+                "The Dataset is opened read-only. Please read the dataset using "
+                f"read_only=False to {action}."
+            )
+
+    def _require_open(self) -> None:
+        """Guard a state read against a closed dataset.
+
+        After `close()` (or context-manager exit) `self._raster` is `None`; a
+        state-reading member that dereferences it then raises a bare
+        `AttributeError` (or, for `__repr__`, silently returns `'None'`). Call this
+        first so every such member raises the same clear error instead.
+
+        Raises:
+            RuntimeError: The dataset has been closed.
+        """
+        if self._raster is None:
+            raise RuntimeError(
+                "Cannot use a closed dataset. "
+                "The dataset has been closed via close() or a context manager."
+            )
 
     @property
     def raster(self) -> gdal.Dataset:
@@ -467,6 +533,7 @@ class RasterBase(ABC):
     @property
     def meta_data(self):
         """Meta data."""
+        self._require_open()
         return self._raster.GetMetadata()
 
     @staticmethod
@@ -532,11 +599,7 @@ class RasterBase(ABC):
             IndexError: If the index is negative or out of bounds.
             RuntimeError: If the dataset has been closed.
         """
-        if self._raster is None:
-            raise RuntimeError(
-                "Cannot access band on a closed dataset. "
-                "The dataset has been closed via close() or a context manager."
-            )
+        self._require_open()
         if i < 0:
             raise IndexError("negative index not supported")
         if i > self.band_count - 1:
@@ -716,6 +779,7 @@ class RasterBase(ABC):
     @property
     def driver_type(self):
         """Driver Type."""
+        self._require_open()
         drv = self.raster.GetDriver()
         driver_type = drv.GetDescription() if drv is not None else None
         return CATALOG.get_driver_name(driver_type)
@@ -953,26 +1017,31 @@ class RasterBase(ABC):
                 ```
             epsg (int):
                 Optional if crs is specified. EPSG code specifying the projection.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
         """
-        # first change the projection of the gdal dataset object
-        # second change the epsg attribute of the Dataset object
+        # ASCII cannot store a CRS in any mode, so that TypeError takes precedence
+        # over the read-only guard below.
         if self.driver_type == "ascii":
             raise TypeError(
                 "Setting CRS for ASCII file is not possible, you can save the files to a geotiff and then reset the crs"
             )
+        self._require_writable("set the CRS")
+        # first change the projection of the gdal dataset object
+        # second change the epsg attribute of the Dataset object
+        if crs is not None:
+            self.raster.SetProjection(crs)
+            # ARC-7: get_epsg_from_prj raises on empty input;
+            # epsg_from_wkt absorbs the historical 4326 fallback so
+            # datasets with a missing projection still get tagged.
+            self._epsg = epsg_from_wkt(crs)
+        elif epsg is not None:
+            sr = sr_from_epsg(epsg)
+            self.raster.SetProjection(sr.ExportToWkt())
+            self._epsg = epsg
         else:
-            if crs is not None:
-                self.raster.SetProjection(crs)
-                # ARC-7: get_epsg_from_prj raises on empty input;
-                # epsg_from_wkt absorbs the historical 4326 fallback so
-                # datasets with a missing projection still get tagged.
-                self._epsg = epsg_from_wkt(crs)
-            elif epsg is not None:
-                sr = sr_from_epsg(epsg)
-                self.raster.SetProjection(sr.ExportToWkt())
-                self._epsg = epsg
-            else:
-                raise ValueError("Either crs or epsg must be provided.")
+            raise ValueError("Either crs or epsg must be provided.")
 
     @abstractmethod
     def to_crs(
