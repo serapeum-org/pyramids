@@ -664,8 +664,12 @@ def reproject_coordinates(
         to_crs:
             Target CRS, same forms as `from_crs`. Default `3857`.
         precision (int | None):
-            Decimal places to round each returned coordinate to. Pass
-            `None` to disable rounding. Default `6`.
+            Decimal places to round each returned coordinate to, using
+            Python's built-in `round` — correctly rounded in decimal,
+            which is *not* the same as `numpy.round` on values that are
+            not exactly representable (`round(2.675, 2)` is `2.67`,
+            `numpy.round(2.675, 2)` is `2.68`). Pass `None` to disable
+            rounding and get the transformer's full output. Default `6`.
 
     Returns:
         tuple[list[float], list[float]]: `(x, y)` in the target CRS.
