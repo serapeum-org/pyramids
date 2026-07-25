@@ -220,3 +220,52 @@ class TestNoImportCycle:
         assert not offenders, (
             f"spatial must not import ugrid.dataset; found: {offenders}"
         )
+
+
+class TestEdgeLinestringsNoneFill:
+    """`_edge_linestrings` handles a directly-built `Connectivity(fill_value=None)` (review N3)."""
+
+    def test_none_fill_takes_vectorized_path_without_warning(self, recwarn):
+        """A `None` fill on a clean 2-node edge connectivity builds LineStrings, warning-free.
+
+        Test scenario:
+            Build a mesh whose ``edge_node_connectivity`` has ``fill_value=None`` (no sentinels)
+            and request the edge geometries; the vectorized branch must run without a NumPy
+            ``!= None`` elementwise-compare warning and yield one 2-point LineString per edge.
+        """
+        from shapely.geometry import LineString
+
+        from pyramids.netcdf.ugrid.connectivity import Connectivity
+        from pyramids.netcdf.ugrid.dataset import UgridDataset
+        from pyramids.netcdf.ugrid.mesh import Mesh2d
+
+        mesh = Mesh2d(
+            node_x=np.array([0.0, 1.0, 0.0, 1.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=Connectivity(
+                data=np.array([[0, 1, 2], [1, 3, 2]], dtype=np.intp),
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
+            ),
+            edge_node_connectivity=Connectivity(
+                data=np.array([[0, 1], [1, 3], [3, 2], [2, 0]], dtype=np.intp),
+                fill_value=None,
+                cf_role="edge_node_connectivity",
+                original_start_index=0,
+            ),
+        )
+        dataset = UgridDataset(mesh=mesh, data_variables={}, global_attributes={})
+
+        gdf = dataset.to_geodataframe(location="edge")
+
+        assert len(gdf) == 4, f"expected 4 edge geometries, got {len(gdf)}"
+        assert all(isinstance(g, LineString) for g in gdf.geometry), (
+            "every edge geometry should be a LineString"
+        )
+        assert list(gdf.geometry.iloc[0].coords) == [(0.0, 0.0), (1.0, 0.0)], (
+            f"first edge should join nodes 0->1, got {list(gdf.geometry.iloc[0].coords)}"
+        )
+        assert not [w for w in recwarn.list if "None" in str(w.message)], (
+            "the None-fill guard must avoid a `!= None` elementwise-compare warning"
+        )

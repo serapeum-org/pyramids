@@ -699,9 +699,10 @@ class UgridDataset:
     def _edge_linestrings(self, enc: Connectivity) -> Any:
         """Build one LineString per edge, vectorized for standard 2-node edges (ARC-59)."""
         node_idx = np.asarray(enc.data)
-        if node_idx.ndim == 2 and node_idx.shape[1] == 2 and bool(
-            np.all(node_idx != enc.fill_value)
-        ):
+        # A `None` fill means no sentinels are present, so the fast path is valid without an
+        # elementwise `node_idx != None` compare (which NumPy deprecates) (review N3).
+        no_fill = enc.fill_value is None or bool(np.all(node_idx != enc.fill_value))
+        if node_idx.ndim == 2 and node_idx.shape[1] == 2 and no_fill:
             xs = self._mesh.node_x[node_idx]
             ys = self._mesh.node_y[node_idx]
             return list(shapely.linestrings(np.stack([xs, ys], axis=-1)))
