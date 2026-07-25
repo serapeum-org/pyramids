@@ -130,7 +130,6 @@ def open_mfdataset(
             ```
     """
     try:
-        import dask
         import dask.array as da
     except ImportError as exc:
         raise ImportError(_LAZY_IMPORT_ERROR) from exc
@@ -141,34 +140,14 @@ def open_mfdataset(
     # eagerly before stacking (ARC-48). An explicit `chunks` is honoured as given.
     effective_chunks = "auto" if chunks is None else chunks
 
-    first_probe = _open_and_extract(resolved[0], variable, preprocess, effective_chunks)
-    reads_are_lazy = hasattr(first_probe, "dask")
-
-    if parallel and not reads_are_lazy:
-        # Eager per-file reads: fan the opens out across the dask scheduler via `dask.delayed`,
-        # reusing the probe as element 0 so `resolved[0]` is opened only once.
-        shape, dtype = first_probe.shape, first_probe.dtype
-        first_arr = da.from_delayed(dask.delayed(first_probe), shape=shape, dtype=dtype)
-        rest = [
-            da.from_delayed(
-                dask.delayed(_open_and_extract)(p, variable, preprocess, effective_chunks),
-                shape=shape,
-                dtype=dtype,
-            )
-            for p in resolved[1:]
-        ]
-        arrays = [first_arr, *rest]
-    else:
-        # Lazy reads already return dask arrays; wrapping them in `dask.delayed` would nest a dask
-        # collection inside `from_delayed` and force a synchronous inner compute per file (ARC-48).
-        # Read directly and let dask's scheduler parallelise the chunk reads at compute time.
-        rest = [
-            _open_and_extract(p, variable, preprocess, effective_chunks) for p in resolved[1:]
-        ]
-        arrays = [first_probe, *rest]
-        arrays = [
-            a if hasattr(a, "dask") else da.from_array(np.asarray(a), chunks="auto")
-            for a in arrays
-        ]
-
+    # Each per-file read already returns a lazy dask array (chunks are never eager here), so the
+    # stack is built directly and dask parallelises the per-chunk reads at compute time. The
+    # `parallel` flag -- which used to wrap eager reads in `dask.delayed` -- is inert now that the
+    # default read is lazy (wrapping a dask array in `from_delayed` would nest a synchronous inner
+    # compute per file); it is retained only for backward-compatible call signatures (ARC-48).
+    arrays = [_open_and_extract(p, variable, preprocess, effective_chunks) for p in resolved]
+    arrays = [
+        a if hasattr(a, "dask") else da.from_array(np.asarray(a), chunks="auto")
+        for a in arrays
+    ]
     return da.stack(arrays, axis=0)
