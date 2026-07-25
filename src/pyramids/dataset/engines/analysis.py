@@ -34,6 +34,13 @@ if TYPE_CHECKING:
 from pyramids.dataset.engines._base import _Engine
 
 
+# A windowed point-sample read is worth it while the points' bounding box stays
+# under this many pixels, or within this multiple of the point count -- beyond
+# that the pixels read but discarded cost more than the per-point GDAL calls.
+_POINT_WINDOW_MIN_PIXELS = 4096
+_POINT_WINDOW_MAX_WASTE = 16
+
+
 class Analysis(_Engine["Dataset"]):
     """Mixin providing analysis, statistics, and data extraction operations for Dataset."""
 
@@ -725,7 +732,19 @@ class Analysis(_Engine["Dataset"]):
         in_bounds_idx: np.ndarray,
         n_points: int,
     ) -> list[np.ndarray]:
-        """Read a 1x1 window per in-bounds point, for each band in ``band_list``.
+        """Sample the in-bounds points from each band in ``band_list``.
+
+        Two strategies, chosen per call from how tightly the points cluster:
+
+        * **One windowed read** over their bounding box, then array indexing —
+          one GDAL call per band instead of one per point.
+        * **A 1x1 read per point**, kept for sparse or widely scattered points,
+          where the bounding box would pull in far more pixels than were asked
+          for.
+
+        The switch compares the bounding box area against the point count, so a
+        handful of scattered points never drags in a near-full-raster read while
+        a dense batch stops paying per-point GDAL overhead.
 
         Out-of-bounds points keep the fill value — the band's no-data value, or
         ``NaN`` when it has none (which promotes an integer band to float).
@@ -734,6 +753,21 @@ class Analysis(_Engine["Dataset"]):
             One ``(n_points,)`` array per band, in ``band_list`` order.
         """
         rows_out: list[np.ndarray] = []
+        n_in_bounds = int(len(in_bounds_idx))
+        use_window = False
+        if n_in_bounds > 1:
+            in_cols = col[in_bounds_idx].astype(int)
+            in_rows = row[in_bounds_idx].astype(int)
+            x_off, y_off = int(in_cols.min()), int(in_rows.min())
+            x_size = int(in_cols.max()) - x_off + 1
+            y_size = int(in_rows.max()) - y_off + 1
+            # Worth one big read only while the box stays a small multiple of the
+            # points themselves; past that the wasted pixels cost more than the
+            # per-point calls they would save.
+            use_window = (x_size * y_size) <= max(
+                _POINT_WINDOW_MIN_PIXELS, n_in_bounds * _POINT_WINDOW_MAX_WASTE
+            )
+
         for b in band_list:
             gdal_band = self._ds.raster.GetRasterBand(b + 1)
             no_data_value = gdal_band.GetNoDataValue()
@@ -749,9 +783,15 @@ class Analysis(_Engine["Dataset"]):
                 fill = no_data_value
                 out_dtype = band_dtype
             band_values = np.full(n_points, fill, dtype=out_dtype)
-            for i in in_bounds_idx:
-                window = gdal_band.ReadAsArray(int(col[i]), int(row[i]), 1, 1)
-                band_values[i] = window[0, 0]
+            if use_window:
+                block = np.asarray(
+                    gdal_band.ReadAsArray(x_off, y_off, x_size, y_size)
+                )
+                band_values[in_bounds_idx] = block[in_rows - y_off, in_cols - x_off]
+            else:
+                for i in in_bounds_idx:
+                    window = gdal_band.ReadAsArray(int(col[i]), int(row[i]), 1, 1)
+                    band_values[i] = window[0, 0]
             rows_out.append(band_values)
         return rows_out
 
