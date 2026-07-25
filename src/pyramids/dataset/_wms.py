@@ -233,8 +233,10 @@ def _translate_window(
         ValueError: the requested window exceeds the pixel ceiling.
         WMSError: GDAL could not produce a raster for the requested window.
     """
-    # Bound the allocation: reject a read that would exceed the pixel ceiling. A
-    # native (resolution=None) read is sized from the source's own resolution.
+    # Bound the allocation: read_size is called purely for its ceiling check (it
+    # raises ValueError past MAX_PX) and the returned (width, height) is intentionally
+    # discarded. A native (resolution=None) read is sized from the source's own
+    # resolution.
     _read_size(projwin, resolution or _native_resolution(src))
     kwargs: dict = {"format": "MEM", "projWin": projwin, "resampleAlg": resample}
     if resolution is not None:

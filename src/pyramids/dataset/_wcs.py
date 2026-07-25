@@ -730,7 +730,10 @@ def _translate_window(
         ValueError: the requested window exceeds the pixel ceiling.
         WCSError: GDAL could not produce a raster for the requested window.
     """
-    # Bound the allocation from the coverage's own native resolution.
+    # Bound the allocation from the coverage's own native resolution: read_size is
+    # called purely for its ceiling check (it raises ValueError past MAX_PX); the
+    # returned (width, height) is intentionally discarded because Translate derives
+    # the size from projWin at native resolution.
     _read_size(projwin, _native_resolution(src))
     options = gdal.TranslateOptions(format="MEM", projWin=projwin)
     try:
