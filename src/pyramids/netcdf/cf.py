@@ -902,6 +902,26 @@ def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
     Returns:
         List of dicts with keys `"dimensions"`, `"method"`,
         and optionally `"where"` and `"over"`.
+
+    Examples:
+        - A single dimension and method:
+            ```python
+            >>> parse_cell_methods("time: mean")
+            [{'dimensions': 'time', 'method': 'mean'}]
+
+            ```
+        - Several dimensions sharing one method are all captured:
+            ```python
+            >>> parse_cell_methods("lat: lon: mean")
+            [{'dimensions': 'lat lon', 'method': 'mean'}]
+
+            ```
+        - Independent entries, with a `where` qualifier:
+            ```python
+            >>> parse_cell_methods("time: mean area: sum where land")
+            [{'dimensions': 'time', 'method': 'mean'}, {'dimensions': 'area', 'method': 'sum', 'where': 'land'}]
+
+            ```
     """
     results: list[dict[str, str]] = []
     # A cell_methods entry is `name: [name: ...] method [where ...] [over ...]` — one OR MORE
