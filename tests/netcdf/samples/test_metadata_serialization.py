@@ -39,6 +39,27 @@ def test_from_json_roundtrip_preserves_structure(sample_name, sample):
         nc.close()
 
 
+def test_from_json_roundtrip_preserves_cf(sample_name, sample):
+    """``from_json(to_json(m))`` restores the ``CFInfo`` block (classifications, grid_mappings, …) — ARC-25.
+
+    ``to_dict`` serializes ``cf`` via ``asdict`` but ``from_json`` used to omit ``cf=``, silently dropping
+    every CF classification on a JSON round-trip.
+    """
+    nc = NetCDF.read_file(sample(sample_name))
+    try:
+        meta = nc.get_all_metadata()
+        restored = from_json(to_json(meta))
+        assert (restored.cf is None) == (meta.cf is None), (
+            f"{sample_name}: cf presence changed across round-trip"
+        )
+        if meta.cf is not None:
+            assert restored.cf == meta.cf, (
+                f"{sample_name}: CFInfo dropped or altered across round-trip"
+            )
+    finally:
+        nc.close()
+
+
 def test_to_dict_is_json_serializable(sample_name, sample):
     """``to_dict`` returns a mapping that ``json.dumps`` can serialize without custom encoders."""
     nc = NetCDF.read_file(sample(sample_name))
