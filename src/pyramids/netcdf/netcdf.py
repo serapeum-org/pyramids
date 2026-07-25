@@ -2393,6 +2393,10 @@ class NetCDF(Dataset):
         non-spatial dim as its own leading axis, so no reshape is needed. Falls back to the eager
         read (undoing `read_array`'s singleton-band squeeze and GDAL's row-major band flatten) when
         `lazy` is False or dask (the `[lazy]` extra) is not installed.
+
+        Because the streamed reduce tree-reduces per chunk via dask while the eager path reduces in a
+        single pass, a file-backed `mean`/`sum`/`std`/`var` can differ from the same in-memory reduce
+        in the last ULPs (floating-point non-associativity) — equal to `np.allclose`, not bit-for-bit.
         """
         if lazy and NetCDF._is_file_backed(var):
             # Only stream a genuinely file-backed variable: an in-memory container has no file for the
