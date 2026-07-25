@@ -44,6 +44,20 @@ class TestEncodeTemporalArray:
         assert_allclose(encoded, [1.0, 2.0], err_msg="timedelta64 should map to seconds")
         assert attrs == {"units": "seconds"}, f"unexpected attrs {attrs}"
 
+    def test_datetime64_nat_encodes_to_nan(self):
+        """A NaT encodes to NaN (a missing instant), not a bogus finite ~1677 timestamp (review M2)."""
+        vals = np.array(["2020-01-01", "NaT", "2020-01-03"], dtype="datetime64[ns]")
+        encoded, _ = _encode_temporal_array(vals)
+        assert np.isnan(encoded[1]), f"NaT must encode to NaN, got {encoded[1]}"
+        assert np.isfinite(encoded[0]) and np.isfinite(encoded[2]), "real instants must stay finite"
+
+    def test_timedelta64_nat_encodes_to_nan(self):
+        """A NaT in a timedelta64 array encodes to NaN, not the int64-sentinel value (review M2)."""
+        vals = np.array([1_000_000_000, "NaT"], dtype="timedelta64[ns]")
+        encoded, _ = _encode_temporal_array(vals)
+        assert np.isnan(encoded[1]), f"NaT must encode to NaN, got {encoded[1]}"
+        assert encoded[0] == 1.0, f"real timedelta must stay finite, got {encoded[0]}"
+
     def test_non_temporal_array_passes_through_unchanged(self):
         """A numeric array is returned unchanged with no CF attributes."""
         vals = np.array([1.5, 2.5, 3.5])

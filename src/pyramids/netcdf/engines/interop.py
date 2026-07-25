@@ -236,24 +236,34 @@ def _encode_temporal_array(values: np.ndarray) -> tuple[np.ndarray, dict[str, An
     A CF-decoded xarray time axis is `datetime64[ns]`, which `numpy_to_gdal_dtype` cannot map, so
     `from_xarray` crashed on any Dataset opened with the default `decode_cf=True`. Encode such arrays to
     float64 seconds with a CF `units` (and `calendar` for absolute times) so the MDArray stores a
-    numeric axis that CF-decodes back to the same instants (ARC-17).
+    numeric axis that CF-decodes back to the same instants (ARC-17). A `NaT` maps to `NaN` (a missing
+    instant), not the int64 sentinel's bogus ~year-1677 value.
+
+    The CF-portable `seconds since ...` unit is float64, so a timestamp far from the 1970 epoch carries
+    only ~sub-microsecond precision (float64 has ~0.35 µs resolution near 2e9 s); an exact nanosecond
+    round-trip would need a non-portable `nanoseconds since ...` unit.
 
     Args:
         values: The raw coordinate / variable array.
 
     Returns:
         A `(encoded_values, cf_attrs)` pair. For a non-temporal array the values are returned unchanged
-        with an empty attribute dict; for a temporal array the values are float64 seconds and `cf_attrs`
-        carries the CF `units` (plus `calendar` for absolute datetimes).
+        with an empty attribute dict; for a temporal array the values are float64 seconds (`NaN` where
+        the input was `NaT`) and `cf_attrs` carries the CF `units` (plus `calendar` for absolute
+        datetimes).
     """
     if np.issubdtype(values.dtype, np.datetime64):
-        seconds = values.astype("datetime64[ns]").astype("int64").astype("float64") / 1e9
+        as_ns = values.astype("datetime64[ns]")
+        seconds = as_ns.astype("int64").astype("float64") / 1e9
+        seconds[np.isnat(as_ns)] = np.nan
         return seconds, {
             "units": "seconds since 1970-01-01 00:00:00",
             "calendar": "proleptic_gregorian",
         }
     if np.issubdtype(values.dtype, np.timedelta64):
-        seconds = values.astype("timedelta64[ns]").astype("int64").astype("float64") / 1e9
+        as_ns = values.astype("timedelta64[ns]")
+        seconds = as_ns.astype("int64").astype("float64") / 1e9
+        seconds[np.isnat(as_ns)] = np.nan
         return seconds, {"units": "seconds"}
     return values, {}
 
