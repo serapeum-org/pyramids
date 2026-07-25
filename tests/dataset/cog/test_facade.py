@@ -569,7 +569,9 @@ class TestWriteCog:
         src_path = tmp_path / "plain.tif"
         src.to_file(str(src_path))
         ro = Dataset.read_file(str(src_path), read_only=True)
-        assert ro.access == "read_only", "input must be read-only for this regression test"
+        assert ro.access == "read_only", (
+            "input must be read-only for this regression test"
+        )
         out = tmp_path / "ro_ds_cog.tif"
         path, _ = write_cog(ro, out, nodata=-9999.0, validate=False)
         result = Dataset.read_file(str(path))
