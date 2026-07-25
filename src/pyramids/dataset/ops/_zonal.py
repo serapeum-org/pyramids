@@ -140,9 +140,23 @@ def _rasterize_zonal_stats(
     if stats_bincount:
         columns.update(_bincount_stats(raster, labels, n_features, stats_bincount))
     if stats_loop:
+        # Group the labelled cells once instead of re-scanning the whole raster
+        # per polygon. `raster[labels == pid]` inside the loop walked every cell
+        # for every feature -- features x cells -- where sorting the covered
+        # cells once and slicing each polygon's run is cells log cells.
+        flat_labels = labels.ravel()
+        flat_values = raster.ravel()
+        covered = flat_labels >= 0
+        order = np.argsort(flat_labels[covered], kind="stable")
+        grouped_labels = flat_labels[covered][order]
+        grouped_values = flat_values[covered][order]
+        feature_ids = np.arange(n_features)
+        starts = np.searchsorted(grouped_labels, feature_ids, side="left")
+        ends = np.searchsorted(grouped_labels, feature_ids, side="right")
+
         loop_cols: dict[str, list[float]] = {s: [] for s in stats_loop}
         for pid in range(n_features):
-            vals = raster[labels == pid]
+            vals = grouped_values[starts[pid] : ends[pid]]
             for stat in stats_loop:
                 loop_cols[stat].append(_apply_stat(stat, vals))
         for stat, vals_list in loop_cols.items():
