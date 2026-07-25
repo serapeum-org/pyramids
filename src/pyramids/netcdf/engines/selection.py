@@ -1024,7 +1024,6 @@ class Selection(_Engine["NetCDF"]):
         found = False
         for var_name in spatial_vars:
             var = nc.get_variable(var_name)
-            arr = nc._materialize_variable_array(var)
             band_names = list(var._band_dim_names)
             values_map = dict(var._band_dim_values_map)
             ndv = nc._scalar_no_data_value(var.no_data_value)
@@ -1032,6 +1031,11 @@ class Selection(_Engine["NetCDF"]):
             if dim in band_names:
                 found = True
                 axis = band_names.index(dim)
+                # Stream the reduction over a chunked (dask) read so a large (dim, y, x) cube is
+                # never fully held in RAM; only the small reduced result is computed (ARC-47). The
+                # `np.*`/`np.nan*` reducers dispatch to dask on a dask array, so `_reduce_variable_array`
+                # stays unchanged; `np.asarray` then computes the reduced result.
+                arr = nc._materialize_variable_array(var, lazy=True)
                 arr, band_names, values_map = nc._reduce_variable_array(
                     arr,
                     axis,
@@ -1044,6 +1048,11 @@ class Selection(_Engine["NetCDF"]):
                     groupby,
                     group_positions,
                 )
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    arr = np.asarray(arr)
+            else:
+                arr = nc._materialize_variable_array(var)
 
             result = nc._stack_reduced_variable(
                 result,

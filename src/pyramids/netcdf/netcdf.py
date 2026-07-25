@@ -2318,12 +2318,24 @@ class NetCDF(Dataset):
         return scalar_no_data(no_data_value)
 
     @staticmethod
-    def _materialize_variable_array(var: NetCDF) -> np.typing.NDArray:
+    def _materialize_variable_array(var: NetCDF, lazy: bool = False) -> Any:
         """Read a variable as `(*band_dim_sizes, rows, cols)` (or `(rows, cols)`).
 
-        Undoes ``read_array``'s singleton-band squeeze and GDAL's row-major
-        flatten of multi-dim band axes, mirroring `_apply_to_all_variables`.
+        With `lazy=True` and dask installed, returns a chunked `dask.array` in that same layout
+        without ever holding the whole variable in RAM — `reduce` streams its reducer over it and
+        computes only the (small) reduced result (ARC-47). The chunked read already keeps each
+        non-spatial dim as its own leading axis, so no reshape is needed. Falls back to the eager
+        read (undoing `read_array`'s singleton-band squeeze and GDAL's row-major band flatten) when
+        `lazy` is False or dask (the `[lazy]` extra) is not installed.
         """
+        if lazy:
+            try:
+                return var.read_array(chunks="auto")
+            except (ImportError, RuntimeError, ValueError):
+                # dask missing, or the variable is not file-backed (an in-memory container has no
+                # file for the chunk graph to reopen). An in-memory array is already fully in RAM, so
+                # streaming it would save nothing -- fall through to the eager read.
+                pass
         arr = var.read_array()
         if var._band_dim_names:
             if arr.ndim == 2:

@@ -75,6 +75,25 @@ class TestReduceCollapse:
         assert var._band_dim_names == (), f"time should be gone: {var._band_dim_names}"
         assert var.read_array().shape == (3, 5), "result should be 2-D"
 
+    @pytest.mark.parametrize("how, np_func", [("mean", np.mean), ("sum", np.sum), ("max", np.max)])
+    def test_file_backed_collapse_streams_and_matches_numpy(self, how, np_func, tmp_path):
+        """A file-backed reduce streams over a chunked dask read and still matches NumPy (ARC-47).
+
+        Test scenario:
+            An in-memory cube written to a real NetCDF is read back file-backed, so `reduce()` takes
+            the dask-streaming path (`_materialize_variable_array(lazy=True)`) rather than an eager
+            whole-cube read; the collapsed result must equal `np_func(arr, axis=0)`.
+        """
+        arr = np.arange(6 * 3 * 5, dtype="float32").reshape(6, 3, 5)
+        path = str(tmp_path / "cube.nc")
+        _make_time_nc(arr, [0, 1, 2, 3, 4, 5]).to_file(path)
+        nc = NetCDF.read_file(path)
+        try:
+            out = nc.reduce("time", how).get_variable("v").read_array()
+            assert np.allclose(out, np_func(arr, axis=0)), f"{how} file-backed collapse mismatch"
+        finally:
+            nc.close()
+
 
 class TestReduceWindowed:
     """Tests for windowed reduction via explicit labels."""
