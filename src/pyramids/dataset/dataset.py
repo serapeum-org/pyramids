@@ -1181,6 +1181,13 @@ class Dataset(RasterBase):
 
     @band_color.setter
     def band_color(self, values):
+        """Facade setter.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (a bare
+                `SetColorInterpretation` would otherwise silently spill a PAM sidecar).
+        """
+        self._require_writable("set band colors")
         self.bands.band_color = values
 
     @property
@@ -1190,6 +1197,13 @@ class Dataset(RasterBase):
 
     @color_table.setter
     def color_table(self, df):
+        """Facade setter.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (a bare
+                `SetColorTable` would otherwise silently spill a PAM sidecar).
+        """
+        self._require_writable("set the color table")
         self.bands.color_table = df
 
     def _check_no_data_value(self, *args, **kwargs):

@@ -83,7 +83,9 @@ class TestColorTable:
         df.loc[:, "band"] = 1
         df.loc[:, "color"] = color_hex
 
-        dataset = Dataset(src_without_color_table)
+        # copy() yields a writable in-memory dataset; the color_table facade setter
+        # is guarded against a read-only on-disk handle (the fixture opens read-only).
+        dataset = Dataset(src_without_color_table).copy()
         dataset.bands._set_color_table(df, overwrite=True)
 
         color_table = dataset.raster.GetRasterBand(1).GetColorTable()

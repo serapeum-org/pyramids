@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from pyramids.base._errors import ReadOnlyError
@@ -34,6 +35,17 @@ _METADATA_SETTERS = [
     pytest.param(lambda ds: setattr(ds, "band_names", ["renamed"]), id="band_names"),
     pytest.param(
         lambda ds: setattr(ds, "no_data_value", [-9999.0]), id="no_data_value"
+    ),
+    pytest.param(
+        lambda ds: setattr(ds, "band_color", {0: "gray_index"}), id="band_color"
+    ),
+    pytest.param(
+        lambda ds: setattr(
+            ds,
+            "color_table",
+            pd.DataFrame({"band": [1], "values": [1], "color": ["#709959"]}),
+        ),
+        id="color_table",
     ),
 ]
 
