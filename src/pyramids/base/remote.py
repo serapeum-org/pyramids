@@ -98,6 +98,10 @@ _VSI_PREFIXES: tuple[str, ...] = (
     _VSIGS,
     _VSIAZ,
     _VSICURL,
+    # GDAL's query-string form, `/vsicurl?[option=value&]*url=<encoded>`, which
+    # carries per-source options (headers, retry, empty_dir) in the path itself.
+    # It has no trailing slash, so the `/vsicurl/` entry above does not match it.
+    "/vsicurl?",
     "/vsicurl_streaming/",
     "/vsimem/",
     _VSIZIP,
@@ -142,6 +146,12 @@ def is_remote(path: str) -> bool:
             >>> is_remote("/vsicurl/https://foo/x.tif")
             True
             >>> is_remote("/vsimem/temp.tif")
+            True
+
+            ```
+        - So is GDAL's query-string form, which carries per-source options:
+            ```python
+            >>> is_remote("/vsicurl?empty_dir=yes&url=https%3A%2F%2Ffoo%2Fx.tif")
             True
 
             ```

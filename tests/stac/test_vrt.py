@@ -472,17 +472,41 @@ class TestSourceCredentialEmbedding:
         )
 
     def test_readdir_skip_rides_along(self):
-        """The signer's readdir skip is carried into the read-time opens.
+        """The readdir skip is carried into the read-time opens.
 
         Test scenario:
-            Without it each source re-probes its sidecars on every open.
+            Without it each source re-probes its sidecars on every open — 14
+            wasted requests for two sources, measured. The build already runs
+            under the same skip, so embedding keeps build and read consistent.
         """
-        env = {
-            "GDAL_HTTP_HEADERS": "Authorization: Bearer tok",
-            "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
-        }
+        env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
         assert "empty_dir=yes" in _embed_source_options("https://h/a.tif", env), (
             "the readdir skip should be embedded alongside the header"
+        )
+
+    def test_already_vsi_href_is_still_rewritten(self):
+        """An href handed in as `/vsicurl/...` still gets its credentials.
+
+        Test scenario:
+            Matching on the raw href would silently skip this shape.
+        """
+        env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
+        source = _embed_source_options("/vsicurl/https://h/a.tif", env)
+        assert source.startswith("/vsicurl?header.Authorization="), (
+            f"a pre-rewritten href should still be embedded: {source}"
+        )
+
+    def test_archive_chaining_is_preserved(self):
+        """A zipped source keeps its `/vsizip/` prefix instead of losing it.
+
+        Test scenario:
+            Rewriting it to the query form would drop the chaining and the
+            source would fail to open.
+        """
+        env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
+        source = _embed_source_options("https://h/scene.zip/a.tif", env)
+        assert source == "/vsizip//vsicurl/https://h/scene.zip/a.tif", (
+            f"archive chaining lost: {source}"
         )
 
     def test_multiple_headers_all_embedded(self):
@@ -557,7 +581,21 @@ class TestUnembeddableCredentialWarning:
         """
         env = {"AWS_REQUEST_PAYER": "requester"}
         with pytest.warns(UserWarning, match="AWS_REQUEST_PAYER"):
-            _warn_unembeddable_credentials(env, ["/vsis3/bucket/a.tif"])
+            _warn_unembeddable_credentials(env, ["s3://bucket/a.tif"])
+
+    def test_mixed_env_still_warns_for_the_stranded_half(self):
+        """Headers plus AWS keys: the AWS half is stranded, so it still warns.
+
+        Test scenario:
+            Classifying the rewritten `/vsicurl?...` path as non-remote used to
+            suppress this warning entirely.
+        """
+        env = {
+            "GDAL_HTTP_HEADERS": "Authorization: Bearer tok",
+            "AWS_REQUEST_PAYER": "requester",
+        }
+        with pytest.warns(UserWarning, match="AWS_REQUEST_PAYER"):
+            _warn_unembeddable_credentials(env, ["https://h/a.tif"])
 
     def test_header_only_env_does_not_warn(self, recwarn):
         """A header signer is fully supported, so nothing is warned about.
@@ -569,7 +607,7 @@ class TestUnembeddableCredentialWarning:
             `GDAL_HTTP_HEADERS` is embeddable — no warning.
         """
         env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
-        _warn_unembeddable_credentials(env, ["/vsicurl/https://h/a.tif"])
+        _warn_unembeddable_credentials(env, ["https://h/a.tif"])
         assert len(recwarn) == 0, f"unexpected warnings: {[str(w) for w in recwarn]}"
 
     def test_tuning_knobs_do_not_warn(self, recwarn):
@@ -579,7 +617,7 @@ class TestUnembeddableCredentialWarning:
             `GDAL_HTTP_MULTIPLEX` alone must not trip the warning.
         """
         _warn_unembeddable_credentials(
-            {"GDAL_HTTP_MULTIPLEX": "YES"}, ["/vsicurl/https://h/a.tif"]
+            {"GDAL_HTTP_MULTIPLEX": "YES"}, ["https://h/a.tif"]
         )
         assert len(recwarn) == 0, f"unexpected warnings: {[str(w) for w in recwarn]}"
 
@@ -603,9 +641,22 @@ class TestSourceConfig:
             An un-tuned build costs a directory listing plus sidecar probes per
             source.
         """
-        config = _source_config(["/vsicurl/https://h/a.tif"], None).as_gdal_config()
+        config = _source_config(["https://h/a.tif"], None).as_gdal_config()
         assert config["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR", config
         assert config["GDAL_HTTP_MULTIRANGE"] == "YES", config
+
+    def test_header_signed_remote_build_gets_the_preset(self):
+        """The header-signed build — the case with the largest measured saving.
+
+        Test scenario:
+            Deciding remoteness on the rewritten `/vsicurl?...` path instead of
+            the href silently opted exactly this case out of the preset.
+        """
+        env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
+        config = _source_config(["https://h/a.tif"], env).as_gdal_config()
+        assert config["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR", config
+        assert config["GDAL_HTTP_MULTIPLEX"] == "YES", config
+        assert config["GDAL_HTTP_HEADERS"] == "Authorization: Bearer tok", config
 
     def test_signer_env_overrides_the_preset(self):
         """The signer env wins on a key conflict.
@@ -614,7 +665,7 @@ class TestSourceConfig:
             An explicit HTTP version overrides the preset's default.
         """
         config = _source_config(
-            ["/vsis3/b/a.tif"], {"GDAL_HTTP_VERSION": "1.1"}
+            ["s3://b/a.tif"], {"GDAL_HTTP_VERSION": "1.1"}
         ).as_gdal_config()
         assert config["GDAL_HTTP_VERSION"] == "1.1", f"signer env did not win: {config}"
 

@@ -69,6 +69,8 @@ _DROPPED_PREVIEW = 5
 
 _HTTP_HEADERS_KEY = "GDAL_HTTP_HEADERS"
 
+_VSICURL_PREFIX = "/vsicurl/"
+
 _CREDENTIAL_PREFIXES = ("AWS_", "GS_", "AZURE_", "GOOGLE_", "SWIFT_", "OSS_")
 """Config-key prefixes that carry credentials rather than tuning knobs."""
 
@@ -120,8 +122,9 @@ def _embed_source_options(href: str, gdal_env: dict[str, str] | None) -> str:
     the read. GDAL's `/vsicurl?` query syntax solves it by carrying the options
     *in the path*, which the VRT stores and replays on every later open.
 
-    Only `http(s)` sources with header credentials can be rewritten this way;
-    anything else falls back to the plain :func:`_to_vsi` form.
+    Only sources that normalise to a bare `/vsicurl/<url>` can be rewritten this
+    way; anything else — a non-HTTP scheme, a local path, an archive-chained
+    `/vsizip//vsicurl/…` — keeps its ordinary :func:`_to_vsi` form.
 
     Args:
         href: The resolved (already signed) source href.
@@ -132,18 +135,32 @@ def _embed_source_options(href: str, gdal_env: dict[str, str] | None) -> str:
         ordinary VSI rewrite of `href`.
 
     Examples:
-        - A bearer header rides the source path:
+        - A bearer header rides the source path, with the readdir skip:
             ```python
             >>> from pyramids.stac._vrt import _embed_source_options
             >>> env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
             >>> _embed_source_options("https://h/a.tif", env)
-            '/vsicurl?header.Authorization=Bearer%20tok&url=https%3A%2F%2Fh%2Fa.tif'
+            '/vsicurl?header.Authorization=Bearer%20tok&empty_dir=yes&url=https%3A%2F%2Fh%2Fa.tif'
+
+            ```
+        - An href already in `/vsicurl/` form is still rewritten:
+            ```python
+            >>> env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
+            >>> _embed_source_options("/vsicurl/https://h/a.tif", env)
+            '/vsicurl?header.Authorization=Bearer%20tok&empty_dir=yes&url=https%3A%2F%2Fh%2Fa.tif'
 
             ```
         - Without a signer the ordinary rewrite is used:
             ```python
             >>> _embed_source_options("https://h/a.tif", None)
             '/vsicurl/https://h/a.tif'
+
+            ```
+        - An archive-chained source keeps its chaining rather than losing it:
+            ```python
+            >>> env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
+            >>> _embed_source_options("https://h/scene.zip/a.tif", env)
+            '/vsizip//vsicurl/https://h/scene.zip/a.tif'
 
             ```
         - A non-HTTP scheme cannot carry headers, so it is left alone:
@@ -154,19 +171,23 @@ def _embed_source_options(href: str, gdal_env: dict[str, str] | None) -> str:
 
             ```
     """
-    env = gdal_env or {}
-    headers = _parse_http_headers(env.get(_HTTP_HEADERS_KEY, ""))
-    if headers and href.lower().startswith(("http://", "https://")):
+    vsi = _to_vsi(href)
+    headers = _parse_http_headers((gdal_env or {}).get(_HTTP_HEADERS_KEY, ""))
+    # Only a bare `/vsicurl/<url>` can become the query form. Normalising through
+    # `_to_vsi` first means an href that was already in VSI form is still
+    # recognised, and an archive-chained path (`/vsizip//vsicurl/...`) is left
+    # alone rather than losing its chaining.
+    if headers and vsi.startswith(_VSICURL_PREFIX):
         parts = [f"header.{name}={quote(value)}" for name, value in headers]
-        if env.get("GDAL_DISABLE_READDIR_ON_OPEN") == "EMPTY_DIR":
-            # Carry the signer's own readdir skip into the read-time opens too,
-            # where the ambient config no longer reaches; without it every
-            # source re-probes its `.aux.xml` / `.prj` siblings on each open.
-            parts.append("empty_dir=yes")
-        parts.append(f"url={quote(href, safe='')}")
+        # Carry the readdir skip into the read-time opens too, where the ambient
+        # config no longer reaches; without it every source re-probes its
+        # `.aux.xml` / `.prj` siblings on each open — 14 wasted requests for two
+        # sources, measured. The build already runs under the same skip.
+        parts.append("empty_dir=yes")
+        parts.append(f"url={quote(vsi[len(_VSICURL_PREFIX) :], safe='')}")
         source = "/vsicurl?" + "&".join(parts)
     else:
-        source = _to_vsi(href)
+        source = vsi
     return source
 
 
