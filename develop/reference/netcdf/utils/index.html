@@ -6986,15 +6986,15 @@ accepts.</p>
 <a id="__codelineno-0-632" name="__codelineno-0-632"></a><span class="sd">    Returns:</span>
 <a id="__codelineno-0-633" name="__codelineno-0-633"></a><span class="sd">        float: ``value`` expressed in ``unit`` on the given ``calendar``.</span>
 <a id="__codelineno-0-634" name="__codelineno-0-634"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-635" name="__codelineno-0-635"></a>    <span class="n">ts</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-635" name="__codelineno-0-635"></a>    <span class="n">year</span><span class="p">,</span> <span class="n">month</span><span class="p">,</span> <span class="n">day</span><span class="p">,</span> <span class="n">hour</span><span class="p">,</span> <span class="n">minute</span><span class="p">,</span> <span class="n">second</span><span class="p">,</span> <span class="n">microsecond</span> <span class="o">=</span> <span class="n">_datetime_components</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
 <a id="__codelineno-0-636" name="__codelineno-0-636"></a>    <span class="n">dt</span> <span class="o">=</span> <span class="n">cftime</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span>
-<a id="__codelineno-0-637" name="__codelineno-0-637"></a>        <span class="n">ts</span><span class="o">.</span><span class="n">year</span><span class="p">,</span>
-<a id="__codelineno-0-638" name="__codelineno-0-638"></a>        <span class="n">ts</span><span class="o">.</span><span class="n">month</span><span class="p">,</span>
-<a id="__codelineno-0-639" name="__codelineno-0-639"></a>        <span class="n">ts</span><span class="o">.</span><span class="n">day</span><span class="p">,</span>
-<a id="__codelineno-0-640" name="__codelineno-0-640"></a>        <span class="n">ts</span><span class="o">.</span><span class="n">hour</span><span class="p">,</span>
-<a id="__codelineno-0-641" name="__codelineno-0-641"></a>        <span class="n">ts</span><span class="o">.</span><span class="n">minute</span><span class="p">,</span>
-<a id="__codelineno-0-642" name="__codelineno-0-642"></a>        <span class="n">ts</span><span class="o">.</span><span class="n">second</span><span class="p">,</span>
-<a id="__codelineno-0-643" name="__codelineno-0-643"></a>        <span class="n">ts</span><span class="o">.</span><span class="n">microsecond</span><span class="p">,</span>
+<a id="__codelineno-0-637" name="__codelineno-0-637"></a>        <span class="n">year</span><span class="p">,</span>
+<a id="__codelineno-0-638" name="__codelineno-0-638"></a>        <span class="n">month</span><span class="p">,</span>
+<a id="__codelineno-0-639" name="__codelineno-0-639"></a>        <span class="n">day</span><span class="p">,</span>
+<a id="__codelineno-0-640" name="__codelineno-0-640"></a>        <span class="n">hour</span><span class="p">,</span>
+<a id="__codelineno-0-641" name="__codelineno-0-641"></a>        <span class="n">minute</span><span class="p">,</span>
+<a id="__codelineno-0-642" name="__codelineno-0-642"></a>        <span class="n">second</span><span class="p">,</span>
+<a id="__codelineno-0-643" name="__codelineno-0-643"></a>        <span class="n">microsecond</span><span class="p">,</span>
 <a id="__codelineno-0-644" name="__codelineno-0-644"></a>        <span class="n">calendar</span><span class="o">=</span><span class="n">calendar</span><span class="p">,</span>
 <a id="__codelineno-0-645" name="__codelineno-0-645"></a>    <span class="p">)</span>
 <a id="__codelineno-0-646" name="__codelineno-0-646"></a>    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">cftime</span><span class="o">.</span><span class="n">date2num</span><span class="p">(</span><span class="n">dt</span><span class="p">,</span> <span class="n">unit</span><span class="p">,</span> <span class="n">calendar</span><span class="p">))</span>
