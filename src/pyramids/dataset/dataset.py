@@ -1489,6 +1489,10 @@ class Dataset(RasterBase):
             value (str):
                 WellKnownText (WKT) string.
 
+        Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (setting the CRS
+                would otherwise silently spill a PAM sidecar).
+
         See Also:
             - Dataset.set_crs: Set the Coordinate Reference System (CRS).
             - Dataset.to_crs: Reproject the dataset to any projection.
@@ -2327,10 +2331,13 @@ class Dataset(RasterBase):
 
         Raises:
             ValueError: ``bbox`` is malformed, ``coverage`` is not advertised
-                (discovery mode), ``coverage_crs`` cannot be interpreted, or (direct
-                mode) the WCS version is unsupported, ``1.0.0`` lacks a
-                ``resolution``, or an ``extra_params`` key targets a locked protocol
-                parameter.
+                (discovery mode), ``coverage_crs`` cannot be interpreted, the
+                requested window exceeds the pixel ceiling
+                (:data:`~pyramids.base._coverage.MAX_PX`; a native-resolution read
+                over a wide ``bbox`` — pass a coarser ``resolution`` or a smaller
+                ``bbox`` to bound it), or (direct mode) the WCS version is
+                unsupported, ``1.0.0`` lacks a ``resolution``, or an ``extra_params``
+                key targets a locked protocol parameter.
             pyramids.errors.WCSError: The server could not be reached or returned
                 an error / a non-raster (``<ows:ExceptionReport>``) body.
 
@@ -2552,8 +2559,11 @@ class Dataset(RasterBase):
             Dataset: The cropped WMTS window.
 
         Raises:
-            ValueError: ``bbox`` is malformed, ``layer`` is not advertised, or
-                ``layer_crs`` cannot be interpreted.
+            ValueError: ``bbox`` is malformed, ``layer`` is not advertised,
+                ``layer_crs`` cannot be interpreted, or the requested window exceeds
+                the pixel ceiling (:data:`~pyramids.base._coverage.MAX_PX`; a
+                finest-level read over a wide ``bbox`` — pass a coarser ``resolution``
+                or a smaller ``bbox`` to bound it).
             pyramids.errors.WMSError: The server could not be reached or the tile
                 read failed.
 
