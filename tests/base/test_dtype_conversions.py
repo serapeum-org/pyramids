@@ -5,9 +5,13 @@ from osgeo import gdal, gdalconst, ogr
 from pyramids.base._errors import DriverNotExistError, OptionalPackageDoesNotExist
 from pyramids.base._utils import (
     DTYPE_CONVERSION_DF,
+    GDAL_DTYPE,
+    NUMPY_DTYPE,
+    OGR_DTYPE,
     Catalog,
     _GDAL_TO_NUMPY,
     _GDAL_TO_OGR,
+    _NUMPY_TO_GDAL,
     color_name_to_gdal_constant,
     gdal_constant_to_color_name,
     gdal_to_numpy_dtype,
@@ -347,6 +351,9 @@ class TestDtypeLookupTables:
             `DTYPE_CONVERSION_DF`, which is still shipped and still used
             for the error messages. Re-deriving each mapping from the
             DataFrame is the direct check that the two never drift.
+            `_NUMPY_TO_GDAL` is included specifically because it is the
+            one table with duplicate keys, so it is the only one where
+            first-wins is more than a formality.
         """
         for column, table in (("numpy", _GDAL_TO_NUMPY), ("ogr", _GDAL_TO_OGR)):
             for gdal_code, expected in table.items():
@@ -357,6 +364,44 @@ class TestDtypeLookupTables:
                     f"{column} lookup for GDAL code {gdal_code} drifted from the "
                     f"table: dict has {expected}, DataFrame has {matched.values[0]}"
                 )
+        for np_dtype, expected in _NUMPY_TO_GDAL.items():
+            matched = DTYPE_CONVERSION_DF.loc[
+                DTYPE_CONVERSION_DF["numpy"] == np_dtype, "gdal"
+            ]
+            assert matched.values[0] == expected, (
+                f"numpy->gdal lookup for {np_dtype} drifted from the table: dict "
+                f"has {expected}, DataFrame has {matched.values[0]}"
+            )
+
+    def test_only_the_none_bearing_rows_are_dropped(self):
+        """`_first_wins` omits exactly the rows with no counterpart.
+
+        Test scenario:
+            The dicts are built by dropping `None`-bearing pairs, which
+            is what makes the "unsupported dtype" guards fire. Checking
+            only the entries the dicts *contain* would never catch a
+            row being dropped that should have been kept, so assert the
+            key sets against the table directly.
+        """
+        # Compare against the source lists, not the DataFrame: pandas coerces the
+        # mixed int/None `ogr` column to float64, turning every None into NaN, so
+        # an `is not None` test there would be vacuously true.
+        expected_gdal_to_numpy = {
+            gdal_code
+            for gdal_code, np_dtype in zip(GDAL_DTYPE, NUMPY_DTYPE)
+            if np_dtype is not None
+        }
+        assert set(_GDAL_TO_NUMPY) == expected_gdal_to_numpy, (
+            "GDAL->numpy keys must be exactly the rows carrying a numpy dtype"
+        )
+        expected_gdal_to_ogr = {
+            gdal_code
+            for gdal_code, ogr_type in zip(GDAL_DTYPE, OGR_DTYPE)
+            if ogr_type is not None
+        }
+        assert set(_GDAL_TO_OGR) == expected_gdal_to_ogr, (
+            "GDAL->OGR keys must be exactly the rows carrying an OGR type"
+        )
 
     def test_unknown_gdal_type_raises_value_error(self):
         """`GDT_Unknown` has no numpy row, so it is reported as unsupported.

@@ -100,9 +100,7 @@ DTYPE_CONVERSION_DF = DataFrame(
 )
 
 
-def _first_wins(
-    keys: Sequence[Any], values: Sequence[Any]
-) -> dict[Any, Any]:
+def _first_wins(keys: Sequence[Any], values: Sequence[Any]) -> dict[Any, Any]:
     """Zip `keys` onto `values`, keeping the first pair for a duplicated key.
 
     Mirrors the ``.values[0]`` semantics of the DataFrame masks these lookup
@@ -139,7 +137,9 @@ _NUMPY_TO_GDAL: dict[Any, Any] = _first_wins(
 )
 _GDAL_TO_NUMPY: dict[Any, Any] = _first_wins(GDAL_DTYPE, NUMPY_DTYPE)
 _GDAL_TO_OGR: dict[Any, Any] = _first_wins(GDAL_DTYPE, OGR_DTYPE)
-_OGR_TO_NUMPY: dict[Any, Any] = _first_wins(OGR_DTYPE, NUMPY_DTYPE)
+# No OGR->numpy table: `OGR_DTYPE` holds only OFTInteger (0), OFTReal (2) and
+# OFTInteger64 (12), and `ogr_to_numpy_dtype` answers all three directly, so
+# such a dict could never be read.
 
 COLOR_INTERPRETATIONS = [
     gdal.GCI_Undefined,  # 0
@@ -464,6 +464,10 @@ def ogr_to_numpy_dtype(dtype_code: int):
 
     Returns:
         numpy.dtype: Numpy data type corresponding to the OGR code.
+
+    Raises:
+        ValueError: If `dtype_code` is not one of the three OGR types the
+            conversion table covers.
     """
     # since there are more than one numpy dtype for the ogr.OFTInteger (0), and the ogr.OFTInteger64 (12),
     # we will return int32 for 0 and int64 for 12.
@@ -475,15 +479,12 @@ def ogr_to_numpy_dtype(dtype_code: int):
     elif dtype_code == 2:
         result_dtype = np.float64
     else:
-        matched = _OGR_TO_NUMPY.get(dtype_code)
-
-        if matched is None:
-            raise ValueError(
-                f"The given OGR data type is not supported: {dtype_code}, available types are: "
-                f"{DTYPE_CONVERSION_DF['ogr'].unique().tolist()}"
-            )
-        else:
-            result_dtype = matched
+        # `OGR_DTYPE` contains only these three codes, so anything else is
+        # unsupported by definition -- there is no table left to consult.
+        raise ValueError(
+            f"The given OGR data type is not supported: {dtype_code}, available types are: "
+            f"{DTYPE_CONVERSION_DF['ogr'].unique().tolist()}"
+        )
 
     return result_dtype
 
@@ -642,9 +643,17 @@ def require_optional(module_name: str, message: str, *, return_module: bool = Fa
     the tests that monkeypatch them per module) are unaffected.
 
     The import goes through the builtin `__import__` rather than
-    `importlib.import_module` so it is exactly the `import <module_name>`
-    statement each guard used to spell out — same module resolution, and still
-    interceptable by call sites and tests that patch `builtins.__import__`.
+    `importlib.import_module`, so it stays interceptable by call sites and tests
+    that patch `builtins.__import__` — which several guard tests do to simulate
+    a missing package.
+
+    One nuance for dotted names: `import_basemap` previously spelled
+    `from cleopatra import tiles`, which calls
+    `__import__("cleopatra", ..., fromlist=("tiles",))`. Here it becomes
+    `__import__("cleopatra.tiles")`, so the parent package resolves internally
+    rather than through `builtins.__import__`. A patch keyed on
+    `name == "cleopatra"` no longer intercepts it; key on the dotted name
+    instead. No in-tree test depends on this.
 
     Args:
         module_name: Dotted module path to import, e.g. ``"zarr"`` or
@@ -698,9 +707,17 @@ def require_optional(module_name: str, message: str, *, return_module: bool = Fa
         __import__(module_name)
     except ImportError as exc:
         raise OptionalPackageDoesNotExist(message) from exc
-    # `__import__` returns the top-level package for a dotted name, so read the
-    # requested module back out of sys.modules instead of using its return value.
-    return sys.modules[module_name] if return_module else None
+    module = None
+    if return_module:
+        # `__import__` returns the top-level package for a dotted name, so read the
+        # requested module back out of sys.modules instead of using its return value.
+        # A module that removed itself from sys.modules during import would give a
+        # bare KeyError here; surface the branded error instead.
+        try:
+            module = sys.modules[module_name]
+        except KeyError as exc:
+            raise OptionalPackageDoesNotExist(message) from exc
+    return module
 
 
 def import_cleopatra(message: str):
