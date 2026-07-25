@@ -226,17 +226,12 @@ class Cell(_Engine["Dataset"]):
         x[:, 3] = x[:, 0] + row_dx
         y[:, 3] = y[:, 0] + row_dy
 
-        coords_tuples = [list(zip(x[:, i], y[:, i])) for i in range(4)]
-        polys_coords = [
-            [
-                coords_tuples[0][i],
-                coords_tuples[1][i],
-                coords_tuples[2][i],
-                coords_tuples[3][i],
-            ]
-            for i in range(len(x))
-        ]
-        polygons = list(map(create_polygon, polys_coords))
+        # Stack once into (n_cells, 4, 2) and hand each cell's ring straight to
+        # the polygon builder. The previous form transposed the corners through
+        # four intermediate lists of tuples and then re-indexed them per cell,
+        # allocating 4 * n_cells tuples before a single polygon was built.
+        rings = np.stack((x, y), axis=-1)
+        polygons = [create_polygon(ring) for ring in rings.tolist()]
         gdf = gpd.GeoDataFrame(geometry=polygons)
         gdf.set_crs(epsg=epsg, inplace=True)
         gdf["id"] = gdf.index
