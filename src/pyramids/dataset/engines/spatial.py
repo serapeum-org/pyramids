@@ -568,6 +568,11 @@ class Spatial(_Engine["Dataset"]):
                 yRes=y_res,
             )
             dst_obj = self._ds.__class__(dst)
+            # A warped VRT reads through to the source on every access, so the source
+            # must outlive it. Without this pin `ds.to_crs(...)` yields a result that
+            # reads freed memory once `ds` is closed or collected -- the same reason
+            # `warped_view`, `georeference` and `orthorectify` pin theirs.
+            dst_obj._warp_source = self._ds
 
         return dst_obj
 
