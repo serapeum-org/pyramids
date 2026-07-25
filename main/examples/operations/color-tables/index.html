@@ -7085,7 +7085,7 @@ list(ct.columns), len(ct)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fbedb08e3c0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f652b84e3c0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7132,7 +7132,9 @@ its colour.</p>
 
 <span class="n">rgb_path</span> <span class="o">=</span> <span class="n">WORK</span> <span class="o">/</span> <span class="s1">'rgb.tif'</span>
 <span class="n">stack_bands</span><span class="p">([</span><span class="n">DATA</span> <span class="o">/</span> <span class="s1">'acc4000.tif'</span><span class="p">]</span> <span class="o">*</span> <span class="mi">3</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="n">rgb_path</span><span class="p">)</span>
-<span class="n">rgb</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">rgb_path</span><span class="p">)</span>
+<span class="c1"># read_only=False so tagging band colours persists to the raster (the setter</span>
+<span class="c1"># rejects a read-only on-disk handle to avoid a silent PAM sidecar spill).</span>
+<span class="n">rgb</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">rgb_path</span><span class="p">,</span> <span class="n">read_only</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 <span class="n">rgb</span><span class="o">.</span><span class="n">band_color</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="s1">'red'</span><span class="p">,</span> <span class="mi">1</span><span class="p">:</span> <span class="s1">'green'</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="s1">'blue'</span><span class="p">}</span>
 <span class="n">rgb</span><span class="o">.</span><span class="n">band_color</span><span class="p">,</span> <span class="n">rgb</span><span class="o">.</span><span class="n">get_band_by_color</span><span class="p">(</span><span class="s1">'green'</span><span class="p">)</span>
 </pre></div>
@@ -7140,7 +7142,9 @@ its colour.</p>
 
 rgb_path = WORK / 'rgb.tif'
 stack_bands([DATA / 'acc4000.tif'] * 3, path=rgb_path)
-rgb = Dataset.read_file(rgb_path)
+# read_only=False so tagging band colours persists to the raster (the setter
+# rejects a read-only on-disk handle to avoid a silent PAM sidecar spill).
+rgb = Dataset.read_file(rgb_path, read_only=False)
 rgb.band_color = {0: 'red', 1: 'green', 2: 'blue'}
 rgb.band_color, rgb.get_band_by_color('green')</div>
 </div>
@@ -7205,7 +7209,7 @@ colour interpretation labels.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fbedae56490&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f652b5ac690&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
