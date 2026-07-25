@@ -8,6 +8,7 @@ Owns the COG family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 import uuid
 import warnings
 from collections.abc import Mapping
@@ -146,6 +147,27 @@ def _xyz_bounds_3857(z: int, x: int, y: int) -> tuple[float, float, float, float
     north = r - y * span
     south = r - (y + 1) * span
     return west, south, east, north
+
+
+@lru_cache(maxsize=64)
+def _cached_transformer(src_crs: Any, dst_crs: Any) -> Transformer:
+    """Return a cached `pyproj.Transformer` for a CRS pair.
+
+    Building a transformer parses both CRS definitions and resolves a
+    transformation pipeline, which is far more expensive than using it. The COG
+    read paths rebuilt one per tile and per point, so a `read_tile` loop or a
+    batch of `point` lookups paid that cost on every call.
+
+    Args:
+        src_crs: Source CRS -- anything `Transformer.from_crs` accepts, as long
+            as it is hashable (an EPSG int or a WKT string).
+        dst_crs: Destination CRS, same forms.
+
+    Returns:
+        Transformer: A shared, reusable transformer. `pyproj` transformers are
+        safe to reuse; only construction is costly.
+    """
+    return Transformer.from_crs(src_crs, dst_crs, always_xy=True)
 
 
 class COG(_Engine["Dataset"]):
@@ -1214,9 +1236,7 @@ class COG(_Engine["Dataset"]):
         min_x, min_y, max_x, max_y = bbox
         if self._ds.epsg == bbox_crs:
             return min_x, min_y, max_x, max_y
-        transformer = Transformer.from_crs(
-            bbox_crs, self._ds.epsg or self._ds.crs, always_xy=True
-        )
+        transformer = _cached_transformer(bbox_crs, self._ds.epsg or self._ds.crs)
         corners = [
             transformer.transform(min_x, min_y),
             transformer.transform(min_x, max_y),
@@ -1239,8 +1259,8 @@ class COG(_Engine["Dataset"]):
             `(col, row)` integer pixel indices (floored).
         """
         if self._ds.epsg != point_crs:
-            transformer = Transformer.from_crs(
-                point_crs, self._ds.epsg or self._ds.crs, always_xy=True
+            transformer = _cached_transformer(
+                point_crs, self._ds.epsg or self._ds.crs
             )
             x, y = transformer.transform(x, y)
         inv = gdal.InvGeoTransform(self._ds._raster.GetGeoTransform())
