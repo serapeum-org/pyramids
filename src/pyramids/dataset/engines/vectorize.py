@@ -344,8 +344,12 @@ class Vectorize(_Engine["Dataset"]):
         else:
             src_ds = self._ds
 
+        # Both branches must read `src_ds` -- the cropped dataset when a mask was
+        # given. Reading `self` here silently discarded the mask, so a tiled call
+        # returned values for the whole raster while the geometry attached below
+        # came from the cropped extent.
         if tile:
-            df = self._extract_values_tiled(band_names, tile_size)
+            df = src_ds.vectorize._extract_values_tiled(band_names, tile_size)
         else:
             df = src_ds.vectorize._extract_values_full(band_names)
 
