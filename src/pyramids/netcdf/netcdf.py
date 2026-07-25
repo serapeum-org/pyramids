@@ -2379,9 +2379,17 @@ class NetCDF(Dataset):
         path = parent._file_name
         if not path:
             return False
-        if path.startswith("NETCDF"):
-            path = path.split(":")[1][1:-1]
-        return os.path.exists(path) or is_remote(path)
+        if path.startswith("NETCDF:"):
+            rest = path[len("NETCDF:") :]
+            if rest.startswith('"'):
+                # NETCDF:"<path>":<var> -- take the quoted path, which may itself contain a colon
+                # (a Windows drive letter `C:\...`), so a naive split(":") is wrong (review L1).
+                closing = rest.rfind('"')
+                path = rest[1:closing] if closing > 0 else rest
+            else:
+                # NETCDF:<path>:<var> -- drop the trailing :<var> from the right.
+                path = rest.rsplit(":", 1)[0]
+        return os.path.isfile(path) or is_remote(path)
 
     @staticmethod
     def _materialize_variable_array(var: NetCDF, lazy: bool = False) -> Any:

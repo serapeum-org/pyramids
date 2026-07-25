@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -475,3 +477,21 @@ class TestReduceStreamingLazyPath:
             assert np.allclose(out.reshape(expected.shape), expected), "grouped 4-D streaming reduce mismatch"
         finally:
             nc.close()
+
+
+class TestIsFileBacked:
+    """`NetCDF._is_file_backed` gates the reduce streaming path (review L1)."""
+
+    def test_parses_netcdf_subdataset_spec(self, tmp_path):
+        """A `NETCDF:"path":var` spec (path may hold a Windows drive colon) resolves to the real file."""
+
+        real = tmp_path / "f.nc"
+        real.write_bytes(b"x")
+        var = SimpleNamespace(_parent_nc=SimpleNamespace(_file_name=f'NETCDF:"{real}":temperature'))
+        assert NetCDF._is_file_backed(var) is True, "quoted NETCDF: spec should resolve to the file"
+
+    def test_false_for_in_memory_container(self):
+        """An in-memory container's bare `netcdf` description is not file-backed."""
+
+        var = SimpleNamespace(_parent_nc=SimpleNamespace(_file_name="netcdf"))
+        assert NetCDF._is_file_backed(var) is False, "an in-memory container is not file-backed"
