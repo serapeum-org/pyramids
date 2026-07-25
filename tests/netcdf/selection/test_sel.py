@@ -81,6 +81,31 @@ class TestSelSingleValue:
         )
 
 
+class TestSelNoData:
+    """sel() collapses the per-band no-data tuple to a scalar (ARC-29)."""
+
+    def test_no_data_value_is_a_tuple(self):
+        """The multi-band variable's no_data_value is a tuple — the value the buggy list test missed."""
+        var = _make_nc().get_variable("temp")
+        assert isinstance(var.no_data_value, tuple), (
+            f"no_data_value must be a tuple, got {type(var.no_data_value).__name__}"
+        )
+
+    def test_sel_result_stores_scalar_nodata(self):
+        """sel() must funnel the per-band tuple through scalar_no_data, storing the scalar sentinel.
+
+        Test scenario:
+            Before ARC-29 the `isinstance(ndv, list)` test never fired for the tuple, so the whole
+            per-band tuple leaked into create_from_array; the selected 1-band result must carry the
+            scalar -9999.0.
+        """
+        var = _make_nc().get_variable("temp")
+        result = var.sel(time=6)
+        assert result.no_data_value == (-9999.0,), (
+            f"sel must collapse the per-band tuple to the scalar sentinel; got {result.no_data_value}"
+        )
+
+
 class TestSelList:
     """sel(dim=[v1, v2, ...]) selects multiple bands by value."""
 

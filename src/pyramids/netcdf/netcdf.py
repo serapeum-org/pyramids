@@ -2256,9 +2256,9 @@ class NetCDF(Dataset):
                     *var._band_dim_sizes, var_arr.shape[-2], var_arr.shape[-1]
                 )
             var_ndv = var_result.no_data_value
-            var_ndv_scalar = (
-                var_ndv[0] if isinstance(var_ndv, list) and var_ndv else var_ndv
-            )
+            # no_data_value is a TUPLE, so the old `isinstance(..., list)` test never fired and the
+            # full per-band tuple leaked into create_from_array (ARC-29). scalar_no_data handles both.
+            var_ndv_scalar = scalar_no_data(var_ndv)
             extra_dims = (
                 [
                     (name, var._band_dim_values_map.get(name))

@@ -697,7 +697,9 @@ class Selection(_Engine["NetCDF"]):
         selected = _read_selected_bands(nc, band_indices)
 
         ndv = nc.no_data_value
-        ndv_scalar = ndv[0] if isinstance(ndv, list) and ndv else ndv
+        # no_data_value is a TUPLE; the old `isinstance(ndv, list)` test never fired (ARC-29). Route
+        # through the shared helper (handles list AND tuple) like the reduce path below.
+        ndv_scalar = nc._scalar_no_data_value(ndv)
         ds_result = Dataset.create_from_array(
             selected,
             geo=nc.geotransform,
