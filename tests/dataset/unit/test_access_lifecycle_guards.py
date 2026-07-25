@@ -32,7 +32,9 @@ _METADATA_SETTERS = [
     pytest.param(lambda ds: setattr(ds, "offset", [1.0]), id="offset"),
     pytest.param(lambda ds: setattr(ds, "band_units", ["m"]), id="band_units"),
     pytest.param(lambda ds: setattr(ds, "band_names", ["renamed"]), id="band_names"),
-    pytest.param(lambda ds: setattr(ds, "no_data_value", [-9999.0]), id="no_data_value"),
+    pytest.param(
+        lambda ds: setattr(ds, "no_data_value", [-9999.0]), id="no_data_value"
+    ),
 ]
 
 
