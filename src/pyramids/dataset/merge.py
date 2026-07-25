@@ -416,7 +416,9 @@ def _merge_reduce(
         acc = np.full(shape, -np.inf, dtype="float64")
     else:
         acc = np.zeros(shape, dtype="float64")
-    coverage = np.zeros(shape, dtype="int64")
+    # A boolean "has any valid source" mask suffices: min/max/sum never divide by a
+    # count, only test presence below, so a bool cube (1 byte/px) replaces int64.
+    covered = np.zeros(shape, dtype=bool)
 
     for path in src_paths:
         warp_opts = gdal.WarpOptions(
@@ -437,7 +439,7 @@ def _merge_reduce(
         if array.ndim == 2:
             array = array[np.newaxis, ...]
         valid = ~np.isnan(array)
-        coverage += valid
+        covered |= valid
         if method == "min":
             np.fmin(acc, array, out=acc)  # fmin/fmax ignore NaN
         elif method == "max":
@@ -448,7 +450,7 @@ def _merge_reduce(
 
     fill = float(no_data_value)
     # No-coverage cells are still +inf/-inf/0 in acc; replace them with the fill.
-    reduced = np.where(coverage == 0, fill, acc)
+    reduced = np.where(covered, acc, fill)
 
     out_ds = gdal.GetDriverByName("GTiff").Create(
         dst, x_size, y_size, band_count, gdal.GDT_Float64, options=["COMPRESS=LZW"]
