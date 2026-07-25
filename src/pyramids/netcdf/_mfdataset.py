@@ -94,7 +94,9 @@ def open_mfdataset(
             from :func:`dask.array.stack` at graph-construction time.
         chunks: Chunk specification forwarded to
             :meth:`NetCDF.read_array` when reading each file. `None`
-            uses each variable's native on-disk chunking.
+            (the default) reads each file lazily with `"auto"`
+            (native-ish) chunking so the files are not all materialised
+            into RAM before stacking; pass an explicit spec to override.
         parallel: When `True`, wraps the per-file open+extract in
             :func:`dask.delayed` so the reads fan out across a dask
             scheduler. Default `False` reads sequentially.
@@ -131,26 +133,22 @@ def open_mfdataset(
         raise ImportError(_LAZY_IMPORT_ERROR) from exc
 
     resolved = _resolve_paths(paths)
+    # Default to a lazy per-file read (native-ish `"auto"` chunking) so the stack does not
+    # materialise every file into RAM up front -- opening hundreds of files used to load them all
+    # eagerly before stacking (ARC-48). An explicit `chunks` is honoured as given.
+    effective_chunks = "auto" if chunks is None else chunks
 
-    if parallel:
-        # Probe the first file once for the shared shape/dtype and reuse that array as
-        # element 0, instead of also scheduling a delayed open of the same path (which
-        # opened ``resolved[0]`` a second time).
-        first_probe = _open_and_extract(resolved[0], variable, preprocess, chunks)
-        shape = first_probe.shape
-        dtype = first_probe.dtype
-        # Wrap the already-materialised probe as a single-block delayed array (rather than
-        # ``da.from_array(..., chunks="auto")``) so element 0's chunk structure matches the
-        # ``from_delayed`` frames below — one block per file along the stacked axis. Reuses
-        # the probe, so ``resolved[0]`` is still opened only once.
-        first_arr = (
-            first_probe
-            if hasattr(first_probe, "dask")
-            else da.from_delayed(dask.delayed(first_probe), shape=shape, dtype=dtype)
-        )
+    first_probe = _open_and_extract(resolved[0], variable, preprocess, effective_chunks)
+    reads_are_lazy = hasattr(first_probe, "dask")
+
+    if parallel and not reads_are_lazy:
+        # Eager per-file reads: fan the opens out across the dask scheduler via `dask.delayed`,
+        # reusing the probe as element 0 so `resolved[0]` is opened only once.
+        shape, dtype = first_probe.shape, first_probe.dtype
+        first_arr = da.from_delayed(dask.delayed(first_probe), shape=shape, dtype=dtype)
         rest = [
             da.from_delayed(
-                dask.delayed(_open_and_extract)(p, variable, preprocess, chunks),
+                dask.delayed(_open_and_extract)(p, variable, preprocess, effective_chunks),
                 shape=shape,
                 dtype=dtype,
             )
@@ -158,7 +156,13 @@ def open_mfdataset(
         ]
         arrays = [first_arr, *rest]
     else:
-        arrays = [_open_and_extract(p, variable, preprocess, chunks) for p in resolved]
+        # Lazy reads already return dask arrays; wrapping them in `dask.delayed` would nest a dask
+        # collection inside `from_delayed` and force a synchronous inner compute per file (ARC-48).
+        # Read directly and let dask's scheduler parallelise the chunk reads at compute time.
+        rest = [
+            _open_and_extract(p, variable, preprocess, effective_chunks) for p in resolved[1:]
+        ]
+        arrays = [first_probe, *rest]
         arrays = [
             a if hasattr(a, "dask") else da.from_array(np.asarray(a), chunks="auto")
             for a in arrays

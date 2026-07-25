@@ -7,6 +7,7 @@ fans out metadata reads via :func:`dask.delayed`.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from pyramids.netcdf import NetCDF
@@ -68,6 +69,24 @@ class TestParallelMode:
             parallel=True,
         ).compute()
         assert seq.shape == par.shape
+
+    @requires_dask
+    def test_parallel_and_sequential_values_equal(self):
+        """With the default (lazy) per-file read, parallel and sequential stacks are identical (ARC-48).
+
+        Test scenario:
+            The lazy default returns dask arrays per file; the parallel path must read them directly
+            (not nest them in `dask.delayed`), so both modes compute the same values.
+        """
+        seq = NetCDF.open_mfdataset(
+            [FIXTURE, FIXTURE], variable="values", parallel=False
+        ).compute()
+        par = NetCDF.open_mfdataset(
+            [FIXTURE, FIXTURE], variable="values", parallel=True
+        ).compute()
+        np.testing.assert_array_equal(
+            par, seq, err_msg="parallel stack diverged from sequential under the lazy default"
+        )
 
     @requires_dask
     def test_parallel_frames_have_uniform_chunks(self):
