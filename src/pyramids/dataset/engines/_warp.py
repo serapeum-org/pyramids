@@ -13,7 +13,7 @@ and one place that performs a warp and pins its source.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from osgeo import gdal, osr
 

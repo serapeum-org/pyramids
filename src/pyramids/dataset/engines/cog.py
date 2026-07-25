@@ -8,10 +8,10 @@ Owns the COG family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import math
-from functools import lru_cache
 import uuid
 import warnings
 from collections.abc import Mapping
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
