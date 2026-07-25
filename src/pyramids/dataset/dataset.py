@@ -1181,6 +1181,13 @@ class Dataset(RasterBase):
 
     @band_color.setter
     def band_color(self, values):
+        """Facade setter.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (a bare
+                `SetColorInterpretation` would otherwise silently spill a PAM sidecar).
+        """
+        self._require_writable("set band colors")
         self.bands.band_color = values
 
     @property
@@ -1190,6 +1197,13 @@ class Dataset(RasterBase):
 
     @color_table.setter
     def color_table(self, df):
+        """Facade setter.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (a bare
+                `SetColorTable` would otherwise silently spill a PAM sidecar).
+        """
+        self._require_writable("set the color table")
         self.bands.color_table = df
 
     def _check_no_data_value(self, *args, **kwargs):
@@ -1385,8 +1399,16 @@ class Dataset(RasterBase):
         )
 
     def __str__(self) -> str:
-        """__str__."""
-        message = f"""
+        """Human-readable multi-line summary, or a `<Dataset: closed>` sentinel.
+
+        `repr()` / `str()` run in debuggers, logging, and pytest introspection, so a
+        closed dataset returns a sentinel rather than raising (a raising `__repr__`
+        would mask the surrounding error). Reads that must fail loudly use
+        `_require_open` instead.
+        """
+        message = "<Dataset: closed>"
+        if self._raster is not None:
+            message = f"""
             Top Left Corner: {self.top_left_corner}
             Cell size: {self.cell_size}
             Dimension: {self.rows} * {self.columns}
@@ -1404,8 +1426,11 @@ class Dataset(RasterBase):
         return message
 
     def __repr__(self) -> str:
-        """__repr__."""
-        return str(gdal.Info(self.raster))
+        """GDAL info string, or a `<Dataset: closed>` sentinel on a closed dataset."""
+        info = "<Dataset: closed>"
+        if self._raster is not None:
+            info = str(gdal.Info(self.raster))
+        return info
 
     @property
     def access(self) -> str:
@@ -1439,26 +1464,18 @@ class Dataset(RasterBase):
         return self.band_count, self.rows, self.columns
 
     @property
-    def geotransform(self) -> tuple[float, float, float, float, float, float]:
-        """WKT projection.
-
-        (top left corner X/lon coordinate, cell_size, 0, top left corner y/lat coordinate, 0, -cell_size).
-
-        See Also:
-            - Dataset.top_left_corner: Coordinate of the top left corner of the dataset.
-            - Dataset.epsg: EPSG number of the dataset coordinate reference system.
-        """
-        gt: tuple[float, float, float, float, float, float] = self._geotransform
-        return gt
-
-    @property
     def epsg(self) -> int | None:
         """EPSG number, or ``None`` for a CRS with no EPSG code (e.g. geostationary)."""
         return self._epsg
 
     @epsg.setter
     def epsg(self, value: int):
-        """EPSG number."""
+        """EPSG number.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+        """
+        self._require_writable("set the EPSG code")
         sr = sr_from_epsg(value)
         self.raster.SetProjection(sr.ExportToWkt())
         self._update_inplace(self._raster)
@@ -1486,6 +1503,10 @@ class Dataset(RasterBase):
             value (str):
                 WellKnownText (WKT) string.
 
+        Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (setting the CRS
+                would otherwise silently spill a PAM sidecar).
+
         See Also:
             - Dataset.set_crs: Set the Coordinate Reference System (CRS).
             - Dataset.to_crs: Reproject the dataset to any projection.
@@ -1510,7 +1531,13 @@ class Dataset(RasterBase):
 
     @band_names.setter
     def band_names(self, name_list: list):
-        """Band names."""
+        """Band names setter.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (a bare
+                `SetDescription` would otherwise silently spill a PAM sidecar).
+        """
+        self._require_writable("set band names")
         self.bands._set_band_names(name_list)
 
     @property
@@ -1520,7 +1547,12 @@ class Dataset(RasterBase):
 
     @band_units.setter
     def band_units(self, value: list[str]):
-        """Band units setter."""
+        """Band units setter.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+        """
+        self._require_writable("set band units")
         self._band_units = value
         for i, val in enumerate(value):
             self._iloc(i).SetUnitType(val)
@@ -1608,7 +1640,9 @@ class Dataset(RasterBase):
         full = self.read_array()
         single_band = self.band_count == 1
         stack = full[np.newaxis, ...] if single_band else full
-        out = stack.astype("float64").copy()
+        # astype(copy=True by default) already returns a fresh writable array;
+        # the trailing .copy() was a redundant second full-cube copy.
+        out = stack.astype("float64")
         no_data = self.no_data_value
 
         for index in band_indices:
@@ -1653,6 +1687,9 @@ class Dataset(RasterBase):
                 A 0-D ndarray is treated as a scalar.
 
         Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (a bare
+                `SetNoDataValue` would otherwise silently mutate only the
+                in-memory attribute, persisting nothing).
             ValueError: When `value` is a sequence whose length
                 differs from `band_count`, or a multi-dimensional
                 ndarray (only 0-D scalars and 1-D sequences are
@@ -1667,6 +1704,7 @@ class Dataset(RasterBase):
         See Also:
             - Dataset.change_no_data_value: Change the No Data Value.
         """
+        self._require_writable("set the no-data value")
         if isinstance(value, np.ndarray):
             if value.ndim == 0:
                 value = value.item()
@@ -1696,36 +1734,14 @@ class Dataset(RasterBase):
 
     @meta_data.setter
     def meta_data(self, value: dict[str, str]):
-        """Meta-data."""
+        """Meta-data.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+        """
+        self._require_writable("set metadata")
         for key, val in value.items():
             self._raster.SetMetadataItem(key, val)
-
-    @property
-    def block_size(self) -> list[tuple[int, int]]:
-        """Block Size.
-
-        The block size is the size of the block that the raster is divided into, the block size is used to
-        read and write the raster data in blocks.
-
-        See Also:
-            - Dataset.get_block_arrangement: Get block arrangement to read the dataset in chunks.
-            - Dataset.get_tile: Get tiles.
-            - Dataset.read_array: Read the data stored in the dataset bands.
-        """
-        return self._block_size
-
-    @block_size.setter
-    def block_size(self, value: list[tuple[int, int]]):
-        """Block Size.
-
-        Args:
-            value (List[Tuple[int, int]]):
-                block size for each band in the raster(512, 512).
-        """
-        if len(value[0]) != 2:
-            raise ValueError("block size should be a tuple of 2 integers")
-
-        self._block_size = value
 
     @property
     def file_name(self) -> str:
@@ -1751,7 +1767,12 @@ class Dataset(RasterBase):
 
     @scale.setter
     def scale(self, value: list[float]):
-        """Scale."""
+        """Scale.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+        """
+        self._require_writable("set the band scale")
         for i, val in enumerate(value):
             self._iloc(i).SetScale(val)
 
@@ -1769,7 +1790,12 @@ class Dataset(RasterBase):
 
     @offset.setter
     def offset(self, value: list[float]):
-        """Offset."""
+        """Offset.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+        """
+        self._require_writable("set the band offset")
         for i, val in enumerate(value):
             self._iloc(i).SetOffset(val)
 
@@ -2319,10 +2345,13 @@ class Dataset(RasterBase):
 
         Raises:
             ValueError: ``bbox`` is malformed, ``coverage`` is not advertised
-                (discovery mode), ``coverage_crs`` cannot be interpreted, or (direct
-                mode) the WCS version is unsupported, ``1.0.0`` lacks a
-                ``resolution``, or an ``extra_params`` key targets a locked protocol
-                parameter.
+                (discovery mode), ``coverage_crs`` cannot be interpreted, the
+                requested window exceeds the pixel ceiling
+                (:data:`~pyramids.base._coverage.MAX_PX`; a native-resolution read
+                over a wide ``bbox`` — pass a coarser ``resolution`` or a smaller
+                ``bbox`` to bound it), or (direct mode) the WCS version is
+                unsupported, ``1.0.0`` lacks a ``resolution``, or an ``extra_params``
+                key targets a locked protocol parameter.
             pyramids.errors.WCSError: The server could not be reached or returned
                 an error / a non-raster (``<ows:ExceptionReport>``) body.
 
@@ -2544,8 +2573,11 @@ class Dataset(RasterBase):
             Dataset: The cropped WMTS window.
 
         Raises:
-            ValueError: ``bbox`` is malformed, ``layer`` is not advertised, or
-                ``layer_crs`` cannot be interpreted.
+            ValueError: ``bbox`` is malformed, ``layer`` is not advertised,
+                ``layer_crs`` cannot be interpreted, or the requested window exceeds
+                the pixel ceiling (:data:`~pyramids.base._coverage.MAX_PX`; a
+                finest-level read over a wide ``bbox`` — pass a coarser ``resolution``
+                or a smaller ``bbox`` to bound it).
             pyramids.errors.WMSError: The server could not be reached or the tile
                 read failed.
 
@@ -3734,58 +3766,53 @@ class Dataset(RasterBase):
         uniform_dtype = len({ds.gdal_dtype[0] for ds in datasets}) == 1
 
         if align or not uniform_dtype:
+            # Resolve the common output dtype up front so the output can be
+            # allocated once and written band-by-band, instead of reading every
+            # band, np.stacking them into a second full-cube copy, and writing the
+            # lot — peak drops from ~O(N·grid) to one band + the output (ARC-50).
+            target_np_dtype = np.result_type(*(ds.numpy_dtype[0] for ds in datasets))
+            grid_template = None
             if align:
-                # Resample every input onto the first file's grid in the
-                # promoted dtype. Dataset.align adopts the alignment source's
-                # dtype, so cast the template first to avoid truncating wider
-                # inputs (e.g. a float band onto an int template).
-                target_np_dtype = np.result_type(
-                    *(ds.numpy_dtype[0] for ds in datasets)
-                )
+                # Resample every input onto the first file's grid in the promoted
+                # dtype. Dataset.align adopts the alignment source's dtype, so cast
+                # the template first to avoid truncating wider inputs (e.g. a float
+                # band onto an int template).
                 grid_template = cls.create_from_array(
                     template.read_array(band=0).astype(target_np_dtype, copy=False),
                     geo=template.geotransform,
-                    # epsg is None only for a no-EPSG CRS reported as such (a
-                    # NetCDF geostationary grid); create_from_array raises
-                    # CRSError on None, so fall back to the WKT. No-op for a
-                    # plain Dataset (reports 4326) (#706).
+                    # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
+                    # geostationary grid); create_from_array raises CRSError on None,
+                    # so fall back to the WKT. No-op for a plain Dataset (#706).
                     epsg=template.epsg or template.crs,
                     no_data_value=resolved_nd,
                 )
-                # Dataset.align uses the source's no_data_value to fill the warp
-                # destination, so the aligned fringe carries the SOURCE's sentinel.
-                # When sources disagree on nodata (resolved_nd is the first one
-                # by "first-wins" policy + a UserWarning), bands whose source's
-                # sentinel != resolved_nd would still have that sentinel in the
-                # fringe, which would no longer match the output band's declared
-                # nodata. Remap so what's in the array matches what's declared.
-                # Sources that already match the template grid skip the full
-                # gdal.Warp round-trip and just astype, which is lossless.
-                band_arrays = []
-                for ds_i in datasets:
-                    if _same_grid(template, ds_i):
-                        arr = ds_i.read_array(band=0).astype(
-                            target_np_dtype, copy=False
-                        )
-                    else:
-                        arr = ds_i.align(grid_template).read_array(band=0)
-                    band_arrays.append(
-                        _remap_nodata_to(arr, ds_i.no_data_value[0], resolved_nd)
-                    )
-            else:
-                band_arrays = [ds.read_array(band=0) for ds in datasets]
-            stacked = np.stack(band_arrays, axis=0)
             obj = cls._build_dataset(
                 template.columns,
                 template.rows,
                 len(resolved_paths),
-                numpy_to_gdal_dtype(stacked),
+                numpy_to_gdal_dtype(target_np_dtype),
                 template.geotransform,
                 template.crs,
                 resolved_nd,
                 path=path,
-                array=stacked,
+                array=None,
             )
+            for band_i, ds_i in enumerate(datasets):
+                if align and not _same_grid(template, ds_i):
+                    arr = ds_i.align(grid_template).read_array(band=0)
+                else:
+                    # Same grid (or the non-align mixed-dtype path): just cast to
+                    # the promoted dtype, which is lossless.
+                    arr = ds_i.read_array(band=0).astype(target_np_dtype, copy=False)
+                if align:
+                    # Dataset.align fills the warp fringe with the SOURCE's sentinel;
+                    # when sources disagree on nodata (first-wins resolved_nd + a
+                    # UserWarning) remap so the array matches the band's declared
+                    # nodata. A same-grid source skips the warp and is lossless.
+                    arr = _remap_nodata_to(arr, ds_i.no_data_value[0], resolved_nd)
+                obj.raster.GetRasterBand(band_i + 1).WriteArray(arr)
+                del arr
+            obj._raster.FlushCache()
         else:
             vrt = gdal.BuildVRT("", resolved_paths, separate=True)
             if (

@@ -372,7 +372,9 @@ class TestProperties:
 
     def test_band_names(self, src: gdal.Dataset):
         name_list = ["new_name"]
-        src = Dataset(src)
+        # copy() yields a writable in-memory dataset; the band_names setter is guarded
+        # against a read-only on-disk handle (the src fixture opens read-only).
+        src = Dataset(src).copy()
         assert src.band_names == ["Band_1"]
         src.band_names = name_list
         assert src.band_names == name_list

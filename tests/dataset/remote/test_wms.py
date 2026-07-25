@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.dataset import Dataset, _wms
 from pyramids.errors import WMSError
@@ -215,6 +216,17 @@ class TestRenderWmsErrorWrapping:
         monkeypatch.setattr(_wms.gdal, "Translate", lambda *_a, **_k: None)
         with pytest.raises(WMSError, match="no raster"):
             _wms._render_wms(object(), "OSM-WMS")
+
+
+class TestWmtsPixelCeiling:
+    """The WMTS windowed read is bounded by the shared pixel ceiling (ARC-74)."""
+
+    def test_finest_level_over_wide_bbox_raises(self):
+        """A finest-level (resolution=None) read over a wide bbox is rejected."""
+        src = gdal.GetDriverByName("MEM").Create("", 4, 4, 1)
+        src.SetGeoTransform((0.0, 0.001, 0.0, 100.0, 0.0, -0.001))
+        with pytest.raises(ValueError, match="limit"):
+            _wms._translate_window(src, [0.0, 100.0, 100.0, 0.0], "layer", None, "near")
 
 
 class TestReprojectTail:

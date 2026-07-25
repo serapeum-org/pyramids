@@ -378,18 +378,35 @@ class TestFromWcsValidation:
                 "http://127.0.0.1:1/wcs", coverage="cov", bbox=(6.0, 51.0, 5.0, 52.0)
             )
 
+    @staticmethod
+    def _src():
+        """A tiny MEM source with a geotransform for the pixel-ceiling guard."""
+        src = gdal.GetDriverByName("MEM").Create("", 4, 4, 1)
+        src.SetGeoTransform((0.0, 1.0, 0.0, 4.0, 0.0, -1.0))
+        return src
+
     def test_translate_window_none_raises(self, monkeypatch):
         monkeypatch.setattr(_wcs.gdal, "Translate", lambda *a, **k: None)
+        src = self._src()
         with pytest.raises(WCSError, match="no raster"):
-            _wcs._translate_window(object(), [0, 1, 1, 0], "cov")
+            _wcs._translate_window(src, [0, 1, 1, 0], "cov")
 
     def test_translate_window_runtimeerror_raises(self, monkeypatch):
         def boom(*a, **k):
             raise RuntimeError("server said no")
 
         monkeypatch.setattr(_wcs.gdal, "Translate", boom)
+        src = self._src()
         with pytest.raises(WCSError, match="GetCoverage failed"):
-            _wcs._translate_window(object(), [0, 1, 1, 0], "cov")
+            _wcs._translate_window(src, [0, 1, 1, 0], "cov")
+
+    def test_translate_window_over_pixel_ceiling_raises(self):
+        # A fine native resolution over a wide bbox would materialise a huge MEM
+        # raster; the pixel ceiling rejects it before allocation (ARC-74).
+        src = gdal.GetDriverByName("MEM").Create("", 4, 4, 1)
+        src.SetGeoTransform((0.0, 0.001, 0.0, 100.0, 0.0, -0.001))
+        with pytest.raises(ValueError, match="limit"):
+            _wcs._translate_window(src, [0.0, 100.0, 100.0, 0.0], "cov")
 
 
 class TestDriverFullCycle:

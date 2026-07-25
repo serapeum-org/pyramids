@@ -141,6 +141,17 @@ class TestReconstructDataset:
         assert isinstance(ds, Dataset)
         assert ds.rows == 4
 
-    def test_access_write_mode(self, tiny_tif):
-        ds = _reconstruct_dataset(Dataset, tiny_tif, "write")
+    @pytest.mark.parametrize("pickled_access", ["read_only", "write"])
+    def test_reconstruct_is_always_read_only(self, tiny_tif, pickled_access):
+        # ARC-5: reconstruct forces read-only regardless of the pickled access
+        # mode, so a distributed fan-out never opens N update-mode handles.
+        ds = _reconstruct_dataset(Dataset, tiny_tif, pickled_access)
         assert isinstance(ds, Dataset)
+        assert ds.access == "read_only"
+
+    def test_write_mode_dataset_unpickles_read_only(self, tiny_tif):
+        # A write-mode dataset round-trips to a read-only handle on unpickle.
+        ds = Dataset.read_file(tiny_tif, read_only=False)
+        assert ds.access == "write"
+        ds2 = pickle.loads(pickle.dumps(ds))
+        assert ds2.access == "read_only"

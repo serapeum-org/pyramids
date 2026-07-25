@@ -12,7 +12,6 @@ import math
 import threading
 import warnings
 import weakref
-from numbers import Number
 from pathlib import Path
 from typing import Any, cast
 
@@ -175,10 +174,12 @@ def _reconstruct_netcdf(
     Returns:
         NetCDF: Container, group view, or variable-subset instance.
     """
-    read_only = access == "read_only"
+    # Always reopen read-only, regardless of the pickled access mode (ARC-5):
+    # distributed consumers read the reconstructed handle, and N update-mode
+    # handles on one file across workers risk lock contention / a corrupt write.
     container = NetCDF.read_file(
         path,
-        read_only=read_only,
+        read_only=True,
         open_as_multi_dimensional=is_md_array,
     )
     if group_path:
@@ -718,8 +719,15 @@ class NetCDF(Dataset):
                 collab._ds = self_proxy
 
     def __str__(self):
-        """Return a human-readable summary of the NetCDF dataset."""
-        message = f"""
+        """Return a human-readable summary, or a `<Dataset: closed>` sentinel when closed.
+
+        Mirrors `Dataset.__str__`: a closed handle returns the sentinel rather than
+        raising, so the repr/str stays total for debuggers and logging (`__repr__`
+        already inherits this via `super()`).
+        """
+        message = "<Dataset: closed>"
+        if self._raster is not None:
+            message = f"""
             Cell size: {self.cell_size}
             Dimension: {self.rows} * {self.columns}
             EPSG: {self.epsg}
@@ -1026,58 +1034,6 @@ class NetCDF(Dataset):
         if self._cached_variables is None:
             self._cached_variables = _LazyVariableDict(self)
         return self._cached_variables
-
-    @property
-    def no_data_value(self) -> tuple:
-        """Per-band nodata markers as an immutable tuple.
-
-        Returns a `tuple` so the read-only contract is explicit —
-        assign through the setter to change values.
-        """
-        return tuple(self._no_data_value)
-
-    @no_data_value.setter
-    def no_data_value(self, value: list | tuple | np.ndarray | Number):
-        """Set the no-data value that marks cells outside the domain.
-
-        The setter only changes the `no_data_value` attribute; it does
-        **not** modify the underlying cell values. Use this to align the
-        attribute with whatever sentinel is already stored in the cells.
-        To actually rewrite cell values, use `change_no_data_value`.
-
-        Args:
-            value: New no-data value. A scalar is broadcast to every
-                band; a `list`, `tuple`, or 1-D :class:`numpy.ndarray`
-                with `len == band_count` provides one value per band.
-                A 0-D ndarray is treated as a scalar.
-
-        Raises:
-            ValueError: When `value` is a sequence whose length does
-                not equal `band_count`, or a multi-dimensional
-                ndarray (only 0-D scalars and 1-D sequences are
-                accepted).
-        """
-        if isinstance(value, np.ndarray):
-            if value.ndim == 0:
-                value = value.item()
-            elif value.ndim == 1:
-                value = value.tolist()
-            else:
-                raise ValueError(
-                    f"no_data_value ndarray must be 0-D (scalar) or 1-D "
-                    f"(per-band sequence); got ndim={value.ndim}"
-                )
-        if isinstance(value, (list, tuple)):
-            if len(value) != self.band_count:
-                raise ValueError(
-                    f"no_data_value sequence length {len(value)} does "
-                    f"not match band_count {self.band_count}"
-                )
-            for i, val in enumerate(value):
-                self.bands._change_no_data_value_attr(i, val)
-        else:
-            for i in range(self.band_count):
-                self.bands._change_no_data_value_attr(i, value)
 
     @property
     def file_name(self):
@@ -3126,7 +3082,11 @@ class NetCDF(Dataset):
 
         Returns:
             NetCDFMetadata
+
+        Raises:
+            RuntimeError: The dataset has been closed (matching the base getter).
         """
+        self._require_open()
         if self._cached_meta_data is None:
             open_options = {
                 "Open Mode": "SHARED" if self.is_subset else "MULTIDIM_RASTER"
@@ -3141,8 +3101,15 @@ class NetCDF(Dataset):
 
     @meta_data.setter
     def meta_data(self, value: dict[str, str] | NetCDFMetadata) -> None:
-        """Set metadata on this NetCDF dataset."""
+        """Set metadata on this NetCDF dataset.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (a bare
+                `SetMetadataItem` would otherwise silently spill a PAM sidecar),
+                matching `Dataset.meta_data`.
+        """
         if isinstance(value, dict):
+            self._require_writable("set metadata")
             for key, val in value.items():
                 self._raster.SetMetadataItem(key, val)
         else:

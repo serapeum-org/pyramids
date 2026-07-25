@@ -551,6 +551,34 @@ class TestWriteCog:
         _, report = write_cog(str(src_path), out, options={"STATISTICS": False})
         assert report.is_valid, f"Expected valid COG, errors: {report.errors}"
 
+    def test_nodata_on_read_only_path_input(self, float_array, tmp_path):
+        """write_cog applies nodata for a path input (opened read-only) without raising (H1)."""
+        src = Dataset.create_from_array(float_array, geo=COG_GEOTRANSFORM, epsg=4326)
+        src_path = tmp_path / "plain.tif"
+        src.to_file(str(src_path))
+        out = tmp_path / "ro_path_cog.tif"
+        path, _ = write_cog(str(src_path), out, nodata=-9999.0, validate=False)
+        result = Dataset.read_file(str(path))
+        assert result.no_data_value[0] == pytest.approx(-9999.0), (
+            f"nodata not applied for a read-only path input: {result.no_data_value}"
+        )
+
+    def test_nodata_on_read_only_dataset_input(self, float_array, tmp_path):
+        """write_cog applies nodata for a read-only on-disk Dataset input without raising (H1)."""
+        src = Dataset.create_from_array(float_array, geo=COG_GEOTRANSFORM, epsg=4326)
+        src_path = tmp_path / "plain.tif"
+        src.to_file(str(src_path))
+        ro = Dataset.read_file(str(src_path), read_only=True)
+        assert ro.access == "read_only", (
+            "input must be read-only for this regression test"
+        )
+        out = tmp_path / "ro_ds_cog.tif"
+        path, _ = write_cog(ro, out, nodata=-9999.0, validate=False)
+        result = Dataset.read_file(str(path))
+        assert result.no_data_value[0] == pytest.approx(-9999.0), (
+            f"nodata not applied for a read-only Dataset input: {result.no_data_value}"
+        )
+
     def test_missing_crs_for_array_raises(self, float_array, tmp_path):
         """A NumPy array without `crs` raises ValueError.
 

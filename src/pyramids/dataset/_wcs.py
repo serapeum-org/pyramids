@@ -50,6 +50,8 @@ from pyproj import CRS as _PyprojCRS
 from pyproj.exceptions import CRSError as _PyprojCRSError
 
 from pyramids.base._coverage import native_projwin as _native_projwin
+from pyramids.base._coverage import native_resolution as _native_resolution
+from pyramids.base._coverage import read_size as _read_size
 from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
 from pyramids.base._coverage import validate_bbox as _validate_bbox
@@ -693,10 +695,15 @@ def from_wcs(
         config = _gdal_http_config(auth, timeout)
         with gdal.config_options(config):
             src = _open_service(descriptor, coverage)
-            native_srs = _resolve_native_srs(src, coverage_crs)
-            projwin = _native_projwin(window, crs, native_srs)
-            mem = _translate_window(src, projwin, coverage)
-            src = None
+            try:
+                native_srs = _resolve_native_srs(src, coverage_crs)
+                projwin = _native_projwin(window, crs, native_srs)
+                mem = _translate_window(src, projwin, coverage)
+            finally:
+                # Release the opened coverage handle on every path, error or not
+                # (mirrors from_wmts / from_ogc_coverages); a raise from resolve /
+                # projwin / translate must not leak the live network handle.
+                src = None
         mem.SetSpatialRef(native_srs)
         ds = dataset_cls(mem, access="write")
         # WKT round-trips more faithfully than proj4 for exotic / compound CRS.
@@ -714,11 +721,20 @@ def _translate_window(
     Translating into an in-memory dataset (never directly to the user's output
     path) guarantees an ``<ows:ExceptionReport>`` body can never be written to a
     ``.tif``: a non-raster response makes ``gdal.Translate`` fail and we raise
-    :class:`WCSError` here, before any file is produced.
+    :class:`WCSError` here, before any file is produced. The native-resolution read
+    is bounded by the shared pixel ceiling
+    (:data:`~pyramids.base._coverage.MAX_PX`) so a wide bbox over a fine coverage
+    cannot materialise an unbounded MEM raster.
 
     Raises:
+        ValueError: the requested window exceeds the pixel ceiling.
         WCSError: GDAL could not produce a raster for the requested window.
     """
+    # Bound the allocation from the coverage's own native resolution: read_size is
+    # called purely for its ceiling check (it raises ValueError past MAX_PX); the
+    # returned (width, height) is intentionally discarded because Translate derives
+    # the size from projWin at native resolution.
+    _read_size(projwin, _native_resolution(src))
     options = gdal.TranslateOptions(format="MEM", projWin=projwin)
     try:
         mem = gdal.Translate("", src, options=options)

@@ -175,21 +175,29 @@ class Window:
     ) -> tuple[float, float, float, float]:
         """Return the map-space ``(min_x, min_y, max_x, max_y)`` of this window.
 
+        Projects all four pixel corners (mirroring :meth:`from_bounds`): under a
+        rotated or skewed geotransform the extent is not spanned by the
+        top-left / bottom-right diagonal alone, so using only those two corners
+        under-reports the bbox. For a north-up or south-up (axis-aligned)
+        geotransform this reduces to the same two-corner result.
+
         Args:
             geotransform: The GDAL 6-tuple of the raster.
 
         Returns:
             tuple[float, float, float, float]: The window's bounding box.
         """
-        left, top = gdal.ApplyGeoTransform(
-            list(geotransform), float(self.col_off), float(self.row_off)
-        )
-        right, bottom = gdal.ApplyGeoTransform(
-            list(geotransform),
-            float(self.col_off + self.cols),
-            float(self.row_off + self.rows),
-        )
-        return (min(left, right), min(top, bottom), max(left, right), max(top, bottom))
+        gt = list(geotransform)
+        corners = [
+            gdal.ApplyGeoTransform(
+                gt, float(self.col_off + dc), float(self.row_off + dr)
+            )
+            for dc in (0, self.cols)
+            for dr in (0, self.rows)
+        ]
+        xs = [corner[0] for corner in corners]
+        ys = [corner[1] for corner in corners]
+        return (min(xs), min(ys), max(xs), max(ys))
 
     def intersection(self, other: Window) -> Window | None:
         """Return the overlapping window, or ``None`` when disjoint.

@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -226,6 +225,10 @@ def merge_rasters(
             noData=str(no_data_value),
         )
         out_ds = gdal.Translate(str(dst), vrt_ds, options=translate_opts)
+        if out_ds is None:
+            raise RuntimeError(
+                f"gdal.Translate returned None writing the mosaic to {str(dst)!r}."
+            )
         out_ds.FlushCache()
         out_ds = None
         vrt_ds = None
@@ -368,8 +371,10 @@ def _merge_reduce(
     """Merge sources by reducing overlapping pixels with min/max/sum.
 
     Each source is warped onto the union grid (from a scratch
-    :func:`gdal.BuildVRT`), stacked, and reduced with a NaN-aware numpy reducer.
-    Pixels with no source coverage are written as ``no_data_value``.
+    :func:`gdal.BuildVRT`) and folded into a running accumulator with a NaN-aware
+    reduction, so only one warped source is held in memory at a time (peak
+    ``O(grid)`` rather than ``O(N·grid)`` for stacking all sources). Pixels with no
+    source coverage are written as ``no_data_value``.
 
     Args:
         src_paths: Source rasters as path strings or already-open
@@ -381,7 +386,7 @@ def _merge_reduce(
         n: Source pixel value to treat as no-data (``"nan"`` means none).
 
     Raises:
-        RuntimeError: GDAL failed to build the union mosaic for the sources.
+        RuntimeError: GDAL failed to build the union mosaic or to warp a source.
     """
     template = gdal.BuildVRT("", src_paths)
     if template is None:
@@ -404,7 +409,17 @@ def _merge_reduce(
     ]
     src_nodata = None if str(n).lower() == "nan" else float(n)
 
-    layers = []
+    shape = (band_count, y_size, x_size)
+    if method == "min":
+        acc = np.full(shape, np.inf, dtype="float64")
+    elif method == "max":
+        acc = np.full(shape, -np.inf, dtype="float64")
+    else:
+        acc = np.zeros(shape, dtype="float64")
+    # A boolean "has any valid source" mask suffices: min/max/sum never divide by a
+    # count, only test presence below, so a bool cube (1 byte/px) replaces int64.
+    covered = np.zeros(shape, dtype=bool)
+
     for path in src_paths:
         warp_opts = gdal.WarpOptions(
             format="MEM",
@@ -415,25 +430,27 @@ def _merge_reduce(
             dstNodata=float("nan"),
         )
         warped = gdal.Warp("", path, options=warp_opts)
+        if warped is None:
+            raise RuntimeError(
+                f"gdal.Warp returned None warping source {path!r} onto the union grid."
+            )
         array = warped.ReadAsArray().astype("float64")
+        warped = None
         if array.ndim == 2:
             array = array[np.newaxis, ...]
-        layers.append(array)
-        warped = None
-
-    cube = np.stack(layers)
-    coverage = np.count_nonzero(~np.isnan(cube), axis=0)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
+        valid = ~np.isnan(array)
+        covered |= valid
         if method == "min":
-            reduced = np.nanmin(cube, axis=0)
+            np.fmin(acc, array, out=acc)  # fmin/fmax ignore NaN
         elif method == "max":
-            reduced = np.nanmax(cube, axis=0)
+            np.fmax(acc, array, out=acc)
         else:
-            reduced = np.nansum(cube, axis=0)
+            np.add(acc, array, out=acc, where=valid)
+        del array, valid
 
     fill = float(no_data_value)
-    reduced = np.where(coverage == 0, fill, reduced)
+    # No-coverage cells are still +inf/-inf/0 in acc; replace them with the fill.
+    reduced = np.where(covered, acc, fill)
 
     out_ds = gdal.GetDriverByName("GTiff").Create(
         dst, x_size, y_size, band_count, gdal.GDT_Float64, options=["COMPRESS=LZW"]
