@@ -27,6 +27,7 @@ import numpy as np
 from osgeo import gdal
 
 from pyramids.base._utils import numpy_to_gdal_dtype
+from pyramids.netcdf._mdim import scalar_no_data, unflatten_band_axes
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
@@ -348,7 +349,7 @@ def _build_variable_mdarray(
     """
     names, sizes, values_map = band["names"], band["sizes"], band["values_map"]
     if len(names) > 1 and arr.ndim == 3 and sizes:
-        arr = arr.reshape(*sizes, arr.shape[-2], arr.shape[-1])
+        arr = unflatten_band_axes(arr, names, sizes)
         band_dims = _create_multi_band_dims(
             nc, rg, names, sizes, values_map, coord_dtype
         )
@@ -927,11 +928,7 @@ def _create_netcdf_from_array(
     # Tolerate both scalar and per-band sequence inputs since
     # callers often pass `Dataset.no_data_value` (now a tuple)
     # straight through.
-    ndv_scalar = (
-        no_data_value[0]
-        if isinstance(no_data_value, (list, tuple)) and no_data_value
-        else no_data_value
-    )
+    ndv_scalar = scalar_no_data(no_data_value)
     if ndv_scalar is not None:
         md_arr.SetNoDataValueDouble(float(ndv_scalar))
     md_arr.SetSpatialRef(srse)

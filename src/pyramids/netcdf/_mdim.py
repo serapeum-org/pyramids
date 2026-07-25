@@ -144,6 +144,30 @@ def scalar_no_data(no_data_value: Any) -> Any:
     return no_data_value
 
 
+def unflatten_band_axes(arr: Any, band_dim_names: Any, band_dim_sizes: Any) -> Any:
+    """Undo GDAL's row-major flatten of a multi-band-dim read: ``(bands, rows, cols)`` back to
+    ``(*band_dim_sizes, rows, cols)``.
+
+    GDAL's classic raster view flattens every non-spatial dimension into one bands axis. When a
+    variable has more than one band dimension, callers rebuild the separate axes with this reshape.
+    It is a no-op for a 2-D array, a single band dimension, or missing sizes. One source for the
+    reshape that the container fan-out, the reduce materialize path, and the variable writer each did
+    inline (ARC-69).
+
+    Args:
+        arr: The read array, `(bands, rows, cols)` when flattened.
+        band_dim_names: The variable's non-spatial dimension names.
+        band_dim_sizes: The non-spatial dimension sizes in storage order.
+
+    Returns:
+        `arr` reshaped to `(*band_dim_sizes, rows, cols)` when it has more than one band dimension and
+        is 3-D; otherwise `arr` unchanged.
+    """
+    if len(band_dim_names) > 1 and getattr(arr, "ndim", 0) == 3 and band_dim_sizes:
+        arr = arr.reshape(*band_dim_sizes, arr.shape[-2], arr.shape[-1])
+    return arr
+
+
 def dataset_is_geostationary(dataset: gdal.Dataset) -> bool:
     """Report whether ``dataset``'s CRS is the CF geostationary projection.
 

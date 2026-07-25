@@ -37,6 +37,7 @@ from pyramids.netcdf._mdim import (
     open_mdarray,
     scalar_no_data,
     scaled_axis_ascends,
+    unflatten_band_axes,
     x_axis_is_right_to_left,
     y_axis_is_bottom_up,
 )
@@ -2254,14 +2255,9 @@ class NetCDF(Dataset):
             # (last non-spatial dim varies fastest, matching GDAL's
             # row-major flatten), so the reshape is the literal
             # inverse of that flatten.
-            if (
-                len(var._band_dim_names) > 1
-                and var_arr.ndim == 3
-                and var._band_dim_sizes
-            ):
-                var_arr = var_arr.reshape(
-                    *var._band_dim_sizes, var_arr.shape[-2], var_arr.shape[-1]
-                )
+            var_arr = unflatten_band_axes(
+                var_arr, var._band_dim_names, var._band_dim_sizes
+            )
             var_ndv = var_result.no_data_value
             # no_data_value is a TUPLE, so the old `isinstance(..., list)` test never fired and the
             # full per-band tuple leaked into create_from_array (ARC-29). scalar_no_data handles both.
@@ -2340,8 +2336,7 @@ class NetCDF(Dataset):
         if var._band_dim_names:
             if arr.ndim == 2:
                 arr = np.expand_dims(arr, axis=0)
-            if len(var._band_dim_names) > 1 and arr.ndim == 3 and var._band_dim_sizes:
-                arr = arr.reshape(*var._band_dim_sizes, arr.shape[-2], arr.shape[-1])
+            arr = unflatten_band_axes(arr, var._band_dim_names, var._band_dim_sizes)
         return cast("np.typing.NDArray", arr)
 
     def _resolve_group_positions(
