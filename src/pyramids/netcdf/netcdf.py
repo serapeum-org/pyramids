@@ -1074,6 +1074,52 @@ class NetCDF(Dataset):
                 f"Use nc.get_variable('var_name').{operation}(...) instead."
             )
 
+    # ARC-35 interim guard: a `band_count == 0` container inherits the full single-raster facade
+    # from `Dataset`, where each of these runs on a `(0, rows, cols)` store and produces an opaque
+    # GDAL error or silently wrong output. Route the raster-only surface through
+    # `_check_not_container` so a container fails with the "use get_variable(...)" message instead;
+    # a `Variable` subset (band_count > 0) passes the guard and delegates unchanged. The structural
+    # fix (make `Container` *compose* a spatial-template `Dataset`) is a larger follow-up.
+    def stats(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.stats`."""
+        self._check_not_container("stats")
+        return super().stats(*args, **kwargs)
+
+    def slope(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.slope`."""
+        self._check_not_container("slope")
+        return super().slope(*args, **kwargs)
+
+    def hillshade(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.hillshade`."""
+        self._check_not_container("hillshade")
+        return super().hillshade(*args, **kwargs)
+
+    def write_array(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.write_array`."""
+        self._check_not_container("write_array")
+        return super().write_array(*args, **kwargs)
+
+    def to_cog(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.to_cog`."""
+        self._check_not_container("to_cog")
+        return super().to_cog(*args, **kwargs)
+
+    def to_feature_collection(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.to_feature_collection`."""
+        self._check_not_container("to_feature_collection")
+        return super().to_feature_collection(*args, **kwargs)
+
+    def zonal_stats(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.zonal_stats`."""
+        self._check_not_container("zonal_stats")
+        return super().zonal_stats(*args, **kwargs)
+
+    def sample(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.sample`."""
+        self._check_not_container("sample")
+        return super().sample(*args, **kwargs)
+
     # NetCDF intentionally exposes a richer, variable/selector-oriented plot
     # signature than the band-oriented Dataset/RasterBase one; the override
     # is deliberate and not Liskov-substitutable.
