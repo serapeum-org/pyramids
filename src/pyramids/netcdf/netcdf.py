@@ -41,6 +41,7 @@ from pyramids.netcdf._mdim import (
     x_axis_is_right_to_left,
     y_axis_is_bottom_up,
 )
+from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._mfdataset import open_mfdataset
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.cf import (
@@ -3701,42 +3702,6 @@ class NetCDF(Dataset):
             result = match
         return result
 
-    @staticmethod
-    def _axis_role_of_dimension(dim) -> str | None:
-        """Classify a dimension as ``"X"`` (longitude) or ``"Y"`` (latitude).
-
-        Reads the CF attributes of the dimension's coordinate (indexing) variable —
-        ``axis`` (``X``/``Y``), ``standard_name`` (``longitude``/``latitude``), or
-        ``units`` (``degrees_east``/``degrees_north``) — and classifies them through the
-        shared :func:`pyramids.netcdf.cf.detect_axis` heuristic. Returns ``None`` when the
-        role cannot be determined.
-        """
-        indexing_var = dim.GetIndexingVariable()
-        if indexing_var is None:
-            return None
-        # Attribute-only detection (empty ``name`` disables the name-pattern fallback) so the
-        # CF-attribute vs. dimension-name stages stay separated, matching the historical pipeline.
-        # Filter to the spatial roles this classifier promises (``detect_axis`` can also return
-        # ``"T"``/``"Z"``), mirroring the MDIM ``_axis_role`` sibling so callers see only X/Y/None.
-        role = detect_axis("", _read_attributes(indexing_var))
-        return role if role in ("X", "Y") else None
-
-    @staticmethod
-    def _detect_axis_indices(dims) -> tuple[int | None, int | None]:
-        """Indices of the X (longitude) and Y (latitude) dimensions via CF coordinate attributes.
-
-        Returns the first dimension classified as ``"X"`` and the first as ``"Y"`` by
-        ``_axis_role_of_dimension`` (each ``None`` when undetected).
-        """
-        detected_x = detected_y = None
-        for i, dim in enumerate(dims):
-            role = NetCDF._axis_role_of_dimension(dim)
-            if role == "X" and detected_x is None:
-                detected_x = i
-            elif role == "Y" and detected_y is None:
-                detected_y = i
-        return detected_x, detected_y
-
     def _resolve_spatial_dims(
         self, md_arr, x_dim: str | None = None, y_dim: str | None = None
     ) -> tuple[int, int]:
@@ -3763,7 +3728,7 @@ class NetCDF(Dataset):
                 )
             return explicit_x, explicit_y
 
-        detected_x, detected_y = self._detect_axis_indices(md_arr.GetDimensions())
+        detected_x, detected_y = detect_axis_indices(md_arr.GetDimensions())
         # Adopt detection only when it (combined with any single explicit side) yields a
         # complete, distinct (X, Y) pair — otherwise a partially-detected axis must not
         # collide with the last-two fallback (e.g. a 2-D `lon_bnds(lon, bnds)` variable).
