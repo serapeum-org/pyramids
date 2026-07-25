@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import cast
 
@@ -630,12 +631,76 @@ _DEFAULT_CLEOPATRA_MSG = (
 )
 
 
-def import_cleopatra(message: str):
-    """Import cleopatra."""
+def require_optional(module_name: str, message: str, *, return_module: bool = False):
+    """Import an optional dependency, or raise the extra's install hint.
+
+    One implementation behind every `import_<package>` guard in this module.
+    Each of those had its own copy of the same `try: import X except
+    ImportError: raise OptionalPackageDoesNotExist(message)` body; they are now
+    one-line delegations to this helper, keeping their names so call sites (and
+    the tests that monkeypatch them per module) are unaffected.
+
+    The import goes through the builtin `__import__` rather than
+    `importlib.import_module` so it is exactly the `import <module_name>`
+    statement each guard used to spell out — same module resolution, and still
+    interceptable by call sites and tests that patch `builtins.__import__`.
+
+    Args:
+        module_name: Dotted module path to import, e.g. ``"zarr"`` or
+            ``"cleopatra.tiles"``.
+        message: The install hint raised when the import fails. Compose it with
+            :func:`lazy_extra_hint` for the ``[lazy]`` extra.
+        return_module: When `True` the imported module object is returned so the
+            caller can use it without a bare inline import of its own. The
+            guard-only callers leave it `False` and get `None`.
+
+    Returns:
+        The imported module when `return_module` is `True`, otherwise `None`.
+
+    Raises:
+        OptionalPackageDoesNotExist: When the module cannot be imported.
+
+    Examples:
+        - A module from the standard library always resolves, and the guard-only
+          form returns nothing:
+            ```python
+            >>> from pyramids.base._utils import require_optional
+            >>> require_optional("json", "json is missing") is None
+            True
+
+            ```
+        - Ask for the module object back when the caller needs to use it:
+            ```python
+            >>> from pyramids.base._utils import require_optional
+            >>> mod = require_optional("json", "json is missing", return_module=True)
+            >>> mod.dumps({"a": 1})
+            '{"a": 1}'
+
+            ```
+        - A missing package raises the supplied hint verbatim:
+            ```python
+            >>> from pyramids.base._utils import require_optional
+            >>> from pyramids.base._errors import OptionalPackageDoesNotExist
+            >>> try:
+            ...     require_optional("not_a_real_package", "install the [x] extra")
+            ... except OptionalPackageDoesNotExist as exc:
+            ...     print(exc)
+            install the [x] extra
+
+            ```
+    """
     try:
-        import cleopatra  # noqa
+        __import__(module_name)
     except ImportError:
         raise OptionalPackageDoesNotExist(message)
+    # `__import__` returns the top-level package for a dotted name, so read the
+    # requested module back out of sys.modules instead of using its return value.
+    return sys.modules[module_name] if return_module else None
+
+
+def import_cleopatra(message: str):
+    """Import cleopatra."""
+    return require_optional("cleopatra", message)
 
 
 def require_cleopatra(msg: str | None = None) -> None:
@@ -745,42 +810,27 @@ def lazy_extra_hint(prefix: str) -> str:
 
 def import_zarr(message: str):
     """Import zarr."""
-    try:
-        import zarr  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("zarr", message)
 
 
 def import_dask_geopandas(message: str):
     """Import dask_geopandas."""
-    try:
-        import dask_geopandas  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("dask_geopandas", message)
 
 
 def import_pyarrow(message: str):
     """Import pyarrow."""
-    try:
-        import pyarrow  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("pyarrow", message)
 
 
 def import_pystac_client(message: str):
     """Import pystac_client."""
-    try:
-        import pystac_client  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("pystac_client", message)
 
 
 def import_stac_asset(message: str):
     """Import stac_asset (ships via the optional [stac] extra)."""
-    try:
-        import stac_asset  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("stac_asset", message)
 
 
 def import_dask(message: str):
@@ -790,19 +840,12 @@ def import_dask(message: str):
     their own (dask is optional, so it cannot be a top-level import). Callers
     that only need the guard may ignore the return value.
     """
-    try:
-        import dask
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
-    return dask
+    return require_optional("dask", message, return_module=True)
 
 
 def import_kerchunk(message: str):
     """Import kerchunk."""
-    try:
-        import kerchunk  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("kerchunk", message)
 
 
 def import_h5py(message: str):
@@ -821,19 +864,12 @@ def import_h5py(message: str):
     Raises:
         OptionalPackageDoesNotExist: When h5py is not installed.
     """
-    try:
-        import h5py
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
-    return h5py
+    return require_optional("h5py", message, return_module=True)
 
 
 def import_basemap(message: str):
     """Import the web-tile basemap backend (``cleopatra.tiles``, the ``[tiles]`` extra)."""
-    try:
-        from cleopatra import tiles  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
+    return require_optional("cleopatra.tiles", message)
 
 
 def ogr_ds_to_gdal_dataset(ogr_ds: ogr.DataSource) -> gdal.Dataset:
