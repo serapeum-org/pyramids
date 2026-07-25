@@ -284,24 +284,41 @@ class Mesh2d:
                 that this property decomposes.
         """
         if self._cached_fan_triangles is None:
-            fnc = self._face_node_connectivity
-            triangles: list[list[int]] = []
-
-            for i in range(self.n_face):
-                nodes = fnc.get_element(i)
-                n = len(nodes)
-                if n < 3:
-                    continue
-                for j in range(1, n - 1):
-                    triangles.append([int(nodes[0]), int(nodes[j]), int(nodes[j + 1])])
-
-            if not triangles:
-                raise ValueError(
-                    "Cannot create triangulation: no faces with 3 or more nodes."
-                )
-            self._cached_fan_triangles = np.array(triangles, dtype=np.intp)
+            self._cached_fan_triangles = self._compute_fan_triangles(
+                self._face_node_connectivity
+            )
 
         return self._cached_fan_triangles
+
+    @staticmethod
+    def _compute_fan_triangles(fnc: Connectivity) -> np.typing.NDArray:
+        """Fan-triangulate every face: triangles ``[n0, nj, nj+1]`` for ``j`` in ``1..count-2``.
+
+        Vectorized when all faces share a node count (the common all-triangle / all-quad case), laid
+        out face-major to match the per-face fan; ragged meshes fall back to the per-face loop
+        (ARC-59).
+        """
+        data = fnc.data
+        if data.ndim == 2 and data.shape[1] >= 3:
+            width = int(data.shape[1])
+            if bool(np.all(fnc.nodes_per_element() == width)):
+                # count == width means no fill columns, so every row fans cleanly.
+                per_j = [data[:, [0, j, j + 1]] for j in range(1, width - 1)]
+                stacked = np.stack(per_j, axis=1)  # (n_face, width - 2, 3)
+                return stacked.reshape(-1, 3).astype(np.intp)
+        triangles: list[list[int]] = []
+        for i in range(fnc.n_elements):
+            nodes = fnc.get_element(i)
+            n = len(nodes)
+            if n < 3:
+                continue
+            for j in range(1, n - 1):
+                triangles.append([int(nodes[0]), int(nodes[j]), int(nodes[j + 1])])
+        if not triangles:
+            raise ValueError(
+                "Cannot create triangulation: no faces with 3 or more nodes."
+            )
+        return np.array(triangles, dtype=np.intp)
 
     def get_face_nodes(self, face_idx: int) -> np.typing.NDArray:
         """Return valid node indices for a single face.

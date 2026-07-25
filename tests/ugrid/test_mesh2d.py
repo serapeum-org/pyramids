@@ -336,6 +336,33 @@ class TestMesh2dTriangulation:
         tri = mixed_mesh.fan_triangles
         assert tri.shape[0] == 4, f"Expected 4 triangles, got {tri.shape[0]}"
 
+    def test_triangulation_uniform_quads_vectorized(self):
+        """All-quad (uniform node count) fans to 2 face-major triangles per quad (ARC-59).
+
+        Test scenario:
+            Two quads with no fill columns take the vectorized fan path; the result must be
+            `[0,1,2],[0,2,3]` for the first quad then `[1,4,5],[1,5,2]` for the second (face-major).
+        """
+        node_x = np.array([0.0, 1.0, 1.0, 0.0, 2.0, 2.0])
+        node_y = np.array([0.0, 0.0, 1.0, 1.0, 0.0, 1.0])
+        faces = np.array([[0, 1, 2, 3], [1, 4, 5, 2]], dtype=np.intp)
+        mesh = Mesh2d(
+            node_x=node_x,
+            node_y=node_y,
+            face_node_connectivity=Connectivity(
+                data=faces,
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
+            ),
+        )
+        expected = np.array(
+            [[0, 1, 2], [0, 2, 3], [1, 4, 5], [1, 5, 2]], dtype=np.intp
+        )
+        np.testing.assert_array_equal(
+            mesh.fan_triangles, expected, err_msg="vectorized quad fan mis-ordered"
+        )
+
     def test_triangulation_cached(self, triangle_mesh):
         """Test triangulation is cached after first computation.
 

@@ -13,9 +13,10 @@ from typing import Any, cast
 
 import geopandas as gpd
 import numpy as np
+import shapely
 from osgeo import gdal
 from pyproj import CRS, Transformer
-from shapely.geometry import LineString, Point, box
+from shapely.geometry import LineString, box
 
 from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import Dataset
@@ -683,22 +684,33 @@ class UgridDataset:
         if location == "face":
             geometries = MeshSpatialIndex(self._mesh).face_polygons
         elif location == "node":
-            geometries = [
-                Point(self._mesh.node_x[i], self._mesh.node_y[i])
-                for i in range(self.n_node)
-            ]
+            # Vectorized point construction — meshes routinely have 1e5-1e7 nodes, so a per-node
+            # Python `Point(...)` loop is a hot spot (ARC-59).
+            geometries = shapely.points(self._mesh.node_x, self._mesh.node_y)
         elif location == "edge":
             if self._mesh.edge_node_connectivity is None:
                 raise ValueError("Edge connectivity not available.")
-            enc = self._mesh.edge_node_connectivity
-            geometries = []
-            for i in range(enc.n_elements):
-                nodes = enc.get_element(i)
-                coords = [(self._mesh.node_x[n], self._mesh.node_y[n]) for n in nodes]
-                geometries.append(LineString(coords))
+            geometries = self._edge_linestrings(self._mesh.edge_node_connectivity)
         else:
             raise ValueError(f"Unknown location: {location}")
         return geometries
+
+    def _edge_linestrings(self, enc: Connectivity) -> Any:
+        """Build one LineString per edge, vectorized for standard 2-node edges (ARC-59)."""
+        node_idx = np.asarray(enc.data)
+        if node_idx.ndim == 2 and node_idx.shape[1] == 2 and bool(
+            np.all(node_idx != enc.fill_value)
+        ):
+            xs = self._mesh.node_x[node_idx]
+            ys = self._mesh.node_y[node_idx]
+            return shapely.linestrings(np.stack([xs, ys], axis=-1))
+        # Rare ragged / filled edge connectivity: fall back to a per-edge build.
+        return [
+            LineString(
+                [(self._mesh.node_x[n], self._mesh.node_y[n]) for n in enc.get_element(i)]
+            )
+            for i in range(enc.n_elements)
+        ]
 
     def to_feature_collection(
         self,
