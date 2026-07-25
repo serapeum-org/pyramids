@@ -19,7 +19,37 @@ xr = pytest.importorskip("xarray")
 pytestmark = pytest.mark.xarray
 
 from pyramids.dataset import Dataset
+from pyramids.netcdf.engines.interop import _encode_temporal_array
 from pyramids.netcdf.netcdf import NetCDF
+
+
+class TestEncodeTemporalArray:
+    """_encode_temporal_array encodes temporal dtypes to CF-numeric seconds (ARC-17)."""
+
+    def test_datetime64_encodes_to_seconds_since_epoch(self):
+        """datetime64 becomes float64 seconds with a CF units + calendar attribute."""
+        vals = np.array(
+            ["1970-01-01T00:00:01", "1970-01-01T00:00:02"], dtype="datetime64[ns]"
+        )
+        encoded, attrs = _encode_temporal_array(vals)
+        assert encoded.dtype == np.float64, f"expected float64, got {encoded.dtype}"
+        assert_allclose(encoded, [1.0, 2.0], err_msg="datetime64 should map to seconds since epoch")
+        assert "since" in attrs["units"], f"expected a 'since' unit, got {attrs}"
+        assert attrs["calendar"] == "proleptic_gregorian", f"unexpected calendar in {attrs}"
+
+    def test_timedelta64_encodes_to_seconds(self):
+        """timedelta64 becomes float64 seconds with a plain 'seconds' unit."""
+        vals = np.array([1_000_000_000, 2_000_000_000], dtype="timedelta64[ns]")
+        encoded, attrs = _encode_temporal_array(vals)
+        assert_allclose(encoded, [1.0, 2.0], err_msg="timedelta64 should map to seconds")
+        assert attrs == {"units": "seconds"}, f"unexpected attrs {attrs}"
+
+    def test_non_temporal_array_passes_through_unchanged(self):
+        """A numeric array is returned unchanged with no CF attributes."""
+        vals = np.array([1.5, 2.5, 3.5])
+        encoded, attrs = _encode_temporal_array(vals)
+        assert encoded is vals, "a non-temporal array must be returned unchanged"
+        assert attrs == {}, f"expected no attrs for a non-temporal array, got {attrs}"
 from tests.netcdf.conftest import make_3d_nc
 
 
