@@ -228,8 +228,11 @@ class Vectorize(_Engine["Dataset"]):
                 Default is None.
             tile (bool):
                 True to use tiles in extracting the values from the raster. Default is False.
-                Tiling is a memory strategy only — it reads the same cells as the untiled
-                path, `mask` included, and returns the same rows.
+                Tiling reads the same cells as the untiled path, `mask` included, but emits
+                them in **tile-major** order, whereas the untiled path is row-major. Do not
+                combine `tile=True` with `add_geometry`: the geometry is generated row-major
+                and zipped positionally, so the two disagree once there is more than one
+                tile. See the known-issue note on `_extract_values_tiled`.
             tile_size (int):
                 Tile size. Default is 1500.
             touch (bool):
@@ -380,6 +383,16 @@ class Vectorize(_Engine["Dataset"]):
 
     def _extract_values_tiled(self, band_names: list, tile_size: int) -> pd.DataFrame:
         """Extract raster band values into a DataFrame using tiles.
+
+        .. warning::
+            Rows come out in **tile-major** order -- tile by tile, row-major
+            within each tile -- which is not the row-major order of
+            `_extract_values_full` or of the geometry `_attach_geometry`
+            builds. `to_feature_collection` zips the two positionally, so
+            `tile=True` with `add_geometry` mismatches values and geometry
+            whenever the raster spans more than one tile. Pre-existing; fixing
+            it means emitting each cell's (row, col) here and sorting before
+            the geometry is attached.
 
         Args:
             band_names (list): Band names for the DataFrame columns.
