@@ -829,7 +829,8 @@ def from_json(s: str) -> NetCDFMetadata:
 
     Parses the JSON produced by `to_json` and manually
     reconstructs the dataclass hierarchy (`GroupInfo`,
-    `VariableInfo`, `DimensionInfo`, `StructuralInfo`).
+    `VariableInfo`, `DimensionInfo`, `StructuralInfo`, and the
+    CF cross-reference block `CFInfo` when present).
 
     Only the schema produced by `to_dict` / `to_json` is
     supported; arbitrary JSON will likely raise `KeyError`.
