@@ -682,6 +682,9 @@ def _datetime_components(value: Any) -> tuple[int, int, int, int, int, int, int]
         return (ts.year, ts.month, ts.day, ts.hour, ts.minute, ts.second, ts.microsecond)
     seconds_float = float(match.group(6)) if match.group(6) else 0.0
     whole_seconds = int(seconds_float)
+    # Clamp so a value like "59.9999995" whose fraction rounds up to 1_000_000 does not exceed
+    # cftime's microsecond range (0..999_999) and raise (review N1).
+    microsecond = min(int(round((seconds_float - whole_seconds) * 1_000_000)), 999_999)
     return (
         int(match.group(1)),
         int(match.group(2)),
@@ -689,7 +692,7 @@ def _datetime_components(value: Any) -> tuple[int, int, int, int, int, int, int]
         int(match.group(4)) if match.group(4) else 0,
         int(match.group(5)) if match.group(5) else 0,
         whole_seconds,
-        int(round((seconds_float - whole_seconds) * 1_000_000)),
+        microsecond,
     )
 
 

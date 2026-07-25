@@ -98,6 +98,11 @@ class TestCfTimeRoundTrip:
         )
         assert back.calendar == "360_day", f"expected 360_day, got {back.calendar}"
 
+    def test_fractional_second_rounding_does_not_overflow_microseconds(self):
+        """A seconds field whose fraction rounds up to 1e6 µs is clamped, not rejected by cftime (N1)."""
+        num = encode_cf_time("2000-01-01T00:00:59.9999995", UNIT, "360_day")
+        assert np.isfinite(num), f"expected a finite encoded value, got {num}"
+
     def test_non_time_unit_passthrough(self):
         """A non-time unit string returns the values unchanged.
 
