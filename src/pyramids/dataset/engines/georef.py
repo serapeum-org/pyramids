@@ -9,6 +9,7 @@ GDAL toolkit and does not implement any sensor model itself.
 from __future__ import annotations
 
 import logging
+import weakref
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -257,15 +258,35 @@ class Georef(_Engine["Dataset"]):
         }
         if to_epsg is not None:
             warp_kwargs["dstSRS"] = _dst_srs_arg(sr_from_user_input(to_epsg))
-        dst = gdal.Warp("", self._ds.raster, options=gdal.WarpOptions(**warp_kwargs))
-        if dst is None:
-            raise RuntimeError("GDAL could not orthorectify the dataset.")
-        result = self._ds.__class__(dst, access="read_only")
+        # Only a DEM staged by this call is ours to free; a caller-supplied path
+        # must be left alone.
+        staged_dem = dem_path is not None and dem_path.startswith(
+            "/vsimem/orthorectify_dem_"
+        )
+        try:
+            dst = gdal.Warp(
+                "", self._ds.raster, options=gdal.WarpOptions(**warp_kwargs)
+            )
+            if dst is None:
+                raise RuntimeError("GDAL could not orthorectify the dataset.")
+            result = self._ds.__class__(dst, access="read_only")
+        except BaseException:
+            # The failure paths returned without unlinking, leaving the staged
+            # copy in /vsimem for the lifetime of the process.
+            if staged_dem:
+                gdal.Unlink(dem_path)
+            raise
+
         if lazy:
             result._warp_source = self._ds.raster
-        elif dem_path is not None and dem_path.startswith("/vsimem/orthorectify_dem_"):
+            if staged_dem:
+                # A lazy result reads the DEM on every access, so it cannot be
+                # freed here -- but nothing freed it later either, so it leaked.
+                # Tie its lifetime to the result instead.
+                weakref.finalize(result, gdal.Unlink, dem_path)
+        elif staged_dem:
             # A materialised result no longer references the staged DEM, so free
-            # the /vsimem copy we made from a MEM Dataset (a lazy result keeps it).
+            # the /vsimem copy we made from a MEM Dataset.
             gdal.Unlink(dem_path)
         return result
 
