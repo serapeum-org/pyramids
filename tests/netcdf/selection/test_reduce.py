@@ -495,3 +495,22 @@ class TestIsFileBacked:
 
         var = SimpleNamespace(_parent_nc=SimpleNamespace(_file_name="netcdf"))
         assert NetCDF._is_file_backed(var) is False, "an in-memory container is not file-backed"
+
+    def test_unquoted_netcdf_spec_resolves_path(self, tmp_path):
+        """An unquoted `NETCDF:<path>:var` spec drops the trailing :var via rsplit (drive-safe)."""
+        real = tmp_path / "u.nc"
+        real.write_bytes(b"x")
+        var = SimpleNamespace(_parent_nc=SimpleNamespace(_file_name=f"NETCDF:{real}:temperature"))
+        assert NetCDF._is_file_backed(var) is True, "unquoted spec should resolve to the file"
+
+    def test_empty_file_name_is_not_file_backed(self):
+        """A parent with no `_file_name` is not file-backed."""
+        var = SimpleNamespace(_parent_nc=SimpleNamespace(_file_name=""))
+        assert NetCDF._is_file_backed(var) is False, "an empty file name is not file-backed"
+
+    def test_uses_variable_itself_when_parent_is_none(self, tmp_path):
+        """With no `_parent_nc`, the variable's own `_file_name` is consulted."""
+        real = tmp_path / "self.nc"
+        real.write_bytes(b"x")
+        var = SimpleNamespace(_parent_nc=None, _file_name=str(real))
+        assert NetCDF._is_file_backed(var) is True, "a top-level variable's own file must count"
