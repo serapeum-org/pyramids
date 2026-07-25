@@ -1,9 +1,16 @@
 import numpy as np
 import pytest
-from osgeo import gdal, ogr
+from osgeo import gdal, gdalconst, ogr
 
-from pyramids.base._errors import DriverNotExistError
+from pyramids.base._errors import DriverNotExistError, OptionalPackageDoesNotExist
 from pyramids.base._utils import (
+    _GDAL_TO_NUMPY,
+    _GDAL_TO_OGR,
+    _NUMPY_TO_GDAL,
+    DTYPE_CONVERSION_DF,
+    GDAL_DTYPE,
+    NUMPY_DTYPE,
+    OGR_DTYPE,
     Catalog,
     color_name_to_gdal_constant,
     gdal_constant_to_color_name,
@@ -12,6 +19,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
     ogr_ds_to_gdal_dataset,
     ogr_to_numpy_dtype,
+    require_optional,
 )
 
 pytestmark = pytest.mark.core
@@ -313,3 +321,149 @@ class TestRequireCleopatra:
         assert str(exc.value) == _DEFAULT_CLEOPATRA_MSG, (
             f"Expected default message; got {exc.value!r}"
         )
+
+
+class TestDtypeLookupTables:
+    """ARC-62: the precomputed dicts must reproduce the old DataFrame masks."""
+
+    def test_complex64_keeps_the_first_matching_gdal_code(self):
+        """`np.complex64` maps to GDT_CInt16, the first of its three rows.
+
+        Test scenario:
+            `NUMPY_DTYPE` lists `np.complex64` against GDT_CInt16,
+            GDT_CInt32 and GDT_CFloat32. The old lookup took `.values[0]`,
+            so the first row won. A plain dict comprehension would have
+            kept the *last* and silently returned GDT_CFloat32 — this
+            pins the first-wins invariant the rewrite depends on.
+        """
+        assert numpy_to_gdal_dtype(np.dtype(np.complex64)) == gdalconst.GDT_CInt16, (
+            "first-wins must select GDT_CInt16 for complex64"
+        )
+        assert numpy_to_gdal_dtype("complex64") == gdalconst.GDT_CInt16, (
+            "the string spelling must resolve to the same first-wins entry"
+        )
+
+    def test_every_lookup_matches_the_source_dataframe(self):
+        """Each dict agrees with a fresh `.values[0]` scan of the table.
+
+        Test scenario:
+            The dicts exist purely as a fast path for
+            `DTYPE_CONVERSION_DF`, which is still shipped and still used
+            for the error messages. Re-deriving each mapping from the
+            DataFrame is the direct check that the two never drift.
+            `_NUMPY_TO_GDAL` is included specifically because it is the
+            one table with duplicate keys, so it is the only one where
+            first-wins is more than a formality.
+        """
+        for column, table in (("numpy", _GDAL_TO_NUMPY), ("ogr", _GDAL_TO_OGR)):
+            for gdal_code, expected in table.items():
+                matched = DTYPE_CONVERSION_DF.loc[
+                    DTYPE_CONVERSION_DF["gdal"] == gdal_code, column
+                ]
+                assert matched.values[0] == expected, (
+                    f"{column} lookup for GDAL code {gdal_code} drifted from the "
+                    f"table: dict has {expected}, DataFrame has {matched.values[0]}"
+                )
+        for np_dtype, expected in _NUMPY_TO_GDAL.items():
+            matched = DTYPE_CONVERSION_DF.loc[
+                DTYPE_CONVERSION_DF["numpy"] == np_dtype, "gdal"
+            ]
+            assert matched.values[0] == expected, (
+                f"numpy->gdal lookup for {np_dtype} drifted from the table: dict "
+                f"has {expected}, DataFrame has {matched.values[0]}"
+            )
+
+    def test_only_the_none_bearing_rows_are_dropped(self):
+        """`_first_wins` omits exactly the rows with no counterpart.
+
+        Test scenario:
+            The dicts are built by dropping `None`-bearing pairs, which
+            is what makes the "unsupported dtype" guards fire. Checking
+            only the entries the dicts *contain* would never catch a
+            row being dropped that should have been kept, so assert the
+            key sets against the table directly.
+        """
+        # Compare against the source lists, not the DataFrame: pandas coerces the
+        # mixed int/None `ogr` column to float64, turning every None into NaN, so
+        # an `is not None` test there would be vacuously true.
+        expected_gdal_to_numpy = {
+            gdal_code
+            for gdal_code, np_dtype in zip(GDAL_DTYPE, NUMPY_DTYPE)
+            if np_dtype is not None
+        }
+        assert set(_GDAL_TO_NUMPY) == expected_gdal_to_numpy, (
+            "GDAL->numpy keys must be exactly the rows carrying a numpy dtype"
+        )
+        expected_gdal_to_ogr = {
+            gdal_code
+            for gdal_code, ogr_type in zip(GDAL_DTYPE, OGR_DTYPE)
+            if ogr_type is not None
+        }
+        assert set(_GDAL_TO_OGR) == expected_gdal_to_ogr, (
+            "GDAL->OGR keys must be exactly the rows carrying an OGR type"
+        )
+
+    def test_unknown_gdal_type_raises_value_error(self):
+        """`GDT_Unknown` has no numpy row, so it is reported as unsupported.
+
+        Test scenario:
+            The old code indexed an all-`None` match and died with
+            `AttributeError: 'NoneType' object has no attribute
+            '__name__'`. The dict drops `None`-valued rows so the
+            existing "not supported" guard fires instead.
+        """
+        with pytest.raises(ValueError, match="not supported"):
+            gdal_to_numpy_dtype(gdalconst.GDT_Unknown)
+
+    def test_unmapped_numpy_dtype_raises_value_error(self):
+        """A numpy dtype with no GDAL counterpart raises, not `IndexError`."""
+        unmapped = np.dtype("float16")
+        with pytest.raises(ValueError, match="not supported"):
+            numpy_to_gdal_dtype(unmapped)
+
+    def test_complex_band_has_no_ogr_equivalent(self):
+        """A complex-typed band raises instead of `int(None)`-ing.
+
+        Test scenario:
+            `gdal_to_ogr_dtype` previously did `int(...values[0])` on an
+            OGR column whose complex rows are `None`, producing
+            `TypeError`. It now reports the missing mapping explicitly.
+        """
+        src = gdal.GetDriverByName("MEM").Create("", 2, 2, 1, gdal.GDT_CFloat32)
+        with pytest.raises(ValueError, match="no OGR equivalent"):
+            gdal_to_ogr_dtype(src)
+
+
+class TestRequireOptional:
+    """ARC-67: the single guard behind the ten `import_*` helpers."""
+
+    def test_returns_none_for_guard_only_callers(self):
+        """The guard form returns nothing when the module imports."""
+        assert require_optional("numpy", "unused") is None
+
+    def test_returns_the_submodule_for_a_dotted_name(self):
+        """A dotted name yields the submodule, not its top-level package.
+
+        Test scenario:
+            `__import__("a.b")` returns `a`, so the helper reads
+            `sys.modules[name]` back instead. `import_basemap` passes
+            `cleopatra.tiles`, and only this path distinguishes the two.
+        """
+        module = require_optional("numpy.linalg", "unused", return_module=True)
+        assert module.__name__ == "numpy.linalg", (
+            f"expected the submodule, got {module.__name__}"
+        )
+
+    def test_missing_module_raises_the_supplied_hint(self):
+        """The install hint is raised verbatim, chained to the ImportError."""
+        with pytest.raises(OptionalPackageDoesNotExist, match="install the extra"):
+            require_optional("pyramids_not_a_real_module", "install the extra")
+
+    def test_missing_module_chains_the_original_importerror(self):
+        """The raised error keeps `__cause__` so the real reason survives."""
+        try:
+            require_optional("pyramids_not_a_real_module", "install the extra")
+        except OptionalPackageDoesNotExist as exc:
+            assert isinstance(exc.__cause__, ImportError), (
+                f"expected a chained ImportError, got {exc.__cause__!r}"
+            )

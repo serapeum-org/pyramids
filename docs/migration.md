@@ -25,6 +25,64 @@ warnings.simplefilter("error", DeprecationWarning)
 
 This catches the deprecations; the hard behavior changes do **not** warn — search for them manually.
 
+## base
+
+### 0.46.1
+
+**`import pyramids` no longer configures logging.** Previously, importing the package ran `Config()`, which
+added a handler to the **root** logger, called `root.setLevel(logging.INFO)`, pinned six third-party loggers to
+`WARNING`, and printed `Logging is configured.` to stderr. A library reconfiguring the root logger silently
+takes over logging for the whole host application, so that is gone.
+
+| Change | Kind | What you do |
+|--------|------|-------------|
+| Import no longer installs a console handler | behavior | Configure logging yourself, or ask pyramids for it |
+| Root logger untouched (no handler, no `setLevel`) | behavior | Nothing — this is the fix |
+| `Config` / `LoggerManager` default `level=INFO` → `None` | behavior | Pass a level to get console output |
+| `Logging is configured.` announce moved from INFO to DEBUG | behavior | Nothing |
+| Third-party loggers only quieted on request | behavior | Pass `quiet_third_party=True` to restore |
+
+**If you saw pyramids log lines and want them back**, pick one:
+
+```python
+# Option A — you own logging (recommended for applications)
+import logging
+
+logging.basicConfig(level=logging.INFO)
+import pyramids  # pyramids records propagate to your handler
+```
+
+```python
+# Option B — let pyramids install its coloured console handler
+from pyramids.base.config import Config
+
+Config(level="INFO")
+```
+
+Option B sets `propagate = False` on the `pyramids` logger, so records are emitted once by pyramids' own
+handler rather than twice (once more through your root handler). Do not combine it with Option A expecting
+both to print.
+
+Option B is reversible: a bare `Config()` removes the handlers pyramids installed and restores propagation.
+That matters for test suites — pytest's `caplog` attaches to the *root* logger, so while `propagate` is
+`False` a `caplog` assertion on a `pyramids.*` logger captures nothing and passes vacuously. If a dependency
+opts in on your behalf, call `Config()` to hand the namespace back.
+
+**If you relied on the third-party quieting**, pass it explicitly:
+
+```python
+Config(level="INFO", quiet_third_party=True)  # pins fiona/rasterio/shapely/matplotlib/urllib3/osgeo to WARNING
+```
+
+**Exception types on three dtype helpers changed** to a descriptive `ValueError`, from the incidental error
+that leaked out of an empty table lookup. Only affects code catching the old type:
+
+| Call | Before | After |
+|------|--------|-------|
+| `numpy_to_gdal_dtype(<unmapped dtype>)` | `IndexError` | `ValueError` |
+| `gdal_to_numpy_dtype(gdal.GDT_Unknown)` | `AttributeError` | `ValueError` |
+| `gdal_to_ogr_dtype(<complex band>)` | `TypeError` | `ValueError` |
+
 ## netcdf
 
 ### 0.37.0

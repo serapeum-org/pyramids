@@ -58,7 +58,13 @@ def _read_chunk(
         lock: Any context-manager / `acquire`-`release` lock
             (`SerializableLock`, :class:`DummyLock`, or a
             `dask.distributed.Lock`). Held around the
-            :class:`osgeo.gdal.Band.ReadAsArray` call.
+            :class:`osgeo.gdal.Band.ReadAsArray` call. The manager is
+            entered *inside* it via `acquire_context`. For the shared
+            :class:`CachingFileManager` that pins the cache slot, so a
+            concurrent chunk read on another file cannot LRU-evict and
+            close this handle mid-read; for the `threadsafe=True`
+            :class:`ThreadLocalFileManager` there is no shared cache to
+            evict from and the context manager is a plain passthrough.
         band: Zero-based band index when reading one band, or
             `None` when every band is read into a 3-D array.
         out_dtype: Output numpy dtype — matches the band dtype so
@@ -84,27 +90,31 @@ def _read_chunk(
         (y_start, y_stop), (x_start, x_stop) = location
         xoff, yoff = x_start, y_start
         xsize, ysize = x_stop - x_start, y_stop - y_start
-        with lock:
-            handle = manager.acquire()
-            gdal_band = handle.GetRasterBand(band + 1)
-            data = gdal_band.ReadAsArray(xoff, yoff, xsize, ysize)
+        # Manager outside, IO lock inside: `acquire_context` exits last, and its
+        # unpin can trigger an eviction whose `Close()` may flush over the network.
+        # Nesting it the other way would hold the shared chunk lock for that flush,
+        # stalling every other chunk read of this dataset on unrelated eviction.
+        with manager.acquire_context() as handle:
+            with lock:
+                gdal_band = handle.GetRasterBand(band + 1)
+                data = gdal_band.ReadAsArray(xoff, yoff, xsize, ysize)
         result = np.asarray(data, dtype=out_dtype)
     else:
         (b_start, b_stop), (y_start, y_stop), (x_start, x_stop) = location
         xoff, yoff = x_start, y_start
         xsize, ysize = x_stop - x_start, y_stop - y_start
-        with lock:
-            handle = manager.acquire()
-            block = np.empty(
-                (b_stop - b_start, ysize, xsize),
-                dtype=out_dtype,
-            )
-            for offset, band_idx in enumerate(range(b_start, b_stop)):
-                gdal_band = handle.GetRasterBand(band_idx + 1)
-                block[offset] = np.asarray(
-                    gdal_band.ReadAsArray(xoff, yoff, xsize, ysize),
+        with manager.acquire_context() as handle:
+            with lock:
+                block = np.empty(
+                    (b_stop - b_start, ysize, xsize),
                     dtype=out_dtype,
                 )
+                for offset, band_idx in enumerate(range(b_start, b_stop)):
+                    gdal_band = handle.GetRasterBand(band_idx + 1)
+                    block[offset] = np.asarray(
+                        gdal_band.ReadAsArray(xoff, yoff, xsize, ysize),
+                        dtype=out_dtype,
+                    )
         result = block
     return result
 

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 from osgeo import osr
-from pyproj import CRS
+from pyproj import CRS, Transformer
 
 from pyramids.base._errors import CRSError
 from pyramids.base.crs import (
     epsg_from_user_input,
     epsg_from_wkt,
     get_epsg_from_prj,
+    reproject_coordinates,
     sr_from_user_input,
 )
 
@@ -277,4 +279,101 @@ class TestSrFromUserInput:
         assert sr1 is not sr2, "repeated calls must return distinct SRS instances"
         assert sr1.ExportToWkt() == sr2.ExportToWkt(), (
             "distinct instances should still encode the same CRS"
+        )
+
+
+class TestReprojectCoordinatesRoundingParity:
+    """`reproject_coordinates` must round exactly as the per-point loop did.
+
+    The vectorization (ARC-55) replaced a per-point `transformer.transform`
+    loop with one array call. That is value-preserving only if the rounding
+    stays on the built-in `round`: `np.round` scales by `10**precision`,
+    rounds and divides back, so it disagrees with correctly-rounded decimal
+    on values that are not exactly representable.
+    """
+
+    @staticmethod
+    def _per_point_reference(xs, ys, from_crs, to_crs, precision):
+        """Re-implement the pre-vectorization body as the parity oracle."""
+        transformer = Transformer.from_crs(from_crs, to_crs, always_xy=True)
+        out_x, out_y = [], []
+        for x_value, y_value in zip(xs, ys):
+            new_x, new_y = transformer.transform(x_value, y_value)
+            if precision is not None:
+                new_x = round(new_x, precision)
+                new_y = round(new_y, precision)
+            out_x.append(new_x)
+            out_y.append(new_y)
+        return out_x, out_y
+
+    def test_matches_the_per_point_loop_on_a_random_sweep(self):
+        """A 2000-point sweep at the default precision reproduces the old output.
+
+        Test scenario:
+            Draw lon/lat across the full valid domain, reproject to Web
+            Mercator at `precision=6`, and compare element-by-element against
+            the per-point reference. Exact equality is required — a single
+            last-digit drift here is a silent change to every reprojected
+            geometry vertex.
+        """
+        rng = np.random.default_rng(20260725)
+        xs = rng.uniform(-179.0, 179.0, 2000).tolist()
+        ys = rng.uniform(-85.0, 85.0, 2000).tolist()
+        got_x, got_y = reproject_coordinates(xs, ys, from_crs=4326, to_crs=3857)
+        want_x, want_y = self._per_point_reference(xs, ys, 4326, 3857, 6)
+        assert got_x == want_x, "x output must match the per-point loop exactly"
+        assert got_y == want_y, "y output must match the per-point loop exactly"
+
+    # Values on which `round` and `np.round` disagree at the given precision, so
+    # each case genuinely discriminates between the two rounding rules instead of
+    # asserting parity with itself. Fed through an identity transform, which
+    # leaves them untouched for the rounding step. No case exists for
+    # `precision=0`: on integral rounding the two rules agree.
+    @pytest.mark.parametrize(
+        ("precision", "values"),
+        [
+            (1, [0.45, 1.05, 1.6500000000000001]),
+            (2, [0.015, 0.025, 0.065, 2.675]),
+            (3, [0.0025, 0.0055, 0.0075]),
+            (6, [3.5e-06, 4.5e-06, 1.25e-05]),
+        ],
+    )
+    def test_matches_the_per_point_loop_across_precisions(self, precision, values):
+        """Every precision keeps per-point parity on known divergent values."""
+        non_divergent = [
+            value
+            for value in values
+            if round(value, precision) == float(np.round(value, precision))
+        ]
+        assert non_divergent == [], (
+            f"precondition: every case must separate the two rounding rules; "
+            f"these do not: {non_divergent}"
+        )
+        got_x, got_y = reproject_coordinates(
+            values, values, from_crs=4326, to_crs=4326, precision=precision
+        )
+        want_x, want_y = self._per_point_reference(
+            values, values, 4326, 4326, precision
+        )
+        assert (got_x, got_y) == (want_x, want_y), (
+            f"precision={precision} must match the per-point loop"
+        )
+
+    def test_uses_builtin_round_not_numpy_round(self):
+        """The half-way case that separates the two rounding rules.
+
+        Test scenario:
+            `round(x, 2)` and `np.round(x, 2)` disagree on 2.675 (2.67 vs
+            2.68). Feeding a null transform a coordinate that lands on such a
+            value pins the built-in behaviour, so a future refactor cannot
+            swap in `np.round` unnoticed.
+        """
+        assert round(2.675, 2) != float(np.round(2.675, 2)), (
+            "precondition: the two rounding rules must actually differ here"
+        )
+        got_x, _ = reproject_coordinates(
+            [2.675], [8.475], from_crs=4326, to_crs=4326, precision=2
+        )
+        assert got_x[0] == round(2.675, 2), (
+            f"expected built-in rounding {round(2.675, 2)}, got {got_x[0]}"
         )

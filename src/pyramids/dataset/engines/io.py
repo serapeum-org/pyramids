@@ -1163,10 +1163,11 @@ class IO(_Engine["Dataset"]):
         )
         # The FileManager's own lock must be independent of the IO lock
         # handed to the chunk reader: the reader acquires the IO lock
-        # first, then calls manager.acquire() which grabs the manager
-        # lock. Sharing one non-reentrant lock between the two would
-        # deadlock. Using lock=False here delegates concurrency control
-        # to the outer `with effective_lock` in _io_module._read_chunk.
+        # first, then enters manager.acquire_context() which grabs the
+        # manager lock. Sharing one non-reentrant lock between the two
+        # would deadlock. Using lock=False here delegates concurrency
+        # control to the outer `with effective_lock` in
+        # _io_module._read_chunk.
         if threadsafe:
             # One read-only handle per worker thread: chunk reads never
             # contend, so lock=None resolved to DummyLock above. Reuse the
