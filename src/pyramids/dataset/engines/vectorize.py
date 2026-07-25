@@ -20,6 +20,7 @@ from hpc.indexing import get_pixels
 from osgeo import gdal, ogr
 from pandas import DataFrame
 
+from pyramids.base._domain import is_no_data
 from pyramids.base._utils import gdal_to_ogr_dtype
 from pyramids.base.crs import sr_from_wkt
 from pyramids.feature import FeatureCollection
@@ -29,6 +30,21 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine, logger
+
+# Search order for the nearest valid neighbour: the four orthogonals first
+# (right, left, bottom, top), then the diagonals. Matches the order the original
+# if/elif chain tried them, so a cell that was filled before is filled from the
+# same direction now.
+_NEIGHBOUR_OFFSETS: tuple[tuple[int, int], ...] = (
+    (0, 1),
+    (0, -1),
+    (-1, 0),
+    (1, 0),
+    (-1, 1),
+    (-1, -1),
+    (1, -1),
+    (1, 1),
+)
 
 
 class Vectorize(_Engine["Dataset"]):
@@ -736,55 +752,27 @@ class Vectorize(_Engine["Dataset"]):
         no_rows = np.shape(array)[0]
         no_cols = np.shape(array)[1]
 
+        # Bounds are checked *before* the array is indexed, and "a neighbour
+        # exists" is kept separate from "a neighbour holds data". The previous
+        # chain did neither: it gated the whole fallback sequence on whether a
+        # right-hand neighbour existed (so an interior cell whose right
+        # neighbour was itself no-data was never filled from any other
+        # direction), and every branch indexed the array before its guard --
+        # reading `col - 1` at column 0 wrapped silently to the last column,
+        # and `row + 1` on the last row raised IndexError. The comparisons were
+        # off by one too (`> 0` / `<= n` rather than `>= 0` / `< n`).
         for i in range(len(rows)):
-            # give the cell the value of the cell that is at the right
-            if cols[i] + 1 < no_cols:
-                if array[rows[i], cols[i] + 1] != no_data_value:
-                    array[rows[i], cols[i]] = array[rows[i], cols[i] + 1]
-
-            elif array[rows[i], cols[i] - 1] != no_data_value and cols[i] - 1 > 0:
-                # give the cell the value of the cell that is at the left
-                array[rows[i], cols[i]] = array[rows[i], cols[i] - 1]
-
-            elif array[rows[i] - 1, cols[i]] != no_data_value and rows[i] - 1 > 0:
-                # give the cell the value of the cell that is at the bottom
-                array[rows[i], cols[i]] = array[rows[i] - 1, cols[i]]
-
-            elif array[rows[i] + 1, cols[i]] != no_data_value and rows[i] + 1 < no_rows:
-                # give the cell the value of the cell that is at the Top
-                array[rows[i], cols[i]] = array[rows[i] + 1, cols[i]]
-
-            elif (
-                array[rows[i] - 1, cols[i] + 1] != no_data_value
-                and rows[i] - 1 > 0
-                and cols[i] + 1 <= no_cols
-            ):
-                # give the cell the value of the cell that is at the right bottom
-                array[rows[i], cols[i]] = array[rows[i] - 1, cols[i] + 1]
-
-            elif (
-                array[rows[i] - 1, cols[i] - 1] != no_data_value
-                and rows[i] - 1 > 0
-                and cols[i] - 1 > 0
-            ):
-                # give the cell the value of the cell that is at the left bottom
-                array[rows[i], cols[i]] = array[rows[i] - 1, cols[i] - 1]
-
-            elif (
-                array[rows[i] + 1, cols[i] - 1] != no_data_value
-                and rows[i] + 1 <= no_rows
-                and cols[i] - 1 > 0
-            ):
-                # give the cell the value of the cell that is at the left Top
-                array[rows[i], cols[i]] = array[rows[i] + 1, cols[i] - 1]
-
-            elif (
-                array[rows[i] + 1, cols[i] + 1] != no_data_value
-                and rows[i] + 1 <= no_rows
-                and cols[i] + 1 <= no_cols
-            ):
-                # give the cell the value of the cell that is at the right Top
-                array[rows[i], cols[i]] = array[rows[i] + 1, cols[i] + 1]
+            row, col = rows[i], cols[i]
+            for delta_row, delta_col in _NEIGHBOUR_OFFSETS:
+                neighbour_row, neighbour_col = row + delta_row, col + delta_col
+                if not (
+                    0 <= neighbour_row < no_rows and 0 <= neighbour_col < no_cols
+                ):
+                    continue
+                neighbour = array[neighbour_row, neighbour_col]
+                if not is_no_data(neighbour, no_data_value):
+                    array[row, col] = neighbour
+                    break
             else:
                 logger.warning("the cell is isolated (No surrounding cells exist)")
         return array

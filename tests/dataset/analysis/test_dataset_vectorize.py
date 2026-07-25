@@ -11,6 +11,7 @@ from pandas import DataFrame
 from shapely.geometry import MultiPoint, Point, Polygon
 
 from pyramids.dataset import Dataset
+from pyramids.dataset.engines.vectorize import Vectorize
 
 pytestmark = pytest.mark.core
 
@@ -483,3 +484,74 @@ class TestToFeatureCollectionMaskTiling:
         """
         tiled = masked_dataset.to_feature_collection(tile=True, tile_size=4)
         assert len(tiled) == 100, f"expected all 100 cells, got {len(tiled)}"
+
+
+class TestNearestNeighbourFill:
+    """ARC-28: the neighbour search must check bounds before it indexes."""
+
+    NO_DATA = -9999.0
+
+    def test_falls_back_when_the_right_neighbour_is_no_data(self):
+        """An interior cell is filled from another direction, not skipped.
+
+        Test scenario:
+            The old chain gated every fallback on whether a right-hand
+            neighbour *existed*, so an interior cell whose right neighbour was
+            itself no-data fell through the entire chain and stayed unfilled.
+        """
+        array = np.array(
+            [[1.0, 2.0, 3.0], [4.0, self.NO_DATA, self.NO_DATA], [7.0, 8.0, 9.0]]
+        )
+        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [1])
+        assert filled[1, 1] != self.NO_DATA, (
+            "a cell with a valid left neighbour must be filled even when the "
+            "right neighbour is no-data"
+        )
+
+    def test_first_column_does_not_wrap_to_the_last(self):
+        """Column 0 never reads index -1.
+
+        Test scenario:
+            `array[row, col - 1]` was evaluated before the `col - 1 > 0` guard,
+            so at column 0 it silently wrapped to the last column and copied a
+            value from the opposite edge of the raster.
+        """
+        array = np.array(
+            [[1.0, 2.0, 3.0], [self.NO_DATA, 5.0, 6.0], [7.0, 8.0, 9.0]]
+        )
+        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [0])
+        assert filled[1, 0] == 5.0, (
+            f"expected the right neighbour 5.0; got {filled[1, 0]} (6.0 would mean "
+            "a wrap to the last column)"
+        )
+
+    def test_last_row_does_not_raise(self):
+        """A cell on the bottom row is handled without an IndexError.
+
+        Test scenario:
+            `array[row + 1, col]` was indexed before its `row + 1 < no_rows`
+            guard, so any no-data cell on the last row raised.
+        """
+        array = np.array(
+            [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, self.NO_DATA, self.NO_DATA]]
+        )
+        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [2], [2])
+        assert filled[2, 2] != self.NO_DATA, "the bottom-right cell must be filled"
+
+    def test_documented_case_is_unchanged(self):
+        """The behaviour shown in the docstring still holds."""
+        array = np.array(
+            [[1.0, 2.0, 3.0], [4.0, self.NO_DATA, 6.0], [7.0, 8.0, 9.0]]
+        )
+        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [1])
+        assert filled[1, 1] == 6.0, (
+            f"the documented example must still yield 6.0, got {filled[1, 1]}"
+        )
+
+    def test_isolated_cell_stays_no_data(self):
+        """A cell with no valid neighbour at all is left alone."""
+        array = np.full((3, 3), self.NO_DATA)
+        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [1])
+        assert filled[1, 1] == self.NO_DATA, (
+            f"an isolated cell must stay no-data, got {filled[1, 1]}"
+        )
