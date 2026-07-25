@@ -204,6 +204,13 @@ class RasterBase(ABC):
         example :func:`pyramids.stac.load_asset` with a Requester-Pays or
         bearer-token signer. Empty for an ordinary local or anonymous open.
 
+        Note:
+            This is a **property**, while the same-named
+            :meth:`pyramids.stac.signers.Signer.gdal_env` is a *method* — the
+            two meet in one workflow (`load_asset(signer=…)` then `ds.gdal_env`),
+            so `ds.gdal_env()` is an easy slip that fails with
+            `TypeError: 'dict' object is not callable`.
+
         Returns:
             A copy of the captured config, so mutating it does not affect the
             dataset.
@@ -282,6 +289,11 @@ class RasterBase(ABC):
 
         The GDAL handle is therefore opened **on the receiving process
         / thread**, which is the invariant dask.distributed needs.
+
+        Recipes written before the config existed still unpickle here (the
+        parameter defaults), but a recipe written by *this* version needs a
+        reader that accepts four arguments — so a mixed-version cluster has to
+        upgrade the workers, not only the client.
 
         Raises:
             TypeError: The dataset has no on-disk path (empty

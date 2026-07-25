@@ -25,6 +25,10 @@ pytestmark = pytest.mark.core
 ENV = {"AWS_REQUEST_PAYER": "requester"}
 
 
+class _StopOpen(Exception):
+    """Sentinel raised by the reader spy so the open aborts after its probe."""
+
+
 @pytest.fixture
 def tif(tmp_path):
     """A small single-band GeoTIFF path.
@@ -32,7 +36,9 @@ def tif(tmp_path):
     Returns:
         str: Path to a 4x4 EPSG:4326 raster filled with 7.0.
     """
-    return write_raster(tmp_path / "signed.tif", np.full((4, 4), 7.0, "float32"), (0.0, 4.0))
+    return write_raster(
+        tmp_path / "signed.tif", np.full((4, 4), 7.0, "float32"), (0.0, 4.0)
+    )
 
 
 class TestGdalEnvCapture:
@@ -44,7 +50,9 @@ class TestGdalEnvCapture:
         Test scenario:
             No `gdal_env=` argument -> `{}`, so unsigned reads pay nothing.
         """
-        assert Dataset.read_file(tif).gdal_env == {}, "an ordinary open must capture nothing"
+        assert Dataset.read_file(tif).gdal_env == {}, (
+            "an ordinary open must capture nothing"
+        )
 
     def test_open_captures_the_env(self, tif):
         """`gdal_env=` is retained on the dataset.
@@ -71,16 +79,17 @@ class TestGdalEnvCapture:
             A reader stub reads `AWS_REQUEST_PAYER` at open time.
         """
         captured = {}
-        original = Dataset.read_file.__func__
 
         def spy(path, *args, **kwargs):
             captured["payer"] = gdal.GetConfigOption("AWS_REQUEST_PAYER")
-            return None
+            raise _StopOpen
 
         monkeypatch.setattr("pyramids._io.read_file", spy)
-        with pytest.raises(Exception):
-            original(Dataset, tif, gdal_env=ENV)
-        assert captured["payer"] == "requester", f"env not active at open: {captured}"
+        with pytest.raises(_StopOpen):
+            Dataset.read_file(tif, gdal_env=ENV)
+        assert captured.get("payer") == "requester", (
+            f"env not active at open: {captured}"
+        )
 
 
 class TestGdalEnvOnReads:
@@ -120,7 +129,9 @@ class TestGdalEnvOnReads:
 
         monkeypatch.setattr(io_engine.IO, "_read_via_handle", spy)
         Dataset.read_file(tif, gdal_env=ENV).read_array(threadsafe=True)
-        assert seen["payer"] == "requester", f"env not active in threadsafe read: {seen}"
+        assert seen["payer"] == "requester", (
+            f"env not active in threadsafe read: {seen}"
+        )
 
     def test_unsigned_read_installs_nothing(self, tif, monkeypatch):
         """An ordinary dataset leaves the option unset during a read.
@@ -197,7 +208,11 @@ class TestCollectionHandsEnvToTimesteps:
             file unauthenticated even though the collection knows the config.
         """
         paths = [
-            write_raster(tmp_path / f"t{i}.tif", np.full((3, 3), float(i), "float32"), (0.0, 3.0))
+            write_raster(
+                tmp_path / f"t{i}.tif",
+                np.full((3, 3), float(i), "float32"),
+                (0.0, 3.0),
+            )
             for i in range(2)
         ]
         collection = DatasetCollection.from_files(paths, gdal_env=ENV)
@@ -212,7 +227,11 @@ class TestCollectionHandsEnvToTimesteps:
             No config on the collection -> none on its timesteps.
         """
         paths = [
-            write_raster(tmp_path / f"u{i}.tif", np.full((3, 3), float(i), "float32"), (0.0, 3.0))
+            write_raster(
+                tmp_path / f"u{i}.tif",
+                np.full((3, 3), float(i), "float32"),
+                (0.0, 3.0),
+            )
             for i in range(2)
         ]
         collection = DatasetCollection.from_files(paths)
