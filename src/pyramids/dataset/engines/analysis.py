@@ -194,9 +194,13 @@ class Analysis(_Engine["Dataset"]):
                 Number of cells.
         """
         arr = self._ds.read_array(band=band)
-        domain_count = np.size(arr[:, :]) - np.count_nonzero(
-            arr[is_no_data(arr, self._ds.no_data_value[band])]
-        )
+        # Count the no-data cells directly rather than counting the *non-zero* values
+        # among them. `count_nonzero(arr[mask])` asks "how many no-data cells hold a
+        # non-zero value", which equals the no-data count only while the sentinel
+        # happens to be non-zero; with `no_data_value == 0` it is always 0, so nothing
+        # was subtracted and every cell counted as domain.
+        no_data_count = int(is_no_data(arr, self._ds.no_data_value[band]).sum())
+        domain_count = arr.size - no_data_count
         return int(domain_count)
 
     def apply(self, func, band: int = 0, inplace: bool = False) -> Dataset | None:
