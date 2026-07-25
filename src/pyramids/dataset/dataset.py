@@ -2096,13 +2096,16 @@ class Dataset(RasterBase):
             gdal_env (dict[str, str] | None):
                 Optional GDAL config (cloud credentials, HTTP knobs) installed
                 for this open **and captured on the returned dataset**, so it is
-                re-installed around every later read. Needed by the read paths
-                that open the file again instead of reusing this handle: a VRT
-                opening its sources on first pixel read, ``threadsafe=True``
-                per-thread handles, lazy ``chunks=`` reads inside dask tasks,
-                and unpickling on a worker. :func:`pyramids.stac.load_asset`
-                passes a signer's ``gdal_env()`` here. Default ``None`` — no
-                extra config, nothing captured.
+                re-installed around its reads. Needed by the read paths that
+                open the file again instead of reusing this handle:
+                ``threadsafe=True`` per-thread handles, lazy ``chunks=`` reads
+                inside dask tasks, and unpickling on a worker.
+                :func:`pyramids.stac.load_asset` passes a signer's
+                ``gdal_env()`` here. It does **not** reach a VRT's source opens
+                — GDAL ignores the thread-local config there, so
+                :func:`pyramids.stac.build_vrt_from_stac` puts those credentials
+                in the source path instead. Default ``None`` — no extra config,
+                nothing captured.
 
         Returns:
             Dataset:

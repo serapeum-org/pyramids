@@ -266,3 +266,84 @@ class TestGdalEnvOnLazyReads:
         monkeypatch.setattr(ops_io, "_read_chunk", spy)
         Dataset.read_file(tif).read_array(chunks=-1).compute()
         assert seen["gdal_env"] is None, f"unexpected env on an unsigned read: {seen}"
+
+
+class TestGdalEnvOnEveryReadPath:
+    """Coverage is structural: every decorated read primitive installs the config.
+
+    The first cut wrapped three call sites by hand, so `read_array()` carried the
+    credentials but `read_array(out_shape=...)`, `get_tile()` and the COG-engine
+    reads did not — an inconsistency users would hit as a puzzle.
+    """
+
+    @staticmethod
+    def _payer_during(callable_):
+        """Run `callable_` and return AWS_REQUEST_PAYER as GDAL saw it."""
+        seen = {}
+        originals = (gdal.Band.ReadAsArray, gdal.Dataset.ReadAsArray)
+
+        def make_spy(original):
+            def spy(self, *args, **kwargs):
+                seen.setdefault("payer", gdal.GetConfigOption("AWS_REQUEST_PAYER"))
+                return original(self, *args, **kwargs)
+
+            return spy
+
+        gdal.Band.ReadAsArray = make_spy(originals[0])
+        gdal.Dataset.ReadAsArray = make_spy(originals[1])
+        try:
+            callable_()
+        finally:
+            gdal.Band.ReadAsArray, gdal.Dataset.ReadAsArray = originals
+        return seen.get("payer")
+
+    def test_decimated_read_installs_the_env(self, tif):
+        """`out_shape=` decimated reads carry the config.
+
+        Test scenario:
+            The natural way to preview a large scene must not 403 where a plain
+            read succeeds.
+        """
+        ds = Dataset.read_file(tif, gdal_env=ENV)
+        payer = self._payer_during(lambda: ds.read_array(out_shape=(2, 2)))
+        assert payer == "requester", f"decimated read ran without the config: {payer}"
+
+    def test_boundless_read_installs_the_env(self, tif):
+        """Boundless reads carry the config.
+
+        Test scenario:
+            A window extending past the raster still reads real pixels inside it.
+        """
+        ds = Dataset.read_file(tif, gdal_env=ENV)
+        payer = self._payer_during(
+            lambda: ds.read_array(window=[-1, -1, 3, 3], boundless=True)
+        )
+        assert payer == "requester", f"boundless read ran without the config: {payer}"
+
+    def test_get_tile_installs_the_env(self, tif):
+        """Tiled iteration carries the config.
+
+        Test scenario:
+            `get_tile` walks the raster block by block off the shared handle.
+        """
+        ds = Dataset.read_file(tif, gdal_env=ENV)
+        payer = self._payer_during(lambda: list(ds.get_tile(size=2)))
+        assert payer == "requester", f"get_tile ran without the config: {payer}"
+
+    def test_cog_preview_installs_the_env(self, tmp_path):
+        """A COG-engine read carries the config.
+
+        Test scenario:
+            `ds.cog.preview()` opens and decimates through the COG engine, which
+            has its own read path independent of `IO`.
+        """
+        source = Dataset.create_from_array(
+            np.full((64, 64), 5.0, "float32"),
+            top_left_corner=(0.0, 64.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        cog_path = str(source.to_cog(tmp_path / "c.tif"))
+        ds = Dataset.read_file(cog_path, gdal_env=ENV)
+        payer = self._payer_during(lambda: ds.cog.preview(max_size=8))
+        assert payer == "requester", f"COG preview ran without the config: {payer}"

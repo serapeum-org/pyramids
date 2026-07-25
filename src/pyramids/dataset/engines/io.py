@@ -37,7 +37,11 @@ from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import resolve_resampling
 from pyramids.base.crs import reproject_coordinates
 from pyramids.base.protocols import ArrayLike
-from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS, RESAMPLING_METHODS
+from pyramids.dataset.abstract_dataset import (
+    OVERVIEW_LEVELS,
+    RESAMPLING_METHODS,
+    under_gdal_env,
+)
 from pyramids.dataset.engines.cog import (
     _RESAMPLING_ALG,
     _WEB_MERCATOR_HALF_EXTENT,
@@ -778,9 +782,11 @@ class IO(_Engine["Dataset"]):
             arr = self._threadsafe_eager_read(band=band, window=window)
             self._ds._backend = "numpy"
         else:
-            # The shared handle still needs the captured cloud config: a
-            # VRT-backed dataset opens its *sources* here, on the first pixel
-            # read, long after the handle itself was created.
+            # The full-band branch reads straight off the shared handle instead
+            # of going through a `@under_gdal_env` primitive, so it installs the
+            # captured config itself. This does *not* rescue a VRT's sources —
+            # GDAL ignores the thread-local config when opening those, so their
+            # credentials ride the source path instead (see `pyramids.stac._vrt`).
             with self._ds._cloud_config():
                 if band is None and self._ds.band_count > 1:
                     if window is None:
@@ -953,6 +959,7 @@ class IO(_Engine["Dataset"]):
                     self._ds._thread_manager = manager
         return manager
 
+    @under_gdal_env
     def _read_via_handle(
         self,
         handle: gdal.Dataset,
@@ -1218,6 +1225,7 @@ class IO(_Engine["Dataset"]):
         )
         return arr
 
+    @under_gdal_env
     def _decimated_read(
         self,
         band: int | None,
@@ -1336,6 +1344,7 @@ class IO(_Engine["Dataset"]):
             ) from exc
         return np.asarray(block)
 
+    @under_gdal_env
     def _boundless_read(
         self,
         band: int | None,
@@ -1402,6 +1411,7 @@ class IO(_Engine["Dataset"]):
         result = planes[0] if not all_bands else np.stack(planes, axis=0)
         return result
 
+    @under_gdal_env
     def _read_block(
         self,
         band: int,
@@ -1873,6 +1883,7 @@ class IO(_Engine["Dataset"]):
         )
         return df
 
+    @under_gdal_env
     def to_file(
         self,
         path: str | Path,
@@ -2217,6 +2228,7 @@ class IO(_Engine["Dataset"]):
                 xsize = size if size + xoff <= cols else cols - xoff
                 yield xoff, yoff, xsize, ysize
 
+    @under_gdal_env
     def get_tile(self, size=256) -> Generator[np.typing.NDArray]:
         """Get tile.
 

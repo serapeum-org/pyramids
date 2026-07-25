@@ -38,6 +38,7 @@ from pyramids.dataset.cog import (
     validate_profile,
 )
 from pyramids.dataset.cog.validate import _resolve_read_config, config_context
+from pyramids.dataset.abstract_dataset import under_gdal_env
 from pyramids.dataset.engines._base import _Engine
 
 if TYPE_CHECKING:
@@ -884,6 +885,7 @@ class COG(_Engine["Dataset"]):
             return None
         return fn
 
+    @under_gdal_env
     def read_part(
         self,
         bbox: tuple[float, float, float, float],
@@ -1048,6 +1050,7 @@ class COG(_Engine["Dataset"]):
             return cast(float, nodata)
         return 0 if is_integer_gdal_dtype(band.DataType) else float("nan")
 
+    @under_gdal_env
     def preview(
         self,
         *,
@@ -1098,6 +1101,7 @@ class COG(_Engine["Dataset"]):
             source.ReadAsArray(buf_xsize=out_w, buf_ysize=out_h, resample_alg=alg)
         )
 
+    @under_gdal_env
     def point(
         self,
         x: float,
@@ -1143,6 +1147,7 @@ class COG(_Engine["Dataset"]):
         arr = np.asarray(source.ReadAsArray(col, row, 1, 1))
         return arr.reshape(-1) if band is None else arr.reshape(())
 
+    @under_gdal_env
     def read_tile(
         self,
         z: int,

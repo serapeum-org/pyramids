@@ -16,8 +16,10 @@ compatibility with the module path; the class itself was renamed from
 
 from __future__ import annotations
 
+import functools
+import inspect
 from abc import ABC, abstractmethod
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -60,6 +62,44 @@ RESAMPLING_METHODS = [
     "RMS",
     "BILINEAR",
 ]
+
+
+def under_gdal_env(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Run an engine read under the dataset's captured cloud config.
+
+    The engines reach their dataset through `self._ds`, so one decorator covers
+    every pixel-producing entry point without each one remembering to open a
+    `with` block — the coverage is structural, and a newly added read path opts
+    in by being decorated rather than by being added to a list.
+
+    Nesting is harmless: the inner config is a `nullcontext` for an unsigned
+    dataset, and an identical `gdal.config_options` install otherwise.
+
+    A generator method (`get_tile`) is wrapped so the config covers every
+    `yield` rather than only the call that builds the generator — its pixels are
+    read while the caller iterates, long after that call returned.
+
+    Args:
+        method: An engine method whose `self` exposes `_ds`.
+
+    Returns:
+        The method wrapped so `RasterBase._cloud_config` is installed around it.
+    """
+    if inspect.isgeneratorfunction(method):
+
+        @functools.wraps(method)
+        def generator_wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+            with self._ds._cloud_config():
+                yield from method(self, *args, **kwargs)
+
+        return generator_wrapper
+
+    @functools.wraps(method)
+    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+        with self._ds._cloud_config():
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 def _reconstruct_dataset(
@@ -127,12 +167,15 @@ class RasterBase(ABC):
         self._access = access
         self._raster = src
         # Cloud credentials/config this dataset was opened with (a STAC signer's
-        # gdal_env, say). Re-installed around every read, because several read
-        # paths do not go through the handle opened above: a VRT opens its
-        # sources lazily on first pixel read, `threadsafe=True` opens one handle
-        # per thread, a lazy `chunks=` read opens inside the dask task, and
-        # unpickling on a worker re-opens from the path. A plain dict so it
-        # survives pickling. Empty (the common case) costs a `nullcontext`.
+        # gdal_env, say). Re-installed around the reads that do not go through
+        # the handle opened above: `threadsafe=True` opens one handle per
+        # thread, a lazy `chunks=` read opens inside the dask task, and
+        # unpickling on a worker re-opens from the path. Applied structurally by
+        # the `@under_gdal_env` decorator on the engine read primitives. A plain
+        # dict so it survives pickling; empty (the common case) costs a
+        # `nullcontext`. It does *not* reach a VRT's source opens — GDAL ignores
+        # the thread-local config there, so those credentials ride the source
+        # path instead (see `pyramids.stac._vrt`).
         self._gdal_env: dict[str, str] = dict(gdal_env) if gdal_env else {}
         # Per-thread file manager for read_array(threadsafe=True); created
         # lazily by the IO engine and released by close().
