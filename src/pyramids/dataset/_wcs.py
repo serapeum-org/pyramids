@@ -57,6 +57,7 @@ from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_ne
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WCSError
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
+from pyramids.base._ogc_api import http_get_with_retry as _http_get_with_retry
 from pyramids.base._ogc_api import read_http_error as _read_http_error
 
 # Cap on how much of an HTTP-error body is inlined into a WCSError message; the
@@ -194,6 +195,10 @@ def _http_get(
     sites keep a uniform error contract. On a genuine HTTP-error status (4xx/5xx)
     the raised :class:`WCSError` also carries the ``status_code`` and the decoded
     ``response_body`` so a caller can inspect the server's explanation.
+
+    A dropped connection or a transient 5xx is retried with backoff (see
+    :func:`pyramids.base._ogc_api.http_get_with_retry`) before the failure is
+    turned into a :class:`WCSError`; a 4xx is surfaced on the first attempt.
     """
     opener = urllib.request.build_opener()
     if auth is not None:
@@ -201,8 +206,7 @@ def _http_get(
         mgr.add_password(None, url, auth[0], auth[1])
         opener.add_handler(urllib.request.HTTPBasicAuthHandler(mgr))
     try:
-        with opener.open(url, timeout=timeout) as resp:
-            return cast(bytes, resp.read())
+        return cast(bytes, _http_get_with_retry(url, timeout, opener=opener))
     except urllib.error.HTTPError as exc:
         # A 4xx/5xx status carries a body with the server's real explanation
         # (non-spec shims return e.g. a JSON {"message": ...}); surface it in the

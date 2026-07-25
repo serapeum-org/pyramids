@@ -27,6 +27,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
 )
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg, sr_from_user_input
+from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
 from pyramids.dataset._wcs import from_wcs as _from_wcs
 from pyramids.dataset._wms import from_wms as _from_wms
@@ -258,10 +259,16 @@ class Dataset(RasterBase):
     _band_dim_sizes: tuple[int, ...]
     _variable_attrs: dict[str, Any]
 
-    def __init__(self, src: gdal.Dataset, access: str = "read_only"):
+    def __init__(
+        self,
+        src: gdal.Dataset,
+        access: str = "read_only",
+        *,
+        gdal_env: dict[str, str] | None = None,
+    ):
         """__init__."""
         self.logger = logging.getLogger(__name__)
-        super().__init__(src, access=access)
+        super().__init__(src, access=access, gdal_env=gdal_env)
 
         self._no_data_value = [
             src.GetRasterBand(i).GetNoDataValue() for i in range(1, self.band_count + 1)
@@ -2053,6 +2060,7 @@ class Dataset(RasterBase):
         file_i: int = 0,
         *,
         vsi: str | None = None,
+        gdal_env: dict[str, str] | None = None,
     ) -> Dataset:
         """Open a raster from a path, URL, or archive member.
 
@@ -2085,6 +2093,16 @@ class Dataset(RasterBase):
                 download URL must first be fetched and saved with a ``.zip``
                 name (or written to ``/vsimem/<name>.zip`` via
                 :func:`osgeo.gdal.FileFromMemBuffer`).
+            gdal_env (dict[str, str] | None):
+                Optional GDAL config (cloud credentials, HTTP knobs) installed
+                for this open **and captured on the returned dataset**, so it is
+                re-installed around every later read. Needed by the read paths
+                that open the file again instead of reusing this handle: a VRT
+                opening its sources on first pixel read, ``threadsafe=True``
+                per-thread handles, lazy ``chunks=`` reads inside dask tasks,
+                and unpickling on a worker. :func:`pyramids.stac.load_asset`
+                passes a signer's ``gdal_env()`` here. Default ``None`` — no
+                extra config, nothing captured.
 
         Returns:
             Dataset:
@@ -2093,11 +2111,15 @@ class Dataset(RasterBase):
         See Also:
             - :meth:`read_array`: read the values stored in a dataset band.
             - :meth:`from_bytes`: open a raster held in memory.
+            - :attr:`gdal_env`: the config captured by ``gdal_env=``.
             - :meth:`pyramids.dataset.DatasetCollection.from_archive`: open
               *every* member of an archive as a temporal stack.
         """
-        src = _io.read_file(path, read_only=read_only, file_i=file_i, vsi=vsi)
-        return cls(src, access="read_only" if read_only else "write")
+        with cloud_config_from_env(gdal_env):
+            src = _io.read_file(path, read_only=read_only, file_i=file_i, vsi=vsi)
+        return cls(
+            src, access="read_only" if read_only else "write", gdal_env=gdal_env
+        )
 
     @classmethod
     def from_bytes(

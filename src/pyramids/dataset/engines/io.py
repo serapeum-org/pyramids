@@ -778,41 +778,46 @@ class IO(_Engine["Dataset"]):
             arr = self._threadsafe_eager_read(band=band, window=window)
             self._ds._backend = "numpy"
         else:
-            if band is None and self._ds.band_count > 1:
-                if window is None:
-                    arr = np.ones(
-                        (
-                            self._ds.band_count,
-                            self._ds.rows,
-                            self._ds.columns,
-                        ),
-                        dtype=self._ds.numpy_dtype[0],
-                    )
-                    for i in range(self._ds.band_count):
-                        arr[i, :, :] = self._ds._raster.GetRasterBand(
-                            i + 1
-                        ).ReadAsArray()
+            # The shared handle still needs the captured cloud config: a
+            # VRT-backed dataset opens its *sources* here, on the first pixel
+            # read, long after the handle itself was created.
+            with self._ds._cloud_config():
+                if band is None and self._ds.band_count > 1:
+                    if window is None:
+                        arr = np.ones(
+                            (
+                                self._ds.band_count,
+                                self._ds.rows,
+                                self._ds.columns,
+                            ),
+                            dtype=self._ds.numpy_dtype[0],
+                        )
+                        for i in range(self._ds.band_count):
+                            arr[i, :, :] = self._ds._raster.GetRasterBand(
+                                i + 1
+                            ).ReadAsArray()
+                    else:
+                        # ``window`` here is a resolved pixel window (``Window``
+                        # or a ``[col_off, row_off, cols, rows]`` list — any
+                        # geometry window was converted to one above). Stack
+                        # per-band block reads so ``_read_block`` applies the
+                        # identical window to every band without re-parsing its
+                        # dimensions here.
+                        arr = np.stack(
+                            [
+                                self._read_block(i, window)
+                                for i in range(self._ds.band_count)
+                            ],
+                            axis=0,
+                        )
                 else:
-                    # ``window`` here is a resolved pixel window (``Window`` or
-                    # a ``[col_off, row_off, cols, rows]`` list — any geometry
-                    # window was converted to one above). Stack per-band block
-                    # reads so ``_read_block`` applies the identical window to
-                    # every band without re-parsing its dimensions here.
-                    arr = np.stack(
-                        [
-                            self._read_block(i, window)
-                            for i in range(self._ds.band_count)
-                        ],
-                        axis=0,
-                    )
-            else:
-                _validate_band_index(band, self._ds.band_count)
-                if band is None:
-                    band = 0
-                if window is None:
-                    arr = self._ds._iloc(band).ReadAsArray()
-                else:
-                    arr = self._read_block(band, window)
+                    _validate_band_index(band, self._ds.band_count)
+                    if band is None:
+                        band = 0
+                    if window is None:
+                        arr = self._ds._iloc(band).ReadAsArray()
+                    else:
+                        arr = self._read_block(band, window)
             self._ds._backend = "numpy"
             if masked:
                 arr = self._to_masked(arr, band, window=window)
@@ -896,17 +901,21 @@ class IO(_Engine["Dataset"]):
         # Normalize to the list[int] _read_via_handle expects -- window may still
         # be a tuple here (e.g. straight from Window.to_read_args()).
         window_list = list(window) if window is not None else None
-        handle = self._get_thread_manager().acquire()
-        try:
-            arr = self._read_via_handle(handle, band, window_list)
-        except RuntimeError as exc:
-            # Same contract as the default path's _read_block.
-            if "Access window out of range" in str(exc):
-                raise OutOfBoundsError(
-                    f"The window you entered ({window}) is out of the raster "
-                    f"bounds: {self._ds.rows, self._ds.columns}"
-                ) from exc
-            raise
+        # This path opens a *new* handle per thread from the dataset's path, so
+        # the credentials captured at the original open have to be re-installed
+        # around both the open and the read (the shared handle is not used).
+        with self._ds._cloud_config():
+            handle = self._get_thread_manager().acquire()
+            try:
+                arr = self._read_via_handle(handle, band, window_list)
+            except RuntimeError as exc:
+                # Same contract as the default path's _read_block.
+                if "Access window out of range" in str(exc):
+                    raise OutOfBoundsError(
+                        f"The window you entered ({window}) is out of the raster "
+                        f"bounds: {self._ds.rows, self._ds.columns}"
+                    ) from exc
+                raise
         return np.asarray(arr)
 
     def _get_thread_manager(self) -> ThreadLocalFileManager:
@@ -1202,6 +1211,10 @@ class IO(_Engine["Dataset"]):
             band=effective_band,
             out_dtype=dtype,
             single_band=single_band,
+            # Chunks open the file inside the dask task, long after (and
+            # possibly in another process from) this call, so the captured
+            # cloud config travels with the task as a plain dict.
+            gdal_env=self._ds._gdal_env or None,
         )
         return arr
 

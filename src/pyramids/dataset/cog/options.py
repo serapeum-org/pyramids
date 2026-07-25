@@ -71,12 +71,19 @@ COG_READ_DEFAULTS: dict[str, str] = {
     "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
     "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff",
     "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
+    "GDAL_HTTP_MULTIRANGE": "YES",
+    "GDAL_HTTP_MAX_RETRY": "3",
+    "GDAL_HTTP_RETRY_DELAY": "0.5",
     "VSI_CACHE": "TRUE",
 }
 """GDAL config options that make remote ``/vsicurl/`` COG reads efficient.
 
 Without ``GDAL_DISABLE_READDIR_ON_OPEN`` a remote open issues a directory
-listing — often the single biggest latency hit. Applied by
+listing — often the single biggest latency hit. ``GDAL_HTTP_MULTIRANGE`` lets
+GDAL issue the scattered tile ranges a COG read produces as one multi-range
+request (``GDAL_HTTP_MERGE_CONSECUTIVE_RANGES`` then coalesces the adjacent
+ones), and the retry pair rides out a transient 5xx from object storage instead
+of failing the whole read. Applied by
 :func:`pyramids.dataset.cog.validate.validate` and
 :func:`pyramids.dataset.cog.inspect.cog_info` for remote paths when the caller
 passes no explicit ``config``. Pure strings (no GDAL dependency here)."""

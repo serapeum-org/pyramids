@@ -559,8 +559,14 @@ class DatasetCollection:
                 # SAS) around every per-timestep open so a signed file-backed
                 # collection authenticates its Path A reads, not just the
                 # template open in from_files. A no-op when _gdal_env is empty.
+                # It is also handed to each Dataset, so the env is re-installed
+                # around their *reads* too: the open alone does not cover a
+                # per-thread or lazy-chunk read, which re-opens the file.
+                env = self._gdal_env or None
                 with cloud_config_from_env(self._gdal_env):
-                    self._datasets = [Dataset.read_file(str(p)) for p in self._files]
+                    self._datasets = [
+                        Dataset.read_file(str(p), gdal_env=env) for p in self._files
+                    ]
             else:
                 self._datasets = [self._base] * self._time_length
         return self._datasets

@@ -17,13 +17,18 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
+import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from functools import lru_cache
-from typing import Any
+from typing import Any, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 from pyramids.base._errors import OGCAPIError
+
+logger = logging.getLogger(__name__)
 
 # Headers for the urllib ``/collections`` pre-check. A real User-Agent avoids
 # services that block the default ``Python-urllib`` agent, and ``Accept`` adds
@@ -43,14 +48,175 @@ NO_MESSAGE = "no message provided"
 GDAL_HTTP_AUTH_VAR = "GDAL_HTTP_USER" + "PWD"
 
 
+HTTP_RETRY_ATTEMPTS = 3
+"""Total attempts (initial + retries) for a transient discovery-request failure."""
+
+HTTP_RETRY_DELAY = 0.5
+"""Base backoff in seconds; attempt *n* waits ``HTTP_RETRY_DELAY * 2 ** n``."""
+
+RETRYABLE_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+"""HTTP statuses worth retrying: rate limiting and transient server/gateway faults.
+
+Every other 4xx is a client error — a bad endpoint, bad credentials, an unknown
+collection — and retrying it only multiplies the latency of a certain failure.
+"""
+
+
 def gdal_http_config(auth: tuple[str, str] | None, timeout: float) -> dict[str, str]:
-    """GDAL config options for the OGC HTTP requests (auth + timeout)."""
+    """GDAL config options for the OGC HTTP requests (auth + timeout + retries).
+
+    The retry knobs mirror :func:`http_get_with_retry`, which guards the urllib
+    discovery fetch, so the GDAL driver read and the pre-check ride out the same
+    class of transient fault instead of only one of them being resilient.
+
+    Args:
+        auth: Optional `(user, password)` pair for HTTP Basic auth. `None`
+            leaves the request unauthenticated.
+        timeout: Request timeout in seconds. Clamped to a whole second `>= 1`,
+            because GDAL truncates `GDAL_HTTP_TIMEOUT` and reads `"0"` as *no
+            timeout*.
+
+    Returns:
+        The GDAL config mapping to install around the driver read.
+
+    Examples:
+        - An unauthenticated read carries a timeout and a retry budget:
+            ```python
+            >>> from pyramids.base._ogc_api import gdal_http_config
+            >>> config = gdal_http_config(None, 60.0)
+            >>> config["GDAL_HTTP_TIMEOUT"]
+            '60'
+            >>> config["GDAL_HTTP_MAX_RETRY"]
+            '3'
+
+            ```
+        - Credentials are sent as GDAL's user:password pair:
+            ```python
+            >>> from pyramids.base._ogc_api import gdal_http_config
+            >>> gdal_http_config(("ada", "s3cret"), 30.0)["GDAL_HTTP_USERPWD"]
+            'ada:s3cret'
+
+            ```
+        - A sub-second timeout is clamped so GDAL does not read it as "no timeout":
+            ```python
+            >>> from pyramids.base._ogc_api import gdal_http_config
+            >>> gdal_http_config(None, 0.25)["GDAL_HTTP_TIMEOUT"]
+            '1'
+
+            ```
+
+    See Also:
+        - :func:`http_get_with_retry`: the urllib-side counterpart guarding the
+          `/collections` and `GetCapabilities` fetches.
+    """
     # GDAL_HTTP_TIMEOUT is whole seconds; clamp to >= 1 so a sub-second timeout is
     # not truncated to "0", which GDAL reads as "no timeout".
-    config = {"GDAL_HTTP_TIMEOUT": str(max(1, int(timeout)))}
+    config = {
+        "GDAL_HTTP_TIMEOUT": str(max(1, int(timeout))),
+        "GDAL_HTTP_MAX_RETRY": str(HTTP_RETRY_ATTEMPTS),
+        "GDAL_HTTP_RETRY_DELAY": str(HTTP_RETRY_DELAY),
+    }
     if auth is not None:
         config[GDAL_HTTP_AUTH_VAR] = f"{auth[0]}:{auth[1]}"
     return config
+
+
+def http_get_with_retry(
+    target: Any,
+    timeout: float,
+    *,
+    opener: urllib.request.OpenerDirector | None = None,
+    attempts: int = HTTP_RETRY_ATTEMPTS,
+    delay: float = HTTP_RETRY_DELAY,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bytes:
+    """GET `target` and return the body, retrying transient failures.
+
+    The OGC discovery fetches (`/collections`, WCS `GetCapabilities`) are single
+    small requests in front of a much larger read, so a transient 502 or a
+    dropped connection failing them outright wastes the whole call. Retries use
+    exponential backoff and are limited to connection-level errors and the
+    statuses in :data:`RETRYABLE_STATUS`; any other HTTP error is raised on the
+    first attempt.
+
+    The failing exception is re-raised unchanged once the attempts are spent, so
+    callers keep their own error contracts (`OGCAPIError`, `WCSError`). The
+    body of an :class:`urllib.error.HTTPError` is never read here — it can be
+    read only once, and the caller needs it for its message.
+
+    Args:
+        target: A URL string or :class:`urllib.request.Request` to fetch.
+        timeout: Per-attempt timeout in seconds.
+        opener: Optional opener (e.g. one carrying a Basic-auth handler).
+            Defaults to :func:`urllib.request.urlopen`.
+        attempts: Total attempts including the first. `1` disables retrying.
+        delay: Base backoff in seconds; attempt *n* waits ``delay * 2 ** n``.
+        sleep: Sleep callable, injectable so tests need not wait.
+
+    Returns:
+        The response body as bytes.
+
+    Raises:
+        urllib.error.HTTPError: The server returned a non-retryable status, or a
+            retryable one on the final attempt.
+        OSError: The transport failed on the final attempt (`URLError` and
+            `ssl.SSLError` both derive from it).
+
+    Examples:
+        - A retryable status is retried and the recovered body returned:
+            ```python
+            >>> import io, urllib.error
+            >>> from pyramids.base._ogc_api import http_get_with_retry
+            >>> calls = []
+            >>> class _Opener:
+            ...     def open(self, target, timeout=None):
+            ...         calls.append(target)
+            ...         if len(calls) == 1:
+            ...             raise urllib.error.HTTPError(target, 503, "busy", {}, None)
+            ...         return io.BytesIO(b'{"collections": []}')
+            >>> http_get_with_retry(
+            ...     "https://h/collections", 5, opener=_Opener(), sleep=lambda s: None
+            ... )
+            b'{"collections": []}'
+            >>> len(calls)
+            2
+
+            ```
+        - A client error is raised immediately, without burning retries:
+            ```python
+            >>> import urllib.error
+            >>> calls = []
+            >>> class _NotFound:
+            ...     def open(self, target, timeout=None):
+            ...         calls.append(target)
+            ...         raise urllib.error.HTTPError(target, 404, "nope", {}, None)
+            >>> try:
+            ...     http_get_with_retry("https://h/x", 5, opener=_NotFound())
+            ... except urllib.error.HTTPError as exc:
+            ...     print(exc.code, len(calls))
+            404 1
+
+            ```
+    """
+    open_fn = opener.open if opener is not None else urllib.request.urlopen
+    payload: bytes | None = None
+    for attempt in range(attempts):
+        last = attempt == attempts - 1
+        try:
+            with open_fn(target, timeout=timeout) as response:  # nosec B310
+                payload = response.read()
+            break
+        except urllib.error.HTTPError as exc:
+            if last or exc.code not in RETRYABLE_STATUS:
+                raise
+            logger.debug("retrying %s after HTTP %s", target, exc.code)
+        except OSError as exc:
+            if last:
+                raise
+            logger.debug("retrying %s after %s", target, exc)
+        sleep(delay * 2**attempt)
+    # Unreachable with payload unset: the final attempt either breaks or raises.
+    return cast(bytes, payload)
 
 
 def append_path(endpoint: str, suffix: str) -> tuple[SplitResult, str]:
@@ -103,8 +269,7 @@ def get_collections(
         # urllib honours the raw float timeout (a sub-second value is a valid fast
         # timeout here); only the GDAL driver read clamps to >= 1s, because GDAL
         # truncates GDAL_HTTP_TIMEOUT to whole seconds and reads "0" as no timeout.
-        with urllib.request.urlopen(request, timeout=timeout) as resp:  # nosec B310
-            payload = resp.read()
+        payload = http_get_with_retry(request, timeout)
     except urllib.error.HTTPError as exc:
         # 4xx/5xx commonly carry an RFC 7807 problem document — surface its message.
         raise OGCAPIError(

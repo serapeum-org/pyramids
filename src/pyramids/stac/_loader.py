@@ -24,7 +24,7 @@ from typing import Any, cast
 
 from pyramids.base._errors import UnsupportedAssetError
 from pyramids.base._utils import import_zarr, lazy_extra_hint
-from pyramids.base.remote import signer_cloud_config
+from pyramids.base.remote import CloudConfig, cloud_config_from_env, is_remote
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.ops._geobox_zarr import detect_data_var
 from pyramids.dataset.ops._zarr import _resolve_store
@@ -124,6 +124,54 @@ def _engine_for(media_type: str | None, href: str) -> str:
             f"href={href!r}; supported: GeoTIFF/COG, JPEG2000, NetCDF, GRIB, Zarr."
         )
     return result
+
+
+def _open_config(href: str, engine: str, signer: Any) -> Any:
+    """Return the GDAL config context an asset open should run under.
+
+    A remote asset read by a GDAL engine gets the `/vsicurl/` fast-read preset
+    (readdir skip, HTTP/2 multiplexing, merged multi-range reads) merged with
+    the signer env, which always wins on a key conflict. Two cases opt out:
+
+    * **Local assets** — the preset's `GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`
+      would stop GDAL finding a local file's `.aux.xml` / world-file sidecars.
+    * **Zarr** — those assets are read by zarr/fsspec rather than GDAL, so GDAL
+      config is inert, and a readdir skip is wrong for a directory-style store.
+
+    Args:
+        href: The resolved (already signed) asset href.
+        engine: The reader chosen by :func:`_engine_for`.
+        signer: The signer whose `gdal_env()` to install, or `None`.
+
+    Returns:
+        A context manager installing the resolved config for the open.
+
+    Examples:
+        - A remote COG open gets the fast-read preset:
+            ```python
+            >>> from pyramids.stac._loader import _open_config
+            >>> _open_config("/vsicurl/https://h/a.tif", "gdal", None).as_gdal_config()[
+            ...     "GDAL_DISABLE_READDIR_ON_OPEN"
+            ... ]
+            'EMPTY_DIR'
+
+            ```
+        - A remote Zarr store opts out of the preset and keeps the signer env:
+            ```python
+            >>> class _S:
+            ...     def gdal_env(self):
+            ...         return {"AWS_REQUEST_PAYER": "requester"}
+            >>> _open_config("s3://b/store.zarr", "zarr", _S()).as_gdal_config()
+            {'AWS_REQUEST_PAYER': 'requester'}
+
+            ```
+    """
+    signer_env = signer.gdal_env() if signer is not None else None
+    if engine != "zarr" and is_remote(href):
+        config: Any = CloudConfig(vsicurl_tuning=True, extra=dict(signer_env or {}))
+    else:
+        config = cloud_config_from_env(signer_env)
+    return config
 
 
 def which_engine(item_or_asset: Any, asset_key: str | None = None) -> str:
@@ -290,16 +338,39 @@ def load_asset(
     if signer is not None:
         href = signer.sign_href(href)
     engine = _engine_for(media_type, href)
-    with signer_cloud_config(signer):
-        if engine == "grib":
-            result: Any = open_grib(href, vsi=vsi)
-        elif engine == "zarr":
-            result = _load_zarr(href)
-        elif engine == "netcdf":
-            result = NetCDF.read_file(href)
+    signer_env = signer.gdal_env() if signer is not None else None
+    with _open_config(href, engine, signer):
+        if engine == "gdal":
+            result: Any = Dataset.read_file(href, vsi=vsi, gdal_env=signer_env)
         else:
-            result = Dataset.read_file(href, vsi=vsi)
+            if engine == "grib":
+                result = open_grib(href, vsi=vsi)
+            elif engine == "zarr":
+                result = _load_zarr(href)
+            else:
+                result = NetCDF.read_file(href)
+            # Unlike Dataset.read_file these readers take no gdal_env=, so the
+            # signer env is attached to the opened object instead.
+            _persist_gdal_env(result, signer_env)
     return cast(Dataset, result)
+
+
+def _persist_gdal_env(result: Any, env: dict[str, str] | None) -> None:
+    """Capture the signer env on a reader that could not take it at open time.
+
+    `Dataset.read_file` accepts `gdal_env=` directly, but the GRIB, NetCDF and
+    Zarr readers do not widen their signatures for it. They all return a
+    :class:`~pyramids.dataset.abstract_dataset.RasterBase` (or a
+    :class:`~pyramids.dataset.DatasetCollection`), both of which carry the same
+    `_gdal_env` attribute and re-install it around their reads, so setting it
+    afterwards gives those engines the same read-time credentials.
+
+    Args:
+        result: The opened reader.
+        env: The signer's GDAL config, or `None` when there is no signer.
+    """
+    if env:
+        result._gdal_env = dict(env)
 
 
 def _load_zarr(href: str):

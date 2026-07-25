@@ -191,3 +191,47 @@ class TestConfigApplication:
         validate(float_cog, config={"PYRAMIDS_PC1_SENTINEL": "on"})
         after = gdal.GetConfigOption("PYRAMIDS_PC1_SENTINEL", "unset")
         assert before == "unset" and after == "unset", "config leaked outside context"
+
+
+class TestCogReadDefaultsContent:
+    """The remote-read defaults carry the knobs a cold COG read needs (ARC-73)."""
+
+    def test_skips_the_directory_listing(self):
+        """A remote open must not issue a directory listing.
+
+        Test scenario:
+            The listing is often the single biggest latency hit on a cold read.
+        """
+        assert COG_READ_DEFAULTS["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR", (
+            f"readdir not disabled: {COG_READ_DEFAULTS}"
+        )
+
+    def test_batches_the_tile_ranges(self):
+        """Scattered tile ranges are issued as one multi-range request.
+
+        Test scenario:
+            A COG read produces many small ranges; merging adjacent ones is not
+            enough on its own without multi-range batching.
+        """
+        assert COG_READ_DEFAULTS["GDAL_HTTP_MULTIRANGE"] == "YES", COG_READ_DEFAULTS
+        assert COG_READ_DEFAULTS["GDAL_HTTP_MERGE_CONSECUTIVE_RANGES"] == "YES", (
+            COG_READ_DEFAULTS
+        )
+
+    def test_rides_out_a_transient_fault(self):
+        """A transient 5xx from object storage does not fail the whole read.
+
+        Test scenario:
+            Without a retry budget one flaky range request kills the read.
+        """
+        assert COG_READ_DEFAULTS["GDAL_HTTP_MAX_RETRY"] == "3", COG_READ_DEFAULTS
+        assert COG_READ_DEFAULTS["GDAL_HTTP_RETRY_DELAY"] == "0.5", COG_READ_DEFAULTS
+
+    def test_values_are_strings(self):
+        """Every default is a string, as gdal.config_options requires.
+
+        Test scenario:
+            A non-string value raises when the config is installed.
+        """
+        bad = {k: v for k, v in COG_READ_DEFAULTS.items() if not isinstance(v, str)}
+        assert not bad, f"non-string config values: {bad}"

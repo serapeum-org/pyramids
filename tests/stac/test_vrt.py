@@ -16,6 +16,9 @@ from pyramids.stac import _vrt
 from pyramids.stac._vrt import (
     _check_dropped_sources,
     _dropped_sources,
+    _embed_source_options,
+    _source_config,
+    _warn_unembeddable_credentials,
     build_vrt_from_stac,
 )
 from tests._helpers import write_raster
@@ -321,6 +324,197 @@ class TestBuildVrtSourceCompleteness:
         items = [{"assets": {"data": {"href": str(tmp_path / "nope.tif")}}}]
         with pytest.raises(RuntimeError, match="returned None"):
             build_vrt_from_stac(items, asset="data")
+
+
+class TestSourceCredentialEmbedding:
+    """Header credentials must ride the source path (ARC-24).
+
+    GDAL opens a VRT's sources on the first pixel read and ignores the
+    thread-local config when it does, so a signer env installed around the read
+    never reaches them. Header credentials are embedded per source instead.
+    """
+
+    def test_bearer_header_is_embedded_in_the_source(self):
+        """A bearer header becomes a `/vsicurl?header.…` source path.
+
+        Test scenario:
+            The token is URL-encoded into the path GDAL stores in the VRT.
+        """
+        env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
+        source = _embed_source_options("https://h/a.tif", env)
+        assert source.startswith("/vsicurl?header.Authorization=Bearer%20tok"), (
+            f"header not embedded: {source}"
+        )
+        assert source.endswith("url=https%3A%2F%2Fh%2Fa.tif"), (
+            f"source url not encoded: {source}"
+        )
+
+    def test_readdir_skip_rides_along(self):
+        """The signer's readdir skip is carried into the read-time opens.
+
+        Test scenario:
+            Without it each source re-probes its sidecars on every open.
+        """
+        env = {
+            "GDAL_HTTP_HEADERS": "Authorization: Bearer tok",
+            "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+        }
+        assert "empty_dir=yes" in _embed_source_options("https://h/a.tif", env), (
+            "the readdir skip should be embedded alongside the header"
+        )
+
+    def test_multiple_headers_all_embedded(self):
+        """Every header in the env reaches the source path.
+
+        Test scenario:
+            A newline-separated pair produces two `header.` options.
+        """
+        env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok\r\nX-Trace: 42"}
+        source = _embed_source_options("https://h/a.tif", env)
+        assert "header.Authorization=Bearer%20tok" in source, f"missing auth: {source}"
+        assert "header.X-Trace=42" in source, f"missing second header: {source}"
+
+    def test_no_signer_uses_the_plain_rewrite(self):
+        """Without credentials the ordinary VSI rewrite is kept.
+
+        Test scenario:
+            The unsigned path must not change shape.
+        """
+        assert _embed_source_options("https://h/a.tif", None) == (
+            "/vsicurl/https://h/a.tif"
+        ), "an unsigned source should keep the plain form"
+
+    def test_non_http_scheme_is_left_alone(self):
+        """Only HTTP(S) sources can carry headers in the path.
+
+        Test scenario:
+            An `s3://` href keeps its `/vsis3/` rewrite.
+        """
+        env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
+        assert _embed_source_options("s3://bucket/a.tif", env) == "/vsis3/bucket/a.tif"
+
+    def test_local_source_is_left_alone(self):
+        """A local path is never rewritten to a curl source.
+
+        Test scenario:
+            Header credentials are irrelevant to a local file.
+        """
+        env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
+        assert _embed_source_options("/data/a.tif", env) == "/data/a.tif"
+
+    def test_embedded_source_reads(self, tmp_path):
+        """A VRT over embedded-option sources still builds and reads.
+
+        Test scenario:
+            The `/vsicurl?` form is only produced for HTTP hrefs, so this covers
+            the local fallback end to end: the mosaic is unaffected.
+        """
+        a = write_raster(tmp_path / "e1.tif", np.full((2, 2), 3.0, "float32"), (0.0, 2.0))
+        b = write_raster(tmp_path / "e2.tif", np.full((2, 2), 4.0, "float32"), (2.0, 2.0))
+
+        class _HeaderSigner:
+            def sign_href(self, href):
+                return href
+
+            def gdal_env(self):
+                return {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
+
+        items = [{"assets": {"d": {"href": a}}}, {"assets": {"d": {"href": b}}}]
+        ds = build_vrt_from_stac(items, asset="d", signer=_HeaderSigner())
+        assert ds.read_array().shape == (2, 4), "the local mosaic should be unaffected"
+
+
+class TestUnembeddableCredentialWarning:
+    """Credentials with no `/vsicurl?` equivalent are called out at build time."""
+
+    def test_requester_pays_env_warns_for_remote_sources(self):
+        """An AWS env cannot reach the read-time opens, so the build warns.
+
+        Test scenario:
+            A remote source plus `AWS_REQUEST_PAYER` -> a clear warning.
+        """
+        env = {"AWS_REQUEST_PAYER": "requester"}
+        with pytest.warns(UserWarning, match="AWS_REQUEST_PAYER"):
+            _warn_unembeddable_credentials(env, ["/vsis3/bucket/a.tif"])
+
+    def test_header_only_env_does_not_warn(self, recwarn):
+        """A header signer is fully supported, so nothing is warned about.
+
+        Args:
+            recwarn: pytest fixture recording warnings raised in the block.
+
+        Test scenario:
+            `GDAL_HTTP_HEADERS` is embeddable — no warning.
+        """
+        env = {"GDAL_HTTP_HEADERS": "Authorization: Bearer tok"}
+        _warn_unembeddable_credentials(env, ["/vsicurl/https://h/a.tif"])
+        assert len(recwarn) == 0, f"unexpected warnings: {[str(w) for w in recwarn]}"
+
+    def test_tuning_knobs_do_not_warn(self, recwarn):
+        """Performance knobs are not credentials, so losing them is not an error.
+
+        Test scenario:
+            `GDAL_HTTP_MULTIPLEX` alone must not trip the warning.
+        """
+        _warn_unembeddable_credentials(
+            {"GDAL_HTTP_MULTIPLEX": "YES"}, ["/vsicurl/https://h/a.tif"]
+        )
+        assert len(recwarn) == 0, f"unexpected warnings: {[str(w) for w in recwarn]}"
+
+    def test_local_sources_do_not_warn(self, recwarn):
+        """An all-local build needs no credentials at all.
+
+        Test scenario:
+            Even a stranded AWS key is irrelevant for local sources.
+        """
+        _warn_unembeddable_credentials({"AWS_REQUEST_PAYER": "requester"}, ["/d/a.tif"])
+        assert len(recwarn) == 0, f"unexpected warnings: {[str(w) for w in recwarn]}"
+
+
+class TestSourceConfig:
+    """Tests for the build-time GDAL config chosen by the source mix."""
+
+    def test_remote_sources_get_the_fast_read_preset(self):
+        """A remote build installs the `/vsicurl/` tuning preset.
+
+        Test scenario:
+            An un-tuned build costs a directory listing plus sidecar probes per
+            source.
+        """
+        config = _source_config(["/vsicurl/https://h/a.tif"], None).as_gdal_config()
+        assert config["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR", config
+        assert config["GDAL_HTTP_MULTIRANGE"] == "YES", config
+
+    def test_signer_env_overrides_the_preset(self):
+        """The signer env wins on a key conflict.
+
+        Test scenario:
+            An explicit HTTP version overrides the preset's default.
+        """
+        config = _source_config(
+            ["/vsis3/b/a.tif"], {"GDAL_HTTP_VERSION": "1.1"}
+        ).as_gdal_config()
+        assert config["GDAL_HTTP_VERSION"] == "1.1", f"signer env did not win: {config}"
+
+    def test_local_sources_skip_the_preset(self):
+        """An all-local build installs the signer env only.
+
+        Test scenario:
+            The preset's readdir skip would hide a local source's `.aux.xml`.
+        """
+        config = _source_config(["C:/data/a.tif"], {"CPL_CURL_VERBOSE": "YES"})
+        assert config.as_gdal_config() == {"CPL_CURL_VERBOSE": "YES"}, (
+            "a local build must not pull in the /vsicurl preset"
+        )
+
+    def test_local_build_without_signer_is_a_no_op(self):
+        """Nothing at all is installed for a plain local build.
+
+        Test scenario:
+            The returned context manager is usable and changes no config.
+        """
+        with _source_config(["C:/data/a.tif"], None):
+            assert gdal.GetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN") is None
 
 
 class TestBuildVrtArtifactCleanup:
