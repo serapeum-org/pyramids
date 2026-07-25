@@ -83,6 +83,21 @@ class TestCfTimeRoundTrip:
             f"expected calendar {calendar}, got {back.calendar}"
         )
 
+    def test_360_day_month_day_30_encodes(self):
+        """A 360_day date invalid in the Gregorian calendar (Feb 30) encodes without raising (ARC-30).
+
+        Test scenario:
+            Month day 30 in February exists on a 360_day calendar but ``pandas.Timestamp`` rejects it,
+            so the old Gregorian-first path raised. Encoding it and decoding back must recover the same
+            360_day date.
+        """
+        num = encode_cf_time("2000-02-30", UNIT, "360_day")
+        back = decode_cf_time(np.array([num]), UNIT, "360_day")[0]
+        assert (back.year, back.month, back.day) == (2000, 2, 30), (
+            f"360_day Feb 30 drifted after round-trip: {back}"
+        )
+        assert back.calendar == "360_day", f"expected 360_day, got {back.calendar}"
+
     def test_non_time_unit_passthrough(self):
         """A non-time unit string returns the values unchanged.
 

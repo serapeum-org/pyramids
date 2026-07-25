@@ -632,18 +632,65 @@ def encode_cf_time(value: Any, unit: str, calendar: str = "standard") -> float:
     Returns:
         float: ``value`` expressed in ``unit`` on the given ``calendar``.
     """
-    ts = pd.Timestamp(value)
+    year, month, day, hour, minute, second, microsecond = _datetime_components(value)
     dt = cftime.datetime(
-        ts.year,
-        ts.month,
-        ts.day,
-        ts.hour,
-        ts.minute,
-        ts.second,
-        ts.microsecond,
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        microsecond,
         calendar=calendar,
     )
     return float(cftime.date2num(dt, unit, calendar))
+
+
+def _datetime_components(value: Any) -> tuple[int, int, int, int, int, int, int]:
+    """Extract ``(year, month, day, hour, minute, second, microsecond)`` without Gregorian validation.
+
+    ``encode_cf_time`` funnelled its input through ``pandas.Timestamp``, which is proleptic-Gregorian
+    and nanosecond-bounded, so a date valid only on a ``360_day`` / ``noleap`` calendar (e.g. month
+    day 30 in February) raised before it ever reached ``cftime`` (ARC-30). Pull the calendar fields
+    out directly instead: from an object exposing ``year``/``month``/``day`` (``datetime`` /
+    ``cftime.datetime`` / ``pandas.Timestamp``), or by parsing an ISO ``YYYY-MM-DD[ HH:MM:SS]`` string
+    without any Gregorian range check. Only genuinely non-ISO strings fall back to ``pandas``.
+
+    Args:
+        value: A date string, ``datetime``-like object, or ``cftime.datetime``.
+
+    Returns:
+        The seven calendar components as ints.
+    """
+    if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+        return (
+            int(value.year),
+            int(value.month),
+            int(value.day),
+            int(getattr(value, "hour", 0)),
+            int(getattr(value, "minute", 0)),
+            int(getattr(value, "second", 0)),
+            int(getattr(value, "microsecond", 0)),
+        )
+    match = re.match(
+        r"\s*(\d{1,4})-(\d{1,2})-(\d{1,2})"
+        r"(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}(?:\.\d+)?))?)?\s*$",
+        str(value),
+    )
+    if match is None:
+        ts = pd.Timestamp(value)
+        return (ts.year, ts.month, ts.day, ts.hour, ts.minute, ts.second, ts.microsecond)
+    seconds_float = float(match.group(6)) if match.group(6) else 0.0
+    whole_seconds = int(seconds_float)
+    return (
+        int(match.group(1)),
+        int(match.group(2)),
+        int(match.group(3)),
+        int(match.group(4)) if match.group(4) else 0,
+        int(match.group(5)) if match.group(5) else 0,
+        whole_seconds,
+        int(round((seconds_float - whole_seconds) * 1_000_000)),
+    )
 
 
 def _dtype_to_str(dt: Any) -> str:
