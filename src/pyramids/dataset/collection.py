@@ -1574,7 +1574,11 @@ class DatasetCollection:
         if not resolved:
             raise ValueError("files must contain at least one path")
         with cloud_config_from_env(gdal_env):
-            template = Dataset.read_file(resolved[0])
+            # The template is reachable as `collection.base`, and the legacy
+            # `DatasetCollection(src, time_length=N)` shape replicates it as every
+            # timestep, so it needs the env for its own reads too — not just for
+            # this open.
+            template = Dataset.read_file(resolved[0], gdal_env=gdal_env)
             if meta is None:
                 meta = RasterMeta.from_dataset(template)
         return cls(
