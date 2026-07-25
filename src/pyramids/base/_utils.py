@@ -97,6 +97,48 @@ DTYPE_CONVERSION_DF = DataFrame(
     data=list(zip(GDAL_DTYPE_CODE, DTYPE_NAMES, NUMPY_DTYPE, GDAL_DTYPE, OGR_DTYPE)),
 )
 
+
+def _first_wins(keys: list, values: list) -> dict:
+    """Zip `keys` onto `values`, keeping the first pair for a duplicated key.
+
+    Mirrors the ``.values[0]`` semantics of the DataFrame masks these lookup
+    tables replace: ``NUMPY_DTYPE`` maps ``np.complex64`` onto three different
+    GDAL codes, and the earliest row wins. Pairs with a ``None`` on either side
+    are dropped so the "unsupported dtype" guards still raise instead of
+    returning a bogus ``None``.
+
+    Args:
+        keys (list): Lookup keys, in table order.
+        values (list): Values positionally paired with `keys`.
+
+    Returns:
+        dict: The first-wins mapping, with ``None``-bearing pairs removed.
+    """
+    mapping: dict = {}
+    for key, value in zip(keys, values):
+        if key is None or value is None:
+            continue
+        if key not in mapping:
+            mapping[key] = value
+    return mapping
+
+
+_NUMPY_TO_GDAL: dict = _first_wins(
+    [None if dtype is None else np.dtype(dtype) for dtype in NUMPY_DTYPE], GDAL_DTYPE
+)
+_GDAL_TO_NUMPY: dict = _first_wins(GDAL_DTYPE, NUMPY_DTYPE)
+_GDAL_TO_OGR: dict = _first_wins(GDAL_DTYPE, OGR_DTYPE)
+_OGR_TO_NUMPY: dict = _first_wins(OGR_DTYPE, NUMPY_DTYPE)
+"""Precomputed dtype lookups.
+
+The conversion helpers below used to run a full-column pandas boolean mask over
+`DTYPE_CONVERSION_DF` on every call — roughly 250 µs for what is a fixed
+16-row table lookup, paid per band and per timestep. These dicts are built once
+at import; `DTYPE_CONVERSION_DF` is kept because it is part of the module's
+public surface and still supplies the "available types" listings in the error
+messages.
+"""
+
 COLOR_INTERPRETATIONS = [
     gdal.GCI_Undefined,  # 0
     gdal.GCI_GrayIndex,  # 1
@@ -373,6 +415,10 @@ def numpy_to_gdal_dtype(arr: np.ndarray | np.dtype | str) -> int:
 
     Returns:
         int: GDAL data type code.
+
+    Raises:
+        ValueError: If the input is not array/dtype/str-like, or if the numpy
+            dtype has no GDAL counterpart.
     """
     if isinstance(arr, np.ndarray):
         np_dtype = arr.dtype
@@ -385,12 +431,13 @@ def numpy_to_gdal_dtype(arr: np.ndarray | np.dtype | str) -> int:
             "The given input is not a numpy array or a numpy data type, please provide a valid input"
         )
     # integer as gdal does not accept the dtype if it is int64
-    gdal_type = int(
-        DTYPE_CONVERSION_DF.loc[
-            DTYPE_CONVERSION_DF["numpy"] == np_dtype, "gdal"
-        ].values[0]
-    )
-    return gdal_type
+    matched = _NUMPY_TO_GDAL.get(np_dtype)
+    if matched is None:
+        raise ValueError(
+            f"The given numpy data type is not supported: {np_dtype}, available types are: "
+            f"{DTYPE_CONVERSION_DF['numpy'].dropna().tolist()}"
+        )
+    return int(matched)
 
 
 def ogr_to_numpy_dtype(dtype_code: int):
@@ -426,17 +473,15 @@ def ogr_to_numpy_dtype(dtype_code: int):
     elif dtype_code == 2:
         result_dtype = np.float64
     else:
-        matched = DTYPE_CONVERSION_DF.loc[
-            DTYPE_CONVERSION_DF["ogr"] == dtype_code, "numpy"
-        ]
+        matched = _OGR_TO_NUMPY.get(dtype_code)
 
-        if len(matched) == 0:
+        if matched is None:
             raise ValueError(
                 f"The given OGR data type is not supported: {dtype_code}, available types are: "
                 f"{DTYPE_CONVERSION_DF['ogr'].unique().tolist()}"
             )
         else:
-            result_dtype = matched.values[0]
+            result_dtype = matched
 
     return result_dtype
 
@@ -449,16 +494,19 @@ def gdal_to_numpy_dtype(dtype: int) -> str:
 
     Returns:
         str: Name of the corresponding numpy dtype.
+
+    Raises:
+        ValueError: If `dtype` has no numpy counterpart — including the
+            placeholder codes ``GDT_Unknown`` and ``GDT_TypeCount``, whose table
+            rows carry no numpy type.
     """
-    matched_dtypes = DTYPE_CONVERSION_DF.loc[
-        DTYPE_CONVERSION_DF["gdal"] == dtype, "numpy"
-    ]
-    if len(matched_dtypes) == 0:
+    matched = _GDAL_TO_NUMPY.get(dtype)
+    if matched is None:
         raise ValueError(
             f"The given GDAL data type is not supported: {dtype}, available types are: "
             f"{DTYPE_CONVERSION_DF['gdal'].unique().tolist()}"
         )
-    result_name = str(matched_dtypes.values[0].__name__)
+    result_name = str(matched.__name__)
     return result_name
 
 
@@ -471,14 +519,21 @@ def gdal_to_ogr_dtype(src: Dataset, band: int = 1):
 
     Returns:
         int: OGR data type code corresponding to the band GDAL dtype.
+
+    Raises:
+        ValueError: If the band's GDAL dtype has no OGR counterpart (the
+            complex types and the ``GDT_Unknown`` / ``GDT_TypeCount``
+            placeholders).
     """
     raster_band = src.GetRasterBand(band)
     gdal_dtype = raster_band.DataType
-    return int(
-        DTYPE_CONVERSION_DF.loc[
-            DTYPE_CONVERSION_DF["gdal"] == gdal_dtype, "ogr"
-        ].values[0]
-    )
+    matched = _GDAL_TO_OGR.get(gdal_dtype)
+    if matched is None:
+        raise ValueError(
+            f"The given GDAL data type has no OGR equivalent: {gdal_dtype}, available types are: "
+            f"{DTYPE_CONVERSION_DF['gdal'].unique().tolist()}"
+        )
+    return int(matched)
 
 
 class Catalog:
