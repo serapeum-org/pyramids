@@ -254,7 +254,19 @@ class TestFocalNoDataHandling:
         assert smoothed[1, 1] == -9999.0, (
             f"the no-data cell must stay no-data, got {smoothed[1, 1]}"
         )
-        finite = smoothed[smoothed != -9999.0]
-        assert (finite > 0).all(), (
-            f"no surviving cell may be dragged negative by the sentinel: {finite}"
+        surviving = smoothed[smoothed != -9999.0]
+        assert surviving.size == 8, (
+            "only the no-data cell itself may be lost; a running-sum filter fed "
+            f"NaN would blank far more. {surviving.size}/9 survived"
+        )
+        # Every surviving mean must lie within the range of the valid inputs.
+        # Zero-filling the sentinel without renormalising would drag cells near
+        # it far below the minimum; propagating NaN would blank them entirely.
+        valid_inputs = planar_dem[planar_dem != -9999.0]
+        assert surviving.min() >= valid_inputs.min(), (
+            f"a mean fell below the smallest input {valid_inputs.min()}: "
+            f"{surviving.min()} -- the no-data cell leaked in as a zero"
+        )
+        assert surviving.max() <= valid_inputs.max(), (
+            f"a mean exceeded the largest input {valid_inputs.max()}: {surviving.max()}"
         )

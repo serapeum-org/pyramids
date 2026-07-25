@@ -42,6 +42,49 @@ _LAZY_IMPORT_ERROR = (
 )
 
 
+def _valid_fraction(arr: np.ndarray, size: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return the validity mask and the per-cell fraction of valid neighbours.
+
+    Args:
+        arr: The (already NaN-blanked) input block.
+        size: Window side length.
+
+    Returns:
+        tuple: `(valid, weight)` — a boolean mask of finite cells, and the
+        fraction of each window that is valid, in `[0, 1]`.
+    """
+    valid = np.isfinite(arr)
+    weight = ndimage.uniform_filter(
+        valid.astype(np.float64), size=size, mode="reflect"
+    )
+    return valid, weight
+
+
+def _normalise(windowed: np.ndarray, weight: np.ndarray) -> np.typing.NDArray:
+    """Rescale a windowed mean computed over zero-filled no-data cells.
+
+    `uniform_filter` averages over the *whole* window, so zero-filling the
+    no-data cells drags the result toward zero in proportion to how many of them
+    there are. Dividing by the valid fraction recovers the mean over just the
+    valid cells — normalised convolution.
+
+    This is why the filters cannot simply run on NaN: `uniform_filter` is a
+    separable running-sum, so a single NaN propagates along the whole row and
+    column rather than the window. One no-data pixel blanked that way turned a
+    quarter of a 200x200 output into no-data.
+
+    Args:
+        windowed: Window mean of the zero-filled input.
+        weight: Fraction of each window that was valid.
+
+    Returns:
+        numpy.ndarray: The valid-only mean, NaN where no neighbour was valid.
+    """
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out = windowed / weight
+    return np.where(weight > 0, out, np.nan)
+
+
 def _apply_eager_or_lazy(
     func: Callable,
     ds: Dataset,
@@ -55,15 +98,22 @@ def _apply_eager_or_lazy(
     `func` must accept a 2-D numpy array and return a 2-D numpy
     array of the same shape.
 
-    No-data cells are replaced with NaN before the kernel runs and the
+    No-data cells are blanked to NaN before the kernel runs and the
     sentinel is written back afterwards. Feeding a sentinel such as
     ``-9999`` straight into a gradient or a box filter does not merely
     produce a wrong value at that cell — it contaminates every cell in
     the window around it, silently and with a plausible-looking result.
-    NaN propagates through the same neighbourhood instead, which marks
-    those cells as undefined rather than inventing terrain; they are
-    then folded back onto the sentinel so the output carries the same
-    no-data marker as the source band.
+
+    Blanking marks the cells; **it is the kernel's job to ignore them**.
+    The gradient kernels get that for free, since NaN reaches only the
+    ±1 cells a centred difference touches. The `uniform_filter` kernels
+    must not simply run on NaN: `uniform_filter` is a separable
+    running-sum, so one NaN propagates along the entire row and column.
+    They use normalised convolution instead (see :func:`_normalise`).
+
+    Whatever the kernel returns, the originally-no-data cells and any
+    cell the kernel could not define are folded back onto the sentinel,
+    so the output carries the same no-data marker as the source band.
     """
     no_data_value = ds.no_data_value[band]
 
@@ -148,7 +198,10 @@ def focal_mean(
     size = 2 * radius + 1
 
     def _kernel(arr: np.ndarray) -> np.typing.NDArray:
-        return ndimage.uniform_filter(arr, size=size, mode="reflect")
+        valid, weight = _valid_fraction(arr, size)
+        filled = np.where(valid, arr, 0.0)
+        total = ndimage.uniform_filter(filled, size=size, mode="reflect")
+        return _normalise(total, weight)
 
     return _apply_eager_or_lazy(_kernel, ds, radius, chunks, band, np.float64)
 
@@ -199,9 +252,17 @@ def focal_std(
     size = 2 * radius + 1
 
     def _kernel(arr: np.ndarray) -> np.typing.NDArray:
-        local_mean = ndimage.uniform_filter(arr, size=size, mode="reflect")
-        deviations = (arr - local_mean) ** 2
-        var = ndimage.uniform_filter(deviations, size=size, mode="reflect")
+        valid, weight = _valid_fraction(arr, size)
+        filled = np.where(valid, arr, 0.0)
+        local_mean = _normalise(
+            ndimage.uniform_filter(filled, size=size, mode="reflect"), weight
+        )
+        # Deviations are only defined where the cell itself is valid; zero them
+        # elsewhere so they contribute nothing to the windowed sum.
+        deviations = np.where(valid, (arr - local_mean) ** 2, 0.0)
+        var = _normalise(
+            ndimage.uniform_filter(deviations, size=size, mode="reflect"), weight
+        )
         return np.sqrt(np.clip(var, 0.0, None))
 
     return _apply_eager_or_lazy(_kernel, ds, radius, chunks, band, np.float64)
