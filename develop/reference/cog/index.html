@@ -10539,8 +10539,10 @@ or PROJ string). Also used as a fallback for DataArrays.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>NoData scalar. Passed to array construction or set on a
-pre-built dataset.</p>
+                <p>NoData scalar. For an array input it is passed to array
+construction; for a pre-built input it is applied before the write —
+on an in-memory copy when the source is read-only, so the source is
+never mutated.</p>
               </div>
             </td>
             <td>
@@ -10833,7 +10835,9 @@ validation.</p>
 <span class="normal"><a href="#__codelineno-0-370">370</a></span>
 <span class="normal"><a href="#__codelineno-0-371">371</a></span>
 <span class="normal"><a href="#__codelineno-0-372">372</a></span>
-<span class="normal"><a href="#__codelineno-0-373">373</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-267" name="__codelineno-0-267"></a><span class="k">def</span><span class="w"> </span><span class="nf">write_cog</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-373">373</a></span>
+<span class="normal"><a href="#__codelineno-0-374">374</a></span>
+<span class="normal"><a href="#__codelineno-0-375">375</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-267" name="__codelineno-0-267"></a><span class="k">def</span><span class="w"> </span><span class="nf">write_cog</span><span class="p">(</span>
 <a id="__codelineno-0-268" name="__codelineno-0-268"></a>    <span class="n">data</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
 <a id="__codelineno-0-269" name="__codelineno-0-269"></a>    <span class="n">output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
 <a id="__codelineno-0-270" name="__codelineno-0-270"></a>    <span class="o">*</span><span class="p">,</span>
@@ -10875,71 +10879,73 @@ validation.</p>
 <a id="__codelineno-0-306" name="__codelineno-0-306"></a><span class="sd">        crs: CRS for the NumPy-array form (EPSG int, ``&quot;EPSG:XXXX&quot;``, WKT,</span>
 <a id="__codelineno-0-307" name="__codelineno-0-307"></a><span class="sd">            or PROJ string). Also used as a fallback for DataArrays.</span>
 <a id="__codelineno-0-308" name="__codelineno-0-308"></a><span class="sd">        transform: 6-tuple GDAL geotransform; required for the array form.</span>
-<a id="__codelineno-0-309" name="__codelineno-0-309"></a><span class="sd">        nodata: NoData scalar. Passed to array construction or set on a</span>
-<a id="__codelineno-0-310" name="__codelineno-0-310"></a><span class="sd">            pre-built dataset.</span>
-<a id="__codelineno-0-311" name="__codelineno-0-311"></a><span class="sd">        options: Caller overrides merged on top of</span>
-<a id="__codelineno-0-312" name="__codelineno-0-312"></a><span class="sd">            :data:`PYRAMIDS_COG_DEFAULTS`. Keys are GDAL COG driver</span>
-<a id="__codelineno-0-313" name="__codelineno-0-313"></a><span class="sd">            options (validated downstream). When ``PREDICTOR`` is absent it</span>
-<a id="__codelineno-0-314" name="__codelineno-0-314"></a><span class="sd">            is auto-resolved from the raster dtype.</span>
-<a id="__codelineno-0-315" name="__codelineno-0-315"></a><span class="sd">        validate: When ``True`` (default), validate the written file and</span>
-<a id="__codelineno-0-316" name="__codelineno-0-316"></a><span class="sd">            raise :class:`RuntimeError` if it is not a valid COG.</span>
-<a id="__codelineno-0-317" name="__codelineno-0-317"></a><span class="sd">        strict: Promote validation warnings to errors.</span>
-<a id="__codelineno-0-318" name="__codelineno-0-318"></a>
-<a id="__codelineno-0-319" name="__codelineno-0-319"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-320" name="__codelineno-0-320"></a><span class="sd">        A ``(output_path, report)`` tuple. ``report`` is a</span>
-<a id="__codelineno-0-321" name="__codelineno-0-321"></a><span class="sd">        :class:`~pyramids.dataset.cog.validate.ValidationReport` when</span>
-<a id="__codelineno-0-322" name="__codelineno-0-322"></a><span class="sd">        ``validate`` is ``True``, otherwise ``None``.</span>
-<a id="__codelineno-0-323" name="__codelineno-0-323"></a>
-<a id="__codelineno-0-324" name="__codelineno-0-324"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-325" name="__codelineno-0-325"></a><span class="sd">        ValueError: Required ``crs``/``transform`` missing for an array.</span>
-<a id="__codelineno-0-326" name="__codelineno-0-326"></a><span class="sd">        TypeError: ``data`` is an unsupported type.</span>
-<a id="__codelineno-0-327" name="__codelineno-0-327"></a><span class="sd">        RuntimeError: ``validate`` is ``True`` and the file failed COG</span>
-<a id="__codelineno-0-328" name="__codelineno-0-328"></a><span class="sd">            validation.</span>
-<a id="__codelineno-0-329" name="__codelineno-0-329"></a>
-<a id="__codelineno-0-330" name="__codelineno-0-330"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-331" name="__codelineno-0-331"></a><span class="sd">        - Write a COG from a NumPy array (predictor auto-resolves to 3 for</span>
-<a id="__codelineno-0-332" name="__codelineno-0-332"></a><span class="sd">          float):</span>
-<a id="__codelineno-0-333" name="__codelineno-0-333"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-334" name="__codelineno-0-334"></a><span class="sd">            &gt;&gt;&gt; import numpy as np  # doctest: +SKIP</span>
-<a id="__codelineno-0-335" name="__codelineno-0-335"></a><span class="sd">            &gt;&gt;&gt; arr = np.random.rand(256, 256).astype(&quot;float32&quot;)  # doctest: +SKIP</span>
-<a id="__codelineno-0-336" name="__codelineno-0-336"></a><span class="sd">            &gt;&gt;&gt; path, report = write_cog(  # doctest: +SKIP</span>
-<a id="__codelineno-0-337" name="__codelineno-0-337"></a><span class="sd">            ...     arr, &quot;out.tif&quot;, crs=4326,</span>
-<a id="__codelineno-0-338" name="__codelineno-0-338"></a><span class="sd">            ...     transform=(0.0, 0.01, 0.0, 10.0, 0.0, -0.01),</span>
-<a id="__codelineno-0-339" name="__codelineno-0-339"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-340" name="__codelineno-0-340"></a><span class="sd">            &gt;&gt;&gt; report.is_valid  # doctest: +SKIP</span>
-<a id="__codelineno-0-341" name="__codelineno-0-341"></a><span class="sd">            True</span>
-<a id="__codelineno-0-342" name="__codelineno-0-342"></a>
-<a id="__codelineno-0-343" name="__codelineno-0-343"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-344" name="__codelineno-0-344"></a><span class="sd">        - Re-encode an existing raster with overrides and skip validation:</span>
-<a id="__codelineno-0-345" name="__codelineno-0-345"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-346" name="__codelineno-0-346"></a><span class="sd">            &gt;&gt;&gt; path, report = write_cog(  # doctest: +SKIP</span>
-<a id="__codelineno-0-347" name="__codelineno-0-347"></a><span class="sd">            ...     &quot;plain.tif&quot;, &quot;scene_cog.tif&quot;,</span>
-<a id="__codelineno-0-348" name="__codelineno-0-348"></a><span class="sd">            ...     options={&quot;COMPRESS&quot;: &quot;ZSTD&quot;, &quot;LEVEL&quot;: 18},</span>
-<a id="__codelineno-0-349" name="__codelineno-0-349"></a><span class="sd">            ...     validate=False,</span>
-<a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="sd">            &gt;&gt;&gt; report is None  # doctest: +SKIP</span>
-<a id="__codelineno-0-352" name="__codelineno-0-352"></a><span class="sd">            True</span>
-<a id="__codelineno-0-353" name="__codelineno-0-353"></a>
-<a id="__codelineno-0-354" name="__codelineno-0-354"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-355" name="__codelineno-0-355"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-356" name="__codelineno-0-356"></a>    <span class="n">ds</span> <span class="o">=</span> <span class="n">_normalize_to_dataset</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">crs</span><span class="p">,</span> <span class="n">transform</span><span class="p">,</span> <span class="n">nodata</span><span class="p">)</span>
-<a id="__codelineno-0-357" name="__codelineno-0-357"></a>
-<a id="__codelineno-0-358" name="__codelineno-0-358"></a>    <span class="c1"># Single write policy lives in COG.to_cog (ARC-1): house defaults, the</span>
-<a id="__codelineno-0-359" name="__codelineno-0-359"></a>    <span class="c1"># dtype-aware predictor (ARC-2), the category-safe default overview</span>
-<a id="__codelineno-0-360" name="__codelineno-0-360"></a>    <span class="c1"># resampling (ARC-3), and the STATISTICS retry (ARC-4) are all applied</span>
-<a id="__codelineno-0-361" name="__codelineno-0-361"></a>    <span class="c1"># there. write_cog only normalises the input and forwards the caller&#39;s</span>
-<a id="__codelineno-0-362" name="__codelineno-0-362"></a>    <span class="c1"># overrides as `extra`, so write_cog and a direct ds.to_cog(...) produce</span>
-<a id="__codelineno-0-363" name="__codelineno-0-363"></a>    <span class="c1"># identical output for identical input.</span>
-<a id="__codelineno-0-364" name="__codelineno-0-364"></a>    <span class="n">output_path</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="n">options</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">)</span>
-<a id="__codelineno-0-365" name="__codelineno-0-365"></a>
-<a id="__codelineno-0-366" name="__codelineno-0-366"></a>    <span class="n">report</span><span class="p">:</span> <span class="n">ValidationReport</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-367" name="__codelineno-0-367"></a>    <span class="k">if</span> <span class="n">validate</span><span class="p">:</span>
-<a id="__codelineno-0-368" name="__codelineno-0-368"></a>        <span class="n">report</span> <span class="o">=</span> <span class="n">_validate_file</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="n">strict</span><span class="p">)</span>
-<a id="__codelineno-0-369" name="__codelineno-0-369"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">report</span><span class="o">.</span><span class="n">is_valid</span><span class="p">:</span>
-<a id="__codelineno-0-370" name="__codelineno-0-370"></a>            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
-<a id="__codelineno-0-371" name="__codelineno-0-371"></a>                <span class="sa">f</span><span class="s2">&quot;write_cog produced an invalid COG at </span><span class="si">{</span><span class="n">output_path</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">report</span><span class="o">.</span><span class="n">errors</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-372" name="__codelineno-0-372"></a>            <span class="p">)</span>
-<a id="__codelineno-0-373" name="__codelineno-0-373"></a>    <span class="k">return</span> <span class="n">output_path</span><span class="p">,</span> <span class="n">report</span>
+<a id="__codelineno-0-309" name="__codelineno-0-309"></a><span class="sd">        nodata: NoData scalar. For an array input it is passed to array</span>
+<a id="__codelineno-0-310" name="__codelineno-0-310"></a><span class="sd">            construction; for a pre-built input it is applied before the write —</span>
+<a id="__codelineno-0-311" name="__codelineno-0-311"></a><span class="sd">            on an in-memory copy when the source is read-only, so the source is</span>
+<a id="__codelineno-0-312" name="__codelineno-0-312"></a><span class="sd">            never mutated.</span>
+<a id="__codelineno-0-313" name="__codelineno-0-313"></a><span class="sd">        options: Caller overrides merged on top of</span>
+<a id="__codelineno-0-314" name="__codelineno-0-314"></a><span class="sd">            :data:`PYRAMIDS_COG_DEFAULTS`. Keys are GDAL COG driver</span>
+<a id="__codelineno-0-315" name="__codelineno-0-315"></a><span class="sd">            options (validated downstream). When ``PREDICTOR`` is absent it</span>
+<a id="__codelineno-0-316" name="__codelineno-0-316"></a><span class="sd">            is auto-resolved from the raster dtype.</span>
+<a id="__codelineno-0-317" name="__codelineno-0-317"></a><span class="sd">        validate: When ``True`` (default), validate the written file and</span>
+<a id="__codelineno-0-318" name="__codelineno-0-318"></a><span class="sd">            raise :class:`RuntimeError` if it is not a valid COG.</span>
+<a id="__codelineno-0-319" name="__codelineno-0-319"></a><span class="sd">        strict: Promote validation warnings to errors.</span>
+<a id="__codelineno-0-320" name="__codelineno-0-320"></a>
+<a id="__codelineno-0-321" name="__codelineno-0-321"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-322" name="__codelineno-0-322"></a><span class="sd">        A ``(output_path, report)`` tuple. ``report`` is a</span>
+<a id="__codelineno-0-323" name="__codelineno-0-323"></a><span class="sd">        :class:`~pyramids.dataset.cog.validate.ValidationReport` when</span>
+<a id="__codelineno-0-324" name="__codelineno-0-324"></a><span class="sd">        ``validate`` is ``True``, otherwise ``None``.</span>
+<a id="__codelineno-0-325" name="__codelineno-0-325"></a>
+<a id="__codelineno-0-326" name="__codelineno-0-326"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-327" name="__codelineno-0-327"></a><span class="sd">        ValueError: Required ``crs``/``transform`` missing for an array.</span>
+<a id="__codelineno-0-328" name="__codelineno-0-328"></a><span class="sd">        TypeError: ``data`` is an unsupported type.</span>
+<a id="__codelineno-0-329" name="__codelineno-0-329"></a><span class="sd">        RuntimeError: ``validate`` is ``True`` and the file failed COG</span>
+<a id="__codelineno-0-330" name="__codelineno-0-330"></a><span class="sd">            validation.</span>
+<a id="__codelineno-0-331" name="__codelineno-0-331"></a>
+<a id="__codelineno-0-332" name="__codelineno-0-332"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-333" name="__codelineno-0-333"></a><span class="sd">        - Write a COG from a NumPy array (predictor auto-resolves to 3 for</span>
+<a id="__codelineno-0-334" name="__codelineno-0-334"></a><span class="sd">          float):</span>
+<a id="__codelineno-0-335" name="__codelineno-0-335"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-336" name="__codelineno-0-336"></a><span class="sd">            &gt;&gt;&gt; import numpy as np  # doctest: +SKIP</span>
+<a id="__codelineno-0-337" name="__codelineno-0-337"></a><span class="sd">            &gt;&gt;&gt; arr = np.random.rand(256, 256).astype(&quot;float32&quot;)  # doctest: +SKIP</span>
+<a id="__codelineno-0-338" name="__codelineno-0-338"></a><span class="sd">            &gt;&gt;&gt; path, report = write_cog(  # doctest: +SKIP</span>
+<a id="__codelineno-0-339" name="__codelineno-0-339"></a><span class="sd">            ...     arr, &quot;out.tif&quot;, crs=4326,</span>
+<a id="__codelineno-0-340" name="__codelineno-0-340"></a><span class="sd">            ...     transform=(0.0, 0.01, 0.0, 10.0, 0.0, -0.01),</span>
+<a id="__codelineno-0-341" name="__codelineno-0-341"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a><span class="sd">            &gt;&gt;&gt; report.is_valid  # doctest: +SKIP</span>
+<a id="__codelineno-0-343" name="__codelineno-0-343"></a><span class="sd">            True</span>
+<a id="__codelineno-0-344" name="__codelineno-0-344"></a>
+<a id="__codelineno-0-345" name="__codelineno-0-345"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-346" name="__codelineno-0-346"></a><span class="sd">        - Re-encode an existing raster with overrides and skip validation:</span>
+<a id="__codelineno-0-347" name="__codelineno-0-347"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-348" name="__codelineno-0-348"></a><span class="sd">            &gt;&gt;&gt; path, report = write_cog(  # doctest: +SKIP</span>
+<a id="__codelineno-0-349" name="__codelineno-0-349"></a><span class="sd">            ...     &quot;plain.tif&quot;, &quot;scene_cog.tif&quot;,</span>
+<a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">            ...     options={&quot;COMPRESS&quot;: &quot;ZSTD&quot;, &quot;LEVEL&quot;: 18},</span>
+<a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="sd">            ...     validate=False,</span>
+<a id="__codelineno-0-352" name="__codelineno-0-352"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-353" name="__codelineno-0-353"></a><span class="sd">            &gt;&gt;&gt; report is None  # doctest: +SKIP</span>
+<a id="__codelineno-0-354" name="__codelineno-0-354"></a><span class="sd">            True</span>
+<a id="__codelineno-0-355" name="__codelineno-0-355"></a>
+<a id="__codelineno-0-356" name="__codelineno-0-356"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-357" name="__codelineno-0-357"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-358" name="__codelineno-0-358"></a>    <span class="n">ds</span> <span class="o">=</span> <span class="n">_normalize_to_dataset</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">crs</span><span class="p">,</span> <span class="n">transform</span><span class="p">,</span> <span class="n">nodata</span><span class="p">)</span>
+<a id="__codelineno-0-359" name="__codelineno-0-359"></a>
+<a id="__codelineno-0-360" name="__codelineno-0-360"></a>    <span class="c1"># Single write policy lives in COG.to_cog (ARC-1): house defaults, the</span>
+<a id="__codelineno-0-361" name="__codelineno-0-361"></a>    <span class="c1"># dtype-aware predictor (ARC-2), the category-safe default overview</span>
+<a id="__codelineno-0-362" name="__codelineno-0-362"></a>    <span class="c1"># resampling (ARC-3), and the STATISTICS retry (ARC-4) are all applied</span>
+<a id="__codelineno-0-363" name="__codelineno-0-363"></a>    <span class="c1"># there. write_cog only normalises the input and forwards the caller&#39;s</span>
+<a id="__codelineno-0-364" name="__codelineno-0-364"></a>    <span class="c1"># overrides as `extra`, so write_cog and a direct ds.to_cog(...) produce</span>
+<a id="__codelineno-0-365" name="__codelineno-0-365"></a>    <span class="c1"># identical output for identical input.</span>
+<a id="__codelineno-0-366" name="__codelineno-0-366"></a>    <span class="n">output_path</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="n">options</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-0-367" name="__codelineno-0-367"></a>
+<a id="__codelineno-0-368" name="__codelineno-0-368"></a>    <span class="n">report</span><span class="p">:</span> <span class="n">ValidationReport</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-369" name="__codelineno-0-369"></a>    <span class="k">if</span> <span class="n">validate</span><span class="p">:</span>
+<a id="__codelineno-0-370" name="__codelineno-0-370"></a>        <span class="n">report</span> <span class="o">=</span> <span class="n">_validate_file</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="n">strict</span><span class="p">)</span>
+<a id="__codelineno-0-371" name="__codelineno-0-371"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">report</span><span class="o">.</span><span class="n">is_valid</span><span class="p">:</span>
+<a id="__codelineno-0-372" name="__codelineno-0-372"></a>            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+<a id="__codelineno-0-373" name="__codelineno-0-373"></a>                <span class="sa">f</span><span class="s2">&quot;write_cog produced an invalid COG at </span><span class="si">{</span><span class="n">output_path</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">report</span><span class="o">.</span><span class="n">errors</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-374" name="__codelineno-0-374"></a>            <span class="p">)</span>
+<a id="__codelineno-0-375" name="__codelineno-0-375"></a>    <span class="k">return</span> <span class="n">output_path</span><span class="p">,</span> <span class="n">report</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
