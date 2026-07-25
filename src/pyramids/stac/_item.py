@@ -22,7 +22,7 @@ pyramids does **not** import or depend on pystac. The extension-field accessor
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pyramids.base._errors import StacAssetError
@@ -86,6 +86,53 @@ def item_properties(item: Any) -> Mapping[str, Any]:
     if props is None and isinstance(item, dict):
         props = item.get("properties")
     return props or {}
+
+
+def item_bbox(item: Any) -> Sequence[float] | None:
+    """Return a STAC Item's `bbox`, or `None` when absent.
+
+    A STAC bbox is WGS84 by spec and is either 2D (`[west, south, east, north]`)
+    or 3D (`[west, south, min_elev, east, north, max_elev]`). This accessor only
+    locates it on either item shape; interpreting the length is the caller's job
+    (see :func:`pyramids.dataset._stac._horizontal_bounds`).
+
+    Args:
+        item: A STAC Item (pystac object or raw dict).
+
+    Returns:
+        The bbox sequence, or `None` when the item carries none.
+
+    Examples:
+        - A raw dict item exposes its bbox:
+            ```python
+            >>> from pyramids.stac._item import item_bbox
+            >>> item_bbox({"bbox": [1.0, 2.0, 3.0, 4.0]})
+            [1.0, 2.0, 3.0, 4.0]
+
+            ```
+        - A bbox-less item returns None:
+            ```python
+            >>> item_bbox({"id": "x"}) is None
+            True
+
+            ```
+        - A 3D bbox comes back with its elevation members intact:
+            ```python
+            >>> item_bbox({"bbox": [1.0, 2.0, 0.0, 3.0, 4.0, 100.0]})[2]
+            0.0
+
+            ```
+
+    See Also:
+        - :func:`item_properties`: the sibling accessor for item-level
+          extension fields.
+        - :func:`pyramids.dataset._stac._horizontal_bounds`: reduces either
+          bbox length to `(west, south, east, north)`.
+    """
+    bbox = getattr(item, "bbox", None)
+    if bbox is None and isinstance(item, dict):
+        bbox = item.get("bbox")
+    return bbox
 
 
 def get_assets(item: Any) -> Mapping[str, Any] | None:
@@ -276,6 +323,7 @@ __all__ = [
     "asset_media_type",
     "get_asset",
     "get_assets",
+    "item_bbox",
     "item_id",
     "item_properties",
 ]

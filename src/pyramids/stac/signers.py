@@ -25,6 +25,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
+from pyramids.base.remote import _REQUESTER_PAYS_GDAL_KNOBS, CloudConfig
+
 
 @runtime_checkable
 class Signer(Protocol):
@@ -109,11 +111,18 @@ class AWSRequesterPaysSigner(_BaseSigner):
 
     Adds only the GDAL environment needed to read from buckets such as
     `s3://usgs-landsat` or `s3://sentinel-1-grd`; no request or href rewrite
-    is required.
+    is required. The env is assembled by
+    :class:`~pyramids.base.remote.CloudConfig` from the shared
+    :data:`~pyramids.base.remote._REQUESTER_PAYS_GDAL_KNOBS`, so this signer and
+    :func:`~pyramids.base.remote.RequesterPays` stay in lock-step instead of
+    each carrying their own copy of the knob set.
 
     Args:
-        region: Optional AWS region of the bucket. Stored for callers that wire
-            their own boto3/s3fs handles; pin it to avoid cross-region egress.
+        region: Optional AWS region of the bucket. Emitted as `AWS_REGION` /
+            `AWS_DEFAULT_REGION` so GDAL reads hit the bucket's own region, and
+            kept on the instance for callers wiring their own boto3/s3fs
+            handles. Pin it: Requester-Pays bills the reader per byte, so a
+            cross-region read costs real money.
 
     Examples:
         - The GDAL env opts into Requester-Pays and trims redundant calls:
@@ -123,6 +132,23 @@ class AWSRequesterPaysSigner(_BaseSigner):
             'requester'
             >>> signer.region
             'us-west-2'
+
+            ```
+        - A pinned region reaches GDAL through both region options:
+            ```python
+            >>> env = AWSRequesterPaysSigner(region="us-west-2").gdal_env()
+            >>> (env["AWS_REGION"], env["AWS_DEFAULT_REGION"])
+            ('us-west-2', 'us-west-2')
+
+            ```
+        - Without a region only the Requester-Pays knobs are set, so GDAL keeps
+          resolving the region itself:
+            ```python
+            >>> sorted(AWSRequesterPaysSigner().gdal_env())
+            ... # doctest: +NORMALIZE_WHITESPACE
+            ['AWS_REQUEST_PAYER', 'CPL_VSIL_CURL_USE_HEAD',
+             'GDAL_DISABLE_READDIR_ON_OPEN', 'GDAL_HTTP_MULTIPLEX',
+             'GDAL_HTTP_VERSION']
 
             ```
     """
@@ -141,14 +167,45 @@ class AWSRequesterPaysSigner(_BaseSigner):
         """Return the GDAL config that opts into Requester-Pays reads.
 
         Returns:
-            A mapping setting `AWS_REQUEST_PAYER=requester` plus the standard
-            cloud-read knobs that avoid extra billable HEAD/list calls.
+            A mapping setting `AWS_REQUEST_PAYER=requester`, the shared
+            cloud-read knobs that avoid extra billable HEAD/list calls
+            (`GDAL_DISABLE_READDIR_ON_OPEN`, `CPL_VSIL_CURL_USE_HEAD`) and
+            enable HTTP/2 multiplexing, plus `AWS_REGION` /
+            `AWS_DEFAULT_REGION` when a `region` was pinned.
+
+        Examples:
+            - Read the knobs a Requester-Pays open will run under:
+                ```python
+                >>> from pyramids.stac import AWSRequesterPaysSigner
+                >>> env = AWSRequesterPaysSigner().gdal_env()
+                >>> env["AWS_REQUEST_PAYER"]
+                'requester'
+                >>> env["GDAL_HTTP_VERSION"]
+                '2'
+
+                ```
+            - A pinned region is what GDAL will address the bucket with:
+                ```python
+                >>> from pyramids.stac import AWSRequesterPaysSigner
+                >>> env = AWSRequesterPaysSigner(region="us-west-2").gdal_env()
+                >>> env["AWS_REGION"]
+                'us-west-2'
+                >>> len(env)
+                7
+
+                ```
+
+        See Also:
+            - :func:`pyramids.base.remote.RequesterPays`: the same knobs as a
+              context manager, for reads that do not go through a signer.
+            - :func:`pyramids.base.remote.s3fs_requester_pays_kwargs`: the
+              fsspec/s3fs equivalent for non-GDAL readers.
         """
-        return {
-            "AWS_REQUEST_PAYER": "requester",
-            "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
-            "CPL_VSIL_CURL_USE_HEAD": "NO",
-        }
+        return CloudConfig(
+            aws_request_payer=True,
+            aws_region=self.region,
+            extra=_REQUESTER_PAYS_GDAL_KNOBS,
+        ).as_gdal_config()
 
 
 class BearerTokenSigner(_BaseSigner):
