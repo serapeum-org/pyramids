@@ -927,18 +927,24 @@ def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
     # A cell_methods entry is `name: [name: ...] method [where ...] [over ...]` — one OR MORE
     # `name:` groups precede the method. Capturing them as a single group and splitting on `:` lets
     # `"lat: lon: mean"` parse to dimensions `lat lon` / method `mean` instead of mis-reading `lon`
-    # as the method (ARC-30).
-    pattern = r'((?:\w+\s*:\s*)+)(\w+)(?:\s+where\s+(\w+))?(?:\s+over\s+(\w+))?'
-    for match in re.finditer(pattern, cell_methods_str):
+    # as the method (ARC-30). The `where`/`over` qualifiers are parsed from the text between one
+    # method and the next entry so the core pattern stays simple.
+    entry_pattern = r'((?:\w+\s*:\s*)+)(\w+)'
+    matches = list(re.finditer(entry_pattern, cell_methods_str))
+    for idx, match in enumerate(matches):
         dims = " ".join(part.strip() for part in match.group(1).split(":") if part.strip())
         entry: dict[str, str] = {
             "dimensions": dims,
             "method": match.group(2),
         }
-        if match.group(3):
-            entry["where"] = match.group(3)
-        if match.group(4):
-            entry["over"] = match.group(4)
+        tail_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(cell_methods_str)
+        tail = cell_methods_str[match.end() : tail_end]
+        where = re.search(r"\bwhere\s+(\w+)", tail)
+        if where:
+            entry["where"] = where.group(1)
+        over = re.search(r"\bover\s+(\w+)", tail)
+        if over:
+            entry["over"] = over.group(1)
         results.append(entry)
     return results
 
