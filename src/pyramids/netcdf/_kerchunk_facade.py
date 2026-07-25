@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import warnings
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -37,6 +38,12 @@ from pyramids.netcdf._kerchunk_builder import build_single_manifest, combine_man
 _KERCHUNK_IMPORT_ERROR = lazy_extra_hint(
     "kerchunk is required for NetCDF → Zarr reference manifests."
 )
+
+# The `_FillValue` shim patches a process-global `encode_fill_value`; serialize the
+# capture / patch / restore so concurrent kerchunk emits cannot race the `finally` restore
+# (a second entrant would otherwise capture the already-patched function as its "original"
+# and leave the global permanently wrapped) (ARC-76).
+_ENCODE_FILL_VALUE_LOCK = threading.Lock()
 
 
 @contextmanager
@@ -78,12 +85,6 @@ def _scalar_fill_value_shim() -> Iterator[None]:
         yield
         return
 
-    # Capture each module's own ``encode_fill_value`` and have its wrapper delegate to
-    # *that* module's original — kerchunk.hdf and zarr.meta currently share one function
-    # object, but if they ever diverge a single shared ``original`` would call the wrong
-    # encoder and the restore would clobber one module with the other's function.
-    originals = {module: module.encode_fill_value for module in modules}
-
     def _make_scalarized(original: Callable[..., Any]) -> Callable[..., Any]:
         def _scalarized(value: Any, dtype: Any, object_codec: Any = None) -> Any:
             if (
@@ -96,13 +97,20 @@ def _scalar_fill_value_shim() -> Iterator[None]:
 
         return _scalarized
 
-    for module, original in originals.items():
-        module.encode_fill_value = _make_scalarized(original)
-    try:
-        yield
-    finally:
+    # Hold the lock across capture + patch + restore. Capturing each module's own
+    # ``encode_fill_value`` under the lock guarantees ``originals`` is the real (unpatched)
+    # function even if another thread is mid-shim — kerchunk.hdf and zarr.meta currently share
+    # one function object, but if they ever diverge a single shared ``original`` would call the
+    # wrong encoder and the restore would clobber one module with the other's function.
+    with _ENCODE_FILL_VALUE_LOCK:
+        originals = {module: module.encode_fill_value for module in modules}
         for module, original in originals.items():
-            module.encode_fill_value = original
+            module.encode_fill_value = _make_scalarized(original)
+        try:
+            yield
+        finally:
+            for module, original in originals.items():
+                module.encode_fill_value = original
 
 
 def _require_kerchunk_single() -> Any:
