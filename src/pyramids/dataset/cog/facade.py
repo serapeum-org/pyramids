@@ -306,8 +306,10 @@ def write_cog(
         crs: CRS for the NumPy-array form (EPSG int, ``"EPSG:XXXX"``, WKT,
             or PROJ string). Also used as a fallback for DataArrays.
         transform: 6-tuple GDAL geotransform; required for the array form.
-        nodata: NoData scalar. Passed to array construction or set on a
-            pre-built dataset.
+        nodata: NoData scalar. For an array input it is passed to array
+            construction; for a pre-built input it is applied before the write —
+            on an in-memory copy when the source is read-only, so the source is
+            never mutated.
         options: Caller overrides merged on top of
             :data:`PYRAMIDS_COG_DEFAULTS`. Keys are GDAL COG driver
             options (validated downstream). When ``PREDICTOR`` is absent it
