@@ -43,9 +43,14 @@ from at source-open time. Consequences to plan for:
   them into the VRT XML in cleartext, and pickling it (a dask graph, say) ships
   them too. Treat such a mosaic as a secret; do not persist it to a shared
   location.
-* GDAL echoes the full source path in its own ``Warning 1: Can't open …``
-  messages on stderr. pyramids redacts every href it puts in an exception or
-  warning of its own (:func:`redact`), but it cannot redact GDAL's.
+* GDAL echoes the full source path in its own ``Can't open …`` messages.
+  pyramids redacts what it can: its own exceptions and warnings name the href
+  with any query string stripped (:func:`redact`), the GDAL error handler
+  scrubs credential options out of every message it logs
+  (:func:`~pyramids.base.remote.redact_credentials`), and the warnings GDAL's
+  Python bindings raise during the build are captured and re-emitted redacted.
+  A message printed by GDAL straight to stderr, outside those paths, is not
+  covered.
 * Prefer a short-lived token, and prefer a URL-signing signer where the provider
   offers one — a SAS token is scoped and expiring, a bearer token usually is not.
 """
@@ -62,7 +67,13 @@ from urllib.parse import quote
 from osgeo import gdal
 
 from pyramids.base._artifacts import register_vsimem
-from pyramids.base.remote import CloudConfig, _to_vsi, cloud_config_from_env, is_remote
+from pyramids.base.remote import (
+    CloudConfig,
+    _to_vsi,
+    cloud_config_from_env,
+    is_remote,
+    redact_credentials,
+)
 from pyramids.dataset import Dataset
 from pyramids.stac._loader import resolved_href
 
@@ -369,6 +380,39 @@ def redact(href: str) -> str:
     return f"{base}?<redacted>" if sep else base
 
 
+def _build_vrt(vrt_path: str, vsi_paths: list[str], separate: bool) -> Any:
+    """Run `gdal.BuildVRT`, redacting the warnings its bindings emit.
+
+    GDAL quotes the offending source path in its own
+    ``Can't open … Skipping it`` warning, and the bindings raise that as a
+    Python :class:`RuntimeWarning` directly — bypassing the GDAL error handler
+    pyramids installs. For a header-signed source that path holds a live token,
+    so the warnings are captured here and re-emitted with their credentials
+    blanked.
+
+    Args:
+        vrt_path: The `/vsimem` path to build into.
+        vsi_paths: The source paths, in order.
+        separate: Whether each source becomes its own band.
+
+    Returns:
+        The built `gdal.Dataset`, or `None` when GDAL could use no source.
+
+    Warns:
+        Whatever GDAL's bindings warned, with credential values redacted.
+    """
+    with warnings.catch_warnings(record=True) as raised:
+        warnings.simplefilter("always")
+        vrt_ds = gdal.BuildVRT(
+            vrt_path, vsi_paths, options=gdal.BuildVRTOptions(separate=separate)
+        )
+    for entry in raised:
+        warnings.warn(
+            redact_credentials(str(entry.message)), entry.category, stacklevel=3
+        )
+    return vrt_ds
+
+
 def _check_dropped_sources(
     dropped: list[str], total: int, asset: str, strict: bool | None
 ) -> None:
@@ -538,9 +582,7 @@ def build_vrt_from_stac(
     # source's `.aux.xml` / world-file sidecars. Remoteness is decided on the
     # hrefs, not the rewritten paths, which `is_remote` does not classify.
     with _source_config(hrefs, gdal_env):
-        vrt_ds = gdal.BuildVRT(
-            vrt_path, vsi_paths, options=gdal.BuildVRTOptions(separate=separate)
-        )
+        vrt_ds = _build_vrt(vrt_path, vsi_paths, separate)
         if vrt_ds is None:
             raise RuntimeError(
                 f"gdal.BuildVRT returned None for asset {asset!r} over "

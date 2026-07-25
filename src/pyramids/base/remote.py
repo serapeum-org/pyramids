@@ -477,6 +477,52 @@ def _chain_archive_vsi(path: str) -> str:
     return f"{_ARCHIVE_EXT_TO_VSI[ext]}{path}"
 
 
+_CREDENTIAL_OPTION_RE = re.compile(
+    r"(?i)\b(header\.[A-Za-z0-9\-_]+|signature|sig|x-amz-security-token|"
+    r"access_token|token)=([^&\s\"']+)"
+)
+"""Matches a credential-bearing option inside a `/vsicurl?…` path or a URL query."""
+
+
+def redact_credentials(text: str) -> str:
+    """Blank out credential values in a path, URL or message.
+
+    GDAL's own error text quotes the full source path, and a `/vsicurl?` source
+    carries its `header.Authorization` there — so a message like
+    `Can't open /vsicurl?header.Authorization=Bearer <token>&url=…` would publish
+    a live token to every log handler. Everything pyramids emits about such a
+    path goes through here first.
+
+    Args:
+        text: The message, path or URL to scrub.
+
+    Returns:
+        `text` with each credential value replaced by `<redacted>`.
+
+    Examples:
+        - An embedded bearer header is blanked, the rest stays readable:
+            ```python
+            >>> from pyramids.base.remote import redact_credentials
+            >>> redact_credentials("Can't open /vsicurl?header.Authorization=Bearer%20t&url=x")
+            "Can't open /vsicurl?header.Authorization=<redacted>&url=x"
+
+            ```
+        - A SAS-style query parameter is caught too:
+            ```python
+            >>> redact_credentials("https://h/a.tif?sv=2021&sig=SECRET")
+            'https://h/a.tif?sv=2021&sig=<redacted>'
+
+            ```
+        - An ordinary message is returned untouched:
+            ```python
+            >>> redact_credentials("Can't open /vsicurl/https://h/a.tif. Skipping it")
+            "Can't open /vsicurl/https://h/a.tif. Skipping it"
+
+            ```
+    """
+    return _CREDENTIAL_OPTION_RE.sub(r"\1=<redacted>", text)
+
+
 _VSICURL_FAST_READ_KNOBS: dict[str, str] = {
     "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
     "GDAL_HTTP_MULTIPLEX": "YES",
