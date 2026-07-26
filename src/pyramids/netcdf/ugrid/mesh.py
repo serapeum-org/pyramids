@@ -471,8 +471,12 @@ class Mesh2d:
             order = np.argsort(inverse, kind="stable")
             grouped_inverse = inverse[order]
             grouped_faces = face_idx[order]
-            starts = np.searchsorted(grouped_inverse, np.arange(len(unique_edges)), side="left")
-            ends = np.searchsorted(grouped_inverse, np.arange(len(unique_edges)), side="right")
+            starts = np.searchsorted(
+                grouped_inverse, np.arange(len(unique_edges)), side="left"
+            )
+            ends = np.searchsorted(
+                grouped_inverse, np.arange(len(unique_edges)), side="right"
+            )
             return {
                 (int(unique_edges[k, 0]), int(unique_edges[k, 1])): grouped_faces[
                     starts[k] : ends[k]

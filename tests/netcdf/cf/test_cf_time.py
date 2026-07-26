@@ -118,7 +118,9 @@ class TestCfTimeRoundTrip:
 class TestStandardCalendarCasing:
     """`decode_cf_time` treats the Gregorian family case-insensitively (ARC-69)."""
 
-    @pytest.mark.parametrize("calendar", ["Gregorian", "STANDARD", "Proleptic_Gregorian"])
+    @pytest.mark.parametrize(
+        "calendar", ["Gregorian", "STANDARD", "Proleptic_Gregorian"]
+    )
     def test_capitalised_standard_calendar_yields_datetime64(self, calendar):
         """A capitalised standard-calendar name decodes to datetime64, not cftime objects.
 
