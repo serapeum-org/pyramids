@@ -153,16 +153,16 @@ def test_recreate_overviews_requires_write(sample, tmp_path):
 
     builder = NetCDF.read_file(str(work))
     try:
-        builder.get_variable(
-            "tos"
-        ).create_overviews()  # external .ovr so overviews now exist
+        # build external overviews so they exist on the read-only reopen below
+        builder.get_variable("tos").create_overviews()
     finally:
         builder.close()
 
     nc = NetCDF.read_file(str(work))  # fresh read-only reopen sees the overviews
     try:
+        view = nc.get_variable("tos")
         with pytest.raises(ReadOnlyError):
-            nc.get_variable("tos").recreate_overviews()
+            view.recreate_overviews()
     finally:
         nc.close()
 
