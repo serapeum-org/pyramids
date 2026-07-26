@@ -313,6 +313,57 @@ class TestMesh2dBuildConnectivity:
         assert ffc is not None, "Face-face connectivity should be built"
         assert ffc.n_elements == 3, f"Expected 3 faces, got {ffc.n_elements}"
 
+    def test_build_edge_connectivity_vectorized_edges(self, triangle_mesh):
+        """The vectorized (uniform-mesh) path yields the expected first-seen edge set (ARC-59).
+
+        Test scenario:
+            The 2-triangle mesh `[[0,1,2],[1,4,3]]` has all faces of equal node count, so the
+            `np.unique` fast path runs and must produce exactly the six undirected face edges.
+        """
+        triangle_mesh.build_edge_connectivity()
+        enc = triangle_mesh.edge_node_connectivity
+        edges = {tuple(sorted((int(a), int(b)))) for a, b in enc.data}
+        assert edges == {(0, 1), (1, 2), (0, 2), (1, 4), (3, 4), (1, 3)}, (
+            f"unexpected vectorized edge set: {sorted(edges)}"
+        )
+        assert enc.n_elements == 6, f"expected 6 unique edges, got {enc.n_elements}"
+
+    def test_build_edge_connectivity_mixed_fallback(self, mixed_mesh):
+        """A ragged (filled) mesh falls back to the per-face loop and still builds 2-node edges.
+
+        Test scenario:
+            The mixed quad+triangle mesh has fill columns, so `_uniform_face_edges` returns `None`
+            and the loop path runs; the result must still be valid 2-node edge connectivity.
+        """
+        mixed_mesh.build_edge_connectivity()
+        enc = mixed_mesh.edge_node_connectivity
+        assert enc.max_nodes_per_element == 2, "edges must have 2 nodes"
+        assert enc.n_elements > 0, "mixed mesh should still produce edges"
+
+    def test_edge_to_faces_groups_shared_edge_ascending(self):
+        """A shared edge maps to both incident faces in ascending order (ARC-59).
+
+        Test scenario:
+            Two triangles `[[0,1,2],[1,3,2]]` share edge `(1,2)`; the vectorized grouping must map
+            that edge to `[0, 1]` (ascending face indices), matching the per-face loop.
+        """
+        faces = np.array([[0, 1, 2], [1, 3, 2]], dtype=np.intp)
+        mesh = Mesh2d(
+            node_x=np.array([0.0, 1.0, 0.0, 1.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=Connectivity(
+                data=faces,
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
+            ),
+        )
+        edge_to_faces = mesh._build_edge_to_faces()
+        assert edge_to_faces[(1, 2)] == [0, 1], (
+            f"shared edge should list both faces ascending, got {edge_to_faces[(1, 2)]}"
+        )
+        assert edge_to_faces[(0, 1)] == [0], "a boundary edge belongs to one face"
+
 
 class TestMesh2dTriangulation:
     """Tests for Mesh2d.fan_triangles property."""
