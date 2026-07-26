@@ -6,6 +6,9 @@ property and every zero-argument inherited method against a real variable view t
 breakage (e.g. #588 resample, #592 color_table/footprint), plus a few argument-taking methods.
 """
 
+import shutil
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -57,13 +60,15 @@ INHERITED_PROPERTIES_NULLABLE = [
 
 # Inherited zero-argument methods that should run on a variable view without raising.
 # (plot_histogram / plot_vector_field are exercised in the plot module; footprint has its own test below.)
+# The overview ops (create_overviews / get_overview / read_overview_array) are intentionally excluded:
+# they write an external `.ovr` next to the *source file*, so running them on the shared committed
+# fixture pollutes tests/data/. They get a dedicated tmp_path test below.
 INHERITED_NOARG_METHODS = [
     "aspect",
     "block_windows",
     "to_polygons",
     "wrap_longitude",
     "count_domain_cells",
-    "create_overviews",
     "extract",
     "focal_mean",
     "focal_std",
@@ -74,7 +79,6 @@ INHERITED_NOARG_METHODS = [
     "get_cell_polygons",
     "get_histogram",
     "get_mask",
-    "get_overview",
     "get_tile",
     "hillshade",
     "iter_blocks",
@@ -82,7 +86,6 @@ INHERITED_NOARG_METHODS = [
     "preview",
     "proximity",
     "read_masks",
-    "read_overview_array",
     "slope",
     "stats",
     "to_bytes",
@@ -141,6 +144,41 @@ def test_recreate_overviews_requires_write(tos_view):
     """recreate_overviews regenerates overviews and so requires a writable dataset."""
     with pytest.raises(ReadOnlyError):
         tos_view.recreate_overviews()
+
+
+def test_overview_ops_isolated_to_temp_copy(sample, tmp_path):
+    """The overview ops run on a tmp_path copy so their external `.ovr` never touches tests/data.
+
+    Test scenario:
+        `create_overviews` on a read-only variable view writes an external `<source>.0.ovr` next to
+        the *source file*. Copy the fixture into `tmp_path` first, so the sidecar lands there (and is
+        auto-cleaned); assert the overview family runs, the sidecar is written beside the copy, and no
+        new `.ovr` appears in the committed data dir.
+    """
+    src = sample("cf__7v__1d3-2d3-3d1__y-asc.nc")
+    data_dir = Path(src).parent
+    before = set(data_dir.glob("*.ovr"))
+
+    work = shutil.copy(src, tmp_path / "tos.nc")
+    nc = NetCDF.read_file(str(work))
+    try:
+        view = nc.get_variable("tos")
+        view.create_overviews()
+        assert (tmp_path / "tos.nc.0.ovr").exists(), (
+            "external overview should land beside the tmp copy"
+        )
+        assert view.get_overview() is not None, (
+            "get_overview should return a band after building"
+        )
+        assert view.read_overview_array() is not None, (
+            "read_overview_array should return data"
+        )
+    finally:
+        nc.close()
+
+    assert set(data_dir.glob("*.ovr")) == before, (
+        "overview ops must not write a sidecar into the committed tests/data tree"
+    )
 
 
 def test_inherited_to_cog_writes_file(tos_view, tmp_path):
