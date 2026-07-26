@@ -396,8 +396,14 @@ class TestSentinelMatchingIsExact:
         )
 
 
+@pytest.mark.lazy
 class TestEagerAndLazyAgree:
-    """L4/S4: `chunks=` is a memory choice, not a change of result."""
+    """L4/S4: `chunks=` is a memory choice, not a change of result.
+
+    Every method exercises the `chunks=` (dask) path, so the class is tagged `@pytest.mark.lazy`
+    like its sibling lazy tests — the conftest hook then auto-skips it when the `[lazy]` extra is
+    absent (e.g. the wheels verify jobs), instead of raising an `ImportError`.
+    """
 
     @pytest.fixture(scope="function")
     def dem(self, tmp_path) -> Dataset:
