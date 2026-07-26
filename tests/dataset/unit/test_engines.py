@@ -566,9 +566,12 @@ class TestIsReadOnlyError:
         Dataset.create_from_array(
             np.zeros((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
         ).to_file(str(path))
+        # `read_only` has to stay bound: a gdal.Band does not keep its dataset
+        # alive, so chaining the two calls invalidates the band immediately.
         read_only = gdal.Open(str(path), gdal.GA_ReadOnly)
+        read_only_band = read_only.GetRasterBand(1)
         with pytest.raises(RuntimeError) as excinfo:
-            read_only.GetRasterBand(1).Fill(1.0)
+            read_only_band.Fill(1.0)
         assert _is_read_only_error(excinfo.value), (
             f"GDAL's own refusal must classify as read-only: {excinfo.value}"
         )

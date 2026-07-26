@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import ReadOnlyError
+from pyramids.base._errors import CRSError, ReadOnlyError
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.engines import georef as georef_module
@@ -600,7 +600,7 @@ class TestStagedDemLifetime:
             call must fail before it reaches one.
         """
         before = self._vsimem_dems()
-        with pytest.raises(Exception, match="(?i)crs|not.*interpret"):
+        with pytest.raises(CRSError, match="could not interpret"):
             rpc_dataset.orthorectify(dem=mem_dem, to_epsg="definitely-not-a-crs")
         assert self._vsimem_dems() == before, (
             "a CRS failure must not strand a staged DEM; leftover: "
@@ -615,7 +615,7 @@ class TestStagedDemLifetime:
             one.
         """
         before = self._vsimem_dems()
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError, match="does not exist"):
             rpc_dataset.orthorectify(dem=mem_dem, method="not-a-resampling")
         assert self._vsimem_dems() == before, (
             "a resampling failure must not strand a staged DEM; leftover: "
@@ -635,6 +635,7 @@ class TestStagedDemLifetime:
             top_left_corner=(0.0, 8.0),
             cell_size=1.0,
         ).to_file(str(dem_path))
-        with pytest.raises(Exception):
-            rpc_dataset.orthorectify(dem=str(dem_path), to_epsg="not-a-crs")
+        dem_argument = str(dem_path)
+        with pytest.raises(CRSError, match="could not interpret"):
+            rpc_dataset.orthorectify(dem=dem_argument, to_epsg="not-a-crs")
         assert dem_path.exists(), "a caller-supplied DEM must never be removed"

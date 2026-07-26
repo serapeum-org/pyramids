@@ -157,10 +157,9 @@ class TestWarpToDataset:
             orthorectify", "could not reproject" -- so the shared helper must
             not flatten them into one generic message.
         """
+        options = gdal.WarpOptions(format="VRT", dstSRS="EPSG:3857")
         monkeypatch.setattr(gdal, "Warp", lambda *args, **kwargs: None)
         with pytest.raises(RuntimeError, match="could not do the thing"):
             warp_to_dataset(
-                source,
-                gdal.WarpOptions(format="VRT", dstSRS="EPSG:3857"),
-                error_message="GDAL could not do the thing.",
+                source, options, error_message="GDAL could not do the thing."
             )

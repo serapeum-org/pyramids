@@ -8,6 +8,7 @@ Owns the Analysis family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -47,6 +48,43 @@ _POINT_WINDOW_MAX_WASTE = 16
 # at roughly 64 MB of float64 regardless of how many points asked for it; past
 # it, the per-point reads are the cheaper failure mode.
 _POINT_WINDOW_MAX_PIXELS = 8_000_000
+
+
+@dataclass(frozen=True)
+class _PointWindow:
+    """One windowed read covering a batch of in-bounds sample points."""
+
+    x_off: int
+    y_off: int
+    x_size: int
+    y_size: int
+    strip_rows: int
+    in_rows: np.ndarray
+    in_cols: np.ndarray
+
+
+def _point_sample_fill(gdal_band: gdal.Band) -> tuple[Any, np.dtype]:
+    """Value and dtype for cells a point sample does not reach.
+
+    An integer band with no no-data value has no in-range sentinel to spare, so
+    the output is promoted to float and the gaps filled with `NaN`.
+
+    Args:
+        gdal_band: The band being sampled.
+
+    Returns:
+        tuple[Any, numpy.dtype]: The fill value and the output dtype.
+    """
+    no_data_value = gdal_band.GetNoDataValue()
+    band_dtype = np.dtype(gdal_to_numpy_dtype(gdal_band.DataType))
+    if no_data_value is None:
+        out_dtype = (
+            band_dtype
+            if np.issubdtype(band_dtype, np.floating)
+            else np.dtype("float64")
+        )
+        return np.nan, out_dtype
+    return no_data_value, band_dtype
 
 
 class Analysis(_Engine["Dataset"]):
@@ -775,62 +813,112 @@ class Analysis(_Engine["Dataset"]):
         Returns:
             One ``(n_points,)`` array per band, in ``band_list`` order.
         """
+        plan = self._plan_point_window(col, row, in_bounds_idx)
         rows_out: list[np.ndarray] = []
-        n_in_bounds = int(len(in_bounds_idx))
-        use_window = False
-        if n_in_bounds > 1:
-            in_cols = col[in_bounds_idx].astype(int)
-            in_rows = row[in_bounds_idx].astype(int)
-            x_off, y_off = int(in_cols.min()), int(in_rows.min())
-            x_size = int(in_cols.max()) - x_off + 1
-            y_size = int(in_rows.max()) - y_off + 1
-            # Worth reading as a window only while the box stays a small
-            # multiple of the points themselves; past that the wasted pixels
-            # cost more than the per-point calls they would save.
-            window_pixels = x_size * y_size
-            use_window = window_pixels <= max(
-                _POINT_WINDOW_MIN_PIXELS, n_in_bounds * _POINT_WINDOW_MAX_WASTE
-            )
-            # Rows per read, so a box that clears the ratio test but is large in
-            # absolute terms is still bounded. One strip covers the whole box in
-            # the common case, which is a single read exactly as before.
-            strip_rows = max(1, _POINT_WINDOW_MAX_PIXELS // max(x_size, 1))
-
         for b in band_list:
             gdal_band = self._ds.raster.GetRasterBand(b + 1)
-            no_data_value = gdal_band.GetNoDataValue()
-            band_dtype = np.dtype(gdal_to_numpy_dtype(gdal_band.DataType))
-            if no_data_value is None:
-                fill: Any = np.nan
-                out_dtype = (
-                    band_dtype
-                    if np.issubdtype(band_dtype, np.floating)
-                    else np.dtype("float64")
-                )
-            else:
-                fill = no_data_value
-                out_dtype = band_dtype
+            fill, out_dtype = _point_sample_fill(gdal_band)
             band_values = np.full(n_points, fill, dtype=out_dtype)
-            if use_window:
-                for strip_start in range(0, y_size, strip_rows):
-                    strip_height = min(strip_rows, y_size - strip_start)
-                    block = np.asarray(
-                        gdal_band.ReadAsArray(
-                            x_off, y_off + strip_start, x_size, strip_height
-                        )
-                    )
-                    local_rows = in_rows - y_off - strip_start
-                    in_strip = (local_rows >= 0) & (local_rows < strip_height)
-                    if in_strip.any():
-                        band_values[in_bounds_idx[in_strip]] = block[
-                            local_rows[in_strip], in_cols[in_strip] - x_off
-                        ]
+            if plan is None:
+                self._sample_per_point(gdal_band, band_values, col, row, in_bounds_idx)
             else:
-                for i in in_bounds_idx:
-                    window = gdal_band.ReadAsArray(int(col[i]), int(row[i]), 1, 1)
-                    band_values[i] = window[0, 0]
+                self._sample_windowed(gdal_band, band_values, in_bounds_idx, plan)
             rows_out.append(band_values)
         return rows_out
+
+    @staticmethod
+    def _plan_point_window(
+        col: np.ndarray, row: np.ndarray, in_bounds_idx: np.ndarray
+    ) -> _PointWindow | None:
+        """Decide whether one windowed read beats a read per point.
+
+        Args:
+            col: Fractional column of every requested point.
+            row: Fractional row of every requested point.
+            in_bounds_idx: Indices of the points that fall inside the raster.
+
+        Returns:
+            _PointWindow | None: The window to read, or `None` when the points
+                are too sparse for one to pay off.
+        """
+        n_in_bounds = int(len(in_bounds_idx))
+        if n_in_bounds <= 1:
+            return None
+        in_cols = col[in_bounds_idx].astype(int)
+        in_rows = row[in_bounds_idx].astype(int)
+        x_off, y_off = int(in_cols.min()), int(in_rows.min())
+        x_size = int(in_cols.max()) - x_off + 1
+        y_size = int(in_rows.max()) - y_off + 1
+        # Worth reading as a window only while the box stays a small multiple of
+        # the points themselves; past that the wasted pixels cost more than the
+        # per-point calls they would save.
+        if x_size * y_size > max(
+            _POINT_WINDOW_MIN_PIXELS, n_in_bounds * _POINT_WINDOW_MAX_WASTE
+        ):
+            return None
+        # Rows per read, so a box that clears the ratio test but is large in
+        # absolute terms is still bounded. One strip covers the whole box in the
+        # common case, which is a single read exactly as before.
+        strip_rows = max(1, _POINT_WINDOW_MAX_PIXELS // max(x_size, 1))
+        return _PointWindow(
+            x_off=x_off,
+            y_off=y_off,
+            x_size=x_size,
+            y_size=y_size,
+            strip_rows=strip_rows,
+            in_rows=in_rows,
+            in_cols=in_cols,
+        )
+
+    @staticmethod
+    def _sample_windowed(
+        gdal_band: gdal.Band,
+        band_values: np.ndarray,
+        in_bounds_idx: np.ndarray,
+        plan: _PointWindow,
+    ) -> None:
+        """Fill `band_values` from strip reads over the planned window.
+
+        Args:
+            gdal_band: The band to read.
+            band_values: Output array, modified in place.
+            in_bounds_idx: Indices of the points that fall inside the raster.
+            plan: The window and strip height to read.
+        """
+        for strip_start in range(0, plan.y_size, plan.strip_rows):
+            strip_height = min(plan.strip_rows, plan.y_size - strip_start)
+            block = np.asarray(
+                gdal_band.ReadAsArray(
+                    plan.x_off, plan.y_off + strip_start, plan.x_size, strip_height
+                )
+            )
+            local_rows = plan.in_rows - plan.y_off - strip_start
+            in_strip = (local_rows >= 0) & (local_rows < strip_height)
+            if in_strip.any():
+                band_values[in_bounds_idx[in_strip]] = block[
+                    local_rows[in_strip], plan.in_cols[in_strip] - plan.x_off
+                ]
+
+    @staticmethod
+    def _sample_per_point(
+        gdal_band: gdal.Band,
+        band_values: np.ndarray,
+        col: np.ndarray,
+        row: np.ndarray,
+        in_bounds_idx: np.ndarray,
+    ) -> None:
+        """Fill `band_values` with one 1x1 read per point.
+
+        Args:
+            gdal_band: The band to read.
+            band_values: Output array, modified in place.
+            col: Fractional column of every requested point.
+            row: Fractional row of every requested point.
+            in_bounds_idx: Indices of the points that fall inside the raster.
+        """
+        for i in in_bounds_idx:
+            window = gdal_band.ReadAsArray(int(col[i]), int(row[i]), 1, 1)
+            band_values[i] = window[0, 0]
 
     def sieve(
         self,

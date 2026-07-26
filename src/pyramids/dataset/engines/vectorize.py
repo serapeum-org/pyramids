@@ -419,7 +419,7 @@ class Vectorize(_Engine["Dataset"]):
             df[_CELL_ORDER] = (y_off + tile_rows) * columns + (x_off + tile_cols)
             if no_data_value is not None:
                 df[band_names] = df[band_names].replace(no_data_value, np.nan)
-            df.dropna(axis=0, subset=band_names, inplace=True)
+            df = df.dropna(axis=0, subset=band_names)
             if not df.empty:
                 df_list.append(df)
 
@@ -427,10 +427,11 @@ class Vectorize(_Engine["Dataset"]):
             return pd.DataFrame(columns=band_names)
 
         combined = pd.concat(df_list, ignore_index=True)
-        combined.sort_values(_CELL_ORDER, inplace=True, kind="stable")
-        combined.drop(columns=[_CELL_ORDER], inplace=True)
-        combined.reset_index(drop=True, inplace=True)
-        return combined
+        return (
+            combined.sort_values(_CELL_ORDER, kind="stable")
+            .drop(columns=[_CELL_ORDER])
+            .reset_index(drop=True)
+        )
 
     def _extract_values_full(self, band_names: list) -> pd.DataFrame:
         """Extract all raster band values into a DataFrame (no tiling).
