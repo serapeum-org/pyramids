@@ -117,6 +117,15 @@ class AWSRequesterPaysSigner(_BaseSigner):
     :func:`~pyramids.base.remote.RequesterPays` stay in lock-step instead of
     each carrying their own copy of the knob set.
 
+    Note:
+        Building the env from the shared knob set also *added* two options this
+        signer did not emit before: `GDAL_HTTP_MULTIPLEX=YES` and
+        `GDAL_HTTP_VERSION=2`. That is a throughput win on a healthy endpoint,
+        but HTTP/2 is not universally safe — an intercepting proxy, an older
+        libcurl, or a server that negotiates it badly can stall or fail reads.
+        A caller who needs the old behaviour can build the env themselves:
+        `CloudConfig(aws_request_payer=True).as_gdal_config()`.
+
     Args:
         region: Optional AWS region of the bucket. Emitted as `AWS_REGION` /
             `AWS_DEFAULT_REGION` so GDAL reads hit the bucket's own region, and
