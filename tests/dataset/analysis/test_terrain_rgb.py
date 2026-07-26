@@ -543,7 +543,9 @@ class TestTilingScratchCleanup:
             f"a failed staging left {self._scratch_dirs() - before} behind"
         )
 
-    def test_the_source_is_staged_on_disk_not_in_memory(self, dem, tmp_path, monkeypatch):
+    def test_the_source_is_staged_on_disk_not_in_memory(
+        self, dem, tmp_path, monkeypatch
+    ):
         """The intermediate is a real file, so a continental DEM streams.
 
         Test scenario:

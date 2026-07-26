@@ -1245,4 +1245,3 @@ class TestThreadLocalFileManagerOwnerReferences:
         assert manager._reap_dead_threads() == [opened], (
             "a handle whose owner has been collected must be reaped"
         )
-

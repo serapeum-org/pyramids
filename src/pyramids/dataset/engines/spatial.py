@@ -38,7 +38,6 @@ from pyramids.dataset.engines._warp import warp_to_dataset
 from pyramids.dataset.engines.vectorize import Vectorize
 
 
-
 @overload
 def _resolve_resolution(
     cell_size: float | tuple[float, float] | list[float],

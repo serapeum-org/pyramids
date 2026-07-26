@@ -863,7 +863,8 @@ class TestCutlineBorderTrim:
             f"{trimmed.rows}x{trimmed.columns}"
         )
         np.testing.assert_array_equal(
-            np.asarray(trimmed.read_array()), np.arange(9, dtype="float32").reshape(3, 3)
+            np.asarray(trimmed.read_array()),
+            np.arange(9, dtype="float32").reshape(3, 3),
         )
 
     def test_a_numeric_border_is_still_trimmed(self):

@@ -33,7 +33,6 @@ if TYPE_CHECKING:
 
 from pyramids.dataset.engines._base import _Engine
 
-
 # A windowed point-sample read is worth it while the points' bounding box stays
 # under this many pixels, or within this multiple of the point count -- beyond
 # that the pixels read but discarded cost more than the per-point GDAL calls.
@@ -790,9 +789,7 @@ class Analysis(_Engine["Dataset"]):
             window_pixels = x_size * y_size
             use_window = (
                 window_pixels
-                <= max(
-                    _POINT_WINDOW_MIN_PIXELS, n_in_bounds * _POINT_WINDOW_MAX_WASTE
-                )
+                <= max(_POINT_WINDOW_MIN_PIXELS, n_in_bounds * _POINT_WINDOW_MAX_WASTE)
                 and window_pixels <= _POINT_WINDOW_MAX_PIXELS
             )
 
@@ -812,9 +809,7 @@ class Analysis(_Engine["Dataset"]):
                 out_dtype = band_dtype
             band_values = np.full(n_points, fill, dtype=out_dtype)
             if use_window:
-                block = np.asarray(
-                    gdal_band.ReadAsArray(x_off, y_off, x_size, y_size)
-                )
+                block = np.asarray(gdal_band.ReadAsArray(x_off, y_off, x_size, y_size))
                 band_values[in_bounds_idx] = block[in_rows - y_off, in_cols - x_off]
             else:
                 for i in in_bounds_idx:

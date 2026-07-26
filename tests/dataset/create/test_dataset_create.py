@@ -769,7 +769,9 @@ class TestCellGeometryOnIrregularGrids:
             these polygons were wrong by the width/height ratio.
         """
         dataset = self._dataset((0.0, 2.0, 0.0, 10.0, 0.0, -5.0))
-        minx, miny, maxx, maxy = dataset.cell.get_cell_polygons().geometry.iloc[0].bounds
+        minx, miny, maxx, maxy = (
+            dataset.cell.get_cell_polygons().geometry.iloc[0].bounds
+        )
         assert (maxx - minx) == pytest.approx(2.0), (
             f"cell width should be 2.0, got {maxx - minx}"
         )
@@ -780,7 +782,9 @@ class TestCellGeometryOnIrregularGrids:
     def test_square_cells_are_unchanged(self):
         """The square, north-up case still produces unit cells."""
         dataset = self._dataset((0.0, 1.0, 0.0, 2.0, 0.0, -1.0))
-        minx, miny, maxx, maxy = dataset.cell.get_cell_polygons().geometry.iloc[0].bounds
+        minx, miny, maxx, maxy = (
+            dataset.cell.get_cell_polygons().geometry.iloc[0].bounds
+        )
         assert (maxx - minx, maxy - miny) == pytest.approx((1.0, 1.0)), (
             f"square cells must stay 1x1, got {(maxx - minx, maxy - miny)}"
         )

@@ -52,7 +52,6 @@ _REQUIRED_RPC_KEYS: frozenset[str] = frozenset(
 )
 
 
-
 def _is_staged_dem(dem_path: str | None) -> bool:
     """Whether `dem_path` is a `/vsimem` copy this module staged.
 

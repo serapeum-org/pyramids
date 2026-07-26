@@ -782,9 +782,7 @@ class Vectorize(_Engine["Dataset"]):
             row, col = rows[i], cols[i]
             for delta_row, delta_col in _NEIGHBOUR_OFFSETS:
                 neighbour_row, neighbour_col = row + delta_row, col + delta_col
-                if not (
-                    0 <= neighbour_row < no_rows and 0 <= neighbour_col < no_cols
-                ):
+                if not (0 <= neighbour_row < no_rows and 0 <= neighbour_col < no_cols):
                     continue
                 neighbour = array[neighbour_row, neighbour_col]
                 if not is_no_data(neighbour, no_data_value):

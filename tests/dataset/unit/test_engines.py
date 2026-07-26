@@ -37,8 +37,6 @@ from osgeo import gdal, osr
 
 from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import Dataset
-from pyramids.dataset.engines.bands import _is_read_only_error
-from pyramids.dataset.engines.cog import _cached_transformer
 from pyramids.dataset.engines import (
     COG,
     IO,
@@ -53,6 +51,8 @@ from pyramids.dataset.engines._base import (
     _Placeholder,
     _recreate_placeholder,
 )
+from pyramids.dataset.engines.bands import _is_read_only_error
+from pyramids.dataset.engines.cog import _cached_transformer
 
 
 @pytest.fixture

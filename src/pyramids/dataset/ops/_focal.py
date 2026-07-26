@@ -54,9 +54,7 @@ def _valid_fraction(arr: np.ndarray, size: int) -> tuple[np.ndarray, np.ndarray]
         fraction of each window that is valid, in `[0, 1]`.
     """
     valid = np.isfinite(arr)
-    weight = ndimage.uniform_filter(
-        valid.astype(np.float64), size=size, mode="reflect"
-    )
+    weight = ndimage.uniform_filter(valid.astype(np.float64), size=size, mode="reflect")
     return valid, weight
 
 

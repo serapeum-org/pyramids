@@ -1259,9 +1259,7 @@ class COG(_Engine["Dataset"]):
             `(col, row)` integer pixel indices (floored).
         """
         if self._ds.epsg != point_crs:
-            transformer = _cached_transformer(
-                point_crs, self._ds.epsg or self._ds.crs
-            )
+            transformer = _cached_transformer(point_crs, self._ds.epsg or self._ds.crs)
             x, y = transformer.transform(x, y)
         inv = gdal.InvGeoTransform(self._ds._raster.GetGeoTransform())
         col, row = gdal.ApplyGeoTransform(inv, x, y)

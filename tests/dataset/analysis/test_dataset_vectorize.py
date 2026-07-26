@@ -432,8 +432,10 @@ class TestToFeatureCollectionMaskTiling:
         array = np.arange(100, dtype="float32").reshape(10, 10)
         raster = gdal.GetDriverByName("MEM").Create("", 10, 10, 1, gdal.GDT_Float32)
         raster.SetGeoTransform((0.0, 1.0, 0.0, 10.0, 0.0, -1.0))
-        raster.SetProjection('GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
-                             'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]]')
+        raster.SetProjection(
+            'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
+            'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]]'
+        )
         band = raster.GetRasterBand(1)
         band.WriteArray(array)
         band.SetNoDataValue(-9999.0)
@@ -540,7 +542,11 @@ class TestNearestNeighbourFill:
             are themselves no-data. Only the diagonal `(1, 1)` holds a value.
         """
         array = np.array(
-            [[1.0, 2.0, 3.0], [4.0, 5.0, self.NO_DATA], [7.0, self.NO_DATA, self.NO_DATA]]
+            [
+                [1.0, 2.0, 3.0],
+                [4.0, 5.0, self.NO_DATA],
+                [7.0, self.NO_DATA, self.NO_DATA],
+            ]
         )
         filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [2], [2])
         assert filled[2, 2] == 5.0, (
@@ -550,9 +556,7 @@ class TestNearestNeighbourFill:
 
     def test_documented_case_is_unchanged(self):
         """The behaviour shown in the docstring still holds."""
-        array = np.array(
-            [[1.0, 2.0, 3.0], [4.0, self.NO_DATA, 6.0], [7.0, 8.0, 9.0]]
-        )
+        array = np.array([[1.0, 2.0, 3.0], [4.0, self.NO_DATA, 6.0], [7.0, 8.0, 9.0]])
         filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [1])
         assert filled[1, 1] == 6.0, (
             f"the documented example must still yield 6.0, got {filled[1, 1]}"

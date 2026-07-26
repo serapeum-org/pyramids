@@ -27,7 +27,7 @@ from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 from pyproj import CRS
 
-from pyramids._io import new_vsimem_path, read_vsi_bytes, silent_unlink
+from pyramids._io import new_vsimem_path, read_vsi_bytes
 from pyramids.base._domain import is_no_data
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._file_manager import (
@@ -84,7 +84,6 @@ is cheaper than a per-dataset one.
 """
 
 
-
 # Tiling reads the reprojected source once per tile per zoom level. Building a
 # pyramid on it lets GDAL answer a low-zoom tile from a decimated level instead
 # of resampling full-resolution pixels every time. "average" suits the
@@ -118,7 +117,6 @@ def _overview_levels_for_tiling(
         levels.append(factor)
         factor *= 2
     return tuple(levels)
-
 
 
 def _validate_zoom_range(min_zoom: int, max_zoom: int | None) -> None:
@@ -246,7 +244,6 @@ def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
             f"dtype {dtype.name} (whole numbers in [{info.min}, "
             f"{info.max}])."
         )
-
 
 
 _TERRAIN_RGB_ENCODINGS = ("mapbox", "terrarium")

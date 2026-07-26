@@ -430,7 +430,6 @@ class TestSetGCPs:
             ds.set_gcps(corner_gcps, 4326)
 
 
-
 class TestStagedDemLifetime:
     """ARC-8: a DEM staged into /vsimem by orthorectify is freed exactly once.
 
