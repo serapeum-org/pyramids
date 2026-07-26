@@ -27,12 +27,22 @@ import atexit
 import os
 import shutil
 import tempfile
+import threading
 
 from osgeo import gdal
 
 _ROOT: str | None = None
 _VSIMEM_PATHS: list[str] = []
 _CLEANUP_ARMED = False
+
+_LOCK = threading.Lock()
+"""Guards the module globals.
+
+Two threads building a VRT each mutate `_VSIMEM_PATHS` and race `_CLEANUP_ARMED`,
+and `cleanup()` pops from the same list — so a test-then-mutate on it (checking
+membership, then removing) can lose the race and raise. That matters because
+`unregister_vsimem` runs from a failure handler, where a `ValueError` from the
+cleanup would replace the real build error."""
 
 
 def _arm_cleanup() -> None:
@@ -44,9 +54,10 @@ def _arm_cleanup() -> None:
     root — never armed the sweep, so its tracked VRTs were never reclaimed.
     """
     global _CLEANUP_ARMED
-    if not _CLEANUP_ARMED:
-        atexit.register(cleanup)
-        _CLEANUP_ARMED = True
+    with _LOCK:
+        if not _CLEANUP_ARMED:
+            atexit.register(cleanup)
+            _CLEANUP_ARMED = True
 
 
 def _root() -> str:
@@ -94,7 +105,8 @@ def register_vsimem(path: str) -> None:
     Args:
         path: The in-memory GDAL path (e.g. ``/vsimem/foo.vrt``).
     """
-    _VSIMEM_PATHS.append(path)
+    with _LOCK:
+        _VSIMEM_PATHS.append(path)
     _arm_cleanup()
 
 
@@ -105,11 +117,17 @@ def unregister_vsimem(path: str) -> None:
     reclaims its own artefact — otherwise :func:`cleanup` later unlinks paths
     that no longer exist.
 
+    Never raises: it is called from a failure handler, where a `ValueError` from
+    losing a race against `cleanup()` would replace the error the caller is
+    actually reporting.
+
     Args:
         path: The in-memory GDAL path to forget. Unknown paths are ignored.
     """
-    while path in _VSIMEM_PATHS:
-        _VSIMEM_PATHS.remove(path)
+    with _LOCK:
+        # Rebuild rather than test-then-remove: one atomic assignment, and no
+        # window in which a concurrent `cleanup()` pop makes `remove` raise.
+        _VSIMEM_PATHS[:] = [tracked for tracked in _VSIMEM_PATHS if tracked != path]
 
 
 def cleanup() -> None:
@@ -120,8 +138,11 @@ def cleanup() -> None:
     swallowed so a locked file at shutdown never raises.
     """
     global _ROOT
-    while _VSIMEM_PATHS:
-        path = _VSIMEM_PATHS.pop()
+    with _LOCK:
+        pending = list(_VSIMEM_PATHS)
+        _VSIMEM_PATHS.clear()
+    while pending:
+        path = pending.pop()
         try:
             gdal.Unlink(path)
         except Exception:  # noqa: BLE001  # nosec B110 - best-effort shutdown cleanup
