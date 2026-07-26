@@ -758,7 +758,7 @@ class Analysis(_Engine["Dataset"]):
 
         Two strategies, chosen per call from how tightly the points cluster:
 
-        * **One windowed read** over their bounding box, then array indexing —
+        * **A windowed read** over their bounding box, then array indexing —
           one GDAL call per band instead of one per point.
         * **A 1x1 read per point**, kept for sparse or widely scattered points,
           where the bounding box would pull in far more pixels than were asked
@@ -767,6 +767,13 @@ class Analysis(_Engine["Dataset"]):
         The switch compares the bounding box area against the point count, so a
         handful of scattered points never drags in a near-full-raster read while
         a dense batch stops paying per-point GDAL overhead.
+
+        A window that clears that test but is large in absolute terms is read in
+        horizontal strips of at most ``_POINT_WINDOW_MAX_PIXELS`` rather than in
+        one block, so the peak allocation is bounded without falling back to
+        per-point reads. That fallback would be the wrong answer here by
+        construction: a batch big enough to trip an absolute ceiling is a dense
+        one, and dense is exactly the case per-point reads are slowest for.
 
         Out-of-bounds points keep the fill value — the band's no-data value, or
         ``NaN`` when it has none (which promotes an integer band to float).
@@ -783,15 +790,17 @@ class Analysis(_Engine["Dataset"]):
             x_off, y_off = int(in_cols.min()), int(in_rows.min())
             x_size = int(in_cols.max()) - x_off + 1
             y_size = int(in_rows.max()) - y_off + 1
-            # Worth one big read only while the box stays a small multiple of the
-            # points themselves; past that the wasted pixels cost more than the
-            # per-point calls they would save.
+            # Worth reading as a window only while the box stays a small
+            # multiple of the points themselves; past that the wasted pixels
+            # cost more than the per-point calls they would save.
             window_pixels = x_size * y_size
-            use_window = (
-                window_pixels
-                <= max(_POINT_WINDOW_MIN_PIXELS, n_in_bounds * _POINT_WINDOW_MAX_WASTE)
-                and window_pixels <= _POINT_WINDOW_MAX_PIXELS
+            use_window = window_pixels <= max(
+                _POINT_WINDOW_MIN_PIXELS, n_in_bounds * _POINT_WINDOW_MAX_WASTE
             )
+            # Rows per read, so a box that clears the ratio test but is large in
+            # absolute terms is still bounded. One strip covers the whole box in
+            # the common case, which is a single read exactly as before.
+            strip_rows = max(1, _POINT_WINDOW_MAX_PIXELS // max(x_size, 1))
 
         for b in band_list:
             gdal_band = self._ds.raster.GetRasterBand(b + 1)
@@ -809,8 +818,19 @@ class Analysis(_Engine["Dataset"]):
                 out_dtype = band_dtype
             band_values = np.full(n_points, fill, dtype=out_dtype)
             if use_window:
-                block = np.asarray(gdal_band.ReadAsArray(x_off, y_off, x_size, y_size))
-                band_values[in_bounds_idx] = block[in_rows - y_off, in_cols - x_off]
+                for strip_start in range(0, y_size, strip_rows):
+                    strip_height = min(strip_rows, y_size - strip_start)
+                    block = np.asarray(
+                        gdal_band.ReadAsArray(
+                            x_off, y_off + strip_start, x_size, strip_height
+                        )
+                    )
+                    local_rows = in_rows - y_off - strip_start
+                    in_strip = (local_rows >= 0) & (local_rows < strip_height)
+                    if in_strip.any():
+                        band_values[in_bounds_idx[in_strip]] = block[
+                            local_rows[in_strip], in_cols[in_strip] - x_off
+                        ]
             else:
                 for i in in_bounds_idx:
                     window = gdal_band.ReadAsArray(int(col[i]), int(row[i]), 1, 1)
@@ -1499,7 +1519,9 @@ class Analysis(_Engine["Dataset"]):
                [ 6  2 10  3  8  4  1  9  3  6]]
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326,
+              ... )
 
               ```
 

@@ -528,3 +528,63 @@ class TestStatsRecoveryPath:
         assert float(stats["min"].iloc[0]) == 0.0, (
             f"band 0 spans 0..24, got a minimum of {stats['min'].iloc[0]}"
         )
+
+
+class TestWindowedReadIsStripped:
+    """L2: a large window is read in strips, not abandoned for per-point reads."""
+
+    @pytest.fixture(scope="function")
+    def wide(self) -> Dataset:
+        """A 1-band 100x100 raster of distinct values, nodata -9999."""
+        arr = np.arange(100 * 100, dtype="float64").reshape(100, 100)
+        return Dataset.create_from_array(
+            arr,
+            top_left_corner=(0, 100),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+
+    def test_a_bounded_strip_still_reads_every_point_correctly(self, wide, monkeypatch):
+        """Forcing several strips must not change a single value.
+
+        Test scenario:
+            Shrinking the per-read ceiling to a handful of pixels makes the
+            window span many strips, which is where an off-by-one in the strip
+            offset would put a value in the wrong slot or drop it entirely.
+            Compared against the same points read as one block.
+        """
+        points = _points([(x + 0.5, 99.5 - y) for y in range(6) for x in range(6)])
+        one_block = wide.sample(points)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(analysis, "_POINT_WINDOW_MAX_PIXELS", 12)
+            stripped = wide.sample(points)
+        np.testing.assert_array_equal(one_block, stripped)
+
+    def test_a_dense_batch_keeps_windowing_past_the_ceiling(self, wide, monkeypatch):
+        """The absolute ceiling bounds each read, it does not disable windowing.
+
+        Test scenario:
+            Dropping to a 1x1 read per point is the slowest possible answer for
+            a dense batch, and a batch large enough to trip an absolute ceiling
+            is dense by construction. With the ceiling at 12 pixels a 6x6 box
+            must still issue a handful of strip reads, not 36 per-point ones.
+        """
+        calls: list[tuple] = []
+        original = gdal.Band.ReadAsArray
+
+        def counting_read(self, *args, **kwargs):
+            calls.append(args)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(gdal.Band, "ReadAsArray", counting_read)
+        monkeypatch.setattr(analysis, "_POINT_WINDOW_MAX_PIXELS", 12)
+        points = _points([(x + 0.5, 99.5 - y) for y in range(6) for x in range(6)])
+        wide.sample(points)
+        assert len(calls) < 36, (
+            f"a dense batch must keep windowing in strips, got {len(calls)} reads "
+            "for 36 points"
+        )
+        assert all(args[3] <= 2 for args in calls), (
+            f"each strip must respect the ceiling of 12 / 6 = 2 rows, got {calls}"
+        )
