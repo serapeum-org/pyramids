@@ -4,6 +4,7 @@ from typing import List
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pytest
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal
@@ -568,4 +569,81 @@ class TestNearestNeighbourFill:
         filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [1])
         assert filled[1, 1] == self.NO_DATA, (
             f"an isolated cell must stay no-data, got {filled[1, 1]}"
+        )
+
+
+class TestTiledRowOrder:
+    """L3: tiling changes how the raster is read, not what comes back."""
+
+    @pytest.fixture(scope="function")
+    def uneven(self) -> Dataset:
+        """A 37x53 raster whose dimensions are not multiples of the tile size.
+
+        Partial edge tiles are where a flat "tile index times tile size" offset
+        would drift, so the fixture is deliberately not tile-aligned.
+
+        Returns:
+            Dataset: In-memory single-band dataset with two no-data cells.
+        """
+        array = (np.arange(37 * 53, dtype="float64").reshape(37, 53) % 97) + 1.0
+        array[5, 5] = -9999.0
+        array[20, 40] = -9999.0
+        return Dataset.create_from_array(
+            array,
+            top_left_corner=(0.0, 37.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+
+    def test_the_tiled_frame_matches_the_untiled_one(self, uneven):
+        """Both paths return the same rows in the same order.
+
+        Test scenario:
+            Rows used to come out tile-major -- tile by tile, row-major within
+            each tile -- against the untiled path's row-major, so the two
+            frames held the same values in a different order.
+        """
+        untiled = uneven.to_feature_collection(tile=False)
+        tiled = uneven.to_feature_collection(tile=True, tile_size=8)
+        pd.testing.assert_frame_equal(
+            untiled.reset_index(drop=True), tiled.reset_index(drop=True)
+        )
+
+    def test_geometry_pairs_with_the_right_value_when_tiled(self, uneven):
+        """`tile=True` with `add_geometry` no longer mis-georeferences rows.
+
+        Test scenario:
+            `to_feature_collection` zips values and geometry positionally, and
+            the geometry is built row-major, so tile-major values landed on the
+            wrong cells whenever the raster spanned more than one tile.
+        """
+        untiled = uneven.to_feature_collection(tile=False, add_geometry="point")
+        tiled = uneven.to_feature_collection(
+            tile=True, tile_size=8, add_geometry="point"
+        )
+        assert untiled.geometry.equals(tiled.geometry), (
+            "the same cell must carry the same point on both paths"
+        )
+        pd.testing.assert_frame_equal(
+            untiled.drop(columns="geometry").reset_index(drop=True),
+            tiled.drop(columns="geometry").reset_index(drop=True),
+        )
+
+    def test_a_single_tile_covering_the_raster_is_unchanged(self, uneven):
+        """A tile larger than the raster is the untiled path by another name."""
+        untiled = uneven.to_feature_collection(tile=False)
+        one_tile = uneven.to_feature_collection(tile=True, tile_size=512)
+        pd.testing.assert_frame_equal(
+            untiled.reset_index(drop=True), one_tile.reset_index(drop=True)
+        )
+
+    def test_no_data_cells_are_dropped_on_both_paths(self, uneven):
+        """The two no-data cells are absent from both frames."""
+        tiled = uneven.to_feature_collection(tile=True, tile_size=8)
+        assert len(tiled) == 37 * 53 - 2, (
+            f"expected the two no-data cells dropped, got {len(tiled)} rows"
+        )
+        assert not (tiled.to_numpy() == -9999.0).any(), (
+            "no sentinel may survive into the frame"
         )
