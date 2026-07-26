@@ -13,6 +13,7 @@ from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import (
     IO,
     _encode_terrain_rgb,
+    _overview_levels_for_tiling,
     _terrain_rgba_stack,
 )
 
@@ -378,9 +379,9 @@ class TestTilingSourcePreparation:
         """
         seen = self._capture_source(monkeypatch)
         dem = Dataset.create_from_array(
-            arr=np.array([[0.0, 100.0], [2000.0, 8848.0]], dtype="float32"),
-            top_left_corner=(0.0, 4.0),
-            cell_size=1.0,
+            arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
+            top_left_corner=(0.0, 6.0),
+            cell_size=0.01,
             epsg=4326,
         )
         dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5)
@@ -399,10 +400,16 @@ class TestTilingSourcePreparation:
             full-resolution reads per tile.
         """
         seen = self._capture_source(monkeypatch)
-        _dem_3857().to_terrain_rgb(
-            tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5
+        dem = Dataset.create_from_array(
+            arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
+            geo=_GEO_3857,
+            epsg=3857,
         )
+        dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5)
         assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
+        assert seen[0].raster is not dem.raster, (
+            "a source already in EPSG:3857 must still be staged, not read directly"
+        )
         assert seen[0].raster.GetRasterBand(1).GetOverviewCount() > 0, (
             "a source already in EPSG:3857 must be staged with overviews too"
         )
@@ -431,4 +438,45 @@ class TestTilingSourcePreparation:
         )
         assert seen[0].raster.GetRasterBand(1).GetOverviewCount() == 0, (
             "the untiled path must not build overviews"
+        )
+
+
+class TestOverviewLevelsForTiling:
+    """The pyramid depth follows the raster size, not a fixed ladder."""
+
+    def test_a_raster_inside_one_tile_gets_no_levels(self):
+        """Nothing to decimate when the whole raster fits in a tile.
+
+        Test scenario:
+            The fixed ladder built five levels regardless, the coarsest of them
+            smaller than a single pixel of the output.
+        """
+        assert _overview_levels_for_tiling(200, 200, 256) == (), (
+            "a raster smaller than one tile needs no pyramid"
+        )
+
+    def test_the_ladder_reaches_roughly_one_tile(self):
+        """The coarsest level is about tile-sized, whatever the raster's size.
+
+        Test scenario:
+            A 4096-pixel raster tiled at 256 needs decimations up to 16x; the
+            old fixed ladder stopped at 32x for every raster, so a continental
+            source's lowest zoom levels still resampled a level far finer than
+            they needed.
+        """
+        assert _overview_levels_for_tiling(4096, 4096, 256) == (2, 4, 8, 16), (
+            f"got {_overview_levels_for_tiling(4096, 4096, 256)}"
+        )
+        deep = _overview_levels_for_tiling(65536, 65536, 256)
+        assert deep[-1] == 256, f"a large raster must decimate further, got {deep}"
+
+    def test_the_longer_edge_drives_the_depth(self):
+        """A wide, short raster still gets levels for its width.
+
+        Test scenario:
+            Taking the shorter edge would stop the pyramid early and leave the
+            long axis resampling full-resolution pixels.
+        """
+        assert _overview_levels_for_tiling(4096, 300, 256) == (2, 4, 8, 16), (
+            f"got {_overview_levels_for_tiling(4096, 300, 256)}"
         )

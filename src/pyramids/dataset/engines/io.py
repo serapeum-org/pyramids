@@ -82,6 +82,35 @@ is cheaper than a per-dataset one.
 """
 
 
+
+def _overview_levels_for_tiling(
+    width: int, height: int, tile_size: int
+) -> tuple[int, ...]:
+    """Decimation factors covering a raster down to roughly one tile.
+
+    A fixed ladder is either too short or too long: it bottoms out on a
+    continental raster -- the lowest zoom levels still resample from a level far
+    finer than they need -- and builds levels smaller than a single tile on a
+    small one. Halving until the coarsest level is about tile-sized gives each
+    zoom a level near its own resolution, whatever the raster's size.
+
+    Args:
+        width: Raster width in pixels.
+        height: Raster height in pixels.
+        tile_size: Edge of the output tiles, in pixels.
+
+    Returns:
+        tuple[int, ...]: Powers of two to hand to `BuildOverviews`, empty when
+            the raster already fits inside a tile.
+    """
+    levels: list[int] = []
+    factor = 2
+    while max(width, height) // factor >= tile_size:
+        levels.append(factor)
+        factor *= 2
+    return tuple(levels)
+
+
 def _validate_band_index(band: int | None, band_count: int) -> None:
     """Raise ``ValueError`` if `band` is outside the valid range.
 
@@ -197,7 +226,6 @@ def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
 # of resampling full-resolution pixels every time. "average" suits the
 # continuous elevation data terrain-RGB encodes.
 _OVERVIEW_RESAMPLING_FOR_TILES = "average"
-_TERRAIN_TILE_OVERVIEW_LEVELS = [2, 4, 8, 16, 32]
 
 _TERRAIN_RGB_ENCODINGS = ("mapbox", "terrarium")
 """Supported terrain-RGB elevation encodings (Mapbox Terrain-RGB / Mapzen Terrarium)."""
@@ -2636,9 +2664,11 @@ class IO(_Engine["Dataset"]):
             staged = gdal.GetDriverByName("GTiff").CreateCopy(
                 overview_scratch, source.raster
             )
-            staged.BuildOverviews(
-                _OVERVIEW_RESAMPLING_FOR_TILES, _TERRAIN_TILE_OVERVIEW_LEVELS
+            levels = _overview_levels_for_tiling(
+                staged.RasterXSize, staged.RasterYSize, tile_size
             )
+            if levels:
+                staged.BuildOverviews(_OVERVIEW_RESAMPLING_FOR_TILES, list(levels))
             source = self._ds.__class__(staged)
         try:
             if tiles:
