@@ -589,3 +589,53 @@ class TestStagedDemLifetime:
             "once the GDAL handle is collected the DEM must be unlinked; "
             f"leftover: {self._vsimem_dems() - before}"
         )
+
+    def test_an_unresolvable_crs_frees_the_staged_dem(self, rpc_dataset, mem_dem):
+        """A bad `to_epsg` is caught before the DEM is staged.
+
+        Test scenario:
+            The CRS lookup used to sit between the staging and the block that
+            cleans it up, so the most likely failure of the method -- an
+            ordinary typo in the target CRS -- stranded the staged DEM in
+            /vsimem for the lifetime of the process. No warp stub here: the
+            call must fail before it reaches one.
+        """
+        before = self._vsimem_dems()
+        with pytest.raises(Exception, match="(?i)crs|not.*interpret"):
+            rpc_dataset.orthorectify(dem=mem_dem, to_epsg="definitely-not-a-crs")
+        assert self._vsimem_dems() == before, (
+            "a CRS failure must not strand a staged DEM; leftover: "
+            f"{self._vsimem_dems() - before}"
+        )
+
+    def test_an_unknown_resampling_frees_the_staged_dem(self, rpc_dataset, mem_dem):
+        """A bad `method` is caught before the DEM is staged, too.
+
+        Test scenario:
+            The resampling lookup sat in the same uncovered window as the CRS
+            one.
+        """
+        before = self._vsimem_dems()
+        with pytest.raises(Exception):
+            rpc_dataset.orthorectify(dem=mem_dem, method="not-a-resampling")
+        assert self._vsimem_dems() == before, (
+            "a resampling failure must not strand a staged DEM; leftover: "
+            f"{self._vsimem_dems() - before}"
+        )
+
+    def test_a_caller_supplied_dem_is_never_unlinked(self, rpc_dataset, tmp_path):
+        """Only a DEM this call staged is ours to free.
+
+        Test scenario:
+            The cleanup keys on the /vsimem prefix _resolve_dem_path writes. A
+            caller's own file must survive a failed orthorectify untouched.
+        """
+        dem_path = tmp_path / "caller_dem.tif"
+        Dataset.create_from_array(
+            np.full((8, 8), 100.0, "float32"),
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+        ).to_file(str(dem_path))
+        with pytest.raises(Exception):
+            rpc_dataset.orthorectify(dem=str(dem_path), to_epsg="not-a-crs")
+        assert dem_path.exists(), "a caller-supplied DEM must never be removed"
