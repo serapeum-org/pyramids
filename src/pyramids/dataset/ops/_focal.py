@@ -92,11 +92,14 @@ def _apply_eager_or_lazy(
     chunks: Any,
     band: int,
     dtype: Any,
+    depth: int | None = None,
 ) -> Any:
     """Run `func` on the band eagerly or wrap with `dask.map_overlap`.
 
     `func` must accept a 2-D numpy array and return a 2-D numpy
-    array of the same shape.
+    array of the same shape. `depth` overrides the halo handed to each
+    lazy block; it must cover the kernel's true footprint, which is
+    wider than `radius` for a kernel that filters more than once.
 
     No-data cells are blanked to NaN before the kernel runs and the
     sentinel is written back afterwards. Feeding a sentinel such as
@@ -118,11 +121,15 @@ def _apply_eager_or_lazy(
     no_data_value = ds.no_data_value[band]
 
     def _guarded(block: np.ndarray) -> np.ndarray:
-        """Run `func` with no-data blanked to NaN, then restore the sentinel."""
+        """Run `func` with no-data blanked to NaN, then restore the sentinel.
+
+        Every block takes the same path whether or not it holds a sentinel --
+        an early return for the sentinel-free case skipped the dtype cast and
+        the non-finite masking, so two blocks of one raster could come back
+        with different dtypes and different treatment of a genuine NaN.
+        """
         masked = is_no_data(block, no_data_value)
-        if not masked.any():
-            return func(block)
-        blanked = np.where(masked, np.nan, block)
+        blanked = np.where(masked, np.nan, block) if masked.any() else block
         out = np.asarray(func(blanked), dtype=dtype)
         # A cell that had no value has no derivative either. `np.gradient` uses a
         # centred difference, so it computes a finite slope *at* the no-data cell
@@ -149,7 +156,7 @@ def _apply_eager_or_lazy(
         # halo it needs to blank neighbouring no-data before filtering.
         result = lazy.map_overlap(
             _guarded,
-            depth=radius,
+            depth=radius if depth is None else depth,
             boundary="reflect",
             trim=True,
             dtype=dtype,
@@ -265,7 +272,11 @@ def focal_std(
         )
         return np.sqrt(np.clip(var, 0.0, None))
 
-    return _apply_eager_or_lazy(_kernel, ds, radius, chunks, band, np.float64)
+    # Two chained `uniform_filter` passes reach 2*radius in each direction, so a
+    # `radius` halo would let block edges see a truncated neighbourhood.
+    return _apply_eager_or_lazy(
+        _kernel, ds, radius, chunks, band, np.float64, depth=2 * radius
+    )
 
 
 def focal_apply(
