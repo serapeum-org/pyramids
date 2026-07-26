@@ -37,34 +37,35 @@ from pyramids.dataset.engines._base import _Engine
 
 # Substring GDAL raises when a write is attempted on a read-only band; matched in
 # several no-data setters below to re-raise a friendly ReadOnlyError. Named once
-# to avoid duplicating the literal (S1192).
-_GDAL_READ_ONLY_FILL_ERROR = (
-    "Attempt to write to read only dataset in GDALRasterBand::Fill()."
-)
-# GDAL words the same refusal differently depending on which call refused, so a
-# caller checking only one spelling misses the other.
-_GDAL_READ_ONLY_MESSAGES = (
-    _GDAL_READ_ONLY_FILL_ERROR,
-    "attempt to write to dataset opened in read-only mode.",
-)
+# to avoid duplicating the literal (S1192). GDAL prefixes it with the file, band
+# and refusing call -- "ro.tif, band 1: GDALRasterBand::Fill(): attempt to write
+# to dataset opened in read-only mode." -- so the test has to be a substring one.
+_GDAL_READ_ONLY_MESSAGE = "attempt to write to dataset opened in read-only mode."
 
 
 def _is_read_only_error(error: BaseException) -> bool:
     """Whether a GDAL exception means "this dataset is open read-only".
 
-    GDAL signals it with a plain `RuntimeError` whose text varies by call site,
-    so the classification is a substring match. Kept in one place: it was
-    repeated at three no-data setters, each testing a different subset of the
-    known wordings.
+    GDAL signals it with a plain `RuntimeError` carrying the file, band and
+    refusing call ahead of the reason, so the classification is a substring
+    match. Kept in one place: it was repeated at three no-data setters, each
+    testing a different subset of the wordings, which meant two of them never
+    recognised a refusal at all and surfaced a raw `RuntimeError` instead of
+    `ReadOnlyError`. Consolidating them is a deliberate behaviour change --
+    those two paths now raise `ReadOnlyError` where they previously did not.
+
+    Note that not every write to a read-only dataset reaches here.
+    `SetNoDataValue` on a read-only GTiff succeeds on GDAL 3.13 by writing to
+    the PAM sidecar instead of refusing, so its caller's guard is what stops it,
+    not this classifier.
 
     Args:
         error: The exception raised by GDAL.
 
     Returns:
-        bool: `True` when the message matches a known read-only refusal.
+        bool: `True` when the message matches GDAL's read-only refusal.
     """
-    text = str(error)
-    return any(message in text for message in _GDAL_READ_ONLY_MESSAGES)
+    return _GDAL_READ_ONLY_MESSAGE in str(error)
 
 
 class Bands(_Engine["Dataset"]):

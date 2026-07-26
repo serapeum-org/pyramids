@@ -469,7 +469,14 @@ class TestSetNoDataValueMocked:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        err_msg = "Attempt to write to read only dataset in GDALRasterBand::Fill()."
+        # GDAL 3.13 words every read-only refusal this way, prefixed with the
+        # file, band and refusing call. The wording this test used to mock
+        # ("Attempt to write to read only dataset in ...") is not emitted by
+        # any supported GDAL, so it exercised a pattern that never fires.
+        err_msg = (
+            "ro.tif, band 1: GDALRasterBand::Fill(): attempt to write to "
+            "dataset opened in read-only mode."
+        )
         with patch.object(
             ds.bands, "_set_no_data_value_backend", side_effect=RuntimeError(err_msg)
         ):
@@ -685,7 +692,14 @@ class TestChangeNoDataAttrConversion:
             no_data_value=-9999.0,
         )
         original_get_band = ds.raster.GetRasterBand
-        err_msg = "Attempt to write to read only dataset in GDALRasterBand::Fill()."
+        # GDAL 3.13 words every read-only refusal this way, prefixed with the
+        # file, band and refusing call. The wording this test used to mock
+        # ("Attempt to write to read only dataset in ...") is not emitted by
+        # any supported GDAL, so it exercised a pattern that never fires.
+        err_msg = (
+            "ro.tif, band 1: GDALRasterBand::Fill(): attempt to write to "
+            "dataset opened in read-only mode."
+        )
 
         def mock_get_band(band_num):
             """Return band that raises on SetNoDataValue."""

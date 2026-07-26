@@ -529,39 +529,49 @@ class TestIsReadOnlyError:
     """ARC-68: the read-only classification lives in one place now."""
 
     @pytest.mark.parametrize(
-        "message",
-        [
-            "Attempt to write to read only dataset in GDALRasterBand::Fill().",
-            "attempt to write to dataset opened in read-only mode.",
-        ],
+        "refusing_call",
+        ["GDALRasterBand::Fill()", "GDALRasterBand::RasterIO()"],
     )
-    def test_known_wordings_are_recognised(self, message):
-        """Both GDAL spellings of the refusal classify as read-only.
+    def test_a_real_gdal_refusal_is_recognised(self, refusing_call, tmp_path):
+        """The message GDAL actually emits classifies as read-only.
 
         Args:
-            message: One of the two messages GDAL emits, depending on which
-                call refused the write.
+            refusing_call: The GDAL entry point named in the message.
+            tmp_path: pytest's temporary directory fixture.
 
         Test scenario:
-            The check was repeated at three no-data setters, each testing a
-            different subset of the wordings, so a dataset that refused with the
-            other spelling surfaced a raw RuntimeError instead of ReadOnlyError.
+            Reproduces the exact string GDAL 3.13 produces -- file, band and
+            refusing call, then the reason -- for both the Fill and RasterIO
+            paths. The check was repeated at three no-data setters, each testing
+            a different subset of the wordings, so two of them never recognised
+            a refusal and surfaced a raw RuntimeError instead.
         """
+        message = (
+            f"ro.tif, band 1: {refusing_call}: attempt to write to dataset "
+            "opened in read-only mode."
+        )
         assert _is_read_only_error(RuntimeError(message)), (
             f"{message!r} is a read-only refusal and must be classified as one"
         )
 
-    def test_a_wording_embedded_in_a_longer_message_still_matches(self):
-        """The match is on substring, because GDAL prefixes its own context.
+    def test_the_classification_matches_a_live_gdal_error(self, tmp_path):
+        """The pattern is checked against GDAL itself, not a remembered string.
 
         Test scenario:
-            GDAL prepends the driver and band to the refusal text, so an
-            equality test would miss every real message.
+            The wording is GDAL's, so a hard-coded copy drifts silently on a
+            version bump. Opens a real raster read-only, provokes the refusal,
+            and asserts the classifier recognises whatever GDAL raised.
         """
-        wrapped = RuntimeError(
-            "ERROR 6: GTiff: attempt to write to dataset opened in read-only mode."
+        path = tmp_path / "ro.tif"
+        Dataset.create_from_array(
+            np.zeros((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        ).to_file(str(path))
+        read_only = gdal.Open(str(path), gdal.GA_ReadOnly)
+        with pytest.raises(RuntimeError) as excinfo:
+            read_only.GetRasterBand(1).Fill(1.0)
+        assert _is_read_only_error(excinfo.value), (
+            f"GDAL's own refusal must classify as read-only: {excinfo.value}"
         )
-        assert _is_read_only_error(wrapped), "a prefixed message must still match"
 
     def test_an_unrelated_error_is_not_classified(self):
         """A different GDAL failure must not be swallowed as read-only.
