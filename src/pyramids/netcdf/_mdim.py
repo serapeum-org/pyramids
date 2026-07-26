@@ -168,6 +168,30 @@ def unflatten_band_axes(arr: Any, band_dim_names: Any, band_dim_sizes: Any) -> A
     return arr
 
 
+def strip_netcdf_subdataset_prefix(path: str) -> str:
+    """Return the bare file path from a GDAL ``NETCDF:"<path>":<var>`` subdataset spec.
+
+    GDAL names a NetCDF subdataset as ``NETCDF:"C:\\data\\f.nc":temperature``; the quoted path can
+    itself hold a colon (a Windows drive letter), so a naive ``split(":")`` mis-parses it. Parse the
+    quoted remainder with ``rfind('"')`` and the rare unquoted ``NETCDF:<path>:<var>`` form with a
+    right split. A path without the prefix is returned unchanged. Single source for the three call
+    sites (`_is_file_backed`, the lazy read, and `to_xarray`) that used to strip it inline (review L1).
+
+    Args:
+        path: A file path or a ``NETCDF:`` subdataset spec.
+
+    Returns:
+        str: The bare, reopenable file path.
+    """
+    if not path or not path.startswith("NETCDF:"):
+        return path
+    rest = path[len("NETCDF:") :]
+    if rest.startswith('"'):
+        closing = rest.rfind('"')
+        return rest[1:closing] if closing > 0 else rest
+    return rest.rsplit(":", 1)[0]
+
+
 def dataset_is_geostationary(dataset: gdal.Dataset) -> bool:
     """Report whether ``dataset``'s CRS is the CF geostationary projection.
 

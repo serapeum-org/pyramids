@@ -599,6 +599,7 @@ def build_lazy_array(
     manager_hook: Any = None,
     spatial_dims: tuple[int, int] | None = None,
     flips: tuple[bool, bool] | None = None,
+    orient: bool = True,
 ) -> Any:
     """Build a :class:`dask.array.Array` backed by MDArray chunk reads.
 
@@ -630,6 +631,11 @@ def build_lazy_array(
         flips: `(needs_y_flip, needs_x_flip)` the eager path decided for
             the resolved plane. Used with `spatial_dims`; `None` falls
             back to the trailing-plane decision.
+        orient: When `True` (the default) the block is normalized to the
+            raster convention (row 0 = north, col 0 = west) like the eager
+            `get_variable` read. Pass `False` for a raw read in the file's
+            native axis order (e.g. `to_xarray`, whose coordinate arrays are
+            also read raw, so the data must not be flipped relative to them).
 
     Returns:
         dask.array.Array: Lazy array that computes chunk-by-chunk
@@ -686,10 +692,12 @@ def build_lazy_array(
     # Normalize to the raster convention the eager path produces (row 0 = north, col 0 = west) on the
     # SAME plane the eager `get_variable` resolved -- moving a non-trailing plane to the trailing two
     # axes when `spatial_dims` is threaded through (#728). A trailing plane makes this a no-op, so the
-    # ordinary `(time, lev, lat, lon)` case is unchanged.
-    lazy = _orient_lazy_plane(
-        lazy, da, len(shape), spatial_dims, flips, (flip_y, flip_x)
-    )
+    # ordinary `(time, lev, lat, lon)` case is unchanged. Skipped for a raw read (`orient=False`),
+    # which must return the file's native axis order (ARC-48 `to_xarray`).
+    if orient:
+        lazy = _orient_lazy_plane(
+            lazy, da, len(shape), spatial_dims, flips, (flip_y, flip_x)
+        )
     # The parked FILE_CACHE handle is released deterministically when this `manager` is
     # garbage-collected -- the `CachingFileManager` registers a `weakref.finalize` on itself in
     # `__init__`. Because the manager is kept alive by the chunk readers in the graph (not by this

@@ -21,6 +21,9 @@ pytestmark = pytest.mark.xarray
 from pyramids.dataset import Dataset
 from pyramids.netcdf.engines.interop import _encode_temporal_array
 from pyramids.netcdf.netcdf import NetCDF
+from tests._marks import requires_dask
+
+GEOG_3D_NC = "tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc"
 
 
 class TestEncodeTemporalArray:
@@ -782,4 +785,91 @@ class TestInteropEngineBranches:
         via_facade = nc.to_xarray()
         assert set(via_engine.data_vars) == set(via_facade.data_vars), (
             "engine and façade disagree on variables"
+        )
+
+
+class TestToXarrayLazy:
+    """to_xarray(chunks=...) builds dask-backed data variables in native order (ARC-48)."""
+
+    @requires_dask
+    def test_numeric_var_is_dask_backed(self):
+        """A numeric data variable is dask-backed when chunks= is given.
+
+        Test scenario:
+            to_xarray(chunks="auto") on a file-backed container returns the numeric ``t2m`` as a dask
+            array rather than an eagerly-materialised numpy array.
+        """
+        nc = NetCDF.read_file(GEOG_3D_NC)
+        try:
+            lazy = nc.to_xarray(chunks="auto")
+            assert hasattr(lazy["t2m"].data, "dask"), (
+                "numeric var should be dask-backed"
+            )
+        finally:
+            nc.close()
+
+    @requires_dask
+    def test_lazy_values_match_eager(self):
+        """Computed lazy values equal the eager to_xarray values (raw orientation preserved).
+
+        Test scenario:
+            The lazy read uses ``orient=False``, so it must not be flipped relative to the raw
+            coordinate arrays; computing it reproduces the eager numpy result exactly.
+        """
+        nc = NetCDF.read_file(GEOG_3D_NC)
+        try:
+            eager = nc.to_xarray()
+            lazy = nc.to_xarray(chunks="auto")
+            assert_allclose(
+                np.asarray(lazy["t2m"].compute().values),
+                np.asarray(eager["t2m"].values),
+                equal_nan=True,
+            )
+        finally:
+            nc.close()
+
+    @requires_dask
+    def test_string_var_falls_back_to_eager(self):
+        """A non-chunkable string variable is read eagerly, not as dask, and still matches.
+
+        Test scenario:
+            ``expver`` is a string MDArray a chunked read cannot represent; to_xarray(chunks=) must
+            fall back to the eager read for it instead of failing the whole conversion.
+        """
+        nc = NetCDF.read_file(GEOG_3D_NC)
+        try:
+            eager = nc.to_xarray()
+            lazy = nc.to_xarray(chunks="auto")
+            assert not hasattr(lazy["expver"].data, "dask"), (
+                "string var must fall back to eager"
+            )
+            assert_array_equal(
+                np.asarray(lazy["expver"].values), np.asarray(eager["expver"].values)
+            )
+        finally:
+            nc.close()
+
+    def test_default_is_eager(self):
+        """Without chunks=, data variables stay eager numpy arrays (unchanged default)."""
+        nc = NetCDF.read_file(GEOG_3D_NC)
+        try:
+            eager = nc.to_xarray()
+            assert not hasattr(eager["t2m"].data, "dask"), (
+                "default to_xarray stays eager"
+            )
+        finally:
+            nc.close()
+
+    @requires_dask
+    def test_in_memory_container_ignores_chunks(self):
+        """An in-memory container has no file to reopen, so chunks= falls back to eager.
+
+        Test scenario:
+            A ``create_from_array`` container's data is already resident; to_xarray(chunks="auto")
+            returns eager numpy arrays rather than raising or attempting a lazy reopen.
+        """
+        nc = _make_3d_nc(variable_name="temperature")
+        ds = nc.to_xarray(chunks="auto")
+        assert not hasattr(ds["temperature"].data, "dask"), (
+            "in-memory container should ignore chunks and stay eager"
         )
