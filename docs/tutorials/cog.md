@@ -375,15 +375,29 @@ Recommended GDAL environment variables for cloud reads:
 
 ```bash
 export GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR
-export CPL_VSIL_CURL_ALLOWED_EXTENSIONS=.tif,.TIF,.vrt
+export GDAL_HTTP_MERGE_CONSECUTIVE_RANGES=YES
 export VSI_CACHE=TRUE
 export VSI_CACHE_SIZE=26214400       # 25 MiB
 export GDAL_CACHEMAX=512             # MiB
 ```
 
-The first two are the biggest wins — they stop GDAL from probing for
-sidecar files (.aux.xml, .ovr) that usually don't exist on public
-buckets, saving one extra HTTP request per open.
+`GDAL_DISABLE_READDIR_ON_OPEN` is the biggest win — it stops GDAL from
+probing for sidecar files (.aux.xml, .ovr) that usually don't exist on
+public buckets, saving a directory listing and an extra HTTP request per
+open. These same options are the `COG_READ_DEFAULTS` preset that
+`validate()` and `cog_info()` apply automatically to remote paths.
+
+!!! warning "Don't set `CPL_VSIL_CURL_ALLOWED_EXTENSIONS`"
+
+    Earlier versions of this guide recommended
+    `CPL_VSIL_CURL_ALLOWED_EXTENSIONS=.tif,.TIF,.vrt`. Don't. It makes
+    GDAL refuse *any* URL whose path does not end in one of those
+    extensions — extensionless object keys, presigned S3 links carrying
+    a query string, and most STAC / Planetary Computer asset hrefs — so
+    an option meant to speed reads up instead makes them impossible. It
+    was removed from `COG_READ_DEFAULTS` for the same reason;
+    `GDAL_DISABLE_READDIR_ON_OPEN` already delivers the latency win on
+    its own.
 
 ## Troubleshooting
 

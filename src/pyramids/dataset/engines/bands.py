@@ -34,13 +34,39 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._validate import validate_band_index
 
 # Substring GDAL raises when a write is attempted on a read-only band; matched in
 # several no-data setters below to re-raise a friendly ReadOnlyError. Named once
-# to avoid duplicating the literal (S1192).
-_GDAL_READ_ONLY_FILL_ERROR = (
-    "Attempt to write to read only dataset in GDALRasterBand::Fill()."
-)
+# to avoid duplicating the literal (S1192). GDAL prefixes it with the file, band
+# and refusing call -- "ro.tif, band 1: GDALRasterBand::Fill(): attempt to write
+# to dataset opened in read-only mode." -- so the test has to be a substring one.
+_GDAL_READ_ONLY_MESSAGE = "attempt to write to dataset opened in read-only mode."
+
+
+def _is_read_only_error(error: BaseException) -> bool:
+    """Whether a GDAL exception means "this dataset is open read-only".
+
+    GDAL signals it with a plain `RuntimeError` carrying the file, band and
+    refusing call ahead of the reason, so the classification is a substring
+    match. Kept in one place: it was repeated at three no-data setters, each
+    testing a different subset of the wordings, which meant two of them never
+    recognised a refusal at all and surfaced a raw `RuntimeError` instead of
+    `ReadOnlyError`. Consolidating them is a deliberate behaviour change --
+    those two paths now raise `ReadOnlyError` where they previously did not.
+
+    Note that not every write to a read-only dataset reaches here.
+    `SetNoDataValue` on a read-only GTiff succeeds on GDAL 3.13 by writing to
+    the PAM sidecar instead of refusing, so its caller's guard is what stops it,
+    not this classifier.
+
+    Args:
+        error: The exception raised by GDAL.
+
+    Returns:
+        bool: `True` when the message matches GDAL's read-only refusal.
+    """
+    return _GDAL_READ_ONLY_MESSAGE in str(error)
 
 
 class Bands(_Engine["Dataset"]):
@@ -562,10 +588,11 @@ class Bands(_Engine["Dataset"]):
               ```
         """
         for key, val in values.items():
-            if key > self._ds.band_count:
-                raise ValueError(
-                    f"band index should be between 0 and {self._ds.band_count}"
-                )
+            # `>= band_count`, via the shared check: the old `key > band_count`
+            # let index 1 through on a 1-band dataset (indices are 0-based) and
+            # never rejected a negative one, so `_iloc` failed further in with a
+            # GDAL error instead of a clear ValueError here.
+            validate_band_index(key, self._ds.band_count)
             gdal_const = color_name_to_gdal_constant(val)
             self._iloc(key).SetColorInterpretation(gdal_const)
 
@@ -971,7 +998,7 @@ class Bands(_Engine["Dataset"]):
                 # from here you have to use the no_data_value stored in the no_data_value attribute as it is updated.
                 self._set_no_data_value_backend(band, no_data_value[band])
             except Exception as e:
-                if str(e).__contains__(_GDAL_READ_ONLY_FILL_ERROR):
+                if _is_read_only_error(e):
                     raise ReadOnlyError(
                         "The Dataset is open with a read only, please read the raster using update access mode"
                     )
@@ -1028,9 +1055,7 @@ class Bands(_Engine["Dataset"]):
         except Exception as e:
             if str(e).__contains__(" argument 2 of type 'double'"):
                 self._ds.raster.GetRasterBand(band + 1).Fill(np.float64(no_data_value))
-            elif str(e).__contains__(_GDAL_READ_ONLY_FILL_ERROR) or str(e).__contains__(
-                "attempt to write to dataset opened in read-only mode."
-            ):
+            elif _is_read_only_error(e):
                 raise ReadOnlyError(
                     "The Dataset is open with a read only, please read the raster using update access mode"
                 )
@@ -1055,7 +1080,7 @@ class Bands(_Engine["Dataset"]):
         try:
             self._ds.raster.GetRasterBand(band + 1).SetNoDataValue(no_data_value)
         except Exception as e:
-            if str(e).__contains__(_GDAL_READ_ONLY_FILL_ERROR):
+            if _is_read_only_error(e):
                 raise ReadOnlyError(
                     "The Dataset is open with a read only, please read the raster using update "
                     "access mode"

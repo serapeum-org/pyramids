@@ -33,32 +33,9 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
+from pyramids.dataset.engines._warp import warp_to_dataset
 from pyramids.dataset.engines.vectorize import Vectorize
-
-
-def _dst_srs_arg(dst_sr: osr.SpatialReference) -> str:
-    """Derive the ``dstSRS`` argument to hand to :func:`gdal.Warp`.
-
-    Prefer the ``"<AUTHORITY>:<code>"`` form when one exists so the output WKT
-    GDAL writes is the canonical GDAL/PROJ form (matching historical bytes for
-    EPSG codes and avoiding a GDAL warning when the authority is ESRI). Fall
-    back to the explicit WKT for CRSes carrying no authority at all (custom
-    orthographic proj4 strings, etc.). See #418.
-
-    Args:
-        dst_sr: The target spatial reference.
-
-    Returns:
-        str: An authority string such as ``"EPSG:3857"``, or the full WKT when
-            the SRS carries no authority.
-    """
-    dst_auth = dst_sr.GetAuthorityName(None)
-    dst_code = dst_sr.GetAuthorityCode(None)
-    if dst_auth is not None and dst_code is not None:
-        srs_arg = f"{dst_auth}:{dst_code}"
-    else:
-        srs_arg = dst_sr.ExportToWkt()
-    return srs_arg
 
 
 @overload
@@ -558,16 +535,17 @@ class Spatial(_Engine["Dataset"]):
         else:
             # cell_size may be a scalar (square) or an (x_res, y_res) pair (non-square output).
             x_res, y_res = _resolve_resolution(cell_size)
-            dst = gdal.Warp(
-                "",
-                self._ds.raster,
-                dstSRS=_dst_srs_arg(dst_sr),
-                format="VRT",
-                resampleAlg=resampling_method,
-                xRes=x_res,
-                yRes=y_res,
+            dst_obj = warp_to_dataset(
+                self._ds,
+                gdal.WarpOptions(
+                    dstSRS=_dst_srs_arg(dst_sr),
+                    format="VRT",
+                    resampleAlg=resampling_method,
+                    xRes=x_res,
+                    yRes=y_res,
+                ),
+                error_message="GDAL could not reproject the dataset.",
             )
-            dst_obj = self._ds.__class__(dst)
 
         return dst_obj
 
@@ -681,16 +659,14 @@ class Spatial(_Engine["Dataset"]):
             outputBounds=bbox,
             multithread=True,
         )
-        vrt = gdal.Warp("", self._ds.raster, options=options)
-        if vrt is None:
-            raise RuntimeError(
-                f"GDAL could not build a warped VRT onto {dst_srs_arg!r}."
-            )
-        view = self._ds.__class__(vrt, access="read_only")
-        # The VRT references the source GDAL handle; pin the source Dataset on
-        # the view so Python cannot garbage-collect it underneath the VRT.
-        view._warp_source = self._ds
-        return view
+        # The VRT references the source GDAL handle, so the result has to pin
+        # it; `warp_to_dataset` is the one place that does.
+        return warp_to_dataset(
+            self._ds,
+            options,
+            access="read_only",
+            error_message=f"GDAL could not build a warped VRT onto {dst_srs_arg!r}.",
+        )
 
     def _get_epsg(self) -> int | None:
         """Get the EPSG number.
@@ -1568,11 +1544,21 @@ class Spatial(_Engine["Dataset"]):
                 cutlineDSName=cutline_path,
                 multithread=True,
             )
-            dst = gdal.Warp("", self._ds.raster, options=warp_options)
             # base_cls is a dynamic MRO walk that always resolves to Dataset itself
             # (the class directly above RasterBase; see the comment above), never a
             # subclass, so this is guaranteed to actually be a Dataset at runtime.
-            dst_obj = cast("Dataset", base_cls(dst))
+            # Routed through warp_to_dataset for the pin: with `touch` false the
+            # result is the raw VRT, which reads through to the source on every
+            # access and previously held nothing alive.
+            dst_obj = cast(
+                "Dataset",
+                warp_to_dataset(
+                    self._ds,
+                    warp_options,
+                    dataset_class=cast("type[Dataset]", base_cls),
+                    error_message="GDAL could not crop the dataset with the cutline.",
+                ),
+            )
             if touch:
                 dst_obj = Spatial._correct_wrap_cutline_error(dst_obj)
 
@@ -1624,15 +1610,20 @@ class Spatial(_Engine["Dataset"]):
         """
         big_array = src.read_array()
         value_to_remove = src.no_data_value[0]
+        # `is_no_data`, not `==`: a NaN sentinel never equals itself, so `==` marks
+        # nothing and the all-no-data frame GDAL leaves after a cutline warp
+        # survives -- an oversized crop carrying a no-data border. The helper is
+        # already imported and used for exactly this three times in this module.
+        no_data_mask = is_no_data(big_array, value_to_remove)
         # Find rows and columns to be removed
         if big_array.ndim == 2:
-            rows_to_remove = np.all(big_array == value_to_remove, axis=1)
-            cols_to_remove = np.all(big_array == value_to_remove, axis=0)
+            rows_to_remove = np.all(no_data_mask, axis=1)
+            cols_to_remove = np.all(no_data_mask, axis=0)
             # Use boolean indexing to remove rows and columns
             small_array = big_array[~rows_to_remove][:, ~cols_to_remove]
         elif big_array.ndim == 3:
-            rows_to_remove = np.all(big_array == value_to_remove, axis=(0, 2))
-            cols_to_remove = np.all(big_array == value_to_remove, axis=(0, 1))
+            rows_to_remove = np.all(no_data_mask, axis=(0, 2))
+            cols_to_remove = np.all(no_data_mask, axis=(0, 1))
             # Use boolean indexing to remove rows and columns
             # first remove the rows then the columns
             small_array = big_array[:, ~rows_to_remove, :]

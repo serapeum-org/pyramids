@@ -1,6 +1,8 @@
 """Integration tests for Dataset spatial operations: resample, reproject, align,
 crop, cluster, overlay, and mask."""
 
+import gc
+import weakref
 from pathlib import Path
 
 import geopandas as gpd
@@ -12,6 +14,7 @@ from pyproj import CRS as PyprojCRS
 from shapely.geometry import Polygon
 
 from pyramids.dataset import Dataset
+from pyramids.dataset.engines.spatial import Spatial
 
 pytestmark = pytest.mark.core
 
@@ -752,3 +755,139 @@ class TestMAsk:
         np.testing.assert_equal(values, arr)
         vals = np.unique(arr)
         assert np.array_equal(vals, [0, 255])
+
+
+class TestToCrsWarpSourceLifetime:
+    """A `to_crs` VRT reads through to its source, so it must keep it alive."""
+
+    @staticmethod
+    def _memory_dataset() -> Dataset:
+        """An 8x8 in-memory raster in EPSG:4326.
+
+        Returns:
+            Dataset: In-memory single-band dataset.
+        """
+        array = np.arange(64, dtype="float32").reshape(8, 8)
+        raster = gdal.GetDriverByName("MEM").Create("", 8, 8, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 8.0, 0.0, -1.0))
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        raster.SetProjection(srs.ExportToWkt())
+        band = raster.GetRasterBand(1)
+        band.WriteArray(array)
+        band.SetNoDataValue(-9999.0)
+        return Dataset(raster)
+
+    def test_result_pins_its_warp_source(self) -> None:
+        """`to_crs` records the source it warps from.
+
+        Test scenario:
+            The reprojected result is a warped VRT, not materialised pixels, so
+            it dereferences the source on every read. `to_crs` pinned nothing at
+            all, and the other three warp sites pinned the engine's
+            `weakref.proxy` back-reference — which keeps nothing alive. The pin
+            must be a strong reference to the source GDAL raster.
+        """
+        source = self._memory_dataset()
+        reprojected = source.to_crs(3857)
+        pinned = getattr(reprojected, "_warp_source", None)
+        assert pinned is source.raster, (
+            f"to_crs must pin the source GDAL raster, got {pinned!r}"
+        )
+        assert not isinstance(pinned, weakref.ProxyTypes), (
+            "the pin must be a strong reference; a weakref.proxy keeps nothing alive"
+        )
+
+    def test_result_readable_after_the_source_goes_out_of_scope(self) -> None:
+        """The result stays readable once the caller drops its own reference.
+
+        Test scenario:
+            Chained reprojection (`ds.to_crs(a).to_crs(b)`) is the shape that
+            exposed this: the intermediate is unreferenced by the caller, so
+            without the pin its backing store could be collected while the
+            outer VRT still points at it.
+        """
+
+        reprojected = self._memory_dataset().to_crs(3857)
+        gc.collect()
+        values = np.asarray(reprojected.read_array())
+        assert values.shape == (8, 8), f"expected an 8x8 read, got {values.shape}"
+        assert np.isfinite(values).any(), "the reprojected read returned no finite data"
+
+    def test_chained_reprojection_round_trips(self) -> None:
+        """Two chained reprojections still produce a readable dataset."""
+
+        chained = self._memory_dataset().to_crs(3857).to_crs(4326)
+        gc.collect()
+        values = np.asarray(chained.read_array())
+        assert values.size > 0, "chained to_crs produced an empty read"
+        assert np.isfinite(values).any(), "chained to_crs returned no finite data"
+
+
+class TestCutlineBorderTrim:
+    """ARC-20: the no-data frame left by a cutline warp is trimmed for any sentinel."""
+
+    @staticmethod
+    def _bordered(no_data: float) -> Dataset:
+        """A 5x5 raster whose outer ring is entirely no-data.
+
+        Args:
+            no_data: The sentinel to write into the border and register on the
+                band.
+
+        Returns:
+            Dataset: the bordered raster.
+        """
+        array = np.full((5, 5), no_data, dtype="float32")
+        array[1:4, 1:4] = np.arange(9, dtype="float32").reshape(3, 3)
+        return Dataset.create_from_array(
+            array,
+            top_left_corner=(0.0, 5.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=no_data,
+        )
+
+    def test_a_nan_border_is_trimmed(self):
+        """A NaN sentinel is detected and its frame removed.
+
+        Test scenario:
+            The trim tested `array == value_to_remove`. NaN never equals itself,
+            so on a NaN-sentinel raster nothing matched, no rows or columns were
+            dropped, and the crop came back the original size with the no-data
+            border still attached.
+        """
+        trimmed = Spatial._correct_wrap_cutline_error(self._bordered(np.nan))
+        assert (trimmed.rows, trimmed.columns) == (3, 3), (
+            f"the all-NaN frame must be trimmed to 3x3, got "
+            f"{trimmed.rows}x{trimmed.columns}"
+        )
+        np.testing.assert_array_equal(
+            np.asarray(trimmed.read_array()),
+            np.arange(9, dtype="float32").reshape(3, 3),
+        )
+
+    def test_a_numeric_border_is_still_trimmed(self):
+        """The ordinary sentinel path is unchanged.
+
+        Test scenario:
+            `is_no_data` replaced a plain `==`, so the numeric case has to keep
+            behaving exactly as before.
+        """
+        trimmed = Spatial._correct_wrap_cutline_error(self._bordered(-9999.0))
+        assert (trimmed.rows, trimmed.columns) == (3, 3), (
+            f"the all-no-data frame must be trimmed to 3x3, got "
+            f"{trimmed.rows}x{trimmed.columns}"
+        )
+
+    def test_the_trimmed_origin_moves_to_the_first_valid_cell(self):
+        """Trimming shifts the geotransform, it does not just reshape the array.
+
+        Test scenario:
+            The border is one cell wide on a cell size of 1, so the top-left
+            corner moves one cell right and one cell down.
+        """
+        trimmed = Spatial._correct_wrap_cutline_error(self._bordered(np.nan))
+        assert (trimmed.geotransform[0], trimmed.geotransform[3]) == (1.0, 4.0), (
+            f"expected the origin at (1.0, 4.0), got {trimmed.geotransform[:4]}"
+        )

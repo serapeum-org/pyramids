@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import glob
 import os
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -13,6 +15,7 @@ from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import (
     IO,
     _encode_terrain_rgb,
+    _overview_levels_for_tiling,
     _terrain_rgba_stack,
 )
 
@@ -214,7 +217,7 @@ class TestToTerrainRgbErrors:
         """A band index past the source band count raises a clear ValueError."""
         dem = _dem_3857()
         out = tmp_path / "x.png"
-        with pytest.raises(ValueError, match="band index"):
+        with pytest.raises(ValueError, match="is out of range for a"):
             dem.to_terrain_rgb(out, tiles=False, band=5)
 
 
@@ -340,3 +343,229 @@ class TestToTerrainRgbClamping:
             255,
             255,
         ), f"clamped cell must be (255,255,255), got {(r[0, 0], g[0, 0], b[0, 0])}"
+
+
+class TestTilingSourcePreparation:
+    """ARC-51: tiling reads a staged, pyramided source rather than the original."""
+
+    @staticmethod
+    def _capture_source(monkeypatch) -> list:
+        """Record what `_terrain_rgb_tiles` is handed, without tiling.
+
+        Inspects the dataset inside the spy rather than storing it: the staged
+        source is closed and deleted by the time `to_terrain_rgb` returns, so a
+        stored handle would be dead when the assertions run.
+
+        Args:
+            monkeypatch: pytest's monkeypatch fixture.
+
+        Returns:
+            list: filled with one `(overview_count, raster_handle)` tuple once
+            `to_terrain_rgb(tiles=True)` runs.
+        """
+        seen: list = []
+
+        def spy(self, source, path, **kwargs):
+            seen.append(
+                (source.raster.GetRasterBand(1).GetOverviewCount(), source.raster)
+            )
+            return path
+
+        monkeypatch.setattr(IO, "_terrain_rgb_tiles", spy)
+        return seen
+
+    def test_a_reprojected_source_is_staged_with_overviews(self, tmp_path, monkeypatch):
+        """A source needing reprojection reaches the tiler with a pyramid.
+
+        Test scenario:
+            `to_crs` hands back a warped VRT that re-warps from the original on
+            every read, and a source without overviews makes every low-zoom tile
+            resample full-resolution pixels. The staged GTiff carries the
+            overviews the tiler needs.
+        """
+        seen = self._capture_source(monkeypatch)
+        dem = Dataset.create_from_array(
+            arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
+            top_left_corner=(0.0, 6.0),
+            cell_size=0.01,
+            epsg=4326,
+        )
+        dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5)
+        assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
+        assert seen[0][0] > 0, "the staged tiling source must carry overviews"
+
+    def test_a_source_already_in_3857_is_staged_too(self, tmp_path, monkeypatch):
+        """The common pre-prepared case gets the pyramid as well.
+
+        Test scenario:
+            The preparation used to be gated on whether a reprojection happened,
+            so a dataset already in EPSG:3857 -- the usual input for tiling --
+            got neither the staging nor the overviews and kept paying
+            full-resolution reads per tile.
+        """
+        seen = self._capture_source(monkeypatch)
+        dem = Dataset.create_from_array(
+            arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
+            geo=_GEO_3857,
+            epsg=3857,
+        )
+        dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5)
+        assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
+        assert seen[0][1] is not dem.raster, (
+            "a source already in EPSG:3857 must still be staged, not read directly"
+        )
+        assert seen[0][0] > 0, (
+            "a source already in EPSG:3857 must be staged with overviews too"
+        )
+
+    def test_the_untiled_path_does_not_stage_anything(self, tmp_path, monkeypatch):
+        """`tiles=False` reads once, so it keeps the original source.
+
+        Test scenario:
+            The staging exists to amortise repeated reads across tiles and zoom
+            levels. A single encode has nothing to amortise, so it must not pay
+            for a GTiff copy -- the encoder receives the caller's own dataset
+            handle, not a staged duplicate.
+        """
+        seen: list = []
+
+        def spy(self, source, path, **kwargs):
+            seen.append(source)
+            return path
+
+        monkeypatch.setattr(IO, "_terrain_rgb_single", spy)
+        dem = _dem_3857()
+        dem.to_terrain_rgb(tmp_path / "dem.png", tiles=False)
+        assert len(seen) == 1, f"expected one encode call, got {len(seen)}"
+        assert seen[0].raster is dem.raster, (
+            "the untiled path must hand the encoder the original raster handle"
+        )
+        assert seen[0].raster.GetRasterBand(1).GetOverviewCount() == 0, (
+            "the untiled path must not build overviews"
+        )
+
+
+class TestOverviewLevelsForTiling:
+    """The pyramid depth follows the raster size, not a fixed ladder."""
+
+    def test_a_raster_inside_one_tile_gets_no_levels(self):
+        """Nothing to decimate when the whole raster fits in a tile.
+
+        Test scenario:
+            The fixed ladder built five levels regardless, the coarsest of them
+            smaller than a single pixel of the output.
+        """
+        assert _overview_levels_for_tiling(200, 200, 256) == (), (
+            "a raster smaller than one tile needs no pyramid"
+        )
+
+    def test_the_ladder_reaches_roughly_one_tile(self):
+        """The coarsest level is about tile-sized, whatever the raster's size.
+
+        Test scenario:
+            A 4096-pixel raster tiled at 256 needs decimations up to 16x; the
+            old fixed ladder stopped at 32x for every raster, so a continental
+            source's lowest zoom levels still resampled a level far finer than
+            they needed.
+        """
+        assert _overview_levels_for_tiling(4096, 4096, 256) == (2, 4, 8, 16), (
+            f"got {_overview_levels_for_tiling(4096, 4096, 256)}"
+        )
+        deep = _overview_levels_for_tiling(65536, 65536, 256)
+        assert deep[-1] == 256, f"a large raster must decimate further, got {deep}"
+
+    def test_the_longer_edge_drives_the_depth(self):
+        """A wide, short raster still gets levels for its width.
+
+        Test scenario:
+            Taking the shorter edge would stop the pyramid early and leave the
+            long axis resampling full-resolution pixels.
+        """
+        assert _overview_levels_for_tiling(4096, 300, 256) == (2, 4, 8, 16), (
+            f"got {_overview_levels_for_tiling(4096, 300, 256)}"
+        )
+
+
+class TestTilingScratchCleanup:
+    """H3/M2: the staged source lives on disk and is removed on every path."""
+
+    @staticmethod
+    def _scratch_dirs() -> set[str]:
+        """Temp directories this method has staged into.
+
+        Returns:
+            set[str]: full paths of every live staging directory.
+        """
+        root = Path(tempfile.gettempdir())
+        return {str(p) for p in root.glob("pyramids_terrain_rgb_*")}
+
+    @pytest.fixture(scope="function")
+    def dem(self) -> Dataset:
+        """A 600x600 EPSG:3857 DEM, big enough to warrant a pyramid."""
+        return Dataset.create_from_array(
+            arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
+            geo=_GEO_3857,
+            epsg=3857,
+        )
+
+    def test_the_staged_source_is_removed_after_a_successful_run(self, dem, tmp_path):
+        """Tiling leaves no temp directory behind.
+
+        Test scenario:
+            The staging exists only for the duration of the tiling; keeping it
+            would leak a full copy of the reprojected raster per call.
+        """
+        before = self._scratch_dirs()
+        dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=4)
+        assert self._scratch_dirs() == before, (
+            f"tiling left a staging directory behind: {self._scratch_dirs() - before}"
+        )
+
+    def test_a_failure_during_staging_is_cleaned_up(self, dem, tmp_path, monkeypatch):
+        """A raise between the copy and the tiling still removes the scratch.
+
+        Test scenario:
+            The staging used to sit outside the try/finally that cleans it up,
+            so an allocation failure in CreateCopy or an unsupported
+            BuildOverviews stranded a copy of the whole raster for the lifetime
+            of the process -- the same defect the orthorectify cleanup was filed
+            for, one function over.
+        """
+        before = self._scratch_dirs()
+
+        def explode(self, *args, **kwargs):
+            raise RuntimeError("synthetic BuildOverviews failure")
+
+        monkeypatch.setattr(gdal.Dataset, "BuildOverviews", explode)
+        with pytest.raises(RuntimeError, match="synthetic BuildOverviews failure"):
+            dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=4)
+        assert self._scratch_dirs() == before, (
+            f"a failed staging left {self._scratch_dirs() - before} behind"
+        )
+
+    def test_the_source_is_staged_on_disk_not_in_memory(
+        self, dem, tmp_path, monkeypatch
+    ):
+        """The intermediate is a real file, so a continental DEM streams.
+
+        Test scenario:
+            /vsimem and MEM are both process heap, so staging into either holds
+            the whole reprojected raster in memory -- on the continental DEMs
+            this method targets that is an allocation failure, not a slowdown.
+            Captures the path the staged dataset was opened from.
+        """
+        seen: list = []
+
+        def spy(self, source, path, **kwargs):
+            seen.append(source.raster.GetDescription())
+            return path
+
+        monkeypatch.setattr(IO, "_terrain_rgb_tiles", spy)
+        dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=4)
+        assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
+        assert not seen[0].startswith("/vsimem"), (
+            f"the staged source must not live in process memory, got {seen[0]!r}"
+        )
+        assert "pyramids_terrain_rgb_" in seen[0], (
+            f"expected an on-disk staging path, got {seen[0]!r}"
+        )

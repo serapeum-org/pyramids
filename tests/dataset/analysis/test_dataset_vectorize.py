@@ -4,6 +4,7 @@ from typing import List
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pytest
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal
@@ -11,6 +12,7 @@ from pandas import DataFrame
 from shapely.geometry import MultiPoint, Point, Polygon
 
 from pyramids.dataset import Dataset
+from pyramids.dataset.engines.vectorize import Vectorize
 
 pytestmark = pytest.mark.core
 
@@ -416,3 +418,232 @@ class TestFootPrint:
         assert len(set(extent[dataset.band_names[0]])) == 1
         # the class should be 2
         assert next(iter(set(extent[dataset.band_names[0]]))) == 2
+
+
+class TestToFeatureCollectionMaskTiling:
+    """The mask must be honoured on both the tiled and the non-tiled path."""
+
+    @pytest.fixture(scope="function")
+    def masked_dataset(self) -> Dataset:
+        """A 10x10 raster of 0..99 on a unit grid anchored at (0, 10).
+
+        Returns:
+            Dataset: In-memory single-band dataset.
+        """
+        array = np.arange(100, dtype="float32").reshape(10, 10)
+        raster = gdal.GetDriverByName("MEM").Create("", 10, 10, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 10.0, 0.0, -1.0))
+        raster.SetProjection(
+            'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
+            'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]]'
+        )
+        band = raster.GetRasterBand(1)
+        band.WriteArray(array)
+        band.SetNoDataValue(-9999.0)
+        return Dataset(raster)
+
+    @pytest.fixture(scope="function")
+    def box_mask(self) -> GeoDataFrame:
+        """A 4x4 box covering a strict subset of the raster.
+
+        Returns:
+            GeoDataFrame: Single-polygon mask in EPSG:4326.
+        """
+        polygon = Polygon([(2.0, 4.0), (6.0, 4.0), (6.0, 8.0), (2.0, 8.0)])
+        return gpd.GeoDataFrame(geometry=[polygon], crs="EPSG:4326")
+
+    def test_tiled_and_untiled_agree_under_a_mask(
+        self, masked_dataset: Dataset, box_mask: GeoDataFrame
+    ) -> None:
+        """`tile=True` and `tile=False` return the same rows for the same mask.
+
+        Test scenario:
+            The tiled branch previously read the uncropped dataset, so a mask
+            covering 16 of 100 cells still produced 100 rows while the
+            non-tiled branch produced 16 — and the geometry attached afterwards
+            came from the cropped extent, so values and geometry disagreed.
+        """
+        tiled = masked_dataset.to_feature_collection(
+            mask=box_mask, tile=True, tile_size=4
+        )
+        untiled = masked_dataset.to_feature_collection(mask=box_mask, tile=False)
+        assert len(tiled) == len(untiled), (
+            f"tiled returned {len(tiled)} rows, non-tiled {len(untiled)}; the mask "
+            "must apply to both paths"
+        )
+        assert len(tiled) < 100, (
+            f"the mask must exclude cells, but {len(tiled)} of 100 survived"
+        )
+
+    def test_tiled_without_a_mask_still_covers_the_raster(
+        self, masked_dataset: Dataset
+    ) -> None:
+        """Passing no mask leaves the tiled path reading the whole raster.
+
+        Test scenario:
+            Guards the other direction of the fix — routing the tiled branch
+            through the (possibly uncropped) source must not start dropping
+            cells when no mask was given.
+        """
+        tiled = masked_dataset.to_feature_collection(tile=True, tile_size=4)
+        assert len(tiled) == 100, f"expected all 100 cells, got {len(tiled)}"
+
+
+class TestNearestNeighbourFill:
+    """ARC-28: the neighbour search must check bounds before it indexes."""
+
+    NO_DATA = -9999.0
+
+    def test_falls_back_when_the_right_neighbour_is_no_data(self):
+        """An interior cell is filled from another direction, not skipped.
+
+        Test scenario:
+            The old chain gated every fallback on whether a right-hand
+            neighbour *existed*, so an interior cell whose right neighbour was
+            itself no-data fell through the entire chain and stayed unfilled.
+        """
+        array = np.array(
+            [[1.0, 2.0, 3.0], [4.0, self.NO_DATA, self.NO_DATA], [7.0, 8.0, 9.0]]
+        )
+        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [1])
+        assert filled[1, 1] != self.NO_DATA, (
+            "a cell with a valid left neighbour must be filled even when the "
+            "right neighbour is no-data"
+        )
+
+    def test_a_neighbour_in_row_zero_is_not_skipped(self):
+        """Row 0 is a legal neighbour row, not an out-of-bounds one.
+
+        Test scenario:
+            The old guards read `row - 1 > 0` and `col - 1 > 0` rather than
+            `>= 0`, so a cell in row 1 could never be filled from row 0 and a
+            cell in column 1 never from column 0 -- the search fell through to a
+            further-away neighbour instead. Target `(1, 2)`: its right neighbour
+            is out of bounds and its left is no-data, leaving row 0 directly
+            above as the nearest valid cell. The old chain rejected it on the
+            off-by-one and took the value from two rows down instead.
+        """
+        array = np.array(
+            [[10.0, 20.0, 30.0], [40.0, self.NO_DATA, self.NO_DATA], [70.0, 80.0, 90.0]]
+        )
+        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [2])
+        assert filled[1, 2] == 30.0, (
+            f"expected the cell directly above, 30.0; got {filled[1, 2]} "
+            "(90.0 means row 0 was rejected as out of bounds)"
+        )
+
+    def test_last_row_does_not_raise(self):
+        """A cell on the bottom row is handled without an IndexError.
+
+        Test scenario:
+            `array[row + 1, col]` was indexed before its `row + 1 < no_rows`
+            guard, so a no-data cell on the last row raised. Reaching that
+            branch needs every earlier one to miss: the target sits in the last
+            column (no right neighbour), and both its left and upper neighbours
+            are themselves no-data. Only the diagonal `(1, 1)` holds a value.
+        """
+        array = np.array(
+            [
+                [1.0, 2.0, 3.0],
+                [4.0, 5.0, self.NO_DATA],
+                [7.0, self.NO_DATA, self.NO_DATA],
+            ]
+        )
+        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [2], [2])
+        assert filled[2, 2] == 5.0, (
+            f"the bottom-right cell must be filled from its only valid neighbour "
+            f"5.0, got {filled[2, 2]}"
+        )
+
+    def test_documented_case_is_unchanged(self):
+        """The behaviour shown in the docstring still holds."""
+        array = np.array([[1.0, 2.0, 3.0], [4.0, self.NO_DATA, 6.0], [7.0, 8.0, 9.0]])
+        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [1])
+        assert filled[1, 1] == 6.0, (
+            f"the documented example must still yield 6.0, got {filled[1, 1]}"
+        )
+
+    def test_isolated_cell_stays_no_data(self):
+        """A cell with no valid neighbour at all is left alone."""
+        array = np.full((3, 3), self.NO_DATA)
+        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [1])
+        assert filled[1, 1] == self.NO_DATA, (
+            f"an isolated cell must stay no-data, got {filled[1, 1]}"
+        )
+
+
+class TestTiledRowOrder:
+    """L3: tiling changes how the raster is read, not what comes back."""
+
+    @pytest.fixture(scope="function")
+    def uneven(self) -> Dataset:
+        """A 37x53 raster whose dimensions are not multiples of the tile size.
+
+        Partial edge tiles are where a flat "tile index times tile size" offset
+        would drift, so the fixture is deliberately not tile-aligned.
+
+        Returns:
+            Dataset: In-memory single-band dataset with two no-data cells.
+        """
+        array = (np.arange(37 * 53, dtype="float64").reshape(37, 53) % 97) + 1.0
+        array[5, 5] = -9999.0
+        array[20, 40] = -9999.0
+        return Dataset.create_from_array(
+            array,
+            top_left_corner=(0.0, 37.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+
+    def test_the_tiled_frame_matches_the_untiled_one(self, uneven):
+        """Both paths return the same rows in the same order.
+
+        Test scenario:
+            Rows used to come out tile-major -- tile by tile, row-major within
+            each tile -- against the untiled path's row-major, so the two
+            frames held the same values in a different order.
+        """
+        untiled = uneven.to_feature_collection(tile=False)
+        tiled = uneven.to_feature_collection(tile=True, tile_size=8)
+        pd.testing.assert_frame_equal(
+            untiled.reset_index(drop=True), tiled.reset_index(drop=True)
+        )
+
+    def test_geometry_pairs_with_the_right_value_when_tiled(self, uneven):
+        """`tile=True` with `add_geometry` no longer mis-georeferences rows.
+
+        Test scenario:
+            `to_feature_collection` zips values and geometry positionally, and
+            the geometry is built row-major, so tile-major values landed on the
+            wrong cells whenever the raster spanned more than one tile.
+        """
+        untiled = uneven.to_feature_collection(tile=False, add_geometry="point")
+        tiled = uneven.to_feature_collection(
+            tile=True, tile_size=8, add_geometry="point"
+        )
+        assert untiled.geometry.equals(tiled.geometry), (
+            "the same cell must carry the same point on both paths"
+        )
+        pd.testing.assert_frame_equal(
+            untiled.drop(columns="geometry").reset_index(drop=True),
+            tiled.drop(columns="geometry").reset_index(drop=True),
+        )
+
+    def test_a_single_tile_covering_the_raster_is_unchanged(self, uneven):
+        """A tile larger than the raster is the untiled path by another name."""
+        untiled = uneven.to_feature_collection(tile=False)
+        one_tile = uneven.to_feature_collection(tile=True, tile_size=512)
+        pd.testing.assert_frame_equal(
+            untiled.reset_index(drop=True), one_tile.reset_index(drop=True)
+        )
+
+    def test_no_data_cells_are_dropped_on_both_paths(self, uneven):
+        """The two no-data cells are absent from both frames."""
+        tiled = uneven.to_feature_collection(tile=True, tile_size=8)
+        assert len(tiled) == 37 * 53 - 2, (
+            f"expected the two no-data cells dropped, got {len(tiled)} rows"
+        )
+        assert not (tiled.to_numpy() == -9999.0).any(), (
+            "no sentinel may survive into the frame"
+        )

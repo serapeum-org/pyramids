@@ -35,6 +35,7 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
+from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import (
     COG,
@@ -50,6 +51,8 @@ from pyramids.dataset.engines._base import (
     _Placeholder,
     _recreate_placeholder,
 )
+from pyramids.dataset.engines.bands import _is_read_only_error
+from pyramids.dataset.engines.cog import _cached_transformer
 
 
 @pytest.fixture
@@ -519,4 +522,113 @@ class TestPickleRoundTrip:
         assert isinstance(unpickled, _Placeholder), (
             f"Direct pickle of {collab_attr} collaborator yielded "
             f"{type(unpickled).__name__}, expected _Placeholder"
+        )
+
+
+class TestIsReadOnlyError:
+    """ARC-68: the read-only classification lives in one place now."""
+
+    @pytest.mark.parametrize(
+        "refusing_call",
+        ["GDALRasterBand::Fill()", "GDALRasterBand::RasterIO()"],
+    )
+    def test_a_real_gdal_refusal_is_recognised(self, refusing_call, tmp_path):
+        """The message GDAL actually emits classifies as read-only.
+
+        Args:
+            refusing_call: The GDAL entry point named in the message.
+            tmp_path: pytest's temporary directory fixture.
+
+        Test scenario:
+            Reproduces the exact string GDAL 3.13 produces -- file, band and
+            refusing call, then the reason -- for both the Fill and RasterIO
+            paths. The check was repeated at three no-data setters, each testing
+            a different subset of the wordings, so two of them never recognised
+            a refusal and surfaced a raw RuntimeError instead.
+        """
+        message = (
+            f"ro.tif, band 1: {refusing_call}: attempt to write to dataset "
+            "opened in read-only mode."
+        )
+        assert _is_read_only_error(RuntimeError(message)), (
+            f"{message!r} is a read-only refusal and must be classified as one"
+        )
+
+    def test_the_classification_matches_a_live_gdal_error(self, tmp_path):
+        """The pattern is checked against GDAL itself, not a remembered string.
+
+        Test scenario:
+            The wording is GDAL's, so a hard-coded copy drifts silently on a
+            version bump. Opens a real raster read-only, provokes the refusal,
+            and asserts the classifier recognises whatever GDAL raised.
+        """
+        path = tmp_path / "ro.tif"
+        Dataset.create_from_array(
+            np.zeros((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        ).to_file(str(path))
+        # `read_only` has to stay bound: a gdal.Band does not keep its dataset
+        # alive, so chaining the two calls invalidates the band immediately.
+        read_only = gdal.Open(str(path), gdal.GA_ReadOnly)
+        read_only_band = read_only.GetRasterBand(1)
+        with pytest.raises(RuntimeError) as excinfo:
+            read_only_band.Fill(1.0)
+        assert _is_read_only_error(excinfo.value), (
+            f"GDAL's own refusal must classify as read-only: {excinfo.value}"
+        )
+
+    def test_an_unrelated_error_is_not_classified(self):
+        """A different GDAL failure must not be swallowed as read-only.
+
+        Test scenario:
+            Misclassifying would turn a genuine I/O failure into a ReadOnlyError
+            and send the caller looking at the access mode instead of the disk.
+        """
+        assert not _is_read_only_error(RuntimeError("Cannot allocate memory")), (
+            "an unrelated RuntimeError must not classify as a read-only refusal"
+        )
+
+
+class TestCachedTransformer:
+    """ARC-60: the pyproj transformer is built once per CRS pair."""
+
+    def test_the_same_crs_pair_returns_the_same_object(self):
+        """A repeat call is a cache hit, not a rebuild.
+
+        Test scenario:
+            Building a transformer parses both CRS definitions and resolves a
+            pipeline. The COG read paths rebuilt one per tile and per point, so
+            a read_tile loop paid that cost on every call.
+        """
+        _cached_transformer.cache_clear()
+        first = _cached_transformer(4326, 3857)
+        second = _cached_transformer(4326, 3857)
+        assert first is second, "a repeated CRS pair must return the cached object"
+        assert _cached_transformer.cache_info().hits == 1, (
+            f"expected one cache hit, got {_cached_transformer.cache_info()}"
+        )
+
+    def test_a_different_pair_builds_a_new_transformer(self):
+        """The cache is keyed on both CRSes, not just the source."""
+        _cached_transformer.cache_clear()
+        to_mercator = _cached_transformer(4326, 3857)
+        to_utm = _cached_transformer(4326, 32636)
+        assert to_mercator is not to_utm, "distinct destinations must not share a key"
+
+    def test_a_wkt_string_key_works_and_transforms_correctly(self):
+        """A WKT string is a valid, hashable key and yields a working transformer.
+
+        Test scenario:
+            Datasets without an EPSG code pass their WKT through instead, so the
+            cache has to accept it. Round-trips a point through the transformer
+            and back to confirm the cached object is functional, not just
+            identical.
+        """
+        _cached_transformer.cache_clear()
+        wkt = sr_from_epsg(4326).ExportToWkt()
+        forward = _cached_transformer(wkt, 3857)
+        back = _cached_transformer(3857, wkt)
+        x, y = forward.transform(12.0, 55.0)
+        lon, lat = back.transform(x, y)
+        assert round(lon, 6) == 12.0 and round(lat, 6) == 55.0, (
+            f"round trip through the cached transformers drifted: {lon}, {lat}"
         )

@@ -9,6 +9,7 @@ GDAL toolkit and does not implement any sensor model itself.
 from __future__ import annotations
 
 import logging
+import weakref
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -16,12 +17,14 @@ from uuid import uuid4
 
 from osgeo import gdal
 
+from pyramids._io import silent_unlink
 from pyramids.base._errors import ReadOnlyError
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import sr_from_user_input
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.engines._base import _Engine
-from pyramids.dataset.engines.spatial import _dst_srs_arg
+from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
+from pyramids.dataset.engines._warp import warp_to_dataset
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -47,6 +50,21 @@ _REQUIRED_RPC_KEYS: frozenset[str] = frozenset(
         "SAMP_DEN_COEFF",
     }
 )
+
+
+def _is_staged_dem(dem_path: str | None) -> bool:
+    """Whether `dem_path` is a `/vsimem` copy this module staged.
+
+    A caller-supplied path -- on disk or their own `/vsimem` entry -- is not
+    ours to unlink.
+
+    Args:
+        dem_path: The resolved DEM path, or `None` when no DEM was given.
+
+    Returns:
+        bool: `True` only for a path `_resolve_dem_path` created.
+    """
+    return dem_path is not None and dem_path.startswith("/vsimem/orthorectify_dem_")
 
 
 class Georef(_Engine["Dataset"]):
@@ -237,36 +255,63 @@ class Georef(_Engine["Dataset"]):
         """
         if not self._ds.raster.GetMetadata("RPC"):
             raise ValueError("dataset has no RPC metadata; call set_rpcs first.")
+        # Resolve everything that can reject the caller's arguments *before*
+        # staging a DEM. A bad `to_epsg` or `method` is the most likely failure
+        # of this method, and doing the cheap validation first means the
+        # cleanup below only has to cover the warp itself.
+        resample_alg = resolve_resampling(method)
+        dst_srs = _dst_srs_arg(sr_from_user_input(to_epsg)) if to_epsg else None
+
         transformer_options = ["METHOD=RPC"]
         dem_path = self._resolve_dem_path(dem)
-        if dem_path is not None:
-            transformer_options.append(f"RPC_DEM={dem_path}")
-        elif rpc_height is not None:
-            transformer_options.append(f"RPC_HEIGHT={rpc_height}")
-        else:
-            logger.warning(
-                "orthorectify: no DEM and no rpc_height given; GDAL will use "
-                "height 0, which is rarely correct over real terrain."
+        # Only a DEM staged by this call is ours to free; a caller-supplied path
+        # must be left alone.
+        staged_dem = dem_path if _is_staged_dem(dem_path) else None
+        try:
+            if dem_path is not None:
+                transformer_options.append(f"RPC_DEM={dem_path}")
+            elif rpc_height is not None:
+                transformer_options.append(f"RPC_HEIGHT={rpc_height}")
+            else:
+                logger.warning(
+                    "orthorectify: no DEM and no rpc_height given; GDAL will use "
+                    "height 0, which is rarely correct over real terrain."
+                )
+            warp_kwargs: dict = {
+                "format": "VRT" if lazy else "MEM",
+                "resampleAlg": resample_alg,
+                "xRes": cell_size,
+                "yRes": cell_size,
+                "transformerOptions": transformer_options,
+            }
+            if dst_srs is not None:
+                warp_kwargs["dstSRS"] = dst_srs
+            # Only a lazy (VRT) result reads through to the source.
+            result = warp_to_dataset(
+                self._ds,
+                gdal.WarpOptions(**warp_kwargs),
+                access="read_only",
+                error_message="GDAL could not orthorectify the dataset.",
+                pin=lazy,
             )
-        warp_kwargs: dict = {
-            "format": "VRT" if lazy else "MEM",
-            "resampleAlg": resolve_resampling(method),
-            "xRes": cell_size,
-            "yRes": cell_size,
-            "transformerOptions": transformer_options,
-        }
-        if to_epsg is not None:
-            warp_kwargs["dstSRS"] = _dst_srs_arg(sr_from_user_input(to_epsg))
-        dst = gdal.Warp("", self._ds.raster, options=gdal.WarpOptions(**warp_kwargs))
-        if dst is None:
-            raise RuntimeError("GDAL could not orthorectify the dataset.")
-        result = self._ds.__class__(dst, access="read_only")
-        if lazy:
-            result._warp_source = self._ds
-        elif dem_path is not None and dem_path.startswith("/vsimem/orthorectify_dem_"):
-            # A materialised result no longer references the staged DEM, so free
-            # the /vsimem copy we made from a MEM Dataset (a lazy result keeps it).
-            gdal.Unlink(dem_path)
+        except BaseException:
+            # The failure paths returned without unlinking, leaving the staged copy
+            # in /vsimem for the lifetime of the process. `silent_unlink` so a VSI
+            # error here cannot replace the warp failure the caller needs to see.
+            if staged_dem is not None:
+                silent_unlink(staged_dem)
+            raise
+
+        if lazy and staged_dem is not None:
+            # A lazy result reads the DEM on every access, so it cannot be freed
+            # here -- and nothing freed it later either, so it leaked. Key the
+            # finalizer on the GDAL handle that actually reads the DEM, not on the
+            # pyramids wrapper: the wrapper can be dropped while a derived view
+            # keeps the handle (and the pin) alive.
+            weakref.finalize(result.raster, silent_unlink, staged_dem)
+        elif staged_dem is not None:
+            # A materialised result no longer references the staged DEM.
+            silent_unlink(staged_dem)
         return result
 
     @staticmethod
@@ -432,12 +477,12 @@ class Georef(_Engine["Dataset"]):
         }
         if to_epsg is not None:
             warp_kwargs["dstSRS"] = _dst_srs_arg(sr_from_user_input(to_epsg))
-        dst = gdal.Warp("", self._ds.raster, options=gdal.WarpOptions(**warp_kwargs))
-        if dst is None:
-            raise RuntimeError("GDAL could not warp the dataset from its GCPs.")
-        result = self._ds.__class__(dst, access="read_only")
-        if lazy:
-            # The VRT references the source GDAL handle; pin the source Dataset so
-            # it cannot be garbage-collected underneath the view.
-            result._warp_source = self._ds
-        return result
+        # Only a lazy (VRT) result reads through to the source, so only it needs
+        # the pin; a materialised MEM result owns its pixels.
+        return warp_to_dataset(
+            self._ds,
+            gdal.WarpOptions(**warp_kwargs),
+            access="read_only",
+            error_message="GDAL could not warp the dataset from its GCPs.",
+            pin=lazy,
+        )

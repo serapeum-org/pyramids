@@ -217,7 +217,7 @@ class TestThreadsafeEagerReads:
             bad band leaves no manager behind.
         """
         ds, _ = tiled_raster
-        with pytest.raises(ValueError, match="band index"):
+        with pytest.raises(ValueError, match="is out of range for a"):
             ds.read_array(band=99, threadsafe=True)
         assert ds._thread_manager is None, "failed validation must not open handles"
 

@@ -20,6 +20,7 @@ from hpc.indexing import get_pixels
 from osgeo import gdal, ogr
 from pandas import DataFrame
 
+from pyramids.base._domain import is_no_data
 from pyramids.base._utils import gdal_to_ogr_dtype
 from pyramids.base.crs import sr_from_wkt
 from pyramids.feature import FeatureCollection
@@ -29,6 +30,27 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine, logger
+from pyramids.dataset.engines._validate import validate_band_index
+
+# Search order for the nearest valid neighbour: the four orthogonals first
+# (right, left, bottom, top), then the diagonals. Matches the order the original
+# if/elif chain tried them, so a cell that was filled before is filled from the
+# same direction now.
+_NEIGHBOUR_OFFSETS: tuple[tuple[int, int], ...] = (
+    (0, 1),
+    (0, -1),
+    (-1, 0),
+    (1, 0),
+    (-1, 1),
+    (-1, -1),
+    (1, -1),
+    (1, 1),
+)
+
+
+# Scratch column carrying each cell's index in the full raster, so tiles read
+# out of order can be restored to row-major before the frame is returned.
+_CELL_ORDER = "_pyramids_cell_order"
 
 
 class Vectorize(_Engine["Dataset"]):
@@ -144,10 +166,7 @@ class Vectorize(_Engine["Dataset"]):
             raise ValueError(f"interval must be positive, got {interval!r}.")
         if fixed_levels is not None and len(fixed_levels) == 0:
             raise ValueError("fixed_levels must contain at least one level.")
-        if band < 0 or band >= self._ds.band_count:
-            raise ValueError(
-                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
-            )
+        validate_band_index(band, self._ds.band_count)
 
         gdal_band = self._ds.raster.GetRasterBand(band + 1)
         srs = sr_from_wkt(self._ds.crs)
@@ -211,9 +230,13 @@ class Vectorize(_Engine["Dataset"]):
                 "Polygon" or "Point" if you want to add a polygon geometry of the cells as column in dataframe.
                 Default is None.
             tile (bool):
-                True to use tiles in extracting the values from the raster. Default is False.
+                True to read the raster tile by tile rather than in one pass, which bounds
+                the peak allocation on a large raster. Default is False. The rows are the
+                same cells in the same row-major order either way -- `mask` included -- so
+                the choice is a memory/throughput trade, not a change of result, and
+                `add_geometry` is safe with either.
             tile_size (int):
-                Tile size. Default is 1500.
+                Tile size in cells, applied to both axes. Default is 256.
             touch (bool):
                 Include the cells that touch the polygon not only those that lie entirely inside the polygon mask.
                 Default is True.
@@ -344,8 +367,12 @@ class Vectorize(_Engine["Dataset"]):
         else:
             src_ds = self._ds
 
+        # Both branches must read `src_ds` -- the cropped dataset when a mask was
+        # given. Reading `self` here silently discarded the mask, so a tiled call
+        # returned values for the whole raster while the geometry attached below
+        # came from the cropped extent.
         if tile:
-            df = self._extract_values_tiled(band_names, tile_size)
+            df = src_ds.vectorize._extract_values_tiled(band_names, tile_size)
         else:
             df = src_ds.vectorize._extract_values_full(band_names)
 
@@ -359,6 +386,14 @@ class Vectorize(_Engine["Dataset"]):
     def _extract_values_tiled(self, band_names: list, tile_size: int) -> pd.DataFrame:
         """Extract raster band values into a DataFrame using tiles.
 
+        Tiles are read tile by tile, but each cell's position in the raster is
+        carried alongside its values and the result is sorted by it, so the row
+        order matches `_extract_values_full` exactly. Without that, rows came
+        out tile-major while the geometry `_attach_geometry` builds is
+        row-major, and `to_feature_collection` zips the two positionally --
+        `tile=True` with `add_geometry` silently mismatched values and geometry
+        on any raster spanning more than one tile.
+
         Args:
             band_names (list): Band names for the DataFrame columns.
             tile_size (int): Tile size in pixels.
@@ -367,22 +402,36 @@ class Vectorize(_Engine["Dataset"]):
             pd.DataFrame: Concatenated DataFrame from all tiles.
         """
         no_data_value = self._ds.no_data_value[0]
+        columns = self._ds.columns
         df_list = []
-        for arr in self._ds.get_tile(tile_size):
+        offsets = self._ds.io._tile_offsets(tile_size)
+        for (x_off, y_off, x_size, y_size), arr in zip(
+            offsets, self._ds.get_tile(tile_size)
+        ):
             idx = (1, 2) if arr.ndim > 2 else (0, 1)
             mask_arr = np.ones((arr.shape[idx[0]], arr.shape[idx[1]]))
             pixels = get_pixels(arr, mask_arr).transpose()
             df = pd.DataFrame(pixels, columns=band_names)
+            # Each cell's index in the full raster, so the concatenated frame
+            # can be restored to row-major order. Computed before the no-data
+            # rows are dropped, which is what makes it survive the drop.
+            tile_rows, tile_cols = np.divmod(np.arange(y_size * x_size), x_size)
+            df[_CELL_ORDER] = (y_off + tile_rows) * columns + (x_off + tile_cols)
             if no_data_value is not None:
-                df.replace(no_data_value, np.nan, inplace=True)
-            df.dropna(axis=0, inplace=True, ignore_index=True)
+                df[band_names] = df[band_names].replace(no_data_value, np.nan)
+            df = df.dropna(axis=0, subset=band_names)
             if not df.empty:
                 df_list.append(df)
 
         if not df_list:
             return pd.DataFrame(columns=band_names)
 
-        return pd.concat(df_list, ignore_index=True)
+        combined = pd.concat(df_list, ignore_index=True)
+        return (
+            combined.sort_values(_CELL_ORDER, kind="stable")
+            .drop(columns=[_CELL_ORDER])
+            .reset_index(drop=True)
+        )
 
     def _extract_values_full(self, band_names: list) -> pd.DataFrame:
         """Extract all raster band values into a DataFrame (no tiling).
@@ -694,7 +743,11 @@ class Vectorize(_Engine["Dataset"]):
             array (np.ndarray):
                 Array to fill some of its cells with the nearest value.
             no_data_value (float | int):
-                Value stored in cells that are out of the domain.
+                Value stored in cells that are out of the domain. Matched with
+                `is_no_data`, so a NaN sentinel is recognised and a numeric one
+                is matched within the package's default relative tolerance
+                rather than exactly -- a neighbour within 0.1% of the sentinel
+                counts as no-data and is skipped.
             rows (list[int]):
                 Row indices of the cells you want to fill with the nearest neighbor.
             cols (list[int]):
@@ -730,55 +783,25 @@ class Vectorize(_Engine["Dataset"]):
         no_rows = np.shape(array)[0]
         no_cols = np.shape(array)[1]
 
+        # Bounds are checked *before* the array is indexed, and "a neighbour
+        # exists" is kept separate from "a neighbour holds data". The previous
+        # chain did neither: it gated the whole fallback sequence on whether a
+        # right-hand neighbour existed (so an interior cell whose right
+        # neighbour was itself no-data was never filled from any other
+        # direction), and every branch indexed the array before its guard --
+        # reading `col - 1` at column 0 wrapped silently to the last column,
+        # and `row + 1` on the last row raised IndexError. The comparisons were
+        # off by one too (`> 0` / `<= n` rather than `>= 0` / `< n`).
         for i in range(len(rows)):
-            # give the cell the value of the cell that is at the right
-            if cols[i] + 1 < no_cols:
-                if array[rows[i], cols[i] + 1] != no_data_value:
-                    array[rows[i], cols[i]] = array[rows[i], cols[i] + 1]
-
-            elif array[rows[i], cols[i] - 1] != no_data_value and cols[i] - 1 > 0:
-                # give the cell the value of the cell that is at the left
-                array[rows[i], cols[i]] = array[rows[i], cols[i] - 1]
-
-            elif array[rows[i] - 1, cols[i]] != no_data_value and rows[i] - 1 > 0:
-                # give the cell the value of the cell that is at the bottom
-                array[rows[i], cols[i]] = array[rows[i] - 1, cols[i]]
-
-            elif array[rows[i] + 1, cols[i]] != no_data_value and rows[i] + 1 < no_rows:
-                # give the cell the value of the cell that is at the Top
-                array[rows[i], cols[i]] = array[rows[i] + 1, cols[i]]
-
-            elif (
-                array[rows[i] - 1, cols[i] + 1] != no_data_value
-                and rows[i] - 1 > 0
-                and cols[i] + 1 <= no_cols
-            ):
-                # give the cell the value of the cell that is at the right bottom
-                array[rows[i], cols[i]] = array[rows[i] - 1, cols[i] + 1]
-
-            elif (
-                array[rows[i] - 1, cols[i] - 1] != no_data_value
-                and rows[i] - 1 > 0
-                and cols[i] - 1 > 0
-            ):
-                # give the cell the value of the cell that is at the left bottom
-                array[rows[i], cols[i]] = array[rows[i] - 1, cols[i] - 1]
-
-            elif (
-                array[rows[i] + 1, cols[i] - 1] != no_data_value
-                and rows[i] + 1 <= no_rows
-                and cols[i] - 1 > 0
-            ):
-                # give the cell the value of the cell that is at the left Top
-                array[rows[i], cols[i]] = array[rows[i] + 1, cols[i] - 1]
-
-            elif (
-                array[rows[i] + 1, cols[i] + 1] != no_data_value
-                and rows[i] + 1 <= no_rows
-                and cols[i] + 1 <= no_cols
-            ):
-                # give the cell the value of the cell that is at the right Top
-                array[rows[i], cols[i]] = array[rows[i] + 1, cols[i] + 1]
+            row, col = rows[i], cols[i]
+            for delta_row, delta_col in _NEIGHBOUR_OFFSETS:
+                neighbour_row, neighbour_col = row + delta_row, col + delta_col
+                if not (0 <= neighbour_row < no_rows and 0 <= neighbour_col < no_cols):
+                    continue
+                neighbour = array[neighbour_row, neighbour_col]
+                if not is_no_data(neighbour, no_data_value):
+                    array[row, col] = neighbour
+                    break
             else:
                 logger.warning("the cell is isolated (No surrounding cells exist)")
         return array
