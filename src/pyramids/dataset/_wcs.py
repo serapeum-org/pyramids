@@ -56,6 +56,7 @@ from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WCSError
+from pyramids.base._ogc_api import HTTP_RETRY_ATTEMPTS
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import http_get_with_retry as _http_get_with_retry
 from pyramids.base._ogc_api import read_http_error as _read_http_error
@@ -196,9 +197,12 @@ def _http_get(
     the raised :class:`WCSError` also carries the ``status_code`` and the decoded
     ``response_body`` so a caller can inspect the server's explanation.
 
-    A dropped connection or a transient 5xx is retried with backoff (see
-    :func:`pyramids.base._ogc_api.http_get_with_retry`) before the failure is
-    turned into a :class:`WCSError`; a 4xx is surfaced on the first attempt.
+    Only the ``GetCapabilities`` discovery fetch is retried on a dropped
+    connection or a transient 5xx (see
+    :func:`pyramids.base._ogc_api.http_get_with_retry`). A ``GetCoverage`` is the
+    payload itself and is attempted once — re-downloading a large raster from
+    scratch costs far more than the retry saves. A 4xx is surfaced on the first
+    attempt either way.
     """
     opener = urllib.request.build_opener()
     if auth is not None:
@@ -206,7 +210,14 @@ def _http_get(
         mgr.add_password(None, url, auth[0], auth[1])
         opener.add_handler(urllib.request.HTTPBasicAuthHandler(mgr))
     try:
-        return cast(bytes, _http_get_with_retry(url, timeout, opener=opener))
+        # GetCapabilities is a small discovery fetch worth retrying; a
+        # GetCoverage *is* the payload, and re-downloading a large raster from
+        # scratch after a mid-transfer failure costs far more than the retry
+        # saves — so only the discovery leg gets a budget.
+        attempts = HTTP_RETRY_ATTEMPTS if what == "GetCapabilities" else 1
+        return cast(
+            bytes, _http_get_with_retry(url, timeout, opener=opener, attempts=attempts)
+        )
     except urllib.error.HTTPError as exc:
         # A 4xx/5xx status carries a body with the server's real explanation
         # (non-spec shims return e.g. a JSON {"message": ...}); surface it in the
