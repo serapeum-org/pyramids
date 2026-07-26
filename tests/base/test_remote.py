@@ -14,6 +14,7 @@ from pyramids.base.remote import (
     CloudConfig,
     _to_vsi,
     is_remote,
+    redact_credentials,
     signer_cloud_config,
 )
 from pyramids.netcdf import NetCDF
@@ -685,3 +686,53 @@ class TestLiveOpenDAP:
         )
         variable = nc.get_variable(self.VAR)
         assert variable.shape[0] >= 1
+
+
+class TestRedactCredentials:
+    """Credential values must not survive into a log line or message."""
+
+    def test_embedded_header_value_is_blanked(self):
+        """An embedded bearer header is replaced, the rest stays readable."""
+        text = "Can't open /vsicurl?header.Authorization=Bearer%20SECRET&url=x"
+        out = redact_credentials(text)
+        assert "SECRET" not in out, f"token survived: {out}"
+        assert "header.Authorization=<redacted>" in out, out
+
+    def test_sas_query_parameter_is_blanked(self):
+        """A SAS-style `sig=` parameter is caught as well."""
+        out = redact_credentials("https://h/a.tif?sv=2021&sig=SECRET")
+        assert out == "https://h/a.tif?sv=2021&sig=<redacted>", out
+
+    def test_ordinary_message_is_untouched(self):
+        """A message with no credential is returned verbatim."""
+        text = "Can't open /vsicurl/https://h/a.tif. Skipping it"
+        assert redact_credentials(text) == text, "an innocent message was altered"
+
+    def test_multiple_headers_all_blanked(self):
+        """Every credential option in one string is redacted."""
+        text = "/vsicurl?header.Authorization=Bearer%20A&header.X-Api-Key=B&url=x"
+        out = redact_credentials(text)
+        assert "Bearer%20A" not in out and "=B&" not in out, f"a value survived: {out}"
+
+    def test_name_merely_ending_in_a_credential_word_is_kept(self):
+        """A name that only ends with a credential word is not one.
+
+        The previous `\b`-anchored pattern matched the tail of `my_token=` and
+        `bucket-key=`, redacting values that were never secrets.
+        """
+        text = "https://h/a.tif?my_token=abc&bucket-key=def"
+        assert redact_credentials(text) == text, (
+            f"a non-credential was redacted: {text}"
+        )
+
+    def test_credential_after_an_ampersand_is_redacted(self):
+        """A credential option later in the query is still caught."""
+        out = redact_credentials("https://h/a.tif?sv=2021&sig=SECRET&sp=r")
+        assert "SECRET" not in out, f"token survived: {out}"
+        assert "sv=2021" in out and "sp=r" in out, f"neighbours mangled: {out}"
+
+    def test_is_remote_accepts_the_query_form(self):
+        """The `/vsicurl?` form is classified as remote like `/vsicurl/` is."""
+        assert is_remote("/vsicurl?empty_dir=yes&url=https%3A%2F%2Fh%2Fa.tif"), (
+            "the query form must be recognised as remote"
+        )
