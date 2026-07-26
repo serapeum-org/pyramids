@@ -558,11 +558,8 @@ class TestOpenConfig:
             A readdir skip is also wrong for a directory-style store.
         """
 
-        class _S:
-            def gdal_env(self):
-                return {"AWS_REQUEST_PAYER": "requester"}
-
-        config = _loader._open_config("s3://b/store.zarr", "zarr", _S())
+        env = {"AWS_REQUEST_PAYER": "requester"}
+        config = _loader._open_config("s3://b/store.zarr", "zarr", env)
         assert config.as_gdal_config() == {"AWS_REQUEST_PAYER": "requester"}, (
             "the zarr branch should carry the signer env only"
         )
@@ -574,11 +571,8 @@ class TestOpenConfig:
             An explicit HTTP version must survive the merge.
         """
 
-        class _S:
-            def gdal_env(self):
-                return {"GDAL_HTTP_VERSION": "1.1"}
-
-        config = _loader._open_config("/vsicurl/https://h/a.tif", "gdal", _S())
+        env = {"GDAL_HTTP_VERSION": "1.1"}
+        config = _loader._open_config("/vsicurl/https://h/a.tif", "gdal", env)
         assert config.as_gdal_config()["GDAL_HTTP_VERSION"] == "1.1"
 
 

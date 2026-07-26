@@ -70,6 +70,10 @@ _EngineMethod = TypeVar("_EngineMethod", bound=Callable[..., Any])
 def under_gdal_env(method: _EngineMethod) -> _EngineMethod:
     """Run an engine entry point under the dataset's captured cloud config.
 
+    Internal: an engine decorator, not public API. It is unprefixed only because
+    the engine modules import it across package boundaries; it is meaningless on
+    anything that does not expose `self._ds`.
+
     The engines reach their dataset through `self._ds`, so one decorator covers
     an entry point without it remembering to open a `with` block.
 
@@ -154,7 +158,7 @@ def _reconstruct_dataset(
     # subclass benefits without widening its own signature.
     with cloud_config_from_env(gdal_env):
         dataset = cls.read_file(path, read_only=True)
-    dataset._gdal_env = dict(gdal_env) if gdal_env else {}
+    dataset.attach_gdal_env(gdal_env)
     return dataset
 
 
@@ -306,6 +310,12 @@ class RasterBase(ABC):
         parameter defaults), but a recipe written by *this* version needs a
         reader that accepts four arguments — so a mixed-version cluster has to
         upgrade the workers, not only the client.
+
+        Security:
+            The recipe carries :attr:`gdal_env` verbatim, so pickling a dataset
+            opened with credentials serialises them. `dask.distributed` spills
+            graphs to disk and quotes task keys in error reports — treat such a
+            pickle as a secret, and prefer a short-lived token.
 
         Raises:
             TypeError: The dataset has no on-disk path (empty

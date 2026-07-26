@@ -127,7 +127,9 @@ def _engine_for(media_type: str | None, href: str) -> str:
     return result
 
 
-def _open_config(href: str, engine: str, signer: Any) -> AbstractContextManager[Any]:
+def _open_config(
+    href: str, engine: str, gdal_env: dict[str, str] | None
+) -> AbstractContextManager[Any]:
     """Return the GDAL config context an asset open should run under.
 
     A remote **raster** asset gets the `/vsicurl/` fast-read preset (readdir
@@ -148,7 +150,11 @@ def _open_config(href: str, engine: str, signer: Any) -> AbstractContextManager[
     Args:
         href: The resolved (already signed) asset href.
         engine: The reader chosen by :func:`_engine_for`.
-        signer: The signer whose `gdal_env()` to install, or `None`.
+        gdal_env: The signer's already-resolved GDAL config, or `None`. The
+            resolved mapping rather than the signer, because `gdal_env()` is a
+            method a token-refreshing signer may answer differently on each
+            call — asking twice could install one token for the open and capture
+            a different one on the dataset, and pay for two refreshes.
 
     Returns:
         A context manager installing the resolved config for the open.
@@ -165,29 +171,24 @@ def _open_config(href: str, engine: str, signer: Any) -> AbstractContextManager[
             ```
         - A remote NetCDF keeps its sidecars, so it takes the signer env only:
             ```python
-            >>> class _S:
-            ...     def gdal_env(self):
-            ...         return {"AWS_REQUEST_PAYER": "requester"}
-            >>> _open_config("s3://b/cube.nc", "netcdf", _S()).as_gdal_config()
+            >>> env = {"AWS_REQUEST_PAYER": "requester"}
+            >>> _open_config("s3://b/cube.nc", "netcdf", env).as_gdal_config()
             {'AWS_REQUEST_PAYER': 'requester'}
 
             ```
         - A remote Zarr store opts out of the preset and keeps the signer env:
             ```python
-            >>> class _S:
-            ...     def gdal_env(self):
-            ...         return {"AWS_REQUEST_PAYER": "requester"}
-            >>> _open_config("s3://b/store.zarr", "zarr", _S()).as_gdal_config()
+            >>> env = {"AWS_REQUEST_PAYER": "requester"}
+            >>> _open_config("s3://b/store.zarr", "zarr", env).as_gdal_config()
             {'AWS_REQUEST_PAYER': 'requester'}
 
             ```
     """
-    signer_env = signer.gdal_env() if signer is not None else None
     config: AbstractContextManager[Any]
     if engine == "gdal" and is_remote(href):
-        config = CloudConfig(vsicurl_tuning=True, extra=dict(signer_env or {}))
+        config = CloudConfig(vsicurl_tuning=True, extra=dict(gdal_env or {}))
     else:
-        config = cloud_config_from_env(signer_env)
+        config = cloud_config_from_env(gdal_env)
     return config
 
 
@@ -356,7 +357,7 @@ def load_asset(
         href = signer.sign_href(href)
     engine = _engine_for(media_type, href)
     signer_env = signer.gdal_env() if signer is not None else None
-    with _open_config(href, engine, signer):
+    with _open_config(href, engine, signer_env):
         if engine == "gdal":
             result: Any = Dataset.read_file(href, vsi=vsi, gdal_env=signer_env)
         elif engine == "zarr":
