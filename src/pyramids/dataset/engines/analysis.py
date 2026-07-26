@@ -83,6 +83,12 @@ class Analysis(_Engine["Dataset"]):
                     Band_4  273.991516  274.540344  274.310669  0.205754
                 ```
 
+        Raises:
+            ValueError: The `mask` does not overlap the dataset, or `band` is
+                outside the band range.
+            RuntimeError: GDAL could not compute statistics for a band -- most
+                often a band with no valid pixels at all.
+
         Notes:
             - The value of the stats will be stored in an xml file by the name of the raster file with the extension of
               .aux.xml.
@@ -187,8 +193,7 @@ class Analysis(_Engine["Dataset"]):
             approx_ok (bool):
                 Let GDAL answer from overviews or a subsample rather than
                 scanning every cell. Default `True`, the historical behaviour.
-                Also governs the fallback taken when the band carries no cached
-                statistics, so `approx_ok=True` never forces a full scan.
+                Ignored by the recovery path below, which is always exact.
 
         Returns:
             list[float]: The ``[minimum, maximum, mean, standard_deviation]`` values.
@@ -211,10 +216,13 @@ class Analysis(_Engine["Dataset"]):
             warnings.warn(
                 f"Band {band} has no statistics, and the statistics are going to be calculate"
             )
-            # Honour the caller's choice here too: hard-coding exact
-            # computation made `approx_ok=True` pay a full-raster scan on
-            # any band without cached statistics -- the opposite of the ask.
-            vals = band_i.ComputeStatistics(approx_ok)
+            # Deliberately exact, even when the caller asked for approximate.
+            # This branch is only reached because the approximate route already
+            # failed or returned nothing usable, so repeating it either raises
+            # the same error or answers from the same overviews -- on a sparse
+            # band those give min == max and a zero deviation where the full
+            # scan gives the real spread. The full scan is the recovery.
+            vals = band_i.ComputeStatistics(False)
 
         return list(vals)
 

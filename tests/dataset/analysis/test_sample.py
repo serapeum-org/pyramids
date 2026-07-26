@@ -429,3 +429,102 @@ class TestWindowedAndPerPointStrategiesAgree:
         assert windowed[0][1] == -9999.0 and windowed[0][3] == -9999.0, (
             f"out-of-bounds points must carry the fill value, got {windowed[0]}"
         )
+
+
+class TestStatsRecoveryPath:
+    """H1: the no-cached-statistics recovery must be exact, not approximate."""
+
+    @pytest.fixture(scope="function")
+    def sparse_on_disk(self, tmp_path) -> str:
+        """A 2048x2048 GTiff with overviews and two valid pixels.
+
+        The shape any clipped catchment, sparse mask or `to_cog` output takes:
+        so much no-data that GDAL's overview-based estimate sees only the fill
+        and either fails outright or averages the two valid pixels into one.
+
+        Args:
+            tmp_path: pytest's temporary directory fixture.
+
+        Returns:
+            str: path to the written raster.
+        """
+        path = tmp_path / "sparse.tif"
+        array = np.full((2048, 2048), -9999.0, dtype="float32")
+        array[0, 0] = 1.0
+        array[0, 1] = 4.0
+        driver = gdal.GetDriverByName("GTiff")
+        raster = driver.Create(str(path), 2048, 2048, 1, gdal.GDT_Float32)
+        raster.GetRasterBand(1).WriteArray(array)
+        raster.GetRasterBand(1).SetNoDataValue(-9999.0)
+        raster.BuildOverviews("average", [2, 4, 8, 16])
+        raster = None
+        return str(path)
+
+    @staticmethod
+    def _force_the_recovery(monkeypatch):
+        """Make GDAL's cached/approximate statistics unavailable.
+
+        Reproduces the state the recovery exists for: `GetStatistics` raises
+        "Failed to compute statistics, no valid pixels found in sampling",
+        which the engine turns into the `sum(vals) == 0` fallback.
+
+        Args:
+            monkeypatch: pytest's monkeypatch fixture.
+        """
+
+        def refuse(self, *args, **kwargs):
+            raise RuntimeError(
+                "Failed to compute statistics, no valid pixels found in sampling."
+            )
+
+        monkeypatch.setattr(gdal.Band, "GetStatistics", refuse)
+
+    def test_the_recovery_does_not_re_run_the_route_that_just_failed(
+        self, sparse_on_disk, monkeypatch
+    ):
+        """The fallback is a full scan, so it survives what the estimate could not.
+
+        Test scenario:
+            The recovery only runs because the approximate route already failed.
+            Repeating it approximately raises the very same error, straight out
+            of the public `stats()` -- the default call, with no caller opting
+            in. Honouring `approx_ok` here made the recovery a no-op.
+        """
+        self._force_the_recovery(monkeypatch)
+        stats = Dataset.read_file(sparse_on_disk).stats()
+        assert float(stats["min"].iloc[0]) == 1.0, (
+            f"expected the true minimum 1.0, got {stats['min'].iloc[0]}"
+        )
+        assert float(stats["max"].iloc[0]) == 4.0, (
+            f"expected the true maximum 4.0, got {stats['max'].iloc[0]}"
+        )
+        assert float(stats["std"].iloc[0]) > 0.0, (
+            "a band with two distinct values must not report a zero deviation"
+        )
+
+    def test_the_recovery_is_exact_for_either_approx_ok(
+        self, sparse_on_disk, monkeypatch
+    ):
+        """`approx_ok` does not reach the recovery, so both callers agree.
+
+        Test scenario:
+            Both routes end in the same full scan once the estimate is gone.
+        """
+        self._force_the_recovery(monkeypatch)
+        dataset = Dataset.read_file(sparse_on_disk)
+        np.testing.assert_array_equal(
+            dataset.stats(approx_ok=False).to_numpy(), dataset.stats().to_numpy()
+        )
+
+    def test_a_healthy_band_still_answers_from_the_estimate(self, two_band):
+        """The recovery is not on the happy path.
+
+        Test scenario:
+            A band whose statistics GDAL can compute must not pay a full scan;
+            the fallback is reached only when the estimate returns nothing.
+        """
+        stats = two_band.stats()
+        assert len(stats) == 2, f"expected one row per band, got {len(stats)}"
+        assert float(stats["min"].iloc[0]) == 0.0, (
+            f"band 0 spans 0..24, got a minimum of {stats['min'].iloc[0]}"
+        )
