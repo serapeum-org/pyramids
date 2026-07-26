@@ -98,3 +98,59 @@ class TestCleanup:
         artifact_dir()
         cleanup()
         cleanup()  # must not raise
+
+
+class TestCleanupArming:
+    """The exit sweep must be armed by either artefact kind (ARC-10 / M4)."""
+
+    def test_register_vsimem_arms_the_sweep(self, monkeypatch):
+        """Tracking a /vsimem path registers the atexit hook.
+
+        Test scenario:
+            A process that only builds VRTs never touches the temp root, so
+            hanging the registration off that left its artefacts unreclaimed.
+        """
+        registered = []
+        monkeypatch.setattr(_artifacts.atexit, "register", registered.append)
+        monkeypatch.setattr(_artifacts, "_CLEANUP_ARMED", False)
+        _artifacts.register_vsimem("/vsimem/probe.vrt")
+        assert _artifacts.cleanup in registered, (
+            f"the exit sweep was not armed: {registered}"
+        )
+        _artifacts.unregister_vsimem("/vsimem/probe.vrt")
+
+    def test_arming_happens_once(self, monkeypatch):
+        """Repeated registrations do not stack atexit hooks.
+
+        Test scenario:
+            One hook per process, however many artefacts are tracked.
+        """
+        registered = []
+        monkeypatch.setattr(_artifacts.atexit, "register", registered.append)
+        monkeypatch.setattr(_artifacts, "_CLEANUP_ARMED", False)
+        _artifacts.register_vsimem("/vsimem/a.vrt")
+        _artifacts.register_vsimem("/vsimem/b.vrt")
+        assert len(registered) == 1, f"expected one registration, got {registered}"
+        _artifacts.unregister_vsimem("/vsimem/a.vrt")
+        _artifacts.unregister_vsimem("/vsimem/b.vrt")
+
+    def test_unregister_drops_the_path(self):
+        """A reclaimed path stops being tracked.
+
+        Test scenario:
+            Otherwise repeated failures grow a list of dead entries that
+            `cleanup` later tries to unlink.
+        """
+        _artifacts.register_vsimem("/vsimem/gone.vrt")
+        _artifacts.unregister_vsimem("/vsimem/gone.vrt")
+        assert "/vsimem/gone.vrt" not in _artifacts._VSIMEM_PATHS, (
+            "the reclaimed path is still tracked"
+        )
+
+    def test_unregister_unknown_path_is_a_no_op(self):
+        """Forgetting an untracked path does not raise.
+
+        Test scenario:
+            The caller need not know whether registration happened.
+        """
+        _artifacts.unregister_vsimem("/vsimem/never-tracked.vrt")

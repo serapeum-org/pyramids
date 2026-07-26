@@ -16,11 +16,13 @@ compatibility with the module path; the class itself was renamed from
 
 from __future__ import annotations
 
+import functools
+import inspect
 from abc import ABC, abstractmethod
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from numbers import Number
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
@@ -33,6 +35,7 @@ from pyramids.base._utils import (
 )
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
 from pyramids.base.protocols import ArrayLike, FloatArray
+from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.window import Window
 
@@ -61,7 +64,66 @@ RESAMPLING_METHODS = [
 ]
 
 
-def _reconstruct_dataset(cls: type[RasterBase], path: str, access: str) -> RasterBase:
+_EngineMethod = TypeVar("_EngineMethod", bound=Callable[..., Any])
+
+
+def under_gdal_env(method: _EngineMethod) -> _EngineMethod:
+    """Run an engine entry point under the dataset's captured cloud config.
+
+    Internal: an engine decorator, not public API. It is unprefixed only because
+    the engine modules import it across package boundaries; it is meaningless on
+    anything that does not expose `self._ds`.
+
+    The engines reach their dataset through `self._ds`, so one decorator covers
+    an entry point without it remembering to open a `with` block.
+
+    Apply it at the **entry point**, not at the primitives it calls: nesting is
+    harmless but not free — each install constructs a `CloudConfig` and makes
+    `gdal.config_options` save and restore every key, which measured at ~4x on a
+    small windowed read when the decorator sat on both `read_array` and the
+    `_read_block` it calls.
+
+    Never apply it to a generator. Spanning the `yield`s would keep the config
+    installed while the *consumer's* loop body runs, and `gdal.config_options`
+    restores a snapshot on exit — so two interleaved generators leaving in
+    non-LIFO order silently strip each other's config. A generator installs the
+    config per item instead.
+
+    The signature is preserved (a bound `TypeVar`), so a decorated public method
+    keeps its argument checking rather than degrading to `(*args, **kwargs) ->
+    Any`.
+
+    Args:
+        method: An engine method whose `self` exposes `_ds`.
+
+    Returns:
+        The method wrapped so `RasterBase._cloud_config` is installed around it.
+
+    Raises:
+        TypeError: `method` is a generator function — see above.
+    """
+    if inspect.isgeneratorfunction(method):
+        raise TypeError(
+            f"under_gdal_env cannot wrap the generator {method.__qualname__!r}: the "
+            "config would stay installed across its yields, leaking into the "
+            "caller's scope and corrupting a concurrently-open generator's config. "
+            "Install it per item inside the generator instead."
+        )
+
+    @functools.wraps(method)
+    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+        with self._ds._cloud_config():
+            return method(self, *args, **kwargs)
+
+    return cast(_EngineMethod, wrapper)
+
+
+def _reconstruct_dataset(
+    cls: type[RasterBase],
+    path: str,
+    access: str,
+    gdal_env: dict[str, str] | None = None,
+) -> RasterBase:
     """Re-open a dataset from its pickle recipe tuple.
 
     Called by :meth:`RasterBase.__reduce__` on unpickle. Routes
@@ -77,6 +139,10 @@ def _reconstruct_dataset(cls: type[RasterBase], path: str, access: str) -> Raste
         access: Access mode string carried by the pickle recipe. **Ignored** for the
             open mode — the dataset is always reopened read-only (see below). Kept in
             the signature so existing recipe tuples still unpickle.
+        gdal_env: The captured cloud config (a signer's `gdal_env()`), installed
+            around the re-open and re-attached to the instance so the worker's
+            reads authenticate as the originating process's did. Defaults to
+            `None` so a three-element recipe from an older pickle still loads.
 
     Returns:
         RasterBase: A freshly opened instance of `cls`, opened read-only.
@@ -87,7 +153,13 @@ def _reconstruct_dataset(cls: type[RasterBase], path: str, access: str) -> Raste
     # source for a CreateCopy), and reopening N update-mode handles on one file
     # across workers risks lock contention / a corrupt write. A caller that truly
     # needs a writable handle should reopen it explicitly on the worker.
-    return cls.read_file(path, read_only=True)
+    #
+    # The env is applied here rather than forwarded to read_file so every
+    # subclass benefits without widening its own signature.
+    with cloud_config_from_env(gdal_env):
+        dataset = cls.read_file(path, read_only=True)
+    dataset.attach_gdal_env(gdal_env)
+    return dataset
 
 
 class RasterBase(ABC):
@@ -95,7 +167,13 @@ class RasterBase(ABC):
 
     default_no_data_value = DEFAULT_NO_DATA_VALUE
 
-    def __init__(self, src: gdal.Dataset, access: str = "read_only"):
+    def __init__(
+        self,
+        src: gdal.Dataset,
+        access: str = "read_only",
+        *,
+        gdal_env: dict[str, str] | None = None,
+    ):
         """__init__."""
         if not isinstance(src, gdal.Dataset):
             raise TypeError(  # pragma: no cover
@@ -104,6 +182,17 @@ class RasterBase(ABC):
             )
         self._access = access
         self._raster = src
+        # Cloud credentials/config this dataset was opened with (a STAC signer's
+        # gdal_env, say). Re-installed around the reads that do not go through
+        # the handle opened above: `threadsafe=True` opens one handle per
+        # thread, a lazy `chunks=` read opens inside the dask task, and
+        # unpickling on a worker re-opens from the path. Applied structurally by
+        # the `@under_gdal_env` decorator on the engine read primitives. A plain
+        # dict so it survives pickling; empty (the common case) costs a
+        # `nullcontext`. It does *not* reach a VRT's source opens — GDAL ignores
+        # the thread-local config there, so those credentials ride the source
+        # path instead (see `pyramids.stac._vrt`).
+        self._gdal_env: dict[str, str] = dict(gdal_env) if gdal_env else {}
         # Per-thread file manager for read_array(threadsafe=True); created
         # lazily by the IO engine and released by close().
         self._thread_manager: ThreadLocalFileManager | None = None
@@ -123,16 +212,110 @@ class RasterBase(ABC):
             src.GetRasterBand(i).GetBlockSize() for i in range(1, self._band_count + 1)
         ]
 
+    @property
+    def gdal_env(self) -> dict[str, str]:
+        """GDAL config re-installed around every read of this dataset.
+
+        Populated when the dataset was opened with cloud credentials — for
+        example :func:`pyramids.stac.load_asset` with a Requester-Pays or
+        bearer-token signer. Empty for an ordinary local or anonymous open.
+
+        Note:
+            This is a **property**, while the same-named
+            :meth:`pyramids.stac.signers.Signer.gdal_env` is a *method* — the
+            two meet in one workflow (`load_asset(signer=…)` then `ds.gdal_env`),
+            so `ds.gdal_env()` is an easy slip that fails with
+            `TypeError: 'dict' object is not callable`.
+
+        Returns:
+            A copy of the captured config, so mutating it does not affect the
+            dataset.
+
+        Examples:
+            - An ordinary open captures nothing:
+                ```python
+                >>> from pyramids.dataset import Dataset
+                >>> Dataset.read_file("tests/data/acc4000.tif").gdal_env
+                {}
+
+                ```
+            - An open that carried credentials keeps them for later reads:
+                ```python
+                >>> ds = Dataset.read_file(
+                ...     "tests/data/acc4000.tif",
+                ...     gdal_env={"AWS_REQUEST_PAYER": "requester"},
+                ... )
+                >>> ds.gdal_env["AWS_REQUEST_PAYER"]
+                'requester'
+
+                ```
+        """
+        return dict(self._gdal_env)
+
+    def _cloud_config(self) -> Any:
+        """Return a context manager installing :attr:`gdal_env` for a read.
+
+        A :class:`contextlib.nullcontext` when nothing was captured, so the
+        overwhelmingly common unsigned case pays nothing per read.
+        """
+        return cloud_config_from_env(self._gdal_env)
+
+    def attach_gdal_env(self, gdal_env: dict[str, str] | None) -> None:
+        """Capture `gdal_env` on an already-open dataset.
+
+        The supported way for a reader that cannot take `gdal_env=` at open time
+        — :func:`pyramids.grib.open_grib`, :meth:`pyramids.netcdf.NetCDF.read_file`
+        — to hand its caller's credentials to the object it just built, instead
+        of the caller reaching in and setting the private attribute.
+
+        Args:
+            gdal_env: The GDAL config to capture. `None` or empty clears it.
+
+        Examples:
+            - Attach credentials to a dataset opened without them:
+                ```python
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.read_file("tests/data/acc4000.tif")
+                >>> ds.attach_gdal_env({"AWS_REQUEST_PAYER": "requester"})
+                >>> ds.gdal_env["AWS_REQUEST_PAYER"]
+                'requester'
+
+                ```
+            - Clearing it leaves the dataset reading with no extra config:
+                ```python
+                >>> ds = Dataset.read_file("tests/data/acc4000.tif")
+                >>> ds.attach_gdal_env({"AWS_REQUEST_PAYER": "requester"})
+                >>> ds.attach_gdal_env(None)
+                >>> ds.gdal_env
+                {}
+
+                ```
+        """
+        self._gdal_env = dict(gdal_env) if gdal_env else {}
+
     def __reduce__(self):
         """Return a recipe tuple that re-opens the dataset on unpickle.
 
         Serialising a live `gdal.Dataset` pointer is not possible
         (native C++ handle, no copy semantics). Instead we emit the
-        minimal recipe `(class, file_name, access)` and reconstruct
-        on unpickle by calling `cls.read_file(path, read_only=...)`.
+        minimal recipe `(class, file_name, access, gdal_env)` and
+        reconstruct on unpickle by calling `cls.read_file(path, ...)`
+        under the captured GDAL config, so a signed remote dataset
+        re-opens on the worker with its credentials.
 
         The GDAL handle is therefore opened **on the receiving process
         / thread**, which is the invariant dask.distributed needs.
+
+        Recipes written before the config existed still unpickle here (the
+        parameter defaults), but a recipe written by *this* version needs a
+        reader that accepts four arguments — so a mixed-version cluster has to
+        upgrade the workers, not only the client.
+
+        Security:
+            The recipe carries :attr:`gdal_env` verbatim, so pickling a dataset
+            opened with credentials serialises them. `dask.distributed` spills
+            graphs to disk and quotes task keys in error reports — treat such a
+            pickle as a secret, and prefer a short-lived token.
 
         Raises:
             TypeError: The dataset has no on-disk path (empty
@@ -148,7 +331,10 @@ class RasterBase(ABC):
                 "dataset is not supported. Call .to_file(path) "
                 "first to anchor it to disk."
             )
-        return (_reconstruct_dataset, (type(self), path, self._access))
+        return (
+            _reconstruct_dataset,
+            (type(self), path, self._access, dict(self._gdal_env)),
+        )
 
     def __enter__(self):
         """Enter the context manager."""

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from pyramids.base.remote import _REQUESTER_PAYS_GDAL_KNOBS
 from pyramids.stac.signers import (
     AnonymousSigner,
     AWSRequesterPaysSigner,
@@ -133,6 +134,66 @@ class TestAWSRequesterPaysSigner:
             "Should disable readdir"
         )
         assert env["CPL_VSIL_CURL_USE_HEAD"] == "NO", "Should disable HEAD"
+
+    def test_gdal_env_carries_every_shared_knob(self):
+        """gdal_env is built from the shared Requester-Pays knob set, not a copy.
+
+        Test scenario:
+            Every entry of `remote._REQUESTER_PAYS_GDAL_KNOBS` appears in the
+            signer env, so the two cannot drift apart (they did: the signer used
+            to omit the HTTP/2 pair).
+        """
+        env = AWSRequesterPaysSigner().gdal_env()
+        missing = {
+            key: value
+            for key, value in _REQUESTER_PAYS_GDAL_KNOBS.items()
+            if env.get(key) != value
+        }
+        assert not missing, f"signer env drifted from the shared knobs: {missing}"
+
+    def test_gdal_env_enables_http2_multiplexing(self):
+        """The env turns on HTTP/2 multiplexing for Requester-Pays reads.
+
+        Test scenario:
+            `RequesterPays()` sets these knobs; the signer must match it.
+        """
+        env = AWSRequesterPaysSigner().gdal_env()
+        assert env["GDAL_HTTP_MULTIPLEX"] == "YES", "HTTP multiplexing should be on"
+        assert env["GDAL_HTTP_VERSION"] == "2", "HTTP/2 should be requested"
+
+    def test_gdal_env_pins_the_region(self):
+        """A pinned region reaches GDAL through both region options.
+
+        Test scenario:
+            `region="us-west-2"` must set AWS_REGION *and* AWS_DEFAULT_REGION —
+            GDAL resolves the bucket region from either, so setting only one
+            lets the other leak in from the process environment.
+        """
+        env = AWSRequesterPaysSigner(region="us-west-2").gdal_env()
+        assert env["AWS_REGION"] == "us-west-2", f"AWS_REGION not pinned: {env}"
+        assert env["AWS_DEFAULT_REGION"] == "us-west-2", (
+            f"AWS_DEFAULT_REGION not pinned: {env}"
+        )
+
+    def test_gdal_env_without_region_omits_region_keys(self):
+        """No region means no region options, leaving GDAL to resolve it.
+
+        Test scenario:
+            The default `region=None` must not emit an empty/`None` region.
+        """
+        env = AWSRequesterPaysSigner().gdal_env()
+        assert "AWS_REGION" not in env, f"region should be absent: {env}"
+        assert "AWS_DEFAULT_REGION" not in env, f"region should be absent: {env}"
+
+    def test_gdal_env_values_are_strings(self):
+        """Every emitted value is a string, as GDAL config requires.
+
+        Test scenario:
+            `gdal.config_options` rejects non-string values.
+        """
+        env = AWSRequesterPaysSigner(region="eu-central-1").gdal_env()
+        non_strings = {k: v for k, v in env.items() if not isinstance(v, str)}
+        assert not non_strings, f"non-string config values: {non_strings}"
 
     def test_request_and_href_are_noops(self):
         """The signer rewrites no requests or hrefs (read-side only).

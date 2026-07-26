@@ -19,6 +19,7 @@ from pyramids.stac._item import (
     asset_media_type,
     get_asset,
     get_assets,
+    item_bbox,
     item_id,
     item_properties,
 )
@@ -81,6 +82,61 @@ class TestItemProperties:
             ``{"id": "x"}`` → ``{}``.
         """
         assert item_properties({"id": "x"}) == {}
+
+
+class TestItemBbox:
+    """Tests for item_bbox."""
+
+    def test_dict_bbox(self):
+        """A raw JSON item exposes its bbox under the ``bbox`` key.
+
+        Test scenario:
+            A 2D ``[west, south, east, north]`` box is returned verbatim.
+        """
+        assert item_bbox({"bbox": [1.0, 2.0, 3.0, 4.0]}) == [1.0, 2.0, 3.0, 4.0]
+
+    def test_attribute_bbox(self):
+        """A pystac-like item exposes ``.bbox``.
+
+        Test scenario:
+            The attribute sequence is returned as-is.
+        """
+        item = SimpleNamespace(bbox=[10.0, 20.0, 11.0, 21.0])
+        assert item_bbox(item) == [10.0, 20.0, 11.0, 21.0], "attribute bbox not read"
+
+    def test_missing_bbox_none(self):
+        """An item without a bbox yields None rather than raising.
+
+        Test scenario:
+            ``{"id": "x"}`` → ``None`` (callers treat this as "unknown extent").
+        """
+        assert item_bbox({"id": "x"}) is None, "a bbox-less item should give None"
+
+    def test_three_dimensional_bbox_passthrough(self):
+        """A 6-element 3D bbox is returned untouched.
+
+        Test scenario:
+            The accessor locates the bbox; interpreting its length is the
+            caller's job (``_horizontal_bounds``).
+        """
+        box = [1.0, 2.0, 0.0, 3.0, 4.0, 100.0]
+        assert item_bbox({"bbox": box}) == box, "3D bbox should pass through intact"
+
+    def test_empty_bbox_passthrough(self):
+        """An explicitly empty bbox is returned as-is, not coerced to None.
+
+        Test scenario:
+            ``[]`` is falsy but present; callers decide what that means.
+        """
+        assert item_bbox({"bbox": []}) == [], "an empty bbox should pass through"
+
+    def test_non_dict_without_attribute_is_none(self):
+        """An object with neither ``.bbox`` nor dict access yields None.
+
+        Test scenario:
+            A bare object is tolerated (duck typing, no AttributeError).
+        """
+        assert item_bbox(object()) is None, "an unrelated object should give None"
 
 
 class TestGetAssets:

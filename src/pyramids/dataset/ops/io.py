@@ -15,6 +15,7 @@ from pyramids.base._errors import (
     FailedToSaveError,
 )
 from pyramids.base._file_manager import CachingFileManager
+from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset.abstract_dataset import (
     CATALOG,
 )
@@ -37,6 +38,7 @@ def _read_chunk(
     band: int | None,
     out_dtype: np.dtype,
     single_band: bool,
+    gdal_env: dict[str, str] | None = None,
 ) -> np.typing.NDArray:
     """Read one chunk of a raster through a pickleable :class:`CachingFileManager`.
 
@@ -73,6 +75,11 @@ def _read_chunk(
             with :func:`dask.array.map_blocks`'s own `dtype=` kwarg.
         single_band: `True` when the output is 2-D (`(rows, cols)`)
             and `False` when it is 3-D (`(bands, rows, cols)`).
+        gdal_env: The dataset's captured cloud config (a STAC signer's
+            `gdal_env()`), installed inside the worker around the open + read so
+            a signed remote raster authenticates its lazy chunk reads. Travels
+            as a plain dict because the task is pickled to the worker. A no-op
+            when empty / `None` — the common, unsigned case pays nothing.
 
     Returns:
         np.ndarray: The fully materialized chunk with shape derived
@@ -83,6 +90,36 @@ def _read_chunk(
     # for the (unused) meta-inference call convention.
     assert block_info is not None
     location = block_info[None]["array-location"]
+    with cloud_config_from_env(gdal_env):
+        result = _read_chunk_body(location, manager, lock, band, out_dtype, single_band)
+    return result
+
+
+def _read_chunk_body(
+    location: Any,
+    manager: CachingFileManager,
+    lock: Any,
+    band: int | None,
+    out_dtype: np.dtype,
+    single_band: bool,
+) -> np.typing.NDArray:
+    """Read one chunk's pixels; the body of :func:`_read_chunk`.
+
+    Split out so the cloud config installed by :func:`_read_chunk` wraps the
+    whole open + read without indenting the read logic another level.
+
+    Args:
+        location: The chunk's `[(start, stop),...]` index ranges, taken from
+            dask's `block_info[None]["array-location"]`.
+        manager: File-handle manager for the backing raster.
+        lock: Lock held around the `ReadAsArray` call.
+        band: Zero-based band index, or `None` for every band.
+        out_dtype: Output numpy dtype.
+        single_band: `True` for a 2-D chunk, `False` for a 3-D one.
+
+    Returns:
+        np.ndarray: The materialized chunk.
+    """
     if single_band:
         # The caller only sets single_band=True when it also resolved band to
         # a real int (see _lazy_read's effective_band).

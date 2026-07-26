@@ -40,6 +40,7 @@ import numpy as np
 from pyramids.base._file_manager import CachingFileManager, gdal_mdarray_open
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import import_dask
+from pyramids.base.remote import cloud_config_from_env
 from pyramids.netcdf._mdim import axis_flips
 from pyramids.netcdf.utils import _dtype_to_str
 
@@ -312,6 +313,7 @@ def _read_mdarray_chunk(
     starts: list[int],
     counts: list[int],
     expected_dtype: np.dtype,
+    gdal_env: dict[str, str] | None = None,
 ) -> np.typing.NDArray:
     """Read one block of an MDArray through a :class:`CachingFileManager`.
 
@@ -329,11 +331,15 @@ def _read_mdarray_chunk(
         counts: Per-axis counts (shape of the returned block).
         expected_dtype: Dtype to cast the block to if the driver
             returns a different one (e.g. a narrower int).
+        gdal_env: The dataset's captured cloud config (a STAC signer's
+            `gdal_env()`), installed inside the worker around the open + read so
+            a signed remote store authenticates its lazy chunk reads. A no-op
+            when empty / `None`.
 
     Returns:
         np.ndarray: The block data, shape `tuple(counts)`.
     """
-    with manager.acquire_context() as ds:
+    with cloud_config_from_env(gdal_env), manager.acquire_context() as ds:
         rg = ds.GetRootGroup()
         md_arr = rg.OpenMDArray(variable_name)
         block = md_arr.ReadAsArray(
@@ -435,6 +441,7 @@ class _MDArrayChunkReader:
         "expected_dtype",
         "starts",
         "counts",
+        "gdal_env",
     )
 
     def __init__(
@@ -444,12 +451,17 @@ class _MDArrayChunkReader:
         expected_dtype: np.dtype,
         starts: tuple[int, ...],
         counts: tuple[int, ...],
+        gdal_env: dict[str, str] | None = None,
     ) -> None:
         self.manager = manager
         self.variable_name = variable_name
         self.expected_dtype = expected_dtype
         self.starts = tuple(int(s) for s in starts)
         self.counts = tuple(int(c) for c in counts)
+        # The store is re-opened inside the dask task, so a signed remote NetCDF
+        # needs its credentials to travel with the task rather than relying on
+        # whatever config happens to be installed on the worker.
+        self.gdal_env = dict(gdal_env) if gdal_env else None
 
     def __getstate__(self) -> tuple:
         return (
@@ -458,12 +470,17 @@ class _MDArrayChunkReader:
             self.expected_dtype,
             self.starts,
             self.counts,
+            self.gdal_env,
         )
 
     def __setstate__(self, state: tuple) -> None:
-        manager, variable_name, expected_dtype, starts, counts = state
+        # A five-element tuple is a graph pickled before the config was carried.
+        manager, variable_name, expected_dtype, starts, counts, *rest = state
+        gdal_env = rest[0] if rest else None
         # Re-running __init__ from __setstate__ is the intended unpickle path.
-        self.__init__(manager, variable_name, expected_dtype, starts, counts)  # type: ignore[misc]
+        self.__init__(  # type: ignore[misc]
+            manager, variable_name, expected_dtype, starts, counts, gdal_env
+        )
 
     def __call__(self) -> np.typing.NDArray:
         return _read_mdarray_chunk(
@@ -472,6 +489,7 @@ class _MDArrayChunkReader:
             list(self.starts),
             list(self.counts),
             self.expected_dtype,
+            self.gdal_env,
         )
 
 
@@ -599,6 +617,7 @@ def build_lazy_array(
     manager_hook: Any = None,
     spatial_dims: tuple[int, int] | None = None,
     flips: tuple[bool, bool] | None = None,
+    gdal_env: dict[str, str] | None = None,
     orient: bool = True,
 ) -> Any:
     """Build a :class:`dask.array.Array` backed by MDArray chunk reads.
@@ -614,6 +633,9 @@ def build_lazy_array(
             variable share a cache slot. Defaults to
             `(path, variable_name)` so repeated calls for the same
             variable de-duplicate the cached handle.
+        gdal_env: The dataset's captured cloud config, carried into every
+            chunk task so a signed remote store authenticates the re-open each
+            task performs. A no-op when empty / `None`.
         manager_hook: Optional callable invoked with the created
             `CachingFileManager` before the array is returned, so the
             owning object (e.g. the `NetCDF` container) can track it and
@@ -686,6 +708,7 @@ def build_lazy_array(
             dtype,
             starts,
             counts,
+            gdal_env,
         )
         graph[(name,) + index] = (reader,)
     lazy = da.Array(graph, name, chunks_per_axis, dtype=dtype)

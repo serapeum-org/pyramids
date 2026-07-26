@@ -371,7 +371,7 @@ class TestLoadAsset:
         """
         captured: dict[str, str | None] = {}
 
-        def fake_read_file(href, vsi=None):
+        def fake_read_file(href, vsi=None, gdal_env=None):
             captured["payer"] = gdal.GetConfigOption("AWS_REQUEST_PAYER")
             return "DS"
 
@@ -408,7 +408,7 @@ class TestLoadAsset:
         """
         captured: dict[str, str | None] = {}
 
-        def fake_read_file(href, vsi=None):
+        def fake_read_file(href, vsi=None, gdal_env=None):
             captured["payer"] = gdal.GetConfigOption("AWS_REQUEST_PAYER")
             return "DS"
 
@@ -427,7 +427,7 @@ class TestLoadAsset:
         """
         captured: dict[str, str | None] = {}
 
-        def fake_read_file(href, vsi=None):
+        def fake_read_file(href, vsi=None, gdal_env=None):
             captured["href"] = href
             captured["sentinel"] = gdal.GetConfigOption("CPL_CURL_VERBOSE")
             return "DS"
@@ -523,3 +523,135 @@ class TestLoadZarrAsset:
         )
         assert isinstance(out, DatasetCollection), f"got {type(out).__name__}"
         assert out.time_length == 2, f"time_length {out.time_length}"
+
+
+class TestOpenConfig:
+    """Tests for the GDAL config chosen for an asset open (ARC-73 / ARC-24)."""
+
+    def test_remote_gdal_asset_gets_the_fast_read_preset(self):
+        """A remote COG open installs the /vsicurl fast-read preset.
+
+        Test scenario:
+            Without it every remote open costs a directory listing plus a fan of
+            sidecar probes.
+        """
+        config = _loader._open_config("/vsicurl/https://h/a.tif", "gdal", None)
+        options = config.as_gdal_config()
+        assert options["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR", options
+        assert options["GDAL_HTTP_MULTIRANGE"] == "YES", options
+
+    def test_local_asset_skips_the_preset(self):
+        """A local open must keep finding its sidecar files.
+
+        Test scenario:
+            The preset's readdir skip would hide a local `.aux.xml` / world file.
+        """
+        with _loader._open_config("C:/data/a.tif", "gdal", None):
+            assert gdal.GetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN") is None, (
+                "a local open should install nothing"
+            )
+
+    def test_zarr_asset_skips_the_preset(self):
+        """A Zarr store opts out: it is read by zarr/fsspec, not GDAL.
+
+        Test scenario:
+            A readdir skip is also wrong for a directory-style store.
+        """
+
+        env = {"AWS_REQUEST_PAYER": "requester"}
+        config = _loader._open_config("s3://b/store.zarr", "zarr", env)
+        assert config.as_gdal_config() == {"AWS_REQUEST_PAYER": "requester"}, (
+            "the zarr branch should carry the signer env only"
+        )
+
+    def test_signer_env_overrides_the_preset(self):
+        """A signer key wins over the preset's default.
+
+        Test scenario:
+            An explicit HTTP version must survive the merge.
+        """
+
+        env = {"GDAL_HTTP_VERSION": "1.1"}
+        config = _loader._open_config("/vsicurl/https://h/a.tif", "gdal", env)
+        assert config.as_gdal_config()["GDAL_HTTP_VERSION"] == "1.1"
+
+
+class TestLoadAssetPersistsEnv:
+    """load_asset captures the signer env on the object it returns (ARC-24)."""
+
+    def test_gdal_engine_captures_the_env(self, monkeypatch):
+        """A COG asset opened with a signer keeps its config for later reads.
+
+        Test scenario:
+            `Dataset.read_file` receives the env, so the returned dataset
+            re-installs it on every re-opening read path.
+        """
+        captured = {}
+
+        def fake_read_file(href, vsi=None, gdal_env=None):
+            captured["gdal_env"] = gdal_env
+            return "DS"
+
+        monkeypatch.setattr(_loader.Dataset, "read_file", staticmethod(fake_read_file))
+        signer = _AppendSigner(suffix="", env={"AWS_REQUEST_PAYER": "requester"})
+        load_asset({"href": "s3://b/x.tif", "type": "image/tiff"}, signer=signer)
+        assert captured["gdal_env"] == {"AWS_REQUEST_PAYER": "requester"}, (
+            f"env not forwarded to read_file: {captured}"
+        )
+
+    def test_no_signer_forwards_no_env(self, monkeypatch):
+        """An unsigned open forwards nothing.
+
+        Test scenario:
+            `gdal_env` stays None so the dataset captures an empty config.
+        """
+        captured = {}
+
+        def fake_read_file(href, vsi=None, gdal_env=None):
+            captured["gdal_env"] = gdal_env
+            return "DS"
+
+        monkeypatch.setattr(_loader.Dataset, "read_file", staticmethod(fake_read_file))
+        load_asset({"href": _GEOTIFF, "type": "image/tiff"})
+        assert captured["gdal_env"] is None, f"unexpected env: {captured}"
+
+    def test_non_gdal_engine_gets_the_env_attached(self, monkeypatch):
+        """GRIB / NetCDF readers take no gdal_env=, so it is attached after.
+
+        Test scenario:
+            The capture goes through the declared `attach_gdal_env` hook rather
+            than a private attribute poked onto a foreign object.
+        """
+
+        class _Reader:
+            def __init__(self):
+                self.attached = None
+
+            def attach_gdal_env(self, env):
+                self.attached = env
+
+        opened = _Reader()
+        monkeypatch.setattr(_loader, "open_grib", lambda href, vsi=None: opened)
+        signer = _AppendSigner(suffix="", env={"GDAL_HTTP_HEADERS": "Authorization: x"})
+        load_asset({"href": "https://h/f.grib2"}, signer=signer)
+        assert opened.attached == {"GDAL_HTTP_HEADERS": "Authorization: x"}, (
+            f"env not attached to the reader: {opened.attached}"
+        )
+
+    def test_reader_without_the_hook_is_left_alone(self, monkeypatch):
+        """A reader exposing no hook is not poked at.
+
+        Test scenario:
+            The Zarr branch reads through fsspec, which never consults GDAL
+            config, so attaching credentials there would only widen their blast
+            radius for no read-time benefit.
+        """
+
+        class _Bare:
+            pass
+
+        opened = _Bare()
+        monkeypatch.setattr(_loader, "_load_zarr", lambda href: opened)
+        signer = _AppendSigner(suffix="", env={"AWS_REQUEST_PAYER": "requester"})
+        load_asset({"href": "s3://b/store.zarr"}, signer=signer)
+        assert not hasattr(opened, "_gdal_env"), "the zarr reader should be untouched"

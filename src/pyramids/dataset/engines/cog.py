@@ -26,6 +26,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
     resolve_cog_predictor,
 )
+from pyramids.dataset.abstract_dataset import under_gdal_env
 from pyramids.dataset.cog import (
     COGInfo,
     ValidationReport,
@@ -687,6 +688,7 @@ class COG(_Engine["Dataset"]):
                 raise
 
     @property
+    @under_gdal_env
     def is_cog(self) -> bool:
         """`True` iff the backing file on disk is a valid COG.
 
@@ -769,6 +771,7 @@ class COG(_Engine["Dataset"]):
             finally:
                 ds = None
 
+    @under_gdal_env
     def validate_cog(
         self, strict: bool = False, config: dict[str, str] | None = None
     ) -> ValidationReport:
@@ -819,6 +822,7 @@ class COG(_Engine["Dataset"]):
             )
         return validate(fn, strict=strict, config=config)
 
+    @under_gdal_env
     def info(self, config: dict[str, str] | None = None) -> COGInfo:
         """Return structured COG metadata for the backing file.
 
@@ -884,6 +888,7 @@ class COG(_Engine["Dataset"]):
             return None
         return fn
 
+    @under_gdal_env
     def read_part(
         self,
         bbox: tuple[float, float, float, float],
@@ -1048,6 +1053,7 @@ class COG(_Engine["Dataset"]):
             return cast(float, nodata)
         return 0 if is_integer_gdal_dtype(band.DataType) else float("nan")
 
+    @under_gdal_env
     def preview(
         self,
         *,
@@ -1098,6 +1104,7 @@ class COG(_Engine["Dataset"]):
             source.ReadAsArray(buf_xsize=out_w, buf_ysize=out_h, resample_alg=alg)
         )
 
+    @under_gdal_env
     def point(
         self,
         x: float,
@@ -1143,6 +1150,7 @@ class COG(_Engine["Dataset"]):
         arr = np.asarray(source.ReadAsArray(col, row, 1, 1))
         return arr.reshape(-1) if band is None else arr.reshape(())
 
+    @under_gdal_env
     def read_tile(
         self,
         z: int,
