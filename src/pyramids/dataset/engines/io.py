@@ -25,7 +25,7 @@ from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 from pyproj import CRS
 
-from pyramids._io import new_vsimem_path, read_vsi_bytes
+from pyramids._io import new_vsimem_path, read_vsi_bytes, silent_unlink
 from pyramids.base._domain import is_no_data
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._file_manager import (
@@ -2608,6 +2608,8 @@ class IO(_Engine["Dataset"]):
             )
         if min_zoom < 0:
             raise ValueError(f"min_zoom must be >= 0, got {min_zoom}.")
+        if tiles and max_zoom is not None and max_zoom < min_zoom:
+            raise ValueError(f"max_zoom ({max_zoom}) must be >= min_zoom ({min_zoom}).")
         _validate_band_index(band, self._ds.band_count)
         # Validate the resampling name once (also reused by the per-tile warp).
         resample_alg = resolve_resampling(resampling)
@@ -2616,38 +2618,57 @@ class IO(_Engine["Dataset"]):
             if self._ds.epsg == 3857
             else self._ds.to_crs(3857, method=resampling)
         )
-        if tiles and source is not self._ds:
-            # `to_crs` hands back a warped VRT, which re-warps from the original
-            # raster on every read. Tiling then pays that warp once per tile, at
-            # full source resolution, however small the tile. Materialise the
-            # reprojection once and build overviews on it so GDAL can serve each
-            # zoom level from a matching pyramid level instead.
-            source = source.copy()
-            source.raster.BuildOverviews(
+        overview_scratch: str | None = None
+        if tiles:
+            # Tiling reads the source once per tile per zoom level. Two costs to
+            # remove: `to_crs` hands back a warped VRT that re-warps from the
+            # original on every read, and without a pyramid every low-zoom tile
+            # resamples full-resolution pixels.
+            #
+            # Staged as a GTiff in /vsimem rather than a MEM copy: MEM would hold
+            # the whole reprojected raster in process memory, and `to_terrain_rgb`
+            # is most often pointed at a continental DEM. GTiff also stores the
+            # overviews in the file rather than alongside it. Applied whether or
+            # not a reprojection happened -- a source already in EPSG:3857 needs
+            # the pyramid just as much, and skipping it left the common
+            # pre-prepared case paying full-resolution reads per tile.
+            overview_scratch = new_vsimem_path(".tif")
+            staged = gdal.GetDriverByName("GTiff").CreateCopy(
+                overview_scratch, source.raster
+            )
+            staged.BuildOverviews(
                 _OVERVIEW_RESAMPLING_FOR_TILES, _TERRAIN_TILE_OVERVIEW_LEVELS
             )
-        if tiles:
-            result = self._terrain_rgb_tiles(
-                source,
-                Path(path),
-                band=band,
-                encoding=encoding,
-                base_val=base_val,
-                interval=interval,
-                min_zoom=min_zoom,
-                max_zoom=max_zoom,
-                tile_size=tile_size,
-                resample_alg=resample_alg,
-            )
-        else:
-            result = self._terrain_rgb_single(
-                source,
-                Path(path),
-                band=band,
-                encoding=encoding,
-                base_val=base_val,
-                interval=interval,
-            )
+            source = self._ds.__class__(staged)
+        try:
+            if tiles:
+                result = self._terrain_rgb_tiles(
+                    source,
+                    Path(path),
+                    band=band,
+                    encoding=encoding,
+                    base_val=base_val,
+                    interval=interval,
+                    min_zoom=min_zoom,
+                    max_zoom=max_zoom,
+                    tile_size=tile_size,
+                    resample_alg=resample_alg,
+                )
+            else:
+                result = self._terrain_rgb_single(
+                    source,
+                    Path(path),
+                    band=band,
+                    encoding=encoding,
+                    base_val=base_val,
+                    interval=interval,
+                )
+        finally:
+            if overview_scratch is not None:
+                # Drop our reference before unlinking so GDAL is not holding the
+                # file open when the /vsimem entry goes away.
+                source = None
+                silent_unlink(overview_scratch)
         return result
 
     @staticmethod
