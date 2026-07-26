@@ -83,7 +83,11 @@ listing — often the single biggest latency hit. ``GDAL_HTTP_MULTIRANGE`` lets
 GDAL issue the scattered tile ranges a COG read produces as one multi-range
 request (``GDAL_HTTP_MERGE_CONSECUTIVE_RANGES`` then coalesces the adjacent
 ones), and the retry pair rides out a transient 5xx from object storage instead
-of failing the whole read. Applied by
+of failing the whole read. That budget is deliberately larger than the OGC
+discovery one (:data:`pyramids.base._ogc_api.GDAL_HTTP_MAX_RETRY`): a COG read
+issues many range requests, so one flaky range should not lose the whole read,
+whereas a discovery pre-check is a single request in front of work that has not
+started yet. Applied by
 :func:`pyramids.dataset.cog.validate.validate` and
 :func:`pyramids.dataset.cog.inspect.cog_info` for remote paths when the caller
 passes no explicit ``config``. Pure strings (no GDAL dependency here)."""
