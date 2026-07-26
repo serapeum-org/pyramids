@@ -6758,14 +6758,28 @@ metadata and the overview pyramid. The entry point is registered as the
 <h2 id="performance-tuning"><a class="toclink" href="#performance-tuning">Performance tuning</a><a class="headerlink" href="#performance-tuning" title="Permanent link">#</a></h2>
 <p>Recommended GDAL environment variables for cloud reads:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">GDAL_DISABLE_READDIR_ON_OPEN</span><span class="o">=</span>EMPTY_DIR
-<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CPL_VSIL_CURL_ALLOWED_EXTENSIONS</span><span class="o">=</span>.tif,.TIF,.vrt
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">GDAL_HTTP_MERGE_CONSECUTIVE_RANGES</span><span class="o">=</span>YES
 <a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">VSI_CACHE</span><span class="o">=</span>TRUE
 <a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">VSI_CACHE_SIZE</span><span class="o">=</span><span class="m">26214400</span><span class="w">       </span><span class="c1"># 25 MiB</span>
 <a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="nb">export</span><span class="w"> </span><span class="nv">GDAL_CACHEMAX</span><span class="o">=</span><span class="m">512</span><span class="w">             </span><span class="c1"># MiB</span>
 </code></pre></div>
-<p>The first two are the biggest wins — they stop GDAL from probing for
-sidecar files (.aux.xml, .ovr) that usually don't exist on public
-buckets, saving one extra HTTP request per open.</p>
+<p><code>GDAL_DISABLE_READDIR_ON_OPEN</code> is the biggest win — it stops GDAL from
+probing for sidecar files (.aux.xml, .ovr) that usually don't exist on
+public buckets, saving a directory listing and an extra HTTP request per
+open. These same options are the <code>COG_READ_DEFAULTS</code> preset that
+<code>validate()</code> and <code>cog_info()</code> apply automatically to remote paths.</p>
+<div class="admonition warning">
+<p class="admonition-title">Don't set <code>CPL_VSIL_CURL_ALLOWED_EXTENSIONS</code></p>
+<p>Earlier versions of this guide recommended
+<code>CPL_VSIL_CURL_ALLOWED_EXTENSIONS=.tif,.TIF,.vrt</code>. Don't. It makes
+GDAL refuse <em>any</em> URL whose path does not end in one of those
+extensions — extensionless object keys, presigned S3 links carrying
+a query string, and most STAC / Planetary Computer asset hrefs — so
+an option meant to speed reads up instead makes them impossible. It
+was removed from <code>COG_READ_DEFAULTS</code> for the same reason;
+<code>GDAL_DISABLE_READDIR_ON_OPEN</code> already delivers the latency win on
+its own.</p>
+</div>
 <h2 id="troubleshooting"><a class="toclink" href="#troubleshooting">Troubleshooting</a><a class="headerlink" href="#troubleshooting" title="Permanent link">#</a></h2>
 <p><strong>"Range downloading not supported by this server!"</strong>
 The remote HTTP server doesn't support HTTP Range headers. Python's
