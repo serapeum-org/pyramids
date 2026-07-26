@@ -477,11 +477,37 @@ def _chain_archive_vsi(path: str) -> str:
     return f"{_ARCHIVE_EXT_TO_VSI[ext]}{path}"
 
 
-_CREDENTIAL_OPTION_RE = re.compile(
-    r"(?i)\b(header\.[A-Za-z0-9\-_]+|signature|sig|x-amz-security-token|"
-    r"access_token|token)=([^&\s\"']+)"
+_CREDENTIAL_OPTION_NAMES = (
+    r"header\.[A-Za-z0-9\-_]+",
+    "signature",
+    "sig",
+    "sas",
+    "x-amz-security-token",
+    "x-amz-signature",
+    "x-goog-signature",
+    "access_token",
+    "id_token",
+    "refresh_token",
+    "token",
+    "api_key",
+    "apikey",
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "credential",
 )
-"""Matches a credential-bearing option inside a `/vsicurl?…` path or a URL query."""
+"""Option names whose value is a credential, matched case-insensitively."""
+
+_CREDENTIAL_OPTION_RE = re.compile(
+    r"(?i)(?<=[?&])(" + "|".join(_CREDENTIAL_OPTION_NAMES) + r")=([^&\s\"\']*)"
+)
+"""Matches a credential option inside a `/vsicurl?...` path or a URL query string.
+
+Anchored on a `?`/`&` boundary (a lookbehind, so the delimiter survives the
+substitution) rather than a word boundary: `\\b` also matched the tail of an
+unrelated name (`my_token=`, `bucket-key=`) and gained nothing in exchange, since
+a real option always follows a delimiter."""
 
 
 def redact_credentials(text: str) -> str:
@@ -517,6 +543,12 @@ def redact_credentials(text: str) -> str:
             ```python
             >>> redact_credentials("Can't open /vsicurl/https://h/a.tif. Skipping it")
             "Can't open /vsicurl/https://h/a.tif. Skipping it"
+
+            ```
+        - A name that merely ends in a credential word is not one:
+            ```python
+            >>> redact_credentials("https://h/a.tif?my_token=abc")
+            'https://h/a.tif?my_token=abc'
 
             ```
     """

@@ -710,9 +710,24 @@ class TestRedactCredentials:
 
     def test_multiple_headers_all_blanked(self):
         """Every credential option in one string is redacted."""
-        text = "header.Authorization=Bearer%20A&header.X-Api-Key=B&url=x"
+        text = "/vsicurl?header.Authorization=Bearer%20A&header.X-Api-Key=B&url=x"
         out = redact_credentials(text)
         assert "Bearer%20A" not in out and "=B&" not in out, f"a value survived: {out}"
+
+    def test_name_merely_ending_in_a_credential_word_is_kept(self):
+        """A name that only ends with a credential word is not one.
+
+        The previous `\b`-anchored pattern matched the tail of `my_token=` and
+        `bucket-key=`, redacting values that were never secrets.
+        """
+        text = "https://h/a.tif?my_token=abc&bucket-key=def"
+        assert redact_credentials(text) == text, f"a non-credential was redacted: {text}"
+
+    def test_credential_after_an_ampersand_is_redacted(self):
+        """A credential option later in the query is still caught."""
+        out = redact_credentials("https://h/a.tif?sv=2021&sig=SECRET&sp=r")
+        assert "SECRET" not in out, f"token survived: {out}"
+        assert "sv=2021" in out and "sp=r" in out, f"neighbours mangled: {out}"
 
     def test_is_remote_accepts_the_query_form(self):
         """The `/vsicurl?` form is classified as remote like `/vsicurl/` is."""

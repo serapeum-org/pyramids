@@ -92,6 +92,13 @@ _CREDENTIAL_PREFIXES = ("AWS_", "GS_", "AZURE_", "GOOGLE_", "SWIFT_", "OSS_")
 _CREDENTIAL_KEYS = frozenset({"GDAL_HTTP_USERPWD", "GDAL_HTTP_AUTH", _HTTP_HEADERS_KEY})
 """Non-prefixed config keys that carry credentials."""
 
+_NON_CREDENTIAL_SUFFIXES = ("_REGION", "_ENDPOINT", "_ENDPOINT_URL", "_VIRTUAL_HOSTING")
+"""Cloud-prefixed keys that are addressing knobs rather than credentials.
+
+`AWSRequesterPaysSigner` emits `AWS_REGION` / `AWS_DEFAULT_REGION` alongside its
+Requester-Pays opt-in, and naming those in a "your credentials are stranded"
+warning sends the reader hunting for a secret that was never there."""
+
 
 def _parse_http_headers(value: str) -> list[tuple[str, str]]:
     """Split a `GDAL_HTTP_HEADERS` value into `(name, value)` pairs.
@@ -235,6 +242,7 @@ def _warn_unembeddable_credentials(
         key
         for key in gdal_env or {}
         if key != _HTTP_HEADERS_KEY
+        and not key.endswith(_NON_CREDENTIAL_SUFFIXES)
         and (key.startswith(_CREDENTIAL_PREFIXES) or key in _CREDENTIAL_KEYS)
     )
     if stranded and any(is_remote(href) for href in hrefs):
@@ -357,6 +365,9 @@ def _source_config(
 
 def redact(href: str) -> str:
     """Return `href` with its query string replaced by a placeholder.
+
+    Internal, like the rest of this module — unprefixed only because the
+    docstrings elsewhere in the package point at it by name.
 
     A signed href carries its credential in the query string — a SAS token from
     a URL-signing signer, or the `header.Authorization` this module embeds for a
@@ -528,9 +539,11 @@ def _check_dropped_sources(
             warnings.warn(
                 "build_vrt_from_stac returned this incomplete mosaic because "
                 "strict defaults to None. That default becomes True in the next "
-                "minor release, and the skip above will raise instead. Pass "
-                "strict=True to adopt that now, or strict=False to keep the "
-                "partial mosaic and silence this warning.",
+                "minor release (tracked as ARC-79 in "
+                "planning/architecture-review/25-july/arc-stac.md), and the skip "
+                "above will raise instead. Pass strict=True to adopt that now, "
+                "or strict=False to keep the partial mosaic and silence this "
+                "warning.",
                 FutureWarning,
                 stacklevel=3,
             )
