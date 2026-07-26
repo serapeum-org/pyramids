@@ -98,6 +98,10 @@ _VSI_PREFIXES: tuple[str, ...] = (
     _VSIGS,
     _VSIAZ,
     _VSICURL,
+    # GDAL's query-string form, `/vsicurl?[option=value&]*url=<encoded>`, which
+    # carries per-source options (headers, retry, empty_dir) in the path itself.
+    # It has no trailing slash, so the `/vsicurl/` entry above does not match it.
+    "/vsicurl?",
     "/vsicurl_streaming/",
     "/vsimem/",
     _VSIZIP,
@@ -142,6 +146,12 @@ def is_remote(path: str) -> bool:
             >>> is_remote("/vsicurl/https://foo/x.tif")
             True
             >>> is_remote("/vsimem/temp.tif")
+            True
+
+            ```
+        - So is GDAL's query-string form, which carries per-source options:
+            ```python
+            >>> is_remote("/vsicurl?empty_dir=yes&url=https%3A%2F%2Ffoo%2Fx.tif")
             True
 
             ```
@@ -465,6 +475,84 @@ def _chain_archive_vsi(path: str) -> str:
 
     ext = match.group(1).lower()
     return f"{_ARCHIVE_EXT_TO_VSI[ext]}{path}"
+
+
+_CREDENTIAL_OPTION_NAMES = (
+    r"header\.[A-Za-z0-9\-_]+",
+    "signature",
+    "sig",
+    "sas",
+    "x-amz-security-token",
+    "x-amz-signature",
+    "x-goog-signature",
+    "access_token",
+    "id_token",
+    "refresh_token",
+    "token",
+    "api_key",
+    "apikey",
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "credential",
+)
+"""Option names whose value is a credential, matched case-insensitively."""
+
+_CREDENTIAL_OPTION_RE = re.compile(
+    r"(?i)(?<=[?&])(" + "|".join(_CREDENTIAL_OPTION_NAMES) + r")=([^&\s\"\']*)"
+)
+"""Matches a credential option inside a `/vsicurl?...` path or a URL query string.
+
+Anchored on a `?`/`&` boundary (a lookbehind, so the delimiter survives the
+substitution) rather than a word boundary: `\\b` also matched the tail of an
+unrelated name (`my_token=`, `bucket-key=`) and gained nothing in exchange, since
+a real option always follows a delimiter."""
+
+
+def redact_credentials(text: str) -> str:
+    """Blank out credential values in a path, URL or message.
+
+    GDAL's own error text quotes the full source path, and a `/vsicurl?` source
+    carries its `header.Authorization` there — so a message like
+    `Can't open /vsicurl?header.Authorization=Bearer <token>&url=…` would publish
+    a live token to every log handler. Everything pyramids emits about such a
+    path goes through here first.
+
+    Args:
+        text: The message, path or URL to scrub.
+
+    Returns:
+        `text` with each credential value replaced by `<redacted>`.
+
+    Examples:
+        - An embedded bearer header is blanked, the rest stays readable:
+            ```python
+            >>> from pyramids.base.remote import redact_credentials
+            >>> redact_credentials("Can't open /vsicurl?header.Authorization=Bearer%20t&url=x")
+            "Can't open /vsicurl?header.Authorization=<redacted>&url=x"
+
+            ```
+        - A SAS-style query parameter is caught too:
+            ```python
+            >>> redact_credentials("https://h/a.tif?sv=2021&sig=SECRET")
+            'https://h/a.tif?sv=2021&sig=<redacted>'
+
+            ```
+        - An ordinary message is returned untouched:
+            ```python
+            >>> redact_credentials("Can't open /vsicurl/https://h/a.tif. Skipping it")
+            "Can't open /vsicurl/https://h/a.tif. Skipping it"
+
+            ```
+        - A name that merely ends in a credential word is not one:
+            ```python
+            >>> redact_credentials("https://h/a.tif?my_token=abc")
+            'https://h/a.tif?my_token=abc'
+
+            ```
+    """
+    return _CREDENTIAL_OPTION_RE.sub(r"\1=<redacted>", text)
 
 
 _VSICURL_FAST_READ_KNOBS: dict[str, str] = {

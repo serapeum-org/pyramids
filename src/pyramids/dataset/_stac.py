@@ -160,22 +160,25 @@ def _item_intersects_bbox(
 ) -> bool:
     """Return True if `item.bbox` overlaps `bbox` (lon/lat box).
 
-    Reads `item.bbox` as either an attribute (pystac.Item) or a
-    dict key (raw JSON). Both the query `bbox` and the item bbox may be
-    2D (4-element) or 3D (6-element) — only the horizontal extent is
-    compared (see :func:`_horizontal_bounds`). Longitude overlap is
-    antimeridian-aware (a box with ``west > east`` is treated as wrapping the
-    dateline). Items without a bbox are treated as intersecting (permissive
-    default — the caller opted in to the bbox filter, not the item).
+    Reads `item.bbox` through the shared duck-typed accessor
+    (:func:`pyramids.stac._item.item_bbox`), so pystac Items and raw JSON dicts
+    are handled identically here and in the STAC readers. Both the query `bbox`
+    and the item bbox may be 2D (4-element) or 3D (6-element) — only the
+    horizontal extent is compared (see :func:`_horizontal_bounds`). Longitude
+    overlap is antimeridian-aware (a box with ``west > east`` is treated as
+    wrapping the dateline). Items without a bbox are treated as intersecting
+    (permissive default — the caller opted in to the bbox filter, not the item).
     """
-    item_bbox = getattr(item, "bbox", None)
-    if item_bbox is None and isinstance(item, dict):
-        item_bbox = item.get("bbox")
-    if item_bbox is None:
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.stac._item import item_bbox
+
+    box = item_bbox(item)
+    if box is None:
         result = True
     else:
         q_west, q_south, q_east, q_north = _horizontal_bounds(bbox)
-        i_west, i_south, i_east, i_north = _horizontal_bounds(item_bbox)
+        i_west, i_south, i_east, i_north = _horizontal_bounds(box)
         lat_overlap = not (i_north < q_south or i_south > q_north)
         result = lat_overlap and _lon_overlaps(q_west, q_east, i_west, i_east)
     return result
@@ -461,20 +464,31 @@ def _resolve_target_grid(
 def _item_datetime(item: Any) -> _datetime_cls:
     """Return a STAC Item's datetime as a tz-aware :class:`datetime`.
 
-    Reads `item.datetime` (pystac) or `properties["datetime"]` (raw JSON).
+    Reads `item.datetime` (pystac) or `properties["datetime"]` (raw JSON, via
+    the shared :func:`pyramids.stac._item.item_properties` accessor). An RFC
+    3339 string is parsed; a naive datetime is assumed to be UTC.
+
+    Args:
+        item: A STAC Item (pystac object or raw dict).
+
+    Returns:
+        The item's acquisition time as a timezone-aware :class:`datetime`.
 
     Raises:
-        ValueError: The item carries no datetime.
+        ValueError: The item carries neither `.datetime` nor
+            `properties["datetime"]` — the error names the item via the shared
+            :func:`pyramids.stac._item.item_id` accessor.
     """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.stac._item import item_id, item_properties
+
     when = getattr(item, "datetime", None)
     if when is None:
-        props = getattr(item, "properties", None)
-        if props is None and isinstance(item, dict):
-            props = item.get("properties")
-        when = (props or {}).get("datetime")
+        when = item_properties(item).get("datetime")
     if when is None:
         raise ValueError(
-            f"item {_item_id(item)} has no datetime; required for groupby='solar_day'."
+            f"item {item_id(item)} has no datetime; required for groupby='solar_day'."
         )
     if isinstance(when, str):
         when = _datetime_cls.fromisoformat(when.replace("Z", "+00:00"))
@@ -484,19 +498,39 @@ def _item_datetime(item: Any) -> _datetime_cls:
 
 
 def _item_centroid_lon(item: Any) -> float:
-    """Return the longitude of an item's bbox centroid (0.0 when no bbox)."""
-    bbox = getattr(item, "bbox", None)
-    if bbox is None and isinstance(item, dict):
-        bbox = item.get("bbox")
-    if not bbox:
-        return 0.0
-    west, _s, east, _n = _horizontal_bounds(bbox)
-    if west <= east:
-        return (west + east) / 2.0
-    # Antimeridian-crossing box (L3): average across the dateline by shifting
-    # the eastern edge +360, then normalise the midpoint back to [-180, 180].
-    mid = (west + east + 360.0) / 2.0
-    return mid - 360.0 if mid > 180.0 else mid
+    """Return the longitude of an item's bbox centroid (0.0 when no bbox).
+
+    The bbox is read through the shared
+    :func:`pyramids.stac._item.item_bbox` accessor, so pystac Items and raw
+    JSON dicts behave identically. A box crossing the antimeridian
+    (``west > east``) is averaged across the dateline rather than through the
+    prime meridian.
+
+    Args:
+        item: A STAC Item (pystac object or raw dict).
+
+    Returns:
+        The centroid longitude in degrees, normalised to ``[-180, 180]``, or
+        `0.0` when the item carries no bbox (no solar-day shift is applied).
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.stac._item import item_bbox
+
+    box = item_bbox(item)
+    if not box:
+        centroid = 0.0
+    else:
+        west, _s, east, _n = _horizontal_bounds(box)
+        if west <= east:
+            centroid = (west + east) / 2.0
+        else:
+            # Antimeridian-crossing box (L3): average across the dateline by
+            # shifting the eastern edge +360, then normalise the midpoint back
+            # to [-180, 180].
+            mid = (west + east + 360.0) / 2.0
+            centroid = mid - 360.0 if mid > 180.0 else mid
+    return centroid
 
 
 def _solar_day(item: Any) -> str:
@@ -508,14 +542,6 @@ def _solar_day(item: Any) -> str:
     """
     shifted = _item_datetime(item) + timedelta(hours=_item_centroid_lon(item) / 15.0)
     return shifted.date().isoformat()
-
-
-def _item_id(item: Any) -> Any:
-    """Best-effort item id for error messages."""
-    iid = getattr(item, "id", None)
-    if iid is None and isinstance(item, dict):
-        iid = item.get("id", "?")
-    return iid if iid is not None else "?"
 
 
 def _from_stac_solar_day(

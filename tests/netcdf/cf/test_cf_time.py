@@ -83,6 +83,26 @@ class TestCfTimeRoundTrip:
             f"expected calendar {calendar}, got {back.calendar}"
         )
 
+    def test_360_day_month_day_30_encodes(self):
+        """A 360_day date invalid in the Gregorian calendar (Feb 30) encodes without raising (ARC-30).
+
+        Test scenario:
+            Month day 30 in February exists on a 360_day calendar but ``pandas.Timestamp`` rejects it,
+            so the old Gregorian-first path raised. Encoding it and decoding back must recover the same
+            360_day date.
+        """
+        num = encode_cf_time("2000-02-30", UNIT, "360_day")
+        back = decode_cf_time(np.array([num]), UNIT, "360_day")[0]
+        assert (back.year, back.month, back.day) == (2000, 2, 30), (
+            f"360_day Feb 30 drifted after round-trip: {back}"
+        )
+        assert back.calendar == "360_day", f"expected 360_day, got {back.calendar}"
+
+    def test_fractional_second_rounding_does_not_overflow_microseconds(self):
+        """A seconds field whose fraction rounds up to 1e6 µs is clamped, not rejected by cftime (N1)."""
+        num = encode_cf_time("2000-01-01T00:00:59.9999995", UNIT, "360_day")
+        assert np.isfinite(num), f"expected a finite encoded value, got {num}"
+
     def test_non_time_unit_passthrough(self):
         """A non-time unit string returns the values unchanged.
 
@@ -93,3 +113,23 @@ class TestCfTimeRoundTrip:
         values = np.array([1.0, 2.0, 3.0])
         np.testing.assert_array_equal(decode_cf_time(values, "m"), values)
         np.testing.assert_array_equal(decode_cf_time(values, None), values)
+
+
+class TestStandardCalendarCasing:
+    """`decode_cf_time` treats the Gregorian family case-insensitively (ARC-69)."""
+
+    @pytest.mark.parametrize(
+        "calendar", ["Gregorian", "STANDARD", "Proleptic_Gregorian"]
+    )
+    def test_capitalised_standard_calendar_yields_datetime64(self, calendar):
+        """A capitalised standard-calendar name decodes to datetime64, not cftime objects.
+
+        Test scenario:
+            Before ARC-69, `decode_cf_time` compared the raw (non-lowered) calendar against the
+            lowercase set, so `"Gregorian"`/`"STANDARD"` fell through to the cftime branch. The
+            shared `_is_standard_calendar` check now lowercases, so these yield `datetime64[ns]`.
+        """
+        decoded = decode_cf_time(np.array([0.0, 365.0]), UNIT, calendar)
+        assert decoded.dtype == np.dtype("datetime64[ns]"), (
+            f"{calendar!r} should decode to datetime64, got {decoded.dtype}"
+        )

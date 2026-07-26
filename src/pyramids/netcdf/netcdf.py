@@ -9,6 +9,7 @@ from __future__ import annotations
 import gc
 import itertools
 import math
+import os
 import threading
 import warnings
 import weakref
@@ -23,9 +24,11 @@ from pyramids import _io
 from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg
 from pyramids.base.protocols import ArrayLike
+from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset
 from pyramids.dataset.dataset import _COLLABORATOR_ATTRS
 from pyramids.feature import FeatureCollection
+from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
 from pyramids.netcdf._mdim import (
@@ -37,6 +40,7 @@ from pyramids.netcdf._mdim import (
     open_mdarray,
     scalar_no_data,
     scaled_axis_ascends,
+    unflatten_band_axes,
     x_axis_is_right_to_left,
     y_axis_is_bottom_up,
 )
@@ -837,8 +841,15 @@ class NetCDF(Dataset):
             else:
                 y_cell = self.cell_size
                 y_top = float(self.lat[0]) + y_cell / 2
+            # West edge = min(lon) - half a cell, mirroring the north-up lat branch above. Taking
+            # `lon[0]` unguarded put the origin at the EAST edge for a descending-longitude container,
+            # mirroring the X origin (ARC-32).
+            if len(self.lon) >= 2:
+                x_west = min(float(self.lon[0]), float(self.lon[-1])) - x_cell / 2
+            else:
+                x_west = float(self.lon[0]) - x_cell / 2
             return (
-                self.lon[0] - x_cell / 2,
+                x_west,
                 x_cell,
                 0,
                 y_top,
@@ -1065,6 +1076,52 @@ class NetCDF(Dataset):
                 f"Spatial operations are not supported on the NetCDF container. "
                 f"Use nc.get_variable('var_name').{operation}(...) instead."
             )
+
+    # ARC-35 interim guard: a `band_count == 0` container inherits the full single-raster facade
+    # from `Dataset`, where each of these runs on a `(0, rows, cols)` store and produces an opaque
+    # GDAL error or silently wrong output. Route the raster-only surface through
+    # `_check_not_container` so a container fails with the "use get_variable(...)" message instead;
+    # a `Variable` subset (band_count > 0) passes the guard and delegates unchanged. The structural
+    # fix (make `Container` *compose* a spatial-template `Dataset`) is a larger follow-up.
+    def stats(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.stats`."""
+        self._check_not_container("stats")
+        return super().stats(*args, **kwargs)
+
+    def slope(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.slope`."""
+        self._check_not_container("slope")
+        return super().slope(*args, **kwargs)
+
+    def hillshade(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.hillshade`."""
+        self._check_not_container("hillshade")
+        return super().hillshade(*args, **kwargs)
+
+    def write_array(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.write_array`."""
+        self._check_not_container("write_array")
+        return super().write_array(*args, **kwargs)
+
+    def to_cog(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.to_cog`."""
+        self._check_not_container("to_cog")
+        return super().to_cog(*args, **kwargs)
+
+    def to_feature_collection(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.to_feature_collection`."""
+        self._check_not_container("to_feature_collection")
+        return super().to_feature_collection(*args, **kwargs)
+
+    def zonal_stats(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.zonal_stats`."""
+        self._check_not_container("zonal_stats")
+        return super().zonal_stats(*args, **kwargs)
+
+    def sample(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.sample`."""
+        self._check_not_container("sample")
+        return super().sample(*args, **kwargs)
 
     # NetCDF intentionally exposes a richer, variable/selector-oriented plot
     # signature than the band-oriented Dataset/RasterBase one; the override
@@ -1862,6 +1919,9 @@ class NetCDF(Dataset):
                 manager_hook=self._register_lazy_manager,
                 spatial_dims=spatial_dims,
                 flips=flips,
+                # Each chunk task re-opens the store, so a signed remote NetCDF
+                # needs its credentials shipped with the graph.
+                gdal_env=self._gdal_env or None,
             ),
         )
 
@@ -2247,18 +2307,13 @@ class NetCDF(Dataset):
             # (last non-spatial dim varies fastest, matching GDAL's
             # row-major flatten), so the reshape is the literal
             # inverse of that flatten.
-            if (
-                len(var._band_dim_names) > 1
-                and var_arr.ndim == 3
-                and var._band_dim_sizes
-            ):
-                var_arr = var_arr.reshape(
-                    *var._band_dim_sizes, var_arr.shape[-2], var_arr.shape[-1]
-                )
-            var_ndv = var_result.no_data_value
-            var_ndv_scalar = (
-                var_ndv[0] if isinstance(var_ndv, list) and var_ndv else var_ndv
+            var_arr = unflatten_band_axes(
+                var_arr, var._band_dim_names, var._band_dim_sizes
             )
+            var_ndv = var_result.no_data_value
+            # no_data_value is a TUPLE, so the old `isinstance(..., list)` test never fired and the
+            # full per-band tuple leaked into create_from_array (ARC-29). scalar_no_data handles both.
+            var_ndv_scalar = scalar_no_data(var_ndv)
             extra_dims = (
                 [
                     (name, var._band_dim_values_map.get(name))
@@ -2311,18 +2366,63 @@ class NetCDF(Dataset):
         return scalar_no_data(no_data_value)
 
     @staticmethod
-    def _materialize_variable_array(var: NetCDF) -> np.typing.NDArray:
+    def _is_file_backed(var: NetCDF) -> bool:
+        """True when the variable's data lives in a reopenable file, so a lazy chunk read is possible.
+
+        An in-memory container (`create_from_array` / `from_xarray`) has no file for the lazy chunk
+        graph to reopen; streaming it saves nothing and the reopen would fail.
+
+        Args:
+            var: The variable subset to probe.
+
+        Returns:
+            True when the source path exists on disk or is a remote (`/vsi*` / cloud) URL.
+        """
+        parent = var._parent_nc if var._parent_nc is not None else var
+        path = parent._file_name
+        if not path:
+            return False
+        if path.startswith("NETCDF:"):
+            rest = path[len("NETCDF:") :]
+            if rest.startswith('"'):
+                # NETCDF:"<path>":<var> -- take the quoted path, which may itself contain a colon
+                # (a Windows drive letter `C:\...`), so a naive split(":") is wrong (review L1).
+                closing = rest.rfind('"')
+                path = rest[1:closing] if closing > 0 else rest
+            else:
+                # NETCDF:<path>:<var> -- drop the trailing :<var> from the right.
+                path = rest.rsplit(":", 1)[0]
+        return os.path.isfile(path) or is_remote(path)
+
+    @staticmethod
+    def _materialize_variable_array(var: NetCDF, lazy: bool = False) -> Any:
         """Read a variable as `(*band_dim_sizes, rows, cols)` (or `(rows, cols)`).
 
-        Undoes ``read_array``'s singleton-band squeeze and GDAL's row-major
-        flatten of multi-dim band axes, mirroring `_apply_to_all_variables`.
+        With `lazy=True` and dask installed, returns a chunked `dask.array` in that same layout
+        without ever holding the whole variable in RAM — `reduce` streams its reducer over it and
+        computes only the (small) reduced result (ARC-47). The chunked read already keeps each
+        non-spatial dim as its own leading axis, so no reshape is needed. Falls back to the eager
+        read (undoing `read_array`'s singleton-band squeeze and GDAL's row-major band flatten) when
+        `lazy` is False or dask (the `[lazy]` extra) is not installed.
+
+        Because the streamed reduce tree-reduces per chunk via dask while the eager path reduces in a
+        single pass, a file-backed `mean`/`sum`/`std`/`var` can differ from the same in-memory reduce
+        in the last ULPs (floating-point non-associativity) — equal to `np.allclose`, not bit-for-bit.
         """
+        if lazy and NetCDF._is_file_backed(var):
+            # Only stream a genuinely file-backed variable: an in-memory container has no file for the
+            # chunk graph to reopen and is already fully in RAM, so streaming saves nothing. Checking
+            # file-backing up front (rather than a broad except) lets a real file-backed read error
+            # propagate instead of silently degrading to a whole-cube eager read / OOM (review M1).
+            try:
+                return var.read_array(chunks="auto")
+            except ImportError:
+                pass  # dask (the [lazy] extra) not installed -> eager fallback below
         arr = var.read_array()
         if var._band_dim_names:
             if arr.ndim == 2:
                 arr = np.expand_dims(arr, axis=0)
-            if len(var._band_dim_names) > 1 and arr.ndim == 3 and var._band_dim_sizes:
-                arr = arr.reshape(*var._band_dim_sizes, arr.shape[-2], arr.shape[-1])
+            arr = unflatten_band_axes(arr, var._band_dim_names, var._band_dim_sizes)
         return cast("np.typing.NDArray", arr)
 
     def _resolve_group_positions(
@@ -3057,7 +3157,8 @@ class NetCDF(Dataset):
             variable: Name of the variable to extract from each file.
             chunks: Chunk spec forwarded to
                 :meth:`NetCDF.read_array`.
-            parallel: Fan out per-file opens through `dask.delayed`.
+            parallel: Deprecated and inert; kept for backward compatibility.
+                Passing a truthy value emits a `DeprecationWarning`.
             preprocess: Optional callable applied to each
                 :class:`NetCDF` before extraction.
 
@@ -3644,42 +3745,6 @@ class NetCDF(Dataset):
             result = match
         return result
 
-    @staticmethod
-    def _axis_role_of_dimension(dim) -> str | None:
-        """Classify a dimension as ``"X"`` (longitude) or ``"Y"`` (latitude).
-
-        Reads the CF attributes of the dimension's coordinate (indexing) variable —
-        ``axis`` (``X``/``Y``), ``standard_name`` (``longitude``/``latitude``), or
-        ``units`` (``degrees_east``/``degrees_north``) — and classifies them through the
-        shared :func:`pyramids.netcdf.cf.detect_axis` heuristic. Returns ``None`` when the
-        role cannot be determined.
-        """
-        indexing_var = dim.GetIndexingVariable()
-        if indexing_var is None:
-            return None
-        # Attribute-only detection (empty ``name`` disables the name-pattern fallback) so the
-        # CF-attribute vs. dimension-name stages stay separated, matching the historical pipeline.
-        # Filter to the spatial roles this classifier promises (``detect_axis`` can also return
-        # ``"T"``/``"Z"``), mirroring the MDIM ``_axis_role`` sibling so callers see only X/Y/None.
-        role = detect_axis("", _read_attributes(indexing_var))
-        return role if role in ("X", "Y") else None
-
-    @staticmethod
-    def _detect_axis_indices(dims) -> tuple[int | None, int | None]:
-        """Indices of the X (longitude) and Y (latitude) dimensions via CF coordinate attributes.
-
-        Returns the first dimension classified as ``"X"`` and the first as ``"Y"`` by
-        ``_axis_role_of_dimension`` (each ``None`` when undetected).
-        """
-        detected_x = detected_y = None
-        for i, dim in enumerate(dims):
-            role = NetCDF._axis_role_of_dimension(dim)
-            if role == "X" and detected_x is None:
-                detected_x = i
-            elif role == "Y" and detected_y is None:
-                detected_y = i
-        return detected_x, detected_y
-
     def _resolve_spatial_dims(
         self, md_arr, x_dim: str | None = None, y_dim: str | None = None
     ) -> tuple[int, int]:
@@ -3706,7 +3771,7 @@ class NetCDF(Dataset):
                 )
             return explicit_x, explicit_y
 
-        detected_x, detected_y = self._detect_axis_indices(md_arr.GetDimensions())
+        detected_x, detected_y = detect_axis_indices(md_arr.GetDimensions())
         # Adopt detection only when it (combined with any single explicit side) yields a
         # complete, distinct (X, Y) pair — otherwise a partially-detected axis must not
         # collide with the last-two fallback (e.g. a 2-D `lon_bnds(lon, bnds)` variable).

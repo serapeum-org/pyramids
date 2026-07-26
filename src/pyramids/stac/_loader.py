@@ -20,11 +20,12 @@ resolve to pyramids' GDAL-backed wrappers.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from typing import Any, cast
 
 from pyramids.base._errors import UnsupportedAssetError
 from pyramids.base._utils import import_zarr, lazy_extra_hint
-from pyramids.base.remote import signer_cloud_config
+from pyramids.base.remote import CloudConfig, cloud_config_from_env, is_remote
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.ops._geobox_zarr import detect_data_var
 from pyramids.dataset.ops._zarr import _resolve_store
@@ -124,6 +125,71 @@ def _engine_for(media_type: str | None, href: str) -> str:
             f"href={href!r}; supported: GeoTIFF/COG, JPEG2000, NetCDF, GRIB, Zarr."
         )
     return result
+
+
+def _open_config(
+    href: str, engine: str, gdal_env: dict[str, str] | None
+) -> AbstractContextManager[Any]:
+    """Return the GDAL config context an asset open should run under.
+
+    A remote **raster** asset gets the `/vsicurl/` fast-read preset (readdir
+    skip, HTTP/2 multiplexing, merged multi-range reads) merged with the signer
+    env, which always wins on a key conflict. Everything else gets the signer
+    env alone, because the preset's `GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`
+    stops GDAL discovering sibling files, and only the raster case can be relied
+    on not to need them:
+
+    * **Local assets** — the sidecars are free to read and often load-bearing
+      (`.aux.xml` nodata, a world file, a `.prj`).
+    * **NetCDF / GRIB** — a remote one may still carry a PAM `.aux.xml` with a
+      no-data value, an SRS override or band statistics, and losing those
+      silently changes what the reader returns.
+    * **Zarr** — read by zarr/fsspec rather than GDAL, so GDAL config is inert,
+      and a readdir skip is actively wrong for a directory-style store.
+
+    Args:
+        href: The resolved (already signed) asset href.
+        engine: The reader chosen by :func:`_engine_for`.
+        gdal_env: The signer's already-resolved GDAL config, or `None`. The
+            resolved mapping rather than the signer, because `gdal_env()` is a
+            method a token-refreshing signer may answer differently on each
+            call — asking twice could install one token for the open and capture
+            a different one on the dataset, and pay for two refreshes.
+
+    Returns:
+        A context manager installing the resolved config for the open.
+
+    Examples:
+        - A remote COG open gets the fast-read preset:
+            ```python
+            >>> from pyramids.stac._loader import _open_config
+            >>> _open_config("/vsicurl/https://h/a.tif", "gdal", None).as_gdal_config()[
+            ...     "GDAL_DISABLE_READDIR_ON_OPEN"
+            ... ]
+            'EMPTY_DIR'
+
+            ```
+        - A remote NetCDF keeps its sidecars, so it takes the signer env only:
+            ```python
+            >>> env = {"AWS_REQUEST_PAYER": "requester"}
+            >>> _open_config("s3://b/cube.nc", "netcdf", env).as_gdal_config()
+            {'AWS_REQUEST_PAYER': 'requester'}
+
+            ```
+        - A remote Zarr store opts out of the preset and keeps the signer env:
+            ```python
+            >>> env = {"AWS_REQUEST_PAYER": "requester"}
+            >>> _open_config("s3://b/store.zarr", "zarr", env).as_gdal_config()
+            {'AWS_REQUEST_PAYER': 'requester'}
+
+            ```
+    """
+    config: AbstractContextManager[Any]
+    if engine == "gdal" and is_remote(href):
+        config = CloudConfig(vsicurl_tuning=True, extra=dict(gdal_env or {}))
+    else:
+        config = cloud_config_from_env(gdal_env)
+    return config
 
 
 def which_engine(item_or_asset: Any, asset_key: str | None = None) -> str:
@@ -290,16 +356,46 @@ def load_asset(
     if signer is not None:
         href = signer.sign_href(href)
     engine = _engine_for(media_type, href)
-    with signer_cloud_config(signer):
-        if engine == "grib":
-            result: Any = open_grib(href, vsi=vsi)
+    signer_env = signer.gdal_env() if signer is not None else None
+    with _open_config(href, engine, signer_env):
+        if engine == "gdal":
+            result: Any = Dataset.read_file(href, vsi=vsi, gdal_env=signer_env)
         elif engine == "zarr":
+            # Read through zarr/fsspec, which never consults GDAL config — so
+            # nothing is captured on the result either (see _persist_gdal_env).
             result = _load_zarr(href)
-        elif engine == "netcdf":
-            result = NetCDF.read_file(href)
         else:
-            result = Dataset.read_file(href, vsi=vsi)
+            result = (
+                open_grib(href, vsi=vsi) if engine == "grib" else NetCDF.read_file(href)
+            )
+            # Unlike Dataset.read_file these readers take no gdal_env=, so the
+            # signer env is attached to the opened object instead.
+            _persist_gdal_env(result, signer_env)
     return cast(Dataset, result)
+
+
+def _persist_gdal_env(result: Any, env: dict[str, str] | None) -> None:
+    """Capture the signer env on a reader that could not take it at open time.
+
+    `Dataset.read_file` accepts `gdal_env=` directly, but the GRIB and NetCDF
+    readers do not widen their signatures for it. Both return a
+    :class:`~pyramids.dataset.abstract_dataset.RasterBase`, which exposes
+    :meth:`~pyramids.dataset.abstract_dataset.RasterBase.attach_gdal_env` for
+    exactly this — so the capture goes through a declared method rather than a
+    private attribute on a foreign object.
+
+    A reader that exposes no such hook is left alone: the Zarr branch reads
+    through zarr/fsspec, which never consults GDAL config, so attaching
+    credentials there would only widen their blast radius (they would ride the
+    object's pickle) for no read-time benefit.
+
+    Args:
+        result: The opened reader.
+        env: The signer's GDAL config, or `None` when there is no signer.
+    """
+    attach = getattr(result, "attach_gdal_env", None)
+    if env and callable(attach):
+        attach(env)
 
 
 def _load_zarr(href: str):

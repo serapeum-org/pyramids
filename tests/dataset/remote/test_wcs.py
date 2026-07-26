@@ -136,10 +136,20 @@ class TestPureHelpers:
         assert "<GetCoverageExtra>" not in xml
 
     def test_gdal_http_config(self):
-        assert _wcs._gdal_http_config(None, 60.0) == {"GDAL_HTTP_TIMEOUT": "60"}
+        cfg = _wcs._gdal_http_config(None, 60.0)
+        assert cfg["GDAL_HTTP_TIMEOUT"] == "60"
+        assert "GDAL_HTTP_USERPWD" not in cfg, "no auth means no credentials emitted"
         cfg = _wcs._gdal_http_config(("u", "p"), 30.0)
         assert cfg["GDAL_HTTP_USERPWD"] == "u:p"
         assert cfg["GDAL_HTTP_TIMEOUT"] == "30"
+
+    def test_gdal_http_config_carries_retry_knobs(self):
+        """The driver read rides out a transient fault like the urllib fetch does."""
+        cfg = _wcs._gdal_http_config(None, 60.0)
+        assert cfg["GDAL_HTTP_MAX_RETRY"] == "2", (
+            f"GDAL counts retries after the first attempt, not attempts: {cfg}"
+        )
+        assert cfg["GDAL_HTTP_RETRY_DELAY"] == "0.5", f"no retry delay: {cfg}"
 
 
 class TestNativeCrsShim:

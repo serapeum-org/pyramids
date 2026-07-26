@@ -39,7 +39,11 @@ from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import resolve_resampling
 from pyramids.base.crs import reproject_coordinates
 from pyramids.base.protocols import ArrayLike
-from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS, RESAMPLING_METHODS
+from pyramids.dataset.abstract_dataset import (
+    OVERVIEW_LEVELS,
+    RESAMPLING_METHODS,
+    under_gdal_env,
+)
 from pyramids.dataset.engines.cog import (
     _RESAMPLING_ALG,
     _WEB_MERCATOR_HALF_EXTENT,
@@ -376,6 +380,7 @@ def _terrain_rgba_stack(
 
 
 class IO(_Engine["Dataset"]):
+    @under_gdal_env
     def read_array(
         self,
         band: int | None = None,
@@ -818,6 +823,8 @@ class IO(_Engine["Dataset"]):
             arr = self._threadsafe_eager_read(band=band, window=window)
             self._ds._backend = "numpy"
         else:
+            # The shared handle is used directly here; the captured cloud config is
+            # already installed by read_array's @under_gdal_env decorator.
             if band is None and self._ds.band_count > 1:
                 if window is None:
                     arr = np.ones(
@@ -833,11 +840,12 @@ class IO(_Engine["Dataset"]):
                             i + 1
                         ).ReadAsArray()
                 else:
-                    # ``window`` here is a resolved pixel window (``Window`` or
-                    # a ``[col_off, row_off, cols, rows]`` list — any geometry
-                    # window was converted to one above). Stack per-band block
-                    # reads so ``_read_block`` applies the identical window to
-                    # every band without re-parsing its dimensions here.
+                    # ``window`` here is a resolved pixel window (``Window``
+                    # or a ``[col_off, row_off, cols, rows]`` list — any
+                    # geometry window was converted to one above). Stack
+                    # per-band block reads so ``_read_block`` applies the
+                    # identical window to every band without re-parsing its
+                    # dimensions here.
                     arr = np.stack(
                         [
                             self._read_block(i, window)
@@ -936,16 +944,20 @@ class IO(_Engine["Dataset"]):
         # Normalize to the list[int] _read_via_handle expects -- window may still
         # be a tuple here (e.g. straight from Window.to_read_args()).
         window_list = list(window) if window is not None else None
-        handle = self._get_thread_manager().acquire()
-        try:
-            arr = self._read_via_handle(handle, band, window_list)
-        except RuntimeError as exc:
-            # Same contract as the default path's _read_block.
-            if "Access window out of range" in str(exc):
-                raise window_out_of_bounds(
-                    window, self._ds.rows, self._ds.columns
-                ) from exc
-            raise
+        # This path opens a *new* handle per thread from the dataset's path, so
+        # the credentials captured at the original open have to be re-installed
+        # around both the open and the read (the shared handle is not used).
+        with self._ds._cloud_config():
+            handle = self._get_thread_manager().acquire()
+            try:
+                arr = self._read_via_handle(handle, band, window_list)
+            except RuntimeError as exc:
+                # Same contract as the default path's _read_block.
+                if "Access window out of range" in str(exc):
+                    raise window_out_of_bounds(
+                        window, self._ds.rows, self._ds.columns
+                    ) from exc
+                raise
         return np.asarray(arr)
 
     def _get_thread_manager(self) -> ThreadLocalFileManager:
@@ -1241,6 +1253,10 @@ class IO(_Engine["Dataset"]):
             band=effective_band,
             out_dtype=dtype,
             single_band=single_band,
+            # Chunks open the file inside the dask task, long after (and
+            # possibly in another process from) this call, so the captured
+            # cloud config travels with the task as a plain dict.
+            gdal_env=self._ds._gdal_env or None,
         )
         return arr
 
@@ -1893,6 +1909,7 @@ class IO(_Engine["Dataset"]):
         )
         return df
 
+    @under_gdal_env
     def to_file(
         self,
         path: str | Path,
@@ -2313,10 +2330,16 @@ class IO(_Engine["Dataset"]):
               ```
         """
         for xoff, yoff, xsize, ysize in self._tile_offsets(size=size):
-            # read the array at certain indices
-            yield self._ds.raster.ReadAsArray(
-                xoff=xoff, yoff=yoff, xsize=xsize, ysize=ysize
-            )
+            # The captured cloud config is installed per tile, never across the
+            # yield: holding it open while the consumer's loop body runs would
+            # leak it into their scope, and `gdal.config_options` restores a
+            # snapshot on exit — so two interleaved generators leaving in
+            # non-LIFO order would silently strip each other's config.
+            with self._ds._cloud_config():
+                tile = self._ds.raster.ReadAsArray(
+                    xoff=xoff, yoff=yoff, xsize=xsize, ysize=ysize
+                )
+            yield tile
 
     def map_blocks(
         self,

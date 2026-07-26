@@ -14,14 +14,16 @@ along time) that narrowness is the whole point — no metadata
 inference means no failure modes when one file has a different
 schema.
 
-`parallel=True` wraps each file's metadata read in
-:func:`dask.delayed`, so opening 500 files on a distributed cluster
-fans out over workers rather than blocking sequentially.
+The `parallel` argument is deprecated and inert: every per-file read
+is already lazy, so dask parallelises the per-chunk reads at compute
+time without an eager `dask.delayed` fan-out. Passing it emits a
+:class:`DeprecationWarning`.
 """
 
 from __future__ import annotations
 
 import glob
+import warnings
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -94,10 +96,14 @@ def open_mfdataset(
             from :func:`dask.array.stack` at graph-construction time.
         chunks: Chunk specification forwarded to
             :meth:`NetCDF.read_array` when reading each file. `None`
-            uses each variable's native on-disk chunking.
-        parallel: When `True`, wraps the per-file open+extract in
-            :func:`dask.delayed` so the reads fan out across a dask
-            scheduler. Default `False` reads sequentially.
+            (the default) reads each file lazily with `"auto"`
+            (native-ish) chunking so the files are not all materialised
+            into RAM before stacking; pass an explicit spec to override.
+        parallel: Deprecated and inert; retained only for backward-compatible
+            call signatures. Every per-file read returns a lazy dask array, so
+            the scheduler already parallelises the per-chunk reads at compute
+            time and there is no separate eager `dask.delayed` fan-out to
+            enable. Passing a truthy value emits a `DeprecationWarning`.
         preprocess: Optional callable applied to each
             :class:`NetCDF` subset before its array is extracted —
             for example to unpack scale/offset, crop, or drop
@@ -125,43 +131,35 @@ def open_mfdataset(
             ```
     """
     try:
-        import dask
         import dask.array as da
     except ImportError as exc:
         raise ImportError(_LAZY_IMPORT_ERROR) from exc
 
-    resolved = _resolve_paths(paths)
-
     if parallel:
-        # Probe the first file once for the shared shape/dtype and reuse that array as
-        # element 0, instead of also scheduling a delayed open of the same path (which
-        # opened ``resolved[0]`` a second time).
-        first_probe = _open_and_extract(resolved[0], variable, preprocess, chunks)
-        shape = first_probe.shape
-        dtype = first_probe.dtype
-        # Wrap the already-materialised probe as a single-block delayed array (rather than
-        # ``da.from_array(..., chunks="auto")``) so element 0's chunk structure matches the
-        # ``from_delayed`` frames below — one block per file along the stacked axis. Reuses
-        # the probe, so ``resolved[0]`` is still opened only once.
-        first_arr = (
-            first_probe
-            if hasattr(first_probe, "dask")
-            else da.from_delayed(dask.delayed(first_probe), shape=shape, dtype=dtype)
+        warnings.warn(
+            "open_mfdataset(parallel=...) is deprecated and has no effect: the default lazy "
+            "per-file read already parallelises chunk reads at compute time. The argument is "
+            "accepted for backward compatibility and will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-        rest = [
-            da.from_delayed(
-                dask.delayed(_open_and_extract)(p, variable, preprocess, chunks),
-                shape=shape,
-                dtype=dtype,
-            )
-            for p in resolved[1:]
-        ]
-        arrays = [first_arr, *rest]
-    else:
-        arrays = [_open_and_extract(p, variable, preprocess, chunks) for p in resolved]
-        arrays = [
-            a if hasattr(a, "dask") else da.from_array(np.asarray(a), chunks="auto")
-            for a in arrays
-        ]
 
+    resolved = _resolve_paths(paths)
+    # Default to a lazy per-file read (native-ish `"auto"` chunking) so the stack does not
+    # materialise every file into RAM up front -- opening hundreds of files used to load them all
+    # eagerly before stacking (ARC-48). An explicit `chunks` is honoured as given.
+    effective_chunks = "auto" if chunks is None else chunks
+
+    # Each per-file read already returns a lazy dask array (chunks are never eager here), so the
+    # stack is built directly and dask parallelises the per-chunk reads at compute time. The
+    # `parallel` flag -- which used to wrap eager reads in `dask.delayed` -- is inert now that the
+    # default read is lazy (wrapping a dask array in `from_delayed` would nest a synchronous inner
+    # compute per file); it is retained only for backward-compatible call signatures (ARC-48).
+    arrays = [
+        _open_and_extract(p, variable, preprocess, effective_chunks) for p in resolved
+    ]
+    arrays = [
+        a if hasattr(a, "dask") else da.from_array(np.asarray(a), chunks="auto")
+        for a in arrays
+    ]
     return da.stack(arrays, axis=0)

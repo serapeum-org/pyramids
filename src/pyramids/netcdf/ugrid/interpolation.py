@@ -16,6 +16,8 @@ from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.interpolate import LinearNDInterpolator
+from scipy.spatial import cKDTree
 
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 
@@ -149,8 +151,6 @@ def _interpolate_nearest(
     Returns:
         (M,) array of interpolated values.
     """
-    from scipy.spatial import cKDTree
-
     tree = cKDTree(source_points)
     distances, indices = tree.query(target_points, k=1)
 
@@ -178,8 +178,6 @@ def _interpolate_linear(
     Returns:
         (M,) array of interpolated values.
     """
-    from scipy.interpolate import LinearNDInterpolator
-
     interpolator = LinearNDInterpolator(source_points, source_values, fill_value=nodata)
     result = interpolator(target_points)
 

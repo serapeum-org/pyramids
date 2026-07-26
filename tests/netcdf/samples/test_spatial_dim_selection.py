@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from pyramids.netcdf import NetCDF
+from pyramids.netcdf._axis import axis_role_of_dimension
 from tests.netcdf.samples.conftest import AIR as CF
 
 pytestmark = pytest.mark.core
@@ -34,7 +35,7 @@ def test_time_coordinate_dimension_is_not_spatial():
         ``None`` (matching its docstring and the MDIM ``_axis_role`` sibling). Assert a mocked
         time-coordinate dimension yields ``None``.
     """
-    role = NetCDF._axis_role_of_dimension(_mock_time_dimension())
+    role = axis_role_of_dimension(_mock_time_dimension())
     assert role is None, (
         f"a time dimension must not be a spatial axis role, got {role!r}"
     )
@@ -50,7 +51,7 @@ def test_cf_auto_detection_resolves_lat_lon(sample):
     nc = NetCDF.read_file(sample(CF))
     try:
         md = nc._raster.GetRootGroup().OpenMDArray("air")
-        roles = [NetCDF._axis_role_of_dimension(d) for d in md.GetDimensions()]
+        roles = [axis_role_of_dimension(d) for d in md.GetDimensions()]
         assert "X" in roles and "Y" in roles
     finally:
         nc.close()

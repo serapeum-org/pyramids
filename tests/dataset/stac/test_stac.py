@@ -10,7 +10,9 @@ pyramids — tests use raw dicts to prove the duck-typed contract.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -24,6 +26,7 @@ from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._stac import (
     _horizontal_bounds,
     _item_centroid_lon,
+    _item_datetime,
     _item_intersects_bbox,
     _lon_overlaps,
     _solar_day,
@@ -979,3 +982,92 @@ class TestFromStacMultiAssetUint16:
             4,
             4,
         ), f"grid should match the 10 m band: {(out.rows, out.columns)}"
+
+
+class TestSharedItemAccessors:
+    """The item readers route through the shared `stac._item` accessors.
+
+    `_stac.py` used to carry its own ``getattr``-then-dict resolvers for the
+    item id, ``properties`` and ``bbox``. They now delegate to
+    :mod:`pyramids.stac._item`, so both item shapes (pystac-like objects and
+    raw JSON dicts) must keep behaving identically.
+    """
+
+    def test_bbox_filter_reads_attribute_style_item(self, three_tifs):
+        """A pystac-like item's ``.bbox`` still drives the bbox filter.
+
+        Test scenario:
+            One attribute-style item inside the query box, one outside.
+        """
+        inside = SimpleNamespace(
+            bbox=[0.0, 0.0, 1.0, 1.0],
+            assets={"data": {"href": three_tifs[0]}},
+        )
+        outside = SimpleNamespace(
+            bbox=[50.0, 50.0, 51.0, 51.0],
+            assets={"data": {"href": three_tifs[1]}},
+        )
+        coll = DatasetCollection.from_stac(
+            [inside, outside], asset="data", bbox=(-1.0, -1.0, 2.0, 2.0)
+        )
+        assert coll.time_length == 1, (
+            f"only the intersecting item should survive, got {coll.time_length}"
+        )
+
+    def test_centroid_lon_reads_attribute_style_item(self):
+        """``_item_centroid_lon`` reads ``.bbox`` off a pystac-like item.
+
+        Test scenario:
+            A box spanning 10E..20E has centroid 15E.
+        """
+        item = SimpleNamespace(bbox=[10.0, 0.0, 20.0, 1.0])
+        assert _item_centroid_lon(item) == pytest.approx(15.0), (
+            f"attribute bbox centroid wrong: {_item_centroid_lon(item)}"
+        )
+
+    def test_centroid_lon_without_bbox_is_zero(self):
+        """A bbox-less item falls back to the prime meridian.
+
+        Test scenario:
+            No bbox -> 0.0, i.e. no solar-day shift.
+        """
+        assert _item_centroid_lon({"id": "x"}) == 0.0, "expected the 0.0 fallback"
+
+    def test_datetime_read_from_properties_mapping(self):
+        """``_item_datetime`` reads ``properties["datetime"]`` via the accessor.
+
+        Test scenario:
+            A raw dict item with only ``properties.datetime`` set.
+        """
+        item = {"properties": {"datetime": "2021-06-01T10:00:00Z"}}
+        assert _item_datetime(item).year == 2021, "properties datetime not parsed"
+
+    def test_datetime_prefers_the_attribute(self):
+        """A pystac-like ``.datetime`` attribute wins over ``properties``.
+
+        Test scenario:
+            Both present -> the attribute is used.
+        """
+        when = datetime(2020, 1, 2, tzinfo=UTC)
+        item = SimpleNamespace(
+            datetime=when, properties={"datetime": "2021-06-01T10:00:00Z"}
+        )
+        assert _item_datetime(item) == when, "the .datetime attribute should win"
+
+    def test_missing_datetime_error_names_the_item(self):
+        """The missing-datetime error identifies the item by id.
+
+        Test scenario:
+            The message comes from the shared ``item_id`` accessor.
+        """
+        with pytest.raises(ValueError, match="scene-7"):
+            _item_datetime({"id": "scene-7", "properties": {}})
+
+    def test_missing_datetime_error_falls_back_to_placeholder(self):
+        """An id-less item still produces a readable error.
+
+        Test scenario:
+            ``item_id`` returns ``"?"`` when no id is present.
+        """
+        with pytest.raises(ValueError, match=r"item \? has no datetime"):
+            _item_datetime({"properties": {}})

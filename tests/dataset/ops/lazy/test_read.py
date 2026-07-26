@@ -259,7 +259,7 @@ class TestLockConvention:
         captured: dict = {}
         original = io_module._read_chunk
 
-        def spy(block_info, manager, lock, band, out_dtype, single_band):
+        def spy(block_info, manager, lock, band, out_dtype, single_band, **kwargs):
             captured["lock"] = lock
             return original(
                 block_info,
@@ -268,6 +268,7 @@ class TestLockConvention:
                 band,
                 out_dtype,
                 single_band,
+                **kwargs,
             )
 
         monkeypatch.setattr(io_module, "_read_chunk", spy)
@@ -282,7 +283,7 @@ class TestLockConvention:
         captured: dict = {}
         original = io_module._read_chunk
 
-        def spy(block_info, manager, lock, band, out_dtype, single_band):
+        def spy(block_info, manager, lock, band, out_dtype, single_band, **kwargs):
             captured["lock"] = lock
             return original(
                 block_info,
@@ -291,6 +292,7 @@ class TestLockConvention:
                 band,
                 out_dtype,
                 single_band,
+                **kwargs,
             )
 
         monkeypatch.setattr(io_module, "_read_chunk", spy)
@@ -303,7 +305,7 @@ class TestLockConvention:
         captured: dict = {}
         original = io_module._read_chunk
 
-        def spy(block_info, manager, lock, band, out_dtype, single_band):
+        def spy(block_info, manager, lock, band, out_dtype, single_band, **kwargs):
             captured["lock"] = lock
             return original(
                 block_info,
@@ -312,6 +314,7 @@ class TestLockConvention:
                 band,
                 out_dtype,
                 single_band,
+                **kwargs,
             )
 
         monkeypatch.setattr(io_module, "_read_chunk", spy)

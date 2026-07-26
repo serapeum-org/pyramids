@@ -240,6 +240,20 @@ class TestLabeledDatasetSelect:
             sub["streamflow"].values, store["streamflow"].values[:, [0, 2]]
         )
 
+    def test_select_sparse_unsorted_reads_correct_values(self, nc_store: Path):
+        """A sparse, unsorted single-dim selection reads correct values via per-run reads (ARC-49).
+
+        `feature_id=[303, 101]` maps to positions `[2, 0]` — two non-adjacent runs in reverse order —
+        exercising the contiguous-run read plus the searchsorted remap back to request order.
+        """
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select(feature_id=[303, 101])
+        np.testing.assert_array_equal(
+            sub["streamflow"].values,
+            store["streamflow"].values[:, [2, 0]],
+            err_msg="sparse/unsorted feature select returned mis-ordered values",
+        )
+
     def test_select_accepts_0d_array_as_scalar(self, nc_store: Path):
         """A 0-d numpy array label selects exactly like a Python scalar (N3).
 
