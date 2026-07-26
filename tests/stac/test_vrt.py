@@ -281,8 +281,9 @@ class TestCredentialsStayOutOfMessages:
             {"assets": {"d": {"href": good}}},
             {"assets": {"d": {"href": "https://host.invalid/gone.tif"}}},
         ]
+        signer = self._signer()
         with pytest.raises(RuntimeError) as exc:
-            build_vrt_from_stac(items, asset="d", signer=self._signer())
+            build_vrt_from_stac(items, asset="d", signer=signer)
         assert "SUPERSECRET" not in str(exc.value), (
             f"the bearer token leaked into the error: {exc.value}"
         )
@@ -328,9 +329,10 @@ class TestCredentialsStayOutOfMessages:
             {"assets": {"d": {"href": good}}},
             {"assets": {"d": {"href": "https://host.invalid/gone.tif"}}},
         ]
+        signer = self._signer()
         capfd.readouterr()
         with pytest.raises(RuntimeError):
-            build_vrt_from_stac(items, asset="d", signer=self._signer())
+            build_vrt_from_stac(items, asset="d", signer=signer)
         captured = capfd.readouterr()
         assert "SUPERSECRET" not in captured.err, (
             f"the token was printed to stderr: {captured.err}"
@@ -378,8 +380,9 @@ class TestCredentialsStayOutOfMessages:
             {"assets": {"d": {"href": good}}},
             {"assets": {"d": {"href": "https://host.invalid/gone.tif"}}},
         ]
+        signer = _SasSigner()
         with pytest.raises(RuntimeError) as exc:
-            build_vrt_from_stac(items, asset="d", signer=_SasSigner())
+            build_vrt_from_stac(items, asset="d", signer=signer)
         assert "SASSECRET" not in str(exc.value), (
             f"the SAS token leaked into the error: {exc.value}"
         )

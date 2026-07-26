@@ -204,10 +204,9 @@ class TestRetryEdgeCases:
             Falling out of the loop would hand the caller `None`, and the
             failure would surface far from its cause.
         """
+        opener = _Opener([b"never"])
         with pytest.raises(ValueError, match="attempts must be >= 1"):
-            http_get_with_retry(
-                "https://h/x", 5, opener=_Opener([b"never"]), attempts=attempts
-            )
+            http_get_with_retry("https://h/x", 5, opener=opener, attempts=attempts)
 
     def test_retry_after_header_is_honoured(self):
         """A 429's `Retry-After` overrides the computed backoff.
