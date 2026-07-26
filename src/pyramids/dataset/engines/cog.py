@@ -26,6 +26,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
     resolve_cog_predictor,
 )
+from pyramids.dataset.abstract_dataset import under_gdal_env
 from pyramids.dataset.cog import (
     COGInfo,
     ValidationReport,
@@ -38,7 +39,6 @@ from pyramids.dataset.cog import (
     validate_profile,
 )
 from pyramids.dataset.cog.validate import _resolve_read_config, config_context
-from pyramids.dataset.abstract_dataset import under_gdal_env
 from pyramids.dataset.engines._base import _Engine
 
 if TYPE_CHECKING:
@@ -688,6 +688,7 @@ class COG(_Engine["Dataset"]):
                 raise
 
     @property
+    @under_gdal_env
     def is_cog(self) -> bool:
         """`True` iff the backing file on disk is a valid COG.
 
@@ -770,6 +771,7 @@ class COG(_Engine["Dataset"]):
             finally:
                 ds = None
 
+    @under_gdal_env
     def validate_cog(
         self, strict: bool = False, config: dict[str, str] | None = None
     ) -> ValidationReport:
@@ -820,6 +822,7 @@ class COG(_Engine["Dataset"]):
             )
         return validate(fn, strict=strict, config=config)
 
+    @under_gdal_env
     def info(self, config: dict[str, str] | None = None) -> COGInfo:
         """Return structured COG metadata for the backing file.
 
