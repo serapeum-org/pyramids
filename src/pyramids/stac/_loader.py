@@ -366,9 +366,7 @@ def load_asset(
             result = _load_zarr(href)
         else:
             result = (
-                open_grib(href, vsi=vsi)
-                if engine == "grib"
-                else NetCDF.read_file(href)
+                open_grib(href, vsi=vsi) if engine == "grib" else NetCDF.read_file(href)
             )
             # Unlike Dataset.read_file these readers take no gdal_env=, so the
             # signer env is attached to the opened object instead.

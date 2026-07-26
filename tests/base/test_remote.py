@@ -721,7 +721,9 @@ class TestRedactCredentials:
         `bucket-key=`, redacting values that were never secrets.
         """
         text = "https://h/a.tif?my_token=abc&bucket-key=def"
-        assert redact_credentials(text) == text, f"a non-credential was redacted: {text}"
+        assert redact_credentials(text) == text, (
+            f"a non-credential was redacted: {text}"
+        )
 
     def test_credential_after_an_ampersand_is_redacted(self):
         """A credential option later in the query is still caught."""

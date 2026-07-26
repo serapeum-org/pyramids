@@ -401,7 +401,6 @@ def redact(href: str) -> str:
     return f"{base}?<redacted>" if sep else base
 
 
-
 def _reclaim_vsimem(vrt_path: str) -> None:
     """Unlink a `/vsimem` VRT and stop tracking it.
 
