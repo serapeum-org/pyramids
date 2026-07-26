@@ -873,3 +873,35 @@ class TestToXarrayLazy:
         assert not hasattr(ds["temperature"].data, "dask"), (
             "in-memory container should ignore chunks and stay eager"
         )
+
+    @requires_dask
+    def test_lazy_read_threads_gdal_env(self, monkeypatch):
+        """The container's `_gdal_env` is carried into the lazy read so a signed remote store
+        re-opens authenticated (#839).
+
+        Test scenario:
+            Attach a `gdal_env` to a file-backed container and spy on `build_lazy_array`;
+            `_lazy_var_data` must forward that env (and ``orient=False``) to the chunk graph.
+        """
+        from pyramids.netcdf.engines import interop as interop_mod
+
+        captured = {}
+
+        def _spy(path, variable_name, chunks, orient=True, gdal_env=None):
+            captured["gdal_env"] = gdal_env
+            captured["orient"] = orient
+            return object()  # stand-in lazy array; _lazy_var_data returns it unchanged
+
+        monkeypatch.setattr(interop_mod, "build_lazy_array", _spy)
+        nc = NetCDF.read_file(GEOG_3D_NC)
+        try:
+            nc.attach_gdal_env({"AWS_REQUEST_PAYER": "requester"})
+            interop_mod._lazy_var_data(nc, "t2m", "auto", None)
+        finally:
+            nc.close()
+        assert captured["gdal_env"] == {"AWS_REQUEST_PAYER": "requester"}, (
+            f"container gdal_env must be threaded into the lazy read, got {captured}"
+        )
+        assert captured["orient"] is False, (
+            "lazy to_xarray read must be raw (orient=False)"
+        )

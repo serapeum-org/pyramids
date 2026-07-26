@@ -199,12 +199,17 @@ def _lazy_var_data(ds: NetCDF, var_name: str, chunks: Any, md_arr: Any) -> Any:
     A variable whose dtype a chunked read cannot represent (e.g. a string MDArray such as a CF
     ``expver`` label) falls back to the eager read, matching the default ``to_xarray`` path -- one
     non-chunkable variable must not fail the whole lazy conversion.
+
+    The container's captured cloud config (``_gdal_env``) is carried into the read so each chunk
+    task re-opens a signed remote store with the same credentials, matching ``_read_array_lazy`` (#839).
     """
     path = _reopenable_path(ds)
     if path is None:
         return ds._md_array_to_numpy(md_arr)
     try:
-        return build_lazy_array(path, var_name, chunks, orient=False)
+        return build_lazy_array(
+            path, var_name, chunks, orient=False, gdal_env=ds._gdal_env or None
+        )
     except ValueError:
         return ds._md_array_to_numpy(md_arr)
 
