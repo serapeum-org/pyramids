@@ -5,8 +5,27 @@ import json
 import pytest
 
 from pyramids.netcdf import NetCDF, from_json, to_dict, to_json
+from pyramids.netcdf.models import NetCDFMetadata, StructuralInfo
 
 pytestmark = pytest.mark.core
+
+
+def test_from_json_without_cf_key_yields_none():
+    """A metadata payload with no CF block deserializes to ``cf is None`` (ARC-25 build_cf None branch)."""
+    meta = NetCDFMetadata(
+        driver="netCDF",
+        root_group="/",
+        groups={},
+        variables={},
+        dimensions={},
+        global_attributes={},
+        structural=StructuralInfo(driver_name="netCDF"),
+        created_with={},
+    )
+    restored = from_json(to_json(meta))
+    assert restored.cf is None, (
+        f"expected cf None for a cf-less payload, got {restored.cf}"
+    )
 
 
 def test_to_json_is_string_and_parses(sample_name, sample):
@@ -35,6 +54,27 @@ def test_from_json_roundtrip_preserves_structure(sample_name, sample):
         assert restored.global_attributes.get(
             "Conventions"
         ) == meta.global_attributes.get("Conventions")
+    finally:
+        nc.close()
+
+
+def test_from_json_roundtrip_preserves_cf(sample_name, sample):
+    """``from_json(to_json(m))`` restores the ``CFInfo`` block (classifications, grid_mappings, …) — ARC-25.
+
+    ``to_dict`` serializes ``cf`` via ``asdict`` but ``from_json`` used to omit ``cf=``, silently dropping
+    every CF classification on a JSON round-trip.
+    """
+    nc = NetCDF.read_file(sample(sample_name))
+    try:
+        meta = nc.get_all_metadata()
+        restored = from_json(to_json(meta))
+        assert (restored.cf is None) == (meta.cf is None), (
+            f"{sample_name}: cf presence changed across round-trip"
+        )
+        if meta.cf is not None:
+            assert restored.cf == meta.cf, (
+                f"{sample_name}: CFInfo dropped or altered across round-trip"
+            )
     finally:
         nc.close()
 

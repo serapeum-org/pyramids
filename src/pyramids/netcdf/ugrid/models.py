@@ -93,6 +93,7 @@ class MeshVariable:
     nodata: float | None = None
     units: str | None = None
     standard_name: str | None = None
+    dimensions: tuple[str, ...] = field(default_factory=tuple)
     _data: np.ndarray | None = field(default=None, repr=False)
     _loader: Callable[[], np.ndarray] | None = field(default=None, repr=False)
     _dtype: np.dtype | None = field(default=None, repr=False)
@@ -111,15 +112,47 @@ class MeshVariable:
         return result
 
     @property
+    def time_index(self) -> int | None:
+        """Axis of the real time dimension, or `None` when the variable is not temporal.
+
+        Identifies the time axis by name from `dimensions` (a dimension named `time`/`t`, or
+        `time…`/`…_time`/`…_time_…` per the CF/UGRID convention) rather than assuming any extra axis
+        is time. The word-boundary match avoids substring false-positives like `runtime` / `lifetime`
+        / `daytime`, and a non-temporal multi-dimensional variable such as `(n_layers, n_face)`
+        reports `None` (ARC-19). When `dimensions` is unknown — e.g. an array-built variable that
+        carries no dimension names — it falls back to the historical heuristic (leading axis of a
+        >1-D array).
+
+        Returns:
+            The 0-based index of the time axis, or `None` if the variable has no time dimension.
+        """
+        if self.dimensions:
+            for axis, dim in enumerate(self.dimensions):
+                lowered = dim.lower()
+                if (
+                    lowered in ("t", "time")
+                    or lowered.startswith("time")
+                    or lowered.endswith("_time")
+                    or "_time_" in lowered
+                ):
+                    return axis
+            return None
+        return 0 if len(self.shape) > 1 else None
+
+    @property
     def has_time(self) -> bool:
-        """True if the data has a time dimension (2D or higher)."""
-        result = len(self.shape) > 1
-        return result
+        """True when the variable has a real time dimension.
+
+        Unlike a bare `ndim > 1` test, this is driven by `time_index`, so a non-temporal
+        `(n_layers, n_face)` variable is not mis-flagged as temporal (ARC-19).
+        """
+        return self.time_index is not None
 
     @property
     def n_time_steps(self) -> int:
-        """Number of time steps. Returns 0 if no time dimension."""
-        result = self.shape[0] if self.has_time else 0
+        """Number of time steps. Returns 0 if the variable has no time dimension."""
+        idx = self.time_index
+        result = self.shape[idx] if idx is not None and self.shape else 0
         return result
 
     @property
@@ -203,6 +236,7 @@ class MeshVariable:
             nodata=self.nodata,
             units=self.units,
             standard_name=self.standard_name,
+            dimensions=self.dimensions,
             _data=data,
         )
 

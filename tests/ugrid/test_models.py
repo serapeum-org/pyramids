@@ -355,6 +355,86 @@ class TestMeshVariable:
         """
         assert temporal_var.has_time is True, "Expected has_time=True for 2D variable"
 
+    def test_has_time_false_for_nontemporal_2d_dims(self):
+        """A `(n_layers, n_face)` variable with real dim names is NOT flagged temporal (ARC-19)."""
+        var = MeshVariable(
+            name="salinity",
+            location="face",
+            mesh_name="mesh2d",
+            shape=(4, 5),
+            dimensions=("nmesh2d_layer", "nmesh2d_face"),
+            _data=np.zeros((4, 5)),
+        )
+        assert var.has_time is False, (
+            "a layered non-temporal variable must not be temporal"
+        )
+        assert var.time_index is None, (
+            f"time_index should be None, got {var.time_index}"
+        )
+        assert var.n_time_steps == 0, (
+            f"n_time_steps should be 0, got {var.n_time_steps}"
+        )
+
+    def test_has_time_true_for_named_time_dim(self):
+        """A leading `time` dimension is detected as the time axis (ARC-19)."""
+        var = MeshVariable(
+            name="water_level",
+            location="face",
+            mesh_name="mesh2d",
+            shape=(3, 5),
+            dimensions=("time", "nmesh2d_face"),
+            _data=np.zeros((3, 5)),
+        )
+        assert var.has_time is True, (
+            "a variable with a 'time' dimension must be temporal"
+        )
+        assert var.time_index == 0, f"time_index should be 0, got {var.time_index}"
+        assert var.n_time_steps == 3, (
+            f"n_time_steps should be 3, got {var.n_time_steps}"
+        )
+
+    def test_has_time_falls_back_to_ndim_without_dim_names(self):
+        """With no dimension names, has_time keeps the historical >1-D heuristic (ARC-19 fallback)."""
+        var = MeshVariable(
+            name="v",
+            location="face",
+            mesh_name="m",
+            shape=(3, 5),
+            _data=np.zeros((3, 5)),
+        )
+        assert var.has_time is True, (
+            "a 2-D variable with unknown dims falls back to temporal"
+        )
+        assert var.time_index == 0, (
+            f"fallback time_index should be 0, got {var.time_index}"
+        )
+
+    @pytest.mark.parametrize(
+        "name, is_time",
+        [
+            ("runtime", False),
+            ("lifetime", False),
+            ("daytime", False),
+            ("t", True),
+            ("time", True),
+            ("time1", True),
+            ("nmesh2d_data_time", True),
+        ],
+    )
+    def test_time_dim_name_word_boundary_matching(self, name, is_time):
+        """`t`/`time`/`…_time` are temporal; substring-only names like `runtime` are not (review L3)."""
+        var = MeshVariable(
+            name="v",
+            location="face",
+            mesh_name="m",
+            shape=(2, 3),
+            dimensions=(name, "nmesh2d_face"),
+            _data=np.zeros((2, 3)),
+        )
+        assert var.has_time is is_time, (
+            f"{name!r}: expected has_time={is_time}, got {var.has_time}"
+        )
+
     def test_n_time_steps_no_time(self, face_var_1d):
         """Test n_time_steps returns 0 for non-temporal variable.
 

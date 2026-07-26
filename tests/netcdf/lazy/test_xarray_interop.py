@@ -19,7 +19,76 @@ xr = pytest.importorskip("xarray")
 pytestmark = pytest.mark.xarray
 
 from pyramids.dataset import Dataset
+from pyramids.netcdf.engines.interop import _encode_temporal_array
 from pyramids.netcdf.netcdf import NetCDF
+
+
+class TestEncodeTemporalArray:
+    """_encode_temporal_array encodes temporal dtypes to CF-numeric seconds (ARC-17)."""
+
+    def test_datetime64_encodes_to_seconds_since_epoch(self):
+        """datetime64 becomes float64 seconds with a CF units + calendar attribute."""
+        vals = np.array(
+            ["1970-01-01T00:00:01", "1970-01-01T00:00:02"], dtype="datetime64[ns]"
+        )
+        encoded, attrs = _encode_temporal_array(vals)
+        assert encoded.dtype == np.float64, f"expected float64, got {encoded.dtype}"
+        assert_allclose(
+            encoded, [1.0, 2.0], err_msg="datetime64 should map to seconds since epoch"
+        )
+        assert "since" in attrs["units"], f"expected a 'since' unit, got {attrs}"
+        assert attrs["calendar"] == "proleptic_gregorian", (
+            f"unexpected calendar in {attrs}"
+        )
+
+    def test_timedelta64_encodes_to_seconds(self):
+        """timedelta64 becomes float64 seconds with a plain 'seconds' unit."""
+        vals = np.array([1_000_000_000, 2_000_000_000], dtype="timedelta64[ns]")
+        encoded, attrs = _encode_temporal_array(vals)
+        assert_allclose(
+            encoded, [1.0, 2.0], err_msg="timedelta64 should map to seconds"
+        )
+        assert attrs == {"units": "seconds"}, f"unexpected attrs {attrs}"
+
+    def test_datetime64_nat_encodes_to_nan(self):
+        """A NaT encodes to NaN (a missing instant), not a bogus finite ~1677 timestamp (review M2)."""
+        vals = np.array(["2020-01-01", "NaT", "2020-01-03"], dtype="datetime64[ns]")
+        encoded, _ = _encode_temporal_array(vals)
+        assert np.isnan(encoded[1]), f"NaT must encode to NaN, got {encoded[1]}"
+        assert np.isfinite(encoded[0]) and np.isfinite(encoded[2]), (
+            "real instants must stay finite"
+        )
+
+    def test_timedelta64_nat_encodes_to_nan(self):
+        """A NaT in a timedelta64 array encodes to NaN, not the int64-sentinel value (review M2)."""
+        vals = np.array([1_000_000_000, "NaT"], dtype="timedelta64[ns]")
+        encoded, _ = _encode_temporal_array(vals)
+        assert np.isnan(encoded[1]), f"NaT must encode to NaN, got {encoded[1]}"
+        assert encoded[0] == 1.0, f"real timedelta must stay finite, got {encoded[0]}"
+
+    def test_scalar_datetime64_encodes_without_crash(self):
+        """A 0-d datetime64 encodes to a finite 0-d value (no in-place-assignment crash) (r2 M1)."""
+        encoded, _ = _encode_temporal_array(
+            np.array("2020-06-01", dtype="datetime64[ns]")
+        )
+        assert np.ndim(encoded) == 0, (
+            f"expected a 0-d result, got shape {np.shape(encoded)}"
+        )
+        assert np.isfinite(encoded), f"a real instant must encode finite, got {encoded}"
+
+    def test_scalar_nat_encodes_to_nan(self):
+        """A 0-d NaT encodes to NaN rather than crashing on item assignment (r2 M1)."""
+        encoded, _ = _encode_temporal_array(np.array("NaT", dtype="datetime64[ns]"))
+        assert np.isnan(encoded), f"a 0-d NaT must encode to NaN, got {encoded}"
+
+    def test_non_temporal_array_passes_through_unchanged(self):
+        """A numeric array is returned unchanged with no CF attributes."""
+        vals = np.array([1.5, 2.5, 3.5])
+        encoded, attrs = _encode_temporal_array(vals)
+        assert encoded is vals, "a non-temporal array must be returned unchanged"
+        assert attrs == {}, f"expected no attrs for a non-temporal array, got {attrs}"
+
+
 from tests.netcdf.conftest import make_3d_nc
 
 
@@ -321,6 +390,36 @@ class TestToXarrayFileBacked:
         ds = nc.to_xarray()
         assert "z" in ds.data_vars, "'z' should be in data_vars"
         assert "q" in ds.data_vars, "'q' should be in data_vars"
+
+
+class TestFromXarrayDatetimeCoord:
+    """from_xarray() handles a CF-decoded datetime64 time coordinate (ARC-17)."""
+
+    def test_datetime64_time_coord_does_not_crash(self):
+        """A Dataset with a datetime64[ns] `time` coord builds without raising, preserving the data.
+
+        Test scenario:
+            The default `decode_cf=True` yields a datetime64 time axis, which numpy_to_gdal_dtype
+            cannot map — from_xarray used to raise. The time axis is now encoded to CF-numeric seconds,
+            so the container is created and the data variable round-trips unchanged.
+        """
+        times = np.array(
+            ["2020-01-01", "2020-01-02", "2020-01-03"], dtype="datetime64[ns]"
+        )
+        data = np.arange(3 * 2 * 2, dtype=np.float64).reshape(3, 2, 2)
+        ds = xr.Dataset(
+            {"t2m": (("time", "lat", "lon"), data)},
+            # lat descends (already north-up) so the read is not flipped and the data compares directly.
+            coords={"time": times, "lat": [11.0, 10.0], "lon": [20.0, 21.0]},
+        )
+        nc = NetCDF.from_xarray(ds)
+        assert "t2m" in nc.variable_names, f"expected 't2m' in {nc.variable_names}"
+        got = np.asarray(nc.get_variable("t2m").read_array())
+        assert_allclose(
+            got,
+            data,
+            err_msg="t2m data should survive from_xarray with a datetime64 time coord",
+        )
 
 
 class TestFromXarrayRoundTrip:

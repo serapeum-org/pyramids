@@ -104,6 +104,19 @@ class TestChunksLazy:
         arr = three_d_var.read_array(chunks=1)
         assert isinstance(arr, dask_array.Array)
 
+    def test_identical_reads_share_deterministic_graph_name(self, three_d_var):
+        """Two identical lazy reads get the same tokenized graph name so dask can dedupe them (ARC-76).
+
+        The graph name used to embed `id(manager)`, giving every read a fresh name and defeating
+        dask's common-subexpression elimination; a content-addressed token makes identical reads share
+        one name.
+        """
+        first = three_d_var.read_array(chunks="auto")
+        second = three_d_var.read_array(chunks="auto")
+        assert first.name == second.name, (
+            f"identical reads should share a name, got {first.name!r} vs {second.name!r}"
+        )
+
     def test_window_with_chunks_raises(self, three_d_var):
         """`read_array(window=, chunks=)` raises instead of silently ignoring the window (#728 M1).
 

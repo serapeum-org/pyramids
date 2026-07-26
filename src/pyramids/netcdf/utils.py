@@ -485,6 +485,27 @@ def _parse_units_origin(units: str) -> tuple[str, datetime]:
     return unit.lower(), origin_dt
 
 
+def _is_standard_calendar(calendar: str | None) -> bool:
+    """True for the Gregorian family (`standard` / `gregorian` / `proleptic_gregorian`), case-insensitive.
+
+    Single source for the standard-vs-non-standard calendar split so the CF time helpers cannot drift on
+    the accepted set or its casing (ARC-69). `create_time_conversion_func` lowercased its check but
+    `decode_cf_time` did not, so a capitalised `"Gregorian"`/`"Standard"` was mis-classified as
+    non-standard by the latter.
+
+    Args:
+        calendar: The CF calendar name (``None`` is treated as ``"standard"``).
+
+    Returns:
+        bool: `True` when `calendar` names a proleptic-Gregorian-compatible calendar.
+    """
+    return (calendar or "standard").lower() in (
+        "standard",
+        "gregorian",
+        "proleptic_gregorian",
+    )
+
+
 def create_time_conversion_func(
     units: str,
     out_format: str = "%Y-%m-%d %H:%M:%S",
@@ -553,7 +574,7 @@ def create_time_conversion_func(
     """
     converter = None
 
-    if calendar.lower() not in ("standard", "proleptic_gregorian", "gregorian"):
+    if not _is_standard_calendar(calendar):
 
         def convert_cftime(value):
             dt = cftime.num2date(value, units, calendar)
@@ -605,7 +626,7 @@ def decode_cf_time(
     """
     if not unit or " since " not in unit:
         return values
-    standard = calendar in ("standard", "gregorian", "proleptic_gregorian")
+    standard = _is_standard_calendar(calendar)
     decoded = np.asarray(
         cftime.num2date(values, unit, calendar, only_use_cftime_datetimes=not standard)
     )
@@ -632,18 +653,76 @@ def encode_cf_time(value: Any, unit: str, calendar: str = "standard") -> float:
     Returns:
         float: ``value`` expressed in ``unit`` on the given ``calendar``.
     """
-    ts = pd.Timestamp(value)
+    year, month, day, hour, minute, second, microsecond = _datetime_components(value)
     dt = cftime.datetime(
-        ts.year,
-        ts.month,
-        ts.day,
-        ts.hour,
-        ts.minute,
-        ts.second,
-        ts.microsecond,
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        microsecond,
         calendar=calendar,
     )
     return float(cftime.date2num(dt, unit, calendar))
+
+
+def _datetime_components(value: Any) -> tuple[int, int, int, int, int, int, int]:
+    """Extract ``(year, month, day, hour, minute, second, microsecond)`` without Gregorian validation.
+
+    ``encode_cf_time`` funnelled its input through ``pandas.Timestamp``, which is proleptic-Gregorian
+    and nanosecond-bounded, so a date valid only on a ``360_day`` / ``noleap`` calendar (e.g. month
+    day 30 in February) raised before it ever reached ``cftime`` (ARC-30). Pull the calendar fields
+    out directly instead: from an object exposing ``year``/``month``/``day`` (``datetime`` /
+    ``cftime.datetime`` / ``pandas.Timestamp``), or by parsing an ISO ``YYYY-MM-DD[ HH:MM:SS]`` string
+    without any Gregorian range check. Only genuinely non-ISO strings fall back to ``pandas``.
+
+    Args:
+        value: A date string, ``datetime``-like object, or ``cftime.datetime``.
+
+    Returns:
+        The seven calendar components as ints.
+    """
+    if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+        return (
+            int(value.year),
+            int(value.month),
+            int(value.day),
+            int(getattr(value, "hour", 0)),
+            int(getattr(value, "minute", 0)),
+            int(getattr(value, "second", 0)),
+            int(getattr(value, "microsecond", 0)),
+        )
+    match = re.match(
+        r"\s*(\d{1,4})-(\d{1,2})-(\d{1,2})"
+        r"(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}(?:\.\d+)?))?)?\s*$",
+        str(value),
+    )
+    if match is None:
+        ts = pd.Timestamp(value)
+        return (
+            ts.year,
+            ts.month,
+            ts.day,
+            ts.hour,
+            ts.minute,
+            ts.second,
+            ts.microsecond,
+        )
+    seconds_float = float(match.group(6)) if match.group(6) else 0.0
+    whole_seconds = int(seconds_float)
+    # Clamp so a value like "59.9999995" whose fraction rounds up to 1_000_000 does not exceed
+    # cftime's microsecond range (0..999_999) and raise (review N1).
+    microsecond = min(int(round((seconds_float - whole_seconds) * 1_000_000)), 999_999)
+    return (
+        int(match.group(1)),
+        int(match.group(2)),
+        int(match.group(3)),
+        int(match.group(4)) if match.group(4) else 0,
+        int(match.group(5)) if match.group(5) else 0,
+        whole_seconds,
+        microsecond,
+    )
 
 
 def _dtype_to_str(dt: Any) -> str:
