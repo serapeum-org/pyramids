@@ -140,10 +140,31 @@ def test_inherited_footprint(tos_view):
     )
 
 
-def test_recreate_overviews_requires_write(tos_view):
-    """recreate_overviews regenerates overviews and so requires a writable dataset."""
-    with pytest.raises(ReadOnlyError):
-        tos_view.recreate_overviews()
+def test_recreate_overviews_requires_write(sample, tmp_path):
+    """recreate_overviews regenerates existing overviews, so on a read-only dataset it raises.
+
+    Test scenario:
+        Build external overviews on a tmp copy, reopen it read-only, then `recreate_overviews` must
+        raise `ReadOnlyError` (regenerating needs write access). Self-contained on a tmp copy: it no
+        longer depends on another test having built overviews on the shared fixture first, and writes
+        no `.ovr` into tests/data.
+    """
+    work = shutil.copy(sample("cf__7v__1d3-2d3-3d1__y-asc.nc"), tmp_path / "tos.nc")
+
+    builder = NetCDF.read_file(str(work))
+    try:
+        builder.get_variable(
+            "tos"
+        ).create_overviews()  # external .ovr so overviews now exist
+    finally:
+        builder.close()
+
+    nc = NetCDF.read_file(str(work))  # fresh read-only reopen sees the overviews
+    try:
+        with pytest.raises(ReadOnlyError):
+            nc.get_variable("tos").recreate_overviews()
+    finally:
+        nc.close()
 
 
 def test_overview_ops_isolated_to_temp_copy(sample, tmp_path):
