@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import glob
 import os
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -348,24 +350,28 @@ class TestTilingSourcePreparation:
 
     @staticmethod
     def _capture_source(monkeypatch) -> list:
-        """Record the dataset `_terrain_rgb_tiles` is handed, without tiling.
+        """Record what `_terrain_rgb_tiles` is handed, without tiling.
+
+        Inspects the dataset inside the spy rather than storing it: the staged
+        source is closed and deleted by the time `to_terrain_rgb` returns, so a
+        stored handle would be dead when the assertions run.
 
         Args:
             monkeypatch: pytest's monkeypatch fixture.
 
         Returns:
-            list: filled with one entry -- `(overview_count, is_the_original)` --
-            once `to_terrain_rgb(tiles=True)` runs.
+            list: filled with one `(overview_count, raster_handle)` tuple once
+            `to_terrain_rgb(tiles=True)` runs.
         """
         seen: list = []
-        original = IO._terrain_rgb_tiles
 
         def spy(self, source, path, **kwargs):
-            seen.append(source)
+            seen.append(
+                (source.raster.GetRasterBand(1).GetOverviewCount(), source.raster)
+            )
             return path
 
         monkeypatch.setattr(IO, "_terrain_rgb_tiles", spy)
-        assert original is not spy, "the spy must replace the real tiler"
         return seen
 
     def test_a_reprojected_source_is_staged_with_overviews(self, tmp_path, monkeypatch):
@@ -386,9 +392,7 @@ class TestTilingSourcePreparation:
         )
         dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5)
         assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
-        assert seen[0].raster.GetRasterBand(1).GetOverviewCount() > 0, (
-            "the staged tiling source must carry overviews"
-        )
+        assert seen[0][0] > 0, "the staged tiling source must carry overviews"
 
     def test_a_source_already_in_3857_is_staged_too(self, tmp_path, monkeypatch):
         """The common pre-prepared case gets the pyramid as well.
@@ -407,10 +411,10 @@ class TestTilingSourcePreparation:
         )
         dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5)
         assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
-        assert seen[0].raster is not dem.raster, (
+        assert seen[0][1] is not dem.raster, (
             "a source already in EPSG:3857 must still be staged, not read directly"
         )
-        assert seen[0].raster.GetRasterBand(1).GetOverviewCount() > 0, (
+        assert seen[0][0] > 0, (
             "a source already in EPSG:3857 must be staged with overviews too"
         )
 
@@ -479,4 +483,87 @@ class TestOverviewLevelsForTiling:
         """
         assert _overview_levels_for_tiling(4096, 300, 256) == (2, 4, 8, 16), (
             f"got {_overview_levels_for_tiling(4096, 300, 256)}"
+        )
+
+
+class TestTilingScratchCleanup:
+    """H3/M2: the staged source lives on disk and is removed on every path."""
+
+    @staticmethod
+    def _scratch_dirs() -> set[str]:
+        """Temp directories this method has staged into.
+
+        Returns:
+            set[str]: full paths of every live staging directory.
+        """
+        root = Path(tempfile.gettempdir())
+        return {str(p) for p in root.glob("pyramids_terrain_rgb_*")}
+
+    @pytest.fixture(scope="function")
+    def dem(self) -> Dataset:
+        """A 600x600 EPSG:3857 DEM, big enough to warrant a pyramid."""
+        return Dataset.create_from_array(
+            arr=np.linspace(0.0, 8848.0, 600 * 600, dtype="float32").reshape(600, 600),
+            geo=_GEO_3857,
+            epsg=3857,
+        )
+
+    def test_the_staged_source_is_removed_after_a_successful_run(self, dem, tmp_path):
+        """Tiling leaves no temp directory behind.
+
+        Test scenario:
+            The staging exists only for the duration of the tiling; keeping it
+            would leak a full copy of the reprojected raster per call.
+        """
+        before = self._scratch_dirs()
+        dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=4)
+        assert self._scratch_dirs() == before, (
+            f"tiling left a staging directory behind: {self._scratch_dirs() - before}"
+        )
+
+    def test_a_failure_during_staging_is_cleaned_up(self, dem, tmp_path, monkeypatch):
+        """A raise between the copy and the tiling still removes the scratch.
+
+        Test scenario:
+            The staging used to sit outside the try/finally that cleans it up,
+            so an allocation failure in CreateCopy or an unsupported
+            BuildOverviews stranded a copy of the whole raster for the lifetime
+            of the process -- the same defect the orthorectify cleanup was filed
+            for, one function over.
+        """
+        before = self._scratch_dirs()
+
+        def explode(self, *args, **kwargs):
+            raise RuntimeError("synthetic BuildOverviews failure")
+
+        monkeypatch.setattr(gdal.Dataset, "BuildOverviews", explode)
+        with pytest.raises(RuntimeError, match="synthetic BuildOverviews failure"):
+            dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=4)
+        assert self._scratch_dirs() == before, (
+            f"a failed staging left {self._scratch_dirs() - before} behind"
+        )
+
+    def test_the_source_is_staged_on_disk_not_in_memory(self, dem, tmp_path, monkeypatch):
+        """The intermediate is a real file, so a continental DEM streams.
+
+        Test scenario:
+            /vsimem and MEM are both process heap, so staging into either holds
+            the whole reprojected raster in memory -- on the continental DEMs
+            this method targets that is an allocation failure, not a slowdown.
+            Captures the path the staged dataset was opened from.
+        """
+        seen: list = []
+
+        def spy(self, source, path, **kwargs):
+            seen.append(source.raster.GetDescription())
+            return path
+
+        monkeypatch.setattr(IO, "_terrain_rgb_tiles", spy)
+        dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=4)
+        assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
+        assert not seen[0].startswith("/vsimem"), (
+            f"the staged source must not live in process memory, got {seen[0]!r}"
+        )
+        assert "pyramids_terrain_rgb_" in seen[0], (
+            f"expected an on-disk staging path, got {seen[0]!r}"
         )

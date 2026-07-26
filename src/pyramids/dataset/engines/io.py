@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import math
 import pickle  # nosec B403 - PicklingError only, no load
+import shutil
+import tempfile
 import threading
 import warnings
 from collections.abc import Callable, Generator, Sequence
@@ -83,6 +85,13 @@ is cheaper than a per-dataset one.
 
 
 
+# Tiling reads the reprojected source once per tile per zoom level. Building a
+# pyramid on it lets GDAL answer a low-zoom tile from a decimated level instead
+# of resampling full-resolution pixels every time. "average" suits the
+# continuous elevation data terrain-RGB encodes.
+_OVERVIEW_RESAMPLING_FOR_TILES = "average"
+
+
 def _overview_levels_for_tiling(
     width: int, height: int, tile_size: int
 ) -> tuple[int, ...]:
@@ -109,6 +118,24 @@ def _overview_levels_for_tiling(
         levels.append(factor)
         factor *= 2
     return tuple(levels)
+
+
+
+def _validate_zoom_range(min_zoom: int, max_zoom: int | None) -> None:
+    """Reject a zoom range that cannot produce tiles.
+
+    Args:
+        min_zoom: Lowest XYZ zoom level requested.
+        max_zoom: Highest XYZ zoom level, or `None` to derive it from the
+            source resolution.
+
+    Raises:
+        ValueError: `min_zoom` is negative, or `max_zoom` is below it.
+    """
+    if min_zoom < 0:
+        raise ValueError(f"min_zoom must be >= 0, got {min_zoom}.")
+    if max_zoom is not None and max_zoom < min_zoom:
+        raise ValueError(f"max_zoom ({max_zoom}) must be >= min_zoom ({min_zoom}).")
 
 
 def _validate_band_index(band: int | None, band_count: int) -> None:
@@ -221,11 +248,6 @@ def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
         )
 
 
-# Tiling reads the reprojected source once per tile per zoom level. Building a
-# pyramid on it lets GDAL answer a low-zoom tile from a decimated level instead
-# of resampling full-resolution pixels every time. "average" suits the
-# continuous elevation data terrain-RGB encodes.
-_OVERVIEW_RESAMPLING_FOR_TILES = "average"
 
 _TERRAIN_RGB_ENCODINGS = ("mapbox", "terrarium")
 """Supported terrain-RGB elevation encodings (Mapbox Terrain-RGB / Mapzen Terrarium)."""
@@ -2592,12 +2614,25 @@ class IO(_Engine["Dataset"]):
             interval: Mapbox metres-per-encoded-unit. Default ``0.1``. Ignored
                 for terrarium.
             resampling: Resampling for reprojection / tile warping. Default
-                ``"bilinear"``.
+                ``"bilinear"``. Governs the reprojection and the per-tile warp;
+                the overview pyramid built for tiling always decimates with
+                ``"average"``, which suits continuous elevation.
             band: Zero-based elevation band index. Default ``0``.
 
         Returns:
             Path: The written file (``tiles=False``) or the tile-root directory
             (``tiles=True``).
+
+        Notes:
+            With ``tiles=True`` the source is first copied to a temporary GTiff
+            in the system temp directory and given an overview pyramid, then
+            removed when the call returns. Tiling otherwise reads the source
+            once per tile per zoom level, re-warping from the original every
+            time. Budget disk -- not memory -- for roughly the size of the
+            reprojected raster plus a third for its pyramid. Tiles below the
+            source's native zoom are resampled from those ``"average"``
+            overviews, so their encoded elevations differ slightly from a warp
+            of the full-resolution pixels.
 
         Raises:
             ValueError: ``encoding`` is not ``"mapbox"``/``"terrarium"``,
@@ -2634,10 +2669,11 @@ class IO(_Engine["Dataset"]):
             raise ValueError(
                 f"interval must be positive for mapbox encoding, got {interval}."
             )
-        if min_zoom < 0:
-            raise ValueError(f"min_zoom must be >= 0, got {min_zoom}.")
-        if tiles and max_zoom is not None and max_zoom < min_zoom:
-            raise ValueError(f"max_zoom ({max_zoom}) must be >= min_zoom ({min_zoom}).")
+        if tiles:
+            # Ahead of the reprojection and the staging, so a bad zoom range
+            # costs nothing. `_terrain_rgb_tiles` re-checks once `max_zoom` is
+            # resolved from the source resolution.
+            _validate_zoom_range(min_zoom, max_zoom)
         _validate_band_index(band, self._ds.band_count)
         # Validate the resampling name once (also reused by the per-tile warp).
         resample_alg = resolve_resampling(resampling)
@@ -2646,32 +2682,35 @@ class IO(_Engine["Dataset"]):
             if self._ds.epsg == 3857
             else self._ds.to_crs(3857, method=resampling)
         )
-        overview_scratch: str | None = None
-        if tiles:
-            # Tiling reads the source once per tile per zoom level. Two costs to
-            # remove: `to_crs` hands back a warped VRT that re-warps from the
-            # original on every read, and without a pyramid every low-zoom tile
-            # resamples full-resolution pixels.
-            #
-            # Staged as a GTiff in /vsimem rather than a MEM copy: MEM would hold
-            # the whole reprojected raster in process memory, and `to_terrain_rgb`
-            # is most often pointed at a continental DEM. GTiff also stores the
-            # overviews in the file rather than alongside it. Applied whether or
-            # not a reprojection happened -- a source already in EPSG:3857 needs
-            # the pyramid just as much, and skipping it left the common
-            # pre-prepared case paying full-resolution reads per tile.
-            overview_scratch = new_vsimem_path(".tif")
-            staged = gdal.GetDriverByName("GTiff").CreateCopy(
-                overview_scratch, source.raster
-            )
-            levels = _overview_levels_for_tiling(
-                staged.RasterXSize, staged.RasterYSize, tile_size
-            )
-            if levels:
-                staged.BuildOverviews(_OVERVIEW_RESAMPLING_FOR_TILES, list(levels))
-            source = self._ds.__class__(staged)
+        staged = None
+        scratch_dir: str | None = None
         try:
             if tiles:
+                # Tiling reads the source once per tile per zoom level. Two costs
+                # to remove: `to_crs` hands back a warped VRT that re-warps from
+                # the original on every read, and without a pyramid every
+                # low-zoom tile resamples full-resolution pixels.
+                #
+                # Staged on disk, not in /vsimem or MEM. Both of those are
+                # process memory, so either would hold the whole reprojected
+                # raster in the heap -- and `to_terrain_rgb` is most often
+                # pointed at a continental DEM, where that is an allocation
+                # failure rather than a slowdown. An on-disk GTiff streams, and
+                # carries its overviews in the same file. Applied whether or not
+                # a reprojection happened: a source already in EPSG:3857 needs
+                # the pyramid just as much, and skipping it left the common
+                # pre-prepared case paying full-resolution reads per tile.
+                scratch_dir = tempfile.mkdtemp(prefix="pyramids_terrain_rgb_")
+                scratch_path = str(Path(scratch_dir) / "source.tif")
+                staged = gdal.GetDriverByName("GTiff").CreateCopy(
+                    scratch_path, source.raster
+                )
+                levels = _overview_levels_for_tiling(
+                    staged.RasterXSize, staged.RasterYSize, tile_size
+                )
+                if levels:
+                    staged.BuildOverviews(_OVERVIEW_RESAMPLING_FOR_TILES, list(levels))
+                source = self._ds.__class__(staged)
                 result = self._terrain_rgb_tiles(
                     source,
                     Path(path),
@@ -2694,11 +2733,22 @@ class IO(_Engine["Dataset"]):
                     interval=interval,
                 )
         finally:
-            if overview_scratch is not None:
-                # Drop our reference before unlinking so GDAL is not holding the
-                # file open when the /vsimem entry goes away.
+            if scratch_dir is not None:
+                # Close explicitly rather than relying on the refcount:
+                # Windows refuses to unlink a file GDAL still holds open, and on
+                # the failure path the propagating exception's traceback keeps
+                # the frame -- and any handle it names -- alive past this block.
+                # `ignore_errors` so a cleanup that still fails leaves a stray
+                # temp directory rather than replacing the exception the caller
+                # needs to see. The staging sits inside the `try` so a failure
+                # between the copy and the tiling -- an allocation failure in
+                # `CreateCopy`, an unsupported `BuildOverviews` -- is cleaned up
+                # too.
                 source = None
-                silent_unlink(overview_scratch)
+                if staged is not None:
+                    staged.Close()
+                    staged = None
+                shutil.rmtree(scratch_dir, ignore_errors=True)
         return result
 
     @staticmethod
@@ -2769,8 +2819,7 @@ class IO(_Engine["Dataset"]):
         south = north + source.rows * gt[5]
         if max_zoom is None:
             max_zoom = self._native_terrain_zoom(abs(gt[1]), tile_size, min_zoom)
-        if max_zoom < min_zoom:
-            raise ValueError(f"max_zoom ({max_zoom}) must be >= min_zoom ({min_zoom}).")
+        _validate_zoom_range(min_zoom, max_zoom)
         nodata = source.no_data_value[band]
         path.mkdir(parents=True, exist_ok=True)
         for zoom in range(min_zoom, max_zoom + 1):
