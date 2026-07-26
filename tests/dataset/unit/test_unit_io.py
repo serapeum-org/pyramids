@@ -163,7 +163,7 @@ class TestReadArray:
 
     def test_read_array_invalid_band_raises(self, single_band_dataset):
         """Reading a non-existent band should raise ValueError."""
-        with pytest.raises(ValueError, match="band index"):
+        with pytest.raises(ValueError, match="is out of range for a"):
             single_band_dataset.read_array(band=5)
 
     def test_read_array_window(self, single_band_dataset):
@@ -190,13 +190,13 @@ class TestReadArray:
         `IndexError`. After centralising the band-bounds check the
         eager path raises a `ValueError` mentioning the valid range.
         """
-        with pytest.raises(ValueError, match="band index should be between"):
+        with pytest.raises(ValueError, match="is out of range for a"):
             single_band_dataset.read_array(band=-1)
 
     @pytest.mark.lazy
     def test_read_array_negative_band_lazy_raises(self, single_band_dataset):
         """Lazy path: negative band index rejected with same error."""
-        with pytest.raises(ValueError, match="band index should be between"):
+        with pytest.raises(ValueError, match="is out of range for a"):
             single_band_dataset.read_array(band=-1, chunks="auto")
 
 
@@ -571,7 +571,7 @@ class TestOverviews:
         )
         ds = Dataset.read_file(path, read_only=False)
         ds.create_overviews(overview_levels=[2])
-        with pytest.raises(ValueError, match="band index"):
+        with pytest.raises(ValueError, match="is out of range for a"):
             ds.read_overview_array(band=99, overview_index=0)
 
 

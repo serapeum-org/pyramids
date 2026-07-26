@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine, logger
+from pyramids.dataset.engines._validate import validate_band_index
 
 # Search order for the nearest valid neighbour: the four orthogonals first
 # (right, left, bottom, top), then the diagonals. Matches the order the original
@@ -165,10 +166,7 @@ class Vectorize(_Engine["Dataset"]):
             raise ValueError(f"interval must be positive, got {interval!r}.")
         if fixed_levels is not None and len(fixed_levels) == 0:
             raise ValueError("fixed_levels must contain at least one level.")
-        if band < 0 or band >= self._ds.band_count:
-            raise ValueError(
-                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
-            )
+        validate_band_index(band, self._ds.band_count)
 
         gdal_band = self._ds.raster.GetRasterBand(band + 1)
         srs = sr_from_wkt(self._ds.crs)

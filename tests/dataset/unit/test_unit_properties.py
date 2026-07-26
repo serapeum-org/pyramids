@@ -812,7 +812,7 @@ class TestBandColorSetter:
 
     def test_band_color_invalid_index_raises(self, single_band_dataset):
         """band_color setter with index > band_count should raise."""
-        with pytest.raises(ValueError, match="band index"):
+        with pytest.raises(ValueError, match="is out of range for a"):
             single_band_dataset.band_color = {10: "red"}
 
 

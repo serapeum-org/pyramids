@@ -54,6 +54,10 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._validate import (
+    validate_band_index,
+    window_out_of_bounds,
+)
 
 _VSIMEM_PREFIX = "/vsimem/"
 
@@ -134,24 +138,6 @@ def _validate_zoom_range(min_zoom: int, max_zoom: int | None) -> None:
         raise ValueError(f"min_zoom must be >= 0, got {min_zoom}.")
     if max_zoom is not None and max_zoom < min_zoom:
         raise ValueError(f"max_zoom ({max_zoom}) must be >= min_zoom ({min_zoom}).")
-
-
-def _validate_band_index(band: int | None, band_count: int) -> None:
-    """Raise ``ValueError`` if `band` is outside the valid range.
-
-    Treats `None` as a no-op (caller hasn't selected a specific
-    band yet). Validates against the closed interval
-    `[0, band_count - 1]` — both negative indices and
-    out-of-upper-bound indices raise. Centralised so all three
-    band-aware entry points (`read_array` eager, `_lazy_read_array`,
-    `read_overview`) agree on the contract.
-    """
-    if band is None:
-        return
-    if band < 0 or band > band_count - 1:
-        raise ValueError(
-            f"band index should be between 0 and {band_count - 1}, got {band}"
-        )
 
 
 def _validate_out_shape(out_shape: Any) -> tuple[int, int]:
@@ -860,7 +846,7 @@ class IO(_Engine["Dataset"]):
                         axis=0,
                     )
             else:
-                _validate_band_index(band, self._ds.band_count)
+                validate_band_index(band, self._ds.band_count)
                 if band is None:
                     band = 0
                 if window is None:
@@ -931,7 +917,7 @@ class IO(_Engine["Dataset"]):
                 "read_array(threadsafe=True) on a closed Dataset; re-open "
                 "it with Dataset.read_file first."
             )
-        _validate_band_index(band, self._ds.band_count)
+        validate_band_index(band, self._ds.band_count)
         if isinstance(window, Window):
             # Accept the first-class Window like every other read path does.
             window = list(window.to_read_args())
@@ -956,9 +942,8 @@ class IO(_Engine["Dataset"]):
         except RuntimeError as exc:
             # Same contract as the default path's _read_block.
             if "Access window out of range" in str(exc):
-                raise OutOfBoundsError(
-                    f"The window you entered ({window}) is out of the raster "
-                    f"bounds: {self._ds.rows, self._ds.columns}"
+                raise window_out_of_bounds(
+                    window, self._ds.rows, self._ds.columns
                 ) from exc
             raise
         return np.asarray(arr)
@@ -1185,7 +1170,7 @@ class IO(_Engine["Dataset"]):
             from dask.array.core import normalize_chunks
         except ImportError as exc:
             raise ImportError(_LAZY_IMPORT_ERROR) from exc
-        _validate_band_index(band, self._ds.band_count)
+        validate_band_index(band, self._ds.band_count)
         single_band = band is not None or self._ds.band_count == 1
         dtype = np.dtype(self._ds.numpy_dtype[0])
         if single_band:
@@ -1319,7 +1304,7 @@ class IO(_Engine["Dataset"]):
             window_args = tuple(int(value) for value in window)
         else:
             window_args = ()
-        _validate_band_index(band, self._ds.band_count)
+        validate_band_index(band, self._ds.band_count)
         if band is None and self._ds.band_count > 1:
             arr = np.stack(
                 [
@@ -1371,9 +1356,8 @@ class IO(_Engine["Dataset"]):
         except RuntimeError as exc:
             if "Access window out of range in RasterIO()" not in str(exc):
                 raise
-            raise OutOfBoundsError(
-                f"The window you entered ({list(window_args)}) is out of "
-                f"the raster bounds: {self._ds.rows, self._ds.columns}"
+            raise window_out_of_bounds(
+                list(window_args), self._ds.rows, self._ds.columns
             ) from exc
         return np.asarray(block)
 
@@ -1411,7 +1395,7 @@ class IO(_Engine["Dataset"]):
         if not isinstance(window, Window):
             col_off, row_off, cols, rows = window
             window = Window(int(col_off), int(row_off), int(cols), int(rows))
-        _validate_band_index(band, self._ds.band_count)
+        validate_band_index(band, self._ds.band_count)
         all_bands = band is None and self._ds.band_count > 1
         band_indices = list(range(self._ds.band_count)) if all_bands else [band or 0]
         raster_window = Window(0, 0, self._ds.columns, self._ds.rows)
@@ -1484,9 +1468,7 @@ class IO(_Engine["Dataset"]):
             )
         except Exception as e:
             if e.args[0].__contains__("Access window out of range in RasterIO()"):
-                raise OutOfBoundsError(
-                    f"The window you entered ({window})is out of the raster bounds: {self._ds.rows, self._ds.columns}"
-                )
+                raise window_out_of_bounds(window, self._ds.rows, self._ds.columns)
             else:
                 raise e
         return np.asarray(block)
@@ -1785,10 +1767,7 @@ class IO(_Engine["Dataset"]):
             )
 
         if band is not None:
-            if band < 0 or band >= self._ds.band_count:
-                raise ValueError(
-                    f"band {band} is out of range for a {self._ds.band_count}-band dataset."
-                )
+            validate_band_index(band, self._ds.band_count)
             if array.ndim != 2:
                 raise ValueError(
                     f"a single-band write (band={band}) requires a 2D array, got "
@@ -2671,7 +2650,7 @@ class IO(_Engine["Dataset"]):
             # costs nothing. `_terrain_rgb_tiles` re-checks once `max_zoom` is
             # resolved from the source resolution.
             _validate_zoom_range(min_zoom, max_zoom)
-        _validate_band_index(band, self._ds.band_count)
+        validate_band_index(band, self._ds.band_count)
         # Validate the resampling name once (also reused by the per-tile warp).
         resample_alg = resolve_resampling(resampling)
         source = (
@@ -3207,7 +3186,7 @@ class IO(_Engine["Dataset"]):
             for i in range(self._ds.band_count):
                 arr[i, :, :] = self.get_overview(i, overview_index).ReadAsArray()
         else:
-            _validate_band_index(band, self._ds.band_count)
+            validate_band_index(band, self._ds.band_count)
             if band is None:
                 band = 0
             elif self.overview_count[band] == 0:

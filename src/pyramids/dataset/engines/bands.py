@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._validate import validate_band_index
 
 # Substring GDAL raises when a write is attempted on a read-only band; matched in
 # several no-data setters below to re-raise a friendly ReadOnlyError. Named once
@@ -587,10 +588,11 @@ class Bands(_Engine["Dataset"]):
               ```
         """
         for key, val in values.items():
-            if key > self._ds.band_count:
-                raise ValueError(
-                    f"band index should be between 0 and {self._ds.band_count}"
-                )
+            # `>= band_count`, via the shared check: the old `key > band_count`
+            # let index 1 through on a 1-band dataset (indices are 0-based) and
+            # never rejected a negative one, so `_iloc` failed further in with a
+            # GDAL error instead of a clear ValueError here.
+            validate_band_index(key, self._ds.band_count)
             gdal_const = color_name_to_gdal_constant(val)
             self._iloc(key).SetColorInterpretation(gdal_const)
 

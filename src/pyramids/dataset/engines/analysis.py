@@ -32,6 +32,10 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._validate import (
+    resolve_band_indices,
+    validate_band_index,
+)
 
 # A windowed point-sample read is worth it while the points' bounding box stays
 # under this many pixels, or within this multiple of the point count -- beyond
@@ -150,6 +154,10 @@ class Analysis(_Engine["Dataset"]):
               ```
 
         """
+        # Ahead of the band_names lookup below, which would otherwise surface a
+        # bare IndexError where every other band-taking entry point raises a
+        # ValueError naming the range.
+        validate_band_index(band, self._ds.band_count)
         dst: Dataset | None = None
         if mask is not None:
             dst = self._ds.crop(mask, touch=True)
@@ -730,21 +738,7 @@ class Analysis(_Engine["Dataset"]):
         Raises:
             ValueError: A requested band is outside ``[0, band_count)``.
         """
-        if bands is None:
-            band_list = list(range(band_count))
-            squeeze = False
-        elif isinstance(bands, int):
-            band_list = [bands]
-            squeeze = True
-        else:
-            band_list = list(bands)
-            squeeze = False
-        for b in band_list:
-            if b < 0 or b >= band_count:
-                raise ValueError(
-                    f"band {b} is out of range for a {band_count}-band dataset."
-                )
-        return band_list, squeeze
+        return resolve_band_indices(bands, band_count)
 
     def _read_point_samples(
         self,
@@ -915,10 +909,7 @@ class Analysis(_Engine["Dataset"]):
             raise ValueError(f"threshold must be >= 1, got {threshold}.")
         if connectedness not in (4, 8):
             raise ValueError(f"connectedness must be 4 or 8, got {connectedness}.")
-        if band < 0 or band >= self._ds.band_count:
-            raise ValueError(
-                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
-            )
+        validate_band_index(band, self._ds.band_count)
 
         src_band = self._ds.raster.GetRasterBand(band + 1)
         out_ds = gdal.GetDriverByName("MEM").Create(
@@ -1017,10 +1008,7 @@ class Analysis(_Engine["Dataset"]):
             raise ValueError(
                 f"distance_units must be 'GEO' or 'PIXEL', got {distance_units!r}."
             )
-        if band < 0 or band >= self._ds.band_count:
-            raise ValueError(
-                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
-            )
+        validate_band_index(band, self._ds.band_count)
         if max_distance is not None and max_distance < 0:
             raise ValueError(f"max_distance must be >= 0, got {max_distance}.")
 
@@ -1831,12 +1819,12 @@ class Analysis(_Engine["Dataset"]):
 
         band_count = self._ds.band_count
         for name, idx in (("u_band", u_band), ("v_band", v_band)):
-            if idx < 0 or idx >= band_count:
-                raise ValueError(
-                    f"{name}={idx} is out of range for a {band_count}-band "
-                    "dataset; plot_vector_field needs two in-range bands "
-                    "(u, v components)."
-                )
+            validate_band_index(
+                idx,
+                band_count,
+                name=name,
+                hint=(" plot_vector_field needs two in-range bands (u, v components)."),
+            )
         u = self._ds.read_array(band=u_band)
         v = self._ds.read_array(band=v_band)
         x = self._ds.x

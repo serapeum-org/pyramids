@@ -217,7 +217,7 @@ class TestToTerrainRgbErrors:
         """A band index past the source band count raises a clear ValueError."""
         dem = _dem_3857()
         out = tmp_path / "x.png"
-        with pytest.raises(ValueError, match="band index"):
+        with pytest.raises(ValueError, match="is out of range for a"):
             dem.to_terrain_rgb(out, tiles=False, band=5)
 
 
