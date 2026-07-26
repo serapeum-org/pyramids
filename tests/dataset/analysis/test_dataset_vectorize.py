@@ -508,21 +508,25 @@ class TestNearestNeighbourFill:
             "right neighbour is no-data"
         )
 
-    def test_first_column_does_not_wrap_to_the_last(self):
-        """Column 0 never reads index -1.
+    def test_a_neighbour_in_row_zero_is_not_skipped(self):
+        """Row 0 is a legal neighbour row, not an out-of-bounds one.
 
         Test scenario:
-            `array[row, col - 1]` was evaluated before the `col - 1 > 0` guard,
-            so at column 0 it silently wrapped to the last column and copied a
-            value from the opposite edge of the raster.
+            The old guards read `row - 1 > 0` and `col - 1 > 0` rather than
+            `>= 0`, so a cell in row 1 could never be filled from row 0 and a
+            cell in column 1 never from column 0 -- the search fell through to a
+            further-away neighbour instead. Target `(1, 2)`: its right neighbour
+            is out of bounds and its left is no-data, leaving row 0 directly
+            above as the nearest valid cell. The old chain rejected it on the
+            off-by-one and took the value from two rows down instead.
         """
         array = np.array(
-            [[1.0, 2.0, 3.0], [self.NO_DATA, 5.0, 6.0], [7.0, 8.0, 9.0]]
+            [[10.0, 20.0, 30.0], [40.0, self.NO_DATA, self.NO_DATA], [70.0, 80.0, 90.0]]
         )
-        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [0])
-        assert filled[1, 0] == 5.0, (
-            f"expected the right neighbour 5.0; got {filled[1, 0]} (6.0 would mean "
-            "a wrap to the last column)"
+        filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [1], [2])
+        assert filled[1, 2] == 30.0, (
+            f"expected the cell directly above, 30.0; got {filled[1, 2]} "
+            "(90.0 means row 0 was rejected as out of bounds)"
         )
 
     def test_last_row_does_not_raise(self):
@@ -530,13 +534,19 @@ class TestNearestNeighbourFill:
 
         Test scenario:
             `array[row + 1, col]` was indexed before its `row + 1 < no_rows`
-            guard, so any no-data cell on the last row raised.
+            guard, so a no-data cell on the last row raised. Reaching that
+            branch needs every earlier one to miss: the target sits in the last
+            column (no right neighbour), and both its left and upper neighbours
+            are themselves no-data. Only the diagonal `(1, 1)` holds a value.
         """
         array = np.array(
-            [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, self.NO_DATA, self.NO_DATA]]
+            [[1.0, 2.0, 3.0], [4.0, 5.0, self.NO_DATA], [7.0, self.NO_DATA, self.NO_DATA]]
         )
         filled = Vectorize._nearest_neighbour(array.copy(), self.NO_DATA, [2], [2])
-        assert filled[2, 2] != self.NO_DATA, "the bottom-right cell must be filled"
+        assert filled[2, 2] == 5.0, (
+            f"the bottom-right cell must be filled from its only valid neighbour "
+            f"5.0, got {filled[2, 2]}"
+        )
 
     def test_documented_case_is_unchanged(self):
         """The behaviour shown in the docstring still holds."""
