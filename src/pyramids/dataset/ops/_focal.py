@@ -182,7 +182,12 @@ def focal_mean(
 
     Returns:
         numpy.ndarray or dask.array.Array: Same shape as the input
-        band; eager on default `chunks=None`, lazy otherwise.
+        band; eager on default `chunks=None`, lazy otherwise. Cells the
+        band marks as no-data carry the band's sentinel in the output,
+        as does any cell whose whole window is no-data. Cells with a
+        partly-valid window average only their valid neighbours, so the
+        result is not a gap-filler: a void keeps its shape rather than
+        being smoothed over.
 
     Examples:
         - Apply a 3×3 box mean to a tiny in-memory raster and check
@@ -238,7 +243,10 @@ def focal_std(
 
     Returns:
         numpy.ndarray or dask.array.Array: Per-cell standard
-        deviation, same shape as the source band.
+        deviation, same shape as the source band. No-data cells, and
+        cells whose entire window is no-data, carry the band's
+        sentinel; elsewhere the deviation is taken over the valid
+        neighbours only.
 
     Examples:
         - A constant raster has zero local variance:
@@ -354,7 +362,13 @@ def slope(
         units: `"degrees"` (default) or `"radians"`.
 
     Returns:
-        numpy.ndarray or dask.array.Array: Per-cell slope magnitude.
+        numpy.ndarray or dask.array.Array: Per-cell slope magnitude,
+        except at no-data cells and their immediate neighbours, which
+        carry the band's sentinel (e.g. `-9999`) rather than a value in
+        the documented range. A centred difference straddling a void has
+        no defined derivative, so the sentinel spreads one cell out from
+        the void. Mask on the band's no-data value before feeding the
+        result to a colour ramp or a fixed-range cast.
 
     Examples:
         - Flat DEM has zero slope everywhere:
@@ -397,7 +411,11 @@ def aspect(
 
     Returns:
         numpy.ndarray or dask.array.Array: Aspect in degrees in
-        `[0, 360)`.
+        `[0, 360)`, except at no-data cells and their immediate
+        neighbours, which carry the band's sentinel (e.g. `-9999`) —
+        outside that range — because a centred difference straddling a
+        void has no defined derivative. Mask on the band's no-data value
+        before consuming the range.
 
     Examples:
         - Aspect of a uniform west-facing slope (values increase with
@@ -447,7 +465,11 @@ def hillshade(
 
     Returns:
         numpy.ndarray or dask.array.Array: Shaded-relief intensity
-        clipped to `[0, 255]`.
+        clipped to `[0, 255]`, except at no-data cells and their
+        immediate neighbours, which carry the band's sentinel
+        (e.g. `-9999`) — outside that range — because a centred
+        difference straddling a void has no defined derivative. Mask on
+        the band's no-data value before casting to `uint8`.
 
     Examples:
         - Hillshade of a flat DEM saturates at the illumination level

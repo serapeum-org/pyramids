@@ -258,7 +258,9 @@ class Analysis(_Engine["Dataset"]):
               >>> arr = np.random.uniform(-1, 1, size=(5, 5))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326,
+              ... )
               >>> print(dataset.read_array()) # doctest: +SKIP
               [[ 0.94997539 -0.80083622 -0.30948769 -0.77439961 -0.83836424]
                [-0.36810158 -0.23979251  0.88051216 -0.46882913  0.64511056]
@@ -1462,41 +1464,42 @@ class Analysis(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
-              >>> arr = np.random.randint(1, 12, size=(10, 10))
-              >>> print(arr)    # doctest: +SKIP
-              [[ 4  1  1  2  6  9  2  5  1  8]
-               [ 1 11  5  6  2  5  4  6  6  7]
-               [ 5  2 10  4  8 11  4 11 11  1]
-               [ 2  3  6  3  1  5 11 10 10  7]
-               [ 8  2 11  3  1  3  5  4 10 10]
-               [ 1  2  1  6 10  3  6  4  2  8]
-               [ 9  5  7  9  7  8  1 11  4  4]
-               [ 7  7  2  2  5  3  7  2  9  9]
-               [ 2 10  3  2  1 11  5  9  8 11]
-               [ 1  5  6 11  3  3  8  1  2  1]]
-               >>> top_left_corner = (0, 0)
-               >>> cell_size = 0.05
-               >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> arr = np.random.default_rng(1337).integers(1, 12, size=(10, 10))
+              >>> print(arr)
+              [[ 7 10  8  3  6 11  5 11  4 10]
+               [ 6  2  1  3  2  4  4  6  7 10]
+               [ 3  1  6  3 10  9  2  5  4  1]
+               [ 9  5  6  4  3  1  1 10  6  1]
+               [ 5 10 11  6 10  1  1  9  4  9]
+               [ 6  8  7  1  8  7 11 11  9  9]
+               [ 4  3  5  1  1 11  4  9  6 11]
+               [ 7  9  9  2  8  2  4  3  5  7]
+               [11  8  1  9  5  5  4  4  7 10]
+               [ 6  2 10  3  8  4  1  9  3  6]]
+              >>> top_left_corner = (0, 0)
+              >>> cell_size = 0.05
+              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
 
-               ```
+              ```
 
             - Now, let's get the histogram of the first band using the `get_histogram` method with the default
                 parameters:
                 ```python
                 >>> hist, ranges = dataset.get_histogram(band=0)
-                >>> print(hist)  # doctest: +SKIP
-                [28, 17, 10, 15, 13, 7]
-                >>> print(ranges)   # doctest: +SKIP
-                [(1.0, 2.67), (2.67, 4.34), (4.34, 6.0), (6.0, 7.67), (7.67, 9.34), (9.34, 11.0)]
+                >>> print(hist)
+                [19, 21, 8, 18, 17, 9]
+                >>> print([(round(low, 2), round(high, 2)) for low, high in ranges])
+                [(1.0, 2.67), (2.67, 4.33), (4.33, 6.0), (6.0, 7.67), (7.67, 9.33), (9.33, 11.0)]
 
                 ```
-            - we can also exclude values from the histogram by using the `min_value` and `max_value`:
+            - we can also exclude values from the histogram by using the `min_value` and `max_value`. The bucket
+                edges then span the requested `[min_value, max_value]` window rather than the band's own range:
                 ```python
                 >>> hist, ranges = dataset.get_histogram(band=0, min_value=5, max_value=10)
-                >>> print(hist)  # doctest: +SKIP
-                [10, 8, 7, 7, 6, 0]
-                >>> print(ranges)   # doctest: +SKIP
-                [(1.0, 1.835), (1.835, 2.67), (2.67, 3.5), (3.5, 4.34), (4.34, 5.167), (5.167, 6.0)]
+                >>> print(hist)
+                [8, 11, 7, 6, 11, 0]
+                >>> print([(round(low, 2), round(high, 2)) for low, high in ranges])
+                [(5.0, 5.83), (5.83, 6.67), (6.67, 7.5), (7.5, 8.33), (8.33, 9.17), (9.17, 10.0)]
 
                 ```
             - For datasets with big dimensions, computing the histogram can take some time; approximating the computation
@@ -1504,10 +1507,10 @@ class Analysis(_Engine["Dataset"]):
                 value the histogram will be calculated from resampling the band or from the overviews if they exist.
                 ```python
                 >>> hist, ranges = dataset.get_histogram(band=0, approx_ok=True)
-                >>> print(hist)  # doctest: +SKIP
-                [28, 17, 10, 15, 13, 7]
-                >>> print(ranges)   # doctest: +SKIP
-                [(1.0, 2.67), (2.67, 4.34), (4.34, 6.0), (6.0, 7.67), (7.67, 9.34), (9.34, 11.0)]
+                >>> print(hist)
+                [19, 21, 8, 18, 17, 9]
+                >>> print([(round(low, 2), round(high, 2)) for low, high in ranges])
+                [(1.0, 2.67), (2.67, 4.33), (4.33, 6.0), (6.0, 7.67), (7.67, 9.33), (9.33, 11.0)]
 
                 ```
             - As you see for small datasets, the approximation of the histogram will be the same as without approximation.
