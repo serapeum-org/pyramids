@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 from osgeo import gdal, ogr, osr
 
+from pyramids.base._domain import is_no_data
 from pyramids.base.crs import sr_from_epsg, sr_from_wkt
 
 if TYPE_CHECKING:
@@ -129,7 +130,9 @@ def _rasterize_zonal_stats(
     """
     raster = np.asarray(ds.read_array(band=band), dtype=np.float64)
     if no_data is not None:
-        raster = np.where(raster == no_data, np.nan, raster)
+        # `is_no_data`, not `==`: a NaN sentinel never equals itself, so the
+        # comparison marked nothing and every no-data cell entered the stats.
+        raster = np.where(is_no_data(raster, no_data), np.nan, raster)
     labels = _rasterize_labels(ds, fc)
     n_features = len(fc)
 
@@ -147,9 +150,13 @@ def _rasterize_zonal_stats(
         flat_labels = labels.ravel()
         flat_values = raster.ravel()
         covered = flat_labels >= 0
-        order = np.argsort(flat_labels[covered], kind="stable")
-        grouped_labels = flat_labels[covered][order]
-        grouped_values = flat_values[covered][order]
+        # Hoisted: indexing with the boolean mask copies the covered set, and
+        # writing `flat_labels[covered]` three times built three of them.
+        covered_labels = flat_labels[covered]
+        covered_values = flat_values[covered]
+        order = np.argsort(covered_labels, kind="stable")
+        grouped_labels = covered_labels[order]
+        grouped_values = covered_values[order]
         feature_ids = np.arange(n_features)
         starts = np.searchsorted(grouped_labels, feature_ids, side="left")
         ends = np.searchsorted(grouped_labels, feature_ids, side="right")

@@ -234,7 +234,7 @@ class Vectorize(_Engine["Dataset"]):
                 and zipped positionally, so the two disagree once there is more than one
                 tile. See the known-issue note on `_extract_values_tiled`.
             tile_size (int):
-                Tile size. Default is 1500.
+                Tile size in cells, applied to both axes. Default is 256.
             touch (bool):
                 Include the cells that touch the polygon not only those that lie entirely inside the polygon mask.
                 Default is True.
@@ -729,7 +729,11 @@ class Vectorize(_Engine["Dataset"]):
             array (np.ndarray):
                 Array to fill some of its cells with the nearest value.
             no_data_value (float | int):
-                Value stored in cells that are out of the domain.
+                Value stored in cells that are out of the domain. Matched with
+                `is_no_data`, so a NaN sentinel is recognised and a numeric one
+                is matched within the package's default relative tolerance
+                rather than exactly -- a neighbour within 0.1% of the sentinel
+                counts as no-data and is skipped.
             rows (list[int]):
                 Row indices of the cells you want to fill with the nearest neighbor.
             cols (list[int]):

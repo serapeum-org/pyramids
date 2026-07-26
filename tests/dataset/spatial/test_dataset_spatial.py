@@ -1,6 +1,7 @@
 """Integration tests for Dataset spatial operations: resample, reproject, align,
 crop, cluster, overlay, and mask."""
 
+import gc
 import weakref
 from pathlib import Path
 
@@ -806,7 +807,6 @@ class TestToCrsWarpSourceLifetime:
             without the pin its backing store could be collected while the
             outer VRT still points at it.
         """
-        import gc
 
         reprojected = self._memory_dataset().to_crs(3857)
         gc.collect()
@@ -816,7 +816,6 @@ class TestToCrsWarpSourceLifetime:
 
     def test_chained_reprojection_round_trips(self) -> None:
         """Two chained reprojections still produce a readable dataset."""
-        import gc
 
         chained = self._memory_dataset().to_crs(3857).to_crs(4326)
         gc.collect()
