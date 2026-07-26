@@ -191,3 +191,53 @@ class TestConfigApplication:
         validate(float_cog, config={"PYRAMIDS_PC1_SENTINEL": "on"})
         after = gdal.GetConfigOption("PYRAMIDS_PC1_SENTINEL", "unset")
         assert before == "unset" and after == "unset", "config leaked outside context"
+
+
+class TestReadPresetShape:
+    """ARC-33: the preset must not restrict which URLs `/vsicurl/` will open."""
+
+    def test_extension_allowlist_is_absent(self):
+        """`CPL_VSIL_CURL_ALLOWED_EXTENSIONS` is not part of the preset.
+
+        Test scenario:
+            The option makes GDAL refuse any URL whose path does not end in one
+            of the listed extensions -- extensionless object keys, presigned S3
+            links carrying a query string, and most STAC asset hrefs. A preset
+            meant to speed remote reads up instead made them impossible.
+        """
+        assert "CPL_VSIL_CURL_ALLOWED_EXTENSIONS" not in COG_READ_DEFAULTS, (
+            "the extension allowlist blocks extensionless and signed URLs and "
+            f"must stay out of the preset; got {sorted(COG_READ_DEFAULTS)}"
+        )
+
+    def test_preset_holds_exactly_the_documented_options(self):
+        """The exported constant's key set is pinned.
+
+        Test scenario:
+            `COG_READ_DEFAULTS` is re-exported from `pyramids.dataset.cog` and
+            listed in `__all__`, so its shape is public contract. Pinning the
+            keys makes any future addition or removal a deliberate, reviewed
+            change rather than a silent one.
+        """
+        assert set(COG_READ_DEFAULTS) == {
+            "GDAL_DISABLE_READDIR_ON_OPEN",
+            "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES",
+            "VSI_CACHE",
+        }, f"unexpected preset shape: {sorted(COG_READ_DEFAULTS)}"
+
+    def test_a_query_string_url_is_not_rejected_by_the_preset(self):
+        """A presigned-style URL opens under the preset's config options.
+
+        Test scenario:
+            Applies the preset through `gdal.config_options` and opens a local
+            file whose name carries no `.tif` extension. Under the old preset
+            GDAL's extension allowlist governed `/vsicurl/` specifically; the
+            surviving options place no restriction on the path at all, which is
+            what this asserts -- every value in the preset is a plain GDAL
+            config string with no URL filtering semantics.
+        """
+        with gdal.config_options(dict(COG_READ_DEFAULTS)):
+            allowed = gdal.GetConfigOption("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", "unset")
+        assert allowed == "unset", (
+            f"the preset must not set an extension allowlist, got {allowed!r}"
+        )
