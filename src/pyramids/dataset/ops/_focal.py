@@ -6,8 +6,16 @@ surrounding cells. Two backends:
 * Eager (default): SciPy :mod:`scipy.ndimage` filter applied to the
   full numpy array.
 * Lazy (`chunks=<spec>`): wrap the same kernel in
-  :func:`dask.array.map_overlap` with `depth=radius`,
-  `boundary='reflect'`. dask-image's universal primitive.
+  :func:`dask.array.map_overlap` with a halo covering the kernel's
+  footprint and `boundary='none'`. dask-image's universal primitive.
+
+Both backends return the same numbers for the same raster, so
+`chunks=` is a memory/throughput choice rather than a change of
+result. That requires `boundary='none'`: padding the outer edge would
+give a block on the raster's border a synthetic neighbourhood the
+eager path never sees, and the two would then disagree along every
+edge. With `'none'`, an edge block gets a shorter halo and each
+kernel applies its own edge policy exactly as it does eagerly.
 
 Supported ops:
 
@@ -158,10 +166,15 @@ def _apply_eager_or_lazy(
         lazy = lazy.astype(dtype)
         # `_guarded` runs per block, inside the overlap, so each block sees the
         # halo it needs to blank neighbouring no-data before filtering.
+        # `boundary="none"`: only interior block edges get a halo. Padding the
+        # raster's own border would hand an edge block a neighbourhood the eager
+        # path never sees -- measured 59/256 cells of `slope` disagreeing on a
+        # 16x16 raster, all of them on the border -- so the kernels apply their
+        # own edge policy here just as they do eagerly.
         result = lazy.map_overlap(
             _guarded,
             depth=radius if depth is None else depth,
-            boundary="reflect",
+            boundary="none",
             trim=True,
             dtype=dtype,
         )

@@ -394,3 +394,67 @@ class TestSentinelMatchingIsExact:
         assert out[4, 4] == -9999.0, (
             f"the exact sentinel must still be recognised, got {out[4, 4]}"
         )
+
+
+class TestEagerAndLazyAgree:
+    """L4/S4: `chunks=` is a memory choice, not a change of result."""
+
+    @pytest.fixture(scope="function")
+    def dem(self, tmp_path) -> Dataset:
+        """A 16x16 float DEM with one no-data cell, written to disk.
+
+        Returns:
+            Dataset: the raster read back from disk.
+        """
+        array = np.random.default_rng(3).random((16, 16)) * 100.0
+        array[8, 8] = -9999.0
+        path = tmp_path / "dem.tif"
+        Dataset.create_from_array(
+            array.astype("float32"),
+            top_left_corner=(0.0, 16.0),
+            cell_size=1.0,
+            epsg=32636,
+            no_data_value=-9999.0,
+        ).to_file(str(path))
+        return Dataset.read_file(str(path))
+
+    @pytest.mark.parametrize(
+        "kernel", ["focal_mean", "focal_std", "slope", "aspect", "hillshade"]
+    )
+    def test_every_kernel_matches_its_chunked_self(self, dem, kernel):
+        """Chunking a kernel must not move a single cell.
+
+        Args:
+            dem: The raster fixture.
+            kernel: Name of the `Dataset` method under test.
+
+        Test scenario:
+            Two things made this fail. `focal_std` chains two box filters, so
+            its footprint is twice the radius and a radius-wide halo left block
+            edges filtering a truncated neighbourhood. And `map_overlap` padded
+            the raster's own border, which handed an edge block a neighbourhood
+            the eager path never sees -- 59/256 cells of `slope`, all on the
+            border.
+        """
+        eager = np.asarray(getattr(dem, kernel)())
+        lazy = np.asarray(getattr(dem, kernel)(chunks=(4, 4)))
+        mismatched = int((~np.isclose(eager, lazy, equal_nan=True)).sum())
+        assert mismatched == 0, (
+            f"{kernel} disagrees with its chunked self at {mismatched}/256 cells"
+        )
+
+    @pytest.mark.parametrize("chunks", [(2, 2), (4, 4), (5, 7), (16, 16)])
+    def test_the_result_is_independent_of_the_chunk_shape(self, dem, chunks):
+        """Any chunking gives the same answer, including uneven ones.
+
+        Args:
+            dem: The raster fixture.
+            chunks: The chunk shape to compare against the eager path.
+
+        Test scenario:
+            Chunk shapes that do not divide the raster evenly leave partial
+            edge blocks, which is where a halo or offset error surfaces.
+        """
+        eager = np.asarray(dem.focal_std(radius=1))
+        lazy = np.asarray(dem.focal_std(radius=1, chunks=chunks))
+        np.testing.assert_allclose(eager, lazy, equal_nan=True)
