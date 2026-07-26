@@ -18,6 +18,7 @@ from shapely.geometry import Point
 
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.dataset import Dataset
+from pyramids.dataset.engines import analysis
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
@@ -311,4 +312,120 @@ class TestHistogramEdgesAndStatsPrecision:
         )
         assert float(exact["max"].iloc[0]) == pytest.approx(99.0), (
             f"exact max over 0..99 should be 99, got {exact['max'].iloc[0]}"
+        )
+
+
+def _points(coords: list[tuple[float, float]]) -> GeoDataFrame:
+    """Build an EPSG:4326 point GeoDataFrame from ``(x, y)`` pairs."""
+    return GeoDataFrame(geometry=[Point(x, y) for x, y in coords], crs=4326)
+
+
+class TestWindowedAndPerPointStrategiesAgree:
+    """ARC-61: the windowed read is an optimisation, not a behaviour change."""
+
+    @pytest.fixture(scope="function")
+    def wide(self) -> Dataset:
+        """A 1-band 100x100 raster of distinct values, nodata -9999.
+
+        Large enough that two far-apart points span a bounding box past the
+        windowed-read threshold, so the per-point branch is reachable without
+        touching the module constants.
+
+        Returns:
+            Dataset: the test raster.
+        """
+        arr = np.arange(100 * 100, dtype="float64").reshape(100, 100)
+        return Dataset.create_from_array(
+            arr,
+            top_left_corner=(0, 100),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+
+    def test_a_sparse_batch_takes_the_per_point_branch(self, wide, monkeypatch):
+        """Two corner points span too large a box to be worth one read.
+
+        Test scenario:
+            The windowed read is taken only while the points' bounding box stays
+            a small multiple of the point count. Two opposite corners of a
+            100x100 raster span 10000 pixels for 2 points, past the 4096-pixel
+            floor, so the sparse branch runs. Counts `ReadAsArray` calls to
+            prove which branch executed rather than inferring it.
+        """
+        calls: list[tuple] = []
+        original = gdal.Band.ReadAsArray
+
+        def counting_read(self, *args, **kwargs):
+            calls.append(args)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(gdal.Band, "ReadAsArray", counting_read)
+        wide.sample(_points([(0.5, 99.5), (99.5, 0.5)]))
+        assert len(calls) == 2, (
+            f"a sparse batch must issue one read per point, got {len(calls)}"
+        )
+        assert all(args[2:] == (1, 1) for args in calls), (
+            f"each per-point read must be a 1x1 window, got {calls}"
+        )
+
+    def test_a_dense_batch_takes_the_windowed_branch(self, wide, monkeypatch):
+        """Neighbouring points collapse into a single read.
+
+        Test scenario:
+            Four adjacent cells span a 2x2 box, far under the threshold, so one
+            windowed read covers them all.
+        """
+        calls: list[tuple] = []
+        original = gdal.Band.ReadAsArray
+
+        def counting_read(self, *args, **kwargs):
+            calls.append(args)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(gdal.Band, "ReadAsArray", counting_read)
+        wide.sample(_points([(10.5, 50.5), (11.5, 50.5), (10.5, 49.5), (11.5, 49.5)]))
+        assert len(calls) == 1, (
+            f"a dense batch must collapse into one windowed read, got {len(calls)}"
+        )
+
+    def test_both_strategies_return_identical_values(self, wide):
+        """The two branches sample the same cells and return the same numbers.
+
+        Test scenario:
+            Samples one dense batch through the windowed branch, then the same
+            points again with the threshold forced to zero so the per-point
+            branch runs, and compares. The windowed branch indexes into a block
+            read at an offset; an off-by-one there would go unnoticed because
+            nothing else compares the two paths.
+        """
+        points = _points(
+            [(10.5, 50.5), (11.5, 50.5), (12.5, 50.5), (10.5, 49.5), (11.5, 49.5)]
+        )
+        windowed = wide.sample(points)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(analysis, "_POINT_WINDOW_MIN_PIXELS", 0)
+            patch.setattr(analysis, "_POINT_WINDOW_MAX_WASTE", 0)
+            per_point = wide.sample(points)
+        np.testing.assert_array_equal(windowed, per_point)
+
+    def test_the_strategies_agree_on_an_out_of_bounds_mix(self, wide):
+        """Out-of-bounds points get the fill value on both branches.
+
+        Test scenario:
+            The in-bounds index set drives the window offset, so a batch that
+            mixes in- and out-of-bounds points is where an indexing slip would
+            surface as a value landing in the wrong slot.
+        """
+        points = _points(
+            [(10.5, 50.5), (-5.0, 50.5), (11.5, 50.5), (500.0, 50.5), (12.5, 50.5)]
+        )
+        windowed = wide.sample(points)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(analysis, "_POINT_WINDOW_MIN_PIXELS", 0)
+            patch.setattr(analysis, "_POINT_WINDOW_MAX_WASTE", 0)
+            per_point = wide.sample(points)
+        np.testing.assert_array_equal(windowed, per_point)
+        assert windowed[0][1] == -9999.0 and windowed[0][3] == -9999.0, (
+            f"out-of-bounds points must carry the fill value, got {windowed[0]}"
         )

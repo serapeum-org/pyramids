@@ -340,3 +340,95 @@ class TestToTerrainRgbClamping:
             255,
             255,
         ), f"clamped cell must be (255,255,255), got {(r[0, 0], g[0, 0], b[0, 0])}"
+
+
+class TestTilingSourcePreparation:
+    """ARC-51: tiling reads a staged, pyramided source rather than the original."""
+
+    @staticmethod
+    def _capture_source(monkeypatch) -> list:
+        """Record the dataset `_terrain_rgb_tiles` is handed, without tiling.
+
+        Args:
+            monkeypatch: pytest's monkeypatch fixture.
+
+        Returns:
+            list: filled with one entry -- `(overview_count, is_the_original)` --
+            once `to_terrain_rgb(tiles=True)` runs.
+        """
+        seen: list = []
+        original = IO._terrain_rgb_tiles
+
+        def spy(self, source, path, **kwargs):
+            seen.append(source)
+            return path
+
+        monkeypatch.setattr(IO, "_terrain_rgb_tiles", spy)
+        assert original is not spy, "the spy must replace the real tiler"
+        return seen
+
+    def test_a_reprojected_source_is_staged_with_overviews(self, tmp_path, monkeypatch):
+        """A source needing reprojection reaches the tiler with a pyramid.
+
+        Test scenario:
+            `to_crs` hands back a warped VRT that re-warps from the original on
+            every read, and a source without overviews makes every low-zoom tile
+            resample full-resolution pixels. The staged GTiff carries the
+            overviews the tiler needs.
+        """
+        seen = self._capture_source(monkeypatch)
+        dem = Dataset.create_from_array(
+            arr=np.array([[0.0, 100.0], [2000.0, 8848.0]], dtype="float32"),
+            top_left_corner=(0.0, 4.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        dem.to_terrain_rgb(tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5)
+        assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
+        assert seen[0].raster.GetRasterBand(1).GetOverviewCount() > 0, (
+            "the staged tiling source must carry overviews"
+        )
+
+    def test_a_source_already_in_3857_is_staged_too(self, tmp_path, monkeypatch):
+        """The common pre-prepared case gets the pyramid as well.
+
+        Test scenario:
+            The preparation used to be gated on whether a reprojection happened,
+            so a dataset already in EPSG:3857 -- the usual input for tiling --
+            got neither the staging nor the overviews and kept paying
+            full-resolution reads per tile.
+        """
+        seen = self._capture_source(monkeypatch)
+        _dem_3857().to_terrain_rgb(
+            tmp_path / "tiles", tiles=True, min_zoom=3, max_zoom=5
+        )
+        assert len(seen) == 1, f"expected one tiling call, got {len(seen)}"
+        assert seen[0].raster.GetRasterBand(1).GetOverviewCount() > 0, (
+            "a source already in EPSG:3857 must be staged with overviews too"
+        )
+
+    def test_the_untiled_path_does_not_stage_anything(self, tmp_path, monkeypatch):
+        """`tiles=False` reads once, so it keeps the original source.
+
+        Test scenario:
+            The staging exists to amortise repeated reads across tiles and zoom
+            levels. A single encode has nothing to amortise, so it must not pay
+            for a GTiff copy -- the encoder receives the caller's own dataset
+            handle, not a staged duplicate.
+        """
+        seen: list = []
+
+        def spy(self, source, path, **kwargs):
+            seen.append(source)
+            return path
+
+        monkeypatch.setattr(IO, "_terrain_rgb_single", spy)
+        dem = _dem_3857()
+        dem.to_terrain_rgb(tmp_path / "dem.png", tiles=False)
+        assert len(seen) == 1, f"expected one encode call, got {len(seen)}"
+        assert seen[0].raster is dem.raster, (
+            "the untiled path must hand the encoder the original raster handle"
+        )
+        assert seen[0].raster.GetRasterBand(1).GetOverviewCount() == 0, (
+            "the untiled path must not build overviews"
+        )

@@ -6,14 +6,17 @@ ground-control points, generated via ``set_gcps`` rather than shipping a binary.
 
 from __future__ import annotations
 
+import gc
 from pathlib import Path
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.base._errors import ReadOnlyError
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
+from pyramids.dataset.engines import georef as georef_module
 from pyramids.dataset.engines.georef import Georef
 
 pytestmark = pytest.mark.core
@@ -425,3 +428,164 @@ class TestSetGCPs:
         ds = Dataset.read_file(str(path), read_only=True)
         with pytest.raises(ReadOnlyError):
             ds.set_gcps(corner_gcps, 4326)
+
+
+
+class TestStagedDemLifetime:
+    """ARC-8: a DEM staged into /vsimem by orthorectify is freed exactly once.
+
+    The warp itself is stubbed out. A real RPC warp against a DEM is
+    GDAL-version-fragile with the synthetic coefficients this module uses (the
+    same reason `_resolve_dem_path` is unit-tested rather than warped), and the
+    fix under test is the cleanup around the warp, not the warp.
+    """
+
+    @staticmethod
+    def _vsimem_dems() -> set[str]:
+        """The staged-DEM entries currently live in /vsimem.
+
+        Returns:
+            set[str]: full `/vsimem/` paths of every staged orthorectify DEM.
+        """
+        entries = gdal.ReadDir("/vsimem/") or []
+        return {
+            f"/vsimem/{name}"
+            for name in entries
+            if name.startswith("orthorectify_dem_")
+        }
+
+    @pytest.fixture
+    def rpc_dataset(self) -> Dataset:
+        """An 8x8 raster carrying the near-identity RPC sensor model."""
+        ds = Dataset.create_from_array(
+            np.arange(64).reshape(8, 8).astype("float32"),
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+        )
+        ds.raster.SetMetadata(RPC_SAMPLE, "RPC")
+        return ds
+
+    @pytest.fixture
+    def mem_dem(self) -> Dataset:
+        """A MEM-backed DEM, which orthorectify has to stage to /vsimem."""
+        return Dataset.create_from_array(
+            np.full((8, 8), 100.0, "float32"),
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+        )
+
+    @staticmethod
+    def _stub_warp(monkeypatch, outcome):
+        """Replace `warp_to_dataset` with `outcome`, a callable of no arguments.
+
+        Args:
+            monkeypatch: pytest's monkeypatch fixture.
+            outcome: Called in place of the warp; its return value (or the
+                exception it raises) becomes the warp's.
+        """
+        monkeypatch.setattr(
+            georef_module, "warp_to_dataset", lambda *args, **kwargs: outcome()
+        )
+
+    def test_the_eager_path_frees_the_staged_dem(
+        self, rpc_dataset, mem_dem, monkeypatch
+    ):
+        """A materialised result no longer references the DEM, so it is unlinked.
+
+        Test scenario:
+            The staged copy used to survive for the lifetime of the process. An
+            eager warp has read everything it needs by the time orthorectify
+            returns, so nothing should be left behind.
+        """
+        before = self._vsimem_dems()
+        self._stub_warp(
+            monkeypatch,
+            lambda: Dataset.create_from_array(
+                np.zeros((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+            ),
+        )
+        rpc_dataset.orthorectify(dem=mem_dem)
+        assert self._vsimem_dems() == before, (
+            "the eager path must unlink the DEM it staged; leftover: "
+            f"{self._vsimem_dems() - before}"
+        )
+
+    def test_the_error_path_frees_the_staged_dem(
+        self, rpc_dataset, mem_dem, monkeypatch
+    ):
+        """A failing warp unlinks the staged DEM instead of leaking it.
+
+        Test scenario:
+            The failure paths returned without unlinking. Checks both that the
+            original error reaches the caller -- a VSI error from the cleanup
+            must not replace it -- and that no staged DEM is left behind.
+        """
+        before = self._vsimem_dems()
+
+        def explode():
+            raise RuntimeError("synthetic warp failure")
+
+        self._stub_warp(monkeypatch, explode)
+        with pytest.raises(RuntimeError, match="synthetic warp failure"):
+            rpc_dataset.orthorectify(dem=mem_dem)
+        assert self._vsimem_dems() == before, (
+            "the error path must unlink the DEM it staged; leftover: "
+            f"{self._vsimem_dems() - before}"
+        )
+
+    def test_a_second_failure_does_not_replace_the_original_error(
+        self, rpc_dataset, mem_dem, monkeypatch
+    ):
+        """Cleanup uses silent_unlink, so a VSI error cannot mask the warp error.
+
+        Test scenario:
+            The old handler called raw gdal.Unlink on the error path. Under
+            UseExceptions an Unlink of an already-gone path raises, and that new
+            exception replaced the propagating one -- the caller saw a VSI error
+            instead of the warp failure. Unlinks the staged DEM out from under
+            the handler to force exactly that race.
+        """
+
+        def explode():
+            for path in self._vsimem_dems():
+                gdal.Unlink(path)
+            raise RuntimeError("synthetic warp failure")
+
+        self._stub_warp(monkeypatch, explode)
+        with pytest.raises(RuntimeError, match="synthetic warp failure"):
+            rpc_dataset.orthorectify(dem=mem_dem)
+
+    def test_the_lazy_path_keeps_the_dem_while_the_handle_lives(
+        self, rpc_dataset, mem_dem, monkeypatch
+    ):
+        """A VRT result reads the DEM on every access, so it must survive.
+
+        Test scenario:
+            Unlinking eagerly on the lazy path would leave the VRT pointing at a
+            path that no longer exists. The finalizer is keyed on the GDAL
+            handle rather than the pyramids wrapper, so a derived view that
+            outlives the wrapper keeps the DEM alive too.
+        """
+        before = self._vsimem_dems()
+        self._stub_warp(
+            monkeypatch,
+            lambda: Dataset.create_from_array(
+                np.zeros((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+            ),
+        )
+        view = rpc_dataset.orthorectify(dem=mem_dem, lazy=True)
+        staged = self._vsimem_dems() - before
+        assert len(staged) == 1, f"expected one staged DEM, got {staged}"
+        handle = view.raster
+        del view
+        gc.collect()
+        assert staged <= self._vsimem_dems(), (
+            "the DEM must outlive the wrapper while the GDAL handle is alive"
+        )
+        assert handle.RasterXSize > 0, "the pinned handle must still be readable"
+        del handle
+        gc.collect()
+        assert self._vsimem_dems() == before, (
+            "once the GDAL handle is collected the DEM must be unlinked; "
+            f"leftover: {self._vsimem_dems() - before}"
+        )
