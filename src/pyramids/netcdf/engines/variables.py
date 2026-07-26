@@ -27,10 +27,10 @@ import numpy as np
 from osgeo import gdal
 
 from pyramids.base._utils import numpy_to_gdal_dtype
-from pyramids.netcdf._mdim import scalar_no_data, unflatten_band_axes
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
+from pyramids.netcdf._mdim import scalar_no_data, unflatten_band_axes
 from pyramids.netcdf.cf import (
     srs_to_grid_mapping,
     write_attributes_to_md_array,

@@ -23,7 +23,9 @@ def test_from_json_without_cf_key_yields_none():
         created_with={},
     )
     restored = from_json(to_json(meta))
-    assert restored.cf is None, f"expected cf None for a cf-less payload, got {restored.cf}"
+    assert restored.cf is None, (
+        f"expected cf None for a cf-less payload, got {restored.cf}"
+    )
 
 
 def test_to_json_is_string_and_parses(sample_name, sample):

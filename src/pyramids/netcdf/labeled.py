@@ -623,7 +623,9 @@ class LabeledDataset:
             counts = [self._full_sizes[d] for d in dim_names]
             starts[axis] = start
             counts[axis] = count
-            blocks.append(np.asarray(arr.ReadAsArray(array_start_idx=starts, count=counts)))
+            blocks.append(
+                np.asarray(arr.ReadAsArray(array_start_idx=starts, count=counts))
+            )
         combined = blocks[0] if len(blocks) == 1 else np.concatenate(blocks, axis=axis)
         # `combined` is ordered by `uniq` along `axis`; map back to the request order, which may be
         # unsorted or contain duplicates.

@@ -356,9 +356,7 @@ class TestMesh2dTriangulation:
                 original_start_index=0,
             ),
         )
-        expected = np.array(
-            [[0, 1, 2], [0, 2, 3], [1, 4, 5], [1, 5, 2]], dtype=np.intp
-        )
+        expected = np.array([[0, 1, 2], [0, 2, 3], [1, 4, 5], [1, 5, 2]], dtype=np.intp)
         np.testing.assert_array_equal(
             mesh.fan_triangles, expected, err_msg="vectorized quad fan mis-ordered"
         )

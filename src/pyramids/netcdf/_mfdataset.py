@@ -155,7 +155,9 @@ def open_mfdataset(
     # `parallel` flag -- which used to wrap eager reads in `dask.delayed` -- is inert now that the
     # default read is lazy (wrapping a dask array in `from_delayed` would nest a synchronous inner
     # compute per file); it is retained only for backward-compatible call signatures (ARC-48).
-    arrays = [_open_and_extract(p, variable, preprocess, effective_chunks) for p in resolved]
+    arrays = [
+        _open_and_extract(p, variable, preprocess, effective_chunks) for p in resolved
+    ]
     arrays = [
         a if hasattr(a, "dask") else da.from_array(np.asarray(a), chunks="auto")
         for a in arrays

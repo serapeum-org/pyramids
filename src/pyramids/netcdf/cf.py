@@ -932,12 +932,18 @@ def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
     entry_pattern = r'((?:\w+\s*:\s*)+)(\w+)'
     matches = list(re.finditer(entry_pattern, cell_methods_str))
     for idx, match in enumerate(matches):
-        dims = " ".join(part.strip() for part in match.group(1).split(":") if part.strip())
+        dims = " ".join(
+            part.strip() for part in match.group(1).split(":") if part.strip()
+        )
         entry: dict[str, str] = {
             "dimensions": dims,
             "method": match.group(2),
         }
-        tail_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(cell_methods_str)
+        tail_end = (
+            matches[idx + 1].start()
+            if idx + 1 < len(matches)
+            else len(cell_methods_str)
+        )
         tail = cell_methods_str[match.end() : tail_end]
         where = re.search(r"\bwhere\s+(\w+)", tail)
         if where:

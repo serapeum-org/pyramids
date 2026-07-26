@@ -709,7 +709,10 @@ class UgridDataset:
         # Rare ragged / filled edge connectivity: fall back to a per-edge build.
         return [
             LineString(
-                [(self._mesh.node_x[n], self._mesh.node_y[n]) for n in enc.get_element(i)]
+                [
+                    (self._mesh.node_x[n], self._mesh.node_y[n])
+                    for n in enc.get_element(i)
+                ]
             )
             for i in range(enc.n_elements)
         ]

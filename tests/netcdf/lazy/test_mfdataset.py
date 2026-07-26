@@ -99,7 +99,9 @@ class TestParallelMode:
                 [FIXTURE, FIXTURE], variable="values", parallel=True
             ).compute()
         np.testing.assert_array_equal(
-            par, seq, err_msg="parallel stack diverged from sequential under the lazy default"
+            par,
+            seq,
+            err_msg="parallel stack diverged from sequential under the lazy default",
         )
 
     @requires_dask

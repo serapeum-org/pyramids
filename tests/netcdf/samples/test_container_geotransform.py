@@ -39,7 +39,9 @@ def test_container_x_origin_is_west_edge_for_descending_lon(tmp_path):
         x_cell = abs(gt[1])
         west_edge = min(lon[0], lon[-1]) - x_cell / 2
         east_bug = lon[0] - x_cell / 2  # the pre-ARC-32 value (origin at the EAST edge)
-        assert west_edge != pytest.approx(east_bug), "fixture must separate west/east edges"
+        assert west_edge != pytest.approx(east_bug), (
+            "fixture must separate west/east edges"
+        )
         assert gt[0] == pytest.approx(west_edge, abs=1e-4), (
             f"x-origin should be the west edge {west_edge}, got {gt[0]} "
             f"(the pre-ARC-32 east-edge bug would give {east_bug})"

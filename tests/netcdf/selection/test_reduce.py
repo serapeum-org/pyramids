@@ -78,8 +78,12 @@ class TestReduceCollapse:
         assert var._band_dim_names == (), f"time should be gone: {var._band_dim_names}"
         assert var.read_array().shape == (3, 5), "result should be 2-D"
 
-    @pytest.mark.parametrize("how, np_func", [("mean", np.mean), ("sum", np.sum), ("max", np.max)])
-    def test_file_backed_collapse_streams_and_matches_numpy(self, how, np_func, tmp_path):
+    @pytest.mark.parametrize(
+        "how, np_func", [("mean", np.mean), ("sum", np.sum), ("max", np.max)]
+    )
+    def test_file_backed_collapse_streams_and_matches_numpy(
+        self, how, np_func, tmp_path
+    ):
         """A file-backed reduce streams over a chunked dask read and still matches NumPy (ARC-47).
 
         Test scenario:
@@ -93,7 +97,9 @@ class TestReduceCollapse:
         nc = NetCDF.read_file(path)
         try:
             out = nc.reduce("time", how).get_variable("v").read_array()
-            assert np.allclose(out, np_func(arr, axis=0)), f"{how} file-backed collapse mismatch"
+            assert np.allclose(out, np_func(arr, axis=0)), (
+                f"{how} file-backed collapse mismatch"
+            )
         finally:
             nc.close()
 
@@ -451,11 +457,15 @@ class TestReduceStreamingLazyPath:
         nc = NetCDF.read_file(path)
         try:
             arr = NetCDF._materialize_variable_array(nc.get_variable("v"), lazy=True)
-            assert hasattr(arr, "dask"), f"expected a dask array on the streaming path, got {type(arr)}"
+            assert hasattr(arr, "dask"), (
+                f"expected a dask array on the streaming path, got {type(arr)}"
+            )
         finally:
             nc.close()
 
-    @pytest.mark.parametrize("how, np_func", [("mean", np.mean), ("std", np.std), ("var", np.var)])
+    @pytest.mark.parametrize(
+        "how, np_func", [("mean", np.mean), ("std", np.std), ("var", np.var)]
+    )
     def test_multi_band_dim_collapse_matches_numpy(self, how, np_func, tmp_path):
         """A file-backed `(time, level, y, x)` reduce over time streams and matches numpy (incl std/var)."""
         path, arr = self._write_4d(tmp_path)
@@ -463,7 +473,9 @@ class TestReduceStreamingLazyPath:
         try:
             out = np.asarray(nc.reduce("time", how).get_variable("v").read_array())
             expected = np_func(arr, axis=0)
-            assert np.allclose(out.reshape(expected.shape), expected), f"{how} 4-D streaming collapse mismatch"
+            assert np.allclose(out.reshape(expected.shape), expected), (
+                f"{how} 4-D streaming collapse mismatch"
+            )
         finally:
             nc.close()
 
@@ -472,9 +484,17 @@ class TestReduceStreamingLazyPath:
         path, arr = self._write_4d(tmp_path)
         nc = NetCDF.read_file(path)
         try:
-            out = np.asarray(nc.reduce("time", "mean", groupby=[0, 0, 1, 1]).get_variable("v").read_array())
-            expected = np.stack([arr[[0, 1]].mean(axis=0), arr[[2, 3]].mean(axis=0)], axis=0)
-            assert np.allclose(out.reshape(expected.shape), expected), "grouped 4-D streaming reduce mismatch"
+            out = np.asarray(
+                nc.reduce("time", "mean", groupby=[0, 0, 1, 1])
+                .get_variable("v")
+                .read_array()
+            )
+            expected = np.stack(
+                [arr[[0, 1]].mean(axis=0), arr[[2, 3]].mean(axis=0)], axis=0
+            )
+            assert np.allclose(out.reshape(expected.shape), expected), (
+                "grouped 4-D streaming reduce mismatch"
+            )
         finally:
             nc.close()
 
@@ -487,30 +507,44 @@ class TestIsFileBacked:
 
         real = tmp_path / "f.nc"
         real.write_bytes(b"x")
-        var = SimpleNamespace(_parent_nc=SimpleNamespace(_file_name=f'NETCDF:"{real}":temperature'))
-        assert NetCDF._is_file_backed(var) is True, "quoted NETCDF: spec should resolve to the file"
+        var = SimpleNamespace(
+            _parent_nc=SimpleNamespace(_file_name=f'NETCDF:"{real}":temperature')
+        )
+        assert NetCDF._is_file_backed(var) is True, (
+            "quoted NETCDF: spec should resolve to the file"
+        )
 
     def test_false_for_in_memory_container(self):
         """An in-memory container's bare `netcdf` description is not file-backed."""
 
         var = SimpleNamespace(_parent_nc=SimpleNamespace(_file_name="netcdf"))
-        assert NetCDF._is_file_backed(var) is False, "an in-memory container is not file-backed"
+        assert NetCDF._is_file_backed(var) is False, (
+            "an in-memory container is not file-backed"
+        )
 
     def test_unquoted_netcdf_spec_resolves_path(self, tmp_path):
         """An unquoted `NETCDF:<path>:var` spec drops the trailing :var via rsplit (drive-safe)."""
         real = tmp_path / "u.nc"
         real.write_bytes(b"x")
-        var = SimpleNamespace(_parent_nc=SimpleNamespace(_file_name=f"NETCDF:{real}:temperature"))
-        assert NetCDF._is_file_backed(var) is True, "unquoted spec should resolve to the file"
+        var = SimpleNamespace(
+            _parent_nc=SimpleNamespace(_file_name=f"NETCDF:{real}:temperature")
+        )
+        assert NetCDF._is_file_backed(var) is True, (
+            "unquoted spec should resolve to the file"
+        )
 
     def test_empty_file_name_is_not_file_backed(self):
         """A parent with no `_file_name` is not file-backed."""
         var = SimpleNamespace(_parent_nc=SimpleNamespace(_file_name=""))
-        assert NetCDF._is_file_backed(var) is False, "an empty file name is not file-backed"
+        assert NetCDF._is_file_backed(var) is False, (
+            "an empty file name is not file-backed"
+        )
 
     def test_uses_variable_itself_when_parent_is_none(self, tmp_path):
         """With no `_parent_nc`, the variable's own `_file_name` is consulted."""
         real = tmp_path / "self.nc"
         real.write_bytes(b"x")
         var = SimpleNamespace(_parent_nc=None, _file_name=str(real))
-        assert NetCDF._is_file_backed(var) is True, "a top-level variable's own file must count"
+        assert NetCDF._is_file_backed(var) is True, (
+            "a top-level variable's own file must count"
+        )

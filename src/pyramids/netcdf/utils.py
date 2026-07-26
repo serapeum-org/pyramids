@@ -679,7 +679,15 @@ def _datetime_components(value: Any) -> tuple[int, int, int, int, int, int, int]
     )
     if match is None:
         ts = pd.Timestamp(value)
-        return (ts.year, ts.month, ts.day, ts.hour, ts.minute, ts.second, ts.microsecond)
+        return (
+            ts.year,
+            ts.month,
+            ts.day,
+            ts.hour,
+            ts.minute,
+            ts.second,
+            ts.microsecond,
+        )
     seconds_float = float(match.group(6)) if match.group(6) else 0.0
     whole_seconds = int(seconds_float)
     # Clamp so a value like "59.9999995" whose fraction rounds up to 1_000_000 does not exceed

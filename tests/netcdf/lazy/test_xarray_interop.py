@@ -33,15 +33,21 @@ class TestEncodeTemporalArray:
         )
         encoded, attrs = _encode_temporal_array(vals)
         assert encoded.dtype == np.float64, f"expected float64, got {encoded.dtype}"
-        assert_allclose(encoded, [1.0, 2.0], err_msg="datetime64 should map to seconds since epoch")
+        assert_allclose(
+            encoded, [1.0, 2.0], err_msg="datetime64 should map to seconds since epoch"
+        )
         assert "since" in attrs["units"], f"expected a 'since' unit, got {attrs}"
-        assert attrs["calendar"] == "proleptic_gregorian", f"unexpected calendar in {attrs}"
+        assert attrs["calendar"] == "proleptic_gregorian", (
+            f"unexpected calendar in {attrs}"
+        )
 
     def test_timedelta64_encodes_to_seconds(self):
         """timedelta64 becomes float64 seconds with a plain 'seconds' unit."""
         vals = np.array([1_000_000_000, 2_000_000_000], dtype="timedelta64[ns]")
         encoded, attrs = _encode_temporal_array(vals)
-        assert_allclose(encoded, [1.0, 2.0], err_msg="timedelta64 should map to seconds")
+        assert_allclose(
+            encoded, [1.0, 2.0], err_msg="timedelta64 should map to seconds"
+        )
         assert attrs == {"units": "seconds"}, f"unexpected attrs {attrs}"
 
     def test_datetime64_nat_encodes_to_nan(self):
@@ -49,7 +55,9 @@ class TestEncodeTemporalArray:
         vals = np.array(["2020-01-01", "NaT", "2020-01-03"], dtype="datetime64[ns]")
         encoded, _ = _encode_temporal_array(vals)
         assert np.isnan(encoded[1]), f"NaT must encode to NaN, got {encoded[1]}"
-        assert np.isfinite(encoded[0]) and np.isfinite(encoded[2]), "real instants must stay finite"
+        assert np.isfinite(encoded[0]) and np.isfinite(encoded[2]), (
+            "real instants must stay finite"
+        )
 
     def test_timedelta64_nat_encodes_to_nan(self):
         """A NaT in a timedelta64 array encodes to NaN, not the int64-sentinel value (review M2)."""
@@ -60,8 +68,12 @@ class TestEncodeTemporalArray:
 
     def test_scalar_datetime64_encodes_without_crash(self):
         """A 0-d datetime64 encodes to a finite 0-d value (no in-place-assignment crash) (r2 M1)."""
-        encoded, _ = _encode_temporal_array(np.array("2020-06-01", dtype="datetime64[ns]"))
-        assert np.ndim(encoded) == 0, f"expected a 0-d result, got shape {np.shape(encoded)}"
+        encoded, _ = _encode_temporal_array(
+            np.array("2020-06-01", dtype="datetime64[ns]")
+        )
+        assert np.ndim(encoded) == 0, (
+            f"expected a 0-d result, got shape {np.shape(encoded)}"
+        )
         assert np.isfinite(encoded), f"a real instant must encode finite, got {encoded}"
 
     def test_scalar_nat_encodes_to_nan(self):
@@ -75,6 +87,8 @@ class TestEncodeTemporalArray:
         encoded, attrs = _encode_temporal_array(vals)
         assert encoded is vals, "a non-temporal array must be returned unchanged"
         assert attrs == {}, f"expected no attrs for a non-temporal array, got {attrs}"
+
+
 from tests.netcdf.conftest import make_3d_nc
 
 

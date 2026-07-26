@@ -28,6 +28,7 @@ from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset
 from pyramids.dataset.dataset import _COLLABORATOR_ATTRS
 from pyramids.feature import FeatureCollection
+from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
 from pyramids.netcdf._mdim import (
@@ -43,7 +44,6 @@ from pyramids.netcdf._mdim import (
     x_axis_is_right_to_left,
     y_axis_is_bottom_up,
 )
-from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._mfdataset import open_mfdataset
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.cf import (
