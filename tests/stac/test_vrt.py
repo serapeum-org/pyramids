@@ -308,6 +308,55 @@ class TestCredentialsStayOutOfMessages:
         joined = " ".join(str(w.message) for w in caught)
         assert "SUPERSECRET" not in joined, f"the token leaked into a warning: {joined}"
 
+    def test_token_never_reaches_stderr(self, tmp_path, capfd):
+        """GDAL's own "Can't open ..." message is redacted before it is emitted.
+
+        Args:
+            tmp_path: pytest temp directory.
+            capfd: pytest fixture capturing the file descriptors GDAL writes to.
+
+        Test scenario:
+            Under `gdal.UseExceptions()` GDAL prints a skipped source's full path
+            straight to stderr, bypassing both Python warnings and a handler
+            installed with `SetErrorHandler` — so the build pushes a redacting
+            handler for its duration. Asserting only on `str(exc)` misses this.
+        """
+        good = write_raster(
+            tmp_path / "fd.tif", np.full((2, 2), 1.0, "float32"), (0.0, 2.0)
+        )
+        items = [
+            {"assets": {"d": {"href": good}}},
+            {"assets": {"d": {"href": "https://host.invalid/gone.tif"}}},
+        ]
+        capfd.readouterr()
+        with pytest.raises(RuntimeError):
+            build_vrt_from_stac(items, asset="d", signer=self._signer(), strict=True)
+        captured = capfd.readouterr()
+        assert "SUPERSECRET" not in captured.err, (
+            f"the token was printed to stderr: {captured.err}"
+        )
+        assert "SUPERSECRET" not in captured.out, (
+            f"the token was printed to stdout: {captured.out}"
+        )
+
+    def test_repr_hides_the_token(self, tmp_path):
+        """`repr(ds)` lists every VRT source, so it must be redacted too.
+
+        Test scenario:
+            pytest prints the repr of every operand in a failing assertion and
+            `logging.error("%r", ds)` is idiomatic, so this surface is hit
+            involuntarily and often.
+        """
+        a = write_raster(
+            tmp_path / "r1.tif", np.full((2, 2), 1.0, "float32"), (0.0, 2.0)
+        )
+        b = write_raster(
+            tmp_path / "r2.tif", np.full((2, 2), 2.0, "float32"), (2.0, 2.0)
+        )
+        items = [{"assets": {"d": {"href": a}}}, {"assets": {"d": {"href": b}}}]
+        ds = build_vrt_from_stac(items, asset="d", signer=self._signer())
+        assert "SUPERSECRET" not in repr(ds), f"the token leaked into repr: {repr(ds)}"
+
     def test_url_signed_token_is_hidden_too(self, tmp_path):
         """A SAS token in the href itself is redacted, not just embedded headers.
 
@@ -531,15 +580,19 @@ class TestSourceCredentialEmbedding:
         assert "header.Authorization=Bearer%20tok" in source, f"missing auth: {source}"
         assert "header.X-Trace=42" in source, f"missing second header: {source}"
 
-    def test_no_signer_uses_the_plain_rewrite(self):
-        """Without credentials the ordinary VSI rewrite is kept.
+    def test_unsigned_remote_source_still_gets_the_readdir_skip(self):
+        """An unsigned remote source keeps the sidecar-probe saving.
 
         Test scenario:
-            The unsigned path must not change shape.
+            A SAS-signed or public mosaic pays the same read-time probes a
+            bearer-signed one would, so the query form is emitted for it too —
+            just with no `header.` options.
         """
-        assert _embed_source_options("https://h/a.tif", None) == (
-            "/vsicurl/https://h/a.tif"
-        ), "an unsigned source should keep the plain form"
+        source = _embed_source_options("https://h/a.tif", None)
+        assert source == "/vsicurl?empty_dir=yes&url=https%3A%2F%2Fh%2Fa.tif", (
+            f"unexpected unsigned rewrite: {source}"
+        )
+        assert "header." not in source, f"no credentials to embed: {source}"
 
     def test_non_http_scheme_is_left_alone(self):
         """Only HTTP(S) sources can carry headers in the path.
@@ -707,18 +760,41 @@ class TestSourceConfig:
 class TestBuildVrtArtifactCleanup:
     """Tests for the /vsimem VRT lifetime (ARC-10)."""
 
-    def test_vsimem_registered_on_success(self, adjacent_tiles):
-        """A successful build tracks its VRT for the process-exit sweep.
+    def test_vsimem_registered_while_the_dataset_lives(self, adjacent_tiles):
+        """A live mosaic keeps its VRT, tracked for the process-exit sweep.
 
         Test scenario:
-            The new `/vsimem` entry is also present in the artefact registry.
+            The new `/vsimem` entry exists and is in the artefact registry for
+            as long as the Dataset that needs it is referenced.
         """
         before = vsimem_entries()
-        build_vrt_from_stac(adjacent_tiles, asset="data")
+        ds = build_vrt_from_stac(adjacent_tiles, asset="data")
         created = vsimem_entries() - before
         assert len(created) == 1, f"expected exactly one new /vsimem entry: {created}"
         tracked = {path.rsplit("/", 1)[-1] for path in _artifacts._VSIMEM_PATHS}
         assert created <= tracked, f"{created} not tracked for cleanup"
+        assert ds.read_array().shape == (4, 8), "the mosaic should still be readable"
+
+    def test_vsimem_reclaimed_when_the_dataset_is_collected(self, adjacent_tiles):
+        """Dropping the mosaic reclaims its VRT instead of holding it to exit.
+
+        Test scenario:
+            A service building one mosaic per request would otherwise accumulate
+            an in-memory VRT per request for the life of the process.
+        """
+        import gc
+
+        before = vsimem_entries()
+        ds = build_vrt_from_stac(adjacent_tiles, asset="data")
+        created = vsimem_entries() - before
+        assert len(created) == 1, f"expected one new /vsimem entry: {created}"
+        del ds
+        gc.collect()
+        assert vsimem_entries() - before == set(), (
+            "the VRT should be reclaimed once nothing references the mosaic"
+        )
+        leftover = {path.rsplit("/", 1)[-1] for path in _artifacts._VSIMEM_PATHS}
+        assert not (created & leftover), "the reclaimed path is still tracked"
 
     def test_vsimem_removed_when_open_fails(self, adjacent_tiles, monkeypatch):
         """A failing `Dataset.read_file` unlinks the VRT instead of orphaning it.
@@ -768,7 +844,7 @@ class TestStrictDefaultDeprecation:
             A skipped source warns twice — once about the incomplete mosaic, once
             that this default is going away — and still returns the partial VRT.
         """
-        with pytest.warns(DeprecationWarning, match="becomes True in the next"):
+        with pytest.warns(FutureWarning, match="becomes True in the next"):
             ds = build_vrt_from_stac(mismatched_band_tiles, asset="data")
         assert ds.read_array().shape == (4, 4), "the partial mosaic should be returned"
 
@@ -791,7 +867,7 @@ class TestStrictDefaultDeprecation:
             warnings.simplefilter("always")
             build_vrt_from_stac(mismatched_band_tiles, asset="data", strict=False)
         kinds = [w.category for w in caught]
-        assert DeprecationWarning not in kinds, f"unexpected deprecation: {kinds}"
+        assert FutureWarning not in kinds, f"unexpected deprecation notice: {kinds}"
         assert UserWarning in kinds, f"the skip should still warn: {kinds}"
 
     def test_complete_build_never_warns(self, adjacent_tiles):

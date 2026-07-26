@@ -103,9 +103,17 @@ def _gdal_error_handler(err_class, err_num, err_msg):
     GDAL quotes the offending path in its message, and a `/vsicurl?` source
     carries its credentials there (see
     :func:`pyramids.stac._vrt._embed_source_options`), so the text is scrubbed
-    by :func:`~pyramids.base.remote.redact_credentials` first — otherwise a
-    failed source open would publish a live token to every log sink the
-    application has configured.
+    by :func:`~pyramids.base.remote.redact_credentials` first.
+
+    Note:
+        With `gdal.UseExceptions()` active — which pyramids enables at import —
+        GDAL routes *warnings* neither to a Python exception nor to a handler
+        installed with `gdal.SetErrorHandler`; it prints them to stderr. So this
+        handler covers the paths that reach it (a caller who disables
+        exceptions, and errors raised through the bindings) but is not what
+        keeps a credential out of a failed VRT source open — that is
+        `pyramids.stac._vrt._build_vrt`, which *pushes* a redacting handler for
+        the duration of the build.
 
     Args:
         err_class (int): GDAL error class (`gdal.CE_*`).

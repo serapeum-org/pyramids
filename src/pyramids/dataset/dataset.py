@@ -27,7 +27,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
 )
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg, sr_from_user_input
-from pyramids.base.remote import cloud_config_from_env
+from pyramids.base.remote import cloud_config_from_env, redact_credentials
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
 from pyramids.dataset._wcs import from_wcs as _from_wcs
 from pyramids.dataset._wms import from_wms as _from_wms
@@ -1433,10 +1433,20 @@ class Dataset(RasterBase):
         return message
 
     def __repr__(self) -> str:
-        """GDAL info string, or a `<Dataset: closed>` sentinel on a closed dataset."""
+        """GDAL info string, or a `<Dataset: closed>` sentinel on a closed dataset.
+
+        The info string's ``Files:`` section lists every source a VRT
+        references, and for a mosaic built by
+        :func:`pyramids.stac.build_vrt_from_stac` with a bearer signer those
+        paths carry the live token — so the text goes through
+        :func:`~pyramids.base.remote.redact_credentials` first. ``repr`` is
+        called far more often than deliberately: pytest prints it for every
+        operand of a failing assertion, ``logging.error("%r", ds)`` is idiomatic,
+        and a notebook auto-displays it.
+        """
         info = "<Dataset: closed>"
         if self._raster is not None:
-            info = str(gdal.Info(self.raster))
+            info = redact_credentials(str(gdal.Info(self.raster)))
         return info
 
     @property
