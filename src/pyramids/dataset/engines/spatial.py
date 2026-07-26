@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
+from pyramids.dataset.engines._warp import warp_to_dataset
 from pyramids.dataset.engines.vectorize import Vectorize
 
 
@@ -535,21 +536,17 @@ class Spatial(_Engine["Dataset"]):
         else:
             # cell_size may be a scalar (square) or an (x_res, y_res) pair (non-square output).
             x_res, y_res = _resolve_resolution(cell_size)
-            dst = gdal.Warp(
-                "",
-                self._ds.raster,
-                dstSRS=_dst_srs_arg(dst_sr),
-                format="VRT",
-                resampleAlg=resampling_method,
-                xRes=x_res,
-                yRes=y_res,
+            dst_obj = warp_to_dataset(
+                self._ds,
+                gdal.WarpOptions(
+                    dstSRS=_dst_srs_arg(dst_sr),
+                    format="VRT",
+                    resampleAlg=resampling_method,
+                    xRes=x_res,
+                    yRes=y_res,
+                ),
+                error_message="GDAL could not reproject the dataset.",
             )
-            dst_obj = self._ds.__class__(dst)
-            # A warped VRT reads through to the source on every access, so the source
-            # must outlive it. Pin the source *raster*, not `self._ds`: the engine's
-            # back-reference is a `weakref.proxy`, so storing it would keep nothing
-            # alive. See the `_warp_source` note on `Dataset`.
-            dst_obj._warp_source = self._ds.raster
 
         return dst_obj
 

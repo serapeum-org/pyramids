@@ -50,9 +50,9 @@ def warp_to_dataset(
     source: Dataset,
     options: gdal.WarpOptions,
     *,
-    dataset_class: type | None = None,
     access: str | None = None,
     error_message: str = "GDAL could not warp the dataset.",
+    pin: bool = True,
 ) -> Dataset:
     """Warp `source` and return the result with its warp source pinned.
 
@@ -65,10 +65,11 @@ def warp_to_dataset(
     Args:
         source: The dataset to warp.
         options: Prepared :func:`gdal.WarpOptions`.
-        dataset_class: Class to wrap the result in. Defaults to `source`'s own
-            class, matching the existing call sites.
-        access: Access mode for the wrapper, when it accepts one.
+        access: Access mode for the wrapper. `None` uses the wrapper's default.
         error_message: Raised when GDAL returns no dataset.
+        pin: Whether the result should hold the source raster alive. Only a
+            lazy (VRT) result reads through to the source; a materialised one
+            does not, so its caller passes `False`.
 
     Returns:
         Dataset: The warped result, holding a strong reference to the source
@@ -80,7 +81,8 @@ def warp_to_dataset(
     warped = gdal.Warp("", source.raster, options=options)
     if warped is None:
         raise RuntimeError(error_message)
-    cls = dataset_class if dataset_class is not None else source.__class__
+    cls = source.__class__
     result = cls(warped, access=access) if access is not None else cls(warped)
-    result._warp_source = source.raster
+    if pin:
+        result._warp_source = source.raster
     return result
