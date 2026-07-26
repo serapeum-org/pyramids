@@ -39,6 +39,11 @@ from pyramids.dataset.engines._base import _Engine
 # that the pixels read but discarded cost more than the per-point GDAL calls.
 _POINT_WINDOW_MIN_PIXELS = 4096
 _POINT_WINDOW_MAX_WASTE = 16
+# The waste ratio alone bounds nothing absolute: ten million clustered points
+# would authorise a 160-megapixel read (~1.3 GB at float64). This caps the block
+# at roughly 64 MB of float64 regardless of how many points asked for it; past
+# it, the per-point reads are the cheaper failure mode.
+_POINT_WINDOW_MAX_PIXELS = 8_000_000
 
 
 class Analysis(_Engine["Dataset"]):
@@ -179,6 +184,11 @@ class Analysis(_Engine["Dataset"]):
         Args:
             band (int | None):
                 Zero-based band index. Defaults to the first band (0) when None.
+            approx_ok (bool):
+                Let GDAL answer from overviews or a subsample rather than
+                scanning every cell. Default `True`, the historical behaviour.
+                Also governs the fallback taken when the band carries no cached
+                statistics, so `approx_ok=True` never forces a full scan.
 
         Returns:
             list[float]: The ``[minimum, maximum, mean, standard_deviation]`` values.
@@ -201,7 +211,10 @@ class Analysis(_Engine["Dataset"]):
             warnings.warn(
                 f"Band {band} has no statistics, and the statistics are going to be calculate"
             )
-            vals = band_i.ComputeStatistics(False)
+            # Honour the caller's choice here too: hard-coding exact
+            # computation made `approx_ok=True` pay a full-raster scan on
+            # any band without cached statistics -- the opposite of the ask.
+            vals = band_i.ComputeStatistics(approx_ok)
 
         return list(vals)
 
@@ -766,8 +779,13 @@ class Analysis(_Engine["Dataset"]):
             # Worth one big read only while the box stays a small multiple of the
             # points themselves; past that the wasted pixels cost more than the
             # per-point calls they would save.
-            use_window = (x_size * y_size) <= max(
-                _POINT_WINDOW_MIN_PIXELS, n_in_bounds * _POINT_WINDOW_MAX_WASTE
+            window_pixels = x_size * y_size
+            use_window = (
+                window_pixels
+                <= max(
+                    _POINT_WINDOW_MIN_PIXELS, n_in_bounds * _POINT_WINDOW_MAX_WASTE
+                )
+                and window_pixels <= _POINT_WINDOW_MAX_PIXELS
             )
 
         for b in band_list:
