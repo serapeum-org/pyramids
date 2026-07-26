@@ -128,7 +128,13 @@ def _apply_eager_or_lazy(
         the non-finite masking, so two blocks of one raster could come back
         with different dtypes and different treatment of a genuine NaN.
         """
-        masked = is_no_data(block, no_data_value)
+        # `rtol=0`: the package default treats anything within 0.1% of the
+        # sentinel as no-data, which for -9999 is a +/-10 band. That is fine
+        # for a domain check but wrong here -- geoid grids, scaled-integer
+        # products and accumulated balances all carry real values at those
+        # magnitudes, and blanking them would be silent data loss. Exact
+        # matching, still NaN-safe.
+        masked = is_no_data(block, no_data_value, rtol=0.0)
         blanked = np.where(masked, np.nan, block) if masked.any() else block
         out = np.asarray(func(blanked), dtype=dtype)
         # A cell that had no value has no derivative either. `np.gradient` uses a
@@ -301,16 +307,28 @@ def focal_apply(
     one scalar per window. Wrapped with
     :func:`scipy.ndimage.generic_filter`.
 
+    **`func` must be NaN-aware when the band has a no-data value.** Cells the
+    band marks as no-data are handed to `func` as `NaN`, and whatever it
+    returns for such a window is written back as the band's sentinel. A
+    NaN-blind reducer therefore blanks every window that touches a void:
+    `np.max` returns `NaN` and loses the whole neighbourhood, where `np.nanmax`
+    ignores the void and returns the maximum of the valid cells. The built-in
+    kernels (`focal_mean`, `focal_std`) already do this internally; `focal_apply`
+    cannot, because the aggregation is yours.
+
     Args:
         ds: Source :class:`~pyramids.dataset.Dataset`.
         func: Callable `func(values_1d) -> float`; receives the
-            flattened window.
+            flattened window, with no-data cells as `NaN`. Prefer the
+            `np.nan*` reducers.
         radius: Half-window in pixels. Default 1.
         chunks: Lazy-path chunk spec; `None` runs eagerly.
         band: Zero-based band index.
 
     Returns:
-        numpy.ndarray or dask.array.Array: Per-cell aggregation.
+        numpy.ndarray or dask.array.Array: Per-cell aggregation. Cells the band
+        marks as no-data carry its sentinel, as does any cell for which `func`
+        returned a non-finite value.
 
     Examples:
         - Custom max-over-window kernel:
@@ -324,6 +342,23 @@ def focal_apply(
             ... )
             >>> out = focal_apply(ds, np.max, radius=1)
             >>> float(out[1, 1])
+            8.0
+
+            ```
+
+        - On a band with a no-data value, reach for the NaN-aware reducer.
+          `np.max` sees the blanked cell and loses the window; `np.nanmax`
+          skips it:
+            ```python
+            >>> arr = np.arange(9, dtype=np.float32).reshape(3, 3)
+            >>> arr[0, 0] = -9999.0
+            >>> ds = Dataset.create_from_array(
+            ...     arr, top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
+            ...     no_data_value=-9999.0,
+            ... )
+            >>> float(focal_apply(ds, np.max, radius=1)[1, 1])
+            -9999.0
+            >>> float(focal_apply(ds, np.nanmax, radius=1)[1, 1])
             8.0
 
             ```

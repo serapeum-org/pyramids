@@ -270,3 +270,127 @@ class TestFocalNoDataHandling:
         assert surviving.max() <= valid_inputs.max(), (
             f"a mean exceeded the largest input {valid_inputs.max()}: {surviving.max()}"
         )
+
+
+class TestFocalApplyNoData:
+    """M1: `focal_apply` hands `func` NaN, so a NaN-blind reducer loses windows."""
+
+    @staticmethod
+    def _write(array, path) -> Dataset:
+        """Write `array` to `path` as a float32 GTiff with a -9999 sentinel.
+
+        Args:
+            array: The 2-D array to write.
+            path: Destination path.
+
+        Returns:
+            Dataset: the raster read back from disk.
+        """
+        Dataset.create_from_array(
+            array.astype("float32"),
+            top_left_corner=(0.0, float(array.shape[0])),
+            cell_size=1.0,
+            epsg=32636,
+            no_data_value=-9999.0,
+        ).to_file(str(path))
+        return Dataset.read_file(str(path))
+
+    def test_a_nan_aware_reducer_keeps_the_valid_neighbours(self, tmp_path):
+        """`np.nanmax` returns the maximum of the window's valid cells.
+
+        Test scenario:
+            Only the no-data cell itself is lost. A reducer that skips NaN sees
+            exactly the cells the band marks as valid.
+        """
+        array = np.arange(256, dtype="float64").reshape(16, 16)
+        array[8, 8] = -9999.0
+        dataset = self._write(array, tmp_path / "void.tif")
+        out = np.asarray(dataset.focal_apply(np.nanmax, radius=1))
+        assert (out == -9999.0).sum() == 1, (
+            "a NaN-aware reducer must lose only the no-data cell itself, "
+            f"got {(out == -9999.0).sum()} blanked cells"
+        )
+        assert out[8, 8] == -9999.0, "the no-data cell itself must stay no-data"
+
+    def test_a_nan_blind_reducer_blanks_the_whole_window(self, tmp_path):
+        """`np.max` returns NaN for any window touching a void.
+
+        Test scenario:
+            Documents the documented hazard so it cannot regress silently into
+            something else: with radius 1 the 3x3 window around the void, minus
+            nothing, comes back as the sentinel. This is why the docstring tells
+            callers to use the np.nan* reducers.
+        """
+        array = np.arange(256, dtype="float64").reshape(16, 16)
+        array[8, 8] = -9999.0
+        dataset = self._write(array, tmp_path / "void.tif")
+        out = np.asarray(dataset.focal_apply(np.max, radius=1))
+        assert (out == -9999.0).sum() == 9, (
+            "a NaN-blind reducer blanks the full window; expected 9 cells, got "
+            f"{(out == -9999.0).sum()}"
+        )
+
+    def test_a_band_without_no_data_is_untouched(self, tmp_path):
+        """No sentinel means no blanking, whatever the reducer.
+
+        Test scenario:
+            The guard must not cost anything on a raster that never had a void.
+        """
+        array = np.arange(256, dtype="float64").reshape(16, 16)
+        path = tmp_path / "plain.tif"
+        Dataset.create_from_array(
+            array.astype("float32"),
+            top_left_corner=(0.0, 16.0),
+            cell_size=1.0,
+            epsg=32636,
+        ).to_file(str(path))
+        out = np.asarray(Dataset.read_file(str(path)).focal_apply(np.max, radius=1))
+        assert np.isfinite(out).all(), f"no sentinel means no blanking, got {out}"
+
+
+class TestSentinelMatchingIsExact:
+    """M5: a value near the sentinel is data, not no-data."""
+
+    def test_a_value_close_to_the_sentinel_survives(self, tmp_path):
+        """-9995 on a -9999 band is a real elevation, not a void.
+
+        Test scenario:
+            The package's default no-data tolerance is relative, which for
+            -9999 spans roughly [-10009, -9989]. Geoid grids, scaled-integer
+            products and accumulated balances all carry real values at those
+            magnitudes, so matching loosely here would silently delete them.
+        """
+        array = np.full((8, 8), -9995.0, dtype="float32")
+        path = tmp_path / "near.tif"
+        Dataset.create_from_array(
+            array,
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+            epsg=32636,
+            no_data_value=-9999.0,
+        ).to_file(str(path))
+        out = np.asarray(Dataset.read_file(str(path)).focal_mean(radius=1))
+        assert (out == -9999.0).sum() == 0, (
+            "a band whose every cell sits 4 units from the sentinel holds no "
+            f"no-data at all; got {(out == -9999.0).sum()} blanked cells"
+        )
+        assert np.allclose(out, -9995.0), (
+            f"a constant band must smooth to its own value, got {out[0, 0]}"
+        )
+
+    def test_the_exact_sentinel_is_still_matched(self, tmp_path):
+        """Tightening the tolerance must not stop the sentinel matching."""
+        array = np.arange(64, dtype="float64").reshape(8, 8)
+        array[4, 4] = -9999.0
+        path = tmp_path / "exact.tif"
+        Dataset.create_from_array(
+            array.astype("float32"),
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+            epsg=32636,
+            no_data_value=-9999.0,
+        ).to_file(str(path))
+        out = np.asarray(Dataset.read_file(str(path)).focal_mean(radius=1))
+        assert out[4, 4] == -9999.0, (
+            f"the exact sentinel must still be recognised, got {out[4, 4]}"
+        )
