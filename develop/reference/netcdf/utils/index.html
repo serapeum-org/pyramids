@@ -6468,28 +6468,7 @@ uses an unsupported time unit.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-488">488</a></span>
-<span class="normal"><a href="#__codelineno-0-489">489</a></span>
-<span class="normal"><a href="#__codelineno-0-490">490</a></span>
-<span class="normal"><a href="#__codelineno-0-491">491</a></span>
-<span class="normal"><a href="#__codelineno-0-492">492</a></span>
-<span class="normal"><a href="#__codelineno-0-493">493</a></span>
-<span class="normal"><a href="#__codelineno-0-494">494</a></span>
-<span class="normal"><a href="#__codelineno-0-495">495</a></span>
-<span class="normal"><a href="#__codelineno-0-496">496</a></span>
-<span class="normal"><a href="#__codelineno-0-497">497</a></span>
-<span class="normal"><a href="#__codelineno-0-498">498</a></span>
-<span class="normal"><a href="#__codelineno-0-499">499</a></span>
-<span class="normal"><a href="#__codelineno-0-500">500</a></span>
-<span class="normal"><a href="#__codelineno-0-501">501</a></span>
-<span class="normal"><a href="#__codelineno-0-502">502</a></span>
-<span class="normal"><a href="#__codelineno-0-503">503</a></span>
-<span class="normal"><a href="#__codelineno-0-504">504</a></span>
-<span class="normal"><a href="#__codelineno-0-505">505</a></span>
-<span class="normal"><a href="#__codelineno-0-506">506</a></span>
-<span class="normal"><a href="#__codelineno-0-507">507</a></span>
-<span class="normal"><a href="#__codelineno-0-508">508</a></span>
-<span class="normal"><a href="#__codelineno-0-509">509</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-509">509</a></span>
 <span class="normal"><a href="#__codelineno-0-510">510</a></span>
 <span class="normal"><a href="#__codelineno-0-511">511</a></span>
 <span class="normal"><a href="#__codelineno-0-512">512</a></span>
@@ -6563,102 +6542,123 @@ uses an unsupported time unit.</p>
 <span class="normal"><a href="#__codelineno-0-580">580</a></span>
 <span class="normal"><a href="#__codelineno-0-581">581</a></span>
 <span class="normal"><a href="#__codelineno-0-582">582</a></span>
-<span class="normal"><a href="#__codelineno-0-583">583</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-488" name="__codelineno-0-488"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_time_conversion_func</span><span class="p">(</span>
-<a id="__codelineno-0-489" name="__codelineno-0-489"></a>    <span class="n">units</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<a id="__codelineno-0-490" name="__codelineno-0-490"></a>    <span class="n">out_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2"> %H:%M:%S&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-491" name="__codelineno-0-491"></a>    <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;standard&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-492" name="__codelineno-0-492"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">:</span>
-<a id="__codelineno-0-493" name="__codelineno-0-493"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a converter that maps numeric CF time offsets to date strings.</span>
-<a id="__codelineno-0-494" name="__codelineno-0-494"></a>
-<a id="__codelineno-0-495" name="__codelineno-0-495"></a><span class="sd">    Parses CF-compliant time unit strings (e.g.,</span>
-<a id="__codelineno-0-496" name="__codelineno-0-496"></a><span class="sd">    `&quot;days since 1979-01-01&quot;`) and returns a callable that</span>
-<a id="__codelineno-0-497" name="__codelineno-0-497"></a><span class="sd">    converts numeric offsets to formatted date strings.</span>
-<a id="__codelineno-0-498" name="__codelineno-0-498"></a>
-<a id="__codelineno-0-499" name="__codelineno-0-499"></a><span class="sd">    For standard/proleptic_gregorian calendars, uses Python&#39;s</span>
-<a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="sd">    `datetime` + `timedelta`. For non-standard calendars</span>
-<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="sd">    (`360_day`, `noleap`, `all_leap`, `julian`), uses</span>
-<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="sd">    `cftime.num2date()` (optional dependency).</span>
-<a id="__codelineno-0-503" name="__codelineno-0-503"></a>
-<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-505" name="__codelineno-0-505"></a><span class="sd">        units: CF time unit string in the format</span>
-<a id="__codelineno-0-506" name="__codelineno-0-506"></a><span class="sd">            `&quot;&lt;unit&gt; since &lt;origin&gt;&quot;`. Supported units are</span>
-<a id="__codelineno-0-507" name="__codelineno-0-507"></a><span class="sd">            days, hours, minutes, and seconds.</span>
-<a id="__codelineno-0-508" name="__codelineno-0-508"></a><span class="sd">        out_format: strftime format for the output strings.</span>
-<a id="__codelineno-0-509" name="__codelineno-0-509"></a><span class="sd">            Defaults to `&quot;%Y-%m-%d %H:%M:%S&quot;`.</span>
-<a id="__codelineno-0-510" name="__codelineno-0-510"></a><span class="sd">        calendar: CF calendar type. Defaults to `&quot;standard&quot;`.</span>
-<a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="sd">            Non-standard calendars are decoded with `cftime` (a core</span>
-<a id="__codelineno-0-512" name="__codelineno-0-512"></a><span class="sd">            dependency).</span>
-<a id="__codelineno-0-513" name="__codelineno-0-513"></a>
-<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">        Callable: A function that takes a numeric value and</span>
-<a id="__codelineno-0-516" name="__codelineno-0-516"></a><span class="sd">            returns a formatted date string.</span>
-<a id="__codelineno-0-517" name="__codelineno-0-517"></a>
-<a id="__codelineno-0-518" name="__codelineno-0-518"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-519" name="__codelineno-0-519"></a><span class="sd">        ValueError: If the unit string cannot be parsed or</span>
-<a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="sd">            uses an unsupported time unit.</span>
-<a id="__codelineno-0-521" name="__codelineno-0-521"></a>
-<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="sd">        - Convert day offsets from a 1979 origin:</span>
-<a id="__codelineno-0-524" name="__codelineno-0-524"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-525" name="__codelineno-0-525"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import (</span>
-<a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">            ...     create_time_conversion_func,</span>
-<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">            &gt;&gt;&gt; convert = create_time_conversion_func(</span>
-<a id="__codelineno-0-529" name="__codelineno-0-529"></a><span class="sd">            ...     &quot;days since 1979-01-01&quot;</span>
-<a id="__codelineno-0-530" name="__codelineno-0-530"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="sd">            &gt;&gt;&gt; convert(0)</span>
-<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="sd">            &#39;1979-01-01 00:00:00&#39;</span>
-<a id="__codelineno-0-533" name="__codelineno-0-533"></a><span class="sd">            &gt;&gt;&gt; convert(365)</span>
-<a id="__codelineno-0-534" name="__codelineno-0-534"></a><span class="sd">            &#39;1980-01-01 00:00:00&#39;</span>
-<a id="__codelineno-0-535" name="__codelineno-0-535"></a>
-<a id="__codelineno-0-536" name="__codelineno-0-536"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-537" name="__codelineno-0-537"></a>
-<a id="__codelineno-0-538" name="__codelineno-0-538"></a><span class="sd">        - Use hour-based units with a custom format:</span>
-<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-540" name="__codelineno-0-540"></a><span class="sd">            &gt;&gt;&gt; convert = create_time_conversion_func(</span>
-<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="sd">            ...     &quot;hours since 2000-01-01&quot;,</span>
-<a id="__codelineno-0-542" name="__codelineno-0-542"></a><span class="sd">            ...     out_format=&quot;%Y-%m-%d&quot;,</span>
-<a id="__codelineno-0-543" name="__codelineno-0-543"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-544" name="__codelineno-0-544"></a><span class="sd">            &gt;&gt;&gt; convert(24)</span>
-<a id="__codelineno-0-545" name="__codelineno-0-545"></a><span class="sd">            &#39;2000-01-02&#39;</span>
-<a id="__codelineno-0-546" name="__codelineno-0-546"></a><span class="sd">            &gt;&gt;&gt; convert(0)</span>
-<a id="__codelineno-0-547" name="__codelineno-0-547"></a><span class="sd">            &#39;2000-01-01&#39;</span>
-<a id="__codelineno-0-548" name="__codelineno-0-548"></a>
-<a id="__codelineno-0-549" name="__codelineno-0-549"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-550" name="__codelineno-0-550"></a>
-<a id="__codelineno-0-551" name="__codelineno-0-551"></a><span class="sd">    See Also:</span>
-<a id="__codelineno-0-552" name="__codelineno-0-552"></a><span class="sd">        _parse_units_origin: Parses the unit string.</span>
-<a id="__codelineno-0-553" name="__codelineno-0-553"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-554" name="__codelineno-0-554"></a>    <span class="n">converter</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-555" name="__codelineno-0-555"></a>
-<a id="__codelineno-0-556" name="__codelineno-0-556"></a>    <span class="k">if</span> <span class="n">calendar</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;standard&quot;</span><span class="p">,</span> <span class="s2">&quot;proleptic_gregorian&quot;</span><span class="p">,</span> <span class="s2">&quot;gregorian&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-557" name="__codelineno-0-557"></a>
-<a id="__codelineno-0-558" name="__codelineno-0-558"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">convert_cftime</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
-<a id="__codelineno-0-559" name="__codelineno-0-559"></a>            <span class="n">dt</span> <span class="o">=</span> <span class="n">cftime</span><span class="o">.</span><span class="n">num2date</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">units</span><span class="p">,</span> <span class="n">calendar</span><span class="p">)</span>
-<a id="__codelineno-0-560" name="__codelineno-0-560"></a>            <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="n">out_format</span><span class="p">)</span>
-<a id="__codelineno-0-561" name="__codelineno-0-561"></a>
-<a id="__codelineno-0-562" name="__codelineno-0-562"></a>        <span class="n">converter</span> <span class="o">=</span> <span class="n">convert_cftime</span>
-<a id="__codelineno-0-563" name="__codelineno-0-563"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-564" name="__codelineno-0-564"></a>        <span class="n">unit</span><span class="p">,</span> <span class="n">origin</span> <span class="o">=</span> <span class="n">_parse_units_origin</span><span class="p">(</span><span class="n">units</span><span class="p">)</span>
-<a id="__codelineno-0-565" name="__codelineno-0-565"></a>
-<a id="__codelineno-0-566" name="__codelineno-0-566"></a>        <span class="k">if</span> <span class="n">unit</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;day&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-567" name="__codelineno-0-567"></a>            <span class="n">scale</span> <span class="o">=</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-568" name="__codelineno-0-568"></a>        <span class="k">elif</span> <span class="n">unit</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;hour&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-569" name="__codelineno-0-569"></a>            <span class="n">scale</span> <span class="o">=</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-570" name="__codelineno-0-570"></a>        <span class="k">elif</span> <span class="n">unit</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;min&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-571" name="__codelineno-0-571"></a>            <span class="n">scale</span> <span class="o">=</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">minutes</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-572" name="__codelineno-0-572"></a>        <span class="k">elif</span> <span class="n">unit</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;sec&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-573" name="__codelineno-0-573"></a>            <span class="n">scale</span> <span class="o">=</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-574" name="__codelineno-0-574"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-575" name="__codelineno-0-575"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported time unit: </span><span class="si">{</span><span class="n">unit</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-583">583</a></span>
+<span class="normal"><a href="#__codelineno-0-584">584</a></span>
+<span class="normal"><a href="#__codelineno-0-585">585</a></span>
+<span class="normal"><a href="#__codelineno-0-586">586</a></span>
+<span class="normal"><a href="#__codelineno-0-587">587</a></span>
+<span class="normal"><a href="#__codelineno-0-588">588</a></span>
+<span class="normal"><a href="#__codelineno-0-589">589</a></span>
+<span class="normal"><a href="#__codelineno-0-590">590</a></span>
+<span class="normal"><a href="#__codelineno-0-591">591</a></span>
+<span class="normal"><a href="#__codelineno-0-592">592</a></span>
+<span class="normal"><a href="#__codelineno-0-593">593</a></span>
+<span class="normal"><a href="#__codelineno-0-594">594</a></span>
+<span class="normal"><a href="#__codelineno-0-595">595</a></span>
+<span class="normal"><a href="#__codelineno-0-596">596</a></span>
+<span class="normal"><a href="#__codelineno-0-597">597</a></span>
+<span class="normal"><a href="#__codelineno-0-598">598</a></span>
+<span class="normal"><a href="#__codelineno-0-599">599</a></span>
+<span class="normal"><a href="#__codelineno-0-600">600</a></span>
+<span class="normal"><a href="#__codelineno-0-601">601</a></span>
+<span class="normal"><a href="#__codelineno-0-602">602</a></span>
+<span class="normal"><a href="#__codelineno-0-603">603</a></span>
+<span class="normal"><a href="#__codelineno-0-604">604</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-509" name="__codelineno-0-509"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_time_conversion_func</span><span class="p">(</span>
+<a id="__codelineno-0-510" name="__codelineno-0-510"></a>    <span class="n">units</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-511" name="__codelineno-0-511"></a>    <span class="n">out_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2"> %H:%M:%S&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-512" name="__codelineno-0-512"></a>    <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;standard&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">:</span>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a converter that maps numeric CF time offsets to date strings.</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a>
+<a id="__codelineno-0-516" name="__codelineno-0-516"></a><span class="sd">    Parses CF-compliant time unit strings (e.g.,</span>
+<a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">    `&quot;days since 1979-01-01&quot;`) and returns a callable that</span>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a><span class="sd">    converts numeric offsets to formatted date strings.</span>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="sd">    For standard/proleptic_gregorian calendars, uses Python&#39;s</span>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a><span class="sd">    `datetime` + `timedelta`. For non-standard calendars</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="sd">    (`360_day`, `noleap`, `all_leap`, `julian`), uses</span>
+<a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="sd">    `cftime.num2date()` (optional dependency).</span>
+<a id="__codelineno-0-524" name="__codelineno-0-524"></a>
+<a id="__codelineno-0-525" name="__codelineno-0-525"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">        units: CF time unit string in the format</span>
+<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">            `&quot;&lt;unit&gt; since &lt;origin&gt;&quot;`. Supported units are</span>
+<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">            days, hours, minutes, and seconds.</span>
+<a id="__codelineno-0-529" name="__codelineno-0-529"></a><span class="sd">        out_format: strftime format for the output strings.</span>
+<a id="__codelineno-0-530" name="__codelineno-0-530"></a><span class="sd">            Defaults to `&quot;%Y-%m-%d %H:%M:%S&quot;`.</span>
+<a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="sd">        calendar: CF calendar type. Defaults to `&quot;standard&quot;`.</span>
+<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="sd">            Non-standard calendars are decoded with `cftime` (a core</span>
+<a id="__codelineno-0-533" name="__codelineno-0-533"></a><span class="sd">            dependency).</span>
+<a id="__codelineno-0-534" name="__codelineno-0-534"></a>
+<a id="__codelineno-0-535" name="__codelineno-0-535"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-536" name="__codelineno-0-536"></a><span class="sd">        Callable: A function that takes a numeric value and</span>
+<a id="__codelineno-0-537" name="__codelineno-0-537"></a><span class="sd">            returns a formatted date string.</span>
+<a id="__codelineno-0-538" name="__codelineno-0-538"></a>
+<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-540" name="__codelineno-0-540"></a><span class="sd">        ValueError: If the unit string cannot be parsed or</span>
+<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="sd">            uses an unsupported time unit.</span>
+<a id="__codelineno-0-542" name="__codelineno-0-542"></a>
+<a id="__codelineno-0-543" name="__codelineno-0-543"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-544" name="__codelineno-0-544"></a><span class="sd">        - Convert day offsets from a 1979 origin:</span>
+<a id="__codelineno-0-545" name="__codelineno-0-545"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-546" name="__codelineno-0-546"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.utils import (</span>
+<a id="__codelineno-0-547" name="__codelineno-0-547"></a><span class="sd">            ...     create_time_conversion_func,</span>
+<a id="__codelineno-0-548" name="__codelineno-0-548"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-549" name="__codelineno-0-549"></a><span class="sd">            &gt;&gt;&gt; convert = create_time_conversion_func(</span>
+<a id="__codelineno-0-550" name="__codelineno-0-550"></a><span class="sd">            ...     &quot;days since 1979-01-01&quot;</span>
+<a id="__codelineno-0-551" name="__codelineno-0-551"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-552" name="__codelineno-0-552"></a><span class="sd">            &gt;&gt;&gt; convert(0)</span>
+<a id="__codelineno-0-553" name="__codelineno-0-553"></a><span class="sd">            &#39;1979-01-01 00:00:00&#39;</span>
+<a id="__codelineno-0-554" name="__codelineno-0-554"></a><span class="sd">            &gt;&gt;&gt; convert(365)</span>
+<a id="__codelineno-0-555" name="__codelineno-0-555"></a><span class="sd">            &#39;1980-01-01 00:00:00&#39;</span>
+<a id="__codelineno-0-556" name="__codelineno-0-556"></a>
+<a id="__codelineno-0-557" name="__codelineno-0-557"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-558" name="__codelineno-0-558"></a>
+<a id="__codelineno-0-559" name="__codelineno-0-559"></a><span class="sd">        - Use hour-based units with a custom format:</span>
+<a id="__codelineno-0-560" name="__codelineno-0-560"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-561" name="__codelineno-0-561"></a><span class="sd">            &gt;&gt;&gt; convert = create_time_conversion_func(</span>
+<a id="__codelineno-0-562" name="__codelineno-0-562"></a><span class="sd">            ...     &quot;hours since 2000-01-01&quot;,</span>
+<a id="__codelineno-0-563" name="__codelineno-0-563"></a><span class="sd">            ...     out_format=&quot;%Y-%m-%d&quot;,</span>
+<a id="__codelineno-0-564" name="__codelineno-0-564"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-565" name="__codelineno-0-565"></a><span class="sd">            &gt;&gt;&gt; convert(24)</span>
+<a id="__codelineno-0-566" name="__codelineno-0-566"></a><span class="sd">            &#39;2000-01-02&#39;</span>
+<a id="__codelineno-0-567" name="__codelineno-0-567"></a><span class="sd">            &gt;&gt;&gt; convert(0)</span>
+<a id="__codelineno-0-568" name="__codelineno-0-568"></a><span class="sd">            &#39;2000-01-01&#39;</span>
+<a id="__codelineno-0-569" name="__codelineno-0-569"></a>
+<a id="__codelineno-0-570" name="__codelineno-0-570"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-571" name="__codelineno-0-571"></a>
+<a id="__codelineno-0-572" name="__codelineno-0-572"></a><span class="sd">    See Also:</span>
+<a id="__codelineno-0-573" name="__codelineno-0-573"></a><span class="sd">        _parse_units_origin: Parses the unit string.</span>
+<a id="__codelineno-0-574" name="__codelineno-0-574"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-575" name="__codelineno-0-575"></a>    <span class="n">converter</span> <span class="o">=</span> <span class="kc">None</span>
 <a id="__codelineno-0-576" name="__codelineno-0-576"></a>
-<a id="__codelineno-0-577" name="__codelineno-0-577"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">convert</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
-<a id="__codelineno-0-578" name="__codelineno-0-578"></a>            <span class="n">dt</span> <span class="o">=</span> <span class="n">origin</span> <span class="o">+</span> <span class="n">value</span> <span class="o">*</span> <span class="n">scale</span>
-<a id="__codelineno-0-579" name="__codelineno-0-579"></a>            <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="n">out_format</span><span class="p">)</span>
-<a id="__codelineno-0-580" name="__codelineno-0-580"></a>
-<a id="__codelineno-0-581" name="__codelineno-0-581"></a>        <span class="n">converter</span> <span class="o">=</span> <span class="n">convert</span>
+<a id="__codelineno-0-577" name="__codelineno-0-577"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_standard_calendar</span><span class="p">(</span><span class="n">calendar</span><span class="p">):</span>
+<a id="__codelineno-0-578" name="__codelineno-0-578"></a>
+<a id="__codelineno-0-579" name="__codelineno-0-579"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">convert_cftime</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+<a id="__codelineno-0-580" name="__codelineno-0-580"></a>            <span class="n">dt</span> <span class="o">=</span> <span class="n">cftime</span><span class="o">.</span><span class="n">num2date</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">units</span><span class="p">,</span> <span class="n">calendar</span><span class="p">)</span>
+<a id="__codelineno-0-581" name="__codelineno-0-581"></a>            <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="n">out_format</span><span class="p">)</span>
 <a id="__codelineno-0-582" name="__codelineno-0-582"></a>
-<a id="__codelineno-0-583" name="__codelineno-0-583"></a>    <span class="k">return</span> <span class="n">converter</span>
+<a id="__codelineno-0-583" name="__codelineno-0-583"></a>        <span class="n">converter</span> <span class="o">=</span> <span class="n">convert_cftime</span>
+<a id="__codelineno-0-584" name="__codelineno-0-584"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-585" name="__codelineno-0-585"></a>        <span class="n">unit</span><span class="p">,</span> <span class="n">origin</span> <span class="o">=</span> <span class="n">_parse_units_origin</span><span class="p">(</span><span class="n">units</span><span class="p">)</span>
+<a id="__codelineno-0-586" name="__codelineno-0-586"></a>
+<a id="__codelineno-0-587" name="__codelineno-0-587"></a>        <span class="k">if</span> <span class="n">unit</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;day&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-588" name="__codelineno-0-588"></a>            <span class="n">scale</span> <span class="o">=</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-589" name="__codelineno-0-589"></a>        <span class="k">elif</span> <span class="n">unit</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;hour&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-590" name="__codelineno-0-590"></a>            <span class="n">scale</span> <span class="o">=</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-591" name="__codelineno-0-591"></a>        <span class="k">elif</span> <span class="n">unit</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;min&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-592" name="__codelineno-0-592"></a>            <span class="n">scale</span> <span class="o">=</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">minutes</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-593" name="__codelineno-0-593"></a>        <span class="k">elif</span> <span class="n">unit</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;sec&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-594" name="__codelineno-0-594"></a>            <span class="n">scale</span> <span class="o">=</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-595" name="__codelineno-0-595"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-596" name="__codelineno-0-596"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported time unit: </span><span class="si">{</span><span class="n">unit</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-597" name="__codelineno-0-597"></a>
+<a id="__codelineno-0-598" name="__codelineno-0-598"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">convert</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+<a id="__codelineno-0-599" name="__codelineno-0-599"></a>            <span class="n">dt</span> <span class="o">=</span> <span class="n">origin</span> <span class="o">+</span> <span class="n">value</span> <span class="o">*</span> <span class="n">scale</span>
+<a id="__codelineno-0-600" name="__codelineno-0-600"></a>            <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="n">out_format</span><span class="p">)</span>
+<a id="__codelineno-0-601" name="__codelineno-0-601"></a>
+<a id="__codelineno-0-602" name="__codelineno-0-602"></a>        <span class="n">converter</span> <span class="o">=</span> <span class="n">convert</span>
+<a id="__codelineno-0-603" name="__codelineno-0-603"></a>
+<a id="__codelineno-0-604" name="__codelineno-0-604"></a>    <span class="k">return</span> <span class="n">converter</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6771,28 +6771,7 @@ returned unchanged.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-586">586</a></span>
-<span class="normal"><a href="#__codelineno-0-587">587</a></span>
-<span class="normal"><a href="#__codelineno-0-588">588</a></span>
-<span class="normal"><a href="#__codelineno-0-589">589</a></span>
-<span class="normal"><a href="#__codelineno-0-590">590</a></span>
-<span class="normal"><a href="#__codelineno-0-591">591</a></span>
-<span class="normal"><a href="#__codelineno-0-592">592</a></span>
-<span class="normal"><a href="#__codelineno-0-593">593</a></span>
-<span class="normal"><a href="#__codelineno-0-594">594</a></span>
-<span class="normal"><a href="#__codelineno-0-595">595</a></span>
-<span class="normal"><a href="#__codelineno-0-596">596</a></span>
-<span class="normal"><a href="#__codelineno-0-597">597</a></span>
-<span class="normal"><a href="#__codelineno-0-598">598</a></span>
-<span class="normal"><a href="#__codelineno-0-599">599</a></span>
-<span class="normal"><a href="#__codelineno-0-600">600</a></span>
-<span class="normal"><a href="#__codelineno-0-601">601</a></span>
-<span class="normal"><a href="#__codelineno-0-602">602</a></span>
-<span class="normal"><a href="#__codelineno-0-603">603</a></span>
-<span class="normal"><a href="#__codelineno-0-604">604</a></span>
-<span class="normal"><a href="#__codelineno-0-605">605</a></span>
-<span class="normal"><a href="#__codelineno-0-606">606</a></span>
-<span class="normal"><a href="#__codelineno-0-607">607</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-607">607</a></span>
 <span class="normal"><a href="#__codelineno-0-608">608</a></span>
 <span class="normal"><a href="#__codelineno-0-609">609</a></span>
 <span class="normal"><a href="#__codelineno-0-610">610</a></span>
@@ -6802,38 +6781,59 @@ returned unchanged.</p>
 <span class="normal"><a href="#__codelineno-0-614">614</a></span>
 <span class="normal"><a href="#__codelineno-0-615">615</a></span>
 <span class="normal"><a href="#__codelineno-0-616">616</a></span>
-<span class="normal"><a href="#__codelineno-0-617">617</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-586" name="__codelineno-0-586"></a><span class="k">def</span><span class="w"> </span><span class="nf">decode_cf_time</span><span class="p">(</span>
-<a id="__codelineno-0-587" name="__codelineno-0-587"></a>    <span class="n">values</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
-<a id="__codelineno-0-588" name="__codelineno-0-588"></a>    <span class="n">unit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-589" name="__codelineno-0-589"></a>    <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;standard&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-590" name="__codelineno-0-590"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-591" name="__codelineno-0-591"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Decode numeric CF time offsets to datetimes.</span>
-<a id="__codelineno-0-592" name="__codelineno-0-592"></a>
-<a id="__codelineno-0-593" name="__codelineno-0-593"></a><span class="sd">    Standard / gregorian / proleptic_gregorian calendars yield ``datetime64[ns]`` when</span>
-<a id="__codelineno-0-594" name="__codelineno-0-594"></a><span class="sd">    representable; non-standard calendars (``360_day`` / ``noleap`` …) yield ``cftime``</span>
-<a id="__codelineno-0-595" name="__codelineno-0-595"></a><span class="sd">    objects. Arrays whose ``unit`` is not a ``&quot;&lt;interval&gt; since &lt;origin&gt;&quot;`` string are</span>
-<a id="__codelineno-0-596" name="__codelineno-0-596"></a><span class="sd">    returned unchanged.</span>
-<a id="__codelineno-0-597" name="__codelineno-0-597"></a>
-<a id="__codelineno-0-598" name="__codelineno-0-598"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-599" name="__codelineno-0-599"></a><span class="sd">        values: The numeric values already read for the coordinate.</span>
-<a id="__codelineno-0-600" name="__codelineno-0-600"></a><span class="sd">        unit: The coordinate&#39;s CF unit string (e.g. ``&quot;days since 1979-01-01&quot;``).</span>
-<a id="__codelineno-0-601" name="__codelineno-0-601"></a><span class="sd">        calendar: The CF calendar name. Defaults to ``&quot;standard&quot;``.</span>
-<a id="__codelineno-0-602" name="__codelineno-0-602"></a>
-<a id="__codelineno-0-603" name="__codelineno-0-603"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-604" name="__codelineno-0-604"></a><span class="sd">        np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged.</span>
-<a id="__codelineno-0-605" name="__codelineno-0-605"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-606" name="__codelineno-0-606"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">unit</span> <span class="ow">or</span> <span class="s2">&quot; since &quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">unit</span><span class="p">:</span>
-<a id="__codelineno-0-607" name="__codelineno-0-607"></a>        <span class="k">return</span> <span class="n">values</span>
-<a id="__codelineno-0-608" name="__codelineno-0-608"></a>    <span class="n">standard</span> <span class="o">=</span> <span class="n">calendar</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;standard&quot;</span><span class="p">,</span> <span class="s2">&quot;gregorian&quot;</span><span class="p">,</span> <span class="s2">&quot;proleptic_gregorian&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-609" name="__codelineno-0-609"></a>    <span class="n">decoded</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
-<a id="__codelineno-0-610" name="__codelineno-0-610"></a>        <span class="n">cftime</span><span class="o">.</span><span class="n">num2date</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">unit</span><span class="p">,</span> <span class="n">calendar</span><span class="p">,</span> <span class="n">only_use_cftime_datetimes</span><span class="o">=</span><span class="ow">not</span> <span class="n">standard</span><span class="p">)</span>
-<a id="__codelineno-0-611" name="__codelineno-0-611"></a>    <span class="p">)</span>
-<a id="__codelineno-0-612" name="__codelineno-0-612"></a>    <span class="k">if</span> <span class="n">standard</span><span class="p">:</span>
-<a id="__codelineno-0-613" name="__codelineno-0-613"></a>        <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-614" name="__codelineno-0-614"></a>            <span class="k">return</span> <span class="n">decoded</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">&quot;datetime64[ns]&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-615" name="__codelineno-0-615"></a>        <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
-<a id="__codelineno-0-616" name="__codelineno-0-616"></a>            <span class="k">return</span> <span class="n">decoded</span>
-<a id="__codelineno-0-617" name="__codelineno-0-617"></a>    <span class="k">return</span> <span class="n">decoded</span>
+<span class="normal"><a href="#__codelineno-0-617">617</a></span>
+<span class="normal"><a href="#__codelineno-0-618">618</a></span>
+<span class="normal"><a href="#__codelineno-0-619">619</a></span>
+<span class="normal"><a href="#__codelineno-0-620">620</a></span>
+<span class="normal"><a href="#__codelineno-0-621">621</a></span>
+<span class="normal"><a href="#__codelineno-0-622">622</a></span>
+<span class="normal"><a href="#__codelineno-0-623">623</a></span>
+<span class="normal"><a href="#__codelineno-0-624">624</a></span>
+<span class="normal"><a href="#__codelineno-0-625">625</a></span>
+<span class="normal"><a href="#__codelineno-0-626">626</a></span>
+<span class="normal"><a href="#__codelineno-0-627">627</a></span>
+<span class="normal"><a href="#__codelineno-0-628">628</a></span>
+<span class="normal"><a href="#__codelineno-0-629">629</a></span>
+<span class="normal"><a href="#__codelineno-0-630">630</a></span>
+<span class="normal"><a href="#__codelineno-0-631">631</a></span>
+<span class="normal"><a href="#__codelineno-0-632">632</a></span>
+<span class="normal"><a href="#__codelineno-0-633">633</a></span>
+<span class="normal"><a href="#__codelineno-0-634">634</a></span>
+<span class="normal"><a href="#__codelineno-0-635">635</a></span>
+<span class="normal"><a href="#__codelineno-0-636">636</a></span>
+<span class="normal"><a href="#__codelineno-0-637">637</a></span>
+<span class="normal"><a href="#__codelineno-0-638">638</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-607" name="__codelineno-0-607"></a><span class="k">def</span><span class="w"> </span><span class="nf">decode_cf_time</span><span class="p">(</span>
+<a id="__codelineno-0-608" name="__codelineno-0-608"></a>    <span class="n">values</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+<a id="__codelineno-0-609" name="__codelineno-0-609"></a>    <span class="n">unit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-610" name="__codelineno-0-610"></a>    <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;standard&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-611" name="__codelineno-0-611"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
+<a id="__codelineno-0-612" name="__codelineno-0-612"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Decode numeric CF time offsets to datetimes.</span>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a>
+<a id="__codelineno-0-614" name="__codelineno-0-614"></a><span class="sd">    Standard / gregorian / proleptic_gregorian calendars yield ``datetime64[ns]`` when</span>
+<a id="__codelineno-0-615" name="__codelineno-0-615"></a><span class="sd">    representable; non-standard calendars (``360_day`` / ``noleap`` …) yield ``cftime``</span>
+<a id="__codelineno-0-616" name="__codelineno-0-616"></a><span class="sd">    objects. Arrays whose ``unit`` is not a ``&quot;&lt;interval&gt; since &lt;origin&gt;&quot;`` string are</span>
+<a id="__codelineno-0-617" name="__codelineno-0-617"></a><span class="sd">    returned unchanged.</span>
+<a id="__codelineno-0-618" name="__codelineno-0-618"></a>
+<a id="__codelineno-0-619" name="__codelineno-0-619"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-620" name="__codelineno-0-620"></a><span class="sd">        values: The numeric values already read for the coordinate.</span>
+<a id="__codelineno-0-621" name="__codelineno-0-621"></a><span class="sd">        unit: The coordinate&#39;s CF unit string (e.g. ``&quot;days since 1979-01-01&quot;``).</span>
+<a id="__codelineno-0-622" name="__codelineno-0-622"></a><span class="sd">        calendar: The CF calendar name. Defaults to ``&quot;standard&quot;``.</span>
+<a id="__codelineno-0-623" name="__codelineno-0-623"></a>
+<a id="__codelineno-0-624" name="__codelineno-0-624"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a><span class="sd">        np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged.</span>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-627" name="__codelineno-0-627"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">unit</span> <span class="ow">or</span> <span class="s2">&quot; since &quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">unit</span><span class="p">:</span>
+<a id="__codelineno-0-628" name="__codelineno-0-628"></a>        <span class="k">return</span> <span class="n">values</span>
+<a id="__codelineno-0-629" name="__codelineno-0-629"></a>    <span class="n">standard</span> <span class="o">=</span> <span class="n">_is_standard_calendar</span><span class="p">(</span><span class="n">calendar</span><span class="p">)</span>
+<a id="__codelineno-0-630" name="__codelineno-0-630"></a>    <span class="n">decoded</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+<a id="__codelineno-0-631" name="__codelineno-0-631"></a>        <span class="n">cftime</span><span class="o">.</span><span class="n">num2date</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">unit</span><span class="p">,</span> <span class="n">calendar</span><span class="p">,</span> <span class="n">only_use_cftime_datetimes</span><span class="o">=</span><span class="ow">not</span> <span class="n">standard</span><span class="p">)</span>
+<a id="__codelineno-0-632" name="__codelineno-0-632"></a>    <span class="p">)</span>
+<a id="__codelineno-0-633" name="__codelineno-0-633"></a>    <span class="k">if</span> <span class="n">standard</span><span class="p">:</span>
+<a id="__codelineno-0-634" name="__codelineno-0-634"></a>        <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-635" name="__codelineno-0-635"></a>            <span class="k">return</span> <span class="n">decoded</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">&quot;datetime64[ns]&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-636" name="__codelineno-0-636"></a>        <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+<a id="__codelineno-0-637" name="__codelineno-0-637"></a>            <span class="k">return</span> <span class="n">decoded</span>
+<a id="__codelineno-0-638" name="__codelineno-0-638"></a>    <span class="k">return</span> <span class="n">decoded</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6945,59 +6945,59 @@ accepts.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/utils.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-620">620</a></span>
-<span class="normal"><a href="#__codelineno-0-621">621</a></span>
-<span class="normal"><a href="#__codelineno-0-622">622</a></span>
-<span class="normal"><a href="#__codelineno-0-623">623</a></span>
-<span class="normal"><a href="#__codelineno-0-624">624</a></span>
-<span class="normal"><a href="#__codelineno-0-625">625</a></span>
-<span class="normal"><a href="#__codelineno-0-626">626</a></span>
-<span class="normal"><a href="#__codelineno-0-627">627</a></span>
-<span class="normal"><a href="#__codelineno-0-628">628</a></span>
-<span class="normal"><a href="#__codelineno-0-629">629</a></span>
-<span class="normal"><a href="#__codelineno-0-630">630</a></span>
-<span class="normal"><a href="#__codelineno-0-631">631</a></span>
-<span class="normal"><a href="#__codelineno-0-632">632</a></span>
-<span class="normal"><a href="#__codelineno-0-633">633</a></span>
-<span class="normal"><a href="#__codelineno-0-634">634</a></span>
-<span class="normal"><a href="#__codelineno-0-635">635</a></span>
-<span class="normal"><a href="#__codelineno-0-636">636</a></span>
-<span class="normal"><a href="#__codelineno-0-637">637</a></span>
-<span class="normal"><a href="#__codelineno-0-638">638</a></span>
-<span class="normal"><a href="#__codelineno-0-639">639</a></span>
-<span class="normal"><a href="#__codelineno-0-640">640</a></span>
-<span class="normal"><a href="#__codelineno-0-641">641</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-641">641</a></span>
 <span class="normal"><a href="#__codelineno-0-642">642</a></span>
 <span class="normal"><a href="#__codelineno-0-643">643</a></span>
 <span class="normal"><a href="#__codelineno-0-644">644</a></span>
 <span class="normal"><a href="#__codelineno-0-645">645</a></span>
-<span class="normal"><a href="#__codelineno-0-646">646</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-620" name="__codelineno-0-620"></a><span class="k">def</span><span class="w"> </span><span class="nf">encode_cf_time</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">unit</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;standard&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
-<a id="__codelineno-0-621" name="__codelineno-0-621"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert a date string / datetime to a coordinate&#39;s numeric CF scale.</span>
-<a id="__codelineno-0-622" name="__codelineno-0-622"></a>
-<a id="__codelineno-0-623" name="__codelineno-0-623"></a><span class="sd">    The inverse of :func:`decode_cf_time` for a single value: used to translate a</span>
-<a id="__codelineno-0-624" name="__codelineno-0-624"></a><span class="sd">    user-supplied selection bound back to the time axis&#39;s stored numbers.</span>
-<a id="__codelineno-0-625" name="__codelineno-0-625"></a>
-<a id="__codelineno-0-626" name="__codelineno-0-626"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-627" name="__codelineno-0-627"></a><span class="sd">        value: A date string, :class:`datetime`, or anything :class:`pandas.Timestamp`</span>
-<a id="__codelineno-0-628" name="__codelineno-0-628"></a><span class="sd">            accepts.</span>
-<a id="__codelineno-0-629" name="__codelineno-0-629"></a><span class="sd">        unit: The CF unit string the numeric scale is expressed in.</span>
-<a id="__codelineno-0-630" name="__codelineno-0-630"></a><span class="sd">        calendar: The CF calendar name.</span>
-<a id="__codelineno-0-631" name="__codelineno-0-631"></a>
-<a id="__codelineno-0-632" name="__codelineno-0-632"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-633" name="__codelineno-0-633"></a><span class="sd">        float: ``value`` expressed in ``unit`` on the given ``calendar``.</span>
-<a id="__codelineno-0-634" name="__codelineno-0-634"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-635" name="__codelineno-0-635"></a>    <span class="n">year</span><span class="p">,</span> <span class="n">month</span><span class="p">,</span> <span class="n">day</span><span class="p">,</span> <span class="n">hour</span><span class="p">,</span> <span class="n">minute</span><span class="p">,</span> <span class="n">second</span><span class="p">,</span> <span class="n">microsecond</span> <span class="o">=</span> <span class="n">_datetime_components</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
-<a id="__codelineno-0-636" name="__codelineno-0-636"></a>    <span class="n">dt</span> <span class="o">=</span> <span class="n">cftime</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span>
-<a id="__codelineno-0-637" name="__codelineno-0-637"></a>        <span class="n">year</span><span class="p">,</span>
-<a id="__codelineno-0-638" name="__codelineno-0-638"></a>        <span class="n">month</span><span class="p">,</span>
-<a id="__codelineno-0-639" name="__codelineno-0-639"></a>        <span class="n">day</span><span class="p">,</span>
-<a id="__codelineno-0-640" name="__codelineno-0-640"></a>        <span class="n">hour</span><span class="p">,</span>
-<a id="__codelineno-0-641" name="__codelineno-0-641"></a>        <span class="n">minute</span><span class="p">,</span>
-<a id="__codelineno-0-642" name="__codelineno-0-642"></a>        <span class="n">second</span><span class="p">,</span>
-<a id="__codelineno-0-643" name="__codelineno-0-643"></a>        <span class="n">microsecond</span><span class="p">,</span>
-<a id="__codelineno-0-644" name="__codelineno-0-644"></a>        <span class="n">calendar</span><span class="o">=</span><span class="n">calendar</span><span class="p">,</span>
-<a id="__codelineno-0-645" name="__codelineno-0-645"></a>    <span class="p">)</span>
-<a id="__codelineno-0-646" name="__codelineno-0-646"></a>    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">cftime</span><span class="o">.</span><span class="n">date2num</span><span class="p">(</span><span class="n">dt</span><span class="p">,</span> <span class="n">unit</span><span class="p">,</span> <span class="n">calendar</span><span class="p">))</span>
+<span class="normal"><a href="#__codelineno-0-646">646</a></span>
+<span class="normal"><a href="#__codelineno-0-647">647</a></span>
+<span class="normal"><a href="#__codelineno-0-648">648</a></span>
+<span class="normal"><a href="#__codelineno-0-649">649</a></span>
+<span class="normal"><a href="#__codelineno-0-650">650</a></span>
+<span class="normal"><a href="#__codelineno-0-651">651</a></span>
+<span class="normal"><a href="#__codelineno-0-652">652</a></span>
+<span class="normal"><a href="#__codelineno-0-653">653</a></span>
+<span class="normal"><a href="#__codelineno-0-654">654</a></span>
+<span class="normal"><a href="#__codelineno-0-655">655</a></span>
+<span class="normal"><a href="#__codelineno-0-656">656</a></span>
+<span class="normal"><a href="#__codelineno-0-657">657</a></span>
+<span class="normal"><a href="#__codelineno-0-658">658</a></span>
+<span class="normal"><a href="#__codelineno-0-659">659</a></span>
+<span class="normal"><a href="#__codelineno-0-660">660</a></span>
+<span class="normal"><a href="#__codelineno-0-661">661</a></span>
+<span class="normal"><a href="#__codelineno-0-662">662</a></span>
+<span class="normal"><a href="#__codelineno-0-663">663</a></span>
+<span class="normal"><a href="#__codelineno-0-664">664</a></span>
+<span class="normal"><a href="#__codelineno-0-665">665</a></span>
+<span class="normal"><a href="#__codelineno-0-666">666</a></span>
+<span class="normal"><a href="#__codelineno-0-667">667</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-641" name="__codelineno-0-641"></a><span class="k">def</span><span class="w"> </span><span class="nf">encode_cf_time</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">unit</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">calendar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;standard&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<a id="__codelineno-0-642" name="__codelineno-0-642"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert a date string / datetime to a coordinate&#39;s numeric CF scale.</span>
+<a id="__codelineno-0-643" name="__codelineno-0-643"></a>
+<a id="__codelineno-0-644" name="__codelineno-0-644"></a><span class="sd">    The inverse of :func:`decode_cf_time` for a single value: used to translate a</span>
+<a id="__codelineno-0-645" name="__codelineno-0-645"></a><span class="sd">    user-supplied selection bound back to the time axis&#39;s stored numbers.</span>
+<a id="__codelineno-0-646" name="__codelineno-0-646"></a>
+<a id="__codelineno-0-647" name="__codelineno-0-647"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-648" name="__codelineno-0-648"></a><span class="sd">        value: A date string, :class:`datetime`, or anything :class:`pandas.Timestamp`</span>
+<a id="__codelineno-0-649" name="__codelineno-0-649"></a><span class="sd">            accepts.</span>
+<a id="__codelineno-0-650" name="__codelineno-0-650"></a><span class="sd">        unit: The CF unit string the numeric scale is expressed in.</span>
+<a id="__codelineno-0-651" name="__codelineno-0-651"></a><span class="sd">        calendar: The CF calendar name.</span>
+<a id="__codelineno-0-652" name="__codelineno-0-652"></a>
+<a id="__codelineno-0-653" name="__codelineno-0-653"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-654" name="__codelineno-0-654"></a><span class="sd">        float: ``value`` expressed in ``unit`` on the given ``calendar``.</span>
+<a id="__codelineno-0-655" name="__codelineno-0-655"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-656" name="__codelineno-0-656"></a>    <span class="n">year</span><span class="p">,</span> <span class="n">month</span><span class="p">,</span> <span class="n">day</span><span class="p">,</span> <span class="n">hour</span><span class="p">,</span> <span class="n">minute</span><span class="p">,</span> <span class="n">second</span><span class="p">,</span> <span class="n">microsecond</span> <span class="o">=</span> <span class="n">_datetime_components</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<a id="__codelineno-0-657" name="__codelineno-0-657"></a>    <span class="n">dt</span> <span class="o">=</span> <span class="n">cftime</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span>
+<a id="__codelineno-0-658" name="__codelineno-0-658"></a>        <span class="n">year</span><span class="p">,</span>
+<a id="__codelineno-0-659" name="__codelineno-0-659"></a>        <span class="n">month</span><span class="p">,</span>
+<a id="__codelineno-0-660" name="__codelineno-0-660"></a>        <span class="n">day</span><span class="p">,</span>
+<a id="__codelineno-0-661" name="__codelineno-0-661"></a>        <span class="n">hour</span><span class="p">,</span>
+<a id="__codelineno-0-662" name="__codelineno-0-662"></a>        <span class="n">minute</span><span class="p">,</span>
+<a id="__codelineno-0-663" name="__codelineno-0-663"></a>        <span class="n">second</span><span class="p">,</span>
+<a id="__codelineno-0-664" name="__codelineno-0-664"></a>        <span class="n">microsecond</span><span class="p">,</span>
+<a id="__codelineno-0-665" name="__codelineno-0-665"></a>        <span class="n">calendar</span><span class="o">=</span><span class="n">calendar</span><span class="p">,</span>
+<a id="__codelineno-0-666" name="__codelineno-0-666"></a>    <span class="p">)</span>
+<a id="__codelineno-0-667" name="__codelineno-0-667"></a>    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">cftime</span><span class="o">.</span><span class="n">date2num</span><span class="p">(</span><span class="n">dt</span><span class="p">,</span> <span class="n">unit</span><span class="p">,</span> <span class="n">calendar</span><span class="p">))</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
