@@ -99,6 +99,24 @@ class TestWarpToDataset:
             "the warped VRT must still read after its source wrapper is gone"
         )
 
+    def test_the_wrapper_class_can_be_overridden(self, source):
+        """`dataset_class` decides what wraps the result.
+
+        Test scenario:
+            The cutline crop wants a plain `Dataset` even when the source is a
+            subclass, because its output is no longer a view of anything. The
+            default -- the source's own class -- is what every reprojection
+            wants.
+        """
+        result = warp_to_dataset(
+            source,
+            gdal.WarpOptions(format="VRT", dstSRS="EPSG:3857"),
+            dataset_class=Dataset,
+        )
+        assert type(result) is Dataset, (
+            f"expected a plain Dataset, got {type(result).__name__}"
+        )
+
     def test_pin_false_leaves_no_reference(self, source):
         """A materialised result does not read through, so it is not pinned.
 

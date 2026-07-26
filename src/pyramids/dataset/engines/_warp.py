@@ -4,11 +4,12 @@
 (``georeference`` / ``orthorectify``) both warp. Before this module `georef`
 reached into `spatial` for :func:`dst_srs_arg`, coupling two sibling engines,
 and each site was responsible for remembering to pin the warp source on its
-result -- which `to_crs` did not, leaving it reading freed memory once the
-source went away.
+result -- which `to_crs` and the cutline crop did not, leaving them reading
+freed memory once the source went away.
 
 Both concerns live here instead: one place to derive the ``dstSRS`` argument,
-and one place that performs a warp and pins its source.
+and one place that performs a warp and pins its source. All five sites route
+through :func:`warp_to_dataset`.
 """
 
 from __future__ import annotations
@@ -50,7 +51,8 @@ def warp_to_dataset(
     source: Dataset,
     options: gdal.WarpOptions,
     *,
-    access: str | None = None,
+    access: str = "read_only",
+    dataset_class: type[Dataset] | None = None,
     error_message: str = "GDAL could not warp the dataset.",
     pin: bool = True,
 ) -> Dataset:
@@ -65,7 +67,12 @@ def warp_to_dataset(
     Args:
         source: The dataset to warp.
         options: Prepared :func:`gdal.WarpOptions`.
-        access: Access mode for the wrapper. `None` uses the wrapper's default.
+        access: Access mode for the wrapper. Defaults to the wrapper's own
+            default, `"read_only"`.
+        dataset_class: Wrapper class for the result. Defaults to `source`'s own
+            class, which is what every reprojection wants. The cutline crop
+            passes plain `Dataset` because its output is no longer a NetCDF (or
+            any other subclass) view of anything.
         error_message: Raised when GDAL returns no dataset.
         pin: Whether the result should hold the source raster alive. Only a
             lazy (VRT) result reads through to the source; a materialised one
@@ -81,8 +88,8 @@ def warp_to_dataset(
     warped = gdal.Warp("", source.raster, options=options)
     if warped is None:
         raise RuntimeError(error_message)
-    cls = source.__class__
-    result = cls(warped, access=access) if access is not None else cls(warped)
+    cls = source.__class__ if dataset_class is None else dataset_class
+    result = cls(warped, access=access)
     if pin:
         result._warp_source = source.raster
     return result

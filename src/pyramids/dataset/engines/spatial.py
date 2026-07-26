@@ -660,16 +660,14 @@ class Spatial(_Engine["Dataset"]):
             outputBounds=bbox,
             multithread=True,
         )
-        vrt = gdal.Warp("", self._ds.raster, options=options)
-        if vrt is None:
-            raise RuntimeError(
-                f"GDAL could not build a warped VRT onto {dst_srs_arg!r}."
-            )
-        view = self._ds.__class__(vrt, access="read_only")
-        # The VRT references the source GDAL handle; pin the source Dataset on
-        # the view so Python cannot garbage-collect it underneath the VRT.
-        view._warp_source = self._ds.raster
-        return view
+        # The VRT references the source GDAL handle, so the result has to pin
+        # it; `warp_to_dataset` is the one place that does.
+        return warp_to_dataset(
+            self._ds,
+            options,
+            access="read_only",
+            error_message=f"GDAL could not build a warped VRT onto {dst_srs_arg!r}.",
+        )
 
     def _get_epsg(self) -> int | None:
         """Get the EPSG number.
@@ -1547,11 +1545,21 @@ class Spatial(_Engine["Dataset"]):
                 cutlineDSName=cutline_path,
                 multithread=True,
             )
-            dst = gdal.Warp("", self._ds.raster, options=warp_options)
             # base_cls is a dynamic MRO walk that always resolves to Dataset itself
             # (the class directly above RasterBase; see the comment above), never a
             # subclass, so this is guaranteed to actually be a Dataset at runtime.
-            dst_obj = cast("Dataset", base_cls(dst))
+            # Routed through warp_to_dataset for the pin: with `touch` false the
+            # result is the raw VRT, which reads through to the source on every
+            # access and previously held nothing alive.
+            dst_obj = cast(
+                "Dataset",
+                warp_to_dataset(
+                    self._ds,
+                    warp_options,
+                    dataset_class=cast("type[Dataset]", base_cls),
+                    error_message="GDAL could not crop the dataset with the cutline.",
+                ),
+            )
             if touch:
                 dst_obj = Spatial._correct_wrap_cutline_error(dst_obj)
 
