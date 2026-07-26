@@ -485,6 +485,27 @@ def _parse_units_origin(units: str) -> tuple[str, datetime]:
     return unit.lower(), origin_dt
 
 
+def _is_standard_calendar(calendar: str | None) -> bool:
+    """True for the Gregorian family (`standard` / `gregorian` / `proleptic_gregorian`), case-insensitive.
+
+    Single source for the standard-vs-non-standard calendar split so the CF time helpers cannot drift on
+    the accepted set or its casing (ARC-69). `create_time_conversion_func` lowercased its check but
+    `decode_cf_time` did not, so a capitalised `"Gregorian"`/`"Standard"` was mis-classified as
+    non-standard by the latter.
+
+    Args:
+        calendar: The CF calendar name (``None`` is treated as ``"standard"``).
+
+    Returns:
+        bool: `True` when `calendar` names a proleptic-Gregorian-compatible calendar.
+    """
+    return (calendar or "standard").lower() in (
+        "standard",
+        "gregorian",
+        "proleptic_gregorian",
+    )
+
+
 def create_time_conversion_func(
     units: str,
     out_format: str = "%Y-%m-%d %H:%M:%S",
@@ -553,7 +574,7 @@ def create_time_conversion_func(
     """
     converter = None
 
-    if calendar.lower() not in ("standard", "proleptic_gregorian", "gregorian"):
+    if not _is_standard_calendar(calendar):
 
         def convert_cftime(value):
             dt = cftime.num2date(value, units, calendar)
@@ -605,7 +626,7 @@ def decode_cf_time(
     """
     if not unit or " since " not in unit:
         return values
-    standard = calendar in ("standard", "gregorian", "proleptic_gregorian")
+    standard = _is_standard_calendar(calendar)
     decoded = np.asarray(
         cftime.num2date(values, unit, calendar, only_use_cftime_datetimes=not standard)
     )
