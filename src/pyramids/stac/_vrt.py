@@ -15,10 +15,9 @@ Completeness note: GDAL treats a source it cannot use — an unreadable href, a
 band count or CRS that disagrees with the first source — as a *warning*, drops
 it, and builds the mosaic from what is left. That turns an expired signed URL
 into a silently incomplete mosaic whose missing tiles read as nodata, so
-:func:`build_vrt_from_stac` reports the skip. Today it warns
-(``strict=None``, the default) and adds a ``FutureWarning``; **from the
-next minor release the default becomes ``strict=True`` and the skip raises**.
-Pass ``strict=True`` or ``strict=False`` explicitly to pin either behaviour.
+:func:`build_vrt_from_stac` **raises** on any skipped source (``strict=True``,
+the default). Pass ``strict=False`` when a partial footprint is genuinely
+acceptable — it warns and returns what GDAL kept.
 
 Signer note: a VRT opens its sources lazily, on the first *pixel* read, and GDAL
 does not consult the thread-local config (what ``CloudConfig`` installs) when it
@@ -466,7 +465,7 @@ def _build_vrt(vrt_path: str, vsi_paths: list[str], separate: bool) -> Any:
 
 
 def _check_dropped_sources(
-    dropped: list[str], total: int, asset: str, strict: bool | None
+    dropped: list[str], total: int, asset: str, strict: bool
 ) -> None:
     """Raise (or warn) when `gdal.BuildVRT` skipped part of the requested mosaic.
 
@@ -476,21 +475,14 @@ def _check_dropped_sources(
             into the message this raises.
         total: How many sources were requested.
         asset: The asset key being mosaicked (for the message).
-        strict: Raise :class:`RuntimeError` when `True`; warn when `False`;
-            when `None` (the current default) warn and add a
-            :class:`FutureWarning` that the default flips to `True`.
+        strict: Raise :class:`RuntimeError` when `True` (the default), warn and
+            keep the partial mosaic when `False`.
 
     Raises:
         RuntimeError: `strict` is `True` and at least one source was skipped.
 
     Warns:
-        UserWarning: `strict` is not `True` and at least one source was skipped.
-        FutureWarning: `strict` is `None` and at least one source was skipped —
-            the caller is relying on a default that is about to change.
-            `FutureWarning` rather than `DeprecationWarning` because the latter
-            is silenced by Python's default filters unless it is raised from
-            `__main__`, and `stacklevel=3` attributes this one to the *caller of*
-            `build_vrt_from_stac`, which in a real deployment is library code.
+        UserWarning: `strict` is `False` and at least one source was skipped.
 
     Examples:
         - A complete build passes silently:
@@ -534,18 +526,6 @@ def _check_dropped_sources(
                 f"{message} Pass strict=False to build the partial mosaic anyway."
             )
         warnings.warn(message, UserWarning, stacklevel=3)
-        if strict is None:
-            warnings.warn(
-                "build_vrt_from_stac returned this incomplete mosaic because "
-                "strict defaults to None. That default becomes True in the next "
-                "minor release (tracked as ARC-79 in "
-                "planning/architecture-review/25-july/arc-stac.md), and the skip "
-                "above will raise instead. Pass strict=True to adopt that now, "
-                "or strict=False to keep the partial mosaic and silence this "
-                "warning.",
-                FutureWarning,
-                stacklevel=3,
-            )
 
 
 def build_vrt_from_stac(
@@ -554,7 +534,7 @@ def build_vrt_from_stac(
     *,
     signer: Any = None,
     separate: bool = False,
-    strict: bool | None = None,
+    strict: bool = True,
 ) -> Dataset:
     """Mosaic one STAC asset across items into a lazy VRT-backed `Dataset`.
 
@@ -571,12 +551,11 @@ def build_vrt_from_stac(
             (overlapping/tiling sources compose into one image — the stac-vrt
             model). When `True`, each source becomes a separate band (a
             band-stack VRT), which requires the sources to share a grid.
-        strict: What to do when GDAL skips a requested source. `True` raises,
-            so a partially-built mosaic is never mistaken for a complete one.
-            `False` warns and returns the partial mosaic. `None` (the current
-            default) behaves like `False` and adds a `FutureWarning`:
-            **the default becomes `True` in the next minor release**. Pass an
-            explicit value to pin the behaviour you want across that change.
+        strict: What to do when GDAL skips a requested source. `True` (the
+            default) raises, so a partially-built mosaic is never mistaken for a
+            complete one. `False` warns and returns the partial mosaic — use it
+            only when an incomplete footprint is genuinely acceptable, and check
+            what came back.
 
     Returns:
         Dataset: A lazy `Dataset` over an in-memory `.vrt`; GDAL reads the
@@ -586,15 +565,11 @@ def build_vrt_from_stac(
     Raises:
         ValueError: When `items` yields no items.
         RuntimeError: When `gdal.BuildVRT` fails outright (every source
-            unreadable), or — with `strict=True` — when it silently skipped
-            some of them (unreadable href, mismatched band count or CRS).
+            unreadable), or — with the default `strict=True` — when it silently
+            skipped some of them (unreadable href, mismatched band count or CRS).
 
     Warns:
-        UserWarning: When some sources were skipped and `strict` is not `True`.
-        FutureWarning: When some sources were skipped and `strict` was left at
-            its default, which is about to change. It is a `FutureWarning` so it
-            is visible under Python's default filters — a `DeprecationWarning`
-            from library code is silenced, which would defeat the notice.
+        UserWarning: When some sources were skipped and `strict` is `False`.
 
     Examples:
         - Mosaic the `visual` asset of several items into one lazy Dataset
