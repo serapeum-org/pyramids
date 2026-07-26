@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 import shapely
+from scipy.spatial import cKDTree
 from shapely import STRtree
 from shapely.ops import unary_union
 
@@ -53,8 +54,6 @@ class MeshSpatialIndex:
     def node_tree(self) -> Any:
         """KD-tree on node coordinates. Lazy-built on first access."""
         if self._node_tree is None:
-            from scipy.spatial import cKDTree
-
             self._node_tree = cKDTree(
                 np.column_stack([self._mesh.node_x, self._mesh.node_y])
             )
@@ -64,8 +63,6 @@ class MeshSpatialIndex:
     def face_tree(self) -> Any:
         """KD-tree on face centroids. Lazy-built on first access."""
         if self._face_tree is None:
-            from scipy.spatial import cKDTree
-
             cx, cy = self._mesh.face_centroids
             self._face_tree = cKDTree(np.column_stack([cx, cy]))
         return self._face_tree

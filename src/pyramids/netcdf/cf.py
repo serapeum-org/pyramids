@@ -902,18 +902,55 @@ def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
     Returns:
         List of dicts with keys `"dimensions"`, `"method"`,
         and optionally `"where"` and `"over"`.
+
+    Examples:
+        - A single dimension and method:
+            ```python
+            >>> parse_cell_methods("time: mean")
+            [{'dimensions': 'time', 'method': 'mean'}]
+
+            ```
+        - Several dimensions sharing one method are all captured:
+            ```python
+            >>> parse_cell_methods("lat: lon: mean")
+            [{'dimensions': 'lat lon', 'method': 'mean'}]
+
+            ```
+        - Independent entries, with a `where` qualifier:
+            ```python
+            >>> parse_cell_methods("time: mean area: sum where land")
+            [{'dimensions': 'time', 'method': 'mean'}, {'dimensions': 'area', 'method': 'sum', 'where': 'land'}]
+
+            ```
     """
     results: list[dict[str, str]] = []
-    pattern = r'(\w[\w\s]*?):\s+(\w+)(?:\s+where\s+(\w+))?(?:\s+over\s+(\w+))?'
-    for match in re.finditer(pattern, cell_methods_str):
+    # A cell_methods entry is `name: [name: ...] method [where ...] [over ...]` — one OR MORE
+    # `name:` groups precede the method. Capturing them as a single group and splitting on `:` lets
+    # `"lat: lon: mean"` parse to dimensions `lat lon` / method `mean` instead of mis-reading `lon`
+    # as the method (ARC-30). The `where`/`over` qualifiers are parsed from the text between one
+    # method and the next entry so the core pattern stays simple.
+    entry_pattern = r'((?:\w+\s*:\s*)+)(\w+)'
+    matches = list(re.finditer(entry_pattern, cell_methods_str))
+    for idx, match in enumerate(matches):
+        dims = " ".join(
+            part.strip() for part in match.group(1).split(":") if part.strip()
+        )
         entry: dict[str, str] = {
-            "dimensions": match.group(1).strip(),
+            "dimensions": dims,
             "method": match.group(2),
         }
-        if match.group(3):
-            entry["where"] = match.group(3)
-        if match.group(4):
-            entry["over"] = match.group(4)
+        tail_end = (
+            matches[idx + 1].start()
+            if idx + 1 < len(matches)
+            else len(cell_methods_str)
+        )
+        tail = cell_methods_str[match.end() : tail_end]
+        where = re.search(r"\bwhere\s+(\w+)", tail)
+        if where:
+            entry["where"] = where.group(1)
+        over = re.search(r"\bover\s+(\w+)", tail)
+        if over:
+            entry["over"] = over.group(1)
         results.append(entry)
     return results
 
@@ -1127,7 +1164,9 @@ def _check_coordinate_variable(short: str, var: Any) -> list[str]:
     issues: list[str] = []
     if not var.attributes.get("units") and not var.unit:
         issues.append(f"Coordinate variable '{short}' has no 'units' attribute.")
-    units_val = var.attributes.get("units", "")
+    # A time coordinate may carry its unit only on the MDArray unit slot (`var.unit`), not as a
+    # `units` attribute, so consult both when detecting the `<period> since <epoch>` form (ARC-30).
+    units_val = var.attributes.get("units") or var.unit or ""
     if (
         isinstance(units_val, str)
         and "since" in units_val

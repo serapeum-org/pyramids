@@ -61,6 +61,47 @@ def _get_attr(obj: Any, name: str) -> Any:
         return None
 
 
+def _contiguous_runs(sorted_idx: np.typing.NDArray) -> list[tuple[int, int]]:
+    """Split a sorted 1-D integer array into ``(start, count)`` runs of consecutive values.
+
+    Used to read only the requested runs of a sparse coordinate selection instead of the whole
+    ``[min, max]`` span (ARC-49).
+
+    Args:
+        sorted_idx: A non-empty sorted 1-D array of unique integer positions.
+
+    Returns:
+        A list of ``(start, count)`` pairs, one per maximal run of consecutive integers.
+
+    Examples:
+        - Two isolated positions become two length-1 runs:
+            ```python
+            >>> import numpy as np
+            >>> _contiguous_runs(np.array([0, 999999]))
+            [(0, 1), (999999, 1)]
+
+            ```
+        - A consecutive block collapses to a single run:
+            ```python
+            >>> import numpy as np
+            >>> _contiguous_runs(np.array([3, 4, 5, 9]))
+            [(3, 3), (9, 1)]
+
+            ```
+    """
+    runs: list[tuple[int, int]] = []
+    start = prev = int(sorted_idx[0])
+    for raw in sorted_idx[1:]:
+        value = int(raw)
+        if value == prev + 1:
+            prev = value
+        else:
+            runs.append((start, prev - start + 1))
+            start = prev = value
+    runs.append((start, prev - start + 1))
+    return runs
+
+
 def _is_remote_url(source: str) -> bool:
     """True for a remote object-store / http URL (not a local filesystem path)."""
     scheme = source.split("://", 1)[0].lower() if "://" in source else ""
@@ -118,6 +159,7 @@ class LabeledDataset:
         index: dict[str, np.ndarray] | None = None,
         scalar_dims: frozenset[str] = frozenset(),
         cloud_config: CloudConfig | None = None,
+        coord_cache: dict[str, np.typing.NDArray] | None = None,
     ) -> None:
         """Low-level constructor. Most callers use :meth:`read_file`.
 
@@ -151,6 +193,12 @@ class LabeledDataset:
         # region, anon) stays live for data GETs, not just the open (#560). An
         # empty CloudConfig is a no-op for local stores.
         self._cloud_config = cloud_config or CloudConfig()
+        # Full (unselected) coordinate arrays are store-invariant, so cache them by name and share
+        # the dict across child views (via `_replace`) — `select` no longer re-reads a coordinate
+        # from the store on every call (ARC-49).
+        self._coord_full_cache: dict[str, np.typing.NDArray] = (
+            coord_cache if coord_cache is not None else {}
+        )
 
     @staticmethod
     def _open_multidim_store(
@@ -452,6 +500,7 @@ class LabeledDataset:
             index=index,
             scalar_dims=scalar_dims,
             cloud_config=self._cloud_config,
+            coord_cache=self._coord_full_cache,
         )
 
     def _selected_size(self, dim: str) -> int:
@@ -532,7 +581,15 @@ class LabeledDataset:
         self, arr: gdal.MDArray, dim_names: list[str]
     ) -> np.typing.NDArray:
         """Strided ``ReadAsArray`` over each selected dim's index span, then a
-        local fancy index to pick the exact requested labels within the span."""
+        local fancy index to pick the exact requested labels within the span.
+
+        When exactly one dimension is selected, read only its contiguous index runs so a sparse
+        selection over a large dimension (e.g. ``[0, 999_999]``) does not read the whole
+        ``[min, max]`` span (ARC-49); multi-dimension selections keep the single bounding-span read.
+        """
+        selected = [d for d in dim_names if self._index.get(d) is not None]
+        if len(selected) == 1:
+            return self._read_runs_along_dim(arr, dim_names, selected[0])
         starts: list[int] = []
         counts: list[int] = []
         local: list[np.typing.NDArray | None] = []
@@ -552,6 +609,28 @@ class LabeledDataset:
             if loc is not None:
                 values = np.take(values, loc, axis=axis)
         return values
+
+    def _read_runs_along_dim(
+        self, arr: gdal.MDArray, dim_names: list[str], dim: str
+    ) -> np.typing.NDArray:
+        """Read the contiguous index runs of a single sparse-selected `dim`, then reorder (ARC-49)."""
+        axis = dim_names.index(dim)
+        idx = np.asarray(self._index[dim])
+        uniq = np.unique(idx)
+        blocks: list[np.typing.NDArray] = []
+        for start, count in _contiguous_runs(uniq):
+            starts = [0] * len(dim_names)
+            counts = [self._full_sizes[d] for d in dim_names]
+            starts[axis] = start
+            counts[axis] = count
+            blocks.append(
+                np.asarray(arr.ReadAsArray(array_start_idx=starts, count=counts))
+            )
+        combined = blocks[0] if len(blocks) == 1 else np.concatenate(blocks, axis=axis)
+        # `combined` is ordered by `uniq` along `axis`; map back to the request order, which may be
+        # unsorted or contain duplicates.
+        remap = np.searchsorted(uniq, idx)
+        return cast("np.typing.NDArray", np.take(combined, remap, axis=axis))
 
     def _squeeze_scalar_dims(
         self, values: np.ndarray, dim_names: list[str]
@@ -593,13 +672,17 @@ class LabeledDataset:
         return decode_cf_time(values, unit, calendar)
 
     def _coord_full(self, name: str) -> np.typing.NDArray:
-        """Read a coordinate's full (unselected) values."""
+        """Read a coordinate's full (unselected) values, memoized by name (ARC-49)."""
+        cached = self._coord_full_cache.get(name)
+        if cached is not None:
+            return cached
         with self._with_store() as grp:
             arr = grp.OpenMDArray(name)
             if arr.GetDataType().GetClass() == gdal.GEDTC_STRING:
                 values = np.asarray(arr.Read(), dtype=object)
             else:
                 values = np.asarray(arr.ReadAsArray())
+        self._coord_full_cache[name] = values
         return values
 
     def _coord_current(self, name: str, dim: str) -> np.typing.NDArray:
@@ -650,17 +733,23 @@ class LabeledDataset:
             # alike (a 0-d ndarray is not iterable, so the isinstance check alone
             # mis-classified it as a sequence and raised on list()).
             is_scalar = np.ndim(values) == 0
-            requested = [values] if is_scalar else list(values)
+            # `.item()` normalizes a 0-d array / numpy scalar to a hashable Python scalar so the
+            # value -> position dict lookup below works (a 0-d ndarray is unhashable).
+            requested = [np.asarray(values).item()] if is_scalar else list(values)
             if not requested:
                 raise ValueError(
                     f"empty selection list for {dim!r}; pass at least one value"
                 )
-            found = np.isin(np.asarray(requested), current)
-            if not found.all():
-                missing = [v for v, ok in zip(requested, found) if not ok]
+            # Build a value -> first-position map once (O(n)) and look each request up in it (O(m)),
+            # instead of a full `np.flatnonzero` scan per requested value (O(n*m)) (ARC-49).
+            position_of: dict[Any, int] = {}
+            for position, value in enumerate(current):
+                position_of.setdefault(value, position)
+            missing = [v for v in requested if v not in position_of]
+            if missing:
                 raise KeyError(f"{dim!r} values not found: {missing}")
             # Positions within the current selection, in REQUEST order.
-            positions = [int(np.flatnonzero(current == v)[0]) for v in requested]
+            positions = [position_of[v] for v in requested]
             base = self._index.get(dim)
             base = (
                 np.arange(self._full_sizes[dim]) if base is None else np.asarray(base)

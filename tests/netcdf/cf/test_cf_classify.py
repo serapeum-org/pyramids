@@ -2,10 +2,13 @@
 cell methods parsing, and valid range masking (CF-5, CF-6, CF-7, CF-10, CF-11).
 """
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 from pyramids.netcdf.cf import (
+    _check_coordinate_variable,
     apply_valid_range_mask,
     classify_variables,
     detect_axis,
@@ -322,6 +325,33 @@ class TestParseCellMethods:
         """Parse 'area: mean where sea_ice'."""
         result = parse_cell_methods("area: mean where sea_ice")
         assert result[0]["where"] == "sea_ice", f"Got {result[0].get('where')}"
+
+    def test_multiple_dims_before_method(self):
+        """'lat: lon: mean' parses both dims and the method, not lon-as-method (ARC-30)."""
+        result = parse_cell_methods("lat: lon: mean")
+        assert len(result) == 1, f"Expected 1 entry, got {result}"
+        assert result[0]["dimensions"] == "lat lon", f"Got {result[0]['dimensions']}"
+        assert result[0]["method"] == "mean", f"Got {result[0]['method']}"
+
+
+class TestCoordinateUnitCheck:
+    """`_check_coordinate_variable` consults the MDArray unit slot, not only attributes (ARC-30)."""
+
+    def test_since_unit_on_unit_slot_flags_missing_calendar(self):
+        """A time coord whose `since` unit lives on `var.unit` still needs a `calendar` warning."""
+        var = SimpleNamespace(attributes={}, unit="days since 1970-01-01")
+        issues = _check_coordinate_variable("time", var)
+        assert any("calendar" in issue for issue in issues), (
+            f"expected a missing-calendar warning for a unit-slot time coordinate, got {issues}"
+        )
+
+    def test_non_time_unit_slot_not_flagged(self):
+        """A non-time unit on the unit slot raises no missing-calendar warning."""
+        var = SimpleNamespace(attributes={}, unit="m")
+        issues = _check_coordinate_variable("depth", var)
+        assert not any("calendar" in issue for issue in issues), (
+            f"a non-time unit must not trigger a calendar warning, got {issues}"
+        )
 
 
 class TestApplyValidRangeMask:

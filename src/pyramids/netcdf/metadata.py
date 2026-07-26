@@ -829,7 +829,8 @@ def from_json(s: str) -> NetCDFMetadata:
 
     Parses the JSON produced by `to_json` and manually
     reconstructs the dataclass hierarchy (`GroupInfo`,
-    `VariableInfo`, `DimensionInfo`, `StructuralInfo`).
+    `VariableInfo`, `DimensionInfo`, `StructuralInfo`, and the
+    CF cross-reference block `CFInfo` when present).
 
     Only the schema produced by `to_dict` / `to_json` is
     supported; arbitrary JSON will likely raise `KeyError`.
@@ -921,6 +922,20 @@ def from_json(s: str) -> NetCDFMetadata:
             ),
         )
 
+    def build_cf(cd: dict[str, Any] | None) -> CFInfo | None:
+        # Rebuild the CF cross-reference block dropped by earlier round-trips (ARC-25): to_dict
+        # serializes `cf` via asdict, but from_json must restore it or every CF classification vanishes.
+        if cd is None:
+            return None
+        return CFInfo(
+            cf_version=cd.get("cf_version"),
+            conventions=cd.get("conventions", {}),
+            classifications=cd.get("classifications", {}),
+            grid_mappings=cd.get("grid_mappings", {}),
+            bounds_map=cd.get("bounds_map", {}),
+            data_variable_names=[str(x) for x in cd.get("data_variable_names", [])],
+        )
+
     groups = {k: build_group(v) for k, v in d.get("groups", {}).items()}
     variables = {k: build_array(v) for k, v in d.get("variables", {}).items()}
     dims = {k: build_dim(v) for k, v in d.get("dimensions", {}).items()}
@@ -943,6 +958,7 @@ def from_json(s: str) -> NetCDFMetadata:
         dimensions=dims,
         global_attributes=d.get("global_attributes", {}),
         structural=structural_obj,
+        cf=build_cf(d.get("cf")),
         open_options_used=d.get("open_options_used"),
         created_with=d.get("created_with", {}),
     )

@@ -664,6 +664,7 @@ def build_lazy_array(
     """
     import_dask(_DASK_MISSING_MESSAGE)
     import dask.array as da
+    from dask.base import tokenize
 
     shape, dtype, block_size, flip_y, flip_x = _mdarray_shape_and_dtype(
         path,
@@ -685,7 +686,11 @@ def build_lazy_array(
         manager_hook(manager)
     chunks_per_axis = _expand_chunks(shape, chunk_shape)
     starts_per_axis = _chunk_starts(chunks_per_axis)
-    name = f"pyramids-netcdf-read-{variable_name}-{id(manager)}"
+    # Deterministic, content-addressed graph name (path + variable + chunking + cache key) rather
+    # than `id(manager)`, so two identical lazy reads share a name and dask can dedupe them
+    # (common-subexpression elimination); `id()` gave every read a fresh name and defeated CSE
+    # (ARC-76).
+    name = f"pyramids-netcdf-read-{variable_name}-{tokenize(path, variable_name, chunk_shape, key_id)}"
     graph: dict[tuple, Any] = {}
     grid_shape = tuple(len(sizes) for sizes in chunks_per_axis)
     for index in np.ndindex(*grid_shape):

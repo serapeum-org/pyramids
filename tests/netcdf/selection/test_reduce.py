@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
+from tests._marks import requires_dask
 
 pytestmark = pytest.mark.core
 
@@ -74,6 +77,31 @@ class TestReduceCollapse:
         var = _make_time_nc(arr, [0, 1, 2, 3]).reduce("time", "mean").get_variable("v")
         assert var._band_dim_names == (), f"time should be gone: {var._band_dim_names}"
         assert var.read_array().shape == (3, 5), "result should be 2-D"
+
+    @pytest.mark.parametrize(
+        "how, np_func", [("mean", np.mean), ("sum", np.sum), ("max", np.max)]
+    )
+    def test_file_backed_collapse_streams_and_matches_numpy(
+        self, how, np_func, tmp_path
+    ):
+        """A file-backed reduce streams over a chunked dask read and still matches NumPy (ARC-47).
+
+        Test scenario:
+            An in-memory cube written to a real NetCDF is read back file-backed, so `reduce()` takes
+            the dask-streaming path (`_materialize_variable_array(lazy=True)`) rather than an eager
+            whole-cube read; the collapsed result must equal `np_func(arr, axis=0)`.
+        """
+        arr = np.arange(6 * 3 * 5, dtype="float32").reshape(6, 3, 5)
+        path = str(tmp_path / "cube.nc")
+        _make_time_nc(arr, [0, 1, 2, 3, 4, 5]).to_file(path)
+        nc = NetCDF.read_file(path)
+        try:
+            out = nc.reduce("time", how).get_variable("v").read_array()
+            assert np.allclose(out, np_func(arr, axis=0)), (
+                f"{how} file-backed collapse mismatch"
+            )
+        finally:
+            nc.close()
 
 
 class TestReduceWindowed:
@@ -404,3 +432,119 @@ class TestReduceMultiBandDim:
             "d2",
         ), f"unexpected band dims: {var._band_dim_names}"
         assert "d0" not in var._band_dim_names, "reduced dim should be gone"
+
+
+@requires_dask
+class TestReduceStreamingLazyPath:
+    """A file-backed reduce takes the dask streaming path and matches numpy across corners (review M3)."""
+
+    @staticmethod
+    def _write_4d(tmp_path):
+        """Write a 4-D `(time, level, y, x)` cube to disk; return `(path, array)`."""
+        arr = np.arange(4 * 2 * 3 * 5, dtype="float64").reshape(4, 2, 3, 5)
+        NetCDF.create_from_array(
+            arr,
+            geo=_GEO,
+            epsg=4326,
+            variable_name="v",
+            extra_dims=[("time", [0, 1, 2, 3]), ("level", [1000, 500])],
+        ).to_file(str(tmp_path / "cube4d.nc"))
+        return str(tmp_path / "cube4d.nc"), arr
+
+    def test_materialize_lazy_returns_dask_for_file_backed(self, tmp_path):
+        """`_materialize_variable_array(lazy=True)` returns a dask array for a file-backed variable."""
+        path, _ = self._write_4d(tmp_path)
+        nc = NetCDF.read_file(path)
+        try:
+            arr = NetCDF._materialize_variable_array(nc.get_variable("v"), lazy=True)
+            assert hasattr(arr, "dask"), (
+                f"expected a dask array on the streaming path, got {type(arr)}"
+            )
+        finally:
+            nc.close()
+
+    @pytest.mark.parametrize(
+        "how, np_func", [("mean", np.mean), ("std", np.std), ("var", np.var)]
+    )
+    def test_multi_band_dim_collapse_matches_numpy(self, how, np_func, tmp_path):
+        """A file-backed `(time, level, y, x)` reduce over time streams and matches numpy (incl std/var)."""
+        path, arr = self._write_4d(tmp_path)
+        nc = NetCDF.read_file(path)
+        try:
+            out = np.asarray(nc.reduce("time", how).get_variable("v").read_array())
+            expected = np_func(arr, axis=0)
+            assert np.allclose(out.reshape(expected.shape), expected), (
+                f"{how} 4-D streaming collapse mismatch"
+            )
+        finally:
+            nc.close()
+
+    def test_windowed_groupby_matches_numpy(self, tmp_path):
+        """A file-backed grouped reduce streams the np.take/np.stack path and matches numpy."""
+        path, arr = self._write_4d(tmp_path)
+        nc = NetCDF.read_file(path)
+        try:
+            out = np.asarray(
+                nc.reduce("time", "mean", groupby=[0, 0, 1, 1])
+                .get_variable("v")
+                .read_array()
+            )
+            expected = np.stack(
+                [arr[[0, 1]].mean(axis=0), arr[[2, 3]].mean(axis=0)], axis=0
+            )
+            assert np.allclose(out.reshape(expected.shape), expected), (
+                "grouped 4-D streaming reduce mismatch"
+            )
+        finally:
+            nc.close()
+
+
+class TestIsFileBacked:
+    """`NetCDF._is_file_backed` gates the reduce streaming path (review L1)."""
+
+    def test_parses_netcdf_subdataset_spec(self, tmp_path):
+        """A `NETCDF:"path":var` spec (path may hold a Windows drive colon) resolves to the real file."""
+
+        real = tmp_path / "f.nc"
+        real.write_bytes(b"x")
+        var = SimpleNamespace(
+            _parent_nc=SimpleNamespace(_file_name=f'NETCDF:"{real}":temperature')
+        )
+        assert NetCDF._is_file_backed(var) is True, (
+            "quoted NETCDF: spec should resolve to the file"
+        )
+
+    def test_false_for_in_memory_container(self):
+        """An in-memory container's bare `netcdf` description is not file-backed."""
+
+        var = SimpleNamespace(_parent_nc=SimpleNamespace(_file_name="netcdf"))
+        assert NetCDF._is_file_backed(var) is False, (
+            "an in-memory container is not file-backed"
+        )
+
+    def test_unquoted_netcdf_spec_resolves_path(self, tmp_path):
+        """An unquoted `NETCDF:<path>:var` spec drops the trailing :var via rsplit (drive-safe)."""
+        real = tmp_path / "u.nc"
+        real.write_bytes(b"x")
+        var = SimpleNamespace(
+            _parent_nc=SimpleNamespace(_file_name=f"NETCDF:{real}:temperature")
+        )
+        assert NetCDF._is_file_backed(var) is True, (
+            "unquoted spec should resolve to the file"
+        )
+
+    def test_empty_file_name_is_not_file_backed(self):
+        """A parent with no `_file_name` is not file-backed."""
+        var = SimpleNamespace(_parent_nc=SimpleNamespace(_file_name=""))
+        assert NetCDF._is_file_backed(var) is False, (
+            "an empty file name is not file-backed"
+        )
+
+    def test_uses_variable_itself_when_parent_is_none(self, tmp_path):
+        """With no `_parent_nc`, the variable's own `_file_name` is consulted."""
+        real = tmp_path / "self.nc"
+        real.write_bytes(b"x")
+        var = SimpleNamespace(_parent_nc=None, _file_name=str(real))
+        assert NetCDF._is_file_backed(var) is True, (
+            "a top-level variable's own file must count"
+        )

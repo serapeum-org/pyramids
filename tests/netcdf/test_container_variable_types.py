@@ -261,6 +261,33 @@ class TestContainerGuard:
         with pytest.raises(ValueError, match="get_variable"):
             container.read_array()
 
+    @pytest.mark.parametrize(
+        "method",
+        [
+            "stats",
+            "slope",
+            "hillshade",
+            "to_cog",
+            "to_feature_collection",
+            "zonal_stats",
+            "sample",
+            "write_array",
+        ],
+    )
+    def test_mdim_container_rejects_raster_only_methods(self, container, method):
+        """The inherited single-raster facade raises the guiding ValueError on a container (ARC-35).
+
+        Args:
+            method: A raster-only method inherited from Dataset.
+
+        Test scenario:
+            Each raster-only method (band_count == 0 store) must reject the container with the
+            "use get_variable(...)" message instead of an opaque GDAL error.
+        """
+        bound_method = getattr(container, method)
+        with pytest.raises(ValueError, match="get_variable"):
+            bound_method()
+
     def test_variable_allows_read_array(self, variable):
         """A Variable's container guard is a no-op, so read_array works.
 

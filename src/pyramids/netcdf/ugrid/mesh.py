@@ -284,24 +284,41 @@ class Mesh2d:
                 that this property decomposes.
         """
         if self._cached_fan_triangles is None:
-            fnc = self._face_node_connectivity
-            triangles: list[list[int]] = []
-
-            for i in range(self.n_face):
-                nodes = fnc.get_element(i)
-                n = len(nodes)
-                if n < 3:
-                    continue
-                for j in range(1, n - 1):
-                    triangles.append([int(nodes[0]), int(nodes[j]), int(nodes[j + 1])])
-
-            if not triangles:
-                raise ValueError(
-                    "Cannot create triangulation: no faces with 3 or more nodes."
-                )
-            self._cached_fan_triangles = np.array(triangles, dtype=np.intp)
+            self._cached_fan_triangles = self._compute_fan_triangles(
+                self._face_node_connectivity
+            )
 
         return self._cached_fan_triangles
+
+    @staticmethod
+    def _compute_fan_triangles(fnc: Connectivity) -> np.typing.NDArray:
+        """Fan-triangulate every face: triangles ``[n0, nj, nj+1]`` for ``j`` in ``1..count-2``.
+
+        Vectorized when all faces share a node count (the common all-triangle / all-quad case), laid
+        out face-major to match the per-face fan; ragged meshes fall back to the per-face loop
+        (ARC-59).
+        """
+        data = fnc.data
+        if data.ndim == 2 and data.shape[1] >= 3:
+            width = int(data.shape[1])
+            if bool(np.all(fnc.nodes_per_element() == width)):
+                # count == width means no fill columns, so every row fans cleanly.
+                per_j = [data[:, [0, j, j + 1]] for j in range(1, width - 1)]
+                stacked = np.stack(per_j, axis=1)  # (n_face, width - 2, 3)
+                return stacked.reshape(-1, 3).astype(np.intp)
+        triangles: list[list[int]] = []
+        for i in range(fnc.n_elements):
+            nodes = fnc.get_element(i)
+            n = len(nodes)
+            if n < 3:
+                continue
+            for j in range(1, n - 1):
+                triangles.append([int(nodes[0]), int(nodes[j]), int(nodes[j + 1])])
+        if not triangles:
+            raise ValueError(
+                "Cannot create triangulation: no faces with 3 or more nodes."
+            )
+        return np.array(triangles, dtype=np.intp)
 
     def get_face_nodes(self, face_idx: int) -> np.typing.NDArray:
         """Return valid node indices for a single face.
@@ -349,29 +366,59 @@ class Mesh2d:
         end = np.array([self._node_x[nodes[1]], self._node_y[nodes[1]]])
         return start, end
 
+    @staticmethod
+    def _uniform_face_edges(
+        fnc: Connectivity,
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray, np.typing.NDArray] | None:
+        """Return the undirected `(lo, hi, face_idx)` edge arrays for a uniform mesh, else `None`.
+
+        When every face has the same node count (no fill columns) the cyclic edges of all faces are
+        built vectorized in face-major, per-face-edge order (`np.roll` for the next node); a ragged /
+        mixed-element mesh returns `None` so callers fall back to the per-face loop (ARC-59). `lo`/`hi`
+        are the sorted node pair of each edge and `face_idx` is the (ascending) owning face.
+        """
+        data = fnc.data
+        if data.ndim != 2 or data.shape[1] < 2:
+            return None
+        width = int(data.shape[1])
+        if not bool(np.all(fnc.nodes_per_element() == width)):
+            return None
+        nxt = np.roll(data, -1, axis=1)
+        lo = np.minimum(data, nxt).reshape(-1).astype(np.intp)
+        hi = np.maximum(data, nxt).reshape(-1).astype(np.intp)
+        face_idx = np.repeat(np.arange(data.shape[0], dtype=np.intp), width)
+        return lo, hi, face_idx
+
     def build_edge_connectivity(self) -> None:
         """Derive edge_node_connectivity from face_node_connectivity.
 
-        Iterates all face edges, deduplicates by sorted node pairs,
-        and builds an edge-to-node connectivity array. Updates the
-        internal edge_node_connectivity attribute.
+        Deduplicates all face edges by sorted node pair (keeping first-seen order) and builds the
+        edge-to-node connectivity array. Uniform meshes take a vectorized `np.unique` path; ragged
+        meshes fall back to the per-face loop (ARC-59). Updates the internal
+        edge_node_connectivity attribute.
         """
-        seen_edges: dict[tuple[int, int], int] = {}
-        edges: list[tuple[int, int]] = []
         fnc = self._face_node_connectivity
+        uniform = self._uniform_face_edges(fnc)
+        if uniform is not None:
+            lo, hi, _ = uniform
+            keys = np.stack([lo, hi], axis=1)
+            unique_edges, first_seen = np.unique(keys, axis=0, return_index=True)
+            edge_data = unique_edges[np.argsort(first_seen)].astype(np.intp)
+        else:
+            seen_edges: dict[tuple[int, int], int] = {}
+            edges: list[tuple[int, int]] = []
+            for i in range(self.n_face):
+                nodes = fnc.get_element(i)
+                n = len(nodes)
+                for j in range(n):
+                    n1 = int(nodes[j])
+                    n2 = int(nodes[(j + 1) % n])
+                    edge_key = (min(n1, n2), max(n1, n2))
+                    if edge_key not in seen_edges:
+                        seen_edges[edge_key] = len(edges)
+                        edges.append(edge_key)
+            edge_data = np.array(edges, dtype=np.intp)
 
-        for i in range(self.n_face):
-            nodes = fnc.get_element(i)
-            n = len(nodes)
-            for j in range(n):
-                n1 = int(nodes[j])
-                n2 = int(nodes[(j + 1) % n])
-                edge_key = (min(n1, n2), max(n1, n2))
-                if edge_key not in seen_edges:
-                    seen_edges[edge_key] = len(edges)
-                    edges.append(edge_key)
-
-        edge_data = np.array(edges, dtype=np.intp)
         self._edge_node_connectivity = Connectivity(
             data=edge_data,
             fill_value=-1,
@@ -413,6 +460,30 @@ class Mesh2d:
             list of face indices that contain that edge.
         """
         fnc = self._face_node_connectivity
+        uniform = self._uniform_face_edges(fnc)
+        if uniform is not None:
+            lo, hi, face_idx = uniform
+            keys = np.stack([lo, hi], axis=1)
+            unique_edges, inverse = np.unique(keys, axis=0, return_inverse=True)
+            inverse = inverse.reshape(-1)
+            # Group the (ascending) face indices by edge: a stable sort on the edge id keeps each
+            # group's faces in ascending order, matching the per-face loop.
+            order = np.argsort(inverse, kind="stable")
+            grouped_inverse = inverse[order]
+            grouped_faces = face_idx[order]
+            starts = np.searchsorted(
+                grouped_inverse, np.arange(len(unique_edges)), side="left"
+            )
+            ends = np.searchsorted(
+                grouped_inverse, np.arange(len(unique_edges)), side="right"
+            )
+            return {
+                (int(unique_edges[k, 0]), int(unique_edges[k, 1])): grouped_faces[
+                    starts[k] : ends[k]
+                ].tolist()
+                for k in range(len(unique_edges))
+            }
+
         edge_to_faces: dict[tuple[int, int], list[int]] = {}
         for i in range(self.n_face):
             nodes = fnc.get_element(i)
