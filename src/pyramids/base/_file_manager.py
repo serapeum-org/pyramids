@@ -905,7 +905,9 @@ class ThreadLocalFileManager(FileManager):
         # `ThreadPoolExecutor` per `read_windows` call) mint new threads every
         # time, so the count grows without bound until `close()`.
         self._handles_lock = threading.Lock()
-        self._handles: list[tuple[threading.Thread, Any]] = []
+        # A weak reference, so the manager does not keep every worker Thread
+        # object alive for as long as the Dataset that cached it.
+        self._handles: list[tuple[weakref.ref[threading.Thread], Any]] = []
         self._generation = 0
 
     def __getstate__(self) -> tuple:
@@ -922,15 +924,21 @@ class ThreadLocalFileManager(FileManager):
         this module. A dead thread can never call :meth:`acquire` again, so its
         handle is unreachable and safe to release.
 
+        An owner counts as gone when its `Thread` object has been collected as
+        well as when it reports `is_alive() == False`. A thread created outside
+        the `threading` module gets a `_DummyThread`, which reports itself alive
+        forever -- without the weak reference its handle would never be reaped.
+
         Returns:
             list[Any]: Handles whose owning thread is no longer alive.
         """
         with self._handles_lock:
-            live: list[tuple[threading.Thread, Any]] = []
+            live: list[tuple[weakref.ref[threading.Thread], Any]] = []
             orphaned: list[Any] = []
-            for owner, handle in self._handles:
-                if owner.is_alive():
-                    live.append((owner, handle))
+            for owner_ref, handle in self._handles:
+                owner = owner_ref()
+                if owner is not None and owner.is_alive():
+                    live.append((owner_ref, handle))
                 else:
                     orphaned.append(handle)
             self._handles = live
@@ -952,7 +960,7 @@ class ThreadLocalFileManager(FileManager):
             _close_handle(None, orphan)
         handle = self._opener(self._path, self._access, **self._kwargs)
         with self._handles_lock:
-            self._handles.append((threading.current_thread(), handle))
+            self._handles.append((weakref.ref(threading.current_thread()), handle))
             generation = self._generation
         self._local.entry = (handle, generation)
         return handle
@@ -967,7 +975,7 @@ class ThreadLocalFileManager(FileManager):
         with self._handles_lock:
             entries, self._handles = self._handles, []
             self._generation += 1
-        for _owner, handle in entries:
+        for _owner_ref, handle in entries:
             _close_handle(None, handle)
         # Drop the calling thread's cached entry; other threads reopen on their
         # next acquire() because the generation no longer matches.
