@@ -17,12 +17,14 @@ from uuid import uuid4
 
 from osgeo import gdal
 
+from pyramids._io import silent_unlink
 from pyramids.base._errors import ReadOnlyError
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import sr_from_user_input
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
+from pyramids.dataset.engines._warp import warp_to_dataset
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -264,30 +266,32 @@ class Georef(_Engine["Dataset"]):
             "/vsimem/orthorectify_dem_"
         )
         try:
-            dst = gdal.Warp(
-                "", self._ds.raster, options=gdal.WarpOptions(**warp_kwargs)
+            # Only a lazy (VRT) result reads through to the source.
+            result = warp_to_dataset(
+                self._ds,
+                gdal.WarpOptions(**warp_kwargs),
+                access="read_only",
+                error_message="GDAL could not orthorectify the dataset.",
+                pin=lazy,
             )
-            if dst is None:
-                raise RuntimeError("GDAL could not orthorectify the dataset.")
-            result = self._ds.__class__(dst, access="read_only")
         except BaseException:
-            # The failure paths returned without unlinking, leaving the staged
-            # copy in /vsimem for the lifetime of the process.
+            # The failure paths returned without unlinking, leaving the staged copy
+            # in /vsimem for the lifetime of the process. `silent_unlink` so a VSI
+            # error here cannot replace the warp failure the caller needs to see.
             if staged_dem:
-                gdal.Unlink(dem_path)
+                silent_unlink(dem_path)
             raise
 
-        if lazy:
-            result._warp_source = self._ds.raster
-            if staged_dem:
-                # A lazy result reads the DEM on every access, so it cannot be
-                # freed here -- but nothing freed it later either, so it leaked.
-                # Tie its lifetime to the result instead.
-                weakref.finalize(result, gdal.Unlink, dem_path)
+        if lazy and staged_dem:
+            # A lazy result reads the DEM on every access, so it cannot be freed
+            # here -- and nothing freed it later either, so it leaked. Key the
+            # finalizer on the GDAL handle that actually reads the DEM, not on the
+            # pyramids wrapper: the wrapper can be dropped while a derived view
+            # keeps the handle (and the pin) alive.
+            weakref.finalize(result.raster, silent_unlink, dem_path)
         elif staged_dem:
-            # A materialised result no longer references the staged DEM, so free
-            # the /vsimem copy we made from a MEM Dataset.
-            gdal.Unlink(dem_path)
+            # A materialised result no longer references the staged DEM.
+            silent_unlink(dem_path)
         return result
 
     @staticmethod
@@ -453,12 +457,12 @@ class Georef(_Engine["Dataset"]):
         }
         if to_epsg is not None:
             warp_kwargs["dstSRS"] = _dst_srs_arg(sr_from_user_input(to_epsg))
-        dst = gdal.Warp("", self._ds.raster, options=gdal.WarpOptions(**warp_kwargs))
-        if dst is None:
-            raise RuntimeError("GDAL could not warp the dataset from its GCPs.")
-        result = self._ds.__class__(dst, access="read_only")
-        if lazy:
-            # The VRT references the source GDAL handle; pin the source Dataset so
-            # it cannot be garbage-collected underneath the view.
-            result._warp_source = self._ds.raster
-        return result
+        # Only a lazy (VRT) result reads through to the source, so only it needs
+        # the pin; a materialised MEM result owns its pixels.
+        return warp_to_dataset(
+            self._ds,
+            gdal.WarpOptions(**warp_kwargs),
+            access="read_only",
+            error_message="GDAL could not warp the dataset from its GCPs.",
+            pin=lazy,
+        )
