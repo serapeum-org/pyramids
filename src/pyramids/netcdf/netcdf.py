@@ -1862,6 +1862,9 @@ class NetCDF(Dataset):
                 manager_hook=self._register_lazy_manager,
                 spatial_dims=spatial_dims,
                 flips=flips,
+                # Each chunk task re-opens the store, so a signed remote NetCDF
+                # needs its credentials shipped with the graph.
+                gdal_env=self._gdal_env or None,
             ),
         )
 

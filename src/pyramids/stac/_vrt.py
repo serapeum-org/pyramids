@@ -16,7 +16,7 @@ band count or CRS that disagrees with the first source — as a *warning*, drops
 it, and builds the mosaic from what is left. That turns an expired signed URL
 into a silently incomplete mosaic whose missing tiles read as nodata, so
 :func:`build_vrt_from_stac` reports the skip. Today it warns
-(``strict=None``, the default) and adds a ``DeprecationWarning``; **from the
+(``strict=None``, the default) and adds a ``FutureWarning``; **from the
 next minor release the default becomes ``strict=True`` and the skip raises**.
 Pass ``strict=True`` or ``strict=False`` explicitly to pin either behaviour.
 
@@ -43,22 +43,23 @@ from at source-open time. Consequences to plan for:
   them into the VRT XML in cleartext, and pickling it (a dask graph, say) ships
   them too. Treat such a mosaic as a secret; do not persist it to a shared
   location.
-* GDAL echoes the full source path in its own ``Can't open …`` messages.
-  pyramids redacts what it can: its own exceptions and warnings name the href
-  with any query string stripped (:func:`redact`), the GDAL error handler
-  scrubs credential options out of every message it logs
-  (:func:`~pyramids.base.remote.redact_credentials`), and the warnings GDAL's
-  Python bindings raise during the build are captured and re-emitted redacted.
-  A message printed by GDAL straight to stderr, outside those paths, is not
-  covered.
+* GDAL echoes the full source path in its own ``Can't open …`` messages, which
+  under ``gdal.UseExceptions()`` it prints straight to stderr. The build pushes
+  a redacting error handler for its duration
+  (:func:`_redacting_error_handler`), so those messages are logged with the
+  credential blanked instead. pyramids' own exceptions and warnings name the
+  href with its query string stripped (:func:`redact`), and ``repr(ds)`` — whose
+  GDAL info lists every source — is redacted too.
 * Prefer a short-lived token, and prefer a URL-signing signer where the provider
   offers one — a SAS token is scoped and expiring, a bearer token usually is not.
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
 import warnings
+import weakref
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
 from typing import Any
@@ -76,6 +77,8 @@ from pyramids.base.remote import (
 )
 from pyramids.dataset import Dataset
 from pyramids.stac._loader import resolved_href
+
+logger = logging.getLogger(__name__)
 
 _DROPPED_PREVIEW = 5
 
@@ -136,7 +139,10 @@ def _embed_source_options(href: str, gdal_env: dict[str, str] | None) -> str:
 
     Only sources that normalise to a bare `/vsicurl/<url>` can be rewritten this
     way; anything else — a non-HTTP scheme, a local path, an archive-chained
-    `/vsizip//vsicurl/…` — keeps its ordinary :func:`_to_vsi` form.
+    `/vsizip//vsicurl/…` — keeps its ordinary :func:`_to_vsi` form. The rewrite
+    happens for every such source, headers or not: `empty_dir=yes` alone is
+    worth carrying, since a SAS-signed or public mosaic pays the same read-time
+    sidecar probes a bearer-signed one would.
 
     Args:
         href: The resolved (already signed) source href.
@@ -162,10 +168,11 @@ def _embed_source_options(href: str, gdal_env: dict[str, str] | None) -> str:
             '/vsicurl?header.Authorization=Bearer%20tok&empty_dir=yes&url=https%3A%2F%2Fh%2Fa.tif'
 
             ```
-        - Without a signer the ordinary rewrite is used:
+        - Without a signer the readdir skip still rides along, since an
+          unsigned remote source pays the same sidecar probes:
             ```python
             >>> _embed_source_options("https://h/a.tif", None)
-            '/vsicurl/https://h/a.tif'
+            '/vsicurl?empty_dir=yes&url=https%3A%2F%2Fh%2Fa.tif'
 
             ```
         - An archive-chained source keeps its chaining rather than losing it:
@@ -189,12 +196,14 @@ def _embed_source_options(href: str, gdal_env: dict[str, str] | None) -> str:
     # `_to_vsi` first means an href that was already in VSI form is still
     # recognised, and an archive-chained path (`/vsizip//vsicurl/...`) is left
     # alone rather than losing its chaining.
-    if headers and vsi.startswith(_VSICURL_PREFIX):
+    if vsi.startswith(_VSICURL_PREFIX):
         parts = [f"header.{name}={quote(value)}" for name, value in headers]
-        # Carry the readdir skip into the read-time opens too, where the ambient
+        # Carry the readdir skip into the read-time opens, where the ambient
         # config no longer reaches; without it every source re-probes its
         # `.aux.xml` / `.prj` siblings on each open — 14 wasted requests for two
-        # sources, measured. The build already runs under the same skip.
+        # sources, measured. The build already runs under the same skip. This is
+        # worth doing for *every* remote source, not only header-signed ones:
+        # a SAS-signed or public mosaic pays the same probes otherwise.
         parts.append("empty_dir=yes")
         parts.append(f"url={quote(vsi[len(_VSICURL_PREFIX) :], safe='')}")
         source = "/vsicurl?" + "&".join(parts)
@@ -338,8 +347,9 @@ def _source_config(
 
             ```
     """
+    config: AbstractContextManager[Any]
     if any(is_remote(path) for path in hrefs):
-        config: Any = CloudConfig(vsicurl_tuning=True, extra=dict(gdal_env or {}))
+        config = CloudConfig(vsicurl_tuning=True, extra=dict(gdal_env or {}))
     else:
         config = cloud_config_from_env(gdal_env)
     return config
@@ -380,15 +390,52 @@ def redact(href: str) -> str:
     return f"{base}?<redacted>" if sep else base
 
 
-def _build_vrt(vrt_path: str, vsi_paths: list[str], separate: bool) -> Any:
-    """Run `gdal.BuildVRT`, redacting the warnings its bindings emit.
 
-    GDAL quotes the offending source path in its own
-    ``Can't open … Skipping it`` warning, and the bindings raise that as a
-    Python :class:`RuntimeWarning` directly — bypassing the GDAL error handler
-    pyramids installs. For a header-signed source that path holds a live token,
-    so the warnings are captured here and re-emitted with their credentials
-    blanked.
+def _reclaim_vsimem(vrt_path: str) -> None:
+    """Unlink a `/vsimem` VRT and stop tracking it.
+
+    Called both when a build fails and, through `weakref.finalize`, when the
+    `Dataset` that needed the VRT is collected — so a long-running service does
+    not accumulate one in-memory VRT per mosaic.
+
+    Args:
+        vrt_path: The `/vsimem` path to reclaim. Unlinking an already-gone path
+            is harmless and ignored.
+    """
+    try:
+        gdal.Unlink(vrt_path)
+    except Exception:  # noqa: BLE001  # nosec B110 - best-effort reclaim
+        pass
+    unregister_vsimem(vrt_path)
+
+
+def _redacting_error_handler(err_class: int, err_num: int, err_msg: str) -> None:
+    """GDAL error handler that logs a redacted message instead of printing it.
+
+    GDAL quotes the offending source path in its ``Can't open … Skipping it``
+    warning, and for a header-signed source that path holds a live token. Under
+    ``gdal.UseExceptions()`` — which pyramids enables at import — a *warning* is
+    neither raised as a Python exception nor routed to a handler installed with
+    ``gdal.SetErrorHandler``: GDAL writes it straight to stderr. A handler
+    **pushed** for the duration of a call does receive it, which is the only
+    point where the message can be scrubbed before anything sees it.
+
+    Args:
+        err_class: GDAL error class (`gdal.CE_*`).
+        err_num: GDAL error number.
+        err_msg: The message text, redacted before it is logged.
+    """
+    logger.warning("GDAL[%s] %s", err_num, redact_credentials(str(err_msg)))
+
+
+def _build_vrt(vrt_path: str, vsi_paths: list[str], separate: bool) -> Any:
+    """Run `gdal.BuildVRT` with GDAL's own messages redacted.
+
+    A source that fails to open makes GDAL print the full source path — token
+    and all, for a header-signed build. The redacting handler is *pushed* for
+    the duration of the call (see :func:`_redacting_error_handler` for why a
+    process-wide one does not work), then popped, so the rest of the process
+    keeps whatever error handling it had.
 
     Args:
         vrt_path: The `/vsimem` path to build into.
@@ -397,19 +444,14 @@ def _build_vrt(vrt_path: str, vsi_paths: list[str], separate: bool) -> Any:
 
     Returns:
         The built `gdal.Dataset`, or `None` when GDAL could use no source.
-
-    Warns:
-        Whatever GDAL's bindings warned, with credential values redacted.
     """
-    with warnings.catch_warnings(record=True) as raised:
-        warnings.simplefilter("always")
+    gdal.PushErrorHandler(_redacting_error_handler)
+    try:
         vrt_ds = gdal.BuildVRT(
             vrt_path, vsi_paths, options=gdal.BuildVRTOptions(separate=separate)
         )
-    for entry in raised:
-        warnings.warn(
-            redact_credentials(str(entry.message)), entry.category, stacklevel=3
-        )
+    finally:
+        gdal.PopErrorHandler()
     return vrt_ds
 
 
@@ -426,15 +468,19 @@ def _check_dropped_sources(
         asset: The asset key being mosaicked (for the message).
         strict: Raise :class:`RuntimeError` when `True`; warn when `False`;
             when `None` (the current default) warn and add a
-            :class:`DeprecationWarning` that the default flips to `True`.
+            :class:`FutureWarning` that the default flips to `True`.
 
     Raises:
         RuntimeError: `strict` is `True` and at least one source was skipped.
 
     Warns:
         UserWarning: `strict` is not `True` and at least one source was skipped.
-        DeprecationWarning: `strict` is `None` and at least one source was
-            skipped — the caller is relying on a default that is about to change.
+        FutureWarning: `strict` is `None` and at least one source was skipped —
+            the caller is relying on a default that is about to change.
+            `FutureWarning` rather than `DeprecationWarning` because the latter
+            is silenced by Python's default filters unless it is raised from
+            `__main__`, and `stacklevel=3` attributes this one to the *caller of*
+            `build_vrt_from_stac`, which in a real deployment is library code.
 
     Examples:
         - A complete build passes silently:
@@ -485,7 +531,7 @@ def _check_dropped_sources(
                 "minor release, and the skip above will raise instead. Pass "
                 "strict=True to adopt that now, or strict=False to keep the "
                 "partial mosaic and silence this warning.",
-                DeprecationWarning,
+                FutureWarning,
                 stacklevel=3,
             )
 
@@ -516,7 +562,7 @@ def build_vrt_from_stac(
         strict: What to do when GDAL skips a requested source. `True` raises,
             so a partially-built mosaic is never mistaken for a complete one.
             `False` warns and returns the partial mosaic. `None` (the current
-            default) behaves like `False` and adds a `DeprecationWarning`:
+            default) behaves like `False` and adds a `FutureWarning`:
             **the default becomes `True` in the next minor release**. Pass an
             explicit value to pin the behaviour you want across that change.
 
@@ -533,8 +579,10 @@ def build_vrt_from_stac(
 
     Warns:
         UserWarning: When some sources were skipped and `strict` is not `True`.
-        DeprecationWarning: When some sources were skipped and `strict` was left
-            at its default, which is about to change.
+        FutureWarning: When some sources were skipped and `strict` was left at
+            its default, which is about to change. It is a `FutureWarning` so it
+            is visible under Python's default filters — a `DeprecationWarning`
+            from library code is silenced, which would defeat the notice.
 
     Examples:
         - Mosaic the `visual` asset of several items into one lazy Dataset
@@ -608,7 +656,11 @@ def build_vrt_from_stac(
             # than leaving it in /vsimem until interpreter shutdown. BaseException
             # rather than Exception because a KeyboardInterrupt mid-open orphans
             # the artefact just as surely as a read failure does.
-            gdal.Unlink(vrt_path)
-            unregister_vsimem(vrt_path)
+            _reclaim_vsimem(vrt_path)
             raise
+    # Reclaim the VRT when the Dataset that needs it is collected, mirroring
+    # `Dataset.from_bytes`. Without this a service building one mosaic per
+    # request accumulates a /vsimem VRT per request for the life of the process;
+    # the `register_vsimem` above is only the process-exit backstop.
+    weakref.finalize(dataset, _reclaim_vsimem, vrt_path)
     return dataset

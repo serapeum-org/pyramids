@@ -340,6 +340,7 @@ def _terrain_rgba_stack(
 
 
 class IO(_Engine["Dataset"]):
+    @under_gdal_env
     def read_array(
         self,
         band: int | None = None,
@@ -782,48 +783,44 @@ class IO(_Engine["Dataset"]):
             arr = self._threadsafe_eager_read(band=band, window=window)
             self._ds._backend = "numpy"
         else:
-            # The full-band branch reads straight off the shared handle instead
-            # of going through a `@under_gdal_env` primitive, so it installs the
-            # captured config itself. This does *not* rescue a VRT's sources —
-            # GDAL ignores the thread-local config when opening those, so their
-            # credentials ride the source path instead (see `pyramids.stac._vrt`).
-            with self._ds._cloud_config():
-                if band is None and self._ds.band_count > 1:
-                    if window is None:
-                        arr = np.ones(
-                            (
-                                self._ds.band_count,
-                                self._ds.rows,
-                                self._ds.columns,
-                            ),
-                            dtype=self._ds.numpy_dtype[0],
-                        )
-                        for i in range(self._ds.band_count):
-                            arr[i, :, :] = self._ds._raster.GetRasterBand(
-                                i + 1
-                            ).ReadAsArray()
-                    else:
-                        # ``window`` here is a resolved pixel window (``Window``
-                        # or a ``[col_off, row_off, cols, rows]`` list — any
-                        # geometry window was converted to one above). Stack
-                        # per-band block reads so ``_read_block`` applies the
-                        # identical window to every band without re-parsing its
-                        # dimensions here.
-                        arr = np.stack(
-                            [
-                                self._read_block(i, window)
-                                for i in range(self._ds.band_count)
-                            ],
-                            axis=0,
-                        )
+            # The shared handle is used directly here; the captured cloud config is
+            # already installed by read_array's @under_gdal_env decorator.
+            if band is None and self._ds.band_count > 1:
+                if window is None:
+                    arr = np.ones(
+                        (
+                            self._ds.band_count,
+                            self._ds.rows,
+                            self._ds.columns,
+                        ),
+                        dtype=self._ds.numpy_dtype[0],
+                    )
+                    for i in range(self._ds.band_count):
+                        arr[i, :, :] = self._ds._raster.GetRasterBand(
+                            i + 1
+                        ).ReadAsArray()
                 else:
-                    _validate_band_index(band, self._ds.band_count)
-                    if band is None:
-                        band = 0
-                    if window is None:
-                        arr = self._ds._iloc(band).ReadAsArray()
-                    else:
-                        arr = self._read_block(band, window)
+                    # ``window`` here is a resolved pixel window (``Window``
+                    # or a ``[col_off, row_off, cols, rows]`` list — any
+                    # geometry window was converted to one above). Stack
+                    # per-band block reads so ``_read_block`` applies the
+                    # identical window to every band without re-parsing its
+                    # dimensions here.
+                    arr = np.stack(
+                        [
+                            self._read_block(i, window)
+                            for i in range(self._ds.band_count)
+                        ],
+                        axis=0,
+                    )
+            else:
+                _validate_band_index(band, self._ds.band_count)
+                if band is None:
+                    band = 0
+                if window is None:
+                    arr = self._ds._iloc(band).ReadAsArray()
+                else:
+                    arr = self._read_block(band, window)
             self._ds._backend = "numpy"
             if masked:
                 arr = self._to_masked(arr, band, window=window)
@@ -959,7 +956,6 @@ class IO(_Engine["Dataset"]):
                     self._ds._thread_manager = manager
         return manager
 
-    @under_gdal_env
     def _read_via_handle(
         self,
         handle: gdal.Dataset,
@@ -1225,7 +1221,6 @@ class IO(_Engine["Dataset"]):
         )
         return arr
 
-    @under_gdal_env
     def _decimated_read(
         self,
         band: int | None,
@@ -1344,7 +1339,6 @@ class IO(_Engine["Dataset"]):
             ) from exc
         return np.asarray(block)
 
-    @under_gdal_env
     def _boundless_read(
         self,
         band: int | None,
@@ -1411,7 +1405,6 @@ class IO(_Engine["Dataset"]):
         result = planes[0] if not all_bands else np.stack(planes, axis=0)
         return result
 
-    @under_gdal_env
     def _read_block(
         self,
         band: int,
@@ -2228,7 +2221,6 @@ class IO(_Engine["Dataset"]):
                 xsize = size if size + xoff <= cols else cols - xoff
                 yield xoff, yoff, xsize, ysize
 
-    @under_gdal_env
     def get_tile(self, size=256) -> Generator[np.typing.NDArray]:
         """Get tile.
 
@@ -2305,10 +2297,16 @@ class IO(_Engine["Dataset"]):
               ```
         """
         for xoff, yoff, xsize, ysize in self._tile_offsets(size=size):
-            # read the array at certain indices
-            yield self._ds.raster.ReadAsArray(
-                xoff=xoff, yoff=yoff, xsize=xsize, ysize=ysize
-            )
+            # The captured cloud config is installed per tile, never across the
+            # yield: holding it open while the consumer's loop body runs would
+            # leak it into their scope, and `gdal.config_options` restores a
+            # snapshot on exit — so two interleaved generators leaving in
+            # non-LIFO order would silently strip each other's config.
+            with self._ds._cloud_config():
+                tile = self._ds.raster.ReadAsArray(
+                    xoff=xoff, yoff=yoff, xsize=xsize, ysize=ysize
+                )
+            yield tile
 
     def map_blocks(
         self,

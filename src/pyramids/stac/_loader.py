@@ -183,10 +183,9 @@ def _open_config(href: str, engine: str, signer: Any) -> AbstractContextManager[
             ```
     """
     signer_env = signer.gdal_env() if signer is not None else None
+    config: AbstractContextManager[Any]
     if engine == "gdal" and is_remote(href):
-        config: AbstractContextManager[Any] = CloudConfig(
-            vsicurl_tuning=True, extra=dict(signer_env or {})
-        )
+        config = CloudConfig(vsicurl_tuning=True, extra=dict(signer_env or {}))
     else:
         config = cloud_config_from_env(signer_env)
     return config

@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator
 from numbers import Number
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
@@ -64,42 +64,54 @@ RESAMPLING_METHODS = [
 ]
 
 
-def under_gdal_env(method: Callable[..., Any]) -> Callable[..., Any]:
-    """Run an engine read under the dataset's captured cloud config.
+_EngineMethod = TypeVar("_EngineMethod", bound=Callable[..., Any])
+
+
+def under_gdal_env(method: _EngineMethod) -> _EngineMethod:
+    """Run an engine entry point under the dataset's captured cloud config.
 
     The engines reach their dataset through `self._ds`, so one decorator covers
-    every pixel-producing entry point without each one remembering to open a
-    `with` block — the coverage is structural, and a newly added read path opts
-    in by being decorated rather than by being added to a list.
+    an entry point without it remembering to open a `with` block.
 
-    Nesting is harmless: the inner config is a `nullcontext` for an unsigned
-    dataset, and an identical `gdal.config_options` install otherwise.
+    Apply it at the **entry point**, not at the primitives it calls: nesting is
+    harmless but not free — each install constructs a `CloudConfig` and makes
+    `gdal.config_options` save and restore every key, which measured at ~4x on a
+    small windowed read when the decorator sat on both `read_array` and the
+    `_read_block` it calls.
 
-    A generator method (`get_tile`) is wrapped so the config covers every
-    `yield` rather than only the call that builds the generator — its pixels are
-    read while the caller iterates, long after that call returned.
+    Never apply it to a generator. Spanning the `yield`s would keep the config
+    installed while the *consumer's* loop body runs, and `gdal.config_options`
+    restores a snapshot on exit — so two interleaved generators leaving in
+    non-LIFO order silently strip each other's config. A generator installs the
+    config per item instead.
+
+    The signature is preserved (a bound `TypeVar`), so a decorated public method
+    keeps its argument checking rather than degrading to `(*args, **kwargs) ->
+    Any`.
 
     Args:
         method: An engine method whose `self` exposes `_ds`.
 
     Returns:
         The method wrapped so `RasterBase._cloud_config` is installed around it.
+
+    Raises:
+        TypeError: `method` is a generator function — see above.
     """
     if inspect.isgeneratorfunction(method):
-
-        @functools.wraps(method)
-        def generator_wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
-            with self._ds._cloud_config():
-                yield from method(self, *args, **kwargs)
-
-        return generator_wrapper
+        raise TypeError(
+            f"under_gdal_env cannot wrap the generator {method.__qualname__!r}: the "
+            "config would stay installed across its yields, leaking into the "
+            "caller's scope and corrupting a concurrently-open generator's config. "
+            "Install it per item inside the generator instead."
+        )
 
     @functools.wraps(method)
     def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
         with self._ds._cloud_config():
             return method(self, *args, **kwargs)
 
-    return wrapper
+    return cast(_EngineMethod, wrapper)
 
 
 def _reconstruct_dataset(
