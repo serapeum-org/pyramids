@@ -8,6 +8,7 @@ Owns the Analysis family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -32,13 +33,69 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._validate import (
+    resolve_band_indices,
+    validate_band_index,
+)
+
+# A windowed point-sample read is worth it while the points' bounding box stays
+# under this many pixels, or within this multiple of the point count -- beyond
+# that the pixels read but discarded cost more than the per-point GDAL calls.
+_POINT_WINDOW_MIN_PIXELS = 4096
+_POINT_WINDOW_MAX_WASTE = 16
+# The waste ratio alone bounds nothing absolute: ten million clustered points
+# would authorise a 160-megapixel read (~1.3 GB at float64). This caps the block
+# at roughly 64 MB of float64 regardless of how many points asked for it; past
+# it, the per-point reads are the cheaper failure mode.
+_POINT_WINDOW_MAX_PIXELS = 8_000_000
+
+
+@dataclass(frozen=True)
+class _PointWindow:
+    """One windowed read covering a batch of in-bounds sample points."""
+
+    x_off: int
+    y_off: int
+    x_size: int
+    y_size: int
+    strip_rows: int
+    in_rows: np.ndarray
+    in_cols: np.ndarray
+
+
+def _point_sample_fill(gdal_band: gdal.Band) -> tuple[Any, np.dtype]:
+    """Value and dtype for cells a point sample does not reach.
+
+    An integer band with no no-data value has no in-range sentinel to spare, so
+    the output is promoted to float and the gaps filled with `NaN`.
+
+    Args:
+        gdal_band: The band being sampled.
+
+    Returns:
+        tuple[Any, numpy.dtype]: The fill value and the output dtype.
+    """
+    no_data_value = gdal_band.GetNoDataValue()
+    band_dtype = np.dtype(gdal_to_numpy_dtype(gdal_band.DataType))
+    if no_data_value is None:
+        out_dtype = (
+            band_dtype
+            if np.issubdtype(band_dtype, np.floating)
+            else np.dtype("float64")
+        )
+        return np.nan, out_dtype
+    return no_data_value, band_dtype
 
 
 class Analysis(_Engine["Dataset"]):
     """Mixin providing analysis, statistics, and data extraction operations for Dataset."""
 
     def stats(
-        self, band: int | None = None, mask: GeoDataFrame | None = None
+        self,
+        band: int | None = None,
+        mask: GeoDataFrame | None = None,
+        *,
+        approx_ok: bool = True,
     ) -> DataFrame:
         """Get statistics of a band [Min, max, mean, std].
 
@@ -47,6 +104,11 @@ class Analysis(_Engine["Dataset"]):
                 Band index. If None, the statistics of all bands will be returned.
             mask (Polygon GeoDataFrame or Dataset, optional):
                 GeodataFrame with a geometry of polygon type.
+            approx_ok (bool, optional):
+                Allow GDAL to answer from overviews or a subsample rather than
+                reading every pixel. Default `True`, which is fast but can return
+                values that differ from the exact ones -- pass `False` when the
+                figures must be exact.
 
         Returns:
             DataFrame:
@@ -61,6 +123,12 @@ class Analysis(_Engine["Dataset"]):
                     Band_3  273.641479  274.168823  273.953979  0.198447
                     Band_4  273.991516  274.540344  274.310669  0.205754
                 ```
+
+        Raises:
+            ValueError: The `mask` does not overlap the dataset, or `band` is
+                outside the band range.
+            RuntimeError: GDAL could not compute statistics for a band -- most
+                often a band with no valid pixels at all.
 
         Notes:
             - The value of the stats will be stored in an xml file by the name of the raster file with the extension of
@@ -124,6 +192,10 @@ class Analysis(_Engine["Dataset"]):
               ```
 
         """
+        # Ahead of the band_names lookup below, which would otherwise surface a
+        # bare IndexError where every other band-taking entry point raises a
+        # ValueError naming the range.
+        validate_band_index(band, self._ds.band_count)
         dst: Dataset | None = None
         if mask is not None:
             dst = self._ds.crop(mask, touch=True)
@@ -136,9 +208,9 @@ class Analysis(_Engine["Dataset"]):
             )
             for i in range(self._ds.band_count):
                 if mask is not None and dst is not None:
-                    df.iloc[i, :] = dst.analysis._get_stats(i)
+                    df.iloc[i, :] = dst.analysis._get_stats(i, approx_ok=approx_ok)
                 else:
-                    df.iloc[i, :] = self._get_stats(i)
+                    df.iloc[i, :] = self._get_stats(i, approx_ok=approx_ok)
         else:
             df = pd.DataFrame(
                 index=[self._ds.band_names[band]],
@@ -146,13 +218,15 @@ class Analysis(_Engine["Dataset"]):
                 dtype=np.float32,
             )
             if mask is not None and dst is not None:
-                df.iloc[0, :] = dst.analysis._get_stats(band)
+                df.iloc[0, :] = dst.analysis._get_stats(band, approx_ok=approx_ok)
             else:
-                df.iloc[0, :] = self._get_stats(band)
+                df.iloc[0, :] = self._get_stats(band, approx_ok=approx_ok)
 
         return df
 
-    def _get_stats(self, band: int | None = None) -> list[float]:
+    def _get_stats(
+        self, band: int | None = None, *, approx_ok: bool = True
+    ) -> list[float]:
         """Return summary statistics for one band.
 
         Reads GDAL band statistics, computing them on the fly when the cached values are
@@ -161,6 +235,10 @@ class Analysis(_Engine["Dataset"]):
         Args:
             band (int | None):
                 Zero-based band index. Defaults to the first band (0) when None.
+            approx_ok (bool):
+                Let GDAL answer from overviews or a subsample rather than
+                scanning every cell. Default `True`, the historical behaviour.
+                Ignored by the recovery path below, which is always exact.
 
         Returns:
             list[float]: The ``[minimum, maximum, mean, standard_deviation]`` values.
@@ -168,7 +246,12 @@ class Analysis(_Engine["Dataset"]):
         band_index = band if band is not None else 0
         band_i = self._ds._iloc(band_index)
         try:
-            vals = band_i.GetStatistics(True, True)
+            # First argument is GDAL's `approx_ok`: True lets it answer from
+            # overviews or a subsample. It was hard-coded, so `stats()` could
+            # silently return approximated figures with no way to ask for exact
+            # ones; it is now the caller's choice, defaulting to the old
+            # behaviour.
+            vals = band_i.GetStatistics(approx_ok, True)
         except RuntimeError:
             # when the GetStatistics gives an error "RuntimeError: Failed to compute statistics, no valid pixels
             # found in sampling."
@@ -178,6 +261,12 @@ class Analysis(_Engine["Dataset"]):
             warnings.warn(
                 f"Band {band} has no statistics, and the statistics are going to be calculate"
             )
+            # Deliberately exact, even when the caller asked for approximate.
+            # This branch is only reached because the approximate route already
+            # failed or returned nothing usable, so repeating it either raises
+            # the same error or answers from the same overviews -- on a sparse
+            # band those give min == max and a zero deviation where the full
+            # scan gives the real spread. The full scan is the recovery.
             vals = band_i.ComputeStatistics(False)
 
         return list(vals)
@@ -194,9 +283,13 @@ class Analysis(_Engine["Dataset"]):
                 Number of cells.
         """
         arr = self._ds.read_array(band=band)
-        domain_count = np.size(arr[:, :]) - np.count_nonzero(
-            arr[is_no_data(arr, self._ds.no_data_value[band])]
-        )
+        # Count the no-data cells directly rather than counting the *non-zero* values
+        # among them. `count_nonzero(arr[mask])` asks "how many no-data cells hold a
+        # non-zero value", which equals the no-data count only while the sentinel
+        # happens to be non-zero; with `no_data_value == 0` it is always 0, so nothing
+        # was subtracted and every cell counted as domain.
+        no_data_count = int(is_no_data(arr, self._ds.no_data_value[band]).sum())
+        domain_count = arr.size - no_data_count
         return int(domain_count)
 
     def apply(self, func, band: int = 0, inplace: bool = False) -> Dataset | None:
@@ -231,7 +324,9 @@ class Analysis(_Engine["Dataset"]):
               >>> arr = np.random.uniform(-1, 1, size=(5, 5))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326,
+              ... )
               >>> print(dataset.read_array()) # doctest: +SKIP
               [[ 0.94997539 -0.80083622 -0.30948769 -0.77439961 -0.83836424]
                [-0.36810158 -0.23979251  0.88051216 -0.46882913  0.64511056]
@@ -681,21 +776,7 @@ class Analysis(_Engine["Dataset"]):
         Raises:
             ValueError: A requested band is outside ``[0, band_count)``.
         """
-        if bands is None:
-            band_list = list(range(band_count))
-            squeeze = False
-        elif isinstance(bands, int):
-            band_list = [bands]
-            squeeze = True
-        else:
-            band_list = list(bands)
-            squeeze = False
-        for b in band_list:
-            if b < 0 or b >= band_count:
-                raise ValueError(
-                    f"band {b} is out of range for a {band_count}-band dataset."
-                )
-        return band_list, squeeze
+        return resolve_band_indices(bands, band_count)
 
     def _read_point_samples(
         self,
@@ -705,7 +786,26 @@ class Analysis(_Engine["Dataset"]):
         in_bounds_idx: np.ndarray,
         n_points: int,
     ) -> list[np.ndarray]:
-        """Read a 1x1 window per in-bounds point, for each band in ``band_list``.
+        """Sample the in-bounds points from each band in ``band_list``.
+
+        Two strategies, chosen per call from how tightly the points cluster:
+
+        * **A windowed read** over their bounding box, then array indexing —
+          one GDAL call per band instead of one per point.
+        * **A 1x1 read per point**, kept for sparse or widely scattered points,
+          where the bounding box would pull in far more pixels than were asked
+          for.
+
+        The switch compares the bounding box area against the point count, so a
+        handful of scattered points never drags in a near-full-raster read while
+        a dense batch stops paying per-point GDAL overhead.
+
+        A window that clears that test but is large in absolute terms is read in
+        horizontal strips of at most ``_POINT_WINDOW_MAX_PIXELS`` rather than in
+        one block, so the peak allocation is bounded without falling back to
+        per-point reads. That fallback would be the wrong answer here by
+        construction: a batch big enough to trip an absolute ceiling is a dense
+        one, and dense is exactly the case per-point reads are slowest for.
 
         Out-of-bounds points keep the fill value — the band's no-data value, or
         ``NaN`` when it has none (which promotes an integer band to float).
@@ -713,27 +813,112 @@ class Analysis(_Engine["Dataset"]):
         Returns:
             One ``(n_points,)`` array per band, in ``band_list`` order.
         """
+        plan = self._plan_point_window(col, row, in_bounds_idx)
         rows_out: list[np.ndarray] = []
         for b in band_list:
             gdal_band = self._ds.raster.GetRasterBand(b + 1)
-            no_data_value = gdal_band.GetNoDataValue()
-            band_dtype = np.dtype(gdal_to_numpy_dtype(gdal_band.DataType))
-            if no_data_value is None:
-                fill: Any = np.nan
-                out_dtype = (
-                    band_dtype
-                    if np.issubdtype(band_dtype, np.floating)
-                    else np.dtype("float64")
-                )
-            else:
-                fill = no_data_value
-                out_dtype = band_dtype
+            fill, out_dtype = _point_sample_fill(gdal_band)
             band_values = np.full(n_points, fill, dtype=out_dtype)
-            for i in in_bounds_idx:
-                window = gdal_band.ReadAsArray(int(col[i]), int(row[i]), 1, 1)
-                band_values[i] = window[0, 0]
+            if plan is None:
+                self._sample_per_point(gdal_band, band_values, col, row, in_bounds_idx)
+            else:
+                self._sample_windowed(gdal_band, band_values, in_bounds_idx, plan)
             rows_out.append(band_values)
         return rows_out
+
+    @staticmethod
+    def _plan_point_window(
+        col: np.ndarray, row: np.ndarray, in_bounds_idx: np.ndarray
+    ) -> _PointWindow | None:
+        """Decide whether one windowed read beats a read per point.
+
+        Args:
+            col: Fractional column of every requested point.
+            row: Fractional row of every requested point.
+            in_bounds_idx: Indices of the points that fall inside the raster.
+
+        Returns:
+            _PointWindow | None: The window to read, or `None` when the points
+                are too sparse for one to pay off.
+        """
+        n_in_bounds = int(len(in_bounds_idx))
+        if n_in_bounds <= 1:
+            return None
+        in_cols = col[in_bounds_idx].astype(int)
+        in_rows = row[in_bounds_idx].astype(int)
+        x_off, y_off = int(in_cols.min()), int(in_rows.min())
+        x_size = int(in_cols.max()) - x_off + 1
+        y_size = int(in_rows.max()) - y_off + 1
+        # Worth reading as a window only while the box stays a small multiple of
+        # the points themselves; past that the wasted pixels cost more than the
+        # per-point calls they would save.
+        if x_size * y_size > max(
+            _POINT_WINDOW_MIN_PIXELS, n_in_bounds * _POINT_WINDOW_MAX_WASTE
+        ):
+            return None
+        # Rows per read, so a box that clears the ratio test but is large in
+        # absolute terms is still bounded. One strip covers the whole box in the
+        # common case, which is a single read exactly as before.
+        strip_rows = max(1, _POINT_WINDOW_MAX_PIXELS // max(x_size, 1))
+        return _PointWindow(
+            x_off=x_off,
+            y_off=y_off,
+            x_size=x_size,
+            y_size=y_size,
+            strip_rows=strip_rows,
+            in_rows=in_rows,
+            in_cols=in_cols,
+        )
+
+    @staticmethod
+    def _sample_windowed(
+        gdal_band: gdal.Band,
+        band_values: np.ndarray,
+        in_bounds_idx: np.ndarray,
+        plan: _PointWindow,
+    ) -> None:
+        """Fill `band_values` from strip reads over the planned window.
+
+        Args:
+            gdal_band: The band to read.
+            band_values: Output array, modified in place.
+            in_bounds_idx: Indices of the points that fall inside the raster.
+            plan: The window and strip height to read.
+        """
+        for strip_start in range(0, plan.y_size, plan.strip_rows):
+            strip_height = min(plan.strip_rows, plan.y_size - strip_start)
+            block = np.asarray(
+                gdal_band.ReadAsArray(
+                    plan.x_off, plan.y_off + strip_start, plan.x_size, strip_height
+                )
+            )
+            local_rows = plan.in_rows - plan.y_off - strip_start
+            in_strip = (local_rows >= 0) & (local_rows < strip_height)
+            if in_strip.any():
+                band_values[in_bounds_idx[in_strip]] = block[
+                    local_rows[in_strip], plan.in_cols[in_strip] - plan.x_off
+                ]
+
+    @staticmethod
+    def _sample_per_point(
+        gdal_band: gdal.Band,
+        band_values: np.ndarray,
+        col: np.ndarray,
+        row: np.ndarray,
+        in_bounds_idx: np.ndarray,
+    ) -> None:
+        """Fill `band_values` with one 1x1 read per point.
+
+        Args:
+            gdal_band: The band to read.
+            band_values: Output array, modified in place.
+            col: Fractional column of every requested point.
+            row: Fractional row of every requested point.
+            in_bounds_idx: Indices of the points that fall inside the raster.
+        """
+        for i in in_bounds_idx:
+            window = gdal_band.ReadAsArray(int(col[i]), int(row[i]), 1, 1)
+            band_values[i] = window[0, 0]
 
     def sieve(
         self,
@@ -812,10 +997,7 @@ class Analysis(_Engine["Dataset"]):
             raise ValueError(f"threshold must be >= 1, got {threshold}.")
         if connectedness not in (4, 8):
             raise ValueError(f"connectedness must be 4 or 8, got {connectedness}.")
-        if band < 0 or band >= self._ds.band_count:
-            raise ValueError(
-                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
-            )
+        validate_band_index(band, self._ds.band_count)
 
         src_band = self._ds.raster.GetRasterBand(band + 1)
         out_ds = gdal.GetDriverByName("MEM").Create(
@@ -914,10 +1096,7 @@ class Analysis(_Engine["Dataset"]):
             raise ValueError(
                 f"distance_units must be 'GEO' or 'PIXEL', got {distance_units!r}."
             )
-        if band < 0 or band >= self._ds.band_count:
-            raise ValueError(
-                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
-            )
+        validate_band_index(band, self._ds.band_count)
         if max_distance is not None and max_distance < 0:
             raise ValueError(f"max_distance must be >= 0, got {max_distance}.")
 
@@ -1402,41 +1581,44 @@ class Analysis(_Engine["Dataset"]):
               ```python
               >>> import numpy as np
               >>> from pyramids.dataset import Dataset
-              >>> arr = np.random.randint(1, 12, size=(10, 10))
-              >>> print(arr)    # doctest: +SKIP
-              [[ 4  1  1  2  6  9  2  5  1  8]
-               [ 1 11  5  6  2  5  4  6  6  7]
-               [ 5  2 10  4  8 11  4 11 11  1]
-               [ 2  3  6  3  1  5 11 10 10  7]
-               [ 8  2 11  3  1  3  5  4 10 10]
-               [ 1  2  1  6 10  3  6  4  2  8]
-               [ 9  5  7  9  7  8  1 11  4  4]
-               [ 7  7  2  2  5  3  7  2  9  9]
-               [ 2 10  3  2  1 11  5  9  8 11]
-               [ 1  5  6 11  3  3  8  1  2  1]]
-               >>> top_left_corner = (0, 0)
-               >>> cell_size = 0.05
-               >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> arr = np.random.default_rng(1337).integers(1, 12, size=(10, 10))
+              >>> print(arr)
+              [[ 7 10  8  3  6 11  5 11  4 10]
+               [ 6  2  1  3  2  4  4  6  7 10]
+               [ 3  1  6  3 10  9  2  5  4  1]
+               [ 9  5  6  4  3  1  1 10  6  1]
+               [ 5 10 11  6 10  1  1  9  4  9]
+               [ 6  8  7  1  8  7 11 11  9  9]
+               [ 4  3  5  1  1 11  4  9  6 11]
+               [ 7  9  9  2  8  2  4  3  5  7]
+               [11  8  1  9  5  5  4  4  7 10]
+               [ 6  2 10  3  8  4  1  9  3  6]]
+              >>> top_left_corner = (0, 0)
+              >>> cell_size = 0.05
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326,
+              ... )
 
-               ```
+              ```
 
             - Now, let's get the histogram of the first band using the `get_histogram` method with the default
                 parameters:
                 ```python
                 >>> hist, ranges = dataset.get_histogram(band=0)
-                >>> print(hist)  # doctest: +SKIP
-                [28, 17, 10, 15, 13, 7]
-                >>> print(ranges)   # doctest: +SKIP
-                [(1.0, 2.67), (2.67, 4.34), (4.34, 6.0), (6.0, 7.67), (7.67, 9.34), (9.34, 11.0)]
+                >>> print(hist)
+                [19, 21, 8, 18, 17, 9]
+                >>> print([(round(low, 2), round(high, 2)) for low, high in ranges])
+                [(1.0, 2.67), (2.67, 4.33), (4.33, 6.0), (6.0, 7.67), (7.67, 9.33), (9.33, 11.0)]
 
                 ```
-            - we can also exclude values from the histogram by using the `min_value` and `max_value`:
+            - we can also exclude values from the histogram by using the `min_value` and `max_value`. The bucket
+                edges then span the requested `[min_value, max_value]` window rather than the band's own range:
                 ```python
                 >>> hist, ranges = dataset.get_histogram(band=0, min_value=5, max_value=10)
-                >>> print(hist)  # doctest: +SKIP
-                [10, 8, 7, 7, 6, 0]
-                >>> print(ranges)   # doctest: +SKIP
-                [(1.0, 1.835), (1.835, 2.67), (2.67, 3.5), (3.5, 4.34), (4.34, 5.167), (5.167, 6.0)]
+                >>> print(hist)
+                [8, 11, 7, 6, 11, 0]
+                >>> print([(round(low, 2), round(high, 2)) for low, high in ranges])
+                [(5.0, 5.83), (5.83, 6.67), (6.67, 7.5), (7.5, 8.33), (8.33, 9.17), (9.17, 10.0)]
 
                 ```
             - For datasets with big dimensions, computing the histogram can take some time; approximating the computation
@@ -1444,10 +1626,10 @@ class Analysis(_Engine["Dataset"]):
                 value the histogram will be calculated from resampling the band or from the overviews if they exist.
                 ```python
                 >>> hist, ranges = dataset.get_histogram(band=0, approx_ok=True)
-                >>> print(hist)  # doctest: +SKIP
-                [28, 17, 10, 15, 13, 7]
-                >>> print(ranges)   # doctest: +SKIP
-                [(1.0, 2.67), (2.67, 4.34), (4.34, 6.0), (6.0, 7.67), (7.67, 9.34), (9.34, 11.0)]
+                >>> print(hist)
+                [19, 21, 8, 18, 17, 9]
+                >>> print([(round(low, 2), round(high, 2)) for low, high in ranges])
+                [(1.0, 2.67), (2.67, 4.33), (4.33, 6.0), (6.0, 7.67), (7.67, 9.33), (9.33, 11.0)]
 
                 ```
             - As you see for small datasets, the approximation of the histogram will be the same as without approximation.
@@ -1461,8 +1643,12 @@ class Analysis(_Engine["Dataset"]):
             max_value = max_val
 
         bin_width = (max_value - min_value) / bins
+        # Anchor the edges at `min_value`, the range the buckets were actually
+        # computed over, not at the raster minimum. When a caller narrowed the
+        # range the two differ, so the returned edges described buckets that
+        # `GetHistogram` never filled.
         ranges = [
-            (min_val + i * bin_width, min_val + (i + 1) * bin_width)
+            (min_value + i * bin_width, min_value + (i + 1) * bin_width)
             for i in range(bins)
         ]
 
@@ -1721,12 +1907,12 @@ class Analysis(_Engine["Dataset"]):
 
         band_count = self._ds.band_count
         for name, idx in (("u_band", u_band), ("v_band", v_band)):
-            if idx < 0 or idx >= band_count:
-                raise ValueError(
-                    f"{name}={idx} is out of range for a {band_count}-band "
-                    "dataset; plot_vector_field needs two in-range bands "
-                    "(u, v components)."
-                )
+            validate_band_index(
+                idx,
+                band_count,
+                name=name,
+                hint=(" plot_vector_field needs two in-range bands (u, v components)."),
+            )
         u = self._ds.read_array(band=u_band)
         v = self._ds.read_array(band=v_band)
         x = self._ds.x

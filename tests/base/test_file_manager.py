@@ -26,6 +26,8 @@ from __future__ import annotations
 import gc
 import pickle
 import threading
+import weakref
+from collections.abc import Iterator
 
 import pytest
 
@@ -1088,3 +1090,158 @@ class TestCachingFileManagerAutoRelease:
             "handle close failed during finalizer release" in r.getMessage()
             for r in caplog.records
         ), "the finalizer-invoked close error must be logged at WARNING"
+
+
+class _Collected(threading.Thread):
+    """A Thread subclass used only as a weak-referenceable stand-in."""
+
+
+class TestThreadLocalFileManagerReaping:
+    """ARC-3: handles must not accumulate as worker threads come and go."""
+
+    @pytest.fixture(scope="function")
+    def manager(self) -> Iterator[ThreadLocalFileManager]:
+        """A manager that closes whatever it opened when the test ends.
+
+        Yields:
+            ThreadLocalFileManager: backed by the module's fake opener.
+        """
+        instance = ThreadLocalFileManager(_fake_opener, "t.tif", "read_only")
+        yield instance
+        instance.close()
+
+    def test_dead_threads_release_their_handles(self, manager):
+        """A handle is closed once the thread that opened it has exited.
+
+        Test scenario:
+            `read_windows` builds a fresh `ThreadPoolExecutor` per call, so a
+            manager cached on a long-lived Dataset saw brand-new threads every
+            time. Each opened a handle that only `close()` released, so the
+            count grew without bound. Acquiring from a new thread must first
+            reclaim the handles of threads that have since finished.
+        """
+        opened: list = []
+
+        def grab():
+            opened.append(manager.acquire())
+
+        for _ in range(5):
+            thread = threading.Thread(target=grab)
+            thread.start()
+            thread.join()
+
+        assert len(manager._handles) <= 2, (
+            "handles from exited threads must be reclaimed, still tracking "
+            f"{len(manager._handles)} after 5 sequential threads"
+        )
+        assert sum(1 for h in opened if h.closed) >= 3, (
+            "the reaped handles must actually be closed, not merely dropped; "
+            f"closed={[h.closed for h in opened]}"
+        )
+
+    def test_live_threads_keep_their_handles(self, manager):
+        """A handle belonging to a running thread is never reclaimed.
+
+        Test scenario:
+            Reaping keys on thread liveness, so it must not touch a handle
+            whose owner is still inside a read. Five threads park on a barrier
+            while a sixth acquires, which is what triggers the sweep.
+        """
+        holding = threading.Barrier(6)
+        release = threading.Event()
+        handles: list = []
+
+        def hold():
+            handles.append(manager.acquire())
+            holding.wait()
+            release.wait(timeout=10)
+
+        threads = [threading.Thread(target=hold) for _ in range(5)]
+        for thread in threads:
+            thread.start()
+        holding.wait(timeout=10)
+        manager.acquire()
+        assert all(not h.closed for h in handles), (
+            f"live threads' handles must survive the sweep: {[h.closed for h in handles]}"
+        )
+        release.set()
+        for thread in threads:
+            thread.join(timeout=10)
+
+    def test_close_still_releases_every_thread_handle(self, manager):
+        """`close()` keeps releasing handles across all threads.
+
+        Test scenario:
+            Regression guard for the entry-shape change: the tracked list now
+            holds `(thread_ref, handle)` pairs, so `close()` must unpack them.
+            Calling it twice (once here, once from the fixture) must also be
+            safe.
+        """
+        worker_handles: list = []
+
+        def grab():
+            worker_handles.append(manager.acquire())
+
+        thread = threading.Thread(target=grab)
+        thread.start()
+        thread.join()
+        main_handle = manager.acquire()
+        manager.close()
+        assert main_handle.closed is True, "the caller's handle must be closed"
+        assert manager._handles == [], "close() must clear the tracked entries"
+
+
+class TestThreadLocalFileManagerOwnerReferences:
+    """N10: tracking an owner must not extend its lifetime or pin a dummy thread."""
+
+    @pytest.fixture(scope="function")
+    def manager(self) -> Iterator[ThreadLocalFileManager]:
+        """A manager that closes whatever it opened when the test ends.
+
+        Yields:
+            ThreadLocalFileManager: backed by the module's fake opener.
+        """
+        instance = ThreadLocalFileManager(_fake_opener, "t.tif", "read_only")
+        yield instance
+        instance.close()
+
+    def test_the_owning_thread_is_held_weakly(self, manager):
+        """A finished worker's Thread object can still be collected.
+
+        Test scenario:
+            Tracking the Thread strongly kept every worker that ever read
+            through a long-lived Dataset alive for that Dataset's lifetime --
+            the objects the reaping was meant to stop accumulating.
+        """
+        seen: list = []
+
+        def grab():
+            manager.acquire()
+            seen.append(weakref.ref(threading.current_thread()))
+
+        thread = threading.Thread(target=grab)
+        thread.start()
+        thread.join()
+        del thread
+        gc.collect()
+        assert seen[0]() is None, (
+            "the manager must not keep the finished worker Thread alive"
+        )
+
+    def test_a_collected_owner_counts_as_dead(self, manager):
+        """A handle whose owner object is gone is reaped on the next acquire.
+
+        Test scenario:
+            A thread created outside the threading module gets a _DummyThread,
+            which reports is_alive() == True forever. Keying reaping on
+            liveness alone would leak its handle; the weak reference dying is
+            the second signal that the owner is gone. Simulated by clearing the
+            reference directly, since a real dummy thread cannot be created
+            portably.
+        """
+        opened = manager.acquire()
+        with manager._handles_lock:
+            manager._handles = [(weakref.ref(_Collected()), opened)]
+        assert manager._reap_dead_threads() == [opened], (
+            "a handle whose owner has been collected must be reaped"
+        )

@@ -11,6 +11,7 @@ import math
 import uuid
 import warnings
 from collections.abc import Mapping
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -40,6 +41,7 @@ from pyramids.dataset.cog import (
 )
 from pyramids.dataset.cog.validate import _resolve_read_config, config_context
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._validate import world_to_pixel
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import (  # noqa: F401  (forward ref in _Engine["Dataset"])
@@ -147,6 +149,27 @@ def _xyz_bounds_3857(z: int, x: int, y: int) -> tuple[float, float, float, float
     north = r - y * span
     south = r - (y + 1) * span
     return west, south, east, north
+
+
+@lru_cache(maxsize=64)
+def _cached_transformer(src_crs: Any, dst_crs: Any) -> Transformer:
+    """Return a cached `pyproj.Transformer` for a CRS pair.
+
+    Building a transformer parses both CRS definitions and resolves a
+    transformation pipeline, which is far more expensive than using it. The COG
+    read paths rebuilt one per tile and per point, so a `read_tile` loop or a
+    batch of `point` lookups paid that cost on every call.
+
+    Args:
+        src_crs: Source CRS -- anything `Transformer.from_crs` accepts, as long
+            as it is hashable (an EPSG int or a WKT string).
+        dst_crs: Destination CRS, same forms.
+
+    Returns:
+        Transformer: A shared, reusable transformer. `pyproj` transformers are
+        safe to reuse; only construction is costly.
+    """
+    return Transformer.from_crs(src_crs, dst_crs, always_xy=True)
 
 
 class COG(_Engine["Dataset"]):
@@ -960,9 +983,9 @@ class COG(_Engine["Dataset"]):
         self._ds._materialize_md_view()
         ds = self._ds._raster
         min_x, min_y, max_x, max_y = self._reproject_bbox(bbox, bbox_crs)
-        inv = gdal.InvGeoTransform(ds.GetGeoTransform())
-        px_tl, py_tl = gdal.ApplyGeoTransform(inv, min_x, max_y)
-        px_br, py_br = gdal.ApplyGeoTransform(inv, max_x, min_y)
+        geotransform = ds.GetGeoTransform()
+        px_tl, py_tl = world_to_pixel(geotransform, min_x, max_y)
+        px_br, py_br = world_to_pixel(geotransform, max_x, min_y)
 
         # The full requested window, in source pixel coordinates (may extend
         # beyond the raster on any side).
@@ -1222,9 +1245,7 @@ class COG(_Engine["Dataset"]):
         min_x, min_y, max_x, max_y = bbox
         if self._ds.epsg == bbox_crs:
             return min_x, min_y, max_x, max_y
-        transformer = Transformer.from_crs(
-            bbox_crs, self._ds.epsg or self._ds.crs, always_xy=True
-        )
+        transformer = _cached_transformer(bbox_crs, self._ds.epsg or self._ds.crs)
         corners = [
             transformer.transform(min_x, min_y),
             transformer.transform(min_x, max_y),
@@ -1247,12 +1268,9 @@ class COG(_Engine["Dataset"]):
             `(col, row)` integer pixel indices (floored).
         """
         if self._ds.epsg != point_crs:
-            transformer = Transformer.from_crs(
-                point_crs, self._ds.epsg or self._ds.crs, always_xy=True
-            )
+            transformer = _cached_transformer(point_crs, self._ds.epsg or self._ds.crs)
             x, y = transformer.transform(x, y)
-        inv = gdal.InvGeoTransform(self._ds._raster.GetGeoTransform())
-        col, row = gdal.ApplyGeoTransform(inv, x, y)
+        col, row = world_to_pixel(self._ds._raster.GetGeoTransform(), x, y)
         return int(math.floor(col)), int(math.floor(row))
 
     def _warn_if_categorical_with_averaging(

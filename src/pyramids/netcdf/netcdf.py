@@ -2665,10 +2665,13 @@ class NetCDF(Dataset):
         self._materialize_md_view()
         pinned = super().warped_view(crs, method, cell_size=cell_size, bbox=bbox)
         result = self._preserve_netcdf_metadata(pinned)
-        # Carry the GC pin: the VRT references the source GDAL handle, so the
-        # re-wrapped NetCDF view must keep the source alive too. _preserve_netcdf
-        # _metadata builds a fresh NetCDF and would otherwise drop _warp_source.
-        result._warp_source = getattr(pinned, "_warp_source", self)
+        # `Spatial.warped_view` builds the view through `self._ds.__class__`, so
+        # `pinned` is already a NetCDF and `_preserve_netcdf_metadata` returns it
+        # unchanged -- the pin it set is already on `result`. Re-pinning only if
+        # that ever stops holding keeps the guarantee (the VRT must not outlive
+        # the handle it reads through) without a self-assignment today.
+        if result is not pinned:
+            result._warp_source = pinned._warp_source
         return result
 
     def _materialize_md_view(self) -> None:

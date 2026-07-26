@@ -227,7 +227,7 @@ class TestOutShapeReads:
 
     def test_band_index_validated(self, ramp_dataset):
         """An out-of-range band raises the shared band-index ValueError."""
-        with pytest.raises(ValueError, match="band index"):
+        with pytest.raises(ValueError, match="is out of range for a"):
             ramp_dataset.read_array(band=3, out_shape=(8, 8))
 
     def test_unknown_resampling_rejected(self, ramp_dataset):

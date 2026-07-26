@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import math
 import pickle  # nosec B403 - PicklingError only, no load
+import shutil
+import tempfile
 import threading
 import warnings
 from collections.abc import Callable, Generator, Sequence
@@ -56,6 +58,10 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._validate import (
+    validate_band_index,
+    window_out_of_bounds,
+)
 
 _VSIMEM_PREFIX = "/vsimem/"
 
@@ -86,22 +92,56 @@ is cheaper than a per-dataset one.
 """
 
 
-def _validate_band_index(band: int | None, band_count: int) -> None:
-    """Raise ``ValueError`` if `band` is outside the valid range.
+# Tiling reads the reprojected source once per tile per zoom level. Building a
+# pyramid on it lets GDAL answer a low-zoom tile from a decimated level instead
+# of resampling full-resolution pixels every time. "average" suits the
+# continuous elevation data terrain-RGB encodes.
+_OVERVIEW_RESAMPLING_FOR_TILES = "average"
 
-    Treats `None` as a no-op (caller hasn't selected a specific
-    band yet). Validates against the closed interval
-    `[0, band_count - 1]` — both negative indices and
-    out-of-upper-bound indices raise. Centralised so all three
-    band-aware entry points (`read_array` eager, `_lazy_read_array`,
-    `read_overview`) agree on the contract.
+
+def _overview_levels_for_tiling(
+    width: int, height: int, tile_size: int
+) -> tuple[int, ...]:
+    """Decimation factors covering a raster down to roughly one tile.
+
+    A fixed ladder is either too short or too long: it bottoms out on a
+    continental raster -- the lowest zoom levels still resample from a level far
+    finer than they need -- and builds levels smaller than a single tile on a
+    small one. Halving until the coarsest level is about tile-sized gives each
+    zoom a level near its own resolution, whatever the raster's size.
+
+    Args:
+        width: Raster width in pixels.
+        height: Raster height in pixels.
+        tile_size: Edge of the output tiles, in pixels.
+
+    Returns:
+        tuple[int, ...]: Powers of two to hand to `BuildOverviews`, empty when
+            the raster already fits inside a tile.
     """
-    if band is None:
-        return
-    if band < 0 or band > band_count - 1:
-        raise ValueError(
-            f"band index should be between 0 and {band_count - 1}, got {band}"
-        )
+    levels: list[int] = []
+    factor = 2
+    while max(width, height) // factor >= tile_size:
+        levels.append(factor)
+        factor *= 2
+    return tuple(levels)
+
+
+def _validate_zoom_range(min_zoom: int, max_zoom: int | None) -> None:
+    """Reject a zoom range that cannot produce tiles.
+
+    Args:
+        min_zoom: Lowest XYZ zoom level requested.
+        max_zoom: Highest XYZ zoom level, or `None` to derive it from the
+            source resolution.
+
+    Raises:
+        ValueError: `min_zoom` is negative, or `max_zoom` is below it.
+    """
+    if min_zoom < 0:
+        raise ValueError(f"min_zoom must be >= 0, got {min_zoom}.")
+    if max_zoom is not None and max_zoom < min_zoom:
+        raise ValueError(f"max_zoom ({max_zoom}) must be >= min_zoom ({min_zoom}).")
 
 
 def _validate_out_shape(out_shape: Any) -> tuple[int, int]:
@@ -814,7 +854,7 @@ class IO(_Engine["Dataset"]):
                         axis=0,
                     )
             else:
-                _validate_band_index(band, self._ds.band_count)
+                validate_band_index(band, self._ds.band_count)
                 if band is None:
                     band = 0
                 if window is None:
@@ -885,7 +925,7 @@ class IO(_Engine["Dataset"]):
                 "read_array(threadsafe=True) on a closed Dataset; re-open "
                 "it with Dataset.read_file first."
             )
-        _validate_band_index(band, self._ds.band_count)
+        validate_band_index(band, self._ds.band_count)
         if isinstance(window, Window):
             # Accept the first-class Window like every other read path does.
             window = list(window.to_read_args())
@@ -914,9 +954,8 @@ class IO(_Engine["Dataset"]):
             except RuntimeError as exc:
                 # Same contract as the default path's _read_block.
                 if "Access window out of range" in str(exc):
-                    raise OutOfBoundsError(
-                        f"The window you entered ({window}) is out of the raster "
-                        f"bounds: {self._ds.rows, self._ds.columns}"
+                    raise window_out_of_bounds(
+                        window, self._ds.rows, self._ds.columns
                     ) from exc
                 raise
         return np.asarray(arr)
@@ -1143,7 +1182,7 @@ class IO(_Engine["Dataset"]):
             from dask.array.core import normalize_chunks
         except ImportError as exc:
             raise ImportError(_LAZY_IMPORT_ERROR) from exc
-        _validate_band_index(band, self._ds.band_count)
+        validate_band_index(band, self._ds.band_count)
         single_band = band is not None or self._ds.band_count == 1
         dtype = np.dtype(self._ds.numpy_dtype[0])
         if single_band:
@@ -1281,7 +1320,7 @@ class IO(_Engine["Dataset"]):
             window_args = tuple(int(value) for value in window)
         else:
             window_args = ()
-        _validate_band_index(band, self._ds.band_count)
+        validate_band_index(band, self._ds.band_count)
         if band is None and self._ds.band_count > 1:
             arr = np.stack(
                 [
@@ -1333,9 +1372,8 @@ class IO(_Engine["Dataset"]):
         except RuntimeError as exc:
             if "Access window out of range in RasterIO()" not in str(exc):
                 raise
-            raise OutOfBoundsError(
-                f"The window you entered ({list(window_args)}) is out of "
-                f"the raster bounds: {self._ds.rows, self._ds.columns}"
+            raise window_out_of_bounds(
+                list(window_args), self._ds.rows, self._ds.columns
             ) from exc
         return np.asarray(block)
 
@@ -1373,7 +1411,7 @@ class IO(_Engine["Dataset"]):
         if not isinstance(window, Window):
             col_off, row_off, cols, rows = window
             window = Window(int(col_off), int(row_off), int(cols), int(rows))
-        _validate_band_index(band, self._ds.band_count)
+        validate_band_index(band, self._ds.band_count)
         all_bands = band is None and self._ds.band_count > 1
         band_indices = list(range(self._ds.band_count)) if all_bands else [band or 0]
         raster_window = Window(0, 0, self._ds.columns, self._ds.rows)
@@ -1446,9 +1484,7 @@ class IO(_Engine["Dataset"]):
             )
         except Exception as e:
             if e.args[0].__contains__("Access window out of range in RasterIO()"):
-                raise OutOfBoundsError(
-                    f"The window you entered ({window})is out of the raster bounds: {self._ds.rows, self._ds.columns}"
-                )
+                raise window_out_of_bounds(window, self._ds.rows, self._ds.columns)
             else:
                 raise e
         return np.asarray(block)
@@ -1747,10 +1783,7 @@ class IO(_Engine["Dataset"]):
             )
 
         if band is not None:
-            if band < 0 or band >= self._ds.band_count:
-                raise ValueError(
-                    f"band {band} is out of range for a {self._ds.band_count}-band dataset."
-                )
+            validate_band_index(band, self._ds.band_count)
             if array.ndim != 2:
                 raise ValueError(
                     f"a single-band write (band={band}) requires a 2D array, got "
@@ -2325,8 +2358,12 @@ class IO(_Engine["Dataset"]):
 
         - Default / `chunks=None`: reads the raster tile-by-tile via GDAL,
           applies `func` to each tile, and writes the result into a fresh
-          in-memory Dataset. Neither input nor output needs to fit in RAM at
-          once. Returns a :class:`~pyramids.dataset.Dataset`.
+          in-memory Dataset. The **input** is never fully materialised — only
+          one tile is held at a time — but the destination is a GDAL ``MEM``
+          raster, so the **output** does occupy RAM in full. Sizing therefore
+          follows the output, not the input. Returns a
+          :class:`~pyramids.dataset.Dataset`; pass `chunks=` (below) or write
+          the result to disk when the output is too large to hold.
         - `chunks=<spec>`: reads lazily via
           :meth:`read_array(chunks=<spec>) <pyramids.dataset.engines.IO.read_array>`
           and dispatches to :func:`dask.array.map_blocks`. Returns a
@@ -2576,12 +2613,25 @@ class IO(_Engine["Dataset"]):
             interval: Mapbox metres-per-encoded-unit. Default ``0.1``. Ignored
                 for terrarium.
             resampling: Resampling for reprojection / tile warping. Default
-                ``"bilinear"``.
+                ``"bilinear"``. Governs the reprojection and the per-tile warp;
+                the overview pyramid built for tiling always decimates with
+                ``"average"``, which suits continuous elevation.
             band: Zero-based elevation band index. Default ``0``.
 
         Returns:
             Path: The written file (``tiles=False``) or the tile-root directory
             (``tiles=True``).
+
+        Notes:
+            With ``tiles=True`` the source is first copied to a temporary GTiff
+            in the system temp directory and given an overview pyramid, then
+            removed when the call returns. Tiling otherwise reads the source
+            once per tile per zoom level, re-warping from the original every
+            time. Budget disk -- not memory -- for roughly the size of the
+            reprojected raster plus a third for its pyramid. Tiles below the
+            source's native zoom are resampled from those ``"average"``
+            overviews, so their encoded elevations differ slightly from a warp
+            of the full-resolution pixels.
 
         Raises:
             ValueError: ``encoding`` is not ``"mapbox"``/``"terrarium"``,
@@ -2618,9 +2668,12 @@ class IO(_Engine["Dataset"]):
             raise ValueError(
                 f"interval must be positive for mapbox encoding, got {interval}."
             )
-        if min_zoom < 0:
-            raise ValueError(f"min_zoom must be >= 0, got {min_zoom}.")
-        _validate_band_index(band, self._ds.band_count)
+        if tiles:
+            # Ahead of the reprojection and the staging, so a bad zoom range
+            # costs nothing. `_terrain_rgb_tiles` re-checks once `max_zoom` is
+            # resolved from the source resolution.
+            _validate_zoom_range(min_zoom, max_zoom)
+        validate_band_index(band, self._ds.band_count)
         # Validate the resampling name once (also reused by the per-tile warp).
         resample_alg = resolve_resampling(resampling)
         source = (
@@ -2628,28 +2681,73 @@ class IO(_Engine["Dataset"]):
             if self._ds.epsg == 3857
             else self._ds.to_crs(3857, method=resampling)
         )
-        if tiles:
-            result = self._terrain_rgb_tiles(
-                source,
-                Path(path),
-                band=band,
-                encoding=encoding,
-                base_val=base_val,
-                interval=interval,
-                min_zoom=min_zoom,
-                max_zoom=max_zoom,
-                tile_size=tile_size,
-                resample_alg=resample_alg,
-            )
-        else:
-            result = self._terrain_rgb_single(
-                source,
-                Path(path),
-                band=band,
-                encoding=encoding,
-                base_val=base_val,
-                interval=interval,
-            )
+        staged = None
+        scratch_dir: str | None = None
+        try:
+            if tiles:
+                # Tiling reads the source once per tile per zoom level. Two costs
+                # to remove: `to_crs` hands back a warped VRT that re-warps from
+                # the original on every read, and without a pyramid every
+                # low-zoom tile resamples full-resolution pixels.
+                #
+                # Staged on disk, not in /vsimem or MEM. Both of those are
+                # process memory, so either would hold the whole reprojected
+                # raster in the heap -- and `to_terrain_rgb` is most often
+                # pointed at a continental DEM, where that is an allocation
+                # failure rather than a slowdown. An on-disk GTiff streams, and
+                # carries its overviews in the same file. Applied whether or not
+                # a reprojection happened: a source already in EPSG:3857 needs
+                # the pyramid just as much, and skipping it left the common
+                # pre-prepared case paying full-resolution reads per tile.
+                scratch_dir = tempfile.mkdtemp(prefix="pyramids_terrain_rgb_")
+                scratch_path = str(Path(scratch_dir) / "source.tif")
+                staged = gdal.GetDriverByName("GTiff").CreateCopy(
+                    scratch_path, source.raster
+                )
+                levels = _overview_levels_for_tiling(
+                    staged.RasterXSize, staged.RasterYSize, tile_size
+                )
+                if levels:
+                    staged.BuildOverviews(_OVERVIEW_RESAMPLING_FOR_TILES, list(levels))
+                source = self._ds.__class__(staged)
+                result = self._terrain_rgb_tiles(
+                    source,
+                    Path(path),
+                    band=band,
+                    encoding=encoding,
+                    base_val=base_val,
+                    interval=interval,
+                    min_zoom=min_zoom,
+                    max_zoom=max_zoom,
+                    tile_size=tile_size,
+                    resample_alg=resample_alg,
+                )
+            else:
+                result = self._terrain_rgb_single(
+                    source,
+                    Path(path),
+                    band=band,
+                    encoding=encoding,
+                    base_val=base_val,
+                    interval=interval,
+                )
+        finally:
+            if scratch_dir is not None:
+                # Close explicitly rather than relying on the refcount:
+                # Windows refuses to unlink a file GDAL still holds open, and on
+                # the failure path the propagating exception's traceback keeps
+                # the frame -- and any handle it names -- alive past this block.
+                # `ignore_errors` so a cleanup that still fails leaves a stray
+                # temp directory rather than replacing the exception the caller
+                # needs to see. The staging sits inside the `try` so a failure
+                # between the copy and the tiling -- an allocation failure in
+                # `CreateCopy`, an unsupported `BuildOverviews` -- is cleaned up
+                # too.
+                source = None
+                if staged is not None:
+                    staged.Close()
+                    staged = None
+                shutil.rmtree(scratch_dir, ignore_errors=True)
         return result
 
     @staticmethod
@@ -2720,8 +2818,7 @@ class IO(_Engine["Dataset"]):
         south = north + source.rows * gt[5]
         if max_zoom is None:
             max_zoom = self._native_terrain_zoom(abs(gt[1]), tile_size, min_zoom)
-        if max_zoom < min_zoom:
-            raise ValueError(f"max_zoom ({max_zoom}) must be >= min_zoom ({min_zoom}).")
+        _validate_zoom_range(min_zoom, max_zoom)
         nodata = source.no_data_value[band]
         path.mkdir(parents=True, exist_ok=True)
         for zoom in range(min_zoom, max_zoom + 1):
@@ -3112,7 +3209,7 @@ class IO(_Engine["Dataset"]):
             for i in range(self._ds.band_count):
                 arr[i, :, :] = self.get_overview(i, overview_index).ReadAsArray()
         else:
-            _validate_band_index(band, self._ds.band_count)
+            validate_band_index(band, self._ds.band_count)
             if band is None:
                 band = 0
             elif self.overview_count[band] == 0:

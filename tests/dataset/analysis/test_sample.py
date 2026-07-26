@@ -13,10 +13,12 @@ import numpy as np
 import pandas as pd
 import pytest
 from geopandas import GeoDataFrame
+from osgeo import gdal, osr
 from shapely.geometry import Point
 
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.dataset import Dataset
+from pyramids.dataset.engines import analysis
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
@@ -244,3 +246,345 @@ class TestSample:
         df = pd.DataFrame({"lon": [0.5], "lat": [4.5]})
         with pytest.raises(ValueError, match="must have 'x' and 'y' columns"):
             two_band.sample(df, bands=0)
+
+
+class TestHistogramEdgesAndStatsPrecision:
+    """ARC-27: bucket edges must describe the buckets that were counted."""
+
+    @staticmethod
+    def _ramp() -> Dataset:
+        """A 10x10 raster holding 0..99.
+
+        Returns:
+            Dataset: In-memory single-band dataset.
+        """
+        array = np.arange(100, dtype="float32").reshape(10, 10)
+        raster = gdal.GetDriverByName("MEM").Create("", 10, 10, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 10.0, 0.0, -1.0))
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        raster.SetProjection(srs.ExportToWkt())
+        band = raster.GetRasterBand(1)
+        band.WriteArray(array)
+        band.SetNoDataValue(-9999.0)
+        return Dataset(raster)
+
+    def test_edges_follow_the_requested_range(self):
+        """Narrowing the range moves the reported edges with it.
+
+        Test scenario:
+            `bin_width` came from the caller's `min_value`/`max_value` but the
+            edges were anchored at the raster minimum, so a narrowed request
+            returned edges describing buckets `GetHistogram` never filled.
+        """
+        dataset = self._ramp()
+        _, ranges = dataset.get_histogram(band=0, bins=5, min_value=50, max_value=100)
+        assert ranges[0][0] == pytest.approx(50.0), (
+            f"first edge should be the requested min_value 50, got {ranges[0][0]}"
+        )
+        assert ranges[-1][1] == pytest.approx(100.0), (
+            f"last edge should be the requested max_value 100, got {ranges[-1][1]}"
+        )
+
+    def test_default_range_still_spans_the_raster(self):
+        """With no narrowing the edges still start at the raster minimum."""
+        dataset = self._ramp()
+        _, ranges = dataset.get_histogram(band=0, bins=5)
+        assert ranges[0][0] == pytest.approx(0.0), (
+            f"the default range must start at the raster min, got {ranges[0][0]}"
+        )
+
+    def test_stats_exposes_approx_ok(self):
+        """`stats` lets the caller demand exact figures.
+
+        Test scenario:
+            `GetStatistics(True, True)` was hard-coded, so the returned
+            min/max/mean/std could come from overviews or a subsample with no
+            way to ask for the exact values.
+        """
+        dataset = self._ramp()
+        exact = dataset.stats(approx_ok=False)
+        assert list(exact.columns) == ["min", "max", "mean", "std"], (
+            f"unexpected columns: {list(exact.columns)}"
+        )
+        assert float(exact["min"].iloc[0]) == pytest.approx(0.0), (
+            f"exact min over 0..99 should be 0, got {exact['min'].iloc[0]}"
+        )
+        assert float(exact["max"].iloc[0]) == pytest.approx(99.0), (
+            f"exact max over 0..99 should be 99, got {exact['max'].iloc[0]}"
+        )
+
+
+def _points(coords: list[tuple[float, float]]) -> GeoDataFrame:
+    """Build an EPSG:4326 point GeoDataFrame from ``(x, y)`` pairs."""
+    return GeoDataFrame(geometry=[Point(x, y) for x, y in coords], crs=4326)
+
+
+class TestWindowedAndPerPointStrategiesAgree:
+    """ARC-61: the windowed read is an optimisation, not a behaviour change."""
+
+    @pytest.fixture(scope="function")
+    def wide(self) -> Dataset:
+        """A 1-band 100x100 raster of distinct values, nodata -9999.
+
+        Large enough that two far-apart points span a bounding box past the
+        windowed-read threshold, so the per-point branch is reachable without
+        touching the module constants.
+
+        Returns:
+            Dataset: the test raster.
+        """
+        arr = np.arange(100 * 100, dtype="float64").reshape(100, 100)
+        return Dataset.create_from_array(
+            arr,
+            top_left_corner=(0, 100),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+
+    def test_a_sparse_batch_takes_the_per_point_branch(self, wide, monkeypatch):
+        """Two corner points span too large a box to be worth one read.
+
+        Test scenario:
+            The windowed read is taken only while the points' bounding box stays
+            a small multiple of the point count. Two opposite corners of a
+            100x100 raster span 10000 pixels for 2 points, past the 4096-pixel
+            floor, so the sparse branch runs. Counts `ReadAsArray` calls to
+            prove which branch executed rather than inferring it.
+        """
+        calls: list[tuple] = []
+        original = gdal.Band.ReadAsArray
+
+        def counting_read(self, *args, **kwargs):
+            calls.append(args)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(gdal.Band, "ReadAsArray", counting_read)
+        wide.sample(_points([(0.5, 99.5), (99.5, 0.5)]))
+        assert len(calls) == 2, (
+            f"a sparse batch must issue one read per point, got {len(calls)}"
+        )
+        assert all(args[2:] == (1, 1) for args in calls), (
+            f"each per-point read must be a 1x1 window, got {calls}"
+        )
+
+    def test_a_dense_batch_takes_the_windowed_branch(self, wide, monkeypatch):
+        """Neighbouring points collapse into a single read.
+
+        Test scenario:
+            Four adjacent cells span a 2x2 box, far under the threshold, so one
+            windowed read covers them all.
+        """
+        calls: list[tuple] = []
+        original = gdal.Band.ReadAsArray
+
+        def counting_read(self, *args, **kwargs):
+            calls.append(args)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(gdal.Band, "ReadAsArray", counting_read)
+        wide.sample(_points([(10.5, 50.5), (11.5, 50.5), (10.5, 49.5), (11.5, 49.5)]))
+        assert len(calls) == 1, (
+            f"a dense batch must collapse into one windowed read, got {len(calls)}"
+        )
+
+    def test_both_strategies_return_identical_values(self, wide):
+        """The two branches sample the same cells and return the same numbers.
+
+        Test scenario:
+            Samples one dense batch through the windowed branch, then the same
+            points again with the threshold forced to zero so the per-point
+            branch runs, and compares. The windowed branch indexes into a block
+            read at an offset; an off-by-one there would go unnoticed because
+            nothing else compares the two paths.
+        """
+        points = _points(
+            [(10.5, 50.5), (11.5, 50.5), (12.5, 50.5), (10.5, 49.5), (11.5, 49.5)]
+        )
+        windowed = wide.sample(points)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(analysis, "_POINT_WINDOW_MIN_PIXELS", 0)
+            patch.setattr(analysis, "_POINT_WINDOW_MAX_WASTE", 0)
+            per_point = wide.sample(points)
+        np.testing.assert_array_equal(windowed, per_point)
+
+    def test_the_strategies_agree_on_an_out_of_bounds_mix(self, wide):
+        """Out-of-bounds points get the fill value on both branches.
+
+        Test scenario:
+            The in-bounds index set drives the window offset, so a batch that
+            mixes in- and out-of-bounds points is where an indexing slip would
+            surface as a value landing in the wrong slot.
+        """
+        points = _points(
+            [(10.5, 50.5), (-5.0, 50.5), (11.5, 50.5), (500.0, 50.5), (12.5, 50.5)]
+        )
+        windowed = wide.sample(points)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(analysis, "_POINT_WINDOW_MIN_PIXELS", 0)
+            patch.setattr(analysis, "_POINT_WINDOW_MAX_WASTE", 0)
+            per_point = wide.sample(points)
+        np.testing.assert_array_equal(windowed, per_point)
+        assert windowed[0][1] == -9999.0 and windowed[0][3] == -9999.0, (
+            f"out-of-bounds points must carry the fill value, got {windowed[0]}"
+        )
+
+
+class TestStatsRecoveryPath:
+    """H1: the no-cached-statistics recovery must be exact, not approximate."""
+
+    @pytest.fixture(scope="function")
+    def sparse_on_disk(self, tmp_path) -> str:
+        """A 2048x2048 GTiff with overviews and two valid pixels.
+
+        The shape any clipped catchment, sparse mask or `to_cog` output takes:
+        so much no-data that GDAL's overview-based estimate sees only the fill
+        and either fails outright or averages the two valid pixels into one.
+
+        Args:
+            tmp_path: pytest's temporary directory fixture.
+
+        Returns:
+            str: path to the written raster.
+        """
+        path = tmp_path / "sparse.tif"
+        array = np.full((2048, 2048), -9999.0, dtype="float32")
+        array[0, 0] = 1.0
+        array[0, 1] = 4.0
+        driver = gdal.GetDriverByName("GTiff")
+        raster = driver.Create(str(path), 2048, 2048, 1, gdal.GDT_Float32)
+        raster.GetRasterBand(1).WriteArray(array)
+        raster.GetRasterBand(1).SetNoDataValue(-9999.0)
+        raster.BuildOverviews("average", [2, 4, 8, 16])
+        raster = None
+        return str(path)
+
+    @staticmethod
+    def _force_the_recovery(monkeypatch):
+        """Make GDAL's cached/approximate statistics unavailable.
+
+        Reproduces the state the recovery exists for: `GetStatistics` raises
+        "Failed to compute statistics, no valid pixels found in sampling",
+        which the engine turns into the `sum(vals) == 0` fallback.
+
+        Args:
+            monkeypatch: pytest's monkeypatch fixture.
+        """
+
+        def refuse(self, *args, **kwargs):
+            raise RuntimeError(
+                "Failed to compute statistics, no valid pixels found in sampling."
+            )
+
+        monkeypatch.setattr(gdal.Band, "GetStatistics", refuse)
+
+    def test_the_recovery_does_not_re_run_the_route_that_just_failed(
+        self, sparse_on_disk, monkeypatch
+    ):
+        """The fallback is a full scan, so it survives what the estimate could not.
+
+        Test scenario:
+            The recovery only runs because the approximate route already failed.
+            Repeating it approximately raises the very same error, straight out
+            of the public `stats()` -- the default call, with no caller opting
+            in. Honouring `approx_ok` here made the recovery a no-op.
+        """
+        self._force_the_recovery(monkeypatch)
+        stats = Dataset.read_file(sparse_on_disk).stats()
+        assert float(stats["min"].iloc[0]) == 1.0, (
+            f"expected the true minimum 1.0, got {stats['min'].iloc[0]}"
+        )
+        assert float(stats["max"].iloc[0]) == 4.0, (
+            f"expected the true maximum 4.0, got {stats['max'].iloc[0]}"
+        )
+        assert float(stats["std"].iloc[0]) > 0.0, (
+            "a band with two distinct values must not report a zero deviation"
+        )
+
+    def test_the_recovery_is_exact_for_either_approx_ok(
+        self, sparse_on_disk, monkeypatch
+    ):
+        """`approx_ok` does not reach the recovery, so both callers agree.
+
+        Test scenario:
+            Both routes end in the same full scan once the estimate is gone.
+        """
+        self._force_the_recovery(monkeypatch)
+        dataset = Dataset.read_file(sparse_on_disk)
+        np.testing.assert_array_equal(
+            dataset.stats(approx_ok=False).to_numpy(), dataset.stats().to_numpy()
+        )
+
+    def test_a_healthy_band_still_answers_from_the_estimate(self, two_band):
+        """The recovery is not on the happy path.
+
+        Test scenario:
+            A band whose statistics GDAL can compute must not pay a full scan;
+            the fallback is reached only when the estimate returns nothing.
+        """
+        stats = two_band.stats()
+        assert len(stats) == 2, f"expected one row per band, got {len(stats)}"
+        assert float(stats["min"].iloc[0]) == 0.0, (
+            f"band 0 spans 0..24, got a minimum of {stats['min'].iloc[0]}"
+        )
+
+
+class TestWindowedReadIsStripped:
+    """L2: a large window is read in strips, not abandoned for per-point reads."""
+
+    @pytest.fixture(scope="function")
+    def wide(self) -> Dataset:
+        """A 1-band 100x100 raster of distinct values, nodata -9999."""
+        arr = np.arange(100 * 100, dtype="float64").reshape(100, 100)
+        return Dataset.create_from_array(
+            arr,
+            top_left_corner=(0, 100),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+
+    def test_a_bounded_strip_still_reads_every_point_correctly(self, wide, monkeypatch):
+        """Forcing several strips must not change a single value.
+
+        Test scenario:
+            Shrinking the per-read ceiling to a handful of pixels makes the
+            window span many strips, which is where an off-by-one in the strip
+            offset would put a value in the wrong slot or drop it entirely.
+            Compared against the same points read as one block.
+        """
+        points = _points([(x + 0.5, 99.5 - y) for y in range(6) for x in range(6)])
+        one_block = wide.sample(points)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(analysis, "_POINT_WINDOW_MAX_PIXELS", 12)
+            stripped = wide.sample(points)
+        np.testing.assert_array_equal(one_block, stripped)
+
+    def test_a_dense_batch_keeps_windowing_past_the_ceiling(self, wide, monkeypatch):
+        """The absolute ceiling bounds each read, it does not disable windowing.
+
+        Test scenario:
+            Dropping to a 1x1 read per point is the slowest possible answer for
+            a dense batch, and a batch large enough to trip an absolute ceiling
+            is dense by construction. With the ceiling at 12 pixels a 6x6 box
+            must still issue a handful of strip reads, not 36 per-point ones.
+        """
+        calls: list[tuple] = []
+        original = gdal.Band.ReadAsArray
+
+        def counting_read(self, *args, **kwargs):
+            calls.append(args)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(gdal.Band, "ReadAsArray", counting_read)
+        monkeypatch.setattr(analysis, "_POINT_WINDOW_MAX_PIXELS", 12)
+        points = _points([(x + 0.5, 99.5 - y) for y in range(6) for x in range(6)])
+        wide.sample(points)
+        assert len(calls) < 36, (
+            f"a dense batch must keep windowing in strips, got {len(calls)} reads "
+            "for 36 points"
+        )
+        assert all(args[3] <= 2 for args in calls), (
+            f"each strip must respect the ceiling of 12 / 6 = 2 rows, got {calls}"
+        )
