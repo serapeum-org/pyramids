@@ -17,7 +17,7 @@ import pytest
 from shapely.geometry import Point
 
 from pyramids.errors import WFSError
-from pyramids.feature import FeatureCollection, _wfs
+from pyramids.feature import FeatureCollection, _ogc, _wfs
 from tests.http_mock import make_fixed_body_server
 
 CAPS_2_0_0 = """<?xml version="1.0" encoding="UTF-8"?>
@@ -103,18 +103,18 @@ class TestPureHelpers:
         )
 
     def test_gdal_http_config(self):
-        cfg = _wfs._gdal_http_config(None, 60.0)
+        cfg = _ogc.gdal_http_config(None, 60.0)
         assert cfg["GDAL_HTTP_TIMEOUT"] == "60"
         assert "GDAL_HTTP_USERPWD" not in cfg, "no auth means no credentials emitted"
-        cfg = _wfs._gdal_http_config(("u", "p"), 30.0)
+        cfg = _ogc.gdal_http_config(("u", "p"), 30.0)
         assert cfg["GDAL_HTTP_USERPWD"] == "u:p" and cfg["GDAL_HTTP_TIMEOUT"] == "30"
 
     def test_gdal_http_config_clamps_subsecond_timeout(self):
-        assert _wfs._gdal_http_config(None, 0.5)["GDAL_HTTP_TIMEOUT"] == "1"
+        assert _ogc.gdal_http_config(None, 0.5)["GDAL_HTTP_TIMEOUT"] == "1"
 
     def test_gdal_http_config_carries_retry_knobs(self):
         """The driver read rides out a transient fault like the urllib fetch does."""
-        cfg = _wfs._gdal_http_config(None, 60.0)
+        cfg = _ogc.gdal_http_config(None, 60.0)
         assert cfg["GDAL_HTTP_MAX_RETRY"] == "2", (
             f"GDAL counts retries after the first attempt, not attempts: {cfg}"
         )
@@ -230,7 +230,7 @@ class TestFromWfs:
     def test_returns_featurecollection(self, monkeypatch):
         """A successful read is wrapped into a FeatureCollection."""
         self._patch_caps(monkeypatch)
-        monkeypatch.setattr(_wfs.gpd, "read_file", lambda *a, **k: _sample_gdf())
+        monkeypatch.setattr(_ogc.gpd, "read_file", lambda *a, **k: _sample_gdf())
         fc = FeatureCollection.from_wfs("https://h/ows", typename="topp:states")
         assert isinstance(fc, FeatureCollection)
         assert len(fc) == 2 and fc.crs.to_epsg() == 4326
@@ -245,7 +245,7 @@ class TestFromWfs:
             captured["kwargs"] = kwargs
             return _sample_gdf()
 
-        monkeypatch.setattr(_wfs.gpd, "read_file", fake_read)
+        monkeypatch.setattr(_ogc.gpd, "read_file", fake_read)
         FeatureCollection.from_wfs(
             "https://h/ows",
             typename="topp:states",
@@ -262,7 +262,7 @@ class TestFromWfs:
 
     def test_output_crs_reprojects(self, monkeypatch):
         self._patch_caps(monkeypatch)
-        monkeypatch.setattr(_wfs.gpd, "read_file", lambda *a, **k: _sample_gdf())
+        monkeypatch.setattr(_ogc.gpd, "read_file", lambda *a, **k: _sample_gdf())
         fc = FeatureCollection.from_wfs(
             "https://h/ows", typename="topp:states", output_crs="EPSG:3857"
         )
@@ -272,7 +272,7 @@ class TestFromWfs:
         """output_crs on a CRS-less result raises WFSError instead of silently dropping it."""
         self._patch_caps(monkeypatch)
         crsless = gpd.GeoDataFrame({"name": ["a"]}, geometry=[Point(5.0, 52.0)])
-        monkeypatch.setattr(_wfs.gpd, "read_file", lambda *a, **k: crsless)
+        monkeypatch.setattr(_ogc.gpd, "read_file", lambda *a, **k: crsless)
         with pytest.raises(WFSError, match="without a CRS"):
             FeatureCollection.from_wfs(
                 "https://h/ows", typename="topp:states", output_crs="EPSG:3857"
@@ -297,7 +297,7 @@ class TestFromWfs:
             "_get_capabilities",
             lambda *a, **k: (("1.1.0", "2.0.0"), frozenset({"topp:states"})),
         )
-        monkeypatch.setattr(_wfs.gpd, "read_file", lambda *a, **k: _sample_gdf())
+        monkeypatch.setattr(_ogc.gpd, "read_file", lambda *a, **k: _sample_gdf())
         fc = FeatureCollection.from_wfs(
             "https://h/ows", typename="topp:states", version="2.0.0"
         )
@@ -314,7 +314,7 @@ class TestFromWfs:
         def boom(*a, **k):
             raise RuntimeError("driver said no")
 
-        monkeypatch.setattr(_wfs.gpd, "read_file", boom)
+        monkeypatch.setattr(_ogc.gpd, "read_file", boom)
         with pytest.raises(WFSError, match="GetFeature failed"):
             FeatureCollection.from_wfs("https://h/ows", typename="topp:states")
 

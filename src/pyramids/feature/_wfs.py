@@ -29,14 +29,11 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted, no XXE
 
-import geopandas as gpd
-from osgeo import gdal
-
 from pyramids.base._errors import WFSError
-from pyramids.base._ogc_api import DISCOVERY_HEADERS
-from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
-from pyramids.base._ogc_api import http_error_detail, http_get_with_retry
+from pyramids.base._ogc_api import DISCOVERY_HEADERS, http_error_detail, http_get_with_retry
 from pyramids.feature._ogc import read_kwargs as _read_kwargs
+from pyramids.feature._ogc import read_ogc_layer as _read_ogc_layer
+from pyramids.feature._ogc import require_advertised as _require_advertised
 
 if TYPE_CHECKING:
     from pyramids.feature.collection import FeatureCollection
@@ -185,27 +182,19 @@ def from_wfs(
             f"WFS version {version!r} is not advertised by {endpoint!r}. "
             f"Available versions: {list(versions)}"
         )
-    if typenames and typename not in typenames:
-        raise ValueError(
-            f"feature type {typename!r} is not advertised by {endpoint!r}. "
-            f"Available feature types: {sorted(typenames)[:10]}"
-            + (" …" if len(typenames) > 10 else "")
-        )
+    _require_advertised(typename, typenames, noun="feature type", endpoint=endpoint)
 
-    connection = _wfs_connection(endpoint, version)
-    config = _gdal_http_config(auth, timeout)
-    with gdal.config_options(config):
-        try:
-            gdf = gpd.read_file(connection, layer=typename, **read_kwargs)
-        except Exception as exc:  # noqa: BLE001 — normalise any read failure to WFSError
-            raise WFSError(f"WFS GetFeature failed for {typename!r}: {exc}") from exc
-
-    fc = featurecollection_cls(gdf)
-    if output_crs is not None:
-        if fc.crs is None:
-            raise WFSError(
-                f"cannot reproject {typename!r} to {output_crs!r}: the server returned "
-                "features without a CRS"
-            )
-        fc = fc.to_crs(output_crs)  # to_crs preserves the FeatureCollection subclass
-    return fc
+    # The read tail (GDAL HTTP config + read_file + wrap + reproject) is shared with
+    # from_ogc_features via feature/_ogc.read_ogc_layer (ARC-64); only the connection
+    # string, discovery, error class and failure wording differ.
+    return _read_ogc_layer(
+        featurecollection_cls,
+        _wfs_connection(endpoint, version),
+        typename,
+        read_kwargs=read_kwargs,
+        auth=auth,
+        timeout=timeout,
+        error_cls=WFSError,
+        read_fail_prefix="WFS GetFeature failed for",
+        output_crs=output_crs,
+    )

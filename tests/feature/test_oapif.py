@@ -26,7 +26,7 @@ from shapely.geometry import Point
 
 from pyramids.base import _ogc_api
 from pyramids.errors import OGCAPIError
-from pyramids.feature import FeatureCollection, _oapif
+from pyramids.feature import FeatureCollection, _oapif, _ogc
 from tests.http_mock import make_fixed_body_server
 
 COLLECTIONS_DOC = json.dumps(
@@ -97,18 +97,18 @@ class TestPureHelpers:
         assert _oapif._oapif_connection("https://h/api") == "OAPIF:https://h/api"
 
     def test_gdal_http_config(self):
-        cfg = _oapif._gdal_http_config(None, 60.0)
+        cfg = _ogc.gdal_http_config(None, 60.0)
         assert cfg["GDAL_HTTP_TIMEOUT"] == "60"
         assert "GDAL_HTTP_USERPWD" not in cfg, "no auth means no credentials emitted"
-        cfg = _oapif._gdal_http_config(("u", "p"), 30.0)
+        cfg = _ogc.gdal_http_config(("u", "p"), 30.0)
         assert cfg["GDAL_HTTP_USERPWD"] == "u:p" and cfg["GDAL_HTTP_TIMEOUT"] == "30"
 
     def test_gdal_http_config_clamps_subsecond_timeout(self):
-        assert _oapif._gdal_http_config(None, 0.5)["GDAL_HTTP_TIMEOUT"] == "1"
+        assert _ogc.gdal_http_config(None, 0.5)["GDAL_HTTP_TIMEOUT"] == "1"
 
     def test_gdal_http_config_carries_retry_knobs(self):
         """The driver read rides out a transient fault like the urllib fetch does."""
-        cfg = _oapif._gdal_http_config(None, 60.0)
+        cfg = _ogc.gdal_http_config(None, 60.0)
         assert cfg["GDAL_HTTP_MAX_RETRY"] == "2", (
             f"GDAL counts retries after the first attempt, not attempts: {cfg}"
         )
@@ -398,7 +398,7 @@ class TestFromOgcApiFeatures:
     def test_returns_featurecollection(self, monkeypatch):
         """A successful read is wrapped into a FeatureCollection."""
         self._patch_collections(monkeypatch)
-        monkeypatch.setattr(_oapif.gpd, "read_file", lambda *a, **k: _sample_gdf())
+        monkeypatch.setattr(_ogc.gpd, "read_file", lambda *a, **k: _sample_gdf())
         fc = FeatureCollection.from_ogc_features("https://h/api", collection="lakes")
         assert isinstance(fc, FeatureCollection)
         assert len(fc) == 2 and fc.crs.to_epsg() == 4326
@@ -413,7 +413,7 @@ class TestFromOgcApiFeatures:
             captured["kwargs"] = kwargs
             return _sample_gdf()
 
-        monkeypatch.setattr(_oapif.gpd, "read_file", fake_read)
+        monkeypatch.setattr(_ogc.gpd, "read_file", fake_read)
         FeatureCollection.from_ogc_features(
             "https://h/api",
             collection="lakes",
@@ -429,7 +429,7 @@ class TestFromOgcApiFeatures:
 
     def test_output_crs_reprojects(self, monkeypatch):
         self._patch_collections(monkeypatch)
-        monkeypatch.setattr(_oapif.gpd, "read_file", lambda *a, **k: _sample_gdf())
+        monkeypatch.setattr(_ogc.gpd, "read_file", lambda *a, **k: _sample_gdf())
         fc = FeatureCollection.from_ogc_features(
             "https://h/api", collection="lakes", output_crs="EPSG:3857"
         )
@@ -439,7 +439,7 @@ class TestFromOgcApiFeatures:
         """output_crs on a CRS-less result raises OGCAPIError instead of silently dropping it."""
         self._patch_collections(monkeypatch)
         crsless = gpd.GeoDataFrame({"name": ["a"]}, geometry=[Point(5.0, 52.0)])
-        monkeypatch.setattr(_oapif.gpd, "read_file", lambda *a, **k: crsless)
+        monkeypatch.setattr(_ogc.gpd, "read_file", lambda *a, **k: crsless)
         with pytest.raises(OGCAPIError, match="without a CRS"):
             FeatureCollection.from_ogc_features(
                 "https://h/api", collection="lakes", output_crs="EPSG:3857"
@@ -456,7 +456,7 @@ class TestFromOgcApiFeatures:
         def boom(*a, **k):
             raise RuntimeError("driver said no")
 
-        monkeypatch.setattr(_oapif.gpd, "read_file", boom)
+        monkeypatch.setattr(_ogc.gpd, "read_file", boom)
         with pytest.raises(OGCAPIError, match="items request failed"):
             FeatureCollection.from_ogc_features("https://h/api", collection="lakes")
 
@@ -466,11 +466,11 @@ class TestFromOgcApiFeatures:
         seen = {}
 
         def fake_read(connection, **kwargs):
-            seen["userpwd"] = _oapif.gdal.GetConfigOption("GDAL_HTTP_USERPWD")
-            seen["timeout"] = _oapif.gdal.GetConfigOption("GDAL_HTTP_TIMEOUT")
+            seen["userpwd"] = _ogc.gdal.GetConfigOption("GDAL_HTTP_USERPWD")
+            seen["timeout"] = _ogc.gdal.GetConfigOption("GDAL_HTTP_TIMEOUT")
             return _sample_gdf()
 
-        monkeypatch.setattr(_oapif.gpd, "read_file", fake_read)
+        monkeypatch.setattr(_ogc.gpd, "read_file", fake_read)
         FeatureCollection.from_ogc_features(
             "https://h/api", collection="lakes", auth=("u", "p"), timeout=42.0
         )

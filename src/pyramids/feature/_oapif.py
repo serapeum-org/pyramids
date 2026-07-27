@@ -26,13 +26,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import geopandas as gpd
-from osgeo import gdal
-
 from pyramids.base._errors import OGCAPIError
-from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import get_collections as _get_collections
 from pyramids.feature._ogc import read_kwargs as _read_kwargs
+from pyramids.feature._ogc import read_ogc_layer as _read_ogc_layer
+from pyramids.feature._ogc import require_advertised as _require_advertised
 
 if TYPE_CHECKING:
     from pyramids.feature.collection import FeatureCollection
@@ -73,29 +71,17 @@ def from_ogc_features(
     )  # validate inputs before any network call
 
     collections = _get_collections(endpoint, auth, timeout)
-    if collections and collection not in collections:
-        raise ValueError(
-            f"collection {collection!r} is not advertised by {endpoint!r}. "
-            f"Available collections: {sorted(collections)[:10]}"
-            + (" …" if len(collections) > 10 else "")
-        )
+    _require_advertised(collection, collections, noun="collection", endpoint=endpoint)
 
-    connection = _oapif_connection(endpoint)
-    config = _gdal_http_config(auth, timeout)
-    with gdal.config_options(config):
-        try:
-            gdf = gpd.read_file(connection, layer=collection, **read_kwargs)
-        except Exception as exc:  # noqa: BLE001 — normalise any read failure to OGCAPIError
-            raise OGCAPIError(
-                f"OGC API items request failed for {collection!r}: {exc}"
-            ) from exc
-
-    fc = featurecollection_cls(gdf)
-    if output_crs is not None:
-        if fc.crs is None:
-            raise OGCAPIError(
-                f"cannot reproject {collection!r} to {output_crs!r}: the service returned "
-                "features without a CRS"
-            )
-        fc = fc.to_crs(output_crs)  # to_crs preserves the FeatureCollection subclass
-    return fc
+    # The read tail is shared with from_wfs via feature/_ogc.read_ogc_layer (ARC-64).
+    return _read_ogc_layer(
+        featurecollection_cls,
+        _oapif_connection(endpoint),
+        collection,
+        read_kwargs=read_kwargs,
+        auth=auth,
+        timeout=timeout,
+        error_cls=OGCAPIError,
+        read_fail_prefix="OGC API items request failed for",
+        output_crs=output_crs,
+    )
