@@ -44,6 +44,21 @@ class TestArc16ExplodeGdf:
         _ = explode_gdf(gdf, "multipolygon")
         assert gdf.iloc[0].geometry.geom_type == "MultiPolygon", "input frame was mutated"
 
+    def test_explode_on_featurecollection_uses_geopandas_explode(self):
+        """A FeatureCollection input does not shadow geopandas' explode with its own override.
+
+        Test scenario:
+            FeatureCollection.explode → explode_gdf(self, …); the internal `.explode(index_parts=…)` must reach
+            GeoDataFrame.explode, not FeatureCollection.explode(geometry=…) (the FC is-a GeoDataFrame trap).
+        """
+        multi = MultiPolygon(
+            [Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]), Polygon([(5, 5), (7, 5), (7, 7), (5, 7)])]
+        )
+        fc = FeatureCollection(gpd.GeoDataFrame({"n": ["m"]}, geometry=[multi], crs="EPSG:4326"))
+        result = fc.explode("multipolygon")
+        assert len(result) == 2, f"expected 2 exploded polygons, got {len(result)}"
+        assert set(result.geom_type) == {"Polygon"}
+
 
 class TestArc31Schema:
     """ARC-31: schema excludes the active geometry column by name, not the literal 'geometry'."""

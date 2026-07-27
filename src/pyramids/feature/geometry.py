@@ -324,7 +324,10 @@ def explode_gdf(gdf: GeoDataFrame, geometry: str = "multipolygon") -> GeoDataFra
     matching = gdf[is_match]
     if matching.empty:
         return preserved.reset_index(drop=True)
-    exploded = matching.explode(index_parts=False)
+    # Call geopandas' explode UNBOUND: `matching` may be a FeatureCollection, whose
+    # own `explode(geometry=…)` override would otherwise shadow the vectorized
+    # GeoDataFrame.explode(index_parts=…) we want here (the FC is-a GeoDataFrame trap).
+    exploded = GeoDataFrame.explode(matching, index_parts=False)
     result = gpd.GeoDataFrame(pd.concat([preserved, exploded]), crs=gdf.crs)
     return result.reset_index(drop=True)
 
