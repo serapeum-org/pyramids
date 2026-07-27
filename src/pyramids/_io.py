@@ -228,6 +228,11 @@ def _is_tar(path: str):
 def _get_zip_path(path: str, file_i: int = 0):
     """Get Zip Path.
 
+    When the archive has to be listed to resolve a member, it is opened under a
+    context manager and closed before returning — an unclosed handle would
+    survive until garbage collection and, on Windows, block deleting or
+    overwriting the archive.
+
     Args:
         path (str): Path to the zip file.
         file_i (int): Index to the file inside the compressed file you want to read.
@@ -569,11 +574,22 @@ def read_file(
 
     - For GeoTIFF and ASCII files.
 
+    Handle sharing depends on the access mode. Read-only opens go through
+    :func:`osgeo.gdal.OpenShared`, so repeated reads of the same path reuse one
+    handle — the intended benefit for frequently accessed rasters. Update-mode
+    opens go through :func:`osgeo.gdal.Open` instead: GDAL's shared cache is
+    keyed on path + access + thread, so two update-mode datasets would otherwise
+    receive the *same* mutable handle with independent finalizers, letting one
+    flush or invalidate the other's writes.
+
     Args:
         path (str): Path of file to open (works for ASCII, GeoTIFF).
         read_only (bool): File mode; set to False to open in "update" mode.
-        open_as_multi_dimensional (bool): If True, opens using OF_MULTIDIM_RASTER for multi-dimensional formats. Default is False.
-        file_i (int): Index to the file inside the compressed file you want to read (default 0). If the compressed file has only one file, the first file is used.
+        open_as_multi_dimensional (bool): If True, opens using OF_MULTIDIM_RASTER
+            for multi-dimensional formats. Default is False.
+        file_i (int): Index to the file inside the compressed file you want to
+            read (default 0). If the compressed file has only one file, the first
+            file is used.
         vsi (str | None): When given, treat ``path`` as an archive of this kind
             (``"zip"`` / ``"tar"`` / ``"gzip"`` / ``"auto"``) and open member
             ``file_i`` from inside it — even when the path/URL has no archive
@@ -582,6 +598,18 @@ def read_file(
 
     Returns:
         gdal.Dataset: Opened dataset.
+
+    Raises:
+        TypeError: ``path`` is neither a :class:`str` nor a :class:`~pathlib.Path`.
+        FileNotFoundError: The path does not exist, or ``vsi`` was given and
+            ``file_i`` is out of range for the archive's member list.
+        FileFormatNotSupportedError: GDAL cannot open the format — notably a
+            gzip archive holding several internal files, which has no addressable
+            single member.
+
+    See Also:
+        bytes_to_gdal: Open an in-memory byte string through ``/vsimem/``.
+        _archive_dir_vsi: Resolve the ``/vsi*`` directory path used when ``vsi`` is given.
     """
     if not isinstance(path, (str, Path)):
         raise TypeError(
