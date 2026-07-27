@@ -107,7 +107,10 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
             ):
                 from pyramids.feature.collection import FeatureCollection
 
-                result = FeatureCollection(result)
+                # Skip the wrap when the method (e.g. an overridden `compute`) already
+                # returned a FeatureCollection, avoiding a redundant double-wrap (ARC-63).
+                if not isinstance(result, FeatureCollection):
+                    result = FeatureCollection(result)
             return result
 
         return wrapper

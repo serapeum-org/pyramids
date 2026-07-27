@@ -3088,9 +3088,10 @@ class FeatureCollection(GeoDataFrame):
                 ```
         """
         fc = self.with_coordinates()
-        for i, row_i in fc.iterrows():
-            fc.loc[i, "avg_x"] = np.mean(row_i["x"])
-            fc.loc[i, "avg_y"] = np.mean(row_i["y"])
+        # Vectorized per-cell mean over the (scalar-for-Point / list-for-ring) x/y
+        # columns, replacing an iterrows + scalar `.loc` assignment loop (ARC-63).
+        fc["avg_x"] = fc["x"].map(np.mean)
+        fc["avg_y"] = fc["y"].map(np.mean)
 
         # detect rows whose averaged coordinate could not be
         # computed (empty geometry, all-NaN rings, etc.). Emit a single
