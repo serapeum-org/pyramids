@@ -28,7 +28,9 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
+import shapely
 from geopandas import GeoDataFrame
 from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.multilinestring import MultiLineString
@@ -675,7 +677,11 @@ def create_points(coords: Iterable[tuple[float, ...]]) -> list[Point]:
 
             ```
     """
-    return list(map(Point, coords))
+    # Vectorized in shapely (runs in C) rather than a Python map(Point, …) (ARC-56).
+    coords_list = list(coords)
+    if not coords_list:
+        return []
+    return shapely.points(np.asarray(coords_list, dtype=float)).tolist()
 
 
 def point_collection(coords: Iterable[tuple[float, ...]], crs: Any) -> GeoDataFrame:
