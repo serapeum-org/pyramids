@@ -374,6 +374,59 @@ def _read_time_step(
     return np.ascontiguousarray(arr)
 
 
+def _lazy_timestep(path: str | Path, meta: RasterMeta, gdal_env: dict[str, str] | None):
+    """Build a spatially-tiled ``(B, Y, X)`` dask array for one timestep (ARC-45).
+
+    Reuses :func:`pyramids.dataset.ops.io._read_chunk`, so each dask block reads only
+    its own window (``ReadAsArray(xoff, yoff, xsize, ysize)``) through a path-keyed
+    :class:`CachingFileManager`. Stacking these along time gives a ``(T, B, Y, X)``
+    cube tiled on ``(Y, X)`` — so a time-axis reduction tiles spatially instead of
+    holding whole rasters, and a single raster larger than RAM is read tile-by-tile
+    instead of failing outright. Module-level so the graph stays pickle-safe (only
+    the path + config dict cross the wire).
+
+    Args:
+        path: The backing file for this timestep.
+        meta: The collection's picklable :class:`RasterMeta` (shape / dtype / native
+            block size), assumed uniform across timesteps.
+        gdal_env: The collection's persisted signer GDAL config, installed inside each
+            worker around the open + read (a no-op when empty).
+
+    Returns:
+        dask.array.Array: A lazy ``(B, Y, X)`` array tiled on the spatial axes.
+    """
+    import dask.array as da
+    from dask.array.core import normalize_chunks
+
+    from pyramids.base._locks import default_lock
+    from pyramids.dataset.ops.io import _read_chunk
+
+    band_count, rows, cols = meta.shape
+    dtype = np.dtype(meta.dtype)
+    block_w, block_h = meta.block_size[0] if meta.block_size else (cols, rows)
+    normalized = normalize_chunks(
+        "auto",
+        shape=(band_count, rows, cols),
+        dtype=dtype,
+        previous_chunks=(1, block_h, block_w),
+    )
+    manager = CachingFileManager(
+        gdal_raster_open, str(path), "read_only", lock=False, manager_id=str(path)
+    )
+    return da.map_blocks(
+        _read_chunk,
+        chunks=normalized,
+        dtype=dtype,
+        meta=np.empty((0, 0, 0), dtype=dtype),
+        manager=manager,
+        lock=default_lock(),
+        band=None,
+        out_dtype=dtype,
+        single_band=False,
+        gdal_env=gdal_env or None,
+    )
+
+
 # Above this in-RAM (T, B, Y, X) size, DatasetCollection.to_netcdf warns and points
 # the caller at the streaming to_zarr writer (ARC-46). Default 2 GiB.
 _TO_NETCDF_WARN_BYTES = 2 * 1024**3
@@ -958,12 +1011,12 @@ class DatasetCollection:
     def data(self) -> Any:
         """Return a lazy `dask.array.Array` of shape `(T, B, R, C)`.
 
-        Each per-file read is scheduled as a
-        :func:`dask.delayed` task that opens the file via
-        :class:`~pyramids.base._file_manager.CachingFileManager`
-         and reads its full array. Workers therefore never
-        serialise a `gdal.Dataset` — only the file path crosses the
-        pickle boundary, which keeps the graph safe under dask.distributed.
+        Each timestep is a spatially-tiled dask array whose blocks read only their
+        own window via :class:`~pyramids.base._file_manager.CachingFileManager`
+        (see :func:`_lazy_timestep`), stacked along time — so a time-axis reduction
+        tiles spatially and a raster larger than RAM is read tile-by-tile rather than
+        all at once. Workers never serialise a `gdal.Dataset`; only the file path
+        crosses the pickle boundary, keeping the graph safe under dask.distributed.
 
         Raises:
             ImportError: If the optional `dask` extra is not
@@ -978,7 +1031,6 @@ class DatasetCollection:
                 "DatasetCollection.from_zarr(...) to construct one."
             )
         try:
-            import dask
             import dask.array as da
         except ImportError as exc:
             raise OptionalPackageDoesNotExist(
@@ -994,13 +1046,11 @@ class DatasetCollection:
         # self._zarr_store is None.
         assert self._files is not None
         meta = self._meta
-        shape = meta.shape
-        dtype = np.dtype(meta.dtype)
-        delayed_reads = [
-            dask.delayed(_read_time_step)(path, self._gdal_env) for path in self._files
-        ]
-        arrays = [da.from_delayed(d, shape=shape, dtype=dtype) for d in delayed_reads]
-        return da.stack(arrays, axis=0)
+        # ARC-45: build each timestep as a spatially-tiled dask array (windowed reads
+        # via _read_chunk) and stack along time, so a reduction tiles spatially and a
+        # single raster larger than RAM is read tile-by-tile instead of all at once.
+        per_step = [_lazy_timestep(path, meta, self._gdal_env) for path in self._files]
+        return da.stack(per_step, axis=0)
 
     @property
     def meta(self) -> RasterMeta:
