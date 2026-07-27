@@ -145,3 +145,25 @@ class TestArc34WfsPreemptiveAuth:
         assert captured["headers"].get("authorization") == expected, "credentials not sent preemptively"
         assert "urllib" not in captured["headers"].get("user-agent", "").lower(), "default urllib UA not replaced"
         assert typenames == frozenset({"topp:states"})
+
+
+class TestArc42ListLayersCache:
+    """ARC-42: list_layers must not return a stale layer set after this class's own writes."""
+
+    def test_to_file_invalidates_list_layers_cache(self, tmp_path):
+        """Appending a layer via to_file invalidates the cached list_layers result.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            list_layers is LRU-cached; writing a second layer to the same GPKG must drop the cache so the
+            follow-up list_layers sees both layers, not the stale single-layer set.
+        """
+        path = tmp_path / "layers.gpkg"
+        fc = FeatureCollection(gpd.GeoDataFrame({"id": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326"))
+        fc.to_file(path, driver="gpkg", layer="a", mode="w")
+        assert FeatureCollection.list_layers(path) == ["a"], "first write should list one layer"
+        fc.to_file(path, driver="gpkg", layer="b", mode="a")
+        layers = FeatureCollection.list_layers(path)
+        assert set(layers) == {"a", "b"}, f"stale list_layers cache after write: {layers}"

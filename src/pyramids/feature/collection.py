@@ -2448,6 +2448,11 @@ class FeatureCollection(GeoDataFrame):
             passthrough["layer"] = layer
         passthrough.update(creation_options)
         super().to_file(path, **passthrough)
+        # This write can add or replace a layer at `path`, so drop the list_layers
+        # cache — otherwise a later list_layers(path) returns a stale layer set that
+        # omits what we just wrote (ARC-42). lru_cache has no per-key eviction, so
+        # clear all; to_file writes are rare, not a hot path.
+        _list_layers_cached.cache_clear()
 
     def _to_vector_tiles(
         self,
