@@ -236,6 +236,23 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
     )
 
 
+def _crs_equal(a: CRS, b: CRS) -> bool:
+    """Return True if two CRS describe the same reference system (N2).
+
+    ``pyproj.CRS.__eq__`` is strict: a file carrying an EPSG code and one carrying
+    only an equivalent WKT string — so :meth:`RasterMeta.from_dataset` builds one via
+    ``CRS.from_epsg`` and the other via ``CRS.from_wkt`` — can compare unequal even
+    though the grids are co-registered. Treat them as equal when both resolve to the
+    same EPSG code, falling back to pyproj's own equality otherwise. Used by
+    :meth:`DatasetCollection._validate_headers` so a valid input is not rejected on a
+    cosmetic CRS-encoding difference.
+    """
+    if a == b:
+        return True
+    epsg_a, epsg_b = a.to_epsg(), b.to_epsg()
+    return epsg_a is not None and epsg_a == epsg_b
+
+
 def _finalize_append_metadata(
     resolved_store, new_time_length: int, added_files: list
 ) -> None:
@@ -1809,7 +1826,7 @@ class DatasetCollection:
                     fm.transform, meta.transform, rtol=1e-9, atol=1e-6
                 ):
                     mismatch = f"geotransform {fm.transform} != {meta.transform}"
-                elif fm.crs != meta.crs:
+                elif not _crs_equal(fm.crs, meta.crs):
                     mismatch = f"CRS {fm.crs.to_string()} != {meta.crs.to_string()}"
                 else:
                     continue

@@ -732,6 +732,26 @@ class TestFromFilesValidate:
         col = DatasetCollection.from_files([t0, t1], validate=True)
         assert col.time_length == 2, f"expected 2 timesteps, got {col.time_length}"
 
+    def test_crs_equal_treats_same_epsg_encodings_as_equal(self):
+        """_crs_equal treats same-EPSG CRS as equal across encodings (N2).
+
+        Test scenario:
+            An EPSG:4326 CRS vs an equivalent proj4 longlat-WGS84 CRS (which
+            ``pyproj``'s strict ``==`` reports unequal) — expected: ``_crs_equal``
+            returns True via the shared EPSG code, so validation does not reject a
+            co-registered file on a cosmetic encoding difference; a genuinely
+            different system (EPSG:3857) still returns False.
+        """
+        from pyproj import CRS
+
+        from pyramids.dataset.collection import _crs_equal
+
+        epsg = CRS.from_epsg(4326)
+        proj4 = CRS.from_proj4("+proj=longlat +datum=WGS84 +no_defs")
+        assert epsg != proj4, "precondition: pyproj's == is strict for this pair"
+        assert _crs_equal(epsg, proj4), "same-EPSG encodings should compare equal"
+        assert not _crs_equal(epsg, CRS.from_epsg(3857)), "different CRS must differ"
+
     def test_validate_true_shape_mismatch_raises(self, tmp_path):
         """A file with a different (rows, cols) raises AlignmentError naming it.
 
