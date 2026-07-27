@@ -268,7 +268,11 @@ def _get_zip_path(path: str, file_i: int = 0):
     if path.__contains__(".zip") and not path.endswith(".zip"):
         vsi_path = f"{_VSIZIP}{path}"
     else:
-        file_list = zipfile.ZipFile(path).namelist()
+        # Context-managed: an unclosed ZipFile keeps the archive's file descriptor
+        # open until the temporary is garbage-collected, which on Windows also
+        # blocks deleting or overwriting the archive.
+        with zipfile.ZipFile(path) as archive:
+            file_list = archive.namelist()
         vsi_path = f"{_VSIZIP}{path}/{file_list[file_i]}"
     return vsi_path
 
@@ -590,9 +594,15 @@ def read_file(
             # OF_MULTIDIM_RASTER for formats that expose multi-dimensional data
             # (hdf, h5, nc, nc4, grib, grib2, jp2, ...).
             src = gdal.OpenEx(path, access | gdal.OF_MULTIDIM_RASTER)
-        else:
+        elif read_only:
             # OpenShared for potentially frequently accessed raster files.
             src = gdal.OpenShared(path, access)
+        else:
+            # Update mode must NOT share: GDAL returns one handle per
+            # path+access+thread, so two update-mode Datasets on the same file
+            # would hold the same mutable handle with independent finalizers —
+            # one closing it flushes/invalidates the other's writes.
+            src = gdal.Open(path, access)
     except Exception as e:
         _raise_open_error(e, path)
     return src
