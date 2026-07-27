@@ -272,9 +272,18 @@ def _append_region(
     store's ``data`` shape only grows when the append actually runs; on any failure
     the resize is rolled back, so the store never advertises a larger shape than it
     holds. ``data`` stays a lazy dask array and is **streamed** into the region via
-    ``data.to_zarr(..., compute=True)`` — never materialising the whole appended cube
-    (M2). The caller must keep ``data`` lazy (capture it in a closure), not pass it as
-    a delayed argument (which dask would compute up front).
+    ``to_zarr(..., compute=False)`` (never materialising the whole appended cube, M2).
+    The caller must keep ``data`` lazy (capture it in a closure), not pass it as a
+    delayed argument (which dask would compute up front).
+
+    This function runs *inside* a ``dask.delayed`` task, so it drives the region write
+    with an explicit ``scheduler="synchronous"`` compute: a nested threaded /
+    distributed compute from within a running task can deadlock (a worker thread
+    blocking on the same pool while several deferred appends are computed together).
+    The synchronous scheduler runs the write inline in this task's thread — still
+    streaming tile-by-tile — so the deferred append is safe under any outer scheduler
+    (M1). Passing the scheduler to ``.compute`` keeps the choice call-local (no global
+    ``dask.config`` mutation that could race with sibling tasks).
     """
     import zarr
 
@@ -286,7 +295,8 @@ def _append_region(
         raise TypeError(f"expected a zarr Array at 'data' in {resolved_store!r}")
     arr.resize((new_total, *arr.shape[1:]))
     try:
-        data.to_zarr(arr, region=slices, overwrite=False, compute=True)
+        store_task = data.to_zarr(arr, region=slices, overwrite=False, compute=False)
+        store_task.compute(scheduler="synchronous")
         _finalize_append_metadata(resolved_store, new_total, added_files)
     except Exception:
         arr.resize((old_t, *arr.shape[1:]))
@@ -1125,7 +1135,11 @@ class DatasetCollection:
         Args:
             store: Target store (path, fsspec URL, or zarr.Store).
             compute: `True` (default) writes immediately; `False`
-                returns a :class:`dask.delayed.Delayed`.
+                returns a :class:`dask.delayed.Delayed`. For an ``append_dim``
+                write the deferred task streams the region write on the
+                synchronous scheduler internally, so the returned `Delayed` is
+                safe to compute under any scheduler (threaded / distributed)
+                without a nested-compute deadlock.
             mode: Zarr open mode. ``"w"`` (default) writes a fresh cube;
                 ``"a"`` is only valid together with ``append_dim`` or ``region``
                 (incremental writes — see those args). ``mode="a"`` on its own
@@ -1249,7 +1263,9 @@ class DatasetCollection:
         # `data` in a closure so it stays a lazy dask array streamed inside the write
         # (M2) — passing it as a delayed argument would make dask compute the whole
         # appended cube into memory first. No window where a grown-but-empty store is
-        # visible, and rollback on failure (ARC-75a).
+        # visible, and rollback on failure (ARC-75a). _append_region drives the inner
+        # write with scheduler="synchronous" so computing this Delayed can't deadlock
+        # under a threaded/distributed outer scheduler (M1).
         files = self._files
 
         @dask.delayed

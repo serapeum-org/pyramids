@@ -378,6 +378,29 @@ class TestAppendAtomicity:
         assert means == [1.0, 2.0, 3.0, 4.0, 5.0], f"means {means}"
 
     @requires_zarr
+    def test_compute_false_append_default_scheduler(self, tmp_path):
+        """The deferred append computes under the default scheduler without deadlock.
+
+        Test scenario:
+            Compute the ``compute=False`` delayed with a bare ``.compute()`` (the
+            default threaded scheduler a real caller gets, not ``scheduler=
+            "synchronous"``) — expected: it returns and the store round-trips 5
+            ordered timesteps. ``_append_region`` drives its inner write on the
+            synchronous scheduler, so the nested compute cannot deadlock the outer
+            worker pool (M1).
+        """
+        store = str(tmp_path / "deferred_default.zarr")
+        self._col(tmp_path, [1, 2], "a").to_zarr(store)
+        delayed = self._col(tmp_path, [3, 4, 5], "b").to_zarr(
+            store, mode="a", append_dim="time", compute=False
+        )
+        delayed.compute()
+        rt = DatasetCollection.from_zarr(store)
+        assert rt.time_length == 5, f"time_length {rt.time_length}"
+        means = [float(rt.data.compute()[i].mean()) for i in range(5)]
+        assert means == [1.0, 2.0, 3.0, 4.0, 5.0], f"means {means}"
+
+    @requires_zarr
     def test_append_dim_not_time_raises(self, tmp_path):
         """An append_dim other than 'time' raises ValueError (a (T,B,Y,X) cube guard).
 
