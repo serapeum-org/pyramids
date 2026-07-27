@@ -797,20 +797,9 @@ class DatasetCollection:
 
         reduced = getattr(self.groupby(window_labels), op)(skipna=skipna)
 
-        geo = self._base.geotransform
-        # epsg is None only for a no-EPSG CRS reported as such (a NetCDF geostationary
-        # grid); create_from_array raises CRSError on None, so fall back to the WKT.
-        # A no-EPSG plain Dataset reports 4326, where this is a no-op (#706).
-        epsg = self._base.epsg or self._base.crs
-        no_data_value = self._base.no_data_value[0]
         result: list[tuple[Any, Dataset]] = []
         for label in sorted(reduced):
-            dataset = Dataset.create_from_array(
-                np.asarray(reduced[label]),
-                geo=geo,
-                epsg=epsg,
-                no_data_value=no_data_value,
-            )
+            dataset = self._mem_dataset_from_array(np.asarray(reduced[label]))
             result.append((label, dataset))
         return result
 
@@ -819,6 +808,54 @@ class DatasetCollection:
         func = resolve_dask_op(op_name, skipna=skipna)
         result = func(self.data, axis=0)
         return np.asarray(result.compute())
+
+    def _mem_dataset_from_array(
+        self, arr: np.typing.NDArray, source: Dataset | None = None
+    ) -> Dataset:
+        """Build an in-memory ``Dataset`` from ``arr``, reusing a source's georef.
+
+        Preserves ``arr``'s own dtype — cloning the template would cast through the
+        base's dtype and silently lossy-round (e.g. a float32 base rounding a float64
+        input). ``source`` defaults to the collection's base template; pass a
+        per-timestep dataset (e.g. from :meth:`iloc`) when writing slices at their
+        own georeferencing.
+
+        Args:
+            arr: The array to wrap.
+            source: The ``Dataset`` whose geotransform / CRS / no-data value are
+                copied. Defaults to ``self._base``.
+
+        Returns:
+            Dataset: A new in-memory dataset carrying ``arr``'s dtype and
+            ``source``'s georeferencing.
+        """
+        src = self._base if source is None else source
+        # epsg is None only for a no-EPSG CRS reported as such (a NetCDF geostationary
+        # grid); create_from_array raises CRSError on None, so fall back to the WKT.
+        # No-op for a plain Dataset (reports 4326) (#706).
+        return Dataset.create_from_array(
+            arr,
+            geo=src.geotransform,
+            epsg=src.epsg or src.crs,
+            no_data_value=src.no_data_value[0],
+        )
+
+    def _require_files(self, method: str) -> None:
+        """Guard a method that needs a file-backed collection.
+
+        Args:
+            method: The public method name, interpolated into the error message.
+
+        Raises:
+            RuntimeError: The collection has no ``files`` list (a legacy in-memory
+                cube). The ``data`` property, which also accepts a Zarr-backed cube,
+                keeps its own broader guard.
+        """
+        if self._files is None or len(self._files) == 0:
+            raise RuntimeError(
+                f"DatasetCollection.{method} requires a file-backed collection. "
+                "Use DatasetCollection.from_files(...) to construct one."
+            )
 
     def mean(self, *, skipna: bool = True) -> np.typing.NDArray:
         """Element-wise mean across the time axis.
@@ -944,12 +981,7 @@ class DatasetCollection:
             ImportError: When kerchunk is not installed.
             RuntimeError: When the collection has no files list.
         """
-        if self._files is None or len(self._files) == 0:
-            raise RuntimeError(
-                "DatasetCollection.to_kerchunk requires a file-backed "
-                "collection. Use DatasetCollection.from_files(...) to "
-                "construct one."
-            )
+        self._require_files("to_kerchunk")
         # current backend only handles HDF5 / NetCDF. Detect
         # GeoTIFF inputs and raise a clear NotImplementedError rather
         # than letting kerchunk.hdf produce a confusing failure mode.
@@ -1026,12 +1058,7 @@ class DatasetCollection:
                 installed.
             RuntimeError: When the collection has no files list.
         """
-        if self._files is None or len(self._files) == 0:
-            raise RuntimeError(
-                "DatasetCollection.to_zarr requires a file-backed "
-                "collection. Use DatasetCollection.from_files(...) to "
-                "construct one."
-            )
+        self._require_files("to_zarr")
         import_zarr(
             lazy_extra_hint(
                 "DatasetCollection.to_zarr requires the optional 'zarr' dependency."
@@ -1976,26 +2003,12 @@ class DatasetCollection:
                 f"({self._time_length}, {self.rows}, {self.columns}); "
                 f"please redefine the base Dataset and dataset_length first"
             )
-        # Build a fresh MEM Dataset per timestep using the INPUT
-        # dtype (not the base template's). Cloning the base preserves
-        # geo-ref but forces a dtype cast that silently lossy-rounds
-        # if the base is e.g. float32 and the input is float64.
-        # Using ``Dataset.create_from_array`` gives us the input
-        # dtype back verbatim and reuses the base's georef explicitly.
-        from pyramids.dataset.dataset import Dataset as _Dataset
-
-        new_datasets = []
-        for i in range(val.shape[0]):
-            ds = _Dataset.create_from_array(
-                arr=val[i],
-                geo=self._base.geotransform,
-                # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
-                # geostationary grid); create_from_array raises CRSError on None, so
-                # fall back to the WKT. No-op for a plain Dataset (reports 4326) (#706).
-                epsg=self._base.epsg or self._base.crs,
-                no_data_value=self._base.no_data_value[0],
-            )
-            new_datasets.append(ds)
+        # Build a fresh MEM Dataset per timestep from the INPUT array via
+        # _mem_dataset_from_array (preserves the input dtype instead of casting
+        # through the base template's dtype).
+        new_datasets = [
+            self._mem_dataset_from_array(val[i]) for i in range(val.shape[0])
+        ]
         self._datasets = new_datasets
         self._time_length = val.shape[0]
         self._files = None
@@ -2058,22 +2071,11 @@ class DatasetCollection:
                 f"index along the time axis; got {type(key).__name__}. "
                 f"Rebuild the collection if you need bulk replacement."
             )
-        # Materialise the cache (so we have a list to modify) without
-        # building the full cube. Use ``create_from_array`` so the
-        # input array's dtype is preserved (CreateCopy on the base
-        # would cast through whatever dtype the base happened to use).
-        from pyramids.dataset.dataset import Dataset as _Dataset
-
+        # Materialise the cache (so we have a list to modify) without building the
+        # full cube. _mem_dataset_from_array preserves the input array's dtype (a
+        # CreateCopy on the base would cast through the base's dtype).
         datasets = self.datasets
-        datasets[key] = _Dataset.create_from_array(
-            arr=value,
-            geo=self._base.geotransform,
-            # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
-            # geostationary grid); create_from_array raises CRSError on None, so fall
-            # back to the WKT. No-op for a plain Dataset (reports 4326) (#706).
-            epsg=self._base.epsg or self._base.crs,
-            no_data_value=self._base.no_data_value[0],
-        )
+        datasets[key] = self._mem_dataset_from_array(value)
         # The mutation breaks the disk correspondence for that slot;
         # if the user mutates any timestep, the lazy reductions can no
         # longer trust ``_files``. Drop the path list so they fall
@@ -2461,16 +2463,7 @@ class DatasetCollection:
 
         for i in range(self.time_length):
             src = self.iloc(i)
-            arr = src.read_array()
-            transient = Dataset.create_from_array(
-                arr=arr,
-                geo=src.geotransform,
-                # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
-                # geostationary grid); create_from_array raises CRSError on None, so
-                # fall back to the WKT. No-op for a plain Dataset (reports 4326) (#706).
-                epsg=src.epsg or src.crs,
-                no_data_value=src.no_data_value[0],
-            )
+            transient = self._mem_dataset_from_array(src.read_array(), source=src)
             transient.to_file(path[i], band=band)
             transient.close()
         self._datasets = None
