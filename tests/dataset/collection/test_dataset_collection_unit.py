@@ -730,7 +730,7 @@ class TestFromFilesValidate:
         bad = _write_geotiff(tmp_path / "bad.tif", np.zeros((3, 5), dtype="int16"))
         with pytest.raises(AlignmentError, match="bad.tif") as exc:
             DatasetCollection.from_files([t0, bad], validate=True)
-        assert "does not match" in str(exc.value), f"unexpected message: {exc.value}"
+        assert "must share" in str(exc.value), f"unexpected message: {exc.value}"
 
     def test_validate_true_dtype_mismatch_raises(self, tmp_path):
         """A file with a different dtype raises AlignmentError naming it.
@@ -742,6 +742,25 @@ class TestFromFilesValidate:
         t0 = _write_geotiff(tmp_path / "t0.tif", np.zeros((4, 5), dtype="int16"))
         bad = _write_geotiff(tmp_path / "bad.tif", np.zeros((4, 5), dtype="float64"))
         with pytest.raises(AlignmentError, match="bad.tif"):
+            DatasetCollection.from_files([t0, bad], validate=True)
+
+    def test_validate_true_shifted_extent_raises(self, tmp_path):
+        """A same-shape raster with a shifted extent raises on the geotransform (M1)."""
+        t0 = _write_geotiff(tmp_path / "t0.tif", np.zeros((4, 5), dtype="int16"))
+        bad = _write_geotiff(
+            tmp_path / "bad.tif", np.zeros((4, 5), dtype="int16"), top_left=(100.0, 4.0)
+        )
+        with pytest.raises(AlignmentError, match="geotransform") as exc:
+            DatasetCollection.from_files([t0, bad], validate=True)
+        assert "bad.tif" in str(exc.value), f"path not named: {exc.value}"
+
+    def test_validate_true_crs_mismatch_raises(self, tmp_path):
+        """A same-shape/geotransform raster in a different CRS raises on CRS (M1)."""
+        t0 = _write_geotiff(tmp_path / "t0.tif", np.zeros((4, 5), dtype="int16"))
+        bad = _write_geotiff(
+            tmp_path / "bad.tif", np.zeros((4, 5), dtype="int16"), epsg=3857
+        )
+        with pytest.raises(AlignmentError, match="CRS"):
             DatasetCollection.from_files([t0, bad], validate=True)
 
     def test_validate_false_does_not_open_other_files(self, tmp_path, monkeypatch):

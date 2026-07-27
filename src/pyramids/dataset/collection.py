@@ -1777,33 +1777,46 @@ class DatasetCollection:
     def _validate_headers(
         files: list[str], meta: RasterMeta, gdal_env: dict[str, str] | None
     ) -> None:
-        """Check every file's ``(band, rows, cols)`` shape and dtype match ``meta``.
+        """Check every file's header (shape, dtype, geotransform, CRS) matches ``meta``.
 
         Reads each file's header only (no pixels) and raises :class:`AlignmentError`
-        on the first mismatch, naming the offending path — so a heterogeneous input
-        fails at construction instead of silently corrupting the lazy cube (the dask
-        assembly trusts the first file's shape/dtype). Opt-in via
+        on the first mismatch, naming the offending path — so a heterogeneous or
+        misaligned input fails at construction instead of silently corrupting the lazy
+        cube (which stacks per-file pixels positionally and stamps only the first
+        file's geobox on every timestep). Geotransform and CRS are checked as well as
+        shape/dtype, since two same-shape rasters with a shifted extent or a different
+        CRS would otherwise mis-georeference the cube. Opt-in via
         ``from_files(validate=True)`` because it touches every file.
 
         Raises:
-            AlignmentError: A file's header does not match ``meta``.
+            AlignmentError: A file's shape, dtype, geotransform, or CRS does not match
+                the template.
         """
-        expected = (meta.shape, str(np.dtype(meta.dtype)))
+        expected_dtype = str(np.dtype(meta.dtype))
         with cloud_config_from_env(gdal_env):
             for path in files:
                 ds = Dataset.read_file(path, gdal_env=gdal_env)
                 try:
-                    file_meta = RasterMeta.from_dataset(ds)
+                    fm = RasterMeta.from_dataset(ds)
                 finally:
                     ds.close()
-                got = (file_meta.shape, str(np.dtype(file_meta.dtype)))
-                if got != expected:
-                    raise AlignmentError(
-                        f"header mismatch in {path!r}: shape/dtype {got[0]}/{got[1]} "
-                        f"does not match the collection template "
-                        f"{expected[0]}/{expected[1]}. All files in a "
-                        f"DatasetCollection must share (band, rows, cols) and dtype."
-                    )
+                if fm.shape != meta.shape:
+                    mismatch = f"shape {fm.shape} != {meta.shape}"
+                elif str(np.dtype(fm.dtype)) != expected_dtype:
+                    mismatch = f"dtype {np.dtype(fm.dtype)} != {expected_dtype}"
+                elif not np.allclose(
+                    fm.transform, meta.transform, rtol=1e-9, atol=1e-6
+                ):
+                    mismatch = f"geotransform {fm.transform} != {meta.transform}"
+                elif fm.crs != meta.crs:
+                    mismatch = f"CRS {fm.crs.to_string()} != {meta.crs.to_string()}"
+                else:
+                    continue
+                raise AlignmentError(
+                    f"header mismatch in {path!r}: {mismatch}. All files in a "
+                    f"DatasetCollection must share (band, rows, cols), dtype, "
+                    f"geotransform, and CRS."
+                )
 
     @classmethod
     def from_zarr(
