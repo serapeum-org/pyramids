@@ -327,10 +327,9 @@ class TestAppendAtomicity:
         monkeypatch.setattr(
             "pyramids.dataset.collection._finalize_append_metadata", self._boom
         )
+        col = self._col(tmp_path, [3, 4, 5], "b")
         with pytest.raises(RuntimeError, match="boom"):
-            self._col(tmp_path, [3, 4, 5], "b").to_zarr(
-                store, mode="a", append_dim="time"
-            )
+            col.to_zarr(store, mode="a", append_dim="time")
         after = zarr.open_group(store, mode="r")["data"].shape
         assert after == before, f"shape not rolled back: {before} -> {after}"
 
@@ -437,5 +436,6 @@ class TestAppendAtomicity:
         """
         store = str(tmp_path / "wrong_dim.zarr")
         self._col(tmp_path, [1, 2], "a").to_zarr(store)
+        col = self._col(tmp_path, [3], "b")
         with pytest.raises(ValueError, match="append_dim must be 'time'"):
-            self._col(tmp_path, [3], "b").to_zarr(store, mode="a", append_dim="band")
+            col.to_zarr(store, mode="a", append_dim="band")
