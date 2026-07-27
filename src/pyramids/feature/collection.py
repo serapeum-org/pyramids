@@ -815,8 +815,13 @@ class FeatureCollection(GeoDataFrame):
             otherwise.
 
         Raises:
-            ValueError: If `chunksize` is given but `< 1`, or if
-                `tile_strategy` is not one of the accepted values.
+            ValueError: If `chunksize` is given but `< 1`; if
+                `tile_strategy` is not one of the accepted values; or if
+                `include_index=True` is combined with driver-side
+                filtering (`where`, or a pushed-down `bbox` — i.e. a
+                `bbox` with any `tile_strategy` other than `"none"`),
+                since the emitted `id` is the absolute source-file row
+                position and would be wrong under such filtering.
 
         Examples:
             - Stream features one at a time as GeoJSON-style dicts:
@@ -880,6 +885,18 @@ class FeatureCollection(GeoDataFrame):
             raise ValueError(
                 f"tile_strategy must be one of "
                 f"{cls._VALID_TILE_STRATEGIES}; got {tile_strategy!r}."
+            )
+        # The emitted id / _row_index is the absolute source-file row position, computed as
+        # range(start, start + len(chunk)). That only holds when nothing filters at the driver
+        # level: a pushed-down `where` or `bbox` makes skip_features count over the filtered set,
+        # so the positions would be wrong. Refuse that combination rather than emit wrong ids
+        # (ARC-31). The Python-side bbox path (tile_strategy="none") reads full chunks and masks
+        # row_indices afterwards, so it stays correct.
+        if include_index and (where is not None or (bbox is not None and tile_strategy != "none")):
+            raise ValueError(
+                "iter_features(include_index=True) is incompatible with driver-side filtering "
+                "because the emitted id is the absolute source-file row position: pass where=None "
+                "and either bbox=None or tile_strategy='none' (Python-side bbox)."
             )
 
         import pyogrio
@@ -1427,8 +1444,13 @@ class FeatureCollection(GeoDataFrame):
             (geom_type,) = geom_types
         else:
             geom_type = "Unknown"
+        # exclude the ACTIVE geometry column by its real name, not the literal
+        # "geometry": a renamed geometry column (e.g. "geom") would otherwise leak
+        # into properties, and a non-geometry column literally named "geometry"
+        # would be wrongly dropped (ARC-31).
+        geom_col = self.geometry.name
         properties = {
-            col: str(dt) for col, dt in self.dtypes.items() if col != "geometry"
+            col: str(dt) for col, dt in self.dtypes.items() if col != geom_col
         }
         return {
             "geometry": geom_type,
