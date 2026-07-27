@@ -2299,8 +2299,9 @@ class DatasetCollection:
     def head(self, n: int = 5) -> np.typing.NDArray:
         """First ``n`` timestep arrays as a 3D numpy slice.
 
-        Reads only the first ``n`` timesteps (slicing :attr:`datasets` before
-        reading), not the whole cube.
+        Reads only the first ``n`` timesteps — each opened on demand via
+        :meth:`_dataset_at`, so a file-backed collection opens ``n`` files rather
+        than all ``time_length`` — instead of materialising the whole cube.
 
         Args:
             n (int): Number of timesteps. Defaults to 5.
