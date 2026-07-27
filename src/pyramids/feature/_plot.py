@@ -47,7 +47,13 @@ def plot_cleopatra(fc: Any, column: str | None = None, **kwargs: Any) -> Any:
     if column is not None and column not in fc.columns:
         raise ValueError(f"Column {column!r} not found; available columns: {list(fc.columns)}.")
     values = fc[column].to_numpy() if column is not None else None
-    geom_types = fc._geom_types()
+    # The plot path must stay NaN-aware — unlike `_geom_types()`, which drops nulls
+    # for `schema` / the rasterize guard. A null geometry can't be rendered, so it
+    # must fail the subset checks below and route to the ValueError, rather than slip
+    # through and have `polygon_glyph` / `scatter_glyph` dereference a `None` geometry
+    # (which would raise a cryptic AttributeError instead). `key=str` keeps the message
+    # sortable when a `nan` is present.
+    geom_types = set(fc.geom_type.unique())
     if geom_types <= {"Point"}:
         glyph = scatter_glyph(fc, values, **kwargs)
     elif geom_types <= {"Polygon", "MultiPolygon"}:
@@ -55,7 +61,7 @@ def plot_cleopatra(fc: Any, column: str | None = None, **kwargs: Any) -> Any:
     else:
         raise ValueError(
             "engine='cleopatra' supports single Point or Polygon/MultiPolygon geometries; got "
-            f"{sorted(geom_types)} (MultiPoint is not supported)."
+            f"{sorted(geom_types, key=str)} (MultiPoint is not supported)."
         )
     _fig, ax, _coll = glyph.plot()
     return glyph, ax
