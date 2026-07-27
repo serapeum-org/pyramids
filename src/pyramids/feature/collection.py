@@ -55,6 +55,7 @@ from pyramids.base._utils import Catalog, import_pyarrow
 from pyramids.base.remote import is_remote
 from pyramids.feature import _analysis
 from pyramids.feature import _plot
+from pyramids.feature import _write
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
 from pyramids.feature._oapif import from_ogc_features as _from_ogc_features
@@ -2313,8 +2314,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        _require_pyarrow()
-        super().to_parquet(path, compression=compression, index=index, **kwargs)
+        _write.to_parquet(self, path, compression=compression, index=index, **kwargs)
 
     def to_file(
         self,
@@ -2436,31 +2436,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        if mode not in ("w", "a"):
-            raise ValueError(f"mode must be 'w' (write) or 'a' (append); got {mode!r}.")
-        try:
-            resolved = CATALOG.get_gdal_name(driver) or driver
-        except AttributeError:
-            resolved = driver
-
-        # pin the engine to pyogrio to match :meth:`read_file` and
-        # :meth:`iter_features`. Callers who want fiona for some reason
-        # can override via `engine="fiona"` in creation_options, but
-        # the default gets the fast path and the pyogrio-specific
-        # unknown-option validation.
-        passthrough: dict[str, Any] = {
-            "driver": resolved,
-            "mode": mode,
-            "engine": "pyogrio",
-        }
-        if layer is not None:
-            passthrough["layer"] = layer
-        passthrough.update(creation_options)
-        super().to_file(path, **passthrough)
-        # This write can add or replace a layer at `path`, so drop the list_layers
-        # cache — otherwise a later list_layers(path) returns a stale layer set that
-        # omits what we just wrote (ARC-42). lru_cache has no per-key eviction, so
-        # clear all; to_file writes are rare, not a hot path.
+        _write.to_file(self, path, driver=driver, layer=layer, mode=mode, **creation_options)
         _list_layers_cached.cache_clear()
 
     def _to_vector_tiles(
@@ -2488,12 +2464,10 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             Path: The written ``path``.
         """
-        options = dict(creation_options)
-        options["MINZOOM"] = min_zoom
-        if max_zoom is not None:
-            options["MAXZOOM"] = max_zoom
-        self.to_file(path, driver=driver, layer=layer_name, **options)
-        return Path(path)
+        return _write.to_vector_tiles(
+            self, path, driver, min_zoom=min_zoom, max_zoom=max_zoom, layer_name=layer_name,
+            **creation_options,
+        )
 
     def to_pmtiles(
         self,
@@ -2543,13 +2517,8 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        return self._to_vector_tiles(
-            path,
-            "PMTiles",
-            min_zoom=min_zoom,
-            max_zoom=max_zoom,
-            layer_name=layer_name,
-            **creation_options,
+        return _write.to_pmtiles(
+            self, path, min_zoom=min_zoom, max_zoom=max_zoom, layer_name=layer_name, **creation_options
         )
 
     def to_mvt(
@@ -2598,24 +2567,9 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        return self._to_vector_tiles(
-            path,
-            "MVT",
-            min_zoom=min_zoom,
-            max_zoom=max_zoom,
-            layer_name=layer_name,
-            **creation_options,
+        return _write.to_mvt(
+            self, path, min_zoom=min_zoom, max_zoom=max_zoom, layer_name=layer_name, **creation_options
         )
-
-    # FeatureCollection.to_dataset was moved to
-    # Dataset.from_features(features,...) to break the circular import
-    # that used to force a CLAUDE.md-violating inline
-    # `from pyramids.dataset import Dataset` inside the method body.
-    # Callers should migrate:
-    # fc.to_dataset(dataset=ds, column_name="pop")
-    # → Dataset.from_features(fc, template=ds, column_name="pop")
-    # fc.to_dataset(cell_size=10)
-    # → Dataset.from_features(fc, cell_size=10)
 
     def explode(self, geometry: str = "multipolygon") -> FeatureCollection:
         """Explode multi-geometry rows into per-row single geometries.
