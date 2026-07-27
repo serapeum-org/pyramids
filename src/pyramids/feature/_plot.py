@@ -96,11 +96,15 @@ def polygon_glyph(fc: Any, values: Any, **kwargs: Any) -> Any:
             if poly_values is not None:
                 poly_values.append(values[idx])
     if has_holes:
+        # Chain to user code: polygon_glyph -> plot_cleopatra -> plot ->
+        # FeatureCollection.plot facade -> caller. The extraction added the facade
+        # frame, so the warning needs stacklevel=5 (was 3 in-class) to point at the
+        # user's fc.plot(...) call rather than an internal _plot frame.
         warnings.warn(
             "engine='cleopatra' renders only polygon exterior rings; interior rings (holes) are "
             "dropped and will appear filled. Use engine='geopandas' to render holes.",
             GeometryWarning,
-            stacklevel=3,
+            stacklevel=5,
         )
     return PolygonGlyph(
         polygons,
