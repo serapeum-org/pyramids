@@ -22,13 +22,13 @@ format-detection + dispatch primitive.
 
 from __future__ import annotations
 
-import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from pyramids.base._artifacts import artifact_dir
 from pyramids.base._utils import import_pyarrow
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
@@ -177,14 +177,20 @@ def _load_zip(path: Path, extract_to: Path | None) -> Any:
 
     Args:
         path: Path to a `.zip` file.
-        extract_to: Directory to extract into; a temp dir is used when `None`.
+        extract_to: Directory to extract into; when `None` a directory under the
+            process-scoped artefact root is used (reclaimed at interpreter exit).
 
     Returns:
         The loaded resource (re-dispatched through :func:`load_resource`) when a
         single primary data file is found, otherwise the :class:`~pathlib.Path`
         of the extraction directory.
     """
-    dest = Path(extract_to) if extract_to is not None else Path(tempfile.mkdtemp())
+    # `artifact_dir()` rather than a bare `tempfile.mkdtemp()`: the extracted
+    # files must outlive this call (GDAL/geopandas read them lazily, so a
+    # `TemporaryDirectory` would delete them mid-read), but an untracked mkdtemp
+    # is never reclaimed — every load_resource(<zip>) leaked one. The shared
+    # artefact root is swept by an atexit hook.
+    dest = Path(extract_to) if extract_to is not None else Path(artifact_dir())
     with zipfile.ZipFile(path) as archive:
         members = [n for n in archive.namelist() if not n.endswith("/")]
         archive.extractall(dest)
