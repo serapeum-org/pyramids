@@ -6,11 +6,13 @@ silently regress. Grouped by ARC id.
 
 from __future__ import annotations
 
+import base64
+
 import geopandas as gpd
 import pytest
 from shapely.geometry import MultiPolygon, Point, Polygon
 
-from pyramids.feature import FeatureCollection
+from pyramids.feature import FeatureCollection, _wfs
 from pyramids.feature.geometry import create_points, explode_gdf
 from pyramids.feature.tessellation import fishnet_cells
 
@@ -112,3 +114,34 @@ class TestArc56Vectorized:
         assert [p.wkt for p in create_points([(0, 0), (1, 1)])] == ["POINT (0 0)", "POINT (1 1)"]
         assert create_points((c for c in [(10.5, -3.25)]))[0].x == 10.5, "generator input broke"
         assert create_points([]) == [], "empty input should return []"
+
+
+_WFS_CAPS = (
+    b'<wfs:WFS_Capabilities version="2.0.0" xmlns:wfs="x">'
+    b"<FeatureType><Name>topp:states</Name></FeatureType></wfs:WFS_Capabilities>"
+)
+
+
+class TestArc34WfsPreemptiveAuth:
+    """ARC-34: WFS GetCapabilities must send Basic credentials preemptively, not reactively."""
+
+    def test_get_capabilities_sends_preemptive_basic_and_real_ua(self, monkeypatch):
+        """_get_capabilities builds an Authorization: Basic request with a non-urllib User-Agent.
+
+        Test scenario:
+            A server that 403s without a 401 challenge still receives credentials, and the default
+            'Python-urllib' UA (which some servers block) is replaced.
+        """
+        captured: dict[str, dict[str, str]] = {}
+
+        def fake_get(request, timeout):
+            captured["headers"] = {k.lower(): v for k, v in request.header_items()}
+            return _WFS_CAPS
+
+        monkeypatch.setattr(_wfs, "http_get_with_retry", fake_get)
+        _wfs._get_capabilities.cache_clear()
+        versions, typenames = _wfs._get_capabilities("https://demo/wfs", None, ("ada", "s3cret"), 60.0)
+        expected = "Basic " + base64.b64encode(b"ada:s3cret").decode()
+        assert captured["headers"].get("authorization") == expected, "credentials not sent preemptively"
+        assert "urllib" not in captured["headers"].get("user-agent", "").lower(), "default urllib UA not replaced"
+        assert typenames == frozenset({"topp:states"})
