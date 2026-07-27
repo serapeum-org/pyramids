@@ -25,7 +25,13 @@ _CATALOG = Catalog(raster_driver=False)
 
 
 def to_file(
-    fc: Any, path: str | Path, driver: str = "geojson", *, layer: str | None = None, mode: str = "w", **creation_options: Any
+    fc: Any,
+    path: str | Path,
+    driver: str = "geojson",
+    *,
+    layer: str | None = None,
+    mode: str = "w",
+    **creation_options: Any,
 ) -> None:
     """Write `fc` to a vector file via the pyogrio engine (raw write; the facade clears the cache)."""
     if mode not in ("w", "a"):
@@ -43,7 +49,14 @@ def to_file(
     gpd.GeoDataFrame.to_file(fc, path, **passthrough)
 
 
-def to_parquet(fc: Any, path: str | Path, *, compression: str = "snappy", index: bool | None = None, **kwargs: Any) -> None:
+def to_parquet(
+    fc: Any,
+    path: str | Path,
+    *,
+    compression: str = "snappy",
+    index: bool | None = None,
+    **kwargs: Any,
+) -> None:
     """Write `fc` to GeoParquet, raising a pyramids-branded ImportError if pyarrow is absent."""
     import_pyarrow(
         "GeoParquet support requires the optional 'pyarrow' dependency. Install with one of:\n"
@@ -54,7 +67,14 @@ def to_parquet(fc: Any, path: str | Path, *, compression: str = "snappy", index:
 
 
 def to_vector_tiles(
-    fc: Any, path: str | Path, driver: str, *, min_zoom: int, max_zoom: int | None, layer_name: str | None, **creation_options: Any
+    fc: Any,
+    path: str | Path,
+    driver: str,
+    *,
+    min_zoom: int,
+    max_zoom: int | None,
+    layer_name: str | None,
+    **creation_options: Any,
 ) -> Path:
     """Write `fc` as a tiled-vector pyramid (PMTiles / MVT) via ``fc.to_file``, returning the path."""
     options = dict(creation_options)
@@ -67,7 +87,13 @@ def to_vector_tiles(
 
 
 def to_pmtiles(
-    fc: Any, path: str | Path, *, min_zoom: int = 0, max_zoom: int | None = None, layer_name: str | None = None, **creation_options: Any
+    fc: Any,
+    path: str | Path,
+    *,
+    min_zoom: int = 0,
+    max_zoom: int | None = None,
+    layer_name: str | None = None,
+    **creation_options: Any,
 ) -> Path:
     """Write `fc` as a single ``.pmtiles`` archive."""
     return to_vector_tiles(
@@ -76,7 +102,13 @@ def to_pmtiles(
 
 
 def to_mvt(
-    fc: Any, path: str | Path, *, min_zoom: int = 0, max_zoom: int | None = None, layer_name: str | None = None, **creation_options: Any
+    fc: Any,
+    path: str | Path,
+    *,
+    min_zoom: int = 0,
+    max_zoom: int | None = None,
+    layer_name: str | None = None,
+    **creation_options: Any,
 ) -> Path:
     """Write `fc` as an MVT ``{z}/{x}/{y}.pbf`` tile tree."""
     return to_vector_tiles(
