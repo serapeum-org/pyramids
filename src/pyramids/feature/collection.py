@@ -44,7 +44,6 @@ from pyramids.base._errors import (
     CRSError,
     InvalidGeometryError,
 )
-from pyramids.base._utils import Catalog
 from pyramids.feature import _analysis
 from pyramids.feature import _plot
 from pyramids.feature import _read
@@ -53,8 +52,6 @@ from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
 from pyramids.feature._oapif import from_ogc_features as _from_ogc_features
 from pyramids.feature._wfs import from_wfs as _from_wfs
-
-CATALOG = Catalog(raster_driver=False)
 
 
 class FeatureCollection(GeoDataFrame):
