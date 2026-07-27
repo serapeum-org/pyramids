@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7264,7 +7264,7 @@ so we can plot it — a quick visual check before reducing across time.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f44ade03380&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f368691f380&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7359,7 +7359,7 @@ band, rows and columns are a single chunk each.</p>
 </tr>
 <tr>
 <th> Dask graph </th>
-<td colspan="2"> 10 chunks in 11 graph layers </td>
+<td colspan="2"> 10 chunks in 21 graph layers </td>
 </tr>
 <tr>
 <th> Data type </th>
@@ -7487,7 +7487,7 @@ print("bytes read     : 0  (nothing computed yet)")</div>
 shape (T,B,R,C): (10, 1, 125, 93) int32
 chunk grid     : (10, 1, 1, 1) -&gt; 10 chunks
 time chunks    : (1, 1, 1, 1, 1, 1, 1, 1, 1, 1)  (one file per timestep)
-graph tasks    : 20
+graph tasks    : 30
 bytes read     : 0  (nothing computed yet)
 </pre>
 </div>
@@ -7606,7 +7606,7 @@ tiled.numblocks, tiled.npartitions</div>
 </tr>
 <tr>
 <th> Dask graph </th>
-<td colspan="2"> 40 chunks in 12 graph layers </td>
+<td colspan="2"> 40 chunks in 22 graph layers </td>
 </tr>
 <tr>
 <th> Data type </th>
