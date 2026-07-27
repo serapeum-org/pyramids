@@ -2302,12 +2302,16 @@ class DatasetCollection:
         """Stack band 0 of each dataset into a ``(len, rows, cols)`` cube.
 
         Empty-safe: an empty selection returns a ``(0, rows, cols)`` array rather
-        than tripping ``np.stack``'s "need at least one array" error. Lets
-        :meth:`head`/:meth:`tail` read only the selected timesteps instead of
-        materialising the whole cube via :attr:`values`.
+        than tripping ``np.stack``'s "need at least one array" error. The empty
+        array carries the collection's own dtype (from :attr:`meta`), not NumPy's
+        default float64, so ``head(0)``/``tail(0)`` match the dtype of a non-empty
+        selection (N1). Lets :meth:`head`/:meth:`tail` read only the selected
+        timesteps instead of materialising the whole cube via :attr:`values`.
         """
         if not datasets:
-            return np.empty((0, self.rows, self.columns))
+            return np.empty(
+                (0, self.rows, self.columns), dtype=np.dtype(self._meta.dtype)
+            )
         return np.stack([ds.read_array(band=0) for ds in datasets], axis=0)
 
     def head(self, n: int = 5) -> np.typing.NDArray:
@@ -2335,7 +2339,9 @@ class DatasetCollection:
         reads only those timesteps rather than materialising the whole cube.
 
         Note: this corrects the previous behaviour where a *positive* ``n`` skipped
-        the first ``n`` rows instead of returning the last ``n`` (ARC-46).
+        the first ``n`` rows instead of returning the last ``n`` (ARC-46). ``tail(0)``
+        returns an empty ``(0, rows, cols)`` array ("last zero"), whereas the old
+        ``values[0:]`` returned every timestep.
 
         Args:
             n (int): Number of trailing timesteps; the sign is ignored. Defaults to

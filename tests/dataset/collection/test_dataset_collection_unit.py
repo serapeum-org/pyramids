@@ -671,6 +671,25 @@ class TestTailHeadRegression:
         result = cube_with_values.head(0)
         assert result.shape == (0, 5, 6), f"expected (0,5,6), got {result.shape}"
 
+    def test_empty_selection_matches_cube_dtype(self, tmp_path):
+        """head(0)/tail(0) carry the cube's dtype, not NumPy's default float64 (N1).
+
+        Test scenario:
+            An int16-backed collection — expected: ``head(0)`` and ``tail(0)`` are
+            int16 (matching a non-empty selection), not the float64 that an
+            untyped ``np.empty`` would give.
+        """
+        collection, _ = make_int16_collection(tmp_path)
+        assert collection.head(0).dtype == np.int16, (
+            f"head(0) dtype {collection.head(0).dtype} != int16"
+        )
+        assert collection.tail(0).dtype == np.int16, (
+            f"tail(0) dtype {collection.tail(0).dtype} != int16"
+        )
+        assert collection.head(1).dtype == np.int16, (
+            "non-empty head should be int16 too"
+        )
+
     def test_stack_band0_empty_selection(self, cube_with_values: DatasetCollection):
         """_stack_band0([]) returns a (0, rows, cols) array (empty-safe).
 
