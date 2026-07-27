@@ -18,6 +18,7 @@ from pyramids.netcdf._mdim import (
     open_mdarray,
     root_group,
     scalar_no_data,
+    strip_netcdf_subdataset_prefix,
 )
 
 pytestmark = pytest.mark.core
@@ -198,3 +199,34 @@ class TestNeedsYFlip:
         md_arr.GetDimensions.return_value = [Mock(), Mock()]
         md_arr.AsClassicDataset.side_effect = RuntimeError("cannot view")
         assert needs_y_flip(Mock(), md_arr) is False, "probe failure should not flip"
+
+
+class TestStripNetcdfSubdatasetPrefix:
+    """strip_netcdf_subdataset_prefix unwraps a GDAL NETCDF: subdataset spec (review L1)."""
+
+    @pytest.mark.parametrize(
+        "spec, expected",
+        [
+            (r'NETCDF:"C:\data\f.nc":temperature', r"C:\data\f.nc"),
+            ('NETCDF:"/data/f.nc":t', "/data/f.nc"),
+            ("NETCDF:/data/f.nc:t", "/data/f.nc"),
+            ("/plain/path.nc", "/plain/path.nc"),
+            ("", ""),
+            (r"C:\plain\path.nc", r"C:\plain\path.nc"),
+        ],
+    )
+    def test_parse(self, spec, expected):
+        """Each spec resolves to its bare, reopenable file path.
+
+        Args:
+            spec: A file path or a ``NETCDF:`` subdataset spec.
+            expected: The bare path the helper should return.
+
+        Test scenario:
+            The quoted form keeps a Windows drive-letter colon (the naive ``split(":")`` bug); the
+            unquoted form drops the trailing ``:var``; plain and empty paths pass through unchanged.
+        """
+        result = strip_netcdf_subdataset_prefix(spec)
+        assert result == expected, (
+            f"strip({spec!r}) -> {result!r}, expected {expected!r}"
+        )

@@ -40,6 +40,7 @@ from pyramids.netcdf._mdim import (
     open_mdarray,
     scalar_no_data,
     scaled_axis_ascends,
+    strip_netcdf_subdataset_prefix,
     unflatten_band_axes,
     x_axis_is_right_to_left,
     y_axis_is_bottom_up,
@@ -1890,9 +1891,7 @@ class NetCDF(Dataset):
                 "chunks=; read eagerly, or mask the dask array yourself."
             )
         parent = self._parent_nc if self._parent_nc is not None else self
-        path = parent._file_name
-        if path.startswith("NETCDF"):
-            path = path.split(":")[1][1:-1]
+        path = strip_netcdf_subdataset_prefix(parent._file_name)
         var_name = self._source_var_name
         if var_name is None:
             raise ValueError(
@@ -2382,16 +2381,7 @@ class NetCDF(Dataset):
         path = parent._file_name
         if not path:
             return False
-        if path.startswith("NETCDF:"):
-            rest = path[len("NETCDF:") :]
-            if rest.startswith('"'):
-                # NETCDF:"<path>":<var> -- take the quoted path, which may itself contain a colon
-                # (a Windows drive letter `C:\...`), so a naive split(":") is wrong (review L1).
-                closing = rest.rfind('"')
-                path = rest[1:closing] if closing > 0 else rest
-            else:
-                # NETCDF:<path>:<var> -- drop the trailing :<var> from the right.
-                path = rest.rsplit(":", 1)[0]
+        path = strip_netcdf_subdataset_prefix(path)
         return os.path.isfile(path) or is_remote(path)
 
     @staticmethod

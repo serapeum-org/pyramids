@@ -92,9 +92,15 @@ class TestWindow:
         """Windows are frozen value objects.
 
         Test scenario:
-            Equal fields compare equal; assignment raises.
+            Two separately-built windows with equal fields compare equal, differing fields do not,
+            and field assignment raises.
         """
-        assert Window(0, 0, 2, 2) == Window(0, 0, 2, 2), "value equality must hold"
+        a = Window(0, 0, 2, 2)
+        b = Window(0, 0, 2, 2)
+        assert a == b, "two windows with equal fields must compare equal"
+        assert a != Window(0, 0, 2, 3), (
+            "windows with differing fields must not compare equal"
+        )
         with pytest.raises(AttributeError):
             Window(0, 0, 2, 2).cols = 5
 

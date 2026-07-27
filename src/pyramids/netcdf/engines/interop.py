@@ -22,7 +22,10 @@ from osgeo import gdal
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import numpy_to_gdal_dtype
+from pyramids.base.remote import is_remote
 from pyramids.dataset.engines._base import _Engine
+from pyramids.netcdf._lazy import build_lazy_array
+from pyramids.netcdf._mdim import strip_netcdf_subdataset_prefix
 from pyramids.netcdf.cf import write_attributes_to_md_array, write_global_attributes
 from pyramids.netcdf.utils import _read_attributes
 
@@ -40,27 +43,36 @@ class Interop(_Engine["NetCDF"]):
     than on this instance-bound engine.
     """
 
-    def to_xarray(self) -> Any:
+    def to_xarray(self, chunks: dict | str | int | None = None) -> Any:
         """Convert this NetCDF container to an `xarray.Dataset`.
 
-        Builds an in-memory `xarray.Dataset` that mirrors the
-        variables, coordinates, dimensions, and global attributes of
-        this pyramids NetCDF container.
+        Builds an `xarray.Dataset` that mirrors the variables,
+        coordinates, dimensions, and global attributes of this pyramids
+        NetCDF container.
 
         The entire conversion goes through GDAL's Multidimensional
         API — the same reader the rest of pyramids' NetCDF code uses.
         No xarray engine plugin (`netcdf4`, `h5netcdf`,
         `scipy.io.netcdf`) is involved, so xarray does not need to
-        pull a NetCDF backend: pyramids is the backend. The returned
-        `xr.Dataset` holds already-
-        materialised numpy arrays; for lazy reads use
-        :meth:`read_array(chunks=...)` and wrap the result in
-        :class:`xarray.DataArray` yourself.
+        pull a NetCDF backend: pyramids is the backend.
+
+        With the default `chunks=None` the returned `xr.Dataset` holds
+        already-materialised numpy arrays. Pass `chunks` (a dict / int /
+        `"auto"`) to build each data variable as a lazy dask-backed
+        `DataArray` in the file's native axis order, so the dataset is
+        assembled without loading every variable into RAM (ARC-48).
+        Lazy reads need the optional `[lazy]` (dask) extra and a
+        file-backed container; an in-memory container ignores `chunks`
+        (its data is already resident).
 
         Requires the optional `xarray` package. Install with one of:
 
         - PyPI: ``pip install xarray``
         - conda-forge: ``conda install -c conda-forge xarray``
+
+        Args:
+            chunks: Chunk spec forwarded to the lazy reader per data
+                variable. `None` (default) reads eagerly.
 
         Returns:
             xarray.Dataset: An xarray Dataset with the same
@@ -69,6 +81,8 @@ class Interop(_Engine["NetCDF"]):
         Raises:
             pyramids.base._errors.OptionalPackageDoesNotExist:
                 If `xarray` is not installed.
+            ImportError: If `chunks` is given but the `[lazy]` (dask)
+                extra is not installed.
             ValueError: If the underlying GDAL handle is not a
                 multidimensional container (open the file with
                 `open_as_multi_dimensional=True`).
@@ -79,6 +93,11 @@ class Interop(_Engine["NetCDF"]):
                 nc = NetCDF.read_file("temperature.nc")
                 ds = nc.to_xarray()
                 print(ds)
+
+            Build a lazy (dask-backed) dataset::
+
+                lazy = nc.to_xarray(chunks="auto")
+                lazy["temperature"].data  # dask.array.Array
         """
         ds = self._ds
         try:
@@ -98,7 +117,7 @@ class Interop(_Engine["NetCDF"]):
             )
 
         return xr.Dataset(
-            data_vars=_data_vars_from_arrays(rg, ds),
+            data_vars=_data_vars_from_arrays(rg, ds, chunks),
             coords=_coords_from_dimensions(rg, ds),
             attrs=ds.global_attributes,
         )
@@ -135,18 +154,64 @@ def _coords_from_dimensions(rg: Any, ds: NetCDF) -> dict[str, Any]:
     return coords
 
 
-def _data_vars_from_arrays(rg: Any, ds: NetCDF) -> dict[str, Any]:
-    """Build the ``xr.Dataset`` ``data_vars`` mapping from the container's variables."""
+def _data_vars_from_arrays(rg: Any, ds: NetCDF, chunks: Any = None) -> dict[str, Any]:
+    """Build the ``xr.Dataset`` ``data_vars`` mapping from the container's variables.
+
+    With ``chunks=None`` each variable is read eagerly; otherwise it is read lazily (dask) in the
+    file's native axis order via :func:`_lazy_var_data` (ARC-48).
+    """
     data_vars: dict[str, Any] = {}
     for var_name in ds.variable_names:
         md_arr = rg.OpenMDArray(var_name)
         if md_arr is None:
             continue
         arr_dim_names = [ad.GetName() for ad in md_arr.GetDimensions() or []]
-        arr_data = ds._md_array_to_numpy(md_arr)
+        if chunks is None:
+            arr_data = ds._md_array_to_numpy(md_arr)
+        else:
+            arr_data = _lazy_var_data(ds, var_name, chunks, md_arr)
         var_attrs = _merge_unit(_read_attributes(md_arr), md_arr)
         data_vars[var_name] = (arr_dim_names, arr_data, var_attrs)
     return data_vars
+
+
+def _reopenable_path(ds: NetCDF) -> str | None:
+    """Return the bare, reopenable file path of a file-backed container, else ``None``.
+
+    Strips any ``NETCDF:"…":var`` subdataset prefix and confirms the path exists on disk or is a
+    remote (`/vsi*` / cloud) URL; an in-memory container has no such path.
+    """
+    path = strip_netcdf_subdataset_prefix(getattr(ds, "_file_name", "") or "")
+    if path and (os.path.isfile(path) or is_remote(path)):
+        return path
+    return None
+
+
+def _lazy_var_data(ds: NetCDF, var_name: str, chunks: Any, md_arr: Any) -> Any:
+    """Return a dask-backed raw read of ``var_name`` in the file's native axis order (ARC-48).
+
+    Deferred counterpart of :meth:`NetCDF._md_array_to_numpy`, so ``to_xarray(chunks=...)`` assembles
+    a lazy dataset without materialising every variable. A file-backed container reads through
+    :func:`build_lazy_array` with ``orient=False`` (raw, matching the raw coordinate arrays); an
+    in-memory container has no file to reopen and its data is already resident, so the eager array is
+    returned unchanged (``chunks`` has no benefit there).
+
+    A variable whose dtype a chunked read cannot represent (e.g. a string MDArray such as a CF
+    ``expver`` label) falls back to the eager read, matching the default ``to_xarray`` path -- one
+    non-chunkable variable must not fail the whole lazy conversion.
+
+    The container's captured cloud config (``_gdal_env``) is carried into the read so each chunk
+    task re-opens a signed remote store with the same credentials, matching ``_read_array_lazy`` (#839).
+    """
+    path = _reopenable_path(ds)
+    if path is None:
+        return ds._md_array_to_numpy(md_arr)
+    try:
+        return build_lazy_array(
+            path, var_name, chunks, orient=False, gdal_env=ds._gdal_env or None
+        )
+    except ValueError:
+        return ds._md_array_to_numpy(md_arr)
 
 
 def from_xarray(
