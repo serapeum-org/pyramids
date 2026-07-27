@@ -117,9 +117,10 @@ class TestTiledDataCube:
 
     Each timestep is built by :func:`_lazy_timestep` (windowed
     ``_read_chunk`` reads) and stacked along time, so a reduction tiles
-    spatially instead of holding whole rasters. A tiny raster stays a
-    single spatial chunk — these tests assert the *correctness* of the
-    tiled read path, not that it is multi-chunk.
+    spatially instead of holding whole rasters. The tiny fixtures stay a
+    single spatial chunk; ``test_multichunk_data_matches_eager`` forces a
+    tiny dask chunk-size so a raster actually splits into several Y/X
+    blocks, proving the multi-block tiles reassemble exactly.
     """
 
     @requires_dask
@@ -176,6 +177,44 @@ class TestTiledDataCube:
         assert got.shape == (1, 4, 5), f"expected (1, 4, 5), got {got.shape}"
         np.testing.assert_allclose(
             np.squeeze(got), expected, err_msg="tiled reduction differs from numpy mean"
+        )
+
+    @requires_dask
+    def test_multichunk_data_matches_eager(self, tmp_path):
+        """A raster that tiles into >1 spatial block reassembles exactly (ARC-45).
+
+        Test scenario:
+            With dask's array chunk-size forced tiny, a single-timestep cube over
+            an 8x10 raster builds multiple Y/X blocks — expected: the spatial axes
+            split into more than one block and ``data.compute()`` still equals the
+            whole-raster read, proving the windowed ``_read_chunk`` tiles reassemble
+            to the exact array (the 4x5 fixtures stay single-chunk and never exercise
+            this multi-block path).
+        """
+        import dask
+
+        arr = np.arange(80, dtype=np.float32).reshape(8, 10)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        p = str(tmp_path / "big.tif")
+        ds.to_file(p)
+        collection = DatasetCollection.from_files([p])
+        with dask.config.set({"array.chunk-size": "256B"}):
+            data = collection.data
+            got = data.compute()
+        spatial_blocks = data.numblocks[2] * data.numblocks[3]
+        assert spatial_blocks > 1, (
+            f"expected >1 spatial block, got numblocks {data.numblocks}"
+        )
+        assert got.shape == (1, 1, 8, 10), f"expected (1, 1, 8, 10), got {got.shape}"
+        np.testing.assert_array_equal(
+            got[0, 0],
+            arr,
+            err_msg="multi-block tiled assembly differs from the eager read",
         )
 
 
