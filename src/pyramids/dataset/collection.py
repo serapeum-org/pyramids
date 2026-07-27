@@ -284,6 +284,11 @@ def _append_region(
     streaming tile-by-tile — so the deferred append is safe under any outer scheduler
     (M1). Passing the scheduler to ``.compute`` keeps the choice call-local (no global
     ``dask.config`` mutation that could race with sibling tasks).
+
+    Idempotent under recompute: a dask ``Delayed`` re-executes on every ``.compute()``.
+    If a prior successful compute already grew the store to ``new_total``, this returns
+    early instead of re-writing and double-appending to ``pyramids_file_list`` (L2); a
+    prior *failed* compute rolled the resize back to ``old_t``, so a retry proceeds.
     """
     import zarr
 
@@ -293,6 +298,13 @@ def _append_region(
         arr, zarr.Array
     ):  # to_zarr writes 'data' as an Array, not a Group
         raise TypeError(f"expected a zarr Array at 'data' in {resolved_store!r}")
+    if int(arr.shape[0]) == new_total:
+        # dask Delayeds re-execute on every .compute(); a prior successful compute of
+        # THIS append already grew the store to new_total and finalized. Make a
+        # recompute a no-op so it doesn't double-append to pyramids_file_list (L2). A
+        # failed prior compute rolled the resize back to old_t, so a retry still finds
+        # old_t here and proceeds normally.
+        return
     arr.resize((new_total, *arr.shape[1:]))
     try:
         store_task = data.to_zarr(arr, region=slices, overwrite=False, compute=False)

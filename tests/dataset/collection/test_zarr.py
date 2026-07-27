@@ -378,6 +378,33 @@ class TestAppendAtomicity:
         assert means == [1.0, 2.0, 3.0, 4.0, 5.0], f"means {means}"
 
     @requires_zarr
+    def test_compute_false_recompute_is_idempotent(self, tmp_path):
+        """Computing the deferred append twice does not double-append (L2).
+
+        Test scenario:
+            Build the ``compute=False`` delayed and compute it twice — expected: a
+            recompute is a no-op, so the store stays at 5 ordered timesteps with a
+            5-entry ``pyramids_file_list``, not a grown shape or duplicated file list.
+        """
+        store = str(tmp_path / "recompute.zarr")
+        self._col(tmp_path, [1, 2], "a").to_zarr(store)
+        delayed = self._col(tmp_path, [3, 4, 5], "b").to_zarr(
+            store, mode="a", append_dim="time", compute=False
+        )
+        delayed.compute(scheduler="synchronous")
+        delayed.compute(scheduler="synchronous")
+        rt = DatasetCollection.from_zarr(store)
+        assert rt.time_length == 5, f"time_length {rt.time_length}"
+        file_list = list(
+            zarr.open_group(store, mode="r").attrs.get("pyramids_file_list", [])
+        )
+        assert len(file_list) == 5, (
+            f"file list should stay length 5, got {len(file_list)}"
+        )
+        means = [float(rt.data.compute()[i].mean()) for i in range(5)]
+        assert means == [1.0, 2.0, 3.0, 4.0, 5.0], f"means {means}"
+
+    @requires_zarr
     def test_compute_false_append_default_scheduler(self, tmp_path):
         """The deferred append computes under the default scheduler without deadlock.
 
