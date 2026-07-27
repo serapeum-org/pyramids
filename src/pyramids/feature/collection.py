@@ -1180,7 +1180,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        return _read.list_layers(cls, path)
+        return _read.list_layers(path)
 
 
     @classmethod

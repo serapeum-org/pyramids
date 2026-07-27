@@ -53,7 +53,7 @@ def _list_layers_cached(resolved_path: str) -> tuple[str, ...]:
     return tuple(str(row[0]) for row in arr)
 
 
-def list_layers(fc_cls: type, path: str | Path) -> list[str]:
+def list_layers(path: str | Path) -> list[str]:
     """List every vector-layer name in `path`, memoised (see FeatureCollection.list_layers)."""
     path_str = str(path)
     if not is_remote(path_str):
@@ -203,6 +203,50 @@ def _import_dask_geopandas():
     return dask_geopandas
 
 
+def read_file_dask(
+    resolved: str,
+    *,
+    layer: str | int | None,
+    bbox: Any,
+    mask: Any,
+    rows: slice | int | None,
+    columns: list[str] | None,
+    where: str | None,
+    npartitions: int | None,
+    chunksize: int | None,
+) -> Any:
+    """Dask backend for :func:`read_file`: reject unsupported filters, wrap as LazyFC."""
+    # dask_geopandas.read_file does NOT forward pyogrio filter kwargs
+    # (bbox / mask / rows / columns / where) — silently dropping them was the bug.
+    # Raise a clear ValueError instead so users know to pre-filter or call .compute()
+    # and filter eagerly.
+    unsupported = {
+        "bbox": bbox,
+        "mask": mask,
+        "rows": rows,
+        "columns": columns,
+        "where": where,
+        "layer": layer,
+    }
+    supplied = [k for k, v in unsupported.items() if v is not None]
+    if supplied:
+        raise ValueError(
+            f"backend='dask' does not support filter kwargs "
+            f"{supplied}. dask_geopandas.read_file has no "
+            "pushdown story for these. Either omit them and "
+            "filter post-load via .clip / .loc / .compute, or "
+            "switch to read_parquet(backend='dask', filters=...)"
+        )
+    dask_geopandas = _import_dask_geopandas()
+    partition_kwargs = _resolve_lazy_partitioning(resolved, npartitions, chunksize)
+    # Local import breaks the collection <-> _lazy_collection cycle
+    # (_lazy_collection imports FeatureCollection from collection).
+    from pyramids.feature._lazy_collection import LazyFeatureCollection
+
+    dask_gdf = dask_geopandas.read_file(resolved, **partition_kwargs)
+    return LazyFeatureCollection.from_dask_gdf(dask_gdf)
+
+
 def read_file(
     fc_cls: type,
     path: str | Path,
@@ -221,35 +265,17 @@ def read_file(
     """Read a vector file into a FeatureCollection (see FeatureCollection.read_file)."""
     resolved = _pyramids_io._parse_path(path)
     if backend == "dask":
-        # dask_geopandas.read_file does NOT forward pyogrio filter kwargs
-        # (bbox / mask / rows / columns / where) — silently dropping them was the
-        # bug. Raise a clear ValueError instead so users know to pre-filter or
-        # call .compute() and filter eagerly.
-        unsupported = {
-            "bbox": bbox,
-            "mask": mask,
-            "rows": rows,
-            "columns": columns,
-            "where": where,
-            "layer": layer,
-        }
-        supplied = [k for k, v in unsupported.items() if v is not None]
-        if supplied:
-            raise ValueError(
-                f"backend='dask' does not support filter kwargs "
-                f"{supplied}. dask_geopandas.read_file has no "
-                "pushdown story for these. Either omit them and "
-                "filter post-load via .clip / .loc / .compute, or "
-                "switch to read_parquet(backend='dask', filters=...)"
-            )
-        dask_geopandas = _import_dask_geopandas()
-        partition_kwargs = _resolve_lazy_partitioning(resolved, npartitions, chunksize)
-        # Local import breaks the collection <-> _lazy_collection cycle
-        # (_lazy_collection imports FeatureCollection from collection).
-        from pyramids.feature._lazy_collection import LazyFeatureCollection
-
-        dask_gdf = dask_geopandas.read_file(resolved, **partition_kwargs)
-        return LazyFeatureCollection.from_dask_gdf(dask_gdf)
+        return read_file_dask(
+            resolved,
+            layer=layer,
+            bbox=bbox,
+            mask=mask,
+            rows=rows,
+            columns=columns,
+            where=where,
+            npartitions=npartitions,
+            chunksize=chunksize,
+        )
     if backend != "pandas":
         raise ValueError(f"backend must be 'pandas' or 'dask', got {backend!r}")
     # Only pass kwargs that were actually supplied — passing the unset
