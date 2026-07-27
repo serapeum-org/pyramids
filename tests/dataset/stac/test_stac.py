@@ -276,12 +276,12 @@ class TestCollectionGdalEnvLazyReads:
             f"unexpected env without signer: {seen}"
         )
 
-    def test_path_b_read_time_step_installs_env(self, three_tifs, monkeypatch):
-        """Path B: `_read_time_step` installs the env around the worker open.
+    def test_path_b_lazy_data_installs_env(self, three_tifs, monkeypatch):
+        """Path B: the tiled `data` graph installs the collection's env around each open.
 
         Test scenario:
-            A spy on the module-level opener records the sentinel option; calling
-            _read_time_step with an env must see it active.
+            A spy on the module-level opener records the sentinel option; computing the
+            tiled `data` cube for an env-carrying collection must see it active.
         """
         from pyramids.dataset import collection as coll_mod
 
@@ -293,21 +293,11 @@ class TestCollectionGdalEnvLazyReads:
             return real_open(*args, **kwargs)
 
         monkeypatch.setattr(coll_mod, "gdal_raster_open", spy)
-        coll_mod._read_time_step(three_tifs[0], {"PYRAMIDS_TEST_KEY": "on"})
-        assert captured["v"] == "on", f"env not active during Path B open: {captured}"
-
-    def test_path_b_read_time_step_reads_array(self, three_tifs):
-        """Path B: `_read_time_step` returns a (1, R, C) array for a 1-band file.
-
-        Test scenario:
-            The reader still works (env defaults to None) and shapes correctly.
-        """
-        from pyramids.dataset.collection import _read_time_step
-
-        arr = _read_time_step(three_tifs[0])
-        assert arr.shape[0] == 1, (
-            f"single-band read should be (1, R, C), got {arr.shape}"
+        coll = coll_mod.DatasetCollection.from_files(
+            three_tifs, gdal_env={"PYRAMIDS_TEST_KEY": "on"}
         )
+        coll.data.compute()
+        assert captured["v"] == "on", f"env not active during Path B open: {captured}"
 
     def test_gdal_env_survives_pickle(self, three_tifs):
         """H4: the persisted env survives pickling (so it reaches dask workers).

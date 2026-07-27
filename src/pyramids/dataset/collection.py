@@ -322,64 +322,6 @@ def _finalize_after_write(data_result, resolved_store, meta, files) -> None:
     _finalize_collection_metadata(resolved_store, meta, files)
 
 
-def _read_time_step(
-    path: str | Path, gdal_env: dict[str, str] | None = None
-) -> np.typing.NDArray:
-    """Synchronous per-file reader used by the lazy `data` dask graph.
-
-    Module-level (not a closure) so each
-    :func:`dask.delayed` task pickles as `(_read_time_step, path, gdal_env)`
-    — no live GDAL handle crosses the wire, only the path and a plain
-    config dict.
-
-    Args:
-        path: The backing file path for this timestep.
-        gdal_env: H4 — the collection's persisted signer GDAL config
-            (Requester-Pays / bearer / SAS), installed inside the worker
-            around the open + read so a signed file-backed collection
-            authenticates its Path B reads. A no-op when empty/`None`
-            (the common, unsigned case pays nothing).
-
-    Routes the per-file open through a fresh
-    :class:`CachingFileManager` whose `manager_id` is the path
-    itself, so two calls for the same path resolve to the same
-    :data:`FILE_CACHE` slot and share one cached `gdal.Dataset`.
-    The shared LRU bounds open file descriptors (default 128,
-    overridable via `PYRAMIDS_FILE_CACHE_MAXSIZE`) and evicts the
-    least-recently-used handle when full — so a long-running
-    process scanning many file lists no longer leaks handles or
-    manager objects.
-
-    The path is normalised to ``str`` before key construction so
-    callers passing ``pathlib.Path`` and ``str`` for the same file
-    hit one cache slot, not two — avoiding silent FILE_CACHE
-    fragmentation under mixed-type call sites.
-
-    The read runs inside :meth:`CachingFileManager.acquire_context`,
-    which pins the cache slot: a cube of more than ``maxsize`` files
-    keeps the LRU under constant pressure, and an unpinned handle can
-    be evicted and closed by another worker's insert while this read
-    is still going through it.
-    """
-    path = str(path)
-    with cloud_config_from_env(gdal_env):
-        manager = CachingFileManager(
-            gdal_raster_open,
-            path,
-            "read_only",
-            lock=False,
-            manager_id=path,
-        )
-        with manager.acquire_context() as handle:
-            band_count = handle.RasterCount
-            if band_count == 1:
-                arr = handle.GetRasterBand(1).ReadAsArray()
-                arr = arr[np.newaxis, :, :]
-            else:
-                arr = handle.ReadAsArray()
-    return np.ascontiguousarray(arr)
-
-
 def _lazy_timestep(
     path: str | Path, meta: RasterMeta, gdal_env: dict[str, str] | None, lock: Any
 ):
@@ -501,8 +443,8 @@ class DatasetCollection:
     Path B — dask graph over file paths (``self._files``)
         Backing store is a list of file path strings. The ``data``
         property assembles a ``dask.array.Array`` of shape
-        ``(time, bands, rows, cols)`` from
-        ``[dask.delayed(_read_time_step)(p) for p in self._files]``.
+        ``(time, bands, rows, cols)`` by stacking a spatially-tiled
+        per-timestep array (:func:`_lazy_timestep`) along time.
         Workers re-open each path on demand via a process-cached
         ``CachingFileManager`` — gdal handles never cross the
         pickle boundary, only path strings do. This is what makes
