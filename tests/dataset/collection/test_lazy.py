@@ -139,6 +139,73 @@ class TestManagerCaching:
         )
 
 
+class TestTiledDataCube:
+    """The `data` cube stacks per-timestep tiled dask arrays (ARC-45).
+
+    Each timestep is built by :func:`_lazy_timestep` (windowed
+    ``_read_chunk`` reads) and stacked along time, so a reduction tiles
+    spatially instead of holding whole rasters. A tiny raster stays a
+    single spatial chunk — these tests assert the *correctness* of the
+    tiled read path, not that it is multi-chunk.
+    """
+
+    @requires_dask
+    def test_data_matches_eager_stack(self, three_files):
+        """`data.compute()` equals the old-style eager per-file stack.
+
+        Test scenario:
+            Compare band 0 of the lazy cube against
+            ``np.stack([Dataset.read_file(p).read_array() for p in paths])`` —
+            expected: element-for-element equality.
+        """
+        collection = DatasetCollection.from_files(three_files)
+        expected = np.stack(
+            [Dataset.read_file(p).read_array() for p in three_files], axis=0
+        )
+        got = collection.data.compute()
+        assert got.shape == (3, 1, 4, 5), f"expected (3, 1, 4, 5), got {got.shape}"
+        np.testing.assert_array_equal(
+            got[:, 0, :, :],
+            expected,
+            err_msg="tiled cube values differ from the eager stack",
+        )
+
+    @requires_dask
+    def test_data_is_time_stacked_dask_array(self, three_files):
+        """`data` is a `(T, B, Y, X)` dask array stacked along time.
+
+        Test scenario:
+            Inspect ``collection.data`` — expected: a dask array of shape
+            ``(3, 1, 4, 5)`` whose leading axis has one block per timestep.
+        """
+        collection = DatasetCollection.from_files(three_files)
+        data = collection.data
+        assert hasattr(data, "dask"), "data should be a lazy dask array"
+        assert data.shape == (3, 1, 4, 5), f"expected (3, 1, 4, 5), got {data.shape}"
+        assert data.numblocks[0] == 3, (
+            f"time axis should be stacked one block per timestep, got {data.numblocks[0]}"
+        )
+
+    @requires_dask
+    def test_reduction_matches_numpy(self, three_files):
+        """A time-axis reduction over the tiled cube matches numpy.
+
+        Test scenario:
+            ``collection.mean()`` vs the eager stack's ``mean(axis=0)`` —
+            expected: identical values (the tiled read path does not perturb
+            the reduction).
+        """
+        collection = DatasetCollection.from_files(three_files)
+        expected = np.stack(
+            [Dataset.read_file(p).read_array() for p in three_files], axis=0
+        ).mean(axis=0)
+        got = collection.mean()
+        assert got.shape == (1, 4, 5), f"expected (1, 4, 5), got {got.shape}"
+        np.testing.assert_allclose(
+            np.squeeze(got), expected, err_msg="tiled reduction differs from numpy mean"
+        )
+
+
 class TestErrors:
     def test_no_files_raises(self):
         arr = np.zeros((4, 5), dtype=np.float32)

@@ -14,6 +14,7 @@ Targets untested / low-coverage code paths in
 - Error paths for ``__getitem__``, ``__setitem__``, ``open_multi_dataset``
 """
 
+import pickle
 import shutil
 import tempfile
 from pathlib import Path
@@ -22,8 +23,9 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import AlignmentError
+from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.collection import _target_epsg
 from tests.dataset.collection._helpers import make_int16_collection
 
 
@@ -782,3 +784,244 @@ class TestFromFilesValidate:
         monkeypatch.setattr(Dataset, "read_file", staticmethod(spy))
         DatasetCollection.from_files([t0, t1], validate=True)
         assert t1 in opened, f"validate=True did not open the second file: {opened}"
+
+
+class TestDatasetAtLazyHandles:
+    """Tests for ``_dataset_at`` + the per-index ``_handle_cache`` (ARC-44)."""
+
+    def test_first_opens_only_one_file(self, tmp_path):
+        """``first()`` on a file-backed cube opens one file, not all N.
+
+        Test scenario:
+            A 3-file collection, then ``first()`` — expected: the bulk
+            ``_datasets`` list is still ``None`` and exactly one handle is
+            cached (only index 0 was opened).
+        """
+        col, _ = make_int16_collection(tmp_path, count=3)
+        result = col.first()
+        assert col._datasets is None, "first() must not materialise the bulk list"
+        assert len(col._handle_cache) == 1, (
+            f"first() should open one file; cached {len(col._handle_cache)}"
+        )
+        assert set(col._handle_cache) == {0}, (
+            f"expected index 0, got {set(col._handle_cache)}"
+        )
+        np.testing.assert_array_equal(
+            result,
+            np.arange(20, dtype="int16").reshape(4, 5),
+            err_msg="first() returned the wrong timestep array",
+        )
+
+    def test_first_then_last_caches_two(self, tmp_path):
+        """``first()`` then ``last()`` caches exactly two handles.
+
+        Test scenario:
+            A 3-file collection — expected: after ``first()`` + ``last()`` the
+            handle cache holds indices ``{0, 2}`` and the bulk list stays lazy.
+        """
+        col, _ = make_int16_collection(tmp_path, count=3)
+        col.first()
+        col.last()
+        assert col._datasets is None, (
+            "point accessors must not materialise the bulk list"
+        )
+        assert len(col._handle_cache) == 2, (
+            f"first()+last() should cache 2 handles; got {len(col._handle_cache)}"
+        )
+        assert set(col._handle_cache) == {0, 2}, (
+            f"expected indices {{0, 2}}, got {set(col._handle_cache)}"
+        )
+
+    def test_negative_index_normalises(self, tmp_path):
+        """A negative index reads from the end and caches the normalised slot.
+
+        Test scenario:
+            ``_dataset_at(-1)`` on a 3-file cube — expected: the same handle as
+            index 2, cached under key 2 (negative normalised via ``range``).
+        """
+        col, _ = make_int16_collection(tmp_path, count=3)
+        last = col._dataset_at(-1)
+        assert set(col._handle_cache) == {2}, (
+            f"negative index not normalised: {set(col._handle_cache)}"
+        )
+        assert col._dataset_at(2) is last, (
+            "negative and positive index disagree on the handle"
+        )
+
+    def test_handle_reused_within_instance(self, tmp_path):
+        """Repeated access to the same index returns the cached handle.
+
+        Test scenario:
+            Two ``_dataset_at(0)`` calls — expected: the identical ``Dataset``
+            object, proving the cache slot is reused, not reopened.
+        """
+        col, _ = make_int16_collection(tmp_path, count=2)
+        first = col._dataset_at(0)
+        again = col._dataset_at(0)
+        assert first is again, "the same index should return one cached handle"
+        assert len(col._handle_cache) == 1, "a re-read must not add a cache slot"
+
+    def test_getitem_int_uses_handle_cache(self, tmp_path):
+        """``collection[i]`` (int) reads one file through the handle cache.
+
+        Test scenario:
+            ``col[1]`` on a 3-file cube — expected: a 2D array equal to the
+            second timestep, with only index 1 cached and the bulk list lazy.
+        """
+        col, _ = make_int16_collection(tmp_path, count=3)
+        arr = col[1]
+        assert arr.shape == (4, 5), f"expected a 2D (4,5) slice, got {arr.shape}"
+        assert col._datasets is None, (
+            "__getitem__[int] must not materialise the bulk list"
+        )
+        assert set(col._handle_cache) == {1}, (
+            f"expected index 1 cached, got {set(col._handle_cache)}"
+        )
+        np.testing.assert_array_equal(
+            arr, np.arange(20, dtype="int16").reshape(4, 5) + 100
+        )
+
+    def test_defers_to_bulk_once_materialised(self, tmp_path):
+        """Once ``.datasets`` is built, ``_dataset_at`` returns from that list.
+
+        Test scenario:
+            Access ``.datasets`` to materialise the bulk cache — expected:
+            ``_dataset_at(i)`` returns the same object as ``datasets[i]`` and no
+            per-index handle cache is populated.
+        """
+        col, _ = make_int16_collection(tmp_path, count=3)
+        bulk = col.datasets
+        assert col._dataset_at(1) is bulk[1], (
+            "should defer to the materialised bulk list"
+        )
+        assert col._handle_cache == {}, (
+            "the per-index cache must stay empty after bulk build"
+        )
+
+    def test_legacy_in_memory_returns_base(self, base_dataset: Dataset):
+        """A legacy ``files=None`` collection returns the base at every index.
+
+        Test scenario:
+            ``DatasetCollection(base, time_length=3)`` with no files/datasets —
+            expected: every ``_dataset_at`` returns the shared base template.
+        """
+        col = DatasetCollection(base_dataset, time_length=3)
+        assert col._dataset_at(0) is base_dataset, "legacy cube should return the base"
+        assert col._dataset_at(2) is base_dataset, "legacy cube should return the base"
+        assert col._handle_cache == {}, "legacy path must not open files"
+
+    def test_getstate_drops_handle_cache_on_pickle(self, tmp_path):
+        """Pickling drops the live-handle ``_handle_cache`` (ARC-44 + pickle).
+
+        Test scenario:
+            Populate the cache via ``first()`` then pickle round-trip —
+            expected: no ``gdal.Dataset`` in the payload, and the unpickled
+            instance starts with an empty cache and a lazy bulk list.
+        """
+        col, _ = make_int16_collection(tmp_path, count=2)
+        col.first()
+        assert len(col._handle_cache) == 1, "precondition: one cached handle"
+        payload = pickle.dumps(col)
+        assert b"gdal.Dataset" not in payload, (
+            "a live gdal handle leaked into the pickle"
+        )
+        restored = pickle.loads(payload)
+        assert restored._handle_cache == {}, "unpickled cache should be empty"
+        assert restored._datasets is None, "unpickled bulk list should be lazy"
+        assert restored.time_length == 2, "time_length should survive the round-trip"
+
+
+class TestTargetEpsg:
+    """Tests for the module-level ``_target_epsg`` helper (ARC-54)."""
+
+    def test_int_passthrough(self):
+        """An integer EPSG is returned unchanged.
+
+        Test scenario:
+            ``_target_epsg(3857)`` — expected: ``3857`` without a pyproj lookup.
+        """
+        assert _target_epsg(3857) == 3857, "an int EPSG should pass through unchanged"
+
+    def test_authority_string_resolves(self):
+        """An ``EPSG:`` authority string resolves to its integer code.
+
+        Test scenario:
+            ``_target_epsg("EPSG:4326")`` — expected: ``4326``.
+        """
+        assert _target_epsg("EPSG:4326") == 4326, (
+            "authority string should resolve to 4326"
+        )
+
+    def test_non_epsg_crs_returns_none(self):
+        """A CRS with no EPSG code (proj4 Robinson) returns ``None``.
+
+        Test scenario:
+            A proj4 string with no registered EPSG — expected: ``None`` so
+            ``to_crs`` takes the direct per-timestep fallback.
+        """
+        proj4 = "+proj=laea +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        assert _target_epsg(proj4) is None, "a no-EPSG CRS should return None"
+
+
+class TestToCrsEager:
+    """Eager ``to_crs`` routing through the plan-once + fallback paths (ARC-54)."""
+
+    def test_epsg_target_returns_reprojected_collection(self, tmp_path):
+        """``to_crs(epsg)`` (non-inplace) returns a new reprojected collection.
+
+        Test scenario:
+            A 4326 file-backed cube reprojected to 3857 — expected: a distinct
+            ``DatasetCollection`` at EPSG 3857 with the same ``time_length``.
+        """
+        col, _ = make_int16_collection(tmp_path, count=2)
+        out = col.to_crs(3857)
+        assert isinstance(out, DatasetCollection), (
+            f"expected a collection, got {type(out)}"
+        )
+        assert out is not col, "non-inplace to_crs should return a new collection"
+        assert out.base.epsg == 3857, f"expected EPSG 3857, got {out.base.epsg}"
+        assert out.time_length == 2, (
+            f"time_length should be preserved, got {out.time_length}"
+        )
+
+    def test_non_epsg_target_reprojects_eagerly(self, tmp_path):
+        """A no-EPSG target still reprojects eagerly via the direct fallback.
+
+        Test scenario:
+            ``to_crs`` to a proj4 LAEA CRS (no EPSG code) — expected: a
+            ``DatasetCollection`` with the same ``time_length``; ``_target_epsg``
+            returned ``None`` so the ``Reprojector`` plan-once path was skipped.
+        """
+        proj4 = "+proj=laea +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        assert _target_epsg(proj4) is None, (
+            "precondition: the target must have no EPSG code"
+        )
+        col, _ = make_int16_collection(tmp_path, count=2)
+        out = col.to_crs(proj4)
+        assert isinstance(out, DatasetCollection), (
+            f"expected a collection, got {type(out)}"
+        )
+        assert out.time_length == 2, (
+            f"time_length should be preserved, got {out.time_length}"
+        )
+
+    def test_compute_false_without_dask_raises(self, tmp_path, monkeypatch):
+        """``compute=False`` without dask raises ``OptionalPackageDoesNotExist``.
+
+        Test scenario:
+            Simulate a missing dask import — expected: the ``[lazy]`` extra error
+            from ``_apply_operator``'s deferred branch, naming the extra.
+        """
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "dask" or name.startswith("dask."):
+                raise ImportError("no dask")
+            return real_import(name, *args, **kwargs)
+
+        col, _ = make_int16_collection(tmp_path, count=2)
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        with pytest.raises(OptionalPackageDoesNotExist, match="lazy"):
+            col.to_crs(3857, compute=False)
