@@ -237,7 +237,7 @@ def configure_lazy_vector(
         dask.config.set(scheduler=scheduler)
         applied["scheduler"] = scheduler
     if target_bytes_per_partition is not None:
-        from pyramids.feature import collection as _fc_mod
+        from pyramids.feature import _read as _fc_mod
 
         _fc_mod._LAZY_TARGET_BYTES_PER_PARTITION = int(target_bytes_per_partition)
         applied["target_bytes_per_partition"] = int(target_bytes_per_partition)
@@ -271,7 +271,7 @@ def _register_lazy_vector_worker_plugin(
 
                 dask.config.set(scheduler=self._settings["scheduler"])
             if "target_bytes_per_partition" in self._settings:
-                from pyramids.feature import collection as _fc_mod
+                from pyramids.feature import _read as _fc_mod
 
                 _fc_mod._LAZY_TARGET_BYTES_PER_PARTITION = int(
                     self._settings["target_bytes_per_partition"]

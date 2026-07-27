@@ -1,6 +1,6 @@
 """ARC-V6: default ``npartitions`` heuristic for ``read_file(backend="dask")``.
 
-Pins the behaviour of :func:`pyramids.feature.collection._resolve_lazy_partitioning`:
+Pins the behaviour of :func:`pyramids.feature._read._resolve_lazy_partitioning`:
 
 * Caller supplies ``npartitions`` → honoured verbatim.
 * Caller supplies ``chunksize`` → honoured verbatim.
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from pyramids.feature.collection import (
+from pyramids.feature._read import (
     _LAZY_TARGET_BYTES_PER_PARTITION,
     _resolve_lazy_partitioning,
 )

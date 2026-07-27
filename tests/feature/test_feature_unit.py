@@ -693,7 +693,7 @@ class TestReadParquetBboxKwarg:
             return None  # pretend pyarrow is available
 
         monkeypatch.setattr(
-            "pyramids.feature.collection._require_pyarrow",
+            "pyramids.feature._read._require_pyarrow",
             _fake_require,
         )
         monkeypatch.setattr(geopandas, "read_parquet", _spy)
@@ -721,7 +721,7 @@ class TestReadParquetBboxKwarg:
             return gpd.GeoDataFrame({"v": []}, geometry=[], crs="EPSG:4326")
 
         monkeypatch.setattr(
-            "pyramids.feature.collection._require_pyarrow",
+            "pyramids.feature._read._require_pyarrow",
             lambda: None,
         )
         monkeypatch.setattr(geopandas, "read_parquet", _spy)
