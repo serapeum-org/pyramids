@@ -179,6 +179,55 @@ class TestTiledDataCube:
         )
 
 
+class TestDuplicatePathSharedLock:
+    """A path repeated in the file list shares one IO lock across its timesteps (L4)."""
+
+    @requires_dask
+    def test_duplicate_path_data_computes_and_shares_lock(self, tmp_path, monkeypatch):
+        """`from_files([p, p])` computes a correct 2-step cube sharing one lock.
+
+        Test scenario:
+            A single GeoTIFF listed twice — expected: ``.data`` is a ``(2, 1, 4, 5)``
+            cube whose two timesteps equal the source array, and both timesteps were
+            built with the *same* lock object (one IO lock per distinct path, so
+            duplicate paths that share a FILE_CACHE handle serialise on one lock).
+        """
+        from pyramids.dataset import collection as coll_mod
+
+        arr = np.arange(20, dtype=np.float32).reshape(4, 5)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 4.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        p = str(tmp_path / "dup.tif")
+        ds.to_file(p)
+
+        captured: list[Any] = []
+        real = coll_mod._lazy_timestep
+
+        def spy(path, meta, gdal_env, lock):
+            captured.append(lock)
+            return real(path, meta, gdal_env, lock)
+
+        monkeypatch.setattr(coll_mod, "_lazy_timestep", spy)
+        collection = DatasetCollection.from_files([p, p])
+        got = collection.data.compute()
+
+        assert got.shape == (2, 1, 4, 5), f"expected (2, 1, 4, 5), got {got.shape}"
+        np.testing.assert_array_equal(
+            got[0, 0], arr, err_msg="first duplicate timestep differs from source"
+        )
+        np.testing.assert_array_equal(
+            got[1, 0], arr, err_msg="second duplicate timestep differs from source"
+        )
+        assert len(captured) == 2, f"expected two timesteps, got {len(captured)}"
+        assert captured[0] is captured[1], (
+            "duplicate paths must share one IO lock, got distinct lock objects"
+        )
+
+
 class TestErrors:
     def test_no_files_raises(self):
         arr = np.zeros((4, 5), dtype=np.float32)
