@@ -3137,7 +3137,10 @@ class DatasetCollection:
                 )
             ) from exc
         delayeds = [per_step(ds, False) for ds in self.datasets]
-        return dask.delayed(DatasetCollection._collection_from_datasets)(delayeds)
+        return cast(
+            "Delayed",
+            dask.delayed(DatasetCollection._collection_from_datasets)(delayeds),
+        )
 
     @staticmethod
     def _collection_from_datasets(datasets: list[Dataset]) -> DatasetCollection:
