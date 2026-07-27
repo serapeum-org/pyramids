@@ -28,7 +28,7 @@ import functools
 import math
 import os
 import warnings
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -782,8 +782,13 @@ class FeatureCollection(GeoDataFrame):
         chunksize: int | None = None,
         tile_strategy: str = "auto",
         include_index: bool = False,
-    ) -> Any:
+    ) -> Iterator[dict[str, Any] | FeatureCollection]:
         """Stream features from `path` without materializing the full file.
+
+        Return type varies by `chunksize` (ARC-38): `chunksize=None` yields
+        per-feature `dict`s, an `int` yields :class:`FeatureCollection` chunks — a
+        single generator type documented in Yields below rather than split into two
+        methods (which would break the fiona-style single entry point).
 
         . Two orthogonal knobs:
 
@@ -1112,8 +1117,11 @@ class FeatureCollection(GeoDataFrame):
                 `use_arrow=True`, driver-specific creation options).
 
         Returns:
-            FeatureCollection: The (possibly filtered) features
-            wrapped as a FeatureCollection.
+            FeatureCollection | LazyFeatureCollection: The (possibly filtered)
+            features. The return type varies by `backend` (ARC-38):
+            `backend="pandas"` (default) returns an eager
+            :class:`FeatureCollection`; `backend="dask"` returns a lazy
+            :class:`LazyFeatureCollection`.
 
         Examples:
             - Load a GeoJSON file:
@@ -2138,8 +2146,10 @@ class FeatureCollection(GeoDataFrame):
                 (`storage_options=` for fsspec, etc.).
 
         Returns:
-            FeatureCollection: The file's features wrapped as a
-            FeatureCollection.
+            FeatureCollection | LazyFeatureCollection: The file's features. The
+            return type varies by `backend` (ARC-38): `backend="pandas"` (default)
+            returns an eager :class:`FeatureCollection`; `backend="dask"` returns a
+            lazy :class:`LazyFeatureCollection`.
 
         Raises:
             ImportError: If :mod:`pyarrow` is not installed, with a
