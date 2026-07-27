@@ -2858,7 +2858,10 @@ class DatasetCollection:
                 the whole reproject into one `dask.delayed.Delayed` that builds the
                 reprojected `DatasetCollection` when computed — so a many-raster
                 collection reprojects in a single graph (ARC-54). Keyword-only;
-                cannot be combined with `inplace=True`.
+                cannot be combined with `inplace=True`. The deferred results are
+                MEM-backed (in-memory GDAL warps) and so cannot be pickled to
+                `dask.distributed` workers — compute it on the local / threaded
+                scheduler.
 
         Returns:
             DatasetCollection | None | dask.delayed.Delayed: A new collection when
@@ -3016,7 +3019,9 @@ class DatasetCollection:
                 If True (default), align every timestep eagerly. If False, defer the
                 whole align into one `dask.delayed.Delayed` that builds the aligned
                 `DatasetCollection` when computed (ARC-54). Keyword-only; cannot be
-                combined with `inplace=True`.
+                combined with `inplace=True`. The deferred results are MEM-backed and
+                cannot be pickled to `dask.distributed` workers — compute it on the
+                local / threaded scheduler.
 
         Returns:
             DatasetCollection | None | dask.delayed.Delayed: A new collection when
