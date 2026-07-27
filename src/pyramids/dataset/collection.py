@@ -354,6 +354,11 @@ def _read_time_step(
     return np.ascontiguousarray(arr)
 
 
+# Above this in-RAM (T, B, Y, X) size, DatasetCollection.to_netcdf warns and points
+# the caller at the streaming to_zarr writer (ARC-46). Default 2 GiB.
+_TO_NETCDF_WARN_BYTES = 2 * 1024**3
+
+
 class DatasetCollection:
     """Time-stacked collection of co-registered rasters.
 
@@ -1323,6 +1328,20 @@ class DatasetCollection:
             else [f"band_{i + 1}" for i in range(band_count)]
         )
 
+        # ARC-46: this writer stacks the whole (T, B, Y, X) cube in RAM and xarray
+        # copies it again. Warn (pointing at the streaming to_zarr writer) when that
+        # allocation would be large, rather than OOM without explanation.
+        est_bytes = (
+            self.time_length * int(np.prod(meta.shape)) * np.dtype(meta.dtype).itemsize
+        )
+        if est_bytes > _TO_NETCDF_WARN_BYTES:
+            warnings.warn(
+                f"DatasetCollection.to_netcdf materialises the full (T, B, Y, X) cube "
+                f"in memory (~{est_bytes / 1024**3:.1f} GiB here, then copied again by "
+                f"xarray). For large cubes prefer DatasetCollection.to_zarr, which "
+                f"streams the cube chunk-by-chunk.",
+                stacklevel=2,
+            )
         # Per-timestep read_array() returns (rows, cols) for a single-band
         # dataset and (bands, rows, cols) for multi-band, so np.stack gives
         # (T, rows, cols) or (T, bands, rows, cols). Insert a length-1 band
@@ -2091,8 +2110,23 @@ class DatasetCollection:
         for ds in self.datasets:
             yield ds.read_array(band=0)
 
+    def _stack_band0(self, datasets: list[Dataset]) -> np.typing.NDArray:
+        """Stack band 0 of each dataset into a ``(len, rows, cols)`` cube.
+
+        Empty-safe: an empty selection returns a ``(0, rows, cols)`` array rather
+        than tripping ``np.stack``'s "need at least one array" error. Lets
+        :meth:`head`/:meth:`tail` read only the selected timesteps instead of
+        materialising the whole cube via :attr:`values`.
+        """
+        if not datasets:
+            return np.empty((0, self.rows, self.columns))
+        return np.stack([ds.read_array(band=0) for ds in datasets], axis=0)
+
     def head(self, n: int = 5) -> np.typing.NDArray:
         """First ``n`` timestep arrays as a 3D numpy slice.
+
+        Reads only the first ``n`` timesteps (slicing :attr:`datasets` before
+        reading), not the whole cube.
 
         Args:
             n (int): Number of timesteps. Defaults to 5.
@@ -2100,25 +2134,27 @@ class DatasetCollection:
         Returns:
             np.ndarray: ``(min(n, time_length), rows, cols)`` array.
         """
-        return self.values[:n]
+        return self._stack_band0(self.datasets[:n])
 
     def tail(self, n: int = -5) -> np.typing.NDArray:
-        """Last ``-n`` timestep arrays as a 3D numpy slice.
+        """Last ``abs(n)`` timestep arrays as a 3D numpy slice.
 
-        Matches the legacy signature: a NEGATIVE ``n`` (the default
-        ``-5``) means "last 5". Implementation simply does
-        ``self.values[n:]``, so a positive ``n`` would skip the first
-        ``n`` rows instead — that's the legacy behaviour and left as
-        is for back-compat.
+        Returns the last ``abs(n)`` timesteps regardless of the sign of ``n`` — so
+        both ``tail(5)`` and the legacy default ``tail(-5)`` give the last 5 — and
+        reads only those timesteps rather than materialising the whole cube.
+
+        Note: this corrects the previous behaviour where a *positive* ``n`` skipped
+        the first ``n`` rows instead of returning the last ``n`` (ARC-46).
 
         Args:
-            n (int): Negative integer giving the offset from the
-                end. Defaults to ``-5`` (last 5).
+            n (int): Number of trailing timesteps; the sign is ignored. Defaults to
+                ``-5`` (last 5).
 
         Returns:
-            np.ndarray: ``(abs(n), rows, cols)`` array (when ``n < 0``).
+            np.ndarray: ``(min(abs(n), time_length), rows, cols)`` array.
         """
-        return self.values[n:]
+        keep = min(abs(n), self.time_length)
+        return self._stack_band0(self.datasets[self.time_length - keep :])
 
     def first(self) -> np.typing.NDArray:
         """First timestep array (2D).
