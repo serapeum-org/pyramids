@@ -22,6 +22,8 @@ non-PROJ CRS — live in the downstream consumer (``earthlens``), which calls
 
 from __future__ import annotations
 
+import base64
+import urllib.error
 import urllib.request
 from functools import lru_cache
 from typing import TYPE_CHECKING
@@ -31,7 +33,9 @@ import geopandas as gpd
 from osgeo import gdal
 
 from pyramids.base._errors import WFSError
+from pyramids.base._ogc_api import DISCOVERY_HEADERS
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
+from pyramids.base._ogc_api import http_error_detail, http_get_with_retry
 from pyramids.feature._ogc import read_kwargs as _read_kwargs
 
 if TYPE_CHECKING:
@@ -67,16 +71,27 @@ def _get_capabilities(
             answered with an ``<ows:ExceptionReport>`` / non-XML body.
     """
     url = _capabilities_url(endpoint, version)
-    opener = urllib.request.build_opener()
+    headers = dict(DISCOVERY_HEADERS)
     if auth is not None:
-        mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        mgr.add_password(None, endpoint, auth[0], auth[1])
-        opener.add_handler(urllib.request.HTTPBasicAuthHandler(mgr))
+        # Send Basic credentials preemptively (matching the GDAL WFS read's
+        # GDAL_HTTP_USERPWD), plus a real User-Agent: a server that 403s without a
+        # 401 challenge, or blocks the default urllib UA, still gets valid
+        # credentials. The old reactive HTTPBasicAuthHandler only reacted to a 401,
+        # so such servers failed the pre-check even with correct auth (ARC-34). The
+        # shared retry also rides out transient discovery faults, as OAPIF already
+        # does (ARC-64).
+        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
+        headers["Authorization"] = f"Basic {token}"
+    request = urllib.request.Request(url, headers=headers)
     try:
-        with opener.open(url, timeout=timeout) as resp:
-            payload = resp.read()
+        payload = http_get_with_retry(request, timeout)
+    except urllib.error.HTTPError as exc:
+        raise WFSError(
+            f"WFS GetCapabilities request failed for {endpoint!r}: "
+            f"HTTP {exc.code} {http_error_detail(exc)}"
+        ) from exc
     except OSError as exc:
-        # urllib.error.URLError / HTTPError both derive from OSError.
+        # urllib.error.URLError and other transport errors derive from OSError.
         raise WFSError(
             f"WFS GetCapabilities request failed for {endpoint!r}: {exc}"
         ) from exc
