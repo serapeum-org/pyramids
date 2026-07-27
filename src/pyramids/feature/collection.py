@@ -143,6 +143,36 @@ def _require_pyarrow() -> None:
     )
 
 
+def _compact(mapping: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of `mapping` with the ``None``-valued entries removed (ARC-72).
+
+    Read filters are passed to geopandas/pyogrio only when supplied — passing the
+    unset defaults (`None`) is fine for some engines but confuses others. Callers
+    build the full mapping and hand it here instead of repeating a per-key
+    ``if v is not None: kw[k] = v`` block.
+    """
+    return {key: value for key, value in mapping.items() if value is not None}
+
+
+def _import_dask_geopandas():
+    """Import and return ``dask_geopandas`` or raise a pyramids-branded ImportError (ARC-72).
+
+    Centralises the ``backend='dask'`` optional-dependency check that
+    :meth:`FeatureCollection.read_file` and :meth:`FeatureCollection.read_parquet`
+    both need, so the install instruction lives in one place.
+    """
+    try:
+        import dask_geopandas
+    except ImportError as exc:
+        raise ImportError(
+            "backend='dask' requires the optional "
+            "'dask-geopandas' dependency. Install with one of:\n"
+            "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
+            "  - conda-forge: conda install -c conda-forge pyramids-parquet"
+        ) from exc
+    return dask_geopandas
+
+
 # module-level LRU cache backing `FeatureCollection.list_layers`.
 # Keyed on the already-resolved `str` path (post `_parse_path`). The
 # tuple return type plays nicely with `functools.lru_cache` (lists are
@@ -1119,15 +1149,7 @@ class FeatureCollection(GeoDataFrame):
                     "filter post-load via .clip / .loc / .compute, or "
                     "switch to read_parquet(backend='dask', filters=...)"
                 )
-            try:
-                import dask_geopandas
-            except ImportError as exc:
-                raise ImportError(
-                    "backend='dask' requires the optional "
-                    "'dask-geopandas' dependency. Install with one of:\n"
-                    "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-                    "  - conda-forge: conda install -c conda-forge pyramids-parquet"
-                ) from exc
+            dask_geopandas = _import_dask_geopandas()
             # default npartitions from file size when neither
             # kwarg was supplied; one-partition fallback defeats the
             # point of going lazy.
@@ -1144,22 +1166,18 @@ class FeatureCollection(GeoDataFrame):
             return LazyFeatureCollection.from_dask_gdf(dask_gdf)
         if backend != "pandas":
             raise ValueError(f"backend must be 'pandas' or 'dask', got {backend!r}")
-        # Only pass kwargs that were actually supplied — passing the
-        # defaults (None) is fine for some geopandas engines but
-        # confuses others. Build a clean kwargs dict.
-        passthrough: dict[str, Any] = {}
-        if layer is not None:
-            passthrough["layer"] = layer
-        if bbox is not None:
-            passthrough["bbox"] = bbox
-        if mask is not None:
-            passthrough["mask"] = mask
-        if rows is not None:
-            passthrough["rows"] = rows
-        if columns is not None:
-            passthrough["columns"] = columns
-        if where is not None:
-            passthrough["where"] = where
+        # Only pass kwargs that were actually supplied — passing the unset
+        # defaults (None) confuses some geopandas engines (ARC-72).
+        passthrough = _compact(
+            {
+                "layer": layer,
+                "bbox": bbox,
+                "mask": mask,
+                "rows": rows,
+                "columns": columns,
+                "where": where,
+            }
+        )
         passthrough.update(kwargs)
         gdf = gpd.read_file(resolved, **passthrough)
         return cls(gdf)
@@ -1363,6 +1381,15 @@ class FeatureCollection(GeoDataFrame):
             f"columns={self.columns.tolist()}, epsg={self.epsg})"
         )
 
+    def _geom_types(self) -> set[str]:
+        """Return the distinct non-null geometry-type names present (ARC-72).
+
+        One place for the "what geometry types are in this frame" inspection that
+        `schema`, the rasterize guard and the vector-field classifier each did a
+        slightly different way. `None` geometries are ignored.
+        """
+        return set(self.geom_type.dropna().unique())
+
     @property
     def schema(self) -> dict:
         """Fiona-style schema: geometry type + field-type dict.
@@ -1439,7 +1466,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        geom_types = {g.geom_type for g in self.geometry if g is not None}
+        geom_types = self._geom_types()
         if len(geom_types) == 1:
             (geom_type,) = geom_types
         else:
@@ -2038,26 +2065,16 @@ class FeatureCollection(GeoDataFrame):
         # check deps in order of specificity — the backend request is the more
         # specific signal, so the dask-geopandas hint beats the generic pyarrow
         # one. When both are missing, this error names the extra ([parquet]).
-        try:
-            import dask_geopandas
-        except ImportError as exc:
-            raise ImportError(
-                "backend='dask' requires the optional "
-                "'dask-geopandas' dependency. Install with one of:\n"
-                "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-                "  - conda-forge: conda install -c conda-forge pyramids-parquet"
-            ) from exc
-        dask_kwargs: dict[str, Any] = {}
-        if columns is not None:
-            dask_kwargs["columns"] = columns
-        if split_row_groups is not None:
-            dask_kwargs["split_row_groups"] = split_row_groups
-        if filters is not None:
-            dask_kwargs["filters"] = filters
-        if blocksize is not None:
-            dask_kwargs["blocksize"] = blocksize
-        if storage_options is not None:
-            dask_kwargs["storage_options"] = storage_options
+        dask_geopandas = _import_dask_geopandas()
+        dask_kwargs = _compact(
+            {
+                "columns": columns,
+                "split_row_groups": split_row_groups,
+                "filters": filters,
+                "blocksize": blocksize,
+                "storage_options": storage_options,
+            }
+        )
         dask_kwargs.update(extra_kwargs)
         # dask_geopandas is installed → assert pyarrow too, so the user gets the
         # pyramids-branded hint (not the upstream message). `[parquet]` pulls both.
@@ -2825,7 +2842,7 @@ class FeatureCollection(GeoDataFrame):
                 f"Column {column!r} not found; available columns: {list(self.columns)}."
             )
         values = self[column].to_numpy() if column is not None else None
-        geom_types = set(self.geom_type.unique())
+        geom_types = self._geom_types()
         if geom_types <= {"Point"}:
             glyph = self._cleopatra_scatter_glyph(values, **kwargs)
         elif geom_types <= {"Polygon", "MultiPolygon"}:
@@ -3117,7 +3134,7 @@ class FeatureCollection(GeoDataFrame):
         Raises:
             InvalidGeometryError: If the collection holds any non-``Point`` geometry (or is empty).
         """
-        geom_types = sorted(set(self.geom_type.dropna().unique()))
+        geom_types = sorted(self._geom_types())
         if geom_types != ["Point"]:
             raise InvalidGeometryError(
                 f"{op}: requires all-Point geometries, got {geom_types or 'an empty collection'}"
