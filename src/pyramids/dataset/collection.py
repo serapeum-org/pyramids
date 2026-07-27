@@ -274,6 +274,10 @@ def _append_region(
 
     root = zarr.open_group(resolved_store, mode="a")
     arr = root["data"]
+    if not isinstance(
+        arr, zarr.Array
+    ):  # to_zarr writes 'data' as an Array, not a Group
+        raise TypeError(f"expected a zarr Array at 'data' in {resolved_store!r}")
     arr.resize((new_total, *arr.shape[1:]))
     try:
         arr[slices] = np.asarray(data)
@@ -861,11 +865,15 @@ class DatasetCollection:
             no_data_value=src.no_data_value[0],
         )
 
-    def _require_files(self, method: str) -> None:
+    def _require_files(self, method: str) -> list[str]:
         """Guard a method that needs a file-backed collection.
 
         Args:
             method: The public method name, interpolated into the error message.
+
+        Returns:
+            list[str]: The collection's non-empty ``files`` list (also narrows the
+            type for the caller).
 
         Raises:
             RuntimeError: The collection has no ``files`` list (a legacy in-memory
@@ -877,6 +885,7 @@ class DatasetCollection:
                 f"DatasetCollection.{method} requires a file-backed collection. "
                 "Use DatasetCollection.from_files(...) to construct one."
             )
+        return self._files
 
     def mean(self, *, skipna: bool = True) -> np.typing.NDArray:
         """Element-wise mean across the time axis.
@@ -1002,14 +1011,14 @@ class DatasetCollection:
             ImportError: When kerchunk is not installed.
             RuntimeError: When the collection has no files list.
         """
-        self._require_files("to_kerchunk")
+        files = self._require_files("to_kerchunk")
         # current backend only handles HDF5 / NetCDF. Detect
         # GeoTIFF inputs and raise a clear NotImplementedError rather
         # than letting kerchunk.hdf produce a confusing failure mode.
         geotiff_exts = {".tif", ".tiff", ".cog"}
         geotiff_files = [
             p
-            for p in self._files
+            for p in files
             if any(str(p).lower().endswith(ext) for ext in geotiff_exts)
         ]
         if geotiff_files:
@@ -1023,7 +1032,7 @@ class DatasetCollection:
         from pyramids.netcdf._kerchunk_facade import combine_kerchunk
 
         return combine_kerchunk(
-            self._files,
+            files,
             output_path,
             concat_dims=(concat_dim,),
             identical_dims=(),
@@ -1079,7 +1088,7 @@ class DatasetCollection:
                 installed.
             RuntimeError: When the collection has no files list.
         """
-        self._require_files("to_zarr")
+        files = self._require_files("to_zarr")
         import_zarr(
             lazy_extra_hint(
                 "DatasetCollection.to_zarr requires the optional 'zarr' dependency."
@@ -1118,7 +1127,7 @@ class DatasetCollection:
             **codec_kwargs,
         )
         if compute:
-            _finalize_collection_metadata(resolved_store, self._meta, self._files)
+            _finalize_collection_metadata(resolved_store, self._meta, files)
             result: Any = None
         else:
             import dask
@@ -1127,7 +1136,7 @@ class DatasetCollection:
                 write_result,
                 resolved_store,
                 self._meta,
-                self._files,
+                files,
             )
         return result
 
