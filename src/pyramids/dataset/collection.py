@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from pyramids import _io
-from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
 from pyramids.base._utils import (
@@ -259,12 +259,28 @@ def _finalize_append_metadata(
         zarr.consolidate_metadata(resolved_store)
 
 
-def _finalize_append_after_write(
-    data_result, resolved_store, new_time_length, added_files
+def _append_region(
+    data, resolved_store, old_t: int, new_total: int, slices, added_files
 ) -> None:
-    """Run :func:`_finalize_append_metadata` after the appended data write."""
-    del data_result
-    _finalize_append_metadata(resolved_store, new_time_length, added_files)
+    """Atomically grow, write, and finalize a zarr time-append (ARC-75a).
+
+    The deferred (``compute=False``) append routes through this single task so the
+    store's ``data`` shape only grows when the append actually runs; on any failure
+    the resize is rolled back, so the store never advertises a larger shape than it
+    holds. ``data`` (one collection's block) is materialised here before the write.
+    Module-level so the :func:`dask.delayed` graph can pickle it.
+    """
+    import zarr
+
+    root = zarr.open_group(resolved_store, mode="a")
+    arr = root["data"]
+    arr.resize((new_total, *arr.shape[1:]))
+    try:
+        arr[slices] = np.asarray(data)
+        _finalize_append_metadata(resolved_store, new_total, added_files)
+    except Exception:
+        arr.resize((old_t, *arr.shape[1:]))
+        raise
 
 
 def _region_to_slices(region: dict, ndim: int) -> tuple:
@@ -1142,20 +1158,26 @@ class DatasetCollection:
             )
         old_t = int(existing.shape[0])
         new_total = old_t + int(data.shape[0])
-        existing.resize((new_total, *existing.shape[1:]))
         slices = (slice(old_t, new_total),) + (slice(None),) * (data.ndim - 1)
-        # dask's region write targets the zarr.Array directly (not store+component).
-        write_result = data.to_zarr(
-            existing,
-            region=slices,
-            overwrite=False,
-            compute=compute,
-        )
+
         if compute:
-            _finalize_append_metadata(resolved_store, new_total, self._files)
+            # Grow the time axis, stream the append, then finalize. On any failure
+            # roll the resize back so the store never advertises a larger shape than
+            # it holds (ARC-75a). dask's region write targets the zarr.Array directly.
+            existing.resize((new_total, *existing.shape[1:]))
+            try:
+                data.to_zarr(existing, region=slices, overwrite=False, compute=True)
+                _finalize_append_metadata(resolved_store, new_total, self._files)
+            except Exception:
+                existing.resize((old_t, *existing.shape[1:]))
+                raise
             return None
-        return dask.delayed(_finalize_append_after_write)(
-            write_result, resolved_store, new_total, self._files
+
+        # compute=False: defer the resize+write+finalize into one delayed so the
+        # store's shape only grows when the append actually runs (rolling back on
+        # failure) — no window where a grown-but-empty store is visible (ARC-75a).
+        return dask.delayed(_append_region)(
+            data, resolved_store, old_t, new_total, slices, self._files
         )
 
     def to_netcdf(
@@ -1590,6 +1612,7 @@ class DatasetCollection:
         *,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
+        validate: bool = False,
     ) -> DatasetCollection:
         """Build a collection from a list of files without pre-opening all.
 
@@ -1608,6 +1631,12 @@ class DatasetCollection:
                 files, including the eager template open below. Persisted
                 on the collection for the lazy read paths. `None` (default)
                 installs no extra config.
+            validate: When `True`, open every file's header (no pixel read) and check
+                its `(band, rows, cols)` shape and dtype against the template — a
+                heterogeneous file raises `AlignmentError` at construction instead of
+                silently corrupting the lazy cube (whose dask assembly trusts the
+                first file's shape/dtype). Defaults to `False`, preserving the lazy
+                "only open the first file" design.
 
         Returns:
             DatasetCollection: A new collection whose `time_length`
@@ -1615,6 +1644,8 @@ class DatasetCollection:
 
         Raises:
             ValueError: When `files` is empty.
+            AlignmentError: When `validate=True` and a file's header does not match
+                the template's shape/dtype.
         """
         resolved = [str(p) for p in files]
         if not resolved:
@@ -1627,9 +1658,43 @@ class DatasetCollection:
             template = Dataset.read_file(resolved[0], gdal_env=gdal_env)
             if meta is None:
                 meta = RasterMeta.from_dataset(template)
+        if validate:
+            cls._validate_headers(resolved, meta, gdal_env)
         return cls(
             template, len(resolved), files=resolved, meta=meta, gdal_env=gdal_env
         )
+
+    @staticmethod
+    def _validate_headers(
+        files: list[str], meta: RasterMeta, gdal_env: dict[str, str] | None
+    ) -> None:
+        """Check every file's ``(band, rows, cols)`` shape and dtype match ``meta``.
+
+        Reads each file's header only (no pixels) and raises :class:`AlignmentError`
+        on the first mismatch, naming the offending path — so a heterogeneous input
+        fails at construction instead of silently corrupting the lazy cube (the dask
+        assembly trusts the first file's shape/dtype). Opt-in via
+        ``from_files(validate=True)`` because it touches every file.
+
+        Raises:
+            AlignmentError: A file's header does not match ``meta``.
+        """
+        expected = (meta.shape, str(np.dtype(meta.dtype)))
+        with cloud_config_from_env(gdal_env):
+            for path in files:
+                ds = Dataset.read_file(path, gdal_env=gdal_env)
+                try:
+                    file_meta = RasterMeta.from_dataset(ds)
+                finally:
+                    ds.close()
+                got = (file_meta.shape, str(np.dtype(file_meta.dtype)))
+                if got != expected:
+                    raise AlignmentError(
+                        f"header mismatch in {path!r}: shape/dtype {got[0]}/{got[1]} "
+                        f"does not match the collection template "
+                        f"{expected[0]}/{expected[1]}. All files in a "
+                        f"DatasetCollection must share (band, rows, cols) and dtype."
+                    )
 
     @classmethod
     def from_zarr(
