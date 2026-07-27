@@ -45,6 +45,7 @@ from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
     from cleopatra.array_glyph import ArrayGlyph
+    from dask.delayed import Delayed
 
 
 class _GroupedCollection:
@@ -2847,7 +2848,7 @@ class DatasetCollection:
         inplace: bool = False,
         *,
         compute: bool = True,
-    ) -> DatasetCollection | None | Any:
+    ) -> DatasetCollection | None | Delayed:
         """Reproject every timestep to a target CRS.
 
         Args:
@@ -3021,7 +3022,7 @@ class DatasetCollection:
 
     def align(
         self, alignment_src: Dataset, inplace: bool = False, *, compute: bool = True
-    ) -> DatasetCollection | None | Any:
+    ) -> DatasetCollection | None | Delayed:
         """Align every timestep to `alignment_src`.
 
         Matches the coordinate system, the number of rows and columns,
@@ -3107,7 +3108,7 @@ class DatasetCollection:
 
     def _apply_operator(
         self, per_step: Any, *, inplace: bool, compute: bool
-    ) -> DatasetCollection | None | Any:
+    ) -> DatasetCollection | None | Delayed:
         """Apply a per-timestep reproject/align op, eagerly or as a deferred graph.
 
         ``per_step(ds, compute)`` returns a :class:`~pyramids.dataset.Dataset` when
