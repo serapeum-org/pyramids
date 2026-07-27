@@ -1,21 +1,23 @@
-"""I/O reader engine for :class:`~pyramids.feature.FeatureCollection` (ARC-36).
+"""Input / constructor engine for :class:`~pyramids.feature.FeatureCollection` (ARC-36).
 
-Module-level implementations of the collection's readers, kept out of the
-god-class as free functions that take the `FeatureCollection` class (`fc_cls`) or a
-collection (`fc`) as their first argument. The `FeatureCollection` reader methods
-are thin facades over these functions; the full docstrings/doctests stay on the
-facades (the public API).
+Module-level implementations of every way to *build* a FeatureCollection, kept out
+of the god-class as free functions that take the `FeatureCollection` class (`fc_cls`)
+or a collection (`fc`) as their first argument. The `FeatureCollection` methods are
+thin facades over these functions; the full docstrings/doctests stay on the facades
+(the public API). The symmetric output side lives in :mod:`pyramids.feature._write`.
 
 Covers layer listing (with its LRU cache), the web readers (ArcGIS FeatureServer
-pagination, GPX sub-layers), and the file readers (vector files, GeoParquet, the
+pagination, GPX sub-layers), the file readers (vector files, GeoParquet, the
 streaming ``iter_features`` / ``open_arrow`` paths) plus the eager/lazy backend
-dispatch shared by ``read_file`` and ``read_parquet``. The web readers call back
-through the `fc_cls` facades (`fc_cls.read_file`, `fc_cls._read_featureserver_page`)
-so existing tests that monkeypatch those class methods still intercept.
+dispatch shared by ``read_file`` and ``read_parquet``, and the in-memory
+constructors (``from_features``, ``from_bbox``, ``from_records``). The web readers
+call back through the `fc_cls` facades (`fc_cls.read_file`,
+`fc_cls._read_featureserver_page`) so existing tests that monkeypatch those class
+methods still intercept.
 
 ``_LAZY_TARGET_BYTES_PER_PARTITION`` is the tunable knob behind
 :func:`_resolve_lazy_partitioning`; :func:`pyramids.configure_lazy_vector` patches it
-here (the reader engine owns it).
+here (the input engine owns it).
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from __future__ import annotations
 import math
 import os
 import warnings
+from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -33,6 +36,7 @@ import pandas as pd
 from shapely.geometry import box
 
 from pyramids import _io as _pyramids_io
+from pyramids.base._errors import FeatureError
 from pyramids.base._utils import import_pyarrow
 from pyramids.base.remote import is_remote
 
@@ -498,3 +502,87 @@ def read_parquet(
         passthrough["storage_options"] = storage_options
     gdf = gpd.read_parquet(resolved, **passthrough)
     return fc_cls(gdf)
+
+
+def from_features(fc_cls: type, features: Iterable[Any], *, crs: Any = None, columns: list[str] | None = None) -> Any:
+    """Build an FC from feature-shaped inputs (see FeatureCollection.from_features)."""
+    # Materialise the iterator so we can detect the empty case before handing off
+    # to geopandas: gpd.from_features([]) returns a GeoDataFrame with no geometry
+    # column, which breaks every pyramids op that assumes the column exists.
+    features_list = list(features)
+    if not features_list:
+        raise ValueError(
+            "from_features requires at least one feature. An empty "
+            "iterable would produce a GeoDataFrame with no geometry "
+            "column, which breaks downstream pyramids methods."
+        )
+    gdf = gpd.GeoDataFrame.from_features(features_list, crs=crs, columns=columns)
+    return fc_cls(gdf)
+
+
+def from_bbox(fc_cls: type, bbox: tuple[float, float, float, float] | list[float], *, epsg: Any) -> Any:
+    """Build a one-row FC from a (west, south, east, north) bbox (see FeatureCollection.from_bbox)."""
+    if epsg is None:
+        raise ValueError(
+            "from_bbox requires an explicit epsg= for the bbox CRS; "
+            "a bbox without a CRS is ambiguous"
+        )
+    try:
+        seq = list(bbox)
+    except TypeError as exc:
+        raise ValueError(
+            f"bbox must be a 4-element (west, south, east, north) sequence; got {bbox!r}"
+        ) from exc
+    if len(seq) != 4:
+        raise ValueError(
+            f"bbox must have exactly 4 elements (west, south, east, north); got {len(seq)}: {seq!r}"
+        )
+    try:
+        w, s, e, n = (float(v) for v in seq)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"bbox elements must be numbers; got {seq!r}") from exc
+    # NaN slips past the ordering checks below (nan >= x is False), so reject it
+    # explicitly — e.g. an empty frame's all-NaN total_bounds.
+    if any(math.isnan(v) for v in (w, s, e, n)):
+        raise ValueError(f"bbox coordinates must not be NaN; got {seq!r}")
+    if w >= e:
+        raise ValueError(f"bbox must satisfy west < east; got west={w}, east={e}")
+    if s >= n:
+        raise ValueError(f"bbox must satisfy south < north; got south={s}, north={n}")
+    return fc_cls(geometry=[box(w, s, e, n)], crs=epsg)
+
+
+def from_records(
+    fc_cls: type, records: Any, *, geometry: str = "geometry", crs: Any = None, orient: str = "records"
+) -> Any:
+    """Build an FC from dict records or a columnar dict (see FeatureCollection.from_records)."""
+
+    def _empty_fc() -> Any:
+        # Both empty-input branches build a single-column frame whose column name
+        # matches the geometry= kwarg, so GeoDataFrame(..., geometry=…) sets it as
+        # the active geometry column and the returned FC has geometry.name == geometry.
+        return fc_cls(gpd.GeoDataFrame({geometry: []}, geometry=geometry, crs=crs))
+
+    if orient == "records":
+        records_list = list(records)
+        if not records_list:
+            return _empty_fc()
+        df = pd.DataFrame.from_records(records_list)
+    elif orient == "list":
+        # Columnar dict of equal-length lists. pd.DataFrame accepts this shape
+        # natively and raises ValueError on mismatched lengths (propagated as-is).
+        if not isinstance(records, dict):
+            raise ValueError(
+                f"orient='list' expects a dict of column → list; got {type(records).__name__}."
+            )
+        df = pd.DataFrame(records)
+        if len(df) == 0:
+            return _empty_fc()
+    else:
+        raise ValueError(f"orient must be 'records' or 'list'; got {orient!r}.")
+    if geometry not in df.columns:
+        raise FeatureError(
+            f"records missing required geometry column {geometry!r}; "
+            f"columns present: {list(df.columns)}"
+        )
+    return fc_cls(gpd.GeoDataFrame(df, geometry=geometry, crs=crs))

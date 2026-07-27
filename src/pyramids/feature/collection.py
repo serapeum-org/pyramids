@@ -24,7 +24,6 @@ internal only; see :mod:`pyramids.feature._ogr`.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Iterable, Iterator
 from numbers import Number
 from pathlib import Path
@@ -43,7 +42,6 @@ from shapely.geometry import box
 
 from pyramids.base._errors import (
     CRSError,
-    FeatureError,
     InvalidGeometryError,
 )
 from pyramids.base._utils import Catalog
@@ -329,19 +327,8 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        # materialise an iterator so we can detect the empty case
-        # before handing off to geopandas. `geopandas.from_features([])`
-        # returns a GeoDataFrame with no `geometry` column, which
-        # breaks every pyramids op that assumes the column exists.
-        features_list = list(features)
-        if not features_list:
-            raise ValueError(
-                "from_features requires at least one feature. An empty "
-                "iterable would produce a GeoDataFrame with no geometry "
-                "column, which breaks downstream pyramids methods."
-            )
-        gdf = gpd.GeoDataFrame.from_features(features_list, crs=crs, columns=columns)
-        return cls(gdf)
+        return _read.from_features(cls, features, crs=crs, columns=columns)
+
 
     @classmethod
     def from_bbox(
@@ -427,38 +414,8 @@ class FeatureCollection(GeoDataFrame):
               ``bbox=`` / ``epsg=`` directly and routes through this helper.
             - :meth:`pyramids.dataset.engines.io.IO.read_array`: same.
         """
-        if epsg is None:
-            raise ValueError(
-                "from_bbox requires an explicit epsg= for the bbox CRS; "
-                "a bbox without a CRS is ambiguous"
-            )
-        try:
-            seq = list(bbox)
-        except TypeError as exc:
-            raise ValueError(
-                f"bbox must be a 4-element (west, south, east, north) sequence; "
-                f"got {bbox!r}"
-            ) from exc
-        if len(seq) != 4:
-            raise ValueError(
-                f"bbox must have exactly 4 elements (west, south, east, north); "
-                f"got {len(seq)}: {seq!r}"
-            )
-        try:
-            w, s, e, n = (float(v) for v in seq)
-        except (TypeError, ValueError) as exc:
-            raise TypeError(f"bbox elements must be numbers; got {seq!r}") from exc
-        # NaN slips past the ordering checks below (nan >= x is False), so reject it
-        # explicitly — e.g. an empty frame's all-NaN ``total_bounds``.
-        if any(math.isnan(v) for v in (w, s, e, n)):
-            raise ValueError(f"bbox coordinates must not be NaN; got {seq!r}")
-        if w >= e:
-            raise ValueError(f"bbox must satisfy west < east; got west={w}, east={e}")
-        if s >= n:
-            raise ValueError(
-                f"bbox must satisfy south < north; got south={s}, north={n}"
-            )
-        return cls(geometry=[box(w, s, e, n)], crs=epsg)
+        return _read.from_bbox(cls, bbox, epsg=epsg)
+
 
     @classmethod
     def fishnet(
@@ -601,41 +558,9 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-
-        # empty-input branches both build a single-column frame
-        # whose column name matches the `geometry=` kwarg, so
-        # `GeoDataFrame(..., geometry=…)` sets it as the active
-        # geometry column and the returned FC has
-        # `geometry.name == geometry`.
-        def _empty_fc() -> FeatureCollection:
-            return cls(gpd.GeoDataFrame({geometry: []}, geometry=geometry, crs=crs))
-
-        if orient == "records":
-            records_list = list(records)
-            if not records_list:
-                return _empty_fc()
-            df = pd.DataFrame.from_records(records_list)
-        elif orient == "list":
-            # columnar dict of equal-length lists. Straight into
-            # `pd.DataFrame` which accepts this shape natively and
-            # raises `ValueError` on mismatched lengths (propagated
-            # to the caller as-is — the pandas message is already clear).
-            if not isinstance(records, dict):
-                raise ValueError(
-                    f"orient='list' expects a dict of column → list; "
-                    f"got {type(records).__name__}."
-                )
-            df = pd.DataFrame(records)
-            if len(df) == 0:
-                return _empty_fc()
-        else:
-            raise ValueError(f"orient must be 'records' or 'list'; got {orient!r}.")
-        if geometry not in df.columns:
-            raise FeatureError(
-                f"records missing required geometry column {geometry!r}; "
-                f"columns present: {list(df.columns)}"
-            )
-        return cls(gpd.GeoDataFrame(df, geometry=geometry, crs=crs))
+        return _read.from_records(
+            cls, records, geometry=geometry, crs=crs, orient=orient,
+        )
 
     _VALID_TILE_STRATEGIES: tuple[str, ...] = (
         "auto",
