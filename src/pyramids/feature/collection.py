@@ -43,20 +43,18 @@ import numpy as np
 import pandas as pd
 from geopandas import GeoDataFrame
 from osgeo import gdal, ogr
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import box
 
 from pyramids import _io as _pyramids_io
 from pyramids.base._errors import (
     CRSError,
     FeatureError,
-    GeometryWarning,
     InvalidGeometryError,
 )
-from pyramids.base._utils import Catalog, import_pyarrow, require_cleopatra
+from pyramids.base._utils import Catalog, import_pyarrow
 from pyramids.base.remote import is_remote
-from pyramids.basemap.basemap import add_basemap
 from pyramids.feature import _analysis
-from pyramids.feature import _h3
+from pyramids.feature import _plot
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
 from pyramids.feature._oapif import from_ogc_features as _from_ogc_features
@@ -2791,25 +2789,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        if engine == "geopandas":
-            result = super().plot(column=column, **kwargs)
-            ax = result
-        elif engine == "cleopatra":
-            result, ax = self._plot_cleopatra(column=column, **kwargs)
-        else:
-            raise ValueError(
-                f"Unsupported engine {engine!r}; choose 'geopandas' or 'cleopatra'."
-            )
-
-        if basemap:
-            if self.epsg is None:
-                raise CRSError(
-                    "FeatureCollection must have a CRS (epsg) to use basemap."
-                )
-            source = basemap if isinstance(basemap, str) else None
-            add_basemap(ax, crs=self.epsg, source=source)
-
-        return result
+        return _plot.plot(self, column=column, basemap=basemap, engine=engine, **kwargs)
 
     def _plot_cleopatra(self, column: str | None = None, **kwargs: Any):
         """Render via cleopatra ``PolygonGlyph``/``ScatterGlyph``.
@@ -2838,26 +2818,7 @@ class FeatureCollection(GeoDataFrame):
                 the geometry is neither all single-``Point`` nor all-polygon
                 (``MultiPoint`` is not supported).
         """
-        require_cleopatra()
-
-        if column is not None and column not in self.columns:
-            raise ValueError(
-                f"Column {column!r} not found; available columns: {list(self.columns)}."
-            )
-        values = self[column].to_numpy() if column is not None else None
-        geom_types = self._geom_types()
-        if geom_types <= {"Point"}:
-            glyph = self._cleopatra_scatter_glyph(values, **kwargs)
-        elif geom_types <= {"Polygon", "MultiPolygon"}:
-            glyph = self._cleopatra_polygon_glyph(values, **kwargs)
-        else:
-            raise ValueError(
-                "engine='cleopatra' supports single Point or "
-                "Polygon/MultiPolygon geometries; got "
-                f"{sorted(geom_types)} (MultiPoint is not supported)."
-            )
-        _fig, ax, _coll = glyph.plot()
-        return glyph, ax
+        return _plot.plot_cleopatra(self, column=column, **kwargs)
 
     def _cleopatra_scatter_glyph(self, values: Any, **kwargs: Any) -> Any:
         """Build a ``ScatterGlyph`` from this collection's point geometries.
@@ -2869,15 +2830,7 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             cleopatra.scatter_glyph.ScatterGlyph: The point glyph.
         """
-        require_cleopatra()
-        from cleopatra.scatter_glyph import ScatterGlyph
-
-        return ScatterGlyph(
-            self.geometry.x.to_numpy(),
-            self.geometry.y.to_numpy(),
-            values=values,
-            **ScatterGlyph.filter_kwargs(kwargs),
-        )
+        return _plot.scatter_glyph(self, values, **kwargs)
 
     def _cleopatra_polygon_glyph(self, values: Any, **kwargs: Any) -> Any:
         """Build a ``PolygonGlyph`` from polygon exterior rings.
@@ -2895,32 +2848,7 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             cleopatra.polygon_glyph.PolygonGlyph: The polygon glyph.
         """
-        require_cleopatra()
-        from cleopatra.polygon_glyph import PolygonGlyph
-
-        polygons: list = []
-        poly_values: list | None = [] if values is not None else None
-        has_holes = False
-        for idx, geom in enumerate(self.geometry):
-            # A plain Polygon has no ``.geoms``; a MultiPolygon does.
-            for part in getattr(geom, "geoms", [geom]):
-                polygons.append(np.asarray(part.exterior.coords))
-                has_holes = has_holes or bool(part.interiors)
-                if poly_values is not None:
-                    poly_values.append(values[idx])
-        if has_holes:
-            warnings.warn(
-                "engine='cleopatra' renders only polygon exterior rings; "
-                "interior rings (holes) are dropped and will appear "
-                "filled. Use engine='geopandas' to render holes.",
-                GeometryWarning,
-                stacklevel=2,
-            )
-        return PolygonGlyph(
-            polygons,
-            values=np.asarray(poly_values) if poly_values is not None else None,
-            **PolygonGlyph.filter_kwargs(kwargs),
-        )
+        return _plot.polygon_glyph(self, values, **kwargs)
 
     def concat(self, other: GeoDataFrame) -> FeatureCollection:
         """Concatenate another GeoDataFrame onto this FeatureCollection.

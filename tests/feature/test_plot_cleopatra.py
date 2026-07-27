@@ -147,7 +147,7 @@ class TestFeatureCollectionCleopatraEngine:
                 crs="EPSG:4326",
             )
         )
-        with patch("pyramids.feature.collection.add_basemap") as mock_add:
+        with patch("pyramids.feature._plot.add_basemap") as mock_add:
             glyph = fc.plot(column="v", engine="cleopatra", basemap=True)
         assert isinstance(glyph, ScatterGlyph)
         mock_add.assert_called_once()
