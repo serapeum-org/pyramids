@@ -18,6 +18,10 @@ matching pyramids/pandas reader and returns the most natural object:
 Detection uses magic bytes + extension only — no `python-magic` dependency. The
 CKAN/HDX API client itself stays in the consumer; this module is the generic
 format-detection + dispatch primitive.
+
+Detection itself lives in :mod:`pyramids._resource`, which both public readers
+share; this module is the dispatch adapter over it and owns no format table of
+its own. Add new formats to `_resource._EXT_TO_FORMAT` / `_MAGIC_TO_FORMAT`.
 """
 
 from __future__ import annotations
@@ -28,55 +32,21 @@ from typing import Any
 
 import pandas as pd
 
+from pyramids._resource import _EXT_TO_FORMAT, _read_tabular, sniff_format
 from pyramids.base._artifacts import artifact_dir
 from pyramids.base._utils import import_pyarrow
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
 
-_EXT_FORMAT: dict[str, str] = {
-    ".shp": "shp",
-    ".gpkg": "gpkg",
-    ".geojson": "geojson",
-    ".json": "geojson",
-    ".csv": "csv",
-    ".parquet": "parquet",
-    ".pq": "parquet",
-    ".nc": "nc",
-    ".nc4": "nc",
-    ".cdf": "nc",
-    ".tif": "tif",
-    ".tiff": "tif",
-    ".grib": "grib",
-    ".grib2": "grib",
-    ".grb": "grib",
-    ".grb2": "grib",
-    ".zip": "zip",
-}
-
 _VECTOR_FORMATS = frozenset({"shp", "gpkg", "geojson"})
-# Data extensions a ZIP may wrap and that `_load_zip` re-dispatches to a reader.
-# Kept in sync with the data formats in `_EXT_FORMAT` (everything except the
-# ``.zip`` archive container itself).
+_TABULAR_FORMATS = frozenset({"csv", "excel"})
+# Data extensions a ZIP may wrap and that `_load_zip` re-dispatches to a reader:
+# every extension the shared table knows except the archive container itself.
+# Derived rather than restated, so a format added to `_EXT_TO_FORMAT` is picked
+# up here automatically instead of silently falling through to raw bytes.
 _PRIMARY_EXTS = frozenset(
-    {
-        ".shp",
-        ".gpkg",
-        ".geojson",
-        ".json",
-        ".csv",
-        ".parquet",
-        ".pq",
-        ".tif",
-        ".tiff",
-        ".nc",
-        ".nc4",
-        ".cdf",
-        ".grib",
-        ".grib2",
-        ".grb",
-        ".grb2",
-    }
+    ext for ext, fmt in _EXT_TO_FORMAT.items() if fmt != "zip"
 )
 _PARQUET_EXTRA_HINT = (
     "Reading Parquet requires the optional 'pyarrow' dependency. Install with one of:\n"
@@ -84,69 +54,6 @@ _PARQUET_EXTRA_HINT = (
     "  - conda-forge: conda install -c conda-forge pyramids-parquet"
 )
 
-
-def sniff_format(path: str | Path) -> str:
-    """Classify a file's format from its magic bytes, then its extension.
-
-    Magic-byte detection (ZIP, TIFF, HDF5/NetCDF, Parquet, GeoPackage/SQLite)
-    takes precedence over the extension, so a mis-named resource is still
-    classified correctly. No `python-magic` dependency.
-
-    Args:
-        path: Path to a local file.
-
-    Returns:
-        A normalised format string: one of `"shp"`, `"gpkg"`,
-        `"geojson"`, `"csv"`, `"parquet"`, `"nc"`, `"tif"`,
-        `"grib"`, `"zip"`, or `"unknown"`.
-
-    Examples:
-        - A GeoTIFF is detected from its `II*\\0` / `MM\\0*` magic bytes:
-            ```python
-            >>> from pyramids.io import sniff_format
-            >>> sniff_format("tests/data/geotiff/era5_land_monthly_averaged.tif")
-            'tif'
-
-            ```
-        - A NetCDF file is detected (HDF5 or classic-CDF magic):
-            ```python
-            >>> sniff_format("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc")
-            'nc'
-
-            ```
-        - An unknown / missing file is reported as `"unknown"`:
-            ```python
-            >>> sniff_format("does-not-exist.bin")
-            'unknown'
-
-            ```
-    """
-    p = Path(path)
-    head = b""
-    try:
-        with open(p, "rb") as handle:
-            head = handle.read(16)
-    except OSError:
-        head = b""
-
-    result = "unknown"
-    if head.startswith(b"PK\x03\x04"):
-        result = "zip"
-    elif head[:4] in (b"II*\x00", b"MM\x00*"):
-        result = "tif"
-    elif head.startswith(b"\x89HDF"):
-        result = "nc"
-    elif head[:3] == b"CDF":
-        result = "nc"
-    elif head.startswith(b"GRIB"):
-        result = "grib"
-    elif head.startswith(b"PAR1"):
-        result = "parquet"
-    elif head.startswith(b"SQLite format 3"):
-        result = "gpkg"
-    elif p.suffix.lower() in _EXT_FORMAT:
-        result = _EXT_FORMAT[p.suffix.lower()]
-    return result
 
 
 def _load_parquet(path: Path) -> FeatureCollection | pd.DataFrame:
@@ -266,8 +173,11 @@ def load_resource(
 
     if fmt in _VECTOR_FORMATS:
         result: Any = FeatureCollection.read_file(str(p))
-    elif fmt == "csv":
-        result = pd.read_csv(p)
+    elif fmt in _TABULAR_FORMATS:
+        # Shared tabular reader, so `.tsv` and Excel work here too rather than
+        # falling through to raw bytes as they did while this module carried its
+        # own dispatch table.
+        result = _read_tabular(p)
     elif fmt == "parquet":
         result = _load_parquet(p)
     elif fmt == "nc":

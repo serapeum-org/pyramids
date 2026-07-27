@@ -63,6 +63,139 @@ _VECTOR_SUFFIXES = {
 }
 _TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xls", ".parquet", ".pq"}
 
+# --- shared format detection -------------------------------------------------
+# One detection core for both public readers (`read_resource` here and
+# `pyramids.io.load_resource`, which adapts these helpers). Previously each
+# module carried its own suffix table and its own sniffing rules, so the two
+# drifted apart; keep new formats in these tables only.
+
+# Extension -> normalised format token. Broader than the family suffix sets
+# above because it also names the *container* (`zip`) and distinguishes formats
+# that share a family (`nc` vs `tif` vs `grib` are all rasters).
+_EXT_TO_FORMAT: dict[str, str] = {
+    ".shp": "shp",
+    ".gpkg": "gpkg",
+    ".geojson": "geojson",
+    ".json": "geojson",
+    ".csv": "csv",
+    ".tsv": "csv",
+    ".parquet": "parquet",
+    ".pq": "parquet",
+    ".xlsx": "excel",
+    ".xls": "excel",
+    ".nc": "nc",
+    ".nc4": "nc",
+    ".cdf": "nc",
+    ".tif": "tif",
+    ".tiff": "tif",
+    ".grib": "grib",
+    ".grib2": "grib",
+    ".grb": "grib",
+    ".grb2": "grib",
+    ".zip": "zip",
+}
+
+# Leading magic bytes -> format token, longest-first so `SQLite format 3` is
+# tested before shorter prefixes. TIFF needs an exact 4-byte window (both byte
+# orders) rather than a prefix test, so it is handled separately below.
+_MAGIC_TO_FORMAT: tuple[tuple[bytes, str], ...] = (
+    (b"SQLite format 3", "gpkg"),
+    (b"PK\x03\x04", "zip"),
+    (b"\x89HDF", "nc"),
+    (b"GRIB", "grib"),
+    (b"PAR1", "parquet"),
+    (b"CDF", "nc"),
+)
+_TIFF_MAGIC = (b"II*\x00", b"MM\x00*")
+
+# Format token -> resource family, for callers that work in `ResourceKind`.
+_FORMAT_TO_KIND: dict[str, ResourceKind] = {
+    "shp": "vector",
+    "gpkg": "vector",
+    "geojson": "vector",
+    "csv": "tabular",
+    "excel": "tabular",
+    "parquet": "tabular",
+    "nc": "raster",
+    "tif": "raster",
+    "grib": "raster",
+}
+
+
+def sniff_magic(path: str | Path) -> str | None:
+    """Classify a file by its leading magic bytes.
+
+    Reads the first 16 bytes only. Unlike :func:`sniff_kind` this performs I/O,
+    but it is authoritative where the name lies — a portal resource declared
+    ``CSV`` that is really a ``.shp.zip``, for instance.
+
+    Args:
+        path: Path to a local file.
+
+    Returns:
+        str | None: A format token (see :data:`_EXT_TO_FORMAT` for the
+        vocabulary), or `None` when the file is unreadable or unrecognised.
+    """
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(16)
+    except OSError:
+        head = b""
+
+    result: str | None = None
+    if head[:4] in _TIFF_MAGIC:
+        result = "tif"
+    else:
+        for signature, fmt in _MAGIC_TO_FORMAT:
+            if head.startswith(signature):
+                result = fmt
+                break
+    return result
+
+
+def sniff_format(path: str | Path) -> str:
+    """Classify a file's format from its magic bytes, then its extension.
+
+    Magic-byte detection takes precedence over the extension, so a mis-named
+    resource is still classified correctly. No `python-magic` dependency.
+
+    Args:
+        path: Path to a local file.
+
+    Returns:
+        str: A normalised format token, or `"unknown"` when neither the magic
+        bytes nor the extension identify the file.
+
+    Examples:
+        - A GeoTIFF is detected from its `II*\\0` / `MM\\0*` magic bytes:
+            ```python
+            >>> from pyramids._resource import sniff_format
+            >>> sniff_format("tests/data/geotiff/era5_land_monthly_averaged.tif")
+            'tif'
+
+            ```
+        - A NetCDF file is detected (HDF5 or classic-CDF magic):
+            ```python
+            >>> sniff_format("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc")
+            'nc'
+
+            ```
+        - An unknown / missing file is reported as `"unknown"`:
+            ```python
+            >>> sniff_format("does-not-exist.bin")
+            'unknown'
+
+            ```
+
+    See Also:
+        sniff_magic: The magic-byte half, without the extension fallback.
+        sniff_kind: The pure name-based family classifier (no I/O).
+    """
+    result = sniff_magic(path)
+    if result is None:
+        result = _EXT_TO_FORMAT.get(Path(path).suffix.lower(), "unknown")
+    return result
+
 # kind → the suffix set used to pick the matching member inside an archive.
 _KIND_SUFFIXES: dict[ResourceKind, set[str]] = {
     "raster": _RASTER_SUFFIXES,
@@ -240,11 +373,19 @@ def _sniff_from_archive(path: Path) -> ResourceKind | None:
 
 
 def _determine_kind(path: Path, fmt: str | None) -> ResourceKind:
-    """Resolve the family from name + ``fmt``, peeking into archives as needed."""
+    """Resolve the family from name + ``fmt``, then bytes, then archive members.
+
+    Order is cheapest-first: the pure name/``fmt`` lookup, then the magic-byte
+    sniff (one 16-byte read, which also identifies an extension-less download),
+    then peeking inside a container. Magic bytes are consulted only when the name
+    is inconclusive, so a correctly-named resource keeps its existing answer.
+    """
     try:
         kind = sniff_kind(path, fmt=fmt)
     except ValueError:
-        sniffed = _sniff_from_archive(path)
+        sniffed = _FORMAT_TO_KIND.get(sniff_format(path) or "")
+        if sniffed is None:
+            sniffed = _sniff_from_archive(path)
         if sniffed is None:
             raise
         kind = sniffed
