@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
+from pyproj import CRS
 
 from pyramids import _io
 from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
@@ -430,6 +431,21 @@ def _lazy_timestep(path: str | Path, meta: RasterMeta, gdal_env: dict[str, str] 
 # Above this in-RAM (T, B, Y, X) size, DatasetCollection.to_netcdf warns and points
 # the caller at the streaming to_zarr writer (ARC-46). Default 2 GiB.
 _TO_NETCDF_WARN_BYTES = 2 * 1024**3
+
+
+def _target_epsg(to_epsg: int | str | Any) -> int | None:
+    """Return the integer EPSG for ``to_epsg``, or ``None`` for a non-EPSG CRS.
+
+    Lets :meth:`DatasetCollection.to_crs` decide whether the plan-once
+    :class:`~pyramids.dataset.ops.reproject.Reprojector` (int-EPSG only) applies, or
+    the direct per-timestep path must handle a target CRS with no EPSG code (ARC-54).
+    """
+    if isinstance(to_epsg, int):
+        return to_epsg
+    try:
+        return CRS.from_user_input(to_epsg).to_epsg()
+    except Exception:  # pragma: no cover - defensive against odd CRS inputs
+        return None
 
 
 class DatasetCollection:
@@ -2789,7 +2805,9 @@ class DatasetCollection:
         method: str = DEFAULT_RESAMPLING,
         maintain_alignment: bool = False,
         inplace: bool = False,
-    ) -> DatasetCollection | None:
+        *,
+        compute: bool = True,
+    ) -> DatasetCollection | None | Any:
         """Reproject every timestep to a target CRS.
 
         Args:
@@ -2813,10 +2831,17 @@ class DatasetCollection:
             inplace (bool):
                 If True, mutate this collection in place and return None.
                 If False (default), return a new `DatasetCollection`.
+            compute (bool):
+                If True (default), reproject every timestep eagerly. If False, defer
+                the whole reproject into one `dask.delayed.Delayed` that builds the
+                reprojected `DatasetCollection` when computed — so a many-raster
+                collection reprojects in a single graph (ARC-54). Keyword-only;
+                cannot be combined with `inplace=True`.
 
         Returns:
-            DatasetCollection | None: New collection when
-            `inplace=False`; `None` when `inplace=True`.
+            DatasetCollection | None | dask.delayed.Delayed: A new collection when
+            `inplace=False`; `None` when `inplace=True`; a `Delayed` when
+            `compute=False`.
 
         Examples:
             - Reproject every timestep to EPSG:3857 and keep the result:
@@ -2832,13 +2857,32 @@ class DatasetCollection:
 
               ```
         """
-        new_datasets = self._apply_per_timestep(
-            "to_crs",
-            to_epsg,
-            method=method,
-            maintain_alignment=maintain_alignment,
-        )
-        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
+        from pyramids.dataset.ops.reproject import Reprojector
+
+        epsg = _target_epsg(to_epsg)
+        if epsg is not None:
+            # Plan-once: build one Reprojector and reuse it across every timestep, so
+            # a compute=False call defers the whole reproject into one dask graph
+            # (ARC-54).
+            op = Reprojector(epsg, method=method, maintain_alignment=maintain_alignment)
+
+            def per_step(ds: Dataset, do_compute: bool) -> Any:
+                return op(ds, compute=do_compute)
+        else:
+            # A target CRS with no EPSG code (orthographic / Robinson / …) cannot go
+            # through Reprojector (int-EPSG only); reproject each timestep directly.
+            def per_step(ds: Dataset, do_compute: bool) -> Any:
+                if do_compute:
+                    return ds.to_crs(
+                        to_epsg, method=method, maintain_alignment=maintain_alignment
+                    )
+                import dask
+
+                return dask.delayed(ds.to_crs)(
+                    to_epsg, method=method, maintain_alignment=maintain_alignment
+                )
+
+        return self._apply_operator(per_step, inplace=inplace, compute=compute)
 
     def crop(
         self,
@@ -2933,8 +2977,8 @@ class DatasetCollection:
         return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
 
     def align(
-        self, alignment_src: Dataset, inplace: bool = False
-    ) -> DatasetCollection | None:
+        self, alignment_src: Dataset, inplace: bool = False, *, compute: bool = True
+    ) -> DatasetCollection | None | Any:
         """Align every timestep to `alignment_src`.
 
         Matches the coordinate system, the number of rows and columns,
@@ -2946,10 +2990,16 @@ class DatasetCollection:
             inplace (bool):
                 If True, mutate this collection in place and return None.
                 If False (default), return a new `DatasetCollection`.
+            compute (bool):
+                If True (default), align every timestep eagerly. If False, defer the
+                whole align into one `dask.delayed.Delayed` that builds the aligned
+                `DatasetCollection` when computed (ARC-54). Keyword-only; cannot be
+                combined with `inplace=True`.
 
         Returns:
-            DatasetCollection | None: New collection when
-            `inplace=False`; `None` when `inplace=True`.
+            DatasetCollection | None | dask.delayed.Delayed: A new collection when
+            `inplace=False`; `None` when `inplace=True`; a `Delayed` when
+            `compute=False`.
 
         Examples:
             - Align every timestep to a DEM template:
@@ -2961,8 +3011,24 @@ class DatasetCollection:
         """
         if not isinstance(alignment_src, Dataset):
             raise TypeError("alignment_src input should be a Dataset object")
-        new_datasets = self._apply_per_timestep("align", alignment_src)
-        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
+        from pyramids.dataset.ops.reproject import Aligner
+
+        if alignment_src.epsg is not None:
+            # Plan-once: one Aligner reused across every timestep (ARC-54).
+            op = Aligner(alignment_src)
+
+            def per_step(ds: Dataset, do_compute: bool) -> Any:
+                return op(ds, compute=do_compute)
+        else:
+            # A reference with no EPSG code can't go through Aligner; align directly.
+            def per_step(ds: Dataset, do_compute: bool) -> Any:
+                if do_compute:
+                    return ds.align(alignment_src)
+                import dask
+
+                return dask.delayed(ds.align)(alignment_src)
+
+        return self._apply_operator(per_step, inplace=inplace, compute=compute)
 
     def _finalize_per_timestep_result(
         self,
@@ -2992,6 +3058,50 @@ class DatasetCollection:
             new_datasets[0],
             time_length=len(new_datasets),
             datasets=new_datasets,
+        )
+
+    def _apply_operator(
+        self, per_step: Any, *, inplace: bool, compute: bool
+    ) -> DatasetCollection | None | Any:
+        """Apply a per-timestep reproject/align op, eagerly or as a deferred graph.
+
+        ``per_step(ds, compute)`` returns a :class:`~pyramids.dataset.Dataset` when
+        ``compute`` is ``True`` and a :class:`dask.delayed.Delayed` when ``False``.
+        Eager results are finalised into a collection (respecting ``inplace``); the
+        deferred path returns a ``Delayed`` that builds the whole reprojected /
+        aligned collection when computed — so a 365-raster reproject is assembled into
+        one dask graph and computed once (ARC-54).
+
+        Raises:
+            ValueError: ``compute=False`` combined with ``inplace=True``.
+            OptionalPackageDoesNotExist: ``compute=False`` without the ``dask`` extra.
+        """
+        if compute:
+            new_datasets = [per_step(ds, True) for ds in self.datasets]
+            return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
+        if inplace:
+            raise ValueError("compute=False cannot be combined with inplace=True.")
+        try:
+            import dask
+        except ImportError as exc:
+            raise OptionalPackageDoesNotExist(
+                lazy_extra_hint(
+                    "DatasetCollection.to_crs / align (compute=False) requires the "
+                    "optional 'dask' dependency."
+                )
+            ) from exc
+        delayeds = [per_step(ds, False) for ds in self.datasets]
+        return dask.delayed(DatasetCollection._collection_from_datasets)(delayeds)
+
+    @staticmethod
+    def _collection_from_datasets(datasets: list[Dataset]) -> DatasetCollection:
+        """Wrap computed per-timestep Datasets into a collection (compute=False path).
+
+        A staticmethod so the ``compute=False`` reproject / align
+        :func:`dask.delayed` can pickle it by qualified name.
+        """
+        return DatasetCollection(
+            datasets[0], time_length=len(datasets), datasets=datasets
         )
 
     def merge(
