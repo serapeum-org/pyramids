@@ -55,6 +55,7 @@ from pyramids.base._errors import (
 from pyramids.base._utils import Catalog, import_pyarrow, require_cleopatra
 from pyramids.base.remote import is_remote
 from pyramids.basemap.basemap import add_basemap
+from pyramids.feature import _analysis
 from pyramids.feature import _h3
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
@@ -2719,20 +2720,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        gdf = _geom.explode_gdf(
-            gpd.GeoDataFrame(self, copy=True), geometry="multipolygon"
-        )
-        gdf = _geom.explode_gdf(gdf, geometry="geometrycollection")
-
-        fc = FeatureCollection(gdf)
-        fc["x"] = fc.apply(
-            _geom.get_coords, geom_col="geometry", coord_type="x", axis=1
-        )
-        fc["y"] = fc.apply(
-            _geom.get_coords, geom_col="geometry", coord_type="y", axis=1
-        )
-        fc.reset_index(drop=True, inplace=True)
-        return fc
+        return _analysis.with_coordinates(self)
 
     def plot(
         self,
@@ -3102,44 +3090,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        fc = self.with_coordinates()
-        # Vectorized per-cell mean over the (scalar-for-Point / list-for-ring) x/y
-        # columns, replacing an iterrows + scalar `.loc` assignment loop (ARC-63).
-        fc["avg_x"] = fc["x"].map(np.mean)
-        fc["avg_y"] = fc["y"].map(np.mean)
-
-        # detect rows whose averaged coordinate could not be
-        # computed (empty geometry, all-NaN rings, etc.). Emit a single
-        # summary warning and substitute an empty Point so the column
-        # does not expose a `(NaN, NaN)` Point that would then crash
-        # downstream reprojections.
-        avg_x = fc["avg_x"].to_numpy()
-        avg_y = fc["avg_y"].to_numpy()
-        bad_mask = np.isnan(avg_x) | np.isnan(avg_y)
-        if bad_mask.any():
-            bad_idx = [int(i) for i, is_bad in enumerate(bad_mask) if is_bad]
-            warnings.warn(
-                f"with_centroid: {len(bad_idx)} row(s) yielded NaN centroids "
-                f"(rows {bad_idx}). Their `center_point` is an empty "
-                f"shapely.Point. Drop or repair those rows before running "
-                f"a method that requires a valid centroid (e.g. reproject, "
-                f"distance).",
-                GeometryWarning,
-                stacklevel=2,
-            )
-
-        # single-pass build. The previous implementation built a
-        # throwaway `coords_list` (with NaN placeholders for the bad
-        # rows), called `create_points` on it, then iterated the
-        # result a second time to substitute empty Points for the bad
-        # rows. Skip both intermediates — write the final column value
-        # directly.
-        cleaned: list[Any] = [
-            Point() if bad else Point(ax, ay)
-            for ax, ay, bad in zip(avg_x.tolist(), avg_y.tolist(), bad_mask.tolist())
-        ]
-        fc["center_point"] = cleaned
-        return fc
+        return _analysis.with_centroid(self)
 
     def _require_point_geometry(self, op: str) -> None:
         """Raise :class:`InvalidGeometryError` unless every geometry is a single ``Point``.
@@ -3405,37 +3356,15 @@ class FeatureCollection(GeoDataFrame):
             - :meth:`pyramids.dataset.Dataset.from_points`: the underlying ``gdal.Grid`` interpolation this
               method delegates to (accepts any ``gdal.Grid`` algorithm string).
         """
-        self._require_point_geometry("interpolate_to_raster")
-        self._require_column("interpolate_to_raster", column)
-        if method != "idw":
-            raise ValueError(
-                f"interpolate_to_raster: method {method!r} is not supported; only 'idw' is available. "
-                "Kriging is out of scope for pyramids — see the geostatista package (the serapeum "
-                "geostatistics tier)."
-            )
-        if len(self) < 3:
-            raise ValueError(
-                f"interpolate_to_raster: need at least 3 points, got {len(self)}"
-            )
-        try:
-            values = self[column].to_numpy(dtype=float)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"interpolate_to_raster: column {column!r} must be numeric"
-            ) from exc
-        if np.isnan(values).all():
-            raise ValueError(f"interpolate_to_raster: column {column!r} is all-NaN")
-        if n_neighbors is not None:
-            algorithm = (
-                f"invdistnn:power={power}:max_points={n_neighbors}:nodata={nodata}"
-            )
-        else:
-            algorithm = f"invdist:power={power}:smoothing=0.0:nodata={nodata}"
-        # local import: pyramids.dataset imports pyramids.feature, so import here to break the cycle.
-        from pyramids.dataset import Dataset
-
-        return Dataset.from_points(
-            self, column, algorithm=algorithm, cell_size=cell_size, bbox=bounds
+        return _analysis.interpolate_to_raster(
+            self,
+            column,
+            method=method,
+            cell_size=cell_size,
+            bounds=bounds,
+            power=power,
+            n_neighbors=n_neighbors,
+            nodata=nodata,
         )
 
     def _h3_cells(self, resolution: int, op: str) -> list[str]:
@@ -3452,15 +3381,7 @@ class FeatureCollection(GeoDataFrame):
             InvalidGeometryError: If the geometries are not all ``Point``.
             ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.
         """
-        self._require_point_geometry(op)
-        if not 0 <= resolution <= 15:
-            raise ValueError(f"{op}: resolution must be 0-15, got {resolution}")
-        if self.crs is None:
-            raise ValueError(
-                f"{op}: a CRS is required to convert points to lat/lng for H3 indexing"
-            )
-        pts = self if self.epsg == 4326 else self.to_crs(4326)
-        return [_h3.latlng_to_cell(geom.y, geom.x, resolution) for geom in pts.geometry]
+        return _analysis.h3_cells(self, resolution, op)
 
     def to_h3(self, resolution: int) -> FeatureCollection:
         """Attach the H3 cell index of each point as an ``h3`` column.
@@ -3498,10 +3419,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        cells = self._h3_cells(resolution, "to_h3")
-        result = FeatureCollection(self.copy())
-        result["h3"] = cells
-        return result
+        return _analysis.to_h3(self, resolution)
 
     def h3_bin(
         self,
@@ -3556,34 +3474,5 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        self._require_column("h3_bin", column)
-        cells = self._h3_cells(resolution, "h3_bin")
-        if column is None:
-            counts = pd.Series(cells, dtype="object").value_counts()
-            items: list[tuple[Any, float]] = [
-                (cell, int(n)) for cell, n in counts.items()
-            ]
-            name = "count"
-        else:
-            reducer = _tess.resolve_reducer(agg)
-            try:
-                values = self[column].to_numpy(dtype=float)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"h3_bin: column {column!r} must be numeric") from exc
-            grouped = pd.DataFrame({"_cell": cells, "_v": values}).groupby("_cell")[
-                "_v"
-            ]
-            items = [(cell, float(reducer(grp.to_numpy()))) for cell, grp in grouped]
-            name = column
-        geometries: list = []
-        idx: list = []
-        agg_values: list = []
-        for cell, value in items:
-            boundary = _h3.cell_to_boundary(cell)
-            geometries.append(Polygon([(lng, lat) for (lat, lng) in boundary]))
-            idx.append(cell)
-            agg_values.append(value)
-        frame = gpd.GeoDataFrame(
-            {"h3": idx, name: agg_values}, geometry=geometries, crs="EPSG:4326"
-        )
-        return FeatureCollection(frame)
+        return _analysis.h3_bin(self, resolution, agg=agg, column=column)
+
