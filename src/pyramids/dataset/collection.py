@@ -547,6 +547,10 @@ class DatasetCollection:
         self._datasets: list[Dataset] | None = (
             list(datasets) if datasets is not None else None
         )
+        # Lazy per-index handle cache for the point accessors (first/last/iloc/[i]),
+        # so reading one timestep opens one file instead of all N via `datasets`
+        # (ARC-44). Only used before the bulk `_datasets` list is materialised.
+        self._handle_cache: dict[int, Dataset] = {}
 
     def __getstate__(self):
         """Pickle state — drop the lazy `_datasets` cache.
@@ -558,6 +562,7 @@ class DatasetCollection:
         """
         state = self.__dict__.copy()
         state["_datasets"] = None
+        state["_handle_cache"] = {}
         return state
 
     @property
@@ -595,6 +600,35 @@ class DatasetCollection:
             else:
                 self._datasets = [self._base] * self._time_length
         return self._datasets
+
+    def _dataset_at(self, i: int) -> Dataset:
+        """Return the single timestep at index ``i``, opening only that file (ARC-44).
+
+        For a file-backed collection this opens (and caches) just index ``i``'s
+        handle instead of materialising all N via the :attr:`datasets` property — so
+        :meth:`first` / :meth:`last` / :meth:`iloc` / ``collection[i]`` read one file,
+        not the whole set. Once the bulk cache exists (or for a legacy in-memory
+        collection) it defers to that.
+
+        Args:
+            i: Timestep index; negatives count from the end.
+
+        Returns:
+            Dataset: The handle at position ``i``.
+        """
+        if self._datasets is not None:
+            return self._datasets[i]
+        if self._files is None:
+            # Legacy `DatasetCollection(src, time_length=N)`: every slot is the base.
+            return self._base
+        idx = range(self._time_length)[i]  # normalise negatives + bounds-check
+        handle = self._handle_cache.get(idx)
+        if handle is None:
+            env = self._gdal_env or None
+            with cloud_config_from_env(self._gdal_env):
+                handle = Dataset.read_file(str(self._files[idx]), gdal_env=env)
+            self._handle_cache[idx] = handle
+        return handle
 
     def __str__(self):
         """__str__."""
@@ -2144,7 +2178,7 @@ class DatasetCollection:
         # ndarray (the dask.Array arm of ArrayLike is unreachable here); numpy's
         # __getitem__ stub returns Any for a general index.
         if isinstance(key, int):
-            return cast(np.typing.NDArray, self.datasets[key].read_array(band=0))
+            return cast(np.typing.NDArray, self._dataset_at(key).read_array(band=0))
         return cast(np.typing.NDArray, self.values[key])
 
     def __setitem__(self, key: int, value: np.ndarray) -> None:
@@ -2208,7 +2242,9 @@ class DatasetCollection:
         Returns:
             np.ndarray: ``(min(n, time_length), rows, cols)`` array.
         """
-        return self._stack_band0(self.datasets[:n])
+        return self._stack_band0(
+            [self._dataset_at(j) for j in range(self._time_length)[:n]]
+        )
 
     def tail(self, n: int = -5) -> np.typing.NDArray:
         """Last ``abs(n)`` timestep arrays as a 3D numpy slice.
@@ -2228,7 +2264,8 @@ class DatasetCollection:
             np.ndarray: ``(min(abs(n), time_length), rows, cols)`` array.
         """
         keep = min(abs(n), self.time_length)
-        return self._stack_band0(self.datasets[self.time_length - keep :])
+        indices = range(self.time_length - keep, self.time_length)
+        return self._stack_band0([self._dataset_at(j) for j in indices])
 
     def first(self) -> np.typing.NDArray:
         """First timestep array (2D).
@@ -2237,7 +2274,7 @@ class DatasetCollection:
         timestep instead of the full cube.
         """
         # No chunks=, so this always returns a plain ndarray.
-        return cast(np.typing.NDArray, self.datasets[0].read_array(band=0))
+        return cast(np.typing.NDArray, self._dataset_at(0).read_array(band=0))
 
     def last(self) -> np.typing.NDArray:
         """Last timestep array (2D).
@@ -2246,7 +2283,7 @@ class DatasetCollection:
         timestep instead of the full cube.
         """
         # No chunks=, so this always returns a plain ndarray.
-        return cast(np.typing.NDArray, self.datasets[-1].read_array(band=0))
+        return cast(np.typing.NDArray, self._dataset_at(-1).read_array(band=0))
 
     def iloc(self, i: int) -> Dataset:
         """Return the ``Dataset`` at position ``i``.
@@ -2260,7 +2297,7 @@ class DatasetCollection:
             Pixel values are not loaded — they're read on demand when
             the caller invokes a method on the returned Dataset.
         """
-        return self.datasets[i]
+        return self._dataset_at(i)
 
     def plot(
         self,
