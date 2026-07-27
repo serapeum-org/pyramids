@@ -17,6 +17,7 @@ from pyproj import CRS
 from pyramids import _io
 from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
+from pyramids.base._locks import default_lock
 from pyramids.base._raster_meta import RasterMeta
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
@@ -39,6 +40,7 @@ from pyramids.dataset.ops._geobox_zarr import (
     read_geobox,
 )
 from pyramids.dataset.ops._zarr import _resolve_store
+from pyramids.dataset.ops.io import _read_chunk
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
@@ -377,7 +379,9 @@ def _read_time_step(
     return np.ascontiguousarray(arr)
 
 
-def _lazy_timestep(path: str | Path, meta: RasterMeta, gdal_env: dict[str, str] | None):
+def _lazy_timestep(
+    path: str | Path, meta: RasterMeta, gdal_env: dict[str, str] | None, lock: Any
+):
     """Build a spatially-tiled ``(B, Y, X)`` dask array for one timestep (ARC-45).
 
     Reuses :func:`pyramids.dataset.ops.io._read_chunk`, so each dask block reads only
@@ -394,15 +398,15 @@ def _lazy_timestep(path: str | Path, meta: RasterMeta, gdal_env: dict[str, str] 
             block size), assumed uniform across timesteps.
         gdal_env: The collection's persisted signer GDAL config, installed inside each
             worker around the open + read (a no-op when empty).
+        lock: The IO lock guarding this file's shared GDAL handle. Callers pass one
+            lock per distinct path so duplicate-path timesteps (which share a
+            `FILE_CACHE` slot) serialise their tile reads on the same handle (L4).
 
     Returns:
         dask.array.Array: A lazy ``(B, Y, X)`` array tiled on the spatial axes.
     """
     import dask.array as da
     from dask.array.core import normalize_chunks
-
-    from pyramids.base._locks import default_lock
-    from pyramids.dataset.ops.io import _read_chunk
 
     band_count, rows, cols = meta.shape
     dtype = np.dtype(meta.dtype)
@@ -422,7 +426,7 @@ def _lazy_timestep(path: str | Path, meta: RasterMeta, gdal_env: dict[str, str] 
         dtype=dtype,
         meta=np.empty((0, 0, 0), dtype=dtype),
         manager=manager,
-        lock=default_lock(),
+        lock=lock,
         band=None,
         out_dtype=dtype,
         single_band=False,
@@ -670,6 +674,9 @@ class DatasetCollection:
                     ]
             else:
                 self._datasets = [self._base] * self._time_length
+            # The bulk list supersedes the per-index point-accessor cache; drop it so
+            # a file opened by first/last/iloc is not held open twice (L2).
+            self._handle_cache.clear()
         return self._datasets
 
     def _dataset_at(self, i: int) -> Dataset:
@@ -1067,7 +1074,18 @@ class DatasetCollection:
         # ARC-45: build each timestep as a spatially-tiled dask array (windowed reads
         # via _read_chunk) and stack along time, so a reduction tiles spatially and a
         # single raster larger than RAM is read tile-by-tile instead of all at once.
-        per_step = [_lazy_timestep(path, meta, self._gdal_env) for path in self._files]
+        # One IO lock per distinct path (L4): duplicate paths share a FILE_CACHE
+        # handle, so their tile reads must serialise on the same lock.
+        path_locks: dict[str, Any] = {}
+        per_step = [
+            _lazy_timestep(
+                path,
+                meta,
+                self._gdal_env,
+                path_locks.setdefault(str(path), default_lock()),
+            )
+            for path in self._files
+        ]
         return da.stack(per_step, axis=0)
 
     @property
