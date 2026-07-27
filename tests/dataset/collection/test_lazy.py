@@ -227,6 +227,48 @@ class TestDuplicatePathSharedLock:
             "duplicate paths must share one IO lock, got distinct lock objects"
         )
 
+    @requires_dask
+    def test_separate_data_graphs_share_underlying_lock(self, tmp_path, monkeypatch):
+        """Two `.data` graphs over one path share a single underlying mutex (L1).
+
+        Test scenario:
+            Build two separate collections over the same file and access `.data`
+            on each — expected: the IO locks handed to `_lazy_timestep` are
+            distinct objects but resolve to the *same* underlying `threading.Lock`
+            (keyed by a path token), so concurrent reads on the shared FILE_CACHE
+            handle serialise across graphs, not just within one graph.
+        """
+        from pyramids.dataset import collection as coll_mod
+
+        arr = np.arange(20, dtype=np.float32).reshape(4, 5)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 4.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        p = str(tmp_path / "shared.tif")
+        ds.to_file(p)
+
+        captured: list[Any] = []
+        real = coll_mod._lazy_timestep
+
+        def spy(path, meta, gdal_env, lock):
+            captured.append(lock)
+            return real(path, meta, gdal_env, lock)
+
+        monkeypatch.setattr(coll_mod, "_lazy_timestep", spy)
+        _ = DatasetCollection.from_files([p]).data
+        _ = DatasetCollection.from_files([p]).data
+
+        assert len(captured) == 2, f"expected two graphs, got {len(captured)}"
+        assert captured[0] is not captured[1], (
+            "separate graphs should build distinct lock objects"
+        )
+        assert captured[0].lock is captured[1].lock, (
+            "distinct graphs over one path must share the underlying mutex"
+        )
+
 
 class TestErrors:
     def test_no_files_raises(self):

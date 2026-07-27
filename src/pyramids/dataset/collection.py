@@ -1028,14 +1028,18 @@ class DatasetCollection:
         # via _read_chunk) and stack along time, so a reduction tiles spatially and a
         # single raster larger than RAM is read tile-by-tile instead of all at once.
         # One IO lock per distinct path (L4): duplicate paths share a FILE_CACHE
-        # handle, so their tile reads must serialise on the same lock.
+        # handle, so their tile reads must serialise on the same lock. The lock is
+        # keyed by a path-derived token (L1) so *separate* `.data` graphs over the
+        # same path share one underlying mutex too (SerializableLock dedupes by
+        # token process-wide) — not just chunks within this one graph. The local
+        # dict keeps object identity within this graph.
         path_locks: dict[str, Any] = {}
         per_step = [
             _lazy_timestep(
                 path,
                 meta,
                 self._gdal_env,
-                path_locks.setdefault(str(path), default_lock()),
+                path_locks.setdefault(str(path), default_lock(f"data:{path}")),
             )
             for path in self._files
         ]
