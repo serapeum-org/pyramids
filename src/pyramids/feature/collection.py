@@ -24,15 +24,12 @@ internal only; see :mod:`pyramids.feature._ogr`.
 
 from __future__ import annotations
 
-import functools
 import math
 import os
-import warnings
 from collections.abc import Callable, Iterable, Iterator
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
-from urllib.parse import urlencode
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
@@ -55,6 +52,7 @@ from pyramids.base._utils import Catalog, import_pyarrow
 from pyramids.base.remote import is_remote
 from pyramids.feature import _analysis
 from pyramids.feature import _plot
+from pyramids.feature import _read
 from pyramids.feature import _write
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
@@ -171,19 +169,6 @@ def _import_dask_geopandas():
             "  - conda-forge: conda install -c conda-forge pyramids-parquet"
         ) from exc
     return dask_geopandas
-
-
-# module-level LRU cache backing `FeatureCollection.list_layers`.
-# Keyed on the already-resolved `str` path (post `_parse_path`). The
-# tuple return type plays nicely with `functools.lru_cache` (lists are
-# unhashable and would break LRU internals if returned directly).
-@functools.lru_cache(maxsize=128)
-def _list_layers_cached(resolved_path: str) -> tuple[str, ...]:
-    """Return a tuple of layer names for a resolved path (memoised)."""
-    import pyogrio
-
-    arr = pyogrio.list_layers(resolved_path)
-    return tuple(str(row[0]) for row in arr)
 
 
 class FeatureCollection(GeoDataFrame):
@@ -1553,20 +1538,8 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        # pre-check local-path existence so the caller sees
-        # a `FileNotFoundError` naming the path instead of a generic
-        # driver-open failure. Defer to `base.remote.is_remote` as
-        # the single source of truth for which schemes are remote —
-        # the previous hardcoded prefix tuple would silently treat any
-        # future scheme as local and raise a misleading error.
-        path_str = str(path)
-        if not is_remote(path_str):
-            local = Path(path_str)
-            if not local.exists():
-                raise FileNotFoundError(f"list_layers: no file at {path_str!r}.")
+        return _read.list_layers(cls, path)
 
-        resolved = str(_pyramids_io._parse_path(path))
-        return list(_list_layers_cached(resolved))
 
     @classmethod
     def list_layers_cache_clear(cls) -> None:
@@ -1608,7 +1581,8 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        _list_layers_cached.cache_clear()
+        _read.list_layers_cache_clear()
+
 
     @classmethod
     def read_gpx_layers(cls, path: str | Path) -> dict[str, FeatureCollection]:
@@ -1648,12 +1622,8 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        result: dict[str, FeatureCollection] = {}
-        for name in cls.list_layers(path):
-            fc = cls.read_file(path, layer=name)
-            if len(fc) > 0:
-                result[name] = fc
-        return result
+        return _read.read_gpx_layers(cls, path)
+
 
     @classmethod
     def _read_featureserver_page(cls, page_url: str) -> FeatureCollection:
@@ -1667,7 +1637,8 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             FeatureCollection: The features in this page (possibly empty).
         """
-        return cls.read_file(page_url)
+        return _read.read_featureserver_page(cls, page_url)
+
 
     @classmethod
     def from_featureserver(
@@ -1714,27 +1685,11 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        if page_size < 1:
-            raise ValueError(
-                f"from_featureserver: page_size must be >= 1, got {page_size}"
-            )
-        if max_records is not None and max_records < 0:
-            raise ValueError(
-                f"from_featureserver: max_records must be >= 0 or None, got {max_records}"
-            )
-        base = url.split("?", 1)[0].rstrip("/")
-        if not base.lower().endswith("/query"):
-            base = f"{base}/query"
-        pages, first_crs = cls._collect_featureserver_pages(
-            base, where, out_fields, max_records, page_size, max_pages
+        return _read.from_featureserver(
+            cls, url, where=where, out_fields=out_fields, max_records=max_records,
+            page_size=page_size, max_pages=max_pages,
         )
-        # Concatenate in one pass (pd.concat preserves the shared CRS) — repeatedly calling .concat()
-        # re-sets the CRS and trips a geopandas DeprecationWarning.
-        if pages:
-            combined = FeatureCollection(pd.concat(pages, ignore_index=True))
-        else:
-            combined = cls(gpd.GeoDataFrame(geometry=[], crs=first_crs))
-        return combined
+
 
     @classmethod
     def from_wfs(
@@ -1953,47 +1908,10 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             tuple: ``(pages, first_crs)`` — the non-empty page collections and the CRS of the first page read.
         """
-        pages: list[FeatureCollection] = []
-        first_crs = None
-        offset = 0
-        fetched = 0
-        page_index = 0
-        while max_records is None or fetched < max_records:
-            if page_index >= max_pages:
-                warnings.warn(
-                    f"from_featureserver: stopped after {max_pages} pages (max_pages). The server may not "
-                    "honour resultOffset paging; raise max_pages or set max_records if more features are "
-                    "expected.",
-                    stacklevel=2,
-                )
-                break
-            this_page = (
-                page_size
-                if max_records is None
-                else min(page_size, max_records - fetched)
-            )
-            query = urlencode(
-                {
-                    "where": where,
-                    "outFields": out_fields,
-                    "f": "json",
-                    "resultOffset": offset,
-                    "resultRecordCount": this_page,
-                }
-            )
-            page = cls._read_featureserver_page(f"{base}?{query}")
-            if first_crs is None:
-                first_crs = page.crs
-            count = len(page)
-            if count == 0:
-                break
-            pages.append(page)
-            fetched += count
-            offset += count
-            page_index += 1
-            if count < this_page:  # last (short) page
-                break
-        return pages, first_crs
+        return _read.collect_featureserver_pages(
+            cls, base, where, out_fields, max_records, page_size, max_pages
+        )
+
 
     @classmethod
     def open_arrow(
@@ -2437,7 +2355,7 @@ class FeatureCollection(GeoDataFrame):
                 ```
         """
         _write.to_file(self, path, driver=driver, layer=layer, mode=mode, **creation_options)
-        _list_layers_cached.cache_clear()
+        _read.list_layers_cache_clear()
 
     def _to_vector_tiles(
         self,
