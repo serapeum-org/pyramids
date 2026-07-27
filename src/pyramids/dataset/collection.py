@@ -263,13 +263,15 @@ def _finalize_append_metadata(
 def _append_region(
     data, resolved_store, old_t: int, new_total: int, slices, added_files
 ) -> None:
-    """Atomically grow, write, and finalize a zarr time-append (ARC-75a).
+    """Atomically grow, stream-write, and finalize a zarr time-append (ARC-75a).
 
     The deferred (``compute=False``) append routes through this single task so the
     store's ``data`` shape only grows when the append actually runs; on any failure
     the resize is rolled back, so the store never advertises a larger shape than it
-    holds. ``data`` (one collection's block) is materialised here before the write.
-    Module-level so the :func:`dask.delayed` graph can pickle it.
+    holds. ``data`` stays a lazy dask array and is **streamed** into the region via
+    ``data.to_zarr(..., compute=True)`` — never materialising the whole appended cube
+    (M2). The caller must keep ``data`` lazy (capture it in a closure), not pass it as
+    a delayed argument (which dask would compute up front).
     """
     import zarr
 
@@ -281,7 +283,7 @@ def _append_region(
         raise TypeError(f"expected a zarr Array at 'data' in {resolved_store!r}")
     arr.resize((new_total, *arr.shape[1:]))
     try:
-        arr[slices] = np.asarray(data)
+        data.to_zarr(arr, region=slices, overwrite=False, compute=True)
         _finalize_append_metadata(resolved_store, new_total, added_files)
     except Exception:
         arr.resize((old_t, *arr.shape[1:]))
@@ -1282,12 +1284,18 @@ class DatasetCollection:
                 raise
             return None
 
-        # compute=False: defer the resize+write+finalize into one delayed so the
-        # store's shape only grows when the append actually runs (rolling back on
-        # failure) — no window where a grown-but-empty store is visible (ARC-75a).
-        return dask.delayed(_append_region)(
-            data, resolved_store, old_t, new_total, slices, self._files
-        )
+        # compute=False: defer the resize+write+finalize into one task, capturing
+        # `data` in a closure so it stays a lazy dask array streamed inside the write
+        # (M2) — passing it as a delayed argument would make dask compute the whole
+        # appended cube into memory first. No window where a grown-but-empty store is
+        # visible, and rollback on failure (ARC-75a).
+        files = self._files
+
+        @dask.delayed
+        def _deferred_append() -> None:
+            _append_region(data, resolved_store, old_t, new_total, slices, files)
+
+        return _deferred_append()
 
     def to_netcdf(
         self,
