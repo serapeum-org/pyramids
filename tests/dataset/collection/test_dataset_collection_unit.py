@@ -28,6 +28,8 @@ from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.collection import _target_epsg
 from tests.dataset.collection._helpers import make_int16_collection
 
+pytestmark = pytest.mark.core
+
 
 def _make_mem_dataset(
     rows: int = 5,
@@ -341,14 +343,6 @@ class TestIloc:
         np.testing.assert_array_almost_equal(
             arr, expected, decimal=4, err_msg="iloc array should match values slice"
         )
-
-
-import datetime as dt
-import re
-
-from pyramids.base._errors import DatasetNotFoundError
-
-pytestmark = pytest.mark.core
 
 
 class TestReadMultipleFilesErrors:
