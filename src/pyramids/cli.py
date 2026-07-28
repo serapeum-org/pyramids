@@ -216,13 +216,16 @@ def _cmd_raster_info(args: argparse.Namespace) -> int:
         "bands": ds.band_count,
         "rows": ds.rows,
         "columns": ds.columns,
-        "cell_size": ds.cell_size,
+        "cell_size": _json_safe(float(ds.cell_size)),
         "dtype": list(ds.dtype),
         "no_data_value": [
             None if value is None else _json_safe(float(value))
             for value in ds.no_data_value
         ],
-        "bounds": [float(value) for value in ds.bbox],
+        # Same guard as `bounds --json`: a degenerate geotransform can yield a
+        # non-finite cell size or bound, and `json.dumps` writes those as bare
+        # `Infinity` / `NaN`, which is not valid JSON.
+        "bounds": [_json_safe(float(value)) for value in ds.bbox],
     }
     if args.json:
         print(json.dumps(payload))
@@ -263,7 +266,11 @@ def _cmd_bounds(args: argparse.Namespace) -> int:
         xs = [corner[0] for corner in corners]
         ys = [corner[1] for corner in corners]
         min_x, min_y, max_x, max_y = min(xs), min(ys), max(xs), max(ys)
-    payload = {"bounds": [min_x, min_y, max_x, max_y]}
+    # Reprojecting a corner that falls outside the target CRS's domain yields
+    # HUGE_VAL, and json.dumps writes that as a bare `Infinity` — not valid JSON,
+    # so strict consumers such as `jq` reject the whole document. Map non-finite
+    # corners to null instead (ARC-26).
+    payload = {"bounds": [_json_safe(value) for value in (min_x, min_y, max_x, max_y)]}
     if args.json:
         print(json.dumps(payload))
     else:

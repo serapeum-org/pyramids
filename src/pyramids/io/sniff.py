@@ -18,46 +18,54 @@ matching pyramids/pandas reader and returns the most natural object:
 Detection uses magic bytes + extension only — no `python-magic` dependency. The
 CKAN/HDX API client itself stays in the consumer; this module is the generic
 format-detection + dispatch primitive.
+
+Detection itself lives in :mod:`pyramids._resource`, which both public readers
+share, so add a new *format* to `_resource._EXT_TO_FORMAT` / `_MAGIC_TO_FORMAT`.
+The tables that remain here are *dispatch policy*, not detection: which tokens
+this module can honour, and which archive members count as the one to load.
 """
 
 from __future__ import annotations
 
-import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from pyramids._resource import (
+    normalise_format,
+    read_tabular,
+    sniff_format,
+    sniff_magic,
+)
+from pyramids.base._artifacts import artifact_dir
 from pyramids.base._utils import import_pyarrow
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
 
-_EXT_FORMAT: dict[str, str] = {
-    ".shp": "shp",
-    ".gpkg": "gpkg",
-    ".geojson": "geojson",
-    ".json": "geojson",
-    ".csv": "csv",
-    ".parquet": "parquet",
-    ".pq": "parquet",
-    ".nc": "nc",
-    ".nc4": "nc",
-    ".cdf": "nc",
-    ".tif": "tif",
-    ".tiff": "tif",
-    ".grib": "grib",
-    ".grib2": "grib",
-    ".grb": "grib",
-    ".grb2": "grib",
-    ".zip": "zip",
-}
+__all__ = ["load_resource", "sniff_format", "sniff_magic"]
 
 _VECTOR_FORMATS = frozenset({"shp", "gpkg", "geojson"})
-# Data extensions a ZIP may wrap and that `_load_zip` re-dispatches to a reader.
-# Kept in sync with the data formats in `_EXT_FORMAT` (everything except the
-# ``.zip`` archive container itself).
+_TABULAR_FORMATS = frozenset({"csv", "tsv"})
+# Every token this dispatcher understands, so an `expected_format=` it cannot
+# honour is rejected instead of silently returning raw bytes. Derived from the
+# branches below plus the shared detection vocabulary.
+_KNOWN_FORMATS = (
+    _VECTOR_FORMATS
+    | _TABULAR_FORMATS
+    | frozenset({"parquet", "nc", "tif", "grib", "zip", "unknown"})
+)
+# Data extensions a ZIP may wrap and that `_load_zip` re-dispatches to a reader,
+# in two tiers. Both are listed rather than derived from `_EXT_TO_FORMAT`,
+# because this is a dispatch policy rather than a detection vocabulary.
+#
+# The tiers exist because "exactly one primary member" is ambiguous when an
+# archive ships data plus a tabular sidecar. A zip of `grid.tif` + `meta.tsv`
+# must resolve to the raster, but a zip holding only `table.tsv` should still
+# load that table. So geospatial members are considered first, and the tabular
+# tier is consulted only when the archive contains no geospatial member at all.
 _PRIMARY_EXTS = frozenset(
     {
         ".shp",
@@ -78,75 +86,15 @@ _PRIMARY_EXTS = frozenset(
         ".grb2",
     }
 )
+# Tabular formats that count only when nothing in `_PRIMARY_EXTS` is present.
+# `.csv` stays in the primary tier for backwards compatibility — it was there
+# before the tiering and archives relying on it must keep resolving.
+_SECONDARY_EXTS = frozenset({".tsv", ".xlsx", ".xls"})
 _PARQUET_EXTRA_HINT = (
     "Reading Parquet requires the optional 'pyarrow' dependency. Install with one of:\n"
     "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
     "  - conda-forge: conda install -c conda-forge pyramids-parquet"
 )
-
-
-def sniff_format(path: str | Path) -> str:
-    """Classify a file's format from its magic bytes, then its extension.
-
-    Magic-byte detection (ZIP, TIFF, HDF5/NetCDF, Parquet, GeoPackage/SQLite)
-    takes precedence over the extension, so a mis-named resource is still
-    classified correctly. No `python-magic` dependency.
-
-    Args:
-        path: Path to a local file.
-
-    Returns:
-        A normalised format string: one of `"shp"`, `"gpkg"`,
-        `"geojson"`, `"csv"`, `"parquet"`, `"nc"`, `"tif"`,
-        `"grib"`, `"zip"`, or `"unknown"`.
-
-    Examples:
-        - A GeoTIFF is detected from its `II*\\0` / `MM\\0*` magic bytes:
-            ```python
-            >>> from pyramids.io import sniff_format
-            >>> sniff_format("tests/data/geotiff/era5_land_monthly_averaged.tif")
-            'tif'
-
-            ```
-        - A NetCDF file is detected (HDF5 or classic-CDF magic):
-            ```python
-            >>> sniff_format("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc")
-            'nc'
-
-            ```
-        - An unknown / missing file is reported as `"unknown"`:
-            ```python
-            >>> sniff_format("does-not-exist.bin")
-            'unknown'
-
-            ```
-    """
-    p = Path(path)
-    head = b""
-    try:
-        with open(p, "rb") as handle:
-            head = handle.read(16)
-    except OSError:
-        head = b""
-
-    result = "unknown"
-    if head.startswith(b"PK\x03\x04"):
-        result = "zip"
-    elif head[:4] in (b"II*\x00", b"MM\x00*"):
-        result = "tif"
-    elif head.startswith(b"\x89HDF"):
-        result = "nc"
-    elif head[:3] == b"CDF":
-        result = "nc"
-    elif head.startswith(b"GRIB"):
-        result = "grib"
-    elif head.startswith(b"PAR1"):
-        result = "parquet"
-    elif head.startswith(b"SQLite format 3"):
-        result = "gpkg"
-    elif p.suffix.lower() in _EXT_FORMAT:
-        result = _EXT_FORMAT[p.suffix.lower()]
-    return result
 
 
 def _load_parquet(path: Path) -> FeatureCollection | pd.DataFrame:
@@ -177,19 +125,30 @@ def _load_zip(path: Path, extract_to: Path | None) -> Any:
 
     Args:
         path: Path to a `.zip` file.
-        extract_to: Directory to extract into; a temp dir is used when `None`.
+        extract_to: Directory to extract into; when `None` a directory under the
+            process-scoped artefact root is used (reclaimed at interpreter exit).
 
     Returns:
         The loaded resource (re-dispatched through :func:`load_resource`) when a
         single primary data file is found, otherwise the :class:`~pathlib.Path`
         of the extraction directory.
     """
-    dest = Path(extract_to) if extract_to is not None else Path(tempfile.mkdtemp())
+    # `artifact_dir()` rather than a bare `tempfile.mkdtemp()`: the extracted
+    # files must outlive this call (GDAL/geopandas read them lazily, so a
+    # `TemporaryDirectory` would delete them mid-read), but an untracked mkdtemp
+    # is never reclaimed — every load_resource(<zip>) leaked one. The shared
+    # artefact root is swept by an atexit hook.
+    dest = Path(extract_to) if extract_to is not None else Path(artifact_dir())
     with zipfile.ZipFile(path) as archive:
         members = [n for n in archive.namelist() if not n.endswith("/")]
         archive.extractall(dest)
 
     primaries = [m for m in members if Path(m).suffix.lower() in _PRIMARY_EXTS]
+    if not primaries:
+        # No geospatial/CSV member: fall back to the tabular tier so an archive
+        # that holds only a spreadsheet still resolves to a frame rather than to
+        # the extraction directory.
+        primaries = [m for m in members if Path(m).suffix.lower() in _SECONDARY_EXTS]
     shapefiles = [m for m in primaries if m.lower().endswith(".shp")]
 
     target: str | None = None
@@ -218,9 +177,13 @@ def load_resource(
     Args:
         path: Path to the downloaded resource.
         expected_format: Optional format override (one of the
-            :func:`sniff_format` strings); skips sniffing when given.
-        extract_to: Directory to extract a ZIP into; a temp dir is used when
-            `None`.
+            :func:`sniff_format` tokens); skips sniffing when given. Use it when
+            the name carries no usable extension — a portal download named by id
+            — since the override is forwarded to the reader rather than
+            re-derived from the suffix.
+        extract_to: Directory to extract a ZIP into. When `None` a directory
+            under the process-scoped artefact root is used, which is swept at
+            interpreter exit rather than left behind.
 
     Returns:
         The most natural object for the format: a
@@ -234,6 +197,8 @@ def load_resource(
     Raises:
         OptionalPackageDoesNotExist: A Parquet resource is read without the
             `[parquet]` extra installed.
+        ValueError: A tabular resource whose format cannot be determined from
+            `expected_format`, its suffix, or its magic bytes.
 
     Examples:
         - Load a GeoTIFF resource as a Dataset:
@@ -256,12 +221,27 @@ def load_resource(
             ```
     """
     p = Path(path)
-    fmt = expected_format or sniff_format(p)
+    # Normalise the caller's label: portals publish "CSV" / "GeoJSON" / ".csv",
+    # and an unnormalised value used to miss every branch below and fall through
+    # to the raw-bytes default — a silent wrong return type on the documented
+    # extension-less path. An unrecognised label is rejected outright rather than
+    # degraded to bytes.
+    declared = normalise_format(expected_format)
+    if declared is not None and declared not in _KNOWN_FORMATS:
+        raise ValueError(
+            f"unknown expected_format {expected_format!r}; expected one of "
+            f"{sorted(_KNOWN_FORMATS)} (case-insensitive), or omit it to sniff."
+        )
+    fmt = declared or sniff_format(p)
 
     if fmt in _VECTOR_FORMATS:
         result: Any = FeatureCollection.read_file(str(p))
-    elif fmt == "csv":
-        result = pd.read_csv(p)
+    elif fmt in _TABULAR_FORMATS:
+        # Shared tabular reader, so `.tsv` works here too rather than falling
+        # through to raw bytes as it did while this module carried its own
+        # dispatch table. `fmt` is forwarded so an explicit `expected_format=`
+        # still wins on a resource whose name has no usable extension.
+        result = read_tabular(p, fmt=fmt)
     elif fmt == "parquet":
         result = _load_parquet(p)
     elif fmt == "nc":

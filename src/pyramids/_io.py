@@ -228,6 +228,11 @@ def _is_tar(path: str):
 def _get_zip_path(path: str, file_i: int = 0):
     """Get Zip Path.
 
+    When the archive has to be listed to resolve a member, it is opened under a
+    context manager and closed before returning — an unclosed handle would
+    survive until garbage collection and, on Windows, block deleting or
+    overwriting the archive.
+
     Args:
         path (str): Path to the zip file.
         file_i (int): Index to the file inside the compressed file you want to read.
@@ -268,7 +273,14 @@ def _get_zip_path(path: str, file_i: int = 0):
     if path.__contains__(".zip") and not path.endswith(".zip"):
         vsi_path = f"{_VSIZIP}{path}"
     else:
-        file_list = zipfile.ZipFile(path).namelist()
+        # Close deterministically instead of relying on the temporary's refcount
+        # dropping to zero. CPython happens to release it immediately, but that
+        # is an implementation detail — under a non-refcounting runtime (PyPy) or
+        # if this expression is ever held in a traceback frame, the descriptor
+        # survives, and on Windows an open handle blocks deleting or overwriting
+        # the archive.
+        with zipfile.ZipFile(path) as archive:
+            file_list = archive.namelist()
         vsi_path = f"{_VSIZIP}{path}/{file_list[file_i]}"
     return vsi_path
 
@@ -565,11 +577,26 @@ def read_file(
 
     - For GeoTIFF and ASCII files.
 
+    Handle sharing depends on the access mode. Read-only opens go through
+    :func:`osgeo.gdal.OpenShared`, so repeated reads of the same path reuse one
+    handle — the intended benefit for frequently accessed rasters. Update-mode
+    opens go through :func:`osgeo.gdal.Open` instead: GDAL's shared cache is
+    keyed on path + access + thread, so two update-mode opens of the same file
+    return **one and the same** ``GDALDataset`` — two wrappers that look
+    independent but are a single mutable object, each with its own finalizer and
+    its own idea of when it may be closed. `gdal.Open` gives each writer its own
+    dataset instead. (Note this is about handle identity, not visibility: GDAL's
+    block cache makes an unflushed write on one handle visible through another
+    on the same file under *either* opener.)
+
     Args:
         path (str): Path of file to open (works for ASCII, GeoTIFF).
         read_only (bool): File mode; set to False to open in "update" mode.
-        open_as_multi_dimensional (bool): If True, opens using OF_MULTIDIM_RASTER for multi-dimensional formats. Default is False.
-        file_i (int): Index to the file inside the compressed file you want to read (default 0). If the compressed file has only one file, the first file is used.
+        open_as_multi_dimensional (bool): If True, opens using OF_MULTIDIM_RASTER
+            for multi-dimensional formats. Default is False.
+        file_i (int): Index to the file inside the compressed file you want to
+            read (default 0). If the compressed file has only one file, the first
+            file is used.
         vsi (str | None): When given, treat ``path`` as an archive of this kind
             (``"zip"`` / ``"tar"`` / ``"gzip"`` / ``"auto"``) and open member
             ``file_i`` from inside it — even when the path/URL has no archive
@@ -578,6 +605,18 @@ def read_file(
 
     Returns:
         gdal.Dataset: Opened dataset.
+
+    Raises:
+        TypeError: ``path`` is neither a :class:`str` nor a :class:`~pathlib.Path`.
+        FileNotFoundError: The path does not exist, or ``vsi`` was given and
+            ``file_i`` is out of range for the archive's member list.
+        FileFormatNotSupportedError: GDAL cannot open the format — notably a
+            gzip archive holding several internal files, which has no addressable
+            single member.
+
+    See Also:
+        bytes_to_gdal: Open an in-memory byte string through ``/vsimem/``.
+        _archive_dir_vsi: Resolve the ``/vsi*`` directory path used when ``vsi`` is given.
     """
     if not isinstance(path, (str, Path)):
         raise TypeError(
@@ -590,9 +629,16 @@ def read_file(
             # OF_MULTIDIM_RASTER for formats that expose multi-dimensional data
             # (hdf, h5, nc, nc4, grib, grib2, jp2, ...).
             src = gdal.OpenEx(path, access | gdal.OF_MULTIDIM_RASTER)
-        else:
+        elif read_only:
             # OpenShared for potentially frequently accessed raster files.
             src = gdal.OpenShared(path, access)
+        else:
+            # Update mode must NOT share: GDAL returns one handle per
+            # path+access+thread, so two update-mode Datasets on the same file
+            # would alias one another — a write through one immediately visible
+            # through the other, and a flush/close on either committing the
+            # other's in-flight edits.
+            src = gdal.Open(path, access)
     except Exception as e:
         _raise_open_error(e, path)
     return src

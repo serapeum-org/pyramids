@@ -1,0 +1,362 @@
+"""Tests for the shared format-detection core in `pyramids._resource`.
+
+The magic-byte and extension tables used to be duplicated between `_resource`
+and `pyramids.io.sniff`, which let the two drift. These tests pin the single
+core: that both public readers resolve through it, that magic bytes beat a lying
+extension, and that `read_resource` can fall back to bytes when a name carries no
+usable suffix.
+"""
+
+from __future__ import annotations
+
+import shutil
+import zipfile
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from pyramids._resource import (
+    _EXT_TO_FORMAT,
+    read_resource,
+    sniff_format,
+    sniff_magic,
+)
+from pyramids.io.sniff import _PRIMARY_EXTS, load_resource
+
+pytestmark = pytest.mark.core
+
+_GEOTIFF = "tests/data/geotiff/era5_land_monthly_averaged.tif"
+
+
+class TestSharedCore:
+    """Tests that both readers resolve through one detection implementation."""
+
+    def test_io_sniff_format_is_the_core_function(self):
+        """`pyramids.io.sniff_format` is the very object defined in `_resource`.
+
+        Test scenario:
+            Identity — not merely equal behaviour — proves there is a single
+            implementation rather than two that can drift.
+        """
+        from pyramids.io import sniff_format as exported
+
+        assert exported is sniff_format, (
+            "pyramids.io must re-export the core sniffer, not reimplement it"
+        )
+
+    def test_primary_exts_excludes_sidecar_only_formats(self):
+        """`_PRIMARY_EXTS` stays narrower than the detection table.
+
+        Test scenario:
+            `_PRIMARY_EXTS` decides whether an archive has exactly one primary
+            member. Sidecar-ish formats must stay out: with `.tsv` included, a
+            zip of `grid.tif` + `meta.tsv` would have two primaries and return
+            the extraction directory instead of the raster.
+        """
+
+        for ext in (".tsv", ".xlsx", ".xls"):
+            assert ext not in _PRIMARY_EXTS, (
+                f"{ext} must not count as a primary archive member"
+            )
+
+    def test_primary_exts_are_all_known_formats(self):
+        """Every primary extension is one the detection core can classify.
+
+        Test scenario:
+            A primary member is re-dispatched through `load_resource`, so an
+            extension listed here that the shared table cannot name would fall
+            through to raw bytes.
+        """
+
+        unknown = sorted(ext for ext in _PRIMARY_EXTS if ext not in _EXT_TO_FORMAT)
+        assert not unknown, (
+            f"primary extensions unknown to the detection table: {unknown}"
+        )
+
+    def test_every_data_extension_is_dispatchable_from_an_archive(self):
+        """No data format is silently undispatchable inside a zip.
+
+        Test scenario:
+            The subset check above catches drift in one direction only. A format
+            added to the detection table but to neither dispatch tier would make
+            an archive containing just that file return the extraction directory,
+            with nothing failing. Pin the other direction too.
+        """
+        from pyramids.io.sniff import _SECONDARY_EXTS
+
+        dispatchable = _PRIMARY_EXTS | _SECONDARY_EXTS
+        # `.zip` is the container itself, never a member to re-dispatch.
+        orphans = sorted(
+            ext
+            for ext, fmt in _EXT_TO_FORMAT.items()
+            if fmt != "zip" and ext not in dispatchable
+        )
+        assert not orphans, (
+            f"data extensions in the detection table that no tier dispatches: {orphans}"
+        )
+
+
+class TestSniffMagic:
+    """Tests for `sniff_magic`."""
+
+    @pytest.mark.parametrize(
+        "payload, expected",
+        [
+            (b"PK\x03\x04rest", "zip"),
+            (b"II*\x00rest", "tif"),
+            (b"MM\x00*rest", "tif"),
+            (b"\x89HDF\r\n\x1a\n", "nc"),
+            (b"CDF\x01rest", "nc"),
+            (b"CDF\x02rest", "nc"),
+            (b"GRIB\x00\x00\x00\x02", "grib"),
+            (b"PAR1data", "parquet"),
+            (b"SQLite format 3\x00", "gpkg"),
+        ],
+    )
+    def test_recognised_signatures(self, tmp_path: Path, payload: bytes, expected: str):
+        """Each known signature maps to its format token.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            payload: Leading bytes written to the probe file.
+            expected: Format token the sniffer should return.
+
+        Test scenario:
+            Only the first 16 bytes are read, so a stub file carrying just the
+            signature is enough to classify it.
+        """
+        probe = tmp_path / "probe.bin"
+        probe.write_bytes(payload)
+        assert sniff_magic(probe) == expected, (
+            f"expected {expected} for {payload[:8]!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "header",
+        [b"CDF,value,date\n1,2,3\n", b"GRIB,station,value\n1,2,3\n"],
+    )
+    def test_text_headers_are_not_mistaken_for_binary_formats(
+        self,
+        tmp_path: Path,
+        header: bytes,
+    ):
+        """A CSV whose first column is named `CDF` or `GRIB` is not binary.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            header: Leading bytes of a plain-text CSV.
+
+        Test scenario:
+            Both signatures are short ASCII prefixes, so testing them alone would
+            claim ordinary text. The version/edition byte that follows must be
+            checked too.
+        """
+        probe = tmp_path / "table.csv"
+        probe.write_bytes(header)
+        assert sniff_magic(probe) is None, (
+            f"{header[:6]!r} is a text header, not a binary signature"
+        )
+
+    def test_unrecognised_payload_returns_none(self, tmp_path: Path):
+        """Unknown leading bytes yield `None` so the caller can fall back.
+
+        Test scenario:
+            `sniff_magic` reports "I don't know" rather than guessing, leaving the
+            extension fallback to `sniff_format`.
+        """
+        probe = tmp_path / "plain.bin"
+        probe.write_bytes(b"just some text")
+        assert sniff_magic(probe) is None, "unrecognised bytes should return None"
+
+    def test_missing_file_returns_none(self, tmp_path: Path):
+        """A missing path is reported as unknown rather than raising.
+
+        Test scenario:
+            Detection must stay non-fatal for callers probing untrusted input.
+        """
+        assert sniff_magic(tmp_path / "absent.bin") is None, (
+            "a missing file should return None"
+        )
+
+
+class TestSniffFormat:
+    """Tests for `sniff_format`."""
+
+    def test_magic_beats_a_lying_extension(self, tmp_path: Path):
+        """Magic bytes win over a mis-named file.
+
+        Test scenario:
+            A zip archive named `.csv` — the portal case this core exists for —
+            must still be classified as a zip.
+        """
+        liar = tmp_path / "resource.csv"
+        with zipfile.ZipFile(liar, "w") as archive:
+            archive.writestr("inner.txt", "data")
+        assert sniff_format(liar) == "zip", "magic bytes should override the extension"
+
+    def test_extension_used_when_bytes_are_inconclusive(self, tmp_path: Path):
+        """The extension is the fallback when the bytes say nothing.
+
+        Test scenario:
+            A plain-text CSV has no magic signature, so the `.csv` suffix decides.
+        """
+        table = tmp_path / "table.csv"
+        table.write_text("a,b\n1,2\n", encoding="utf-8")
+        assert sniff_format(table) == "csv", (
+            "a signature-less CSV should fall back to its extension"
+        )
+
+    def test_unknown_when_neither_identifies(self, tmp_path: Path):
+        """An unrecognised name and payload yield `"unknown"`.
+
+        Test scenario:
+            Neither the bytes nor the suffix identify the file.
+        """
+        blob = tmp_path / "mystery.bin"
+        blob.write_bytes(b"nothing recognisable")
+        assert sniff_format(blob) == "unknown", (
+            "unidentifiable input should be 'unknown'"
+        )
+
+
+class TestReadResourceMagicFallback:
+    """Tests for magic-byte resolution inside `read_resource`."""
+
+    def test_extensionless_raster_resolves_via_magic(self, tmp_path: Path):
+        """An extension-less download is resolved from its bytes.
+
+        Test scenario:
+            A GeoTIFF saved without any suffix carries no name-based hint, so the
+            name/fmt lookup fails; the magic-byte fallback must classify it as a
+            raster and read it.
+        """
+        blob = tmp_path / "downloaded_blob"
+        shutil.copy(_GEOTIFF, blob)
+        result = read_resource(blob)
+        assert result.band_count == 9, (
+            f"expected the 9-band ERA5 raster, got {result.band_count} bands"
+        )
+
+    def test_named_resource_keeps_its_name_based_answer(self, tmp_path: Path):
+        """A correctly named resource is unaffected by the new fallback.
+
+        Test scenario:
+            The magic sniff runs only when the name is inconclusive, so a plain
+            `.csv` still resolves through the tabular branch.
+        """
+        table = tmp_path / "values.csv"
+        table.write_text("a,b\n5,6\n", encoding="utf-8")
+        result = read_resource(table)
+        assert list(result.columns) == ["a", "b"], (
+            f"expected columns ['a', 'b'], got {list(result.columns)}"
+        )
+
+
+class TestLoadResourceTabularCoverage:
+    """Tests for the tabular formats `load_resource` gained from the shared reader."""
+
+    def test_tsv_is_read_as_a_frame(self, tmp_path: Path):
+        """A `.tsv` resource now returns a DataFrame instead of raw bytes.
+
+        Test scenario:
+            Tab-separated data was absent from this module's old dispatch table
+            and fell through to the raw-bytes branch.
+        """
+
+        table = tmp_path / "values.tsv"
+        table.write_text("a\tb\n7\t8\n", encoding="utf-8")
+        result = load_resource(table)
+        assert isinstance(result, pd.DataFrame), (
+            f"expected a DataFrame for .tsv, got {type(result).__name__}"
+        )
+        assert list(result.columns) == ["a", "b"], (
+            f"expected columns ['a', 'b'], got {list(result.columns)}"
+        )
+
+    def test_expected_format_overrides_a_missing_extension(self, tmp_path: Path):
+        """`expected_format=` wins when the name carries no usable suffix.
+
+        Test scenario:
+            The case this module exists for — a portal download named by id,
+            where the declared format is the only reliable signal. Dispatching
+            on the extension instead would raise.
+        """
+
+        blob = tmp_path / "resource_12345"
+        blob.write_text("a,b\n1,2\n", encoding="utf-8")
+        result = load_resource(blob, expected_format="csv")
+        assert list(result.columns) == ["a", "b"], (
+            f"expected columns ['a', 'b'], got {list(result.columns)}"
+        )
+
+    def test_zip_with_a_tabular_sidecar_still_loads_the_raster(self, tmp_path: Path):
+        """A sidecar next to the data file does not defeat re-dispatch.
+
+        Test scenario:
+            A zip of `grid.tif` + `meta.tsv` must resolve to the raster. If
+            `.tsv` counted as a primary member the archive would have two, and
+            `_load_zip` would return the extraction directory instead.
+        """
+
+        shutil.copy(_GEOTIFF, tmp_path / "grid.tif")
+        (tmp_path / "meta.tsv").write_text("k\tv\n1\t2\n", encoding="utf-8")
+        archive = tmp_path / "bundle.zip"
+        with zipfile.ZipFile(archive, "w") as handle:
+            handle.write(tmp_path / "grid.tif", arcname="grid.tif")
+            handle.write(tmp_path / "meta.tsv", arcname="meta.tsv")
+
+        result = load_resource(archive, extract_to=tmp_path / "out")
+        assert getattr(result, "band_count", None) == 9, (
+            f"expected the 9-band raster, got {type(result).__name__}"
+        )
+
+    def test_zip_of_only_a_tsv_still_loads_the_table(self, tmp_path: Path):
+        """An archive holding just a spreadsheet resolves to a frame.
+
+        Test scenario:
+            The mirror of the sidecar case: `.tsv` is deliberately not a primary
+            member so it cannot outvote a raster, but with nothing else in the
+            archive it must still be read rather than yielding the extraction
+            directory.
+        """
+
+        (tmp_path / "table.tsv").write_text("a\tb\n1\t2\n", encoding="utf-8")
+        archive = tmp_path / "only.zip"
+        with zipfile.ZipFile(archive, "w") as handle:
+            handle.write(tmp_path / "table.tsv", arcname="table.tsv")
+
+        result = load_resource(archive, extract_to=tmp_path / "solo")
+        assert isinstance(result, pd.DataFrame), (
+            f"a zip of one .tsv should load it, got {type(result).__name__}"
+        )
+
+    def test_legacy_xls_is_not_forced_through_an_excel_engine(self, tmp_path: Path):
+        """`.xls` keeps its previous raw-bytes behaviour.
+
+        Test scenario:
+            No Excel engine is a declared dependency, so classifying `.xls` as a
+            tabular format would turn a resource that used to come back as bytes
+            into a hard ImportError.
+        """
+
+        legacy = tmp_path / "legacy.xls"
+        legacy.write_bytes(b"\xd0\xcf\x11\xe0stub")
+        assert isinstance(load_resource(legacy), bytes), (
+            "unrecognised .xls should still return raw bytes"
+        )
+
+    def test_csv_still_reads_as_a_frame(self, tmp_path: Path):
+        """The pre-existing CSV behaviour is preserved.
+
+        Test scenario:
+            Routing CSV through the shared tabular reader must not change what
+            callers already received.
+        """
+
+        table = tmp_path / "values.csv"
+        table.write_text("a,b\n1,2\n", encoding="utf-8")
+        result = load_resource(table)
+        assert list(result.columns) == ["a", "b"], (
+            f"expected columns ['a', 'b'], got {list(result.columns)}"
+        )

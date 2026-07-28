@@ -61,7 +61,229 @@ _VECTOR_SUFFIXES = {
     ".fgb",
     ".gml",
 }
-_TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xls", ".parquet", ".pq"}
+# Named once and reused across the three tables below, which all key on it
+# (S1192).
+_PARQUET_SUFFIX = ".parquet"
+_TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xls", _PARQUET_SUFFIX, ".pq"}
+
+# One detection core for both public readers (`read_resource` here and
+# `pyramids.io.load_resource`, which adapts these helpers). Previously each
+# module carried its own suffix table and its own sniffing rules, so the two
+# drifted apart; keep new formats in these tables only.
+#
+# Deliberately NOT a superset of the two originals. Excel is absent: `.xlsx` is
+# a zip container, so its magic resolves to `"zip"` and an `"excel"` token would
+# be unreachable by sniffing anyway, while adding `.xls` would turn a resource
+# that used to come back as raw bytes into a hard ImportError (no Excel engine
+# is a declared dependency). Excel is still reachable deliberately — via
+# `read_resource`'s `_TABULAR_SUFFIXES` family lookup, or by passing an explicit
+# `fmt=`/`kind=` — just never by sniffing.
+_EXT_TO_FORMAT: dict[str, str] = {
+    ".shp": "shp",
+    ".gpkg": "gpkg",
+    ".geojson": "geojson",
+    ".json": "geojson",
+    ".csv": "csv",
+    ".tsv": "tsv",
+    _PARQUET_SUFFIX: "parquet",
+    ".pq": "parquet",
+    ".nc": "nc",
+    ".nc4": "nc",
+    ".cdf": "nc",
+    ".tif": "tif",
+    ".tiff": "tif",
+    ".grib": "grib",
+    ".grib2": "grib",
+    ".grb": "grib",
+    ".grb2": "grib",
+    ".zip": "zip",
+}
+
+# Extension -> the pandas reader `read_tabular` should use. Separate from
+# `_EXT_TO_FORMAT` because it covers the Excel suffixes that deliberately stay
+# out of the sniffing vocabulary above.
+_EXT_TO_TABULAR_READER: dict[str, str] = {
+    ".csv": "csv",
+    ".tsv": "tsv",
+    ".xlsx": "excel",
+    ".xls": "excel",
+    _PARQUET_SUFFIX: "parquet",
+    ".pq": "parquet",
+}
+
+# Format label -> the pandas reader to use. Keys are normalised (lower-cased,
+# leading dot stripped) so the CKAN spellings that portals actually publish —
+# "CSV", "Excel", ".xlsx" — all resolve. Both public readers funnel their
+# caller-supplied format through this, so neither can accept a vocabulary the
+# other rejects.
+_FMT_TO_TABULAR_READER: dict[str, str] = {
+    "csv": "csv",
+    "tsv": "tsv",
+    "excel": "excel",
+    "xlsx": "excel",
+    "xls": "excel",
+    "parquet": "parquet",
+    "pq": "parquet",
+}
+
+
+def normalise_format(value: str | None) -> str | None:
+    """Normalise a format label for lookup, or `None` when there is none.
+
+    Portals publish the same format under many spellings — `"CSV"`, `"csv"`,
+    `".csv"`, `"GeoTIFF"`. Case and a leading dot carry no meaning, so strip
+    them once here rather than at each comparison. A blank label is treated as
+    absent, so `fmt=""` behaves like `fmt=None` instead of silently skipping an
+    override the caller believed they had set.
+
+    Args:
+        value: A format label, or `None`.
+
+    Returns:
+        str | None: The lower-cased, de-dotted label, or `None` when `value` is
+        `None` or blank.
+
+    Examples:
+        - Spelling variants collapse to one token:
+            ```python
+            >>> from pyramids._resource import normalise_format
+            >>> [normalise_format(v) for v in ("CSV", "csv", ".Csv", "  csv ")]
+            ['csv', 'csv', 'csv', 'csv']
+
+            ```
+        - A missing or blank label is reported as absent:
+            ```python
+            >>> from pyramids._resource import normalise_format
+            >>> normalise_format(None) is None and normalise_format("  ") is None
+            True
+
+            ```
+    """
+    result: str | None = None
+    if value is not None:
+        cleaned = value.strip().lower().lstrip(".")
+        result = cleaned or None
+    return result
+
+
+# Leading magic bytes -> format token. `SQLite format 3` is listed first so it
+# is tested before any shorter prefix that could overlap. TIFF needs an exact
+# 4-byte window (both byte orders) rather than a prefix test, so it is handled
+# separately below.
+_MAGIC_TO_FORMAT: tuple[tuple[bytes, str], ...] = (
+    (b"SQLite format 3", "gpkg"),
+    (b"PK\x03\x04", "zip"),
+    (b"\x89HDF", "nc"),
+    (b"PAR1", "parquet"),
+)
+_TIFF_MAGIC = (b"II*\x00", b"MM\x00*")
+# Classic-netCDF format version byte following the `CDF` prefix: 1 (classic),
+# 2 (64-bit offset), 5 (CDF-5). Checked so a text file starting "CDF" is not
+# claimed as netCDF -- see `sniff_magic`.
+_CDF_VERSIONS = (b"\x01", b"\x02", b"\x05")
+# GRIB edition byte at offset 7: 1 or 2. Same reasoning as `_CDF_VERSIONS`.
+_GRIB_EDITIONS = (b"\x01", b"\x02")
+
+# Format token -> resource family, for callers that work in `ResourceKind`.
+_FORMAT_TO_KIND: dict[str, ResourceKind] = {
+    "shp": "vector",
+    "gpkg": "vector",
+    "geojson": "vector",
+    "csv": "tabular",
+    "tsv": "tabular",
+    "parquet": "tabular",
+    "nc": "raster",
+    "tif": "raster",
+    "grib": "raster",
+}
+
+
+def sniff_magic(path: str | Path) -> str | None:
+    """Classify a file by its leading magic bytes.
+
+    Reads the first 16 bytes only. Unlike :func:`sniff_kind` this performs I/O,
+    but it is authoritative where the name lies — a portal resource declared
+    ``CSV`` that is really a ``.shp.zip``, for instance.
+
+    Args:
+        path: Path to a local file.
+
+    Returns:
+        str | None: A format token (see :data:`_EXT_TO_FORMAT` for the
+        vocabulary), or `None` when the file is unreadable or unrecognised.
+    """
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(16)
+    except OSError:
+        head = b""
+
+    result: str | None = None
+    if head[:4] in _TIFF_MAGIC:
+        result = "tif"
+    elif head[:3] == b"CDF" and head[3:4] in _CDF_VERSIONS:
+        # Classic netCDF is `CDF` + a one-byte version. Testing the prefix alone
+        # would claim any text file whose first line begins "CDF..." — a CSV with
+        # a column called CDF, say — as netCDF.
+        result = "nc"
+    elif head[:4] == b"GRIB" and head[7:8] in _GRIB_EDITIONS:
+        # GRIB is `GRIB` + 3 reserved/length bytes + a one-byte edition number.
+        # Same reasoning: the four-letter prefix on its own is a plausible CSV
+        # header.
+        result = "grib"
+    else:
+        for signature, fmt in _MAGIC_TO_FORMAT:
+            if head.startswith(signature):
+                result = fmt
+                break
+    return result
+
+
+def sniff_format(path: str | Path) -> str:
+    """Classify a file's format from its magic bytes, then its extension.
+
+    Magic-byte detection takes precedence over the extension, so a mis-named
+    resource is still classified correctly. No `python-magic` dependency.
+
+    Args:
+        path: Path to a local file.
+
+    Returns:
+        str: One of `"shp"`, `"gpkg"`, `"geojson"`, `"csv"`, `"tsv"`,
+        `"parquet"`, `"nc"`, `"tif"`, `"grib"`, `"zip"`, or `"unknown"` when
+        neither the magic bytes nor the extension identify the file. Excel is
+        deliberately absent — see the note on :data:`_EXT_TO_FORMAT`.
+
+    Examples:
+        - A GeoTIFF is detected from its `II*\\0` / `MM\\0*` magic bytes:
+            ```python
+            >>> from pyramids.io import sniff_format
+            >>> sniff_format("tests/data/geotiff/era5_land_monthly_averaged.tif")
+            'tif'
+
+            ```
+        - A NetCDF file is detected (HDF5 or classic-CDF magic):
+            ```python
+            >>> sniff_format("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc")
+            'nc'
+
+            ```
+        - An unknown / missing file is reported as `"unknown"`:
+            ```python
+            >>> sniff_format("does-not-exist.bin")
+            'unknown'
+
+            ```
+
+    See Also:
+        sniff_magic: The magic-byte half, without the extension fallback.
+        sniff_kind: The pure name-based family classifier (no I/O).
+    """
+    result = sniff_magic(path)
+    if result is None:
+        result = _EXT_TO_FORMAT.get(Path(path).suffix.lower(), "unknown")
+    return result
+
 
 # kind → the suffix set used to pick the matching member inside an archive.
 _KIND_SUFFIXES: dict[ResourceKind, set[str]] = {
@@ -240,11 +462,19 @@ def _sniff_from_archive(path: Path) -> ResourceKind | None:
 
 
 def _determine_kind(path: Path, fmt: str | None) -> ResourceKind:
-    """Resolve the family from name + ``fmt``, peeking into archives as needed."""
+    """Resolve the family from name + ``fmt``, then bytes, then archive members.
+
+    Order is cheapest-first: the pure name/``fmt`` lookup, then the magic-byte
+    sniff (one 16-byte read, which also identifies an extension-less download),
+    then peeking inside a container. Magic bytes are consulted only when the name
+    is inconclusive, so a correctly-named resource keeps its existing answer.
+    """
     try:
         kind = sniff_kind(path, fmt=fmt)
     except ValueError:
-        sniffed = _sniff_from_archive(path)
+        sniffed = _FORMAT_TO_KIND.get(sniff_format(path))
+        if sniffed is None:
+            sniffed = _sniff_from_archive(path)
         if sniffed is None:
             raise
         kind = sniffed
@@ -341,31 +571,70 @@ def _read_vector(path: Path, layer: str | int | None) -> FeatureCollection:
     return FeatureCollection.read_file(source, layer=passthrough_layer)
 
 
-def _read_tabular(path: Path) -> pd.DataFrame:
+def read_tabular(path: str | Path, fmt: str | None = None) -> pd.DataFrame:
     """Read a tabular resource into a :class:`pandas.DataFrame`.
 
     ``pandas`` infers ``.gz`` / ``.zip`` / ``.tar`` compression from the suffix,
     so the path is passed through verbatim. ``.xlsx`` needs ``openpyxl`` and
     ``.parquet`` needs ``pyarrow`` — when missing, the underlying
     :class:`ImportError` is re-raised with install guidance.
+
+    Args:
+        path: Path to the tabular resource.
+        fmt: Optional reader reader (`"csv"`, `"tsv"`, `"excel"`, `"parquet"`)
+            that **overrides** the suffix. Required for a resource whose name
+            carries no usable extension — a portal download named by id, say —
+            where the caller knows the declared format. When omitted the suffix
+            decides, falling back to the magic bytes.
+
+    Returns:
+        pandas.DataFrame: The parsed table.
+
+    Raises:
+        ValueError: Neither `fmt`, the suffix, nor the magic bytes identify a
+            supported tabular format.
+        ImportError: The chosen reader needs an optional engine that is not
+            installed (`openpyxl`/`xlrd` for Excel, `pyarrow` for Parquet).
     """
+    # Accept a plain string too: this is public-named and reached from both
+    # readers, so it must not depend on the caller having wrapped the path.
+    path = Path(path)
     source = str(path)
     ext = Path(_strip_compression(path.name)).suffix.lower()
+    label = normalise_format(fmt)
+    if label is not None:
+        # An explicit label wins over the name — but only if it names a reader.
+        # Falling through to the suffix here would silently ignore the override
+        # and then blame the file's extension for the failure.
+        reader = _FMT_TO_TABULAR_READER.get(label)
+        if reader is None:
+            raise ValueError(
+                f"unsupported tabular format {fmt!r} for {source!r}; expected one "
+                f"of {sorted(set(_FMT_TO_TABULAR_READER))}."
+            )
+    else:
+        # The name wins over the bytes. The magic-byte tail is what lets an
+        # extension-less Parquet download resolve instead of dead-ending on an
+        # empty suffix; it is mapped through the same table so a non-tabular
+        # reader (`"zip"`, `"tif"`, `"unknown"`) cannot leak through as a reader.
+        reader = _EXT_TO_TABULAR_READER.get(ext) or _FMT_TO_TABULAR_READER.get(
+            sniff_format(path)
+        )
     result: pd.DataFrame
-    if ext == ".csv":
+    if reader == "csv":
         result = pd.read_csv(source)
-    elif ext == ".tsv":
+    elif reader == "tsv":
         result = pd.read_csv(source, sep="\t")
-    elif ext in {".xlsx", ".xls"}:
+    elif reader == "excel":
         try:
             result = pd.read_excel(source)
         except ImportError as exc:  # openpyxl (.xlsx) / xlrd (.xls) not installed
             raise ImportError(
-                f"reading {ext} files needs an Excel engine (openpyxl for .xlsx, "
-                "xlrd for legacy .xls); install it into the environment to read "
-                "this resource."
+                f"reading {ext or 'excel'} files needs an Excel engine (openpyxl "
+                "for .xlsx, xlrd for legacy .xls); install it into the environment "
+                "to read this resource."
             ) from exc
-    elif ext in {".parquet", ".pq"}:
+    elif reader == "parquet":
         try:
             result = pd.read_parquet(source)
         except ImportError as exc:  # pyarrow / fastparquet not installed
@@ -376,7 +645,8 @@ def _read_tabular(path: Path) -> pd.DataFrame:
     else:
         raise ValueError(
             f"unsupported tabular suffix {ext!r} for {source!r}; expected one of "
-            f"{sorted(_TABULAR_SUFFIXES)}."
+            f"{sorted(_TABULAR_SUFFIXES)}, or pass an explicit fmt= when the name "
+            "carries no usable extension."
         )
     return result
 
@@ -451,7 +721,14 @@ def read_resource(
     elif resolved_kind == "vector":
         result = _read_vector(path, layer)
     elif resolved_kind == "tabular":
-        result = _read_tabular(path)
+        # Forward the declared label when it names a tabular reader, so an
+        # extension-less download resolves here exactly as it does through
+        # `load_resource`. A non-tabular label (a raster/vector `fmt` paired with
+        # an explicit `kind="tabular"`) is dropped rather than rejected, leaving
+        # the suffix and magic bytes to decide as before.
+        result = read_tabular(
+            path, fmt=_FMT_TO_TABULAR_READER.get(normalise_format(fmt) or "")
+        )
     else:
         raise ValueError(
             f"unsupported resource kind {resolved_kind!r}; expected one of "

@@ -19,11 +19,11 @@ from pyramids import read_resource, sniff_kind
 from pyramids._resource import (
     _archive_members_for_kind,
     _is_archive,
-    _read_tabular,
     _select_vector_member,
     _sniff_from_archive,
     _strip_compression,
     _warn_if_multilayer,
+    read_tabular,
 )
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
@@ -461,19 +461,19 @@ class TestHelperRobustness:
 
 
 class TestReadTabularBranches:
-    """`_read_tabular` per-suffix dispatch and engine-missing handling."""
+    """`read_tabular` per-suffix dispatch and engine-missing handling."""
 
     def test_unsupported_suffix_raises(self, tmp_path: Path):
         f = tmp_path / "weird.dat"
         f.write_text("junk")
         with pytest.raises(ValueError, match="unsupported tabular suffix"):
-            _read_tabular(f)
+            read_tabular(f)
 
     def test_parquet_round_trip(self, tmp_path: Path):
         pytest.importorskip("pyarrow")
         pq = tmp_path / "t.parquet"
         pd.DataFrame({"a": [1, 2]}).to_parquet(pq)
-        df = _read_tabular(pq)
+        df = read_tabular(pq)
         assert list(df["a"]) == [1, 2]
 
     def test_xlsx_engine_missing_reraises_with_hint(self, tmp_path: Path, monkeypatch):
@@ -486,7 +486,7 @@ class TestReadTabularBranches:
         f = tmp_path / "survey.xlsx"
         f.write_bytes(b"stub")
         with pytest.raises(ImportError, match="Excel engine"):
-            _read_tabular(f)
+            read_tabular(f)
 
     def test_parquet_engine_missing_reraises_with_hint(
         self, tmp_path: Path, monkeypatch
@@ -498,4 +498,4 @@ class TestReadTabularBranches:
         f = tmp_path / "t.parquet"
         f.write_bytes(b"stub")
         with pytest.raises(ImportError, match="parquet engine"):
-            _read_tabular(f)
+            read_tabular(f)

@@ -19,6 +19,7 @@ DOCTEST_MODULES = [
     "pyramids.base.crs",
     "pyramids.base.config",
     "pyramids.io.sniff",
+    "pyramids._resource",
 ]
 
 
