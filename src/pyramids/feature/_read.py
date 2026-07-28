@@ -305,18 +305,16 @@ def read_file(
     return fc_cls(gdf)
 
 
-def iter_features(
+def _validate_iter_features_args(
     fc_cls: type[FeatureCollection],
-    path: str | Path,
     *,
-    layer: str | int | None = None,
-    bbox: tuple[float, float, float, float] | None = None,
-    where: str | None = None,
-    chunksize: int | None = None,
-    tile_strategy: str = "auto",
-    include_index: bool = False,
-) -> Iterator[dict[str, Any] | FeatureCollection]:
-    """Stream features from `path` without materialising the file (see FeatureCollection.iter_features)."""
+    chunksize: int | None,
+    tile_strategy: str,
+    where: str | None,
+    bbox: tuple[float, float, float, float] | None,
+    include_index: bool,
+) -> None:
+    """Validate :func:`iter_features` arguments (raises before any I/O)."""
     if chunksize is not None and chunksize < 1:
         raise ValueError(f"chunksize must be >= 1 when supplied; got {chunksize}.")
     if tile_strategy not in fc_cls._VALID_TILE_STRATEGIES:
@@ -336,6 +334,30 @@ def iter_features(
             "because the emitted id is the absolute source-file row position: pass where=None "
             "and either bbox=None or tile_strategy='none' (Python-side bbox)."
         )
+
+
+def iter_features(
+    fc_cls: type[FeatureCollection],
+    path: str | Path,
+    *,
+    layer: str | int | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+    where: str | None = None,
+    chunksize: int | None = None,
+    tile_strategy: str = "auto",
+    include_index: bool = False,
+) -> Iterator[dict[str, Any] | FeatureCollection]:
+    """Stream features from `path` without materialising the file (see FeatureCollection.iter_features)."""
+    # Runs lazily on first iteration (iter_features is a generator), preserving the
+    # fiona-style "validate on first next()" behaviour.
+    _validate_iter_features_args(
+        fc_cls,
+        chunksize=chunksize,
+        tile_strategy=tile_strategy,
+        where=where,
+        bbox=bbox,
+        include_index=include_index,
+    )
 
     import pyogrio
 
