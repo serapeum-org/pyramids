@@ -25,10 +25,10 @@ from __future__ import annotations
 import math
 import os
 import warnings
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 import geopandas as gpd
@@ -39,6 +39,10 @@ from pyramids import _io as _pyramids_io
 from pyramids.base._errors import FeatureError
 from pyramids.base._utils import import_pyarrow
 from pyramids.base.remote import is_remote
+
+if TYPE_CHECKING:
+    from pyramids.feature._lazy_collection import LazyFeatureCollection
+    from pyramids.feature.collection import FeatureCollection
 
 _DEFAULT_ITER_BATCH_SIZE: int = 1000
 _LAZY_TARGET_BYTES_PER_PARTITION: int = 128 * 1024 * 1024
@@ -69,7 +73,7 @@ def list_layers_cache_clear() -> None:
     _list_layers_cached.cache_clear()
 
 
-def read_gpx_layers(fc_cls: type, path: str | Path) -> dict[str, Any]:
+def read_gpx_layers(fc_cls: type[FeatureCollection], path: str | Path) -> dict[str, FeatureCollection]:
     """Read every non-empty GPX sub-layer into a dict (see FeatureCollection.read_gpx_layers)."""
     result: dict[str, Any] = {}
     for name in fc_cls.list_layers(path):
@@ -79,13 +83,13 @@ def read_gpx_layers(fc_cls: type, path: str | Path) -> dict[str, Any]:
     return result
 
 
-def read_featureserver_page(fc_cls: type, page_url: str) -> Any:
+def read_featureserver_page(fc_cls: type[FeatureCollection], page_url: str) -> FeatureCollection:
     """Read one ESRIJSON page from an ArcGIS FeatureServer query URL."""
     return fc_cls.read_file(page_url)
 
 
 def from_featureserver(
-    fc_cls: type,
+    fc_cls: type[FeatureCollection],
     url: str,
     *,
     where: str = "1=1",
@@ -93,7 +97,7 @@ def from_featureserver(
     max_records: int | None = None,
     page_size: int = 1000,
     max_pages: int = 1000,
-) -> Any:
+) -> FeatureCollection:
     """Read a paged ArcGIS FeatureServer layer (see FeatureCollection.from_featureserver)."""
     if page_size < 1:
         raise ValueError(f"from_featureserver: page_size must be >= 1, got {page_size}")
@@ -111,8 +115,14 @@ def from_featureserver(
 
 
 def collect_featureserver_pages(
-    fc_cls: type, base: str, where: str, out_fields: str, max_records: int | None, page_size: int, max_pages: int
-) -> tuple[list, Any]:
+    fc_cls: type[FeatureCollection],
+    base: str,
+    where: str,
+    out_fields: str,
+    max_records: int | None,
+    page_size: int,
+    max_pages: int,
+) -> tuple[list[FeatureCollection], Any]:
     """Page through a FeatureServer /query endpoint; return (pages, first_crs)."""
     pages: list = []
     first_crs = None
@@ -214,7 +224,7 @@ def read_file_dask(
     where: str | None,
     npartitions: int | None,
     chunksize: int | None,
-) -> Any:
+) -> LazyFeatureCollection:
     """Dask backend for :func:`read_file`: reject unsupported filters, wrap as LazyFC."""
     # dask_geopandas.read_file does NOT forward pyogrio filter kwargs
     # (bbox / mask / rows / columns / where) — silently dropping them was the bug.
@@ -248,7 +258,7 @@ def read_file_dask(
 
 
 def read_file(
-    fc_cls: type,
+    fc_cls: type[FeatureCollection],
     path: str | Path,
     *,
     layer: str | int | None = None,
@@ -261,7 +271,7 @@ def read_file(
     npartitions: int | None = None,
     chunksize: int | None = None,
     **kwargs: Any,
-) -> Any:
+) -> FeatureCollection | LazyFeatureCollection:
     """Read a vector file into a FeatureCollection (see FeatureCollection.read_file)."""
     resolved = _pyramids_io._parse_path(path)
     if backend == "dask":
@@ -296,7 +306,7 @@ def read_file(
 
 
 def iter_features(
-    fc_cls: type,
+    fc_cls: type[FeatureCollection],
     path: str | Path,
     *,
     layer: str | int | None = None,
@@ -305,7 +315,7 @@ def iter_features(
     chunksize: int | None = None,
     tile_strategy: str = "auto",
     include_index: bool = False,
-) -> Any:
+) -> Iterator[dict[str, Any] | FeatureCollection]:
     """Stream features from `path` without materialising the file (see FeatureCollection.iter_features)."""
     if chunksize is not None and chunksize < 1:
         raise ValueError(f"chunksize must be >= 1 when supplied; got {chunksize}.")
@@ -391,12 +401,12 @@ def build_iter_read_kwargs(
 
 
 def emit_features(
-    fc_cls: type,
+    fc_cls: type[FeatureCollection],
     gdf_chunk: Any,
     row_indices: list[int] | None,
     chunksize: int | None,
     include_index: bool,
-) -> Any:
+) -> Iterator[dict[str, Any] | FeatureCollection]:
     """Yield a processed chunk for :func:`iter_features` (per-feature dicts or FC chunks)."""
     if chunksize is None:
         iterator = gdf_chunk.iterfeatures(na="null")
@@ -456,7 +466,7 @@ def read_parquet_dask(
     blocksize: int | str | None,
     storage_options: dict | None,
     extra_kwargs: dict[str, Any],
-) -> Any:
+) -> LazyFeatureCollection:
     """Dask backend for :func:`read_parquet`: wrap dask_geopandas as a LazyFeatureCollection."""
     # Check deps in order of specificity — the dask-geopandas hint beats the
     # generic pyarrow one. When both are missing, this error names the extra.
@@ -482,7 +492,7 @@ def read_parquet_dask(
 
 
 def read_parquet(
-    fc_cls: type,
+    fc_cls: type[FeatureCollection],
     path: str | Path,
     *,
     columns: list[str] | None = None,
@@ -493,7 +503,7 @@ def read_parquet(
     blocksize: int | str | None = None,
     storage_options: dict | None = None,
     **kwargs: Any,
-) -> Any:
+) -> FeatureCollection | LazyFeatureCollection:
     """Read a GeoParquet file into a FeatureCollection (see FeatureCollection.read_parquet)."""
     # geopandas and dask-geopandas read Parquet through pyarrow + fsspec, which
     # speak s3://, gs:// and az:// natively. Unlike GDAL they do not understand
@@ -530,7 +540,13 @@ def read_parquet(
     return fc_cls(gdf)
 
 
-def from_features(fc_cls: type, features: Iterable[Any], *, crs: Any = None, columns: list[str] | None = None) -> Any:
+def from_features(
+    fc_cls: type[FeatureCollection],
+    features: Iterable[Any],
+    *,
+    crs: Any = None,
+    columns: list[str] | None = None,
+) -> FeatureCollection:
     """Build an FC from feature-shaped inputs (see FeatureCollection.from_features)."""
     # Materialise the iterator so we can detect the empty case before handing off
     # to geopandas: gpd.from_features([]) returns a GeoDataFrame with no geometry
@@ -546,7 +562,12 @@ def from_features(fc_cls: type, features: Iterable[Any], *, crs: Any = None, col
     return fc_cls(gdf)
 
 
-def from_bbox(fc_cls: type, bbox: tuple[float, float, float, float] | list[float], *, epsg: Any) -> Any:
+def from_bbox(
+    fc_cls: type[FeatureCollection],
+    bbox: tuple[float, float, float, float] | list[float],
+    *,
+    epsg: Any,
+) -> FeatureCollection:
     """Build a one-row FC from a (west, south, east, north) bbox (see FeatureCollection.from_bbox)."""
     if epsg is None:
         raise ValueError(
@@ -579,11 +600,16 @@ def from_bbox(fc_cls: type, bbox: tuple[float, float, float, float] | list[float
 
 
 def from_records(
-    fc_cls: type, records: Any, *, geometry: str = "geometry", crs: Any = None, orient: str = "records"
-) -> Any:
+    fc_cls: type[FeatureCollection],
+    records: Any,
+    *,
+    geometry: str = "geometry",
+    crs: Any = None,
+    orient: str = "records",
+) -> FeatureCollection:
     """Build an FC from dict records or a columnar dict (see FeatureCollection.from_records)."""
 
-    def _empty_fc() -> Any:
+    def _empty_fc() -> FeatureCollection:
         # Both empty-input branches build a single-column frame whose column name
         # matches the geometry= kwarg, so GeoDataFrame(..., geometry=…) sets it as
         # the active geometry column and the returned FC has geometry.name == geometry.
