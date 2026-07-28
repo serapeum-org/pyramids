@@ -69,7 +69,7 @@ class TestFeatureCollectionPlot:
         with pytest.raises(TypeError, match="no longer accepts"):
             FeatureCollection(ds)
 
-    @patch("pyramids.feature.collection.add_basemap")
+    @patch("pyramids.feature._plot.add_basemap")
     def test_plot_with_basemap_calls_add_basemap(
         self, mock_add_basemap: MagicMock, gdf_fc: FeatureCollection
     ):
@@ -87,7 +87,7 @@ class TestFeatureCollectionPlot:
             f"Expected crs=4326, got {call_kwargs[1]['crs']}"
         )
 
-    @patch("pyramids.feature.collection.add_basemap")
+    @patch("pyramids.feature._plot.add_basemap")
     def test_plot_with_basemap_string_passes_source(
         self, mock_add_basemap: MagicMock, gdf_fc: FeatureCollection
     ):

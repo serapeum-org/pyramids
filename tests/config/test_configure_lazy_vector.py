@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from pyramids import configure_lazy_vector
-from pyramids.feature import collection as _fc_mod
+from pyramids.feature import _read as _fc_mod
 
 # The whole module exercises dask internals. The ``lazy`` marker gates
 # the tests to the env where dask is installed; we therefore cannot

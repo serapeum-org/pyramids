@@ -28,7 +28,9 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
+import shapely
 from geopandas import GeoDataFrame
 from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.multilinestring import MultiLineString
@@ -250,8 +252,8 @@ def explode_gdf(gdf: GeoDataFrame, geometry: str = "multipolygon") -> GeoDataFra
             (`"multipolygon"` or `"geometrycollection"`).
 
     Returns:
-        GeoDataFrame: A new GeoDataFrame with exploded rows first and
-        the preserved (non-matching) rows after.
+        GeoDataFrame: A new GeoDataFrame with the preserved (non-matching)
+        rows first, then the exploded child rows.
 
     Examples:
         - Explode a two-row frame that mixes one MultiPolygon with a
@@ -309,31 +311,25 @@ def explode_gdf(gdf: GeoDataFrame, geometry: str = "multipolygon") -> GeoDataFra
 
             ```
     """
-    # work against a copy so the caller's frame is untouched.
+    # Work against a copy so the caller's frame is untouched. Rows to explode are
+    # selected by a boolean MASK, never by index label: on a non-unique index —
+    # routine after filtering / pd.concat / OGC-WFS reads — a label-based
+    # `drop(labels=…)` deletes every row sharing a matched label, silently losing
+    # data (ARC-16). The matching subset is expanded with native, vectorized
+    # `GeoDataFrame.explode` (runs in C; ARC-56); the non-matching rows are
+    # preserved and come first in the result.
     gdf = gdf.copy()
-    # accumulate per-child rows into a Python list and do ONE
-    # final `pd.concat` at the end. The old implementation rebuilt
-    # `new_gdf` on every iteration via `pd.concat([new_gdf, row]*n)`,
-    # producing O(N²) copying on multi-geometry-heavy frames.
-    exploded_rows: list = []
-    to_drop: list[int] = []
-    for idx, row in gdf.iterrows():
-        geom_type = row.geometry.geom_type.lower()
-        if geom_type == geometry:
-            for child in row.geometry.geoms:
-                new_row = row.copy()
-                new_row["geometry"] = child
-                exploded_rows.append(new_row)
-            to_drop.append(idx)
-
-    gdf = gdf.drop(labels=to_drop, axis=0)
-    if exploded_rows:
-        exploded_gdf = gpd.GeoDataFrame(exploded_rows).reset_index(drop=True)
-        result = gpd.GeoDataFrame(pd.concat([gdf, exploded_gdf]))
-    else:
-        result = gdf
-    result.reset_index(drop=True, inplace=True)
-    return result
+    is_match = gdf.geometry.geom_type.str.lower() == geometry
+    preserved = gdf[~is_match]
+    matching = gdf[is_match]
+    if matching.empty:
+        return preserved.reset_index(drop=True)
+    # Call geopandas' explode UNBOUND: `matching` may be a FeatureCollection, whose
+    # own `explode(geometry=…)` override would otherwise shadow the vectorized
+    # GeoDataFrame.explode(index_parts=…) we want here (the FC is-a GeoDataFrame trap).
+    exploded = GeoDataFrame.explode(matching, index_parts=False)
+    result = gpd.GeoDataFrame(pd.concat([preserved, exploded]), crs=gdf.crs)
+    return result.reset_index(drop=True)
 
 
 def multi_geom_handler(
@@ -684,7 +680,12 @@ def create_points(coords: Iterable[tuple[float, ...]]) -> list[Point]:
 
             ```
     """
-    return list(map(Point, coords))
+    # Vectorized in shapely (runs in C) rather than a Python map(Point, …) (ARC-56).
+    coords_list = list(coords)
+    if not coords_list:
+        return []
+    points: list[Any] = shapely.points(np.asarray(coords_list, dtype=float)).tolist()
+    return points
 
 
 def point_collection(coords: Iterable[tuple[float, ...]], crs: Any) -> GeoDataFrame:

@@ -14,8 +14,9 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import numpy as np
+import shapely
 from shapely import voronoi_polygons
-from shapely.geometry import MultiPoint, box
+from shapely.geometry import MultiPoint
 
 NAN_REDUCERS: dict[str, Callable[..., Any]] = {
     "mean": np.nanmean,
@@ -215,9 +216,13 @@ def fishnet_cells(
     ny = math.ceil((maxy - miny) / cell_size)
     xs0 = minx + np.arange(nx) * cell_size
     ys0 = miny + np.arange(ny) * cell_size
-    polygons = [box(x, y, x + cell_size, y + cell_size) for y in ys0 for x in xs0]
-    rows = [r for r in range(ny) for _ in range(nx)]
-    cols = [c for _ in range(ny) for c in range(nx)]
+    # Vectorized in shapely (runs in C): meshgrid the corners row-major (y slow, x fast)
+    # and build every cell in one `shapely.box` call rather than an nx*ny Python loop (ARC-56).
+    gx, gy = np.meshgrid(xs0, ys0)
+    xr, yr = gx.ravel(), gy.ravel()
+    polygons = shapely.box(xr, yr, xr + cell_size, yr + cell_size).tolist()
+    rows = np.repeat(np.arange(ny), nx).tolist()
+    cols = np.tile(np.arange(nx), ny).tolist()
     return polygons, rows, cols
 
 

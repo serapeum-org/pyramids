@@ -147,7 +147,7 @@ class TestFeatureCollectionCleopatraEngine:
                 crs="EPSG:4326",
             )
         )
-        with patch("pyramids.feature.collection.add_basemap") as mock_add:
+        with patch("pyramids.feature._plot.add_basemap") as mock_add:
             glyph = fc.plot(column="v", engine="cleopatra", basemap=True)
         assert isinstance(glyph, ScatterGlyph)
         mock_add.assert_called_once()
@@ -188,6 +188,26 @@ class TestFeatureCollectionCleopatraEngine:
             gpd.GeoDataFrame(
                 {"v": [1.0, 2.0]},
                 geometry=[Point(0, 0), box(1, 1, 2, 2)],
+                crs="EPSG:4326",
+            )
+        )
+        with pytest.raises(ValueError, match="Point or Polygon"):
+            fc.plot(column="v", engine="cleopatra")
+
+    @pytest.mark.parametrize("valid_geom", [Point(0, 0), box(1, 1, 2, 2)])
+    def test_null_geometry_raises_clean_value_error(self, valid_geom):
+        """A ``None`` geometry mixed with a valid one raises a clean ``ValueError``.
+
+        Test scenario:
+            The plot path stays NaN-aware (it must not use the null-dropping
+            ``_geom_types`` helper): a null geometry fails the subset checks and
+            hits the "Point or Polygon" ``ValueError`` instead of letting the glyph
+            builders dereference the ``None`` and raise a cryptic ``AttributeError``.
+        """
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1.0, 2.0]},
+                geometry=[valid_geom, None],
                 crs="EPSG:4326",
             )
         )

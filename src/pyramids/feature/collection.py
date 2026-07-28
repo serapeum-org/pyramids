@@ -24,15 +24,10 @@ internal only; see :mod:`pyramids.feature._ogr`.
 
 from __future__ import annotations
 
-import functools
-import math
-import os
-import warnings
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
-from urllib.parse import urlencode
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
@@ -43,117 +38,17 @@ import numpy as np
 import pandas as pd
 from geopandas import GeoDataFrame
 from osgeo import gdal, ogr
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import box
 
-from pyramids import _io as _pyramids_io
 from pyramids.base._errors import (
     CRSError,
-    FeatureError,
-    GeometryWarning,
     InvalidGeometryError,
 )
-from pyramids.base._utils import Catalog, import_pyarrow, require_cleopatra
-from pyramids.base.remote import is_remote
-from pyramids.basemap.basemap import add_basemap
-from pyramids.feature import _h3
+from pyramids.feature import _analysis, _plot, _read, _write
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
 from pyramids.feature._oapif import from_ogc_features as _from_ogc_features
 from pyramids.feature._wfs import from_wfs as _from_wfs
-
-CATALOG = Catalog(raster_driver=False)
-
-# default per-chunk batch size for `iter_features` when the
-# user does not pass `chunksize`. Matches pyogrio's own
-# `read_dataframe` default for row-group streaming, so the fast
-# path (GeoParquet + row_group tile strategy) does not re-chunk.
-_DEFAULT_ITER_BATCH_SIZE: int = 1000
-
-
-# target bytes per partition when read_file(backend="dask") is
-# called with neither npartitions nor chunksize. 128 MiB is
-# dask-geopandas' own read_parquet default and a reasonable size for
-# shapely-heavy geometry ops on modern cores. Small enough that even a
-# 1 GiB shapefile gets 8 partitions; large enough to avoid one-partition-
-# per-10-rows pathologies on huge feature counts.
-_LAZY_TARGET_BYTES_PER_PARTITION: int = 128 * 1024 * 1024
-
-
-def _resolve_lazy_partitioning(
-    path: str,
-    npartitions: int | None,
-    chunksize: int | None,
-) -> dict[str, Any]:
-    """default `npartitions` from file size when not given.
-
-    Called by `read_file(backend="dask")`. If the caller supplies
-    either `npartitions` or `chunksize` we honor it verbatim. If
-    they supply neither, we stat the resolved path and pick
-    `npartitions = max(1, ceil(size / 128 MiB))`.
-
-    On cloud / virtual-FS paths (`/vsi*`, `http(s)://`, `s3://`,
-    etc.) `os.stat` can't size the file cheaply — there we fall
-    back to `npartitions=1` rather than emit a pre-flight HEAD
-    request with ambiguous semantics. Users who want more partitions
-    on cloud-hosted files should pass `npartitions=` explicitly.
-
-    Args:
-        path: The already-`_to_vsi`-resolved path string.
-        npartitions: User-supplied partition count, if any.
-        chunksize: User-supplied rows-per-partition, if any.
-
-    Returns:
-        dict: kwargs to forward to :func:`dask_geopandas.read_file`.
-        Exactly one of `npartitions` / `chunksize` is populated.
-    """
-    kwargs: dict[str, Any] = {}
-    if npartitions is not None:
-        kwargs["npartitions"] = npartitions
-    elif chunksize is not None:
-        kwargs["chunksize"] = chunksize
-    elif path.startswith(("/vsi", "http://", "https://", "s3://", "gs://", "az://")):
-        # Remote / VFS path — no cheap size probe. Fall back to 1.
-        kwargs["npartitions"] = 1
-    else:
-        try:
-            size = os.path.getsize(path)
-        except OSError:
-            kwargs["npartitions"] = 1
-        else:
-            kwargs["npartitions"] = max(
-                1,
-                math.ceil(size / _LAZY_TARGET_BYTES_PER_PARTITION),
-            )
-    return kwargs
-
-
-def _require_pyarrow() -> None:
-    """Raise a pyramids-branded ImportError if pyarrow is absent.
-
-    `geopandas.read_parquet` / `GeoDataFrame.to_parquet` raise a
-    generic ImportError that mentions neither `pyramids-gis` nor
-    the `[parquet]` extra. This helper surfaces the install
-    instruction up front so the Raises docstring is truthful.
-    """
-    import_pyarrow(
-        "GeoParquet support requires the optional 'pyarrow' "
-        "dependency. Install with one of:\n"
-        "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-        "  - conda-forge: conda install -c conda-forge pyramids-parquet"
-    )
-
-
-# module-level LRU cache backing `FeatureCollection.list_layers`.
-# Keyed on the already-resolved `str` path (post `_parse_path`). The
-# tuple return type plays nicely with `functools.lru_cache` (lists are
-# unhashable and would break LRU internals if returned directly).
-@functools.lru_cache(maxsize=128)
-def _list_layers_cached(resolved_path: str) -> tuple[str, ...]:
-    """Return a tuple of layer names for a resolved path (memoised)."""
-    import pyogrio
-
-    arr = pyogrio.list_layers(resolved_path)
-    return tuple(str(row[0]) for row in arr)
 
 
 class FeatureCollection(GeoDataFrame):
@@ -426,19 +321,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        # materialise an iterator so we can detect the empty case
-        # before handing off to geopandas. `geopandas.from_features([])`
-        # returns a GeoDataFrame with no `geometry` column, which
-        # breaks every pyramids op that assumes the column exists.
-        features_list = list(features)
-        if not features_list:
-            raise ValueError(
-                "from_features requires at least one feature. An empty "
-                "iterable would produce a GeoDataFrame with no geometry "
-                "column, which breaks downstream pyramids methods."
-            )
-        gdf = gpd.GeoDataFrame.from_features(features_list, crs=crs, columns=columns)
-        return cls(gdf)
+        return _read.from_features(cls, features, crs=crs, columns=columns)
 
     @classmethod
     def from_bbox(
@@ -524,38 +407,7 @@ class FeatureCollection(GeoDataFrame):
               ``bbox=`` / ``epsg=`` directly and routes through this helper.
             - :meth:`pyramids.dataset.engines.io.IO.read_array`: same.
         """
-        if epsg is None:
-            raise ValueError(
-                "from_bbox requires an explicit epsg= for the bbox CRS; "
-                "a bbox without a CRS is ambiguous"
-            )
-        try:
-            seq = list(bbox)
-        except TypeError as exc:
-            raise ValueError(
-                f"bbox must be a 4-element (west, south, east, north) sequence; "
-                f"got {bbox!r}"
-            ) from exc
-        if len(seq) != 4:
-            raise ValueError(
-                f"bbox must have exactly 4 elements (west, south, east, north); "
-                f"got {len(seq)}: {seq!r}"
-            )
-        try:
-            w, s, e, n = (float(v) for v in seq)
-        except (TypeError, ValueError) as exc:
-            raise TypeError(f"bbox elements must be numbers; got {seq!r}") from exc
-        # NaN slips past the ordering checks below (nan >= x is False), so reject it
-        # explicitly — e.g. an empty frame's all-NaN ``total_bounds``.
-        if any(math.isnan(v) for v in (w, s, e, n)):
-            raise ValueError(f"bbox coordinates must not be NaN; got {seq!r}")
-        if w >= e:
-            raise ValueError(f"bbox must satisfy west < east; got west={w}, east={e}")
-        if s >= n:
-            raise ValueError(
-                f"bbox must satisfy south < north; got south={s}, north={n}"
-            )
-        return cls(geometry=[box(w, s, e, n)], crs=epsg)
+        return _read.from_bbox(cls, bbox, epsg=epsg)
 
     @classmethod
     def fishnet(
@@ -698,41 +550,13 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-
-        # empty-input branches both build a single-column frame
-        # whose column name matches the `geometry=` kwarg, so
-        # `GeoDataFrame(..., geometry=…)` sets it as the active
-        # geometry column and the returned FC has
-        # `geometry.name == geometry`.
-        def _empty_fc() -> FeatureCollection:
-            return cls(gpd.GeoDataFrame({geometry: []}, geometry=geometry, crs=crs))
-
-        if orient == "records":
-            records_list = list(records)
-            if not records_list:
-                return _empty_fc()
-            df = pd.DataFrame.from_records(records_list)
-        elif orient == "list":
-            # columnar dict of equal-length lists. Straight into
-            # `pd.DataFrame` which accepts this shape natively and
-            # raises `ValueError` on mismatched lengths (propagated
-            # to the caller as-is — the pandas message is already clear).
-            if not isinstance(records, dict):
-                raise ValueError(
-                    f"orient='list' expects a dict of column → list; "
-                    f"got {type(records).__name__}."
-                )
-            df = pd.DataFrame(records)
-            if len(df) == 0:
-                return _empty_fc()
-        else:
-            raise ValueError(f"orient must be 'records' or 'list'; got {orient!r}.")
-        if geometry not in df.columns:
-            raise FeatureError(
-                f"records missing required geometry column {geometry!r}; "
-                f"columns present: {list(df.columns)}"
-            )
-        return cls(gpd.GeoDataFrame(df, geometry=geometry, crs=crs))
+        return _read.from_records(
+            cls,
+            records,
+            geometry=geometry,
+            crs=crs,
+            orient=orient,
+        )
 
     _VALID_TILE_STRATEGIES: tuple[str, ...] = (
         "auto",
@@ -752,8 +576,13 @@ class FeatureCollection(GeoDataFrame):
         chunksize: int | None = None,
         tile_strategy: str = "auto",
         include_index: bool = False,
-    ) -> Any:
+    ) -> Iterator[dict[str, Any] | FeatureCollection]:
         """Stream features from `path` without materializing the full file.
+
+        Return type varies by `chunksize` (ARC-38): `chunksize=None` yields
+        per-feature `dict`s, an `int` yields :class:`FeatureCollection` chunks — a
+        single generator type documented in Yields below rather than split into two
+        methods (which would break the fiona-style single entry point).
 
         . Two orthogonal knobs:
 
@@ -815,8 +644,13 @@ class FeatureCollection(GeoDataFrame):
             otherwise.
 
         Raises:
-            ValueError: If `chunksize` is given but `< 1`, or if
-                `tile_strategy` is not one of the accepted values.
+            ValueError: If `chunksize` is given but `< 1`; if
+                `tile_strategy` is not one of the accepted values; or if
+                `include_index=True` is combined with driver-side
+                filtering (`where`, or a pushed-down `bbox` — i.e. a
+                `bbox` with any `tile_strategy` other than `"none"`),
+                since the emitted `id` is the absolute source-file row
+                position and would be wrong under such filtering.
 
         Examples:
             - Stream features one at a time as GeoJSON-style dicts:
@@ -874,116 +708,16 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        if chunksize is not None and chunksize < 1:
-            raise ValueError(f"chunksize must be >= 1 when supplied; got {chunksize}.")
-        if tile_strategy not in cls._VALID_TILE_STRATEGIES:
-            raise ValueError(
-                f"tile_strategy must be one of "
-                f"{cls._VALID_TILE_STRATEGIES}; got {tile_strategy!r}."
-            )
-
-        import pyogrio
-
-        resolved = str(_pyramids_io._parse_path(path))
-
-        # Determine how many features are in the layer so we can
-        # iterate in fixed-size batches via skip_features / max_features.
-        # pyogrio's read_info is O(1) per call.
-        info_kwargs: dict[str, Any] = {}
-        if layer is not None:
-            info_kwargs["layer"] = layer
-        info = pyogrio.read_info(resolved, **info_kwargs)
-        total = int(info["features"])
-
-        if chunksize is None:
-            batch_size = _DEFAULT_ITER_BATCH_SIZE
-        else:
-            batch_size = int(chunksize)
-
-        read_kwargs, python_bbox = cls._build_iter_read_kwargs(
-            layer, where, bbox, tile_strategy
+        yield from _read.iter_features(
+            cls,
+            path,
+            layer=layer,
+            bbox=bbox,
+            where=where,
+            chunksize=chunksize,
+            tile_strategy=tile_strategy,
+            include_index=include_index,
         )
-
-        for start in range(0, total, batch_size):
-            gdf_chunk = gpd.read_file(
-                resolved,
-                skip_features=start,
-                max_features=batch_size,
-                **read_kwargs,
-            )
-            # Absolute row indices captured before any bbox masking, so callers
-            # can map yielded features back to their source rows.
-            row_indices = (
-                list(range(start, start + len(gdf_chunk))) if include_index else None
-            )
-            if python_bbox is not None and len(gdf_chunk) > 0:
-                xmin, ymin, xmax, ymax = python_bbox
-                mask = gdf_chunk.intersects(box(xmin, ymin, xmax, ymax))
-                if row_indices is not None:
-                    row_indices = [ri for ri, keep in zip(row_indices, mask) if keep]
-                gdf_chunk = gdf_chunk[mask]
-            yield from cls._emit_features(
-                gdf_chunk, row_indices, chunksize, include_index
-            )
-
-    @staticmethod
-    def _build_iter_read_kwargs(
-        layer: str | int | None,
-        where: str | None,
-        bbox: tuple[float, float, float, float] | None,
-        tile_strategy: str,
-    ) -> tuple[dict[str, Any], tuple[float, float, float, float] | None]:
-        """Build the pyogrio ``read_file`` kwargs for :meth:`iter_features`.
-
-        The engine is pinned to pyogrio (``skip_features`` / ``max_features`` are
-        pyogrio-specific; the fiona engine silently ignores them, turning every
-        chunk into a full scan). For every ``tile_strategy`` except ``"none"`` the
-        ``bbox`` is pushed down to pyogrio (which uses the format's spatial
-        index); for ``"none"`` it is held back for a post-load Python filter.
-
-        Returns:
-            ``(read_kwargs, python_bbox)`` — the held-back bbox is ``None`` unless
-            ``tile_strategy == "none"``.
-        """
-        read_kwargs: dict[str, Any] = {"engine": "pyogrio"}
-        if layer is not None:
-            read_kwargs["layer"] = layer
-        if where is not None:
-            read_kwargs["where"] = where
-        pushdown_bbox = bbox if tile_strategy != "none" else None
-        python_bbox = bbox if tile_strategy == "none" else None
-        if pushdown_bbox is not None:
-            read_kwargs["bbox"] = pushdown_bbox
-        return read_kwargs, python_bbox
-
-    @classmethod
-    def _emit_features(
-        cls,
-        gdf_chunk: GeoDataFrame,
-        row_indices: list[int] | None,
-        chunksize: int | None,
-        include_index: bool,
-    ) -> Any:
-        """Yield a processed chunk for :meth:`iter_features`.
-
-        With ``chunksize=None`` yields one GeoJSON-style dict per row (stamping
-        an ``"id"`` when ``include_index``); otherwise yields a single
-        :class:`FeatureCollection` chunk (with a ``"_row_index"`` column when
-        ``include_index``).
-        """
-        if chunksize is None:
-            iterator = gdf_chunk.iterfeatures(na="null")
-            if include_index and row_indices is not None:
-                for ri, feat in zip(row_indices, iterator):
-                    feat["id"] = ri
-                    yield feat
-            else:
-                yield from iterator
-        else:
-            chunk_fc = cls(gdf_chunk)
-            if include_index:
-                chunk_fc["_row_index"] = row_indices
-            yield chunk_fc
 
     @classmethod
     def read_file(
@@ -1065,8 +799,11 @@ class FeatureCollection(GeoDataFrame):
                 `use_arrow=True`, driver-specific creation options).
 
         Returns:
-            FeatureCollection: The (possibly filtered) features
-            wrapped as a FeatureCollection.
+            FeatureCollection | LazyFeatureCollection: The (possibly filtered)
+            features. The return type varies by `backend` (ARC-38):
+            `backend="pandas"` (default) returns an eager
+            :class:`FeatureCollection`; `backend="dask"` returns a lazy
+            :class:`LazyFeatureCollection`.
 
         Examples:
             - Load a GeoJSON file:
@@ -1078,74 +815,20 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        resolved = _pyramids_io._parse_path(path)
-        if backend == "dask":
-            # dask_geopandas.read_file does NOT forward pyogrio
-            # filter kwargs (bbox / mask / rows / columns / where) —
-            # silently dropping them was the bug. Raise a clear
-            # ValueError instead so users know to either pre-filter
-            # or call .compute() and filter eagerly.
-            unsupported = {
-                "bbox": bbox,
-                "mask": mask,
-                "rows": rows,
-                "columns": columns,
-                "where": where,
-                "layer": layer,
-            }
-            supplied = [k for k, v in unsupported.items() if v is not None]
-            if supplied:
-                raise ValueError(
-                    f"backend='dask' does not support filter kwargs "
-                    f"{supplied}. dask_geopandas.read_file has no "
-                    "pushdown story for these. Either omit them and "
-                    "filter post-load via .clip / .loc / .compute, or "
-                    "switch to read_parquet(backend='dask', filters=...)"
-                )
-            try:
-                import dask_geopandas
-            except ImportError as exc:
-                raise ImportError(
-                    "backend='dask' requires the optional "
-                    "'dask-geopandas' dependency. Install with one of:\n"
-                    "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-                    "  - conda-forge: conda install -c conda-forge pyramids-parquet"
-                ) from exc
-            # default npartitions from file size when neither
-            # kwarg was supplied; one-partition fallback defeats the
-            # point of going lazy.
-            partition_kwargs = _resolve_lazy_partitioning(
-                resolved,
-                npartitions,
-                chunksize,
-            )
-            # wrap the lazy return as a LazyFeatureCollection so the
-            # dask branch stays inside the pyramids type system.
-            from pyramids.feature._lazy_collection import LazyFeatureCollection
-
-            dask_gdf = dask_geopandas.read_file(resolved, **partition_kwargs)
-            return LazyFeatureCollection.from_dask_gdf(dask_gdf)
-        if backend != "pandas":
-            raise ValueError(f"backend must be 'pandas' or 'dask', got {backend!r}")
-        # Only pass kwargs that were actually supplied — passing the
-        # defaults (None) is fine for some geopandas engines but
-        # confuses others. Build a clean kwargs dict.
-        passthrough: dict[str, Any] = {}
-        if layer is not None:
-            passthrough["layer"] = layer
-        if bbox is not None:
-            passthrough["bbox"] = bbox
-        if mask is not None:
-            passthrough["mask"] = mask
-        if rows is not None:
-            passthrough["rows"] = rows
-        if columns is not None:
-            passthrough["columns"] = columns
-        if where is not None:
-            passthrough["where"] = where
-        passthrough.update(kwargs)
-        gdf = gpd.read_file(resolved, **passthrough)
-        return cls(gdf)
+        return _read.read_file(
+            cls,
+            path,
+            layer=layer,
+            bbox=bbox,
+            mask=mask,
+            rows=rows,
+            columns=columns,
+            where=where,
+            backend=backend,
+            npartitions=npartitions,
+            chunksize=chunksize,
+            **kwargs,
+        )
 
     @property
     def epsg(self) -> int | None:
@@ -1346,6 +1029,15 @@ class FeatureCollection(GeoDataFrame):
             f"columns={self.columns.tolist()}, epsg={self.epsg})"
         )
 
+    def _geom_types(self) -> set[str]:
+        """Return the distinct non-null geometry-type names present (ARC-72).
+
+        One place for the "what geometry types are in this frame" inspection that
+        `schema`, the rasterize guard and the vector-field classifier each did a
+        slightly different way. `None` geometries are ignored.
+        """
+        return set(self.geom_type.dropna().unique())
+
     @property
     def schema(self) -> dict:
         """Fiona-style schema: geometry type + field-type dict.
@@ -1422,13 +1114,18 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        geom_types = {g.geom_type for g in self.geometry if g is not None}
+        geom_types = self._geom_types()
         if len(geom_types) == 1:
             (geom_type,) = geom_types
         else:
             geom_type = "Unknown"
+        # exclude the ACTIVE geometry column by its real name, not the literal
+        # "geometry": a renamed geometry column (e.g. "geom") would otherwise leak
+        # into properties, and a non-geometry column literally named "geometry"
+        # would be wrongly dropped (ARC-31).
+        geom_col = self.geometry.name
         properties = {
-            col: str(dt) for col, dt in self.dtypes.items() if col != "geometry"
+            col: str(dt) for col, dt in self.dtypes.items() if col != geom_col
         }
         return {
             "geometry": geom_type,
@@ -1496,20 +1193,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        # pre-check local-path existence so the caller sees
-        # a `FileNotFoundError` naming the path instead of a generic
-        # driver-open failure. Defer to `base.remote.is_remote` as
-        # the single source of truth for which schemes are remote —
-        # the previous hardcoded prefix tuple would silently treat any
-        # future scheme as local and raise a misleading error.
-        path_str = str(path)
-        if not is_remote(path_str):
-            local = Path(path_str)
-            if not local.exists():
-                raise FileNotFoundError(f"list_layers: no file at {path_str!r}.")
-
-        resolved = str(_pyramids_io._parse_path(path))
-        return list(_list_layers_cached(resolved))
+        return _read.list_layers(path)
 
     @classmethod
     def list_layers_cache_clear(cls) -> None:
@@ -1551,7 +1235,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        _list_layers_cached.cache_clear()
+        _read.list_layers_cache_clear()
 
     @classmethod
     def read_gpx_layers(cls, path: str | Path) -> dict[str, FeatureCollection]:
@@ -1591,12 +1275,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        result: dict[str, FeatureCollection] = {}
-        for name in cls.list_layers(path):
-            fc = cls.read_file(path, layer=name)
-            if len(fc) > 0:
-                result[name] = fc
-        return result
+        return _read.read_gpx_layers(cls, path)
 
     @classmethod
     def _read_featureserver_page(cls, page_url: str) -> FeatureCollection:
@@ -1610,7 +1289,7 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             FeatureCollection: The features in this page (possibly empty).
         """
-        return cls.read_file(page_url)
+        return _read.read_featureserver_page(cls, page_url)
 
     @classmethod
     def from_featureserver(
@@ -1657,27 +1336,15 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        if page_size < 1:
-            raise ValueError(
-                f"from_featureserver: page_size must be >= 1, got {page_size}"
-            )
-        if max_records is not None and max_records < 0:
-            raise ValueError(
-                f"from_featureserver: max_records must be >= 0 or None, got {max_records}"
-            )
-        base = url.split("?", 1)[0].rstrip("/")
-        if not base.lower().endswith("/query"):
-            base = f"{base}/query"
-        pages, first_crs = cls._collect_featureserver_pages(
-            base, where, out_fields, max_records, page_size, max_pages
+        return _read.from_featureserver(
+            cls,
+            url,
+            where=where,
+            out_fields=out_fields,
+            max_records=max_records,
+            page_size=page_size,
+            max_pages=max_pages,
         )
-        # Concatenate in one pass (pd.concat preserves the shared CRS) — repeatedly calling .concat()
-        # re-sets the CRS and trips a geopandas DeprecationWarning.
-        if pages:
-            combined = FeatureCollection(pd.concat(pages, ignore_index=True))
-        else:
-            combined = cls(gpd.GeoDataFrame(geometry=[], crs=first_crs))
-        return combined
 
     @classmethod
     def from_wfs(
@@ -1896,47 +1563,9 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             tuple: ``(pages, first_crs)`` — the non-empty page collections and the CRS of the first page read.
         """
-        pages: list[FeatureCollection] = []
-        first_crs = None
-        offset = 0
-        fetched = 0
-        page_index = 0
-        while max_records is None or fetched < max_records:
-            if page_index >= max_pages:
-                warnings.warn(
-                    f"from_featureserver: stopped after {max_pages} pages (max_pages). The server may not "
-                    "honour resultOffset paging; raise max_pages or set max_records if more features are "
-                    "expected.",
-                    stacklevel=2,
-                )
-                break
-            this_page = (
-                page_size
-                if max_records is None
-                else min(page_size, max_records - fetched)
-            )
-            query = urlencode(
-                {
-                    "where": where,
-                    "outFields": out_fields,
-                    "f": "json",
-                    "resultOffset": offset,
-                    "resultRecordCount": this_page,
-                }
-            )
-            page = cls._read_featureserver_page(f"{base}?{query}")
-            if first_crs is None:
-                first_crs = page.crs
-            count = len(page)
-            if count == 0:
-                break
-            pages.append(page)
-            fetched += count
-            offset += count
-            page_index += 1
-            if count < this_page:  # last (short) page
-                break
-        return pages, first_crs
+        return _read.collect_featureserver_pages(
+            cls, base, where, out_fields, max_records, page_size, max_pages
+        )
 
     @classmethod
     def open_arrow(
@@ -1978,75 +1607,14 @@ class FeatureCollection(GeoDataFrame):
         Raises:
             ImportError: If :mod:`pyogrio` is not installed.
         """
-        try:
-            from pyogrio.raw import open_arrow
-        except ImportError as exc:
-            raise ImportError(
-                "open_arrow requires the optional 'pyogrio' dependency. "
-                "Install with one of:\n"
-                "  - PyPI:        pip install pyogrio\n"
-                "  - conda-forge: conda install -c conda-forge pyogrio"
-            ) from exc
-        resolved = _pyramids_io._parse_path(path)
-        kwargs: dict[str, Any] = {}
-        if layer is not None:
-            kwargs["layer"] = layer
-        if columns is not None:
-            kwargs["columns"] = columns
-        if bbox is not None:
-            kwargs["bbox"] = bbox
-        if where is not None:
-            kwargs["where"] = where
-        if batch_size is not None:
-            kwargs["batch_size"] = batch_size
-        return open_arrow(resolved, **kwargs)
-
-    @staticmethod
-    def _read_parquet_dask(
-        resolved: str,
-        *,
-        columns: list[str] | None,
-        split_row_groups: bool | None,
-        filters: list | None,
-        blocksize: int | str | None,
-        storage_options: dict | None,
-        extra_kwargs: dict[str, Any],
-    ) -> LazyFeatureCollection:
-        """Dask backend for :meth:`read_parquet`: wrap dask_geopandas as a LazyFeatureCollection."""
-        # check deps in order of specificity — the backend request is the more
-        # specific signal, so the dask-geopandas hint beats the generic pyarrow
-        # one. When both are missing, this error names the extra ([parquet]).
-        try:
-            import dask_geopandas
-        except ImportError as exc:
-            raise ImportError(
-                "backend='dask' requires the optional "
-                "'dask-geopandas' dependency. Install with one of:\n"
-                "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-                "  - conda-forge: conda install -c conda-forge pyramids-parquet"
-            ) from exc
-        dask_kwargs: dict[str, Any] = {}
-        if columns is not None:
-            dask_kwargs["columns"] = columns
-        if split_row_groups is not None:
-            dask_kwargs["split_row_groups"] = split_row_groups
-        if filters is not None:
-            dask_kwargs["filters"] = filters
-        if blocksize is not None:
-            dask_kwargs["blocksize"] = blocksize
-        if storage_options is not None:
-            dask_kwargs["storage_options"] = storage_options
-        dask_kwargs.update(extra_kwargs)
-        # dask_geopandas is installed → assert pyarrow too, so the user gets the
-        # pyramids-branded hint (not the upstream message). `[parquet]` pulls both.
-        _require_pyarrow()
-        # Local import breaks the collection <-> _lazy_collection cycle
-        # (_lazy_collection imports FeatureCollection from this module); it wraps
-        # the lazy dask return inside the pyramids type system.
-        from pyramids.feature._lazy_collection import LazyFeatureCollection
-
-        dask_gdf = dask_geopandas.read_parquet(resolved, **dask_kwargs)
-        return LazyFeatureCollection.from_dask_gdf(dask_gdf)
+        return _read.open_arrow(
+            path,
+            layer=layer,
+            columns=columns,
+            bbox=bbox,
+            where=where,
+            batch_size=batch_size,
+        )
 
     @classmethod
     def read_parquet(
@@ -2099,8 +1667,10 @@ class FeatureCollection(GeoDataFrame):
                 (`storage_options=` for fsspec, etc.).
 
         Returns:
-            FeatureCollection: The file's features wrapped as a
-            FeatureCollection.
+            FeatureCollection | LazyFeatureCollection: The file's features. The
+            return type varies by `backend` (ARC-38): `backend="pandas"` (default)
+            returns an eager :class:`FeatureCollection`; `backend="dask"` returns a
+            lazy :class:`LazyFeatureCollection`.
 
         Raises:
             ImportError: If :mod:`pyarrow` is not installed, with a
@@ -2148,43 +1718,18 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        # geopandas and dask-geopandas read Parquet through pyarrow + fsspec, which
-        # speak s3://, gs:// and az:// natively. Unlike GDAL they do not understand
-        # the /vsis3/ form _parse_path produces, and on Windows a leading "/vsis3/"
-        # resolves against the drive root ("C:/vsis3/..."), so the read dies with
-        # FileNotFoundError. Hand fsspec the URL untouched; local paths still go
-        # through _parse_path for its zip/tar handling.
-        path_str = str(path)
-        resolved = path_str if is_remote(path_str) else _pyramids_io._parse_path(path)
-        if backend == "dask":
-            return cls._read_parquet_dask(
-                resolved,
-                columns=columns,
-                split_row_groups=split_row_groups,
-                filters=filters,
-                blocksize=blocksize,
-                storage_options=storage_options,
-                extra_kwargs=kwargs,
-            )
-        if backend != "pandas":
-            raise ValueError(f"backend must be 'pandas' or 'dask', got {backend!r}")
-        _require_pyarrow()
-        # geopandas 1.x forwards **kwargs straight into
-        # `pyarrow.parquet.read_table`, which has never accepted the
-        # pandas-style `engine=` kwarg. `_require_pyarrow()` above
-        # already hard-guarantees the pyarrow backend, so no injection
-        # is needed here. If geopandas ever reintroduces a fastparquet
-        # path it will be opt-in via a new kwarg, not a silent switch.
-        passthrough: dict[str, Any] = {}
-        passthrough.update(kwargs)
-        if columns is not None:
-            passthrough["columns"] = columns
-        if bbox is not None:
-            passthrough["bbox"] = bbox
-        if storage_options is not None:
-            passthrough["storage_options"] = storage_options
-        gdf = gpd.read_parquet(resolved, **passthrough)
-        return cls(gdf)
+        return _read.read_parquet(
+            cls,
+            path,
+            columns=columns,
+            bbox=bbox,
+            backend=backend,
+            split_row_groups=split_row_groups,
+            filters=filters,
+            blocksize=blocksize,
+            storage_options=storage_options,
+            **kwargs,
+        )
 
     def to_parquet(
         self,
@@ -2265,8 +1810,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        _require_pyarrow()
-        super().to_parquet(path, compression=compression, index=index, **kwargs)
+        _write.to_parquet(self, path, compression=compression, index=index, **kwargs)
 
     def to_file(
         self,
@@ -2388,27 +1932,10 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        if mode not in ("w", "a"):
-            raise ValueError(f"mode must be 'w' (write) or 'a' (append); got {mode!r}.")
-        try:
-            resolved = CATALOG.get_gdal_name(driver) or driver
-        except AttributeError:
-            resolved = driver
-
-        # pin the engine to pyogrio to match :meth:`read_file` and
-        # :meth:`iter_features`. Callers who want fiona for some reason
-        # can override via `engine="fiona"` in creation_options, but
-        # the default gets the fast path and the pyogrio-specific
-        # unknown-option validation.
-        passthrough: dict[str, Any] = {
-            "driver": resolved,
-            "mode": mode,
-            "engine": "pyogrio",
-        }
-        if layer is not None:
-            passthrough["layer"] = layer
-        passthrough.update(creation_options)
-        super().to_file(path, **passthrough)
+        _write.to_file(
+            self, path, driver=driver, layer=layer, mode=mode, **creation_options
+        )
+        _read.list_layers_cache_clear()
 
     def _to_vector_tiles(
         self,
@@ -2435,12 +1962,15 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             Path: The written ``path``.
         """
-        options = dict(creation_options)
-        options["MINZOOM"] = min_zoom
-        if max_zoom is not None:
-            options["MAXZOOM"] = max_zoom
-        self.to_file(path, driver=driver, layer=layer_name, **options)
-        return Path(path)
+        return _write.to_vector_tiles(
+            self,
+            path,
+            driver,
+            min_zoom=min_zoom,
+            max_zoom=max_zoom,
+            layer_name=layer_name,
+            **creation_options,
+        )
 
     def to_pmtiles(
         self,
@@ -2490,9 +2020,9 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        return self._to_vector_tiles(
+        return _write.to_pmtiles(
+            self,
             path,
-            "PMTiles",
             min_zoom=min_zoom,
             max_zoom=max_zoom,
             layer_name=layer_name,
@@ -2545,24 +2075,14 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        return self._to_vector_tiles(
+        return _write.to_mvt(
+            self,
             path,
-            "MVT",
             min_zoom=min_zoom,
             max_zoom=max_zoom,
             layer_name=layer_name,
             **creation_options,
         )
-
-    # FeatureCollection.to_dataset was moved to
-    # Dataset.from_features(features,...) to break the circular import
-    # that used to force a CLAUDE.md-violating inline
-    # `from pyramids.dataset import Dataset` inside the method body.
-    # Callers should migrate:
-    # fc.to_dataset(dataset=ds, column_name="pop")
-    # → Dataset.from_features(fc, template=ds, column_name="pop")
-    # fc.to_dataset(cell_size=10)
-    # → Dataset.from_features(fc, cell_size=10)
 
     def explode(self, geometry: str = "multipolygon") -> FeatureCollection:
         """Explode multi-geometry rows into per-row single geometries.
@@ -2665,20 +2185,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        gdf = _geom.explode_gdf(
-            gpd.GeoDataFrame(self, copy=True), geometry="multipolygon"
-        )
-        gdf = _geom.explode_gdf(gdf, geometry="geometrycollection")
-
-        fc = FeatureCollection(gdf)
-        fc["x"] = fc.apply(
-            _geom.get_coords, geom_col="geometry", coord_type="x", axis=1
-        )
-        fc["y"] = fc.apply(
-            _geom.get_coords, geom_col="geometry", coord_type="y", axis=1
-        )
-        fc.reset_index(drop=True, inplace=True)
-        return fc
+        return _analysis.with_coordinates(self)
 
     def plot(
         self,
@@ -2749,25 +2256,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        if engine == "geopandas":
-            result = super().plot(column=column, **kwargs)
-            ax = result
-        elif engine == "cleopatra":
-            result, ax = self._plot_cleopatra(column=column, **kwargs)
-        else:
-            raise ValueError(
-                f"Unsupported engine {engine!r}; choose 'geopandas' or 'cleopatra'."
-            )
-
-        if basemap:
-            if self.epsg is None:
-                raise CRSError(
-                    "FeatureCollection must have a CRS (epsg) to use basemap."
-                )
-            source = basemap if isinstance(basemap, str) else None
-            add_basemap(ax, crs=self.epsg, source=source)
-
-        return result
+        return _plot.plot(self, column=column, basemap=basemap, engine=engine, **kwargs)
 
     def _plot_cleopatra(self, column: str | None = None, **kwargs: Any):
         """Render via cleopatra ``PolygonGlyph``/``ScatterGlyph``.
@@ -2796,26 +2285,7 @@ class FeatureCollection(GeoDataFrame):
                 the geometry is neither all single-``Point`` nor all-polygon
                 (``MultiPoint`` is not supported).
         """
-        require_cleopatra()
-
-        if column is not None and column not in self.columns:
-            raise ValueError(
-                f"Column {column!r} not found; available columns: {list(self.columns)}."
-            )
-        values = self[column].to_numpy() if column is not None else None
-        geom_types = set(self.geom_type.unique())
-        if geom_types <= {"Point"}:
-            glyph = self._cleopatra_scatter_glyph(values, **kwargs)
-        elif geom_types <= {"Polygon", "MultiPolygon"}:
-            glyph = self._cleopatra_polygon_glyph(values, **kwargs)
-        else:
-            raise ValueError(
-                "engine='cleopatra' supports single Point or "
-                "Polygon/MultiPolygon geometries; got "
-                f"{sorted(geom_types)} (MultiPoint is not supported)."
-            )
-        _fig, ax, _coll = glyph.plot()
-        return glyph, ax
+        return _plot.plot_cleopatra(self, column=column, **kwargs)
 
     def _cleopatra_scatter_glyph(self, values: Any, **kwargs: Any) -> Any:
         """Build a ``ScatterGlyph`` from this collection's point geometries.
@@ -2827,15 +2297,7 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             cleopatra.scatter_glyph.ScatterGlyph: The point glyph.
         """
-        require_cleopatra()
-        from cleopatra.scatter_glyph import ScatterGlyph
-
-        return ScatterGlyph(
-            self.geometry.x.to_numpy(),
-            self.geometry.y.to_numpy(),
-            values=values,
-            **ScatterGlyph.filter_kwargs(kwargs),
-        )
+        return _plot.scatter_glyph(self, values, **kwargs)
 
     def _cleopatra_polygon_glyph(self, values: Any, **kwargs: Any) -> Any:
         """Build a ``PolygonGlyph`` from polygon exterior rings.
@@ -2853,32 +2315,7 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             cleopatra.polygon_glyph.PolygonGlyph: The polygon glyph.
         """
-        require_cleopatra()
-        from cleopatra.polygon_glyph import PolygonGlyph
-
-        polygons: list = []
-        poly_values: list | None = [] if values is not None else None
-        has_holes = False
-        for idx, geom in enumerate(self.geometry):
-            # A plain Polygon has no ``.geoms``; a MultiPolygon does.
-            for part in getattr(geom, "geoms", [geom]):
-                polygons.append(np.asarray(part.exterior.coords))
-                has_holes = has_holes or bool(part.interiors)
-                if poly_values is not None:
-                    poly_values.append(values[idx])
-        if has_holes:
-            warnings.warn(
-                "engine='cleopatra' renders only polygon exterior rings; "
-                "interior rings (holes) are dropped and will appear "
-                "filled. Use engine='geopandas' to render holes.",
-                GeometryWarning,
-                stacklevel=2,
-            )
-        return PolygonGlyph(
-            polygons,
-            values=np.asarray(poly_values) if poly_values is not None else None,
-            **PolygonGlyph.filter_kwargs(kwargs),
-        )
+        return _plot.polygon_glyph(self, values, **kwargs)
 
     def concat(self, other: GeoDataFrame) -> FeatureCollection:
         """Concatenate another GeoDataFrame onto this FeatureCollection.
@@ -3048,43 +2485,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        fc = self.with_coordinates()
-        for i, row_i in fc.iterrows():
-            fc.loc[i, "avg_x"] = np.mean(row_i["x"])
-            fc.loc[i, "avg_y"] = np.mean(row_i["y"])
-
-        # detect rows whose averaged coordinate could not be
-        # computed (empty geometry, all-NaN rings, etc.). Emit a single
-        # summary warning and substitute an empty Point so the column
-        # does not expose a `(NaN, NaN)` Point that would then crash
-        # downstream reprojections.
-        avg_x = fc["avg_x"].to_numpy()
-        avg_y = fc["avg_y"].to_numpy()
-        bad_mask = np.isnan(avg_x) | np.isnan(avg_y)
-        if bad_mask.any():
-            bad_idx = [int(i) for i, is_bad in enumerate(bad_mask) if is_bad]
-            warnings.warn(
-                f"with_centroid: {len(bad_idx)} row(s) yielded NaN centroids "
-                f"(rows {bad_idx}). Their `center_point` is an empty "
-                f"shapely.Point. Drop or repair those rows before running "
-                f"a method that requires a valid centroid (e.g. reproject, "
-                f"distance).",
-                GeometryWarning,
-                stacklevel=2,
-            )
-
-        # single-pass build. The previous implementation built a
-        # throwaway `coords_list` (with NaN placeholders for the bad
-        # rows), called `create_points` on it, then iterated the
-        # result a second time to substitute empty Points for the bad
-        # rows. Skip both intermediates — write the final column value
-        # directly.
-        cleaned: list[Any] = [
-            Point() if bad else Point(ax, ay)
-            for ax, ay, bad in zip(avg_x.tolist(), avg_y.tolist(), bad_mask.tolist())
-        ]
-        fc["center_point"] = cleaned
-        return fc
+        return _analysis.with_centroid(self)
 
     def _require_point_geometry(self, op: str) -> None:
         """Raise :class:`InvalidGeometryError` unless every geometry is a single ``Point``.
@@ -3095,7 +2496,7 @@ class FeatureCollection(GeoDataFrame):
         Raises:
             InvalidGeometryError: If the collection holds any non-``Point`` geometry (or is empty).
         """
-        geom_types = sorted(set(self.geom_type.dropna().unique()))
+        geom_types = sorted(self._geom_types())
         if geom_types != ["Point"]:
             raise InvalidGeometryError(
                 f"{op}: requires all-Point geometries, got {geom_types or 'an empty collection'}"
@@ -3350,37 +2751,15 @@ class FeatureCollection(GeoDataFrame):
             - :meth:`pyramids.dataset.Dataset.from_points`: the underlying ``gdal.Grid`` interpolation this
               method delegates to (accepts any ``gdal.Grid`` algorithm string).
         """
-        self._require_point_geometry("interpolate_to_raster")
-        self._require_column("interpolate_to_raster", column)
-        if method != "idw":
-            raise ValueError(
-                f"interpolate_to_raster: method {method!r} is not supported; only 'idw' is available. "
-                "Kriging is out of scope for pyramids — see the geostatista package (the serapeum "
-                "geostatistics tier)."
-            )
-        if len(self) < 3:
-            raise ValueError(
-                f"interpolate_to_raster: need at least 3 points, got {len(self)}"
-            )
-        try:
-            values = self[column].to_numpy(dtype=float)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"interpolate_to_raster: column {column!r} must be numeric"
-            ) from exc
-        if np.isnan(values).all():
-            raise ValueError(f"interpolate_to_raster: column {column!r} is all-NaN")
-        if n_neighbors is not None:
-            algorithm = (
-                f"invdistnn:power={power}:max_points={n_neighbors}:nodata={nodata}"
-            )
-        else:
-            algorithm = f"invdist:power={power}:smoothing=0.0:nodata={nodata}"
-        # local import: pyramids.dataset imports pyramids.feature, so import here to break the cycle.
-        from pyramids.dataset import Dataset
-
-        return Dataset.from_points(
-            self, column, algorithm=algorithm, cell_size=cell_size, bbox=bounds
+        return _analysis.interpolate_to_raster(
+            self,
+            column,
+            method=method,
+            cell_size=cell_size,
+            bounds=bounds,
+            power=power,
+            n_neighbors=n_neighbors,
+            nodata=nodata,
         )
 
     def _h3_cells(self, resolution: int, op: str) -> list[str]:
@@ -3397,15 +2776,7 @@ class FeatureCollection(GeoDataFrame):
             InvalidGeometryError: If the geometries are not all ``Point``.
             ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.
         """
-        self._require_point_geometry(op)
-        if not 0 <= resolution <= 15:
-            raise ValueError(f"{op}: resolution must be 0-15, got {resolution}")
-        if self.crs is None:
-            raise ValueError(
-                f"{op}: a CRS is required to convert points to lat/lng for H3 indexing"
-            )
-        pts = self if self.epsg == 4326 else self.to_crs(4326)
-        return [_h3.latlng_to_cell(geom.y, geom.x, resolution) for geom in pts.geometry]
+        return _analysis.h3_cells(self, resolution, op)
 
     def to_h3(self, resolution: int) -> FeatureCollection:
         """Attach the H3 cell index of each point as an ``h3`` column.
@@ -3443,10 +2814,7 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        cells = self._h3_cells(resolution, "to_h3")
-        result = FeatureCollection(self.copy())
-        result["h3"] = cells
-        return result
+        return _analysis.to_h3(self, resolution)
 
     def h3_bin(
         self,
@@ -3501,34 +2869,4 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        self._require_column("h3_bin", column)
-        cells = self._h3_cells(resolution, "h3_bin")
-        if column is None:
-            counts = pd.Series(cells, dtype="object").value_counts()
-            items: list[tuple[Any, float]] = [
-                (cell, int(n)) for cell, n in counts.items()
-            ]
-            name = "count"
-        else:
-            reducer = _tess.resolve_reducer(agg)
-            try:
-                values = self[column].to_numpy(dtype=float)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"h3_bin: column {column!r} must be numeric") from exc
-            grouped = pd.DataFrame({"_cell": cells, "_v": values}).groupby("_cell")[
-                "_v"
-            ]
-            items = [(cell, float(reducer(grp.to_numpy()))) for cell, grp in grouped]
-            name = column
-        geometries: list = []
-        idx: list = []
-        agg_values: list = []
-        for cell, value in items:
-            boundary = _h3.cell_to_boundary(cell)
-            geometries.append(Polygon([(lng, lat) for (lat, lng) in boundary]))
-            idx.append(cell)
-            agg_values.append(value)
-        frame = gpd.GeoDataFrame(
-            {"h3": idx, name: agg_values}, geometry=geometries, crs="EPSG:4326"
-        )
-        return FeatureCollection(frame)
+        return _analysis.h3_bin(self, resolution, agg=agg, column=column)
