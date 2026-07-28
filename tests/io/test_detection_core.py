@@ -293,6 +293,27 @@ class TestLoadResourceTabularCoverage:
             f"expected the 9-band raster, got {type(result).__name__}"
         )
 
+    def test_zip_of_only_a_tsv_still_loads_the_table(self, tmp_path: Path):
+        """An archive holding just a spreadsheet resolves to a frame.
+
+        Test scenario:
+            The mirror of the sidecar case: `.tsv` is deliberately not a primary
+            member so it cannot outvote a raster, but with nothing else in the
+            archive it must still be read rather than yielding the extraction
+            directory.
+        """
+        from pyramids.io.sniff import load_resource
+
+        (tmp_path / "table.tsv").write_text("a\tb\n1\t2\n", encoding="utf-8")
+        archive = tmp_path / "only.zip"
+        with zipfile.ZipFile(archive, "w") as handle:
+            handle.write(tmp_path / "table.tsv", arcname="table.tsv")
+
+        result = load_resource(archive, extract_to=tmp_path / "solo")
+        assert isinstance(result, pd.DataFrame), (
+            f"a zip of one .tsv should load it, got {type(result).__name__}"
+        )
+
     def test_legacy_xls_is_not_forced_through_an_excel_engine(self, tmp_path: Path):
         """`.xls` keeps its previous raw-bytes behaviour.
 

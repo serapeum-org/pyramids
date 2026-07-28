@@ -56,14 +56,15 @@ _KNOWN_FORMATS = (
     | _TABULAR_FORMATS
     | frozenset({"parquet", "nc", "tif", "grib", "zip", "unknown"})
 )
-# Data extensions a ZIP may wrap and that `_load_zip` re-dispatches to a reader.
+# Data extensions a ZIP may wrap and that `_load_zip` re-dispatches to a reader,
+# in two tiers. Both are listed rather than derived from `_EXT_TO_FORMAT`,
+# because this is a dispatch policy rather than a detection vocabulary.
 #
-# Intentionally listed rather than derived from `_EXT_TO_FORMAT`, and
-# intentionally narrower than it: this set decides whether an archive has
-# exactly ONE primary member. Widening it changes which archives resolve to a
-# loaded object versus the extraction directory — adding `.tsv` alone would make
-# a zip of `grid.tif` + `meta.tsv` return a directory where it used to return
-# the Dataset. Add an extension here only with that trade-off in mind.
+# The tiers exist because "exactly one primary member" is ambiguous when an
+# archive ships data plus a tabular sidecar. A zip of `grid.tif` + `meta.tsv`
+# must resolve to the raster, but a zip holding only `table.tsv` should still
+# load that table. So geospatial members are considered first, and the tabular
+# tier is consulted only when the archive contains no geospatial member at all.
 _PRIMARY_EXTS = frozenset(
     {
         ".shp",
@@ -84,6 +85,10 @@ _PRIMARY_EXTS = frozenset(
         ".grb2",
     }
 )
+# Tabular formats that count only when nothing in `_PRIMARY_EXTS` is present.
+# `.csv` stays in the primary tier for backwards compatibility — it was there
+# before the tiering and archives relying on it must keep resolving.
+_SECONDARY_EXTS = frozenset({".tsv", ".xlsx", ".xls"})
 _PARQUET_EXTRA_HINT = (
     "Reading Parquet requires the optional 'pyarrow' dependency. Install with one of:\n"
     "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
@@ -138,6 +143,11 @@ def _load_zip(path: Path, extract_to: Path | None) -> Any:
         archive.extractall(dest)
 
     primaries = [m for m in members if Path(m).suffix.lower() in _PRIMARY_EXTS]
+    if not primaries:
+        # No geospatial/CSV member: fall back to the tabular tier so an archive
+        # that holds only a spreadsheet still resolves to a frame rather than to
+        # the extraction directory.
+        primaries = [m for m in members if Path(m).suffix.lower() in _SECONDARY_EXTS]
     shapefiles = [m for m in primaries if m.lower().endswith(".shp")]
 
     target: str | None = None

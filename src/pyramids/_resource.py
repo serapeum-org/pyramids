@@ -279,6 +279,7 @@ def sniff_format(path: str | Path) -> str:
         result = _EXT_TO_FORMAT.get(Path(path).suffix.lower(), "unknown")
     return result
 
+
 # kind → the suffix set used to pick the matching member inside an archive.
 _KIND_SUFFIXES: dict[ResourceKind, set[str]] = {
     "raster": _RASTER_SUFFIXES,
