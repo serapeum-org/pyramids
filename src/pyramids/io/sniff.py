@@ -20,8 +20,9 @@ CKAN/HDX API client itself stays in the consumer; this module is the generic
 format-detection + dispatch primitive.
 
 Detection itself lives in :mod:`pyramids._resource`, which both public readers
-share; this module is the dispatch adapter over it and owns no format table of
-its own. Add new formats to `_resource._EXT_TO_FORMAT` / `_MAGIC_TO_FORMAT`.
+share, so add a new *format* to `_resource._EXT_TO_FORMAT` / `_MAGIC_TO_FORMAT`.
+The tables that remain here are *dispatch policy*, not detection: which tokens
+this module can honour, and which archive members count as the one to load.
 """
 
 from __future__ import annotations

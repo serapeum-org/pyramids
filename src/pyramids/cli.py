@@ -216,13 +216,16 @@ def _cmd_raster_info(args: argparse.Namespace) -> int:
         "bands": ds.band_count,
         "rows": ds.rows,
         "columns": ds.columns,
-        "cell_size": ds.cell_size,
+        "cell_size": _json_safe(float(ds.cell_size)),
         "dtype": list(ds.dtype),
         "no_data_value": [
             None if value is None else _json_safe(float(value))
             for value in ds.no_data_value
         ],
-        "bounds": [float(value) for value in ds.bbox],
+        # Same guard as `bounds --json`: a degenerate geotransform can yield a
+        # non-finite cell size or bound, and `json.dumps` writes those as bare
+        # `Infinity` / `NaN`, which is not valid JSON.
+        "bounds": [_json_safe(float(value)) for value in ds.bbox],
     }
     if args.json:
         print(json.dumps(payload))

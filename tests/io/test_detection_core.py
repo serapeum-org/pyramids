@@ -22,6 +22,7 @@ from pyramids._resource import (
     sniff_format,
     sniff_magic,
 )
+from pyramids.io.sniff import _PRIMARY_EXTS, load_resource
 
 pytestmark = pytest.mark.core
 
@@ -53,7 +54,6 @@ class TestSharedCore:
             zip of `grid.tif` + `meta.tsv` would have two primaries and return
             the extraction directory instead of the raster.
         """
-        from pyramids.io.sniff import _PRIMARY_EXTS
 
         for ext in (".tsv", ".xlsx", ".xls"):
             assert ext not in _PRIMARY_EXTS, (
@@ -68,7 +68,6 @@ class TestSharedCore:
             extension listed here that the shared table cannot name would fall
             through to raw bytes.
         """
-        from pyramids.io.sniff import _PRIMARY_EXTS
 
         unknown = sorted(ext for ext in _PRIMARY_EXTS if ext not in _EXT_TO_FORMAT)
         assert not unknown, (
@@ -242,7 +241,6 @@ class TestLoadResourceTabularCoverage:
             Tab-separated data was absent from this module's old dispatch table
             and fell through to the raw-bytes branch.
         """
-        from pyramids.io.sniff import load_resource
 
         table = tmp_path / "values.tsv"
         table.write_text("a\tb\n7\t8\n", encoding="utf-8")
@@ -262,7 +260,6 @@ class TestLoadResourceTabularCoverage:
             where the declared format is the only reliable signal. Dispatching
             on the extension instead would raise.
         """
-        from pyramids.io.sniff import load_resource
 
         blob = tmp_path / "resource_12345"
         blob.write_text("a,b\n1,2\n", encoding="utf-8")
@@ -279,7 +276,6 @@ class TestLoadResourceTabularCoverage:
             `.tsv` counted as a primary member the archive would have two, and
             `_load_zip` would return the extraction directory instead.
         """
-        from pyramids.io.sniff import load_resource
 
         shutil.copy(_GEOTIFF, tmp_path / "grid.tif")
         (tmp_path / "meta.tsv").write_text("k\tv\n1\t2\n", encoding="utf-8")
@@ -302,7 +298,6 @@ class TestLoadResourceTabularCoverage:
             archive it must still be read rather than yielding the extraction
             directory.
         """
-        from pyramids.io.sniff import load_resource
 
         (tmp_path / "table.tsv").write_text("a\tb\n1\t2\n", encoding="utf-8")
         archive = tmp_path / "only.zip"
@@ -322,7 +317,6 @@ class TestLoadResourceTabularCoverage:
             tabular format would turn a resource that used to come back as bytes
             into a hard ImportError.
         """
-        from pyramids.io.sniff import load_resource
 
         legacy = tmp_path / "legacy.xls"
         legacy.write_bytes(b"\xd0\xcf\x11\xe0stub")
@@ -337,7 +331,6 @@ class TestLoadResourceTabularCoverage:
             Routing CSV through the shared tabular reader must not change what
             callers already received.
         """
-        from pyramids.io.sniff import load_resource
 
         table = tmp_path / "values.csv"
         table.write_text("a,b\n1,2\n", encoding="utf-8")

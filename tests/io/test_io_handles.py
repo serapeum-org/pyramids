@@ -198,6 +198,9 @@ class TestLoadZipExtractionDir:
             The default destination must come from `base._artifacts.artifact_dir()`
             so the extraction is swept at interpreter exit instead of leaking.
         """
+        # Imported inside the test on purpose: importing the submodule at
+        # module scope binds `pyramids.io.sniff` as a package attribute
+        # automatically, which would mask the lazy-resolution check above.
         from pyramids.io.sniff import load_resource
 
         source = tmp_path / "table.csv"
@@ -232,6 +235,9 @@ class TestLoadZipExtractionDir:
         Test scenario:
             Callers that pass a destination keep full control of where members land.
         """
+        # Imported inside the test on purpose: importing the submodule at
+        # module scope binds `pyramids.io.sniff` as a package attribute
+        # automatically, which would mask the lazy-resolution check above.
         from pyramids.io.sniff import load_resource
 
         source = tmp_path / "table.csv"

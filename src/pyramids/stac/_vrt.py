@@ -608,7 +608,7 @@ def build_vrt_from_stac(
     sources = [(href, _embed_source_options(href, gdal_env)) for href in hrefs]
     vsi_paths = [vsi_path for _href, vsi_path in sources]
     _warn_unembeddable_credentials(gdal_env, hrefs)
-    vrt_path = f"/vsimem/pyramids_stac_{uuid.uuid4().hex}.vrt"
+    vrt_path = f"/vsimem/pyramids_scratch_{uuid.uuid4().hex}.vrt"
 
     # BuildVRT opens every source. Over `/vsicurl/` that costs a directory
     # listing plus a fan of sidecar probes per source unless the fast-read

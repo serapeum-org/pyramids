@@ -72,8 +72,9 @@ _TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xls", ".parquet", ".pq"}
 # a zip container, so its magic resolves to `"zip"` and an `"excel"` token would
 # be unreachable by sniffing anyway, while adding `.xls` would turn a resource
 # that used to come back as raw bytes into a hard ImportError (no Excel engine
-# is a declared dependency). `read_resource` still reads Excel through its own
-# `_TABULAR_SUFFIXES` path, where the caller has already chosen that family.
+# is a declared dependency). Excel is still reachable deliberately — via
+# `read_resource`'s `_TABULAR_SUFFIXES` family lookup, or by passing an explicit
+# `fmt=`/`kind=` — just never by sniffing.
 _EXT_TO_FORMAT: dict[str, str] = {
     ".shp": "shp",
     ".gpkg": "gpkg",
@@ -566,7 +567,7 @@ def _read_vector(path: Path, layer: str | int | None) -> FeatureCollection:
     return FeatureCollection.read_file(source, layer=passthrough_layer)
 
 
-def read_tabular(path: Path, fmt: str | None = None) -> pd.DataFrame:
+def read_tabular(path: str | Path, fmt: str | None = None) -> pd.DataFrame:
     """Read a tabular resource into a :class:`pandas.DataFrame`.
 
     ``pandas`` infers ``.gz`` / ``.zip`` / ``.tar`` compression from the suffix,
@@ -591,6 +592,9 @@ def read_tabular(path: Path, fmt: str | None = None) -> pd.DataFrame:
         ImportError: The chosen reader needs an optional engine that is not
             installed (`openpyxl`/`xlrd` for Excel, `pyarrow` for Parquet).
     """
+    # Accept a plain string too: this is public-named and reached from both
+    # readers, so it must not depend on the caller having wrapped the path.
+    path = Path(path)
     source = str(path)
     ext = Path(_strip_compression(path.name)).suffix.lower()
     label = normalise_format(fmt)

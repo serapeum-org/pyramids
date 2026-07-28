@@ -55,8 +55,13 @@ def failing_transform(monkeypatch: pytest.MonkeyPatch):
 
     class _Failing:
         def TransformPoints(self, points):
-            """Return one non-finite corner and three ordinary ones."""
-            return [(float("inf"), float("inf"))] + [(1.0, 2.0)] * (len(points) - 1)
+            """Return one non-finite corner and three ordinary ones.
+
+            GDAL hands back 3-tuples (x, y, z), so mirror that shape rather than
+            the 2-tuples the caller happens to index.
+            """
+            failed = (float("inf"), float("inf"), 0.0)
+            return [failed] + [(1.0, 2.0, 0.0)] * (len(points) - 1)
 
     monkeypatch.setattr(cli.osr, "CoordinateTransformation", lambda *a, **k: _Failing())
 
