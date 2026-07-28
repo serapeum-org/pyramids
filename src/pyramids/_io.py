@@ -273,9 +273,12 @@ def _get_zip_path(path: str, file_i: int = 0):
     if path.__contains__(".zip") and not path.endswith(".zip"):
         vsi_path = f"{_VSIZIP}{path}"
     else:
-        # Context-managed: an unclosed ZipFile keeps the archive's file descriptor
-        # open until the temporary is garbage-collected, which on Windows also
-        # blocks deleting or overwriting the archive.
+        # Close deterministically instead of relying on the temporary's refcount
+        # dropping to zero. CPython happens to release it immediately, but that
+        # is an implementation detail — under a non-refcounting runtime (PyPy) or
+        # if this expression is ever held in a traceback frame, the descriptor
+        # survives, and on Windows an open handle blocks deleting or overwriting
+        # the archive.
         with zipfile.ZipFile(path) as archive:
             file_list = archive.namelist()
         vsi_path = f"{_VSIZIP}{path}/{file_list[file_i]}"
