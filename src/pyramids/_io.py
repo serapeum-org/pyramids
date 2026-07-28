@@ -581,9 +581,13 @@ def read_file(
     :func:`osgeo.gdal.OpenShared`, so repeated reads of the same path reuse one
     handle — the intended benefit for frequently accessed rasters. Update-mode
     opens go through :func:`osgeo.gdal.Open` instead: GDAL's shared cache is
-    keyed on path + access + thread, so two update-mode datasets would otherwise
-    receive the *same* mutable handle with independent finalizers, letting one
-    flush or invalidate the other's writes.
+    keyed on path + access + thread, so two update-mode opens of the same file
+    return **one and the same** ``GDALDataset`` — two wrappers that look
+    independent but are a single mutable object, each with its own finalizer and
+    its own idea of when it may be closed. `gdal.Open` gives each writer its own
+    dataset instead. (Note this is about handle identity, not visibility: GDAL's
+    block cache makes an unflushed write on one handle visible through another
+    on the same file under *either* opener.)
 
     Args:
         path (str): Path of file to open (works for ASCII, GeoTIFF).
@@ -631,8 +635,9 @@ def read_file(
         else:
             # Update mode must NOT share: GDAL returns one handle per
             # path+access+thread, so two update-mode Datasets on the same file
-            # would hold the same mutable handle with independent finalizers —
-            # one closing it flushes/invalidates the other's writes.
+            # would alias one another — a write through one immediately visible
+            # through the other, and a flush/close on either committing the
+            # other's in-flight edits.
             src = gdal.Open(path, access)
     except Exception as e:
         _raise_open_error(e, path)
