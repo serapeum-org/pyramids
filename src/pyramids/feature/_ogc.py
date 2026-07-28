@@ -10,12 +10,16 @@ lives here once instead of being copied into each reader. The GDAL HTTP config
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import geopandas as gpd
 from osgeo import gdal
 
 from pyramids.base._ogc_api import gdal_http_config
+
+
+if TYPE_CHECKING:
+    from pyramids.feature.collection import FeatureCollection
 
 
 def require_advertised(name: str, advertised: frozenset[str], *, noun: str, endpoint: str) -> None:
@@ -45,7 +49,7 @@ def require_advertised(name: str, advertised: frozenset[str], *, noun: str, endp
 
 
 def read_ogc_layer(
-    fc_cls: type,
+    fc_cls: type[FeatureCollection],
     connection: str,
     layer: str,
     *,
@@ -55,7 +59,7 @@ def read_ogc_layer(
     error_cls: type[Exception],
     read_fail_prefix: str,
     output_crs: str | None,
-) -> Any:
+) -> FeatureCollection:
     """Read a layer through the GDAL OGR HTTP driver and wrap it as a FeatureCollection.
 
     The tail shared verbatim by :func:`pyramids.feature._wfs.from_wfs` and

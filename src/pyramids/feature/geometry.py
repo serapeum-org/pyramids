@@ -684,7 +684,8 @@ def create_points(coords: Iterable[tuple[float, ...]]) -> list[Point]:
     coords_list = list(coords)
     if not coords_list:
         return []
-    return shapely.points(np.asarray(coords_list, dtype=float)).tolist()
+    points: list[Any] = shapely.points(np.asarray(coords_list, dtype=float)).tolist()
+    return points
 
 
 def point_collection(coords: Iterable[tuple[float, ...]], crs: Any) -> GeoDataFrame:

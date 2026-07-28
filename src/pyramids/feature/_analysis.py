@@ -14,7 +14,7 @@ silently desync). This mirrors the existing `from_wfs`->`_wfs` delegation.
 from __future__ import annotations
 
 import warnings
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import geopandas as gpd
 import numpy as np
@@ -26,8 +26,12 @@ from pyramids.feature import _h3
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
 
+if TYPE_CHECKING:
+    from pyramids.dataset import Dataset
+    from pyramids.feature.collection import FeatureCollection
 
-def with_coordinates(fc: Any) -> Any:
+
+def with_coordinates(fc: FeatureCollection) -> FeatureCollection:
     """Explode multi-geometries and attach per-vertex ``x`` / ``y`` columns."""
     gdf = _geom.explode_gdf(gpd.GeoDataFrame(fc, copy=True), geometry="multipolygon")
     gdf = _geom.explode_gdf(gdf, geometry="geometrycollection")
@@ -38,7 +42,7 @@ def with_coordinates(fc: Any) -> Any:
     return result
 
 
-def with_centroid(fc: Any) -> Any:
+def with_centroid(fc: FeatureCollection) -> FeatureCollection:
     """Attach a ``center_point`` column from the mean of each row's coordinates."""
     result = with_coordinates(fc)
     result["avg_x"] = result["x"].map(np.mean)
@@ -64,7 +68,7 @@ def with_centroid(fc: Any) -> Any:
 
 
 def interpolate_to_raster(
-    fc: Any,
+    fc: FeatureCollection,
     column: str,
     *,
     method: str,
@@ -73,7 +77,7 @@ def interpolate_to_raster(
     power: float,
     n_neighbors: int | None,
     nodata: float,
-) -> Any:
+) -> Dataset:
     """Interpolate a numeric point column to a single-band raster via IDW (gdal.Grid)."""
     fc._require_point_geometry("interpolate_to_raster")
     fc._require_column("interpolate_to_raster", column)
@@ -101,7 +105,7 @@ def interpolate_to_raster(
     return Dataset.from_points(fc, column, algorithm=algorithm, cell_size=cell_size, bbox=bounds)
 
 
-def h3_cells(fc: Any, resolution: int, op: str) -> list[str]:
+def h3_cells(fc: FeatureCollection, resolution: int, op: str) -> list[str]:
     """Return the H3 cell index of each point at ``resolution`` (in EPSG:4326)."""
     fc._require_point_geometry(op)
     if not 0 <= resolution <= 15:
@@ -112,7 +116,7 @@ def h3_cells(fc: Any, resolution: int, op: str) -> list[str]:
     return [_h3.latlng_to_cell(geom.y, geom.x, resolution) for geom in pts.geometry]
 
 
-def to_h3(fc: Any, resolution: int) -> Any:
+def to_h3(fc: FeatureCollection, resolution: int) -> FeatureCollection:
     """Attach each point's H3 cell index as an ``h3`` column."""
     cells = h3_cells(fc, resolution, "to_h3")
     result = type(fc)(fc.copy())
@@ -120,7 +124,7 @@ def to_h3(fc: Any, resolution: int) -> Any:
     return result
 
 
-def h3_bin(fc: Any, resolution: int, *, agg: Any, column: str | None) -> Any:
+def h3_bin(fc: FeatureCollection, resolution: int, *, agg: Any, column: str | None) -> FeatureCollection:
     """Aggregate points into H3 hexagon cells; one polygon per occupied cell (EPSG:4326)."""
     fc._require_column("h3_bin", column)
     cells = h3_cells(fc, resolution, "h3_bin")
