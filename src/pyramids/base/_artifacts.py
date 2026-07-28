@@ -1,4 +1,4 @@
-"""Process-scoped scratch artefacts for materialising readers (M1).
+"""Process-scoped scratch artefacts for readers that must outlive their call.
 
 Several STAC readers must materialise intermediate rasters that have to outlive
 the call because the returned object is *file-backed* by them: multi-asset
@@ -138,8 +138,12 @@ def cleanup() -> None:
     """Remove the artefact root and unlink every tracked ``/vsimem`` path.
 
     Registered as an ``atexit`` hook the first time either artefact kind is
-    used; safe to call directly (e.g. from tests). Best-effort — errors are
-    swallowed so a locked file at shutdown never raises.
+    used. Best-effort — errors are swallowed so a locked file at shutdown
+    never raises.
+
+    Calling this directly removes the root shared by *every* consumer in the
+    process (the STAC readers and ``pyramids.io``'s zip extraction among
+    them), so a test that invokes it must isolate itself first.
     """
     global _ROOT
     with _LOCK:

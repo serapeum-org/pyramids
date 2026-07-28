@@ -162,6 +162,7 @@ def normalise_format(value: str | None) -> str | None:
         result = cleaned or None
     return result
 
+
 # Leading magic bytes -> format token. `SQLite format 3` is listed first so it
 # is tested before any shorter prefix that could overlap. TIFF needs an exact
 # 4-byte window (both byte orders) rather than a prefix test, so it is handled
@@ -253,7 +254,7 @@ def sniff_format(path: str | Path) -> str:
     Examples:
         - A GeoTIFF is detected from its `II*\\0` / `MM\\0*` magic bytes:
             ```python
-            >>> from pyramids._resource import sniff_format
+            >>> from pyramids.io import sniff_format
             >>> sniff_format("tests/data/geotiff/era5_land_monthly_averaged.tif")
             'tif'
 

@@ -74,6 +74,28 @@ class TestSharedCore:
             f"primary extensions unknown to the detection table: {unknown}"
         )
 
+    def test_every_data_extension_is_dispatchable_from_an_archive(self):
+        """No data format is silently undispatchable inside a zip.
+
+        Test scenario:
+            The subset check above catches drift in one direction only. A format
+            added to the detection table but to neither dispatch tier would make
+            an archive containing just that file return the extraction directory,
+            with nothing failing. Pin the other direction too.
+        """
+        from pyramids.io.sniff import _SECONDARY_EXTS
+
+        dispatchable = _PRIMARY_EXTS | _SECONDARY_EXTS
+        # `.zip` is the container itself, never a member to re-dispatch.
+        orphans = sorted(
+            ext
+            for ext, fmt in _EXT_TO_FORMAT.items()
+            if fmt != "zip" and ext not in dispatchable
+        )
+        assert not orphans, (
+            f"data extensions in the detection table that no tier dispatches: {orphans}"
+        )
+
 
 class TestSniffMagic:
     """Tests for `sniff_magic`."""
