@@ -8,7 +8,7 @@ from __future__ import annotations
 # pyramids.io` stays light — that heavy stack is only pulled in when these
 # symbols are first accessed, mirroring what `pyramids/__init__.py` already does
 # for `read_resource` / `sniff_kind`.
-_LAZY_SNIFF_EXPORTS = frozenset({"load_resource", "sniff_format"})
+_LAZY_SNIFF_EXPORTS = frozenset({"load_resource", "sniff_format", "sniff_magic"})
 # `sniff` itself is resolved lazily too: the eager `from .sniff import ...` used
 # to register the submodule as an attribute of this package, so `import
 # pyramids.io; pyramids.io.sniff` worked. Dropping the eager import would break
@@ -25,6 +25,7 @@ def __getattr__(name: str):
             sniff=sniff,
             load_resource=sniff.load_resource,
             sniff_format=sniff.sniff_format,
+            sniff_magic=sniff.sniff_magic,
         )
         return globals()[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -35,4 +36,4 @@ def __dir__() -> list[str]:
     return sorted(set(globals()) | _LAZY_NAMES)
 
 
-__all__ = ["load_resource", "sniff_format"]
+__all__ = ["load_resource", "sniff_format", "sniff_magic"]

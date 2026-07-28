@@ -23,6 +23,8 @@ from pyramids._resource import (
     sniff_magic,
 )
 
+pytestmark = pytest.mark.core
+
 _GEOTIFF = "tests/data/geotiff/era5_land_monthly_averaged.tif"
 
 

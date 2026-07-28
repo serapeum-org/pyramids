@@ -14,6 +14,8 @@ from pyramids import cli
 from pyramids.cli import main
 from pyramids.dataset import Dataset
 
+pytestmark = pytest.mark.core
+
 
 @pytest.fixture(scope="function")
 def wgs84_raster(tmp_path: Path) -> str:

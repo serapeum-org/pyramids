@@ -20,6 +20,8 @@ from osgeo import gdal
 from pyramids._io import _get_zip_path, read_file
 from pyramids.base import _artifacts
 
+pytestmark = pytest.mark.core
+
 
 @pytest.fixture(scope="function")
 def asc_zip(tmp_path: Path) -> Path:

@@ -32,12 +32,14 @@ from typing import Any
 
 import pandas as pd
 
-from pyramids._resource import read_tabular, sniff_format
+from pyramids._resource import read_tabular, sniff_format, sniff_magic
 from pyramids.base._artifacts import artifact_dir
 from pyramids.base._utils import import_pyarrow
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
+
+__all__ = ["load_resource", "sniff_format", "sniff_magic"]
 
 _VECTOR_FORMATS = frozenset({"shp", "gpkg", "geojson"})
 _TABULAR_FORMATS = frozenset({"csv", "tsv"})
@@ -151,9 +153,13 @@ def load_resource(
     Args:
         path: Path to the downloaded resource.
         expected_format: Optional format override (one of the
-            :func:`sniff_format` strings); skips sniffing when given.
-        extract_to: Directory to extract a ZIP into; a temp dir is used when
-            `None`.
+            :func:`sniff_format` tokens); skips sniffing when given. Use it when
+            the name carries no usable extension — a portal download named by id
+            — since the override is forwarded to the reader rather than
+            re-derived from the suffix.
+        extract_to: Directory to extract a ZIP into. When `None` a directory
+            under the process-scoped artefact root is used, which is swept at
+            interpreter exit rather than left behind.
 
     Returns:
         The most natural object for the format: a
@@ -167,6 +173,8 @@ def load_resource(
     Raises:
         OptionalPackageDoesNotExist: A Parquet resource is read without the
             `[parquet]` extra installed.
+        ValueError: A tabular resource whose format cannot be determined from
+            `expected_format`, its suffix, or its magic bytes.
 
     Examples:
         - Load a GeoTIFF resource as a Dataset:

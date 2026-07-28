@@ -176,8 +176,10 @@ def sniff_format(path: str | Path) -> str:
         path: Path to a local file.
 
     Returns:
-        str: A normalised format token, or `"unknown"` when neither the magic
-        bytes nor the extension identify the file.
+        str: One of `"shp"`, `"gpkg"`, `"geojson"`, `"csv"`, `"tsv"`,
+        `"parquet"`, `"nc"`, `"tif"`, `"grib"`, `"zip"`, or `"unknown"` when
+        neither the magic bytes nor the extension identify the file. Excel is
+        deliberately absent — see the note on :data:`_EXT_TO_FORMAT`.
 
     Examples:
         - A GeoTIFF is detected from its `II*\\0` / `MM\\0*` magic bytes:

@@ -64,7 +64,11 @@ def _root() -> str:
     """Return the shared process artefact root, creating it on first use."""
     global _ROOT
     if _ROOT is None:
-        _ROOT = tempfile.mkdtemp(prefix="pyramids_stac_")
+        # Generic prefix: the registry started out serving the STAC readers but
+        # is now the shared scratch space for anything whose artefacts must
+        # outlive the call (zip extraction in pyramids.io among them), so the
+        # directory name should not imply a single consumer.
+        _ROOT = tempfile.mkdtemp(prefix="pyramids_scratch_")
         _arm_cleanup()
     return _ROOT
 
