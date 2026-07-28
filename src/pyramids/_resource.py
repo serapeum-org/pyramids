@@ -61,7 +61,10 @@ _VECTOR_SUFFIXES = {
     ".fgb",
     ".gml",
 }
-_TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xls", ".parquet", ".pq"}
+# Named once and reused across the three tables below, which all key on it
+# (S1192).
+_PARQUET_SUFFIX = ".parquet"
+_TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xls", _PARQUET_SUFFIX, ".pq"}
 
 # One detection core for both public readers (`read_resource` here and
 # `pyramids.io.load_resource`, which adapts these helpers). Previously each
@@ -82,7 +85,7 @@ _EXT_TO_FORMAT: dict[str, str] = {
     ".json": "geojson",
     ".csv": "csv",
     ".tsv": "tsv",
-    ".parquet": "parquet",
+    _PARQUET_SUFFIX: "parquet",
     ".pq": "parquet",
     ".nc": "nc",
     ".nc4": "nc",
@@ -104,7 +107,7 @@ _EXT_TO_TABULAR_READER: dict[str, str] = {
     ".tsv": "tsv",
     ".xlsx": "excel",
     ".xls": "excel",
-    ".parquet": "parquet",
+    _PARQUET_SUFFIX: "parquet",
     ".pq": "parquet",
 }
 
