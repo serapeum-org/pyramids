@@ -36,8 +36,12 @@ def with_coordinates(fc: FeatureCollection) -> FeatureCollection:
     gdf = _geom.explode_gdf(gpd.GeoDataFrame(fc, copy=True), geometry="multipolygon")
     gdf = _geom.explode_gdf(gdf, geometry="geometrycollection")
     result = type(fc)(gdf)
-    result["x"] = result.apply(_geom.get_coords, geom_col="geometry", coord_type="x", axis=1)
-    result["y"] = result.apply(_geom.get_coords, geom_col="geometry", coord_type="y", axis=1)
+    result["x"] = result.apply(
+        _geom.get_coords, geom_col="geometry", coord_type="x", axis=1
+    )
+    result["y"] = result.apply(
+        _geom.get_coords, geom_col="geometry", coord_type="y", axis=1
+    )
     result.reset_index(drop=True, inplace=True)
     return result
 
@@ -88,11 +92,15 @@ def interpolate_to_raster(
             "geostatistics tier)."
         )
     if len(fc) < 3:
-        raise ValueError(f"interpolate_to_raster: need at least 3 points, got {len(fc)}")
+        raise ValueError(
+            f"interpolate_to_raster: need at least 3 points, got {len(fc)}"
+        )
     try:
         values = fc[column].to_numpy(dtype=float)
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"interpolate_to_raster: column {column!r} must be numeric") from exc
+        raise ValueError(
+            f"interpolate_to_raster: column {column!r} must be numeric"
+        ) from exc
     if np.isnan(values).all():
         raise ValueError(f"interpolate_to_raster: column {column!r} is all-NaN")
     if n_neighbors is not None:
@@ -102,7 +110,9 @@ def interpolate_to_raster(
     # local import: pyramids.dataset imports pyramids.feature, so import here to break the cycle.
     from pyramids.dataset import Dataset
 
-    return Dataset.from_points(fc, column, algorithm=algorithm, cell_size=cell_size, bbox=bounds)
+    return Dataset.from_points(
+        fc, column, algorithm=algorithm, cell_size=cell_size, bbox=bounds
+    )
 
 
 def h3_cells(fc: FeatureCollection, resolution: int, op: str) -> list[str]:
@@ -111,7 +121,9 @@ def h3_cells(fc: FeatureCollection, resolution: int, op: str) -> list[str]:
     if not 0 <= resolution <= 15:
         raise ValueError(f"{op}: resolution must be 0-15, got {resolution}")
     if fc.crs is None:
-        raise ValueError(f"{op}: a CRS is required to convert points to lat/lng for H3 indexing")
+        raise ValueError(
+            f"{op}: a CRS is required to convert points to lat/lng for H3 indexing"
+        )
     pts = fc if fc.epsg == 4326 else fc.to_crs(4326)
     return [_h3.latlng_to_cell(geom.y, geom.x, resolution) for geom in pts.geometry]
 
@@ -124,7 +136,9 @@ def to_h3(fc: FeatureCollection, resolution: int) -> FeatureCollection:
     return result
 
 
-def h3_bin(fc: FeatureCollection, resolution: int, *, agg: Any, column: str | None) -> FeatureCollection:
+def h3_bin(
+    fc: FeatureCollection, resolution: int, *, agg: Any, column: str | None
+) -> FeatureCollection:
     """Aggregate points into H3 hexagon cells; one polygon per occupied cell (EPSG:4326)."""
     fc._require_column("h3_bin", column)
     cells = h3_cells(fc, resolution, "h3_bin")
@@ -149,5 +163,7 @@ def h3_bin(fc: FeatureCollection, resolution: int, *, agg: Any, column: str | No
         geometries.append(Polygon([(lng, lat) for (lat, lng) in boundary]))
         idx.append(cell)
         agg_values.append(value)
-    frame = gpd.GeoDataFrame({"h3": idx, name: agg_values}, geometry=geometries, crs="EPSG:4326")
+    frame = gpd.GeoDataFrame(
+        {"h3": idx, name: agg_values}, geometry=geometries, crs="EPSG:4326"
+    )
     return type(fc)(frame)

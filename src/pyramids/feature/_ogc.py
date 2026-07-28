@@ -17,12 +17,13 @@ from osgeo import gdal
 
 from pyramids.base._ogc_api import gdal_http_config
 
-
 if TYPE_CHECKING:
     from pyramids.feature.collection import FeatureCollection
 
 
-def require_advertised(name: str, advertised: frozenset[str], *, noun: str, endpoint: str) -> None:
+def require_advertised(
+    name: str, advertised: frozenset[str], *, noun: str, endpoint: str
+) -> None:
     """Raise ``ValueError`` if ``name`` is absent from a non-empty advertised set.
 
     Shared advertised-name pre-check for the OGC vector readers (WFS feature types,
@@ -44,7 +45,8 @@ def require_advertised(name: str, advertised: frozenset[str], *, noun: str, endp
         available = sorted(advertised)
         raise ValueError(
             f"{noun} {name!r} is not advertised by {endpoint!r}. "
-            f"Available {noun}s: {available[:10]}" + (" …" if len(available) > 10 else "")
+            f"Available {noun}s: {available[:10]}"
+            + (" …" if len(available) > 10 else "")
         )
 
 

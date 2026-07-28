@@ -30,7 +30,11 @@ from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted, no XXE
 
 from pyramids.base._errors import WFSError
-from pyramids.base._ogc_api import DISCOVERY_HEADERS, http_error_detail, http_get_with_retry
+from pyramids.base._ogc_api import (
+    DISCOVERY_HEADERS,
+    http_error_detail,
+    http_get_with_retry,
+)
 from pyramids.feature._ogc import read_kwargs as _read_kwargs
 from pyramids.feature._ogc import read_ogc_layer as _read_ogc_layer
 from pyramids.feature._ogc import require_advertised as _require_advertised

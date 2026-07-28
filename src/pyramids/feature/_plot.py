@@ -20,7 +20,14 @@ from pyramids.base._utils import require_cleopatra
 from pyramids.basemap.basemap import add_basemap
 
 
-def plot(fc: Any, *, column: str | None = None, basemap: Any = None, engine: str = "geopandas", **kwargs: Any) -> Any:
+def plot(
+    fc: Any,
+    *,
+    column: str | None = None,
+    basemap: Any = None,
+    engine: str = "geopandas",
+    **kwargs: Any,
+) -> Any:
     """Render `fc` via geopandas or cleopatra, optionally over a web-tile basemap."""
     if engine == "geopandas":
         # geopandas' `.plot` is a CachedAccessor: `GeoDataFrame.plot` is the accessor
@@ -32,7 +39,9 @@ def plot(fc: Any, *, column: str | None = None, basemap: Any = None, engine: str
     elif engine == "cleopatra":
         result, ax = plot_cleopatra(fc, column=column, **kwargs)
     else:
-        raise ValueError(f"Unsupported engine {engine!r}; choose 'geopandas' or 'cleopatra'.")
+        raise ValueError(
+            f"Unsupported engine {engine!r}; choose 'geopandas' or 'cleopatra'."
+        )
     if basemap:
         if fc.epsg is None:
             raise CRSError("FeatureCollection must have a CRS (epsg) to use basemap.")
@@ -45,7 +54,9 @@ def plot_cleopatra(fc: Any, column: str | None = None, **kwargs: Any) -> Any:
     """Build and draw the cleopatra glyph for `fc`, returning ``(glyph, ax)``."""
     require_cleopatra()
     if column is not None and column not in fc.columns:
-        raise ValueError(f"Column {column!r} not found; available columns: {list(fc.columns)}.")
+        raise ValueError(
+            f"Column {column!r} not found; available columns: {list(fc.columns)}."
+        )
     values = fc[column].to_numpy() if column is not None else None
     # The plot path must stay NaN-aware — unlike `_geom_types()`, which drops nulls
     # for `schema` / the rasterize guard. A null geometry can't be rendered, so it

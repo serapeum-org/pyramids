@@ -16,7 +16,7 @@ from typing import Any, cast
 import numpy as np
 import shapely
 from shapely import voronoi_polygons
-from shapely.geometry import MultiPoint, box
+from shapely.geometry import MultiPoint
 
 NAN_REDUCERS: dict[str, Callable[..., Any]] = {
     "mean": np.nanmean,

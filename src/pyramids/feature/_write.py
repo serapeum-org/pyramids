@@ -42,7 +42,11 @@ def to_file(
         resolved = driver
     # Pin the engine to pyogrio to match read_file / iter_features; callers can override
     # via engine="fiona" in creation_options.
-    passthrough: dict[str, Any] = {"driver": resolved, "mode": mode, "engine": "pyogrio"}
+    passthrough: dict[str, Any] = {
+        "driver": resolved,
+        "mode": mode,
+        "engine": "pyogrio",
+    }
     if layer is not None:
         passthrough["layer"] = layer
     passthrough.update(creation_options)
@@ -63,7 +67,9 @@ def to_parquet(
         "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
         "  - conda-forge: conda install -c conda-forge pyramids-parquet"
     )
-    gpd.GeoDataFrame.to_parquet(fc, path, compression=compression, index=index, **kwargs)
+    gpd.GeoDataFrame.to_parquet(
+        fc, path, compression=compression, index=index, **kwargs
+    )
 
 
 def to_vector_tiles(
@@ -97,7 +103,13 @@ def to_pmtiles(
 ) -> Path:
     """Write `fc` as a single ``.pmtiles`` archive."""
     return to_vector_tiles(
-        fc, path, "PMTiles", min_zoom=min_zoom, max_zoom=max_zoom, layer_name=layer_name, **creation_options
+        fc,
+        path,
+        "PMTiles",
+        min_zoom=min_zoom,
+        max_zoom=max_zoom,
+        layer_name=layer_name,
+        **creation_options,
     )
 
 
@@ -112,5 +124,11 @@ def to_mvt(
 ) -> Path:
     """Write `fc` as an MVT ``{z}/{x}/{y}.pbf`` tile tree."""
     return to_vector_tiles(
-        fc, path, "MVT", min_zoom=min_zoom, max_zoom=max_zoom, layer_name=layer_name, **creation_options
+        fc,
+        path,
+        "MVT",
+        min_zoom=min_zoom,
+        max_zoom=max_zoom,
+        layer_name=layer_name,
+        **creation_options,
     )

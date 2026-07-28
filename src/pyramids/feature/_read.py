@@ -73,7 +73,9 @@ def list_layers_cache_clear() -> None:
     _list_layers_cached.cache_clear()
 
 
-def read_gpx_layers(fc_cls: type[FeatureCollection], path: str | Path) -> dict[str, FeatureCollection]:
+def read_gpx_layers(
+    fc_cls: type[FeatureCollection], path: str | Path
+) -> dict[str, FeatureCollection]:
     """Read every non-empty GPX sub-layer into a dict (see FeatureCollection.read_gpx_layers)."""
     result: dict[str, Any] = {}
     for name in fc_cls.list_layers(path):
@@ -83,7 +85,9 @@ def read_gpx_layers(fc_cls: type[FeatureCollection], path: str | Path) -> dict[s
     return result
 
 
-def read_featureserver_page(fc_cls: type[FeatureCollection], page_url: str) -> FeatureCollection:
+def read_featureserver_page(
+    fc_cls: type[FeatureCollection], page_url: str
+) -> FeatureCollection:
     """Read one ESRIJSON page from an ArcGIS FeatureServer query URL."""
     return fc_cls.read_file(page_url)
 
@@ -102,11 +106,15 @@ def from_featureserver(
     if page_size < 1:
         raise ValueError(f"from_featureserver: page_size must be >= 1, got {page_size}")
     if max_records is not None and max_records < 0:
-        raise ValueError(f"from_featureserver: max_records must be >= 0 or None, got {max_records}")
+        raise ValueError(
+            f"from_featureserver: max_records must be >= 0 or None, got {max_records}"
+        )
     base = url.split("?", 1)[0].rstrip("/")
     if not base.lower().endswith("/query"):
         base = f"{base}/query"
-    pages, first_crs = collect_featureserver_pages(fc_cls, base, where, out_fields, max_records, page_size, max_pages)
+    pages, first_crs = collect_featureserver_pages(
+        fc_cls, base, where, out_fields, max_records, page_size, max_pages
+    )
     # Concatenate in one pass (pd.concat preserves the shared CRS); repeatedly calling .concat()
     # re-sets the CRS and trips a geopandas DeprecationWarning.
     if pages:
@@ -138,7 +146,9 @@ def collect_featureserver_pages(
                 stacklevel=2,
             )
             break
-        this_page = page_size if max_records is None else min(page_size, max_records - fetched)
+        this_page = (
+            page_size if max_records is None else min(page_size, max_records - fetched)
+        )
         query = urlencode(
             {
                 "where": where,
@@ -164,7 +174,9 @@ def collect_featureserver_pages(
     return pages, first_crs
 
 
-def _resolve_lazy_partitioning(path: str, npartitions: int | None, chunksize: int | None) -> dict[str, Any]:
+def _resolve_lazy_partitioning(
+    path: str, npartitions: int | None, chunksize: int | None
+) -> dict[str, Any]:
     """Default `npartitions` from file size when neither knob is given (see FeatureCollection.read_file)."""
     kwargs: dict[str, Any] = {}
     if npartitions is not None:
@@ -180,7 +192,9 @@ def _resolve_lazy_partitioning(path: str, npartitions: int | None, chunksize: in
         except OSError:
             kwargs["npartitions"] = 1
         else:
-            kwargs["npartitions"] = max(1, math.ceil(size / _LAZY_TARGET_BYTES_PER_PARTITION))
+            kwargs["npartitions"] = max(
+                1, math.ceil(size / _LAZY_TARGET_BYTES_PER_PARTITION)
+            )
     return kwargs
 
 
@@ -328,7 +342,9 @@ def _validate_iter_features_args(
     # so the positions would be wrong. Refuse that combination rather than emit wrong ids
     # (ARC-31). The Python-side bbox path (tile_strategy="none") reads full chunks and masks
     # row_indices afterwards, so it stays correct.
-    if include_index and (where is not None or (bbox is not None and tile_strategy != "none")):
+    if include_index and (
+        where is not None or (bbox is not None and tile_strategy != "none")
+    ):
         raise ValueError(
             "iter_features(include_index=True) is incompatible with driver-side filtering "
             "because the emitted id is the absolute source-file row position: pass where=None "
@@ -387,14 +403,18 @@ def iter_features(
         )
         # Absolute row indices captured before any bbox masking, so callers
         # can map yielded features back to their source rows.
-        row_indices = list(range(start, start + len(gdf_chunk))) if include_index else None
+        row_indices = (
+            list(range(start, start + len(gdf_chunk))) if include_index else None
+        )
         if python_bbox is not None and len(gdf_chunk) > 0:
             xmin, ymin, xmax, ymax = python_bbox
             mask = gdf_chunk.intersects(box(xmin, ymin, xmax, ymax))
             if row_indices is not None:
                 row_indices = [ri for ri, keep in zip(row_indices, mask) if keep]
             gdf_chunk = gdf_chunk[mask]
-        yield from emit_features(fc_cls, gdf_chunk, row_indices, chunksize, include_index)
+        yield from emit_features(
+            fc_cls, gdf_chunk, row_indices, chunksize, include_index
+        )
 
 
 def build_iter_read_kwargs(
