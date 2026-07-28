@@ -7202,7 +7202,7 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/tmp/ipykernel_3247/942131265.py:1: UserWarning: reduce() dropped auxiliary variable(s) ['time_bnds'] that span the reduced dimension 'time'; carrying them unchanged would leave an inconsistent 'time' length in the result.
+<pre>/tmp/ipykernel_3385/942131265.py:1: UserWarning: reduce() dropped auxiliary variable(s) ['time_bnds'] that span the reduced dimension 'time'; carrying them unchanged would leave an inconsistent 'time' length in the result.
   time_mean = nc.reduce('time', how='mean')
 </pre>
 </div>
@@ -7732,13 +7732,7 @@ print(meta)</div>
     tas dims=('/time', '/lat', '/lon') shape=(1, 128, 256) dtype=float32 unit='K'
     time dims=('/time',) shape=(1,) dtype=float64 unit='days since 0000-1-1'
     ... and 2 more
-  Global attributes: CVS_Id, creation_date, prg_ID, cmd_ln, history, ... (18 total)</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>
+  Global attributes: CVS_Id, creation_date, prg_ID, cmd_ln, history, ... (18 total)
 </pre>
 </div>
 </div>
