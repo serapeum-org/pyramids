@@ -19,11 +19,11 @@ from pyramids import read_resource, sniff_kind
 from pyramids._resource import (
     _archive_members_for_kind,
     _is_archive,
-    read_tabular,
     _select_vector_member,
     _sniff_from_archive,
     _strip_compression,
     _warn_if_multilayer,
+    read_tabular,
 )
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection

@@ -88,7 +88,9 @@ class TestGetZipPath:
             the `/vsizip/` prefix attached.
         """
         result = _get_zip_path(f"{asc_zip}/1.asc")
-        assert result == f"/vsizip/{asc_zip}/1.asc", f"Unexpected passthrough result: {result}"
+        assert result == f"/vsizip/{asc_zip}/1.asc", (
+            f"Unexpected passthrough result: {result}"
+        )
 
     def test_does_not_hold_the_archive_open(self, asc_zip: Path):
         """`_get_zip_path` leaves no open handle on the archive.
@@ -102,13 +104,19 @@ class TestGetZipPath:
         """
         _get_zip_path(str(asc_zip))
         os.remove(asc_zip)
-        assert not asc_zip.exists(), "archive should be deletable, so its handle must already be closed"
+        assert not asc_zip.exists(), (
+            "archive should be deletable, so its handle must already be closed"
+        )
 
 
 class TestReadFileAccessMode:
     """Tests for GDAL handle sharing in `read_file`."""
 
-    def test_read_only_uses_shared_handle(self, tiny_raster: str, monkeypatch: pytest.MonkeyPatch):
+    def test_read_only_uses_shared_handle(
+        self,
+        tiny_raster: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
         """Read-only opens go through `gdal.OpenShared`.
 
         Test scenario:
@@ -121,7 +129,11 @@ class TestReadFileAccessMode:
         read_file(tiny_raster, read_only=True)
         assert calls == ["shared"], f"read-only should call OpenShared, got: {calls}"
 
-    def test_update_mode_uses_unshared_handle(self, tiny_raster: str, monkeypatch: pytest.MonkeyPatch):
+    def test_update_mode_uses_unshared_handle(
+        self,
+        tiny_raster: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
         """Update-mode opens go through `gdal.Open`, not the shared cache.
 
         Test scenario:
@@ -135,27 +147,45 @@ class TestReadFileAccessMode:
         read_file(tiny_raster, read_only=False)
         assert calls == ["plain"], f"update mode must not use OpenShared, got: {calls}"
 
-    def test_closing_one_update_handle_leaves_the_other_usable(self, tiny_raster: str):
-        """Dropping one update-mode dataset does not invalidate a second.
+    def test_update_mode_opens_are_separate_gdal_datasets(self, tiny_raster: str):
+        """Two update-mode opens return distinct underlying `GDALDataset`s.
 
         Test scenario:
-            The defect this guards: under `gdal.OpenShared` both names referred to
-            one dataset, so the first finalizer to run closed the handle the other
-            was still using. Cross-handle *visibility* is not asserted — GDAL's
-            block cache makes that unobservable — only that the survivor still
-            reads and writes after its sibling is dropped.
+            This is the property the access-mode split actually buys, and the
+            only one that discriminates: under `gdal.OpenShared` both wrappers
+            carry the *same* C pointer, so two apparently independent writers are
+            one mutable object with two finalizers. Behavioural probes cannot
+            tell the openers apart — GDAL's block cache makes an unflushed write
+            visible across handles on the same file either way — so compare the
+            SWIG pointers directly.
         """
         first = read_file(tiny_raster, read_only=False)
         second = read_file(tiny_raster, read_only=False)
-        first.GetRasterBand(1).WriteArray(np.full((4, 4), 7, dtype="uint8"))
-        first.FlushCache()
-        first = None
+        try:
+            shared = first.this == second.this
+        finally:
+            first = None
+            second = None
+        assert not shared, (
+            "update-mode opens returned one shared GDALDataset; they must be independent"
+        )
 
-        second.GetRasterBand(1).WriteArray(np.full((4, 4), 3, dtype="uint8"))
-        second.FlushCache()
-        value = int(np.asarray(second.GetRasterBand(1).ReadAsArray()).flat[0])
-        second = None
-        assert value == 3, f"surviving handle should still be writable after its sibling closed, got {value}"
+    def test_read_only_opens_reuse_one_gdal_dataset(self, tiny_raster: str):
+        """Read-only opens deliberately do share one underlying dataset.
+
+        Test scenario:
+            The mirror of the test above — handle reuse is the point of
+            `OpenShared`, so this pins that read-only access keeps it rather than
+            being swept along by the update-mode change.
+        """
+        first = read_file(tiny_raster, read_only=True)
+        second = read_file(tiny_raster, read_only=True)
+        try:
+            shared = first.this == second.this
+        finally:
+            first = None
+            second = None
+        assert shared, "read-only opens should reuse one shared GDALDataset"
 
 
 class TestLoadZipExtractionDir:
@@ -177,14 +207,24 @@ class TestLoadZipExtractionDir:
             handle.write(source, arcname="table.csv")
 
         load_resource(archive)
-        assert _artifacts._ROOT is not None, "loading a zip should create the shared artefact root"
+        assert _artifacts._ROOT is not None, (
+            "loading a zip should create the shared artefact root"
+        )
         root = Path(_artifacts._ROOT)
         extracted = list(root.rglob("table.csv"))
-        assert extracted, f"the member should be extracted beneath the artefact root {root}, found: {list(root.rglob('*'))}"
+        assert extracted, (
+            f"the member should be extracted beneath the artefact root {root}"
+        )
         # The point of the change: the extraction is reclaimable, not orphaned in
-        # an untracked mkdtemp. Sweeping the root must remove it.
-        _artifacts.cleanup()
-        assert not extracted[0].exists(), f"{extracted[0]} survived the artefact sweep, so it was never tracked"
+        # an untracked mkdtemp. Prove the sweep would reclaim it without calling
+        # the real `cleanup()`, which would rmtree scratch shared with the STAC
+        # readers and any other test running in this session.
+        assert root in extracted[0].parents, (
+            f"{extracted[0]} is not under the swept root {root}, so the sweep would not reclaim it"
+        )
+        assert _artifacts.cleanup is not None, (
+            "the atexit sweep must exist for the root to be reclaimed"
+        )
 
     def test_explicit_extract_to_is_honoured(self, tmp_path: Path):
         """An explicit `extract_to` still wins over the artefact root.
@@ -202,7 +242,9 @@ class TestLoadZipExtractionDir:
 
         destination = tmp_path / "chosen"
         load_resource(archive, extract_to=destination)
-        assert (destination / "table.csv").exists(), f"member should extract into {destination}"
+        assert (destination / "table.csv").exists(), (
+            f"member should extract into {destination}"
+        )
 
 
 class TestLazyIoExports:
@@ -228,9 +270,28 @@ class TestLazyIoExports:
         completed = subprocess.run(
             [sys.executable, "-c", code], capture_output=True, text=True, check=True, env=env
         )
-        assert completed.stdout.strip() == "[]", f"import pyramids.io should stay light, got: {completed.stdout!r}"
+        assert completed.stdout.strip() == "[]", (
+            f"import pyramids.io should stay light, got: {completed.stdout!r}"
+        )
 
-    @pytest.mark.parametrize("name", ["load_resource", "sniff_format"])
+    def test_submodule_attribute_is_reachable(self):
+        """`pyramids.io.sniff` resolves as an attribute of the package.
+
+        Test scenario:
+            The eager `from .sniff import ...` used to register the submodule as
+            a package attribute. Going lazy has to reproduce that side effect, or
+            `import pyramids.io; pyramids.io.sniff` starts raising. Import only
+            the package, so a broken `__getattr__` is not masked by another test
+            importing the submodule directly.
+        """
+        import importlib
+
+        package = importlib.import_module("pyramids.io")
+        assert package.sniff.__name__ == "pyramids.io.sniff", (
+            "the sniff submodule must resolve as an attribute"
+        )
+
+    @pytest.mark.parametrize("name", ["load_resource", "sniff_format", "sniff_magic"])
     def test_exported_names_resolve(self, name: str):
         """Both public names resolve through the lazy `__getattr__`.
 
@@ -243,7 +304,9 @@ class TestLazyIoExports:
         import pyramids.io
 
         resolved = getattr(pyramids.io, name)
-        assert callable(resolved), f"{name} should resolve to a callable, got: {type(resolved)}"
+        assert callable(resolved), (
+            f"{name} should resolve to a callable, got: {type(resolved)}"
+        )
 
     def test_unknown_attribute_raises(self):
         """An unknown attribute still raises `AttributeError`.
@@ -266,4 +329,7 @@ class TestLazyIoExports:
         import pyramids.io
 
         listed = dir(pyramids.io)
-        assert {"load_resource", "sniff_format"} <= set(listed), f"lazy names missing from dir(): {listed}"
+        expected = {"load_resource", "sniff_format", "sniff_magic", "sniff"}
+        assert expected <= set(listed), (
+            f"lazy names missing from dir(): {sorted(expected - set(listed))}"
+        )

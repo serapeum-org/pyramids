@@ -40,7 +40,9 @@ class TestSharedCore:
         """
         from pyramids.io import sniff_format as exported
 
-        assert exported is sniff_format, "pyramids.io must re-export the core sniffer, not reimplement it"
+        assert exported is sniff_format, (
+            "pyramids.io must re-export the core sniffer, not reimplement it"
+        )
 
     def test_primary_exts_excludes_sidecar_only_formats(self):
         """`_PRIMARY_EXTS` stays narrower than the detection table.
@@ -54,7 +56,9 @@ class TestSharedCore:
         from pyramids.io.sniff import _PRIMARY_EXTS
 
         for ext in (".tsv", ".xlsx", ".xls"):
-            assert ext not in _PRIMARY_EXTS, f"{ext} must not count as a primary archive member"
+            assert ext not in _PRIMARY_EXTS, (
+                f"{ext} must not count as a primary archive member"
+            )
 
     def test_primary_exts_are_all_known_formats(self):
         """Every primary extension is one the detection core can classify.
@@ -67,7 +71,9 @@ class TestSharedCore:
         from pyramids.io.sniff import _PRIMARY_EXTS
 
         unknown = sorted(ext for ext in _PRIMARY_EXTS if ext not in _EXT_TO_FORMAT)
-        assert not unknown, f"primary extensions unknown to the detection table: {unknown}"
+        assert not unknown, (
+            f"primary extensions unknown to the detection table: {unknown}"
+        )
 
 
 class TestSniffMagic:
@@ -81,7 +87,8 @@ class TestSniffMagic:
             (b"MM\x00*rest", "tif"),
             (b"\x89HDF\r\n\x1a\n", "nc"),
             (b"CDF\x01rest", "nc"),
-            (b"GRIB0000", "grib"),
+            (b"CDF\x02rest", "nc"),
+            (b"GRIB\x00\x00\x00\x02", "grib"),
             (b"PAR1data", "parquet"),
             (b"SQLite format 3\x00", "gpkg"),
         ],
@@ -100,7 +107,35 @@ class TestSniffMagic:
         """
         probe = tmp_path / "probe.bin"
         probe.write_bytes(payload)
-        assert sniff_magic(probe) == expected, f"expected {expected} for {payload[:8]!r}"
+        assert sniff_magic(probe) == expected, (
+            f"expected {expected} for {payload[:8]!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "header",
+        [b"CDF,value,date\n1,2,3\n", b"GRIB,station,value\n1,2,3\n"],
+    )
+    def test_text_headers_are_not_mistaken_for_binary_formats(
+        self,
+        tmp_path: Path,
+        header: bytes,
+    ):
+        """A CSV whose first column is named `CDF` or `GRIB` is not binary.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            header: Leading bytes of a plain-text CSV.
+
+        Test scenario:
+            Both signatures are short ASCII prefixes, so testing them alone would
+            claim ordinary text. The version/edition byte that follows must be
+            checked too.
+        """
+        probe = tmp_path / "table.csv"
+        probe.write_bytes(header)
+        assert sniff_magic(probe) is None, (
+            f"{header[:6]!r} is a text header, not a binary signature"
+        )
 
     def test_unrecognised_payload_returns_none(self, tmp_path: Path):
         """Unknown leading bytes yield `None` so the caller can fall back.
@@ -119,7 +154,9 @@ class TestSniffMagic:
         Test scenario:
             Detection must stay non-fatal for callers probing untrusted input.
         """
-        assert sniff_magic(tmp_path / "absent.bin") is None, "a missing file should return None"
+        assert sniff_magic(tmp_path / "absent.bin") is None, (
+            "a missing file should return None"
+        )
 
 
 class TestSniffFormat:
@@ -145,7 +182,9 @@ class TestSniffFormat:
         """
         table = tmp_path / "table.csv"
         table.write_text("a,b\n1,2\n", encoding="utf-8")
-        assert sniff_format(table) == "csv", "a signature-less CSV should fall back to its extension"
+        assert sniff_format(table) == "csv", (
+            "a signature-less CSV should fall back to its extension"
+        )
 
     def test_unknown_when_neither_identifies(self, tmp_path: Path):
         """An unrecognised name and payload yield `"unknown"`.
@@ -155,7 +194,9 @@ class TestSniffFormat:
         """
         blob = tmp_path / "mystery.bin"
         blob.write_bytes(b"nothing recognisable")
-        assert sniff_format(blob) == "unknown", "unidentifiable input should be 'unknown'"
+        assert sniff_format(blob) == "unknown", (
+            "unidentifiable input should be 'unknown'"
+        )
 
 
 class TestReadResourceMagicFallback:
@@ -172,7 +213,9 @@ class TestReadResourceMagicFallback:
         blob = tmp_path / "downloaded_blob"
         shutil.copy(_GEOTIFF, blob)
         result = read_resource(blob)
-        assert result.band_count == 9, f"expected the 9-band ERA5 raster, got {result.band_count} bands"
+        assert result.band_count == 9, (
+            f"expected the 9-band ERA5 raster, got {result.band_count} bands"
+        )
 
     def test_named_resource_keeps_its_name_based_answer(self, tmp_path: Path):
         """A correctly named resource is unaffected by the new fallback.
@@ -184,7 +227,9 @@ class TestReadResourceMagicFallback:
         table = tmp_path / "values.csv"
         table.write_text("a,b\n5,6\n", encoding="utf-8")
         result = read_resource(table)
-        assert list(result.columns) == ["a", "b"], f"expected columns ['a', 'b'], got {list(result.columns)}"
+        assert list(result.columns) == ["a", "b"], (
+            f"expected columns ['a', 'b'], got {list(result.columns)}"
+        )
 
 
 class TestLoadResourceTabularCoverage:
@@ -202,8 +247,12 @@ class TestLoadResourceTabularCoverage:
         table = tmp_path / "values.tsv"
         table.write_text("a\tb\n7\t8\n", encoding="utf-8")
         result = load_resource(table)
-        assert isinstance(result, pd.DataFrame), f"expected a DataFrame for .tsv, got {type(result).__name__}"
-        assert list(result.columns) == ["a", "b"], f"expected columns ['a', 'b'], got {list(result.columns)}"
+        assert isinstance(result, pd.DataFrame), (
+            f"expected a DataFrame for .tsv, got {type(result).__name__}"
+        )
+        assert list(result.columns) == ["a", "b"], (
+            f"expected columns ['a', 'b'], got {list(result.columns)}"
+        )
 
     def test_expected_format_overrides_a_missing_extension(self, tmp_path: Path):
         """`expected_format=` wins when the name carries no usable suffix.
@@ -218,7 +267,9 @@ class TestLoadResourceTabularCoverage:
         blob = tmp_path / "resource_12345"
         blob.write_text("a,b\n1,2\n", encoding="utf-8")
         result = load_resource(blob, expected_format="csv")
-        assert list(result.columns) == ["a", "b"], f"expected columns ['a', 'b'], got {list(result.columns)}"
+        assert list(result.columns) == ["a", "b"], (
+            f"expected columns ['a', 'b'], got {list(result.columns)}"
+        )
 
     def test_zip_with_a_tabular_sidecar_still_loads_the_raster(self, tmp_path: Path):
         """A sidecar next to the data file does not defeat re-dispatch.
@@ -238,7 +289,9 @@ class TestLoadResourceTabularCoverage:
             handle.write(tmp_path / "meta.tsv", arcname="meta.tsv")
 
         result = load_resource(archive, extract_to=tmp_path / "out")
-        assert getattr(result, "band_count", None) == 9, f"expected the 9-band raster, got {type(result).__name__}"
+        assert getattr(result, "band_count", None) == 9, (
+            f"expected the 9-band raster, got {type(result).__name__}"
+        )
 
     def test_legacy_xls_is_not_forced_through_an_excel_engine(self, tmp_path: Path):
         """`.xls` keeps its previous raw-bytes behaviour.
@@ -252,7 +305,9 @@ class TestLoadResourceTabularCoverage:
 
         legacy = tmp_path / "legacy.xls"
         legacy.write_bytes(b"\xd0\xcf\x11\xe0stub")
-        assert isinstance(load_resource(legacy), bytes), "unrecognised .xls should still return raw bytes"
+        assert isinstance(load_resource(legacy), bytes), (
+            "unrecognised .xls should still return raw bytes"
+        )
 
     def test_csv_still_reads_as_a_frame(self, tmp_path: Path):
         """The pre-existing CSV behaviour is preserved.
@@ -266,4 +321,6 @@ class TestLoadResourceTabularCoverage:
         table = tmp_path / "values.csv"
         table.write_text("a,b\n1,2\n", encoding="utf-8")
         result = load_resource(table)
-        assert list(result.columns) == ["a", "b"], f"expected columns ['a', 'b'], got {list(result.columns)}"
+        assert list(result.columns) == ["a", "b"], (
+            f"expected columns ['a', 'b'], got {list(result.columns)}"
+        )

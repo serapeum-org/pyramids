@@ -64,7 +64,11 @@ def failing_transform(monkeypatch: pytest.MonkeyPatch):
 class TestBoundsJson:
     """Tests for `_cmd_bounds` JSON output."""
 
-    def test_payload_is_valid_json(self, wgs84_raster: str, capsys: pytest.CaptureFixture):
+    def test_payload_is_valid_json(
+        self,
+        wgs84_raster: str,
+        capsys: pytest.CaptureFixture,
+    ):
         """`bounds --json` emits a document a strict parser accepts.
 
         Test scenario:
@@ -73,9 +77,16 @@ class TestBoundsJson:
         """
         main(["bounds", wgs84_raster, "--json"])
         payload = json.loads(capsys.readouterr().out)
-        assert len(payload["bounds"]) == 4, f"expected four bounds, got {payload['bounds']}"
+        assert len(payload["bounds"]) == 4, (
+            f"expected four bounds, got {payload['bounds']}"
+        )
 
-    def test_non_finite_corner_becomes_null(self, wgs84_raster: str, capsys: pytest.CaptureFixture, failing_transform):
+    def test_non_finite_corner_becomes_null(
+        self,
+        wgs84_raster: str,
+        capsys: pytest.CaptureFixture,
+        failing_transform,
+    ):
         """Out-of-domain reprojected corners serialise as null, not `Infinity`.
 
         Test scenario:
@@ -92,9 +103,16 @@ class TestBoundsJson:
 
         payload = json.loads(raw, parse_constant=_reject)
         for value in payload["bounds"]:
-            assert value is None or isinstance(value, (int, float)), f"unexpected bound {value!r}"
+            assert value is None or isinstance(value, (int, float)), (
+                f"unexpected bound {value!r}"
+            )
 
-    def test_output_parses_with_a_strict_external_parser(self, wgs84_raster: str, capsys: pytest.CaptureFixture, failing_transform):
+    def test_output_parses_with_a_strict_external_parser(
+        self,
+        wgs84_raster: str,
+        capsys: pytest.CaptureFixture,
+        failing_transform,
+    ):
         """The emitted text is accepted by a strict, non-Python JSON reader.
 
         Test scenario:
@@ -114,4 +132,6 @@ class TestBoundsJson:
         completed = subprocess.run(
             [sys.executable, "-c", code], input=raw, capture_output=True, text=True
         )
-        assert completed.returncode == 0, f"strict parse failed: {completed.stdout}{completed.stderr}"
+        assert completed.returncode == 0, (
+            f"strict parse failed: {completed.stdout}{completed.stderr}"
+        )
