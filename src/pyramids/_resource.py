@@ -107,6 +107,60 @@ _EXT_TO_TABULAR_READER: dict[str, str] = {
     ".pq": "parquet",
 }
 
+# Format label -> the pandas reader to use. Keys are normalised (lower-cased,
+# leading dot stripped) so the CKAN spellings that portals actually publish —
+# "CSV", "Excel", ".xlsx" — all resolve. Both public readers funnel their
+# caller-supplied format through this, so neither can accept a vocabulary the
+# other rejects.
+_FMT_TO_TABULAR_READER: dict[str, str] = {
+    "csv": "csv",
+    "tsv": "tsv",
+    "excel": "excel",
+    "xlsx": "excel",
+    "xls": "excel",
+    "parquet": "parquet",
+    "pq": "parquet",
+}
+
+
+def normalise_format(value: str | None) -> str | None:
+    """Normalise a format label for lookup, or `None` when there is none.
+
+    Portals publish the same format under many spellings — `"CSV"`, `"csv"`,
+    `".csv"`, `"GeoTIFF"`. Case and a leading dot carry no meaning, so strip
+    them once here rather than at each comparison. A blank label is treated as
+    absent, so `fmt=""` behaves like `fmt=None` instead of silently skipping an
+    override the caller believed they had set.
+
+    Args:
+        value: A format label, or `None`.
+
+    Returns:
+        str | None: The lower-cased, de-dotted label, or `None` when `value` is
+        `None` or blank.
+
+    Examples:
+        - Spelling variants collapse to one token:
+            ```python
+            >>> from pyramids._resource import normalise_format
+            >>> [normalise_format(v) for v in ("CSV", "csv", ".Csv", "  csv ")]
+            ['csv', 'csv', 'csv', 'csv']
+
+            ```
+        - A missing or blank label is reported as absent:
+            ```python
+            >>> from pyramids._resource import normalise_format
+            >>> normalise_format(None) is None and normalise_format("  ") is None
+            True
+
+            ```
+    """
+    result: str | None = None
+    if value is not None:
+        cleaned = value.strip().lower().lstrip(".")
+        result = cleaned or None
+    return result
+
 # Leading magic bytes -> format token. `SQLite format 3` is listed first so it
 # is tested before any shorter prefix that could overlap. TIFF needs an exact
 # 4-byte window (both byte orders) rather than a prefix test, so it is handled
@@ -115,11 +169,15 @@ _MAGIC_TO_FORMAT: tuple[tuple[bytes, str], ...] = (
     (b"SQLite format 3", "gpkg"),
     (b"PK\x03\x04", "zip"),
     (b"\x89HDF", "nc"),
-    (b"GRIB", "grib"),
     (b"PAR1", "parquet"),
-    (b"CDF", "nc"),
 )
 _TIFF_MAGIC = (b"II*\x00", b"MM\x00*")
+# Classic-netCDF format version byte following the `CDF` prefix: 1 (classic),
+# 2 (64-bit offset), 5 (CDF-5). Checked so a text file starting "CDF" is not
+# claimed as netCDF -- see `sniff_magic`.
+_CDF_VERSIONS = (b"\x01", b"\x02", b"\x05")
+# GRIB edition byte at offset 7: 1 or 2. Same reasoning as `_CDF_VERSIONS`.
+_GRIB_EDITIONS = (b"\x01", b"\x02")
 
 # Format token -> resource family, for callers that work in `ResourceKind`.
 _FORMAT_TO_KIND: dict[str, ResourceKind] = {
@@ -158,6 +216,16 @@ def sniff_magic(path: str | Path) -> str | None:
     result: str | None = None
     if head[:4] in _TIFF_MAGIC:
         result = "tif"
+    elif head[:3] == b"CDF" and head[3:4] in _CDF_VERSIONS:
+        # Classic netCDF is `CDF` + a one-byte version. Testing the prefix alone
+        # would claim any text file whose first line begins "CDF..." — a CSV with
+        # a column called CDF, say — as netCDF.
+        result = "nc"
+    elif head[:4] == b"GRIB" and head[7:8] in _GRIB_EDITIONS:
+        # GRIB is `GRIB` + 3 reserved/length bytes + a one-byte edition number.
+        # Same reasoning: the four-letter prefix on its own is a plausible CSV
+        # header.
+        result = "grib"
     else:
         for signature, fmt in _MAGIC_TO_FORMAT:
             if head.startswith(signature):
@@ -524,10 +592,25 @@ def read_tabular(path: Path, fmt: str | None = None) -> pd.DataFrame:
     """
     source = str(path)
     ext = Path(_strip_compression(path.name)).suffix.lower()
-    # An explicit token wins over the name; the name wins over the bytes. The
-    # magic-byte tail is what lets an extension-less Parquet download resolve
-    # instead of dead-ending on an empty suffix.
-    token = fmt or _EXT_TO_TABULAR_READER.get(ext) or sniff_format(path)
+    label = normalise_format(fmt)
+    if label is not None:
+        # An explicit label wins over the name — but only if it names a reader.
+        # Falling through to the suffix here would silently ignore the override
+        # and then blame the file's extension for the failure.
+        token = _FMT_TO_TABULAR_READER.get(label)
+        if token is None:
+            raise ValueError(
+                f"unsupported tabular format {fmt!r} for {source!r}; expected one "
+                f"of {sorted(set(_FMT_TO_TABULAR_READER))}."
+            )
+    else:
+        # The name wins over the bytes. The magic-byte tail is what lets an
+        # extension-less Parquet download resolve instead of dead-ending on an
+        # empty suffix; it is mapped through the same table so a non-tabular
+        # token (`"zip"`, `"tif"`, `"unknown"`) cannot leak through as a reader.
+        token = _EXT_TO_TABULAR_READER.get(ext) or _FMT_TO_TABULAR_READER.get(
+            sniff_format(path)
+        )
     result: pd.DataFrame
     if token == "csv":
         result = pd.read_csv(source)
@@ -629,7 +712,14 @@ def read_resource(
     elif resolved_kind == "vector":
         result = _read_vector(path, layer)
     elif resolved_kind == "tabular":
-        result = read_tabular(path)
+        # Forward the declared label when it names a tabular reader, so an
+        # extension-less download resolves here exactly as it does through
+        # `load_resource`. A non-tabular label (a raster/vector `fmt` paired with
+        # an explicit `kind="tabular"`) is dropped rather than rejected, leaving
+        # the suffix and magic bytes to decide as before.
+        result = read_tabular(
+            path, fmt=_FMT_TO_TABULAR_READER.get(normalise_format(fmt) or "")
+        )
     else:
         raise ValueError(
             f"unsupported resource kind {resolved_kind!r}; expected one of "

@@ -32,7 +32,12 @@ from typing import Any
 
 import pandas as pd
 
-from pyramids._resource import read_tabular, sniff_format, sniff_magic
+from pyramids._resource import (
+    normalise_format,
+    read_tabular,
+    sniff_format,
+    sniff_magic,
+)
 from pyramids.base._artifacts import artifact_dir
 from pyramids.base._utils import import_pyarrow
 from pyramids.dataset import Dataset
@@ -43,6 +48,14 @@ __all__ = ["load_resource", "sniff_format", "sniff_magic"]
 
 _VECTOR_FORMATS = frozenset({"shp", "gpkg", "geojson"})
 _TABULAR_FORMATS = frozenset({"csv", "tsv"})
+# Every token this dispatcher understands, so an `expected_format=` it cannot
+# honour is rejected instead of silently returning raw bytes. Derived from the
+# branches below plus the shared detection vocabulary.
+_KNOWN_FORMATS = (
+    _VECTOR_FORMATS
+    | _TABULAR_FORMATS
+    | frozenset({"parquet", "nc", "tif", "grib", "zip", "unknown"})
+)
 # Data extensions a ZIP may wrap and that `_load_zip` re-dispatches to a reader.
 #
 # Intentionally listed rather than derived from `_EXT_TO_FORMAT`, and
@@ -197,7 +210,18 @@ def load_resource(
             ```
     """
     p = Path(path)
-    fmt = expected_format or sniff_format(p)
+    # Normalise the caller's label: portals publish "CSV" / "GeoJSON" / ".csv",
+    # and an unnormalised value used to miss every branch below and fall through
+    # to the raw-bytes default — a silent wrong return type on the documented
+    # extension-less path. An unrecognised label is rejected outright rather than
+    # degraded to bytes.
+    declared = normalise_format(expected_format)
+    if declared is not None and declared not in _KNOWN_FORMATS:
+        raise ValueError(
+            f"unknown expected_format {expected_format!r}; expected one of "
+            f"{sorted(_KNOWN_FORMATS)} (case-insensitive), or omit it to sniff."
+        )
+    fmt = declared or sniff_format(p)
 
     if fmt in _VECTOR_FORMATS:
         result: Any = FeatureCollection.read_file(str(p))
