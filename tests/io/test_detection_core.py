@@ -40,17 +40,32 @@ class TestSharedCore:
 
         assert exported is sniff_format, "pyramids.io must re-export the core sniffer, not reimplement it"
 
-    def test_primary_exts_track_the_shared_table(self):
-        """`_PRIMARY_EXTS` is derived from the shared extension table.
+    def test_primary_exts_excludes_sidecar_only_formats(self):
+        """`_PRIMARY_EXTS` stays narrower than the detection table.
 
         Test scenario:
-            Every non-archive extension in the shared table must be treated as a
-            primary member, so a newly added format is picked up automatically.
+            `_PRIMARY_EXTS` decides whether an archive has exactly one primary
+            member. Sidecar-ish formats must stay out: with `.tsv` included, a
+            zip of `grid.tif` + `meta.tsv` would have two primaries and return
+            the extraction directory instead of the raster.
         """
         from pyramids.io.sniff import _PRIMARY_EXTS
 
-        expected = {ext for ext, fmt in _EXT_TO_FORMAT.items() if fmt != "zip"}
-        assert set(_PRIMARY_EXTS) == expected, f"_PRIMARY_EXTS drifted from the shared table: {_PRIMARY_EXTS}"
+        for ext in (".tsv", ".xlsx", ".xls"):
+            assert ext not in _PRIMARY_EXTS, f"{ext} must not count as a primary archive member"
+
+    def test_primary_exts_are_all_known_formats(self):
+        """Every primary extension is one the detection core can classify.
+
+        Test scenario:
+            A primary member is re-dispatched through `load_resource`, so an
+            extension listed here that the shared table cannot name would fall
+            through to raw bytes.
+        """
+        from pyramids.io.sniff import _PRIMARY_EXTS
+
+        unknown = sorted(ext for ext in _PRIMARY_EXTS if ext not in _EXT_TO_FORMAT)
+        assert not unknown, f"primary extensions unknown to the detection table: {unknown}"
 
 
 class TestSniffMagic:
@@ -187,6 +202,55 @@ class TestLoadResourceTabularCoverage:
         result = load_resource(table)
         assert isinstance(result, pd.DataFrame), f"expected a DataFrame for .tsv, got {type(result).__name__}"
         assert list(result.columns) == ["a", "b"], f"expected columns ['a', 'b'], got {list(result.columns)}"
+
+    def test_expected_format_overrides_a_missing_extension(self, tmp_path: Path):
+        """`expected_format=` wins when the name carries no usable suffix.
+
+        Test scenario:
+            The case this module exists for — a portal download named by id,
+            where the declared format is the only reliable signal. Dispatching
+            on the extension instead would raise.
+        """
+        from pyramids.io.sniff import load_resource
+
+        blob = tmp_path / "resource_12345"
+        blob.write_text("a,b\n1,2\n", encoding="utf-8")
+        result = load_resource(blob, expected_format="csv")
+        assert list(result.columns) == ["a", "b"], f"expected columns ['a', 'b'], got {list(result.columns)}"
+
+    def test_zip_with_a_tabular_sidecar_still_loads_the_raster(self, tmp_path: Path):
+        """A sidecar next to the data file does not defeat re-dispatch.
+
+        Test scenario:
+            A zip of `grid.tif` + `meta.tsv` must resolve to the raster. If
+            `.tsv` counted as a primary member the archive would have two, and
+            `_load_zip` would return the extraction directory instead.
+        """
+        from pyramids.io.sniff import load_resource
+
+        shutil.copy(_GEOTIFF, tmp_path / "grid.tif")
+        (tmp_path / "meta.tsv").write_text("k\tv\n1\t2\n", encoding="utf-8")
+        archive = tmp_path / "bundle.zip"
+        with zipfile.ZipFile(archive, "w") as handle:
+            handle.write(tmp_path / "grid.tif", arcname="grid.tif")
+            handle.write(tmp_path / "meta.tsv", arcname="meta.tsv")
+
+        result = load_resource(archive, extract_to=tmp_path / "out")
+        assert getattr(result, "band_count", None) == 9, f"expected the 9-band raster, got {type(result).__name__}"
+
+    def test_legacy_xls_is_not_forced_through_an_excel_engine(self, tmp_path: Path):
+        """`.xls` keeps its previous raw-bytes behaviour.
+
+        Test scenario:
+            No Excel engine is a declared dependency, so classifying `.xls` as a
+            tabular format would turn a resource that used to come back as bytes
+            into a hard ImportError.
+        """
+        from pyramids.io.sniff import load_resource
+
+        legacy = tmp_path / "legacy.xls"
+        legacy.write_bytes(b"\xd0\xcf\x11\xe0stub")
+        assert isinstance(load_resource(legacy), bytes), "unrecognised .xls should still return raw bytes"
 
     def test_csv_still_reads_as_a_frame(self, tmp_path: Path):
         """The pre-existing CSV behaviour is preserved.

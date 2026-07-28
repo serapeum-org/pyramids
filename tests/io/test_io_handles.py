@@ -89,12 +89,14 @@ class TestGetZipPath:
         assert result == f"/vsizip/{asc_zip}/1.asc", f"Unexpected passthrough result: {result}"
 
     def test_does_not_hold_the_archive_open(self, asc_zip: Path):
-        """`_get_zip_path` closes the archive before returning.
+        """`_get_zip_path` leaves no open handle on the archive.
 
         Test scenario:
-            Listing members must not leak the file descriptor. On Windows an open
-            handle blocks deletion, so a successful `os.remove` proves the handle
-            was released rather than left to garbage collection.
+            On Windows an open handle blocks deletion, so a successful
+            `os.remove` proves the descriptor is gone by the time the call
+            returns. This passes on CPython either way — refcounting releases the
+            temporary immediately — so it is a guard against regression on a
+            non-refcounting runtime, not a reproduction of a current bug.
         """
         _get_zip_path(str(asc_zip))
         os.remove(asc_zip)
@@ -131,21 +133,27 @@ class TestReadFileAccessMode:
         read_file(tiny_raster, read_only=False)
         assert calls == ["plain"], f"update mode must not use OpenShared, got: {calls}"
 
-    def test_update_mode_returns_independent_datasets(self, tiny_raster: str):
-        """Two update-mode opens yield independently usable datasets.
+    def test_closing_one_update_handle_leaves_the_other_usable(self, tiny_raster: str):
+        """Dropping one update-mode dataset does not invalidate a second.
 
         Test scenario:
-            Writing through one handle and dropping it must leave the second handle
-            usable, which a shared mutable handle would not guarantee.
+            The defect this guards: under `gdal.OpenShared` both names referred to
+            one dataset, so the first finalizer to run closed the handle the other
+            was still using. Cross-handle *visibility* is not asserted — GDAL's
+            block cache makes that unobservable — only that the survivor still
+            reads and writes after its sibling is dropped.
         """
         first = read_file(tiny_raster, read_only=False)
         second = read_file(tiny_raster, read_only=False)
         first.GetRasterBand(1).WriteArray(np.full((4, 4), 7, dtype="uint8"))
         first.FlushCache()
         first = None
+
+        second.GetRasterBand(1).WriteArray(np.full((4, 4), 3, dtype="uint8"))
+        second.FlushCache()
         value = int(np.asarray(second.GetRasterBand(1).ReadAsArray()).flat[0])
         second = None
-        assert value in (0, 7), f"second handle should stay readable after the first closed, got {value}"
+        assert value == 3, f"surviving handle should still be writable after its sibling closed, got {value}"
 
 
 class TestLoadZipExtractionDir:
@@ -168,7 +176,13 @@ class TestLoadZipExtractionDir:
 
         load_resource(archive)
         assert _artifacts._ROOT is not None, "loading a zip should create the shared artefact root"
-        assert os.path.isdir(_artifacts._ROOT), f"artefact root should exist, got: {_artifacts._ROOT}"
+        root = Path(_artifacts._ROOT)
+        extracted = list(root.rglob("table.csv"))
+        assert extracted, f"the member should be extracted beneath the artefact root {root}, found: {list(root.rglob('*'))}"
+        # The point of the change: the extraction is reclaimable, not orphaned in
+        # an untracked mkdtemp. Sweeping the root must remove it.
+        _artifacts.cleanup()
+        assert not extracted[0].exists(), f"{extracted[0]} survived the artefact sweep, so it was never tracked"
 
     def test_explicit_extract_to_is_honoured(self, tmp_path: Path):
         """An explicit `extract_to` still wins over the artefact root.

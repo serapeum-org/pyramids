@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from pyramids import cli
 from pyramids.cli import main
 from pyramids.dataset import Dataset
 
@@ -36,6 +37,28 @@ def wgs84_raster(tmp_path: Path) -> str:
     return path
 
 
+@pytest.fixture(scope="function")
+def failing_transform(monkeypatch: pytest.MonkeyPatch):
+    """Force the corner reprojection to return GDAL's failure sentinel.
+
+    GDAL documents `HUGE_VAL` as the coordinate returned when a point cannot be
+    transformed. Current PROJ extrapolates rather than failing for most
+    out-of-domain inputs, so no real CRS pair reliably produces it — patch the
+    transformer instead, which exercises the guard deterministically and on
+    every platform.
+
+    Args:
+        monkeypatch: pytest monkeypatch fixture.
+    """
+
+    class _Failing:
+        def TransformPoints(self, points):
+            """Return one non-finite corner and three ordinary ones."""
+            return [(float("inf"), float("inf"))] + [(1.0, 2.0)] * (len(points) - 1)
+
+    monkeypatch.setattr(cli.osr, "CoordinateTransformation", lambda *a, **k: _Failing())
+
+
 class TestBoundsJson:
     """Tests for `_cmd_bounds` JSON output."""
 
@@ -50,7 +73,7 @@ class TestBoundsJson:
         payload = json.loads(capsys.readouterr().out)
         assert len(payload["bounds"]) == 4, f"expected four bounds, got {payload['bounds']}"
 
-    def test_non_finite_corner_becomes_null(self, wgs84_raster: str, capsys: pytest.CaptureFixture):
+    def test_non_finite_corner_becomes_null(self, wgs84_raster: str, capsys: pytest.CaptureFixture, failing_transform):
         """Out-of-domain reprojected corners serialise as null, not `Infinity`.
 
         Test scenario:
@@ -69,7 +92,7 @@ class TestBoundsJson:
         for value in payload["bounds"]:
             assert value is None or isinstance(value, (int, float)), f"unexpected bound {value!r}"
 
-    def test_output_parses_with_a_strict_external_parser(self, wgs84_raster: str, capsys: pytest.CaptureFixture):
+    def test_output_parses_with_a_strict_external_parser(self, wgs84_raster: str, capsys: pytest.CaptureFixture, failing_transform):
         """The emitted text is accepted by a strict, non-Python JSON reader.
 
         Test scenario:
