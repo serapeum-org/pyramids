@@ -32,7 +32,7 @@ from typing import Any
 
 import pandas as pd
 
-from pyramids._resource import _EXT_TO_FORMAT, _read_tabular, sniff_format
+from pyramids._resource import read_tabular, sniff_format
 from pyramids.base._artifacts import artifact_dir
 from pyramids.base._utils import import_pyarrow
 from pyramids.dataset import Dataset
@@ -40,20 +40,40 @@ from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
 
 _VECTOR_FORMATS = frozenset({"shp", "gpkg", "geojson"})
-_TABULAR_FORMATS = frozenset({"csv", "excel"})
-# Data extensions a ZIP may wrap and that `_load_zip` re-dispatches to a reader:
-# every extension the shared table knows except the archive container itself.
-# Derived rather than restated, so a format added to `_EXT_TO_FORMAT` is picked
-# up here automatically instead of silently falling through to raw bytes.
+_TABULAR_FORMATS = frozenset({"csv", "tsv"})
+# Data extensions a ZIP may wrap and that `_load_zip` re-dispatches to a reader.
+#
+# Intentionally listed rather than derived from `_EXT_TO_FORMAT`, and
+# intentionally narrower than it: this set decides whether an archive has
+# exactly ONE primary member. Widening it changes which archives resolve to a
+# loaded object versus the extraction directory — adding `.tsv` alone would make
+# a zip of `grid.tif` + `meta.tsv` return a directory where it used to return
+# the Dataset. Add an extension here only with that trade-off in mind.
 _PRIMARY_EXTS = frozenset(
-    ext for ext, fmt in _EXT_TO_FORMAT.items() if fmt != "zip"
+    {
+        ".shp",
+        ".gpkg",
+        ".geojson",
+        ".json",
+        ".csv",
+        ".parquet",
+        ".pq",
+        ".tif",
+        ".tiff",
+        ".nc",
+        ".nc4",
+        ".cdf",
+        ".grib",
+        ".grib2",
+        ".grb",
+        ".grb2",
+    }
 )
 _PARQUET_EXTRA_HINT = (
     "Reading Parquet requires the optional 'pyarrow' dependency. Install with one of:\n"
     "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
     "  - conda-forge: conda install -c conda-forge pyramids-parquet"
 )
-
 
 
 def _load_parquet(path: Path) -> FeatureCollection | pd.DataFrame:
@@ -174,10 +194,11 @@ def load_resource(
     if fmt in _VECTOR_FORMATS:
         result: Any = FeatureCollection.read_file(str(p))
     elif fmt in _TABULAR_FORMATS:
-        # Shared tabular reader, so `.tsv` and Excel work here too rather than
-        # falling through to raw bytes as they did while this module carried its
-        # own dispatch table.
-        result = _read_tabular(p)
+        # Shared tabular reader, so `.tsv` works here too rather than falling
+        # through to raw bytes as it did while this module carried its own
+        # dispatch table. `fmt` is forwarded so an explicit `expected_format=`
+        # still wins on a resource whose name has no usable extension.
+        result = read_tabular(p, fmt=fmt)
     elif fmt == "parquet":
         result = _load_parquet(p)
     elif fmt == "nc":

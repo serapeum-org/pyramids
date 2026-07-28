@@ -63,26 +63,26 @@ _VECTOR_SUFFIXES = {
 }
 _TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xls", ".parquet", ".pq"}
 
-# --- shared format detection -------------------------------------------------
 # One detection core for both public readers (`read_resource` here and
 # `pyramids.io.load_resource`, which adapts these helpers). Previously each
 # module carried its own suffix table and its own sniffing rules, so the two
 # drifted apart; keep new formats in these tables only.
-
-# Extension -> normalised format token. Broader than the family suffix sets
-# above because it also names the *container* (`zip`) and distinguishes formats
-# that share a family (`nc` vs `tif` vs `grib` are all rasters).
+#
+# Deliberately NOT a superset of the two originals. Excel is absent: `.xlsx` is
+# a zip container, so its magic resolves to `"zip"` and an `"excel"` token would
+# be unreachable by sniffing anyway, while adding `.xls` would turn a resource
+# that used to come back as raw bytes into a hard ImportError (no Excel engine
+# is a declared dependency). `read_resource` still reads Excel through its own
+# `_TABULAR_SUFFIXES` path, where the caller has already chosen that family.
 _EXT_TO_FORMAT: dict[str, str] = {
     ".shp": "shp",
     ".gpkg": "gpkg",
     ".geojson": "geojson",
     ".json": "geojson",
     ".csv": "csv",
-    ".tsv": "csv",
+    ".tsv": "tsv",
     ".parquet": "parquet",
     ".pq": "parquet",
-    ".xlsx": "excel",
-    ".xls": "excel",
     ".nc": "nc",
     ".nc4": "nc",
     ".cdf": "nc",
@@ -95,9 +95,22 @@ _EXT_TO_FORMAT: dict[str, str] = {
     ".zip": "zip",
 }
 
-# Leading magic bytes -> format token, longest-first so `SQLite format 3` is
-# tested before shorter prefixes. TIFF needs an exact 4-byte window (both byte
-# orders) rather than a prefix test, so it is handled separately below.
+# Extension -> the pandas reader `read_tabular` should use. Separate from
+# `_EXT_TO_FORMAT` because it covers the Excel suffixes that deliberately stay
+# out of the sniffing vocabulary above.
+_EXT_TO_TABULAR_READER: dict[str, str] = {
+    ".csv": "csv",
+    ".tsv": "tsv",
+    ".xlsx": "excel",
+    ".xls": "excel",
+    ".parquet": "parquet",
+    ".pq": "parquet",
+}
+
+# Leading magic bytes -> format token. `SQLite format 3` is listed first so it
+# is tested before any shorter prefix that could overlap. TIFF needs an exact
+# 4-byte window (both byte orders) rather than a prefix test, so it is handled
+# separately below.
 _MAGIC_TO_FORMAT: tuple[tuple[bytes, str], ...] = (
     (b"SQLite format 3", "gpkg"),
     (b"PK\x03\x04", "zip"),
@@ -114,7 +127,7 @@ _FORMAT_TO_KIND: dict[str, ResourceKind] = {
     "gpkg": "vector",
     "geojson": "vector",
     "csv": "tabular",
-    "excel": "tabular",
+    "tsv": "tabular",
     "parquet": "tabular",
     "nc": "raster",
     "tif": "raster",
@@ -383,7 +396,7 @@ def _determine_kind(path: Path, fmt: str | None) -> ResourceKind:
     try:
         kind = sniff_kind(path, fmt=fmt)
     except ValueError:
-        sniffed = _FORMAT_TO_KIND.get(sniff_format(path) or "")
+        sniffed = _FORMAT_TO_KIND.get(sniff_format(path))
         if sniffed is None:
             sniffed = _sniff_from_archive(path)
         if sniffed is None:
@@ -482,31 +495,52 @@ def _read_vector(path: Path, layer: str | int | None) -> FeatureCollection:
     return FeatureCollection.read_file(source, layer=passthrough_layer)
 
 
-def _read_tabular(path: Path) -> pd.DataFrame:
+def read_tabular(path: Path, fmt: str | None = None) -> pd.DataFrame:
     """Read a tabular resource into a :class:`pandas.DataFrame`.
 
     ``pandas`` infers ``.gz`` / ``.zip`` / ``.tar`` compression from the suffix,
     so the path is passed through verbatim. ``.xlsx`` needs ``openpyxl`` and
     ``.parquet`` needs ``pyarrow`` — when missing, the underlying
     :class:`ImportError` is re-raised with install guidance.
+
+    Args:
+        path: Path to the tabular resource.
+        fmt: Optional reader token (`"csv"`, `"tsv"`, `"excel"`, `"parquet"`)
+            that **overrides** the suffix. Required for a resource whose name
+            carries no usable extension — a portal download named by id, say —
+            where the caller knows the declared format. When omitted the suffix
+            decides, falling back to the magic bytes.
+
+    Returns:
+        pandas.DataFrame: The parsed table.
+
+    Raises:
+        ValueError: Neither `fmt`, the suffix, nor the magic bytes identify a
+            supported tabular format.
+        ImportError: The chosen reader needs an optional engine that is not
+            installed (`openpyxl`/`xlrd` for Excel, `pyarrow` for Parquet).
     """
     source = str(path)
     ext = Path(_strip_compression(path.name)).suffix.lower()
+    # An explicit token wins over the name; the name wins over the bytes. The
+    # magic-byte tail is what lets an extension-less Parquet download resolve
+    # instead of dead-ending on an empty suffix.
+    token = fmt or _EXT_TO_TABULAR_READER.get(ext) or sniff_format(path)
     result: pd.DataFrame
-    if ext == ".csv":
+    if token == "csv":
         result = pd.read_csv(source)
-    elif ext == ".tsv":
+    elif token == "tsv":
         result = pd.read_csv(source, sep="\t")
-    elif ext in {".xlsx", ".xls"}:
+    elif token == "excel":
         try:
             result = pd.read_excel(source)
         except ImportError as exc:  # openpyxl (.xlsx) / xlrd (.xls) not installed
             raise ImportError(
-                f"reading {ext} files needs an Excel engine (openpyxl for .xlsx, "
-                "xlrd for legacy .xls); install it into the environment to read "
-                "this resource."
+                f"reading {ext or 'excel'} files needs an Excel engine (openpyxl "
+                "for .xlsx, xlrd for legacy .xls); install it into the environment "
+                "to read this resource."
             ) from exc
-    elif ext in {".parquet", ".pq"}:
+    elif token == "parquet":
         try:
             result = pd.read_parquet(source)
         except ImportError as exc:  # pyarrow / fastparquet not installed
@@ -517,7 +551,8 @@ def _read_tabular(path: Path) -> pd.DataFrame:
     else:
         raise ValueError(
             f"unsupported tabular suffix {ext!r} for {source!r}; expected one of "
-            f"{sorted(_TABULAR_SUFFIXES)}."
+            f"{sorted(_TABULAR_SUFFIXES)}, or pass an explicit fmt= when the name "
+            "carries no usable extension."
         )
     return result
 
@@ -592,7 +627,7 @@ def read_resource(
     elif resolved_kind == "vector":
         result = _read_vector(path, layer)
     elif resolved_kind == "tabular":
-        result = _read_tabular(path)
+        result = read_tabular(path)
     else:
         raise ValueError(
             f"unsupported resource kind {resolved_kind!r}; expected one of "
