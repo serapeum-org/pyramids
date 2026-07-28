@@ -9,21 +9,30 @@ from __future__ import annotations
 # symbols are first accessed, mirroring what `pyramids/__init__.py` already does
 # for `read_resource` / `sniff_kind`.
 _LAZY_SNIFF_EXPORTS = frozenset({"load_resource", "sniff_format"})
+# `sniff` itself is resolved lazily too: the eager `from .sniff import ...` used
+# to register the submodule as an attribute of this package, so `import
+# pyramids.io; pyramids.io.sniff` worked. Dropping the eager import would break
+# that without this entry.
+_LAZY_NAMES = _LAZY_SNIFF_EXPORTS | {"sniff"}
 
 
 def __getattr__(name: str):
-    """Lazily import the sniff/dispatch exports on first access (PEP 562)."""
-    if name in _LAZY_SNIFF_EXPORTS:
-        from pyramids.io.sniff import load_resource, sniff_format
+    """Lazily import the sniff submodule and its exports on first access (PEP 562)."""
+    if name in _LAZY_NAMES:
+        import pyramids.io.sniff as sniff
 
-        globals().update(load_resource=load_resource, sniff_format=sniff_format)
+        globals().update(
+            sniff=sniff,
+            load_resource=sniff.load_resource,
+            sniff_format=sniff.sniff_format,
+        )
         return globals()[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__() -> list[str]:
     """Include the lazily-exported names in ``dir(pyramids.io)``."""
-    return sorted(set(globals()) | _LAZY_SNIFF_EXPORTS)
+    return sorted(set(globals()) | _LAZY_NAMES)
 
 
 __all__ = ["load_resource", "sniff_format"]
