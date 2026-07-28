@@ -2831,4 +2831,3 @@ class FeatureCollection(GeoDataFrame):
                 ```
         """
         return _analysis.h3_bin(self, resolution, agg=agg, column=column)
-
