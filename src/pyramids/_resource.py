@@ -581,7 +581,7 @@ def read_tabular(path: str | Path, fmt: str | None = None) -> pd.DataFrame:
 
     Args:
         path: Path to the tabular resource.
-        fmt: Optional reader token (`"csv"`, `"tsv"`, `"excel"`, `"parquet"`)
+        fmt: Optional reader reader (`"csv"`, `"tsv"`, `"excel"`, `"parquet"`)
             that **overrides** the suffix. Required for a resource whose name
             carries no usable extension — a portal download named by id, say —
             where the caller knows the declared format. When omitted the suffix
@@ -606,8 +606,8 @@ def read_tabular(path: str | Path, fmt: str | None = None) -> pd.DataFrame:
         # An explicit label wins over the name — but only if it names a reader.
         # Falling through to the suffix here would silently ignore the override
         # and then blame the file's extension for the failure.
-        token = _FMT_TO_TABULAR_READER.get(label)
-        if token is None:
+        reader = _FMT_TO_TABULAR_READER.get(label)
+        if reader is None:
             raise ValueError(
                 f"unsupported tabular format {fmt!r} for {source!r}; expected one "
                 f"of {sorted(set(_FMT_TO_TABULAR_READER))}."
@@ -616,16 +616,16 @@ def read_tabular(path: str | Path, fmt: str | None = None) -> pd.DataFrame:
         # The name wins over the bytes. The magic-byte tail is what lets an
         # extension-less Parquet download resolve instead of dead-ending on an
         # empty suffix; it is mapped through the same table so a non-tabular
-        # token (`"zip"`, `"tif"`, `"unknown"`) cannot leak through as a reader.
-        token = _EXT_TO_TABULAR_READER.get(ext) or _FMT_TO_TABULAR_READER.get(
+        # reader (`"zip"`, `"tif"`, `"unknown"`) cannot leak through as a reader.
+        reader = _EXT_TO_TABULAR_READER.get(ext) or _FMT_TO_TABULAR_READER.get(
             sniff_format(path)
         )
     result: pd.DataFrame
-    if token == "csv":
+    if reader == "csv":
         result = pd.read_csv(source)
-    elif token == "tsv":
+    elif reader == "tsv":
         result = pd.read_csv(source, sep="\t")
-    elif token == "excel":
+    elif reader == "excel":
         try:
             result = pd.read_excel(source)
         except ImportError as exc:  # openpyxl (.xlsx) / xlrd (.xls) not installed
@@ -634,7 +634,7 @@ def read_tabular(path: str | Path, fmt: str | None = None) -> pd.DataFrame:
                 "for .xlsx, xlrd for legacy .xls); install it into the environment "
                 "to read this resource."
             ) from exc
-    elif token == "parquet":
+    elif reader == "parquet":
         try:
             result = pd.read_parquet(source)
         except ImportError as exc:  # pyarrow / fastparquet not installed

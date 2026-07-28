@@ -104,7 +104,9 @@ class TestBoundsJson:
         raw = capsys.readouterr().out
 
         def _reject(constant: str):
-            raise AssertionError(f"payload contained the bare JSON constant {constant!r}: {raw!r}")
+            raise AssertionError(
+                f"payload contained the bare JSON constant {constant!r}: {raw!r}"
+            )
 
         payload = json.loads(raw, parse_constant=_reject)
         for value in payload["bounds"]:

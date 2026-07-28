@@ -35,8 +35,14 @@ def asc_zip(tmp_path: Path) -> Path:
     """
     archive = tmp_path / "grids.zip"
     with zipfile.ZipFile(archive, "w") as handle:
-        handle.writestr("1.asc", "ncols 1\nnrows 1\nxllcorner 0\nyllcorner 0\ncellsize 1\nNODATA_value -9999\n1\n")
-        handle.writestr("2.asc", "ncols 1\nnrows 1\nxllcorner 0\nyllcorner 0\ncellsize 1\nNODATA_value -9999\n2\n")
+        handle.writestr(
+            "1.asc",
+            "ncols 1\nnrows 1\nxllcorner 0\nyllcorner 0\ncellsize 1\nNODATA_value -9999\n1\n",
+        )
+        handle.writestr(
+            "2.asc",
+            "ncols 1\nnrows 1\nxllcorner 0\nyllcorner 0\ncellsize 1\nNODATA_value -9999\n2\n",
+        )
     return archive
 
 
@@ -274,7 +280,11 @@ class TestLazyIoExports:
             "print([m for m in ('pyramids.dataset','pyramids.feature','pyramids.netcdf') if m in sys.modules])"
         )
         completed = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, check=True, env=env
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
         )
         assert completed.stdout.strip() == "[]", (
             f"import pyramids.io should stay light, got: {completed.stdout!r}"
