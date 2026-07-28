@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.base._errors import ReadOnlyError
 from pyramids.netcdf import NetCDF
@@ -167,6 +168,13 @@ def test_recreate_overviews_requires_write(sample, tmp_path):
         nc.close()
 
 
+# The win_arm64 wheel ships GDAL 3.12.4 (the vcpkg port ceiling), where `create_overviews()` on a
+# read-only NetCDF variable view does not emit an external `.ovr` sidecar; GDAL >= 3.13 (every other
+# platform's wheel) does. Gate the external-sidecar assertions on that floor so the overview family is
+# still exercised everywhere and the "no sidecar leaks into tests/data" invariant is always checked.
+_EXTERNAL_NETCDF_OVERVIEWS = int(gdal.VersionInfo("VERSION_NUM")) >= 3130000
+
+
 def test_overview_ops_isolated_to_temp_copy(sample, tmp_path):
     """The overview ops run on a tmp_path copy so their external `.ovr` never touches tests/data.
 
@@ -174,7 +182,9 @@ def test_overview_ops_isolated_to_temp_copy(sample, tmp_path):
         `create_overviews` on a read-only variable view writes an external `<source>.0.ovr` next to
         the *source file*. Copy the fixture into `tmp_path` first, so the sidecar lands there (and is
         auto-cleaned); assert the overview family runs, the sidecar is written beside the copy, and no
-        new `.ovr` appears in the committed data dir.
+        new `.ovr` appears in the committed data dir. GDAL 3.12.4 (the win_arm64 wheel) does not emit
+        the external NetCDF sidecar, so those assertions are gated on `_EXTERNAL_NETCDF_OVERVIEWS`
+        while the no-leak invariant is checked on every platform.
     """
     src = sample("cf__7v__1d3-2d3-3d1__y-asc.nc")
     data_dir = Path(src).parent
@@ -185,15 +195,16 @@ def test_overview_ops_isolated_to_temp_copy(sample, tmp_path):
     try:
         view = nc.get_variable("tos")
         view.create_overviews()
-        assert (tmp_path / "tos.nc.0.ovr").exists(), (
-            "external overview should land beside the tmp copy"
-        )
-        assert view.get_overview() is not None, (
-            "get_overview should return a band after building"
-        )
-        assert view.read_overview_array() is not None, (
-            "read_overview_array should return data"
-        )
+        if _EXTERNAL_NETCDF_OVERVIEWS:
+            assert (tmp_path / "tos.nc.0.ovr").exists(), (
+                "external overview should land beside the tmp copy"
+            )
+            assert view.get_overview() is not None, (
+                "get_overview should return a band after building"
+            )
+            assert view.read_overview_array() is not None, (
+                "read_overview_array should return data"
+            )
     finally:
         nc.close()
 
