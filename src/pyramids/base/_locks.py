@@ -144,7 +144,7 @@ class DummyLock:
         return False
 
 
-def default_lock() -> Any:
+def default_lock(token: str | None = None) -> Any:
     """Return the right lock for the current execution context.
 
     Probes for a running :class:`dask.distributed.Client`; if one is
@@ -155,6 +155,15 @@ def default_lock() -> Any:
     Does **not** import `dask.distributed` unless a client is
     actually probed, so calling this in a dask-free environment is
     free.
+
+    Args:
+        token: Optional stable identity for the lock. When given, every
+            call with the same `token` resolves to the **same** underlying
+            mutex in this process — a `SerializableLock` sharing one
+            `threading.Lock` via `_LOCKS`, or a distributed `Lock` sharing
+            one cluster-wide name. Pass a resource key (e.g. a file path) so
+            independent callers that touch the same resource serialise on one
+            lock. When `None` (default) a fresh, independent lock is returned.
 
     Returns:
         A lock-protocol object supporting `acquire`, `release`,
@@ -169,6 +178,15 @@ def default_lock() -> Any:
             True
 
             ```
+        - Same token → same underlying mutex, distinct instances aside:
+            ```python
+            >>> from pyramids.base._locks import default_lock
+            >>> default_lock("path/a").lock is default_lock("path/a").lock
+            True
+            >>> default_lock("path/a").lock is default_lock("path/b").lock
+            False
+
+            ```
     """
     try:
         from dask.distributed import Lock as _DistributedLock
@@ -178,9 +196,10 @@ def default_lock() -> Any:
         # is none, which selects the single-process SerializableLock below.
         get_client()
     except (ImportError, ValueError):
-        lock: Any = SerializableLock()
+        lock: Any = SerializableLock(token)
     else:
         # `distributed.Lock` takes no `client` kwarg -- it resolves the ambient
-        # client itself (the same one `get_client()` just returned).
-        lock = _DistributedLock(name=f"pyramids-{uuid.uuid4()}")
+        # client itself (the same one `get_client()` just returned). A stable
+        # `token` names the lock so cluster-wide callers on one resource share it.
+        lock = _DistributedLock(name=f"pyramids-{token or uuid.uuid4()}")
     return lock

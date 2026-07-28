@@ -14,6 +14,7 @@ Targets untested / low-coverage code paths in
 - Error paths for ``__getitem__``, ``__setitem__``, ``open_multi_dataset``
 """
 
+import pickle
 import shutil
 import tempfile
 from pathlib import Path
@@ -22,7 +23,12 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.collection import _target_epsg
+from tests.dataset.collection._helpers import make_int16_collection
+
+pytestmark = pytest.mark.core
 
 
 def _make_mem_dataset(
@@ -339,14 +345,6 @@ class TestIloc:
         )
 
 
-import datetime as dt
-import re
-
-from pyramids.base._errors import DatasetNotFoundError
-
-pytestmark = pytest.mark.core
-
-
 class TestReadMultipleFilesErrors:
     """Tests for error paths in ``read_multiple_files``."""
 
@@ -467,3 +465,615 @@ class TestAlignErrors:
         """Passing a non-Dataset as alignment_src should raise TypeError."""
         with pytest.raises(TypeError, match="Dataset object"):
             cube_with_values.align("not_a_dataset")
+
+
+def _write_geotiff(
+    path,
+    arr: np.ndarray,
+    *,
+    top_left: tuple = (0.0, 4.0),
+    cell_size: float = 1.0,
+    epsg: int = 4326,
+    no_data: float = -9999.0,
+) -> str:
+    """Write ``arr`` to a GeoTIFF at ``path`` and return the path as a string."""
+    Dataset.create_from_array(
+        arr,
+        top_left_corner=top_left,
+        cell_size=cell_size,
+        epsg=epsg,
+        no_data_value=no_data,
+        path=str(path),
+    ).close()
+    return str(path)
+
+
+class TestMemDatasetFromArray:
+    """Tests for ``_mem_dataset_from_array`` (ARC-70)."""
+
+    @pytest.fixture()
+    def collection(self) -> DatasetCollection:
+        """A single-timestep in-memory collection whose base is float32."""
+        base = Dataset.create_from_array(
+            np.ones((3, 4), dtype="float32"),
+            top_left_corner=(0.0, 3.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        return DatasetCollection(base, time_length=1)
+
+    def test_default_source_uses_base_georef(self, collection: DatasetCollection):
+        """With no ``source`` the result inherits the base's geotransform + EPSG.
+
+        Test scenario:
+            Wrap an array without ``source`` — expected: geotransform equals the
+            base template's and the EPSG is the base's 4326.
+        """
+        arr = np.arange(12, dtype="float64").reshape(3, 4)
+        result = collection._mem_dataset_from_array(arr)
+        assert result.geotransform == pytest.approx(collection.base.geotransform), (
+            f"geotransform not copied from base: {result.geotransform}"
+        )
+        assert result.epsg == 4326, f"expected epsg 4326, got {result.epsg}"
+
+    def test_preserves_input_array_dtype(self, collection: DatasetCollection):
+        """A float64 input is not down-cast through the float32 base dtype.
+
+        Test scenario:
+            Wrap a float64 array over a float32 base — expected: the result reads
+            back as float64 (the base dtype does not silently round it).
+        """
+        arr = np.arange(12, dtype="float64").reshape(3, 4)
+        result = collection._mem_dataset_from_array(arr)
+        assert result.read_array().dtype == np.float64, (
+            f"input dtype not preserved: {result.read_array().dtype}"
+        )
+
+    def test_values_round_trip(self, collection: DatasetCollection):
+        """The wrapped array reads back element-for-element.
+
+        Test scenario:
+            Wrap a non-trivial float64 array — expected: ``read_array`` returns
+            the same values.
+        """
+        arr = np.arange(12, dtype="float64").reshape(3, 4) * 1.5
+        result = collection._mem_dataset_from_array(arr)
+        np.testing.assert_array_equal(
+            result.read_array(), arr, err_msg="values not preserved by wrap"
+        )
+
+    def test_explicit_source_overrides_base_georef(self, collection: DatasetCollection):
+        """Passing ``source=`` copies that dataset's georef, not the base's.
+
+        Test scenario:
+            Wrap an array with an explicit ``source`` on a different grid —
+            expected: geotransform matches the source, not the collection base.
+        """
+        other = Dataset.create_from_array(
+            np.ones((3, 4), dtype="float32"),
+            top_left_corner=(100.0, 50.0),
+            cell_size=2.0,
+            epsg=4326,
+            no_data_value=-1.0,
+        )
+        arr = np.zeros((3, 4), dtype="float32")
+        result = collection._mem_dataset_from_array(arr, source=other)
+        assert result.geotransform == pytest.approx(other.geotransform), (
+            f"source georef not used: {result.geotransform}"
+        )
+        assert result.geotransform != pytest.approx(collection.base.geotransform), (
+            "result should not carry the base georef when source is given"
+        )
+
+
+class TestRequireFiles:
+    """Tests for the ``_require_files`` file-backed guard (ARC-70)."""
+
+    def test_returns_files_list_for_file_backed(self, tmp_path):
+        """A file-backed collection returns its own ``files`` list unchanged.
+
+        Test scenario:
+            Guard a file-backed collection — expected: the live ``files`` list is
+            returned (same object), not a copy.
+        """
+        col, paths = make_int16_collection(tmp_path, count=2)
+        result = col._require_files("to_zarr")
+        assert result == paths, f"expected {paths}, got {result}"
+        assert result is col.files, "should return the live files list, not a copy"
+
+    def test_none_files_raises_naming_method(self, base_dataset: Dataset):
+        """An in-memory collection (files=None) raises RuntimeError naming the method.
+
+        Test scenario:
+            Guard an in-memory collection — expected: RuntimeError whose message
+            names the offending method and mentions ``file-backed``.
+        """
+        col = DatasetCollection(base_dataset, time_length=2)
+        with pytest.raises(RuntimeError, match="to_kerchunk") as exc:
+            col._require_files("to_kerchunk")
+        assert "file-backed" in str(exc.value), f"unexpected message: {exc.value}"
+
+    def test_empty_files_list_raises(self, base_dataset: Dataset):
+        """An empty files list is guarded the same as None (the len == 0 branch).
+
+        Test scenario:
+            Guard a collection built with ``files=[]`` — expected: RuntimeError
+            naming the method.
+        """
+        col = DatasetCollection(base_dataset, time_length=0, files=[])
+        with pytest.raises(RuntimeError, match="to_zarr"):
+            col._require_files("to_zarr")
+
+
+class TestTailHeadRegression:
+    """Tests for the ARC-46 head/tail fix and empty-safe ``_stack_band0``."""
+
+    @pytest.fixture()
+    def expected(self) -> np.ndarray:
+        """The (3, 5, 6) cube backing the ``cube_with_values`` fixture."""
+        return np.arange(3 * 5 * 6, dtype=np.float64).reshape(3, 5, 6)
+
+    def test_tail_positive_n_returns_last_n(
+        self, cube_with_values: DatasetCollection, expected: np.ndarray
+    ):
+        """tail(2) returns the LAST 2 timesteps (ARC-46: no longer skips the first n).
+
+        Test scenario:
+            ``tail(2)`` on a 3-step cube — expected: shape (2, 5, 6) equal to the
+            last two source slices, not the tail-after-skipping-2 single slice.
+        """
+        result = cube_with_values.tail(2)
+        assert result.shape == (2, 5, 6), f"expected (2,5,6), got {result.shape}"
+        np.testing.assert_array_equal(
+            result, expected[1:], err_msg="tail(2) is not the last 2 timesteps"
+        )
+
+    def test_tail_both_signs_equal(self, cube_with_values: DatasetCollection):
+        """tail(3) == tail(-3): the sign of ``n`` is ignored.
+
+        Test scenario:
+            Compare positive and negative ``n`` — expected: identical arrays.
+        """
+        np.testing.assert_array_equal(
+            cube_with_values.tail(3),
+            cube_with_values.tail(-3),
+            err_msg="tail(n) and tail(-n) disagree",
+        )
+
+    def test_tail_clamps_to_time_length(
+        self, cube_with_values: DatasetCollection, expected: np.ndarray
+    ):
+        """tail(99) clamps to all available timesteps.
+
+        Test scenario:
+            ``abs(n)`` larger than ``time_length`` — expected: the full cube.
+        """
+        result = cube_with_values.tail(99)
+        assert result.shape == (3, 5, 6), f"expected full cube, got {result.shape}"
+        np.testing.assert_array_equal(result, expected)
+
+    def test_tail_zero_is_empty(self, cube_with_values: DatasetCollection):
+        """tail(0) returns an empty (0, rows, cols) cube, not a stack error.
+
+        Test scenario:
+            ``n == 0`` — expected: a (0, 5, 6) array via the empty-safe path.
+        """
+        result = cube_with_values.tail(0)
+        assert result.shape == (0, 5, 6), f"expected (0,5,6), got {result.shape}"
+
+    def test_head_zero_is_empty(self, cube_with_values: DatasetCollection):
+        """head(0) returns an empty (0, rows, cols) cube, not a stack error.
+
+        Test scenario:
+            ``n == 0`` — expected: a (0, 5, 6) array via the empty-safe path.
+        """
+        result = cube_with_values.head(0)
+        assert result.shape == (0, 5, 6), f"expected (0,5,6), got {result.shape}"
+
+    def test_empty_selection_matches_cube_dtype(self, tmp_path):
+        """head(0)/tail(0) carry the cube's dtype, not NumPy's default float64 (N1).
+
+        Test scenario:
+            An int16-backed collection — expected: ``head(0)`` and ``tail(0)`` are
+            int16 (matching a non-empty selection), not the float64 that an
+            untyped ``np.empty`` would give.
+        """
+        collection, _ = make_int16_collection(tmp_path)
+        assert collection.head(0).dtype == np.int16, (
+            f"head(0) dtype {collection.head(0).dtype} != int16"
+        )
+        assert collection.tail(0).dtype == np.int16, (
+            f"tail(0) dtype {collection.tail(0).dtype} != int16"
+        )
+        assert collection.head(1).dtype == np.int16, (
+            "non-empty head should be int16 too"
+        )
+
+    def test_stack_band0_empty_selection(self, cube_with_values: DatasetCollection):
+        """_stack_band0([]) returns a (0, rows, cols) array (empty-safe).
+
+        Test scenario:
+            Stack an empty selection — expected: a (0, 5, 6) array instead of the
+            ``np.stack`` "need at least one array" error.
+        """
+        result = cube_with_values._stack_band0([])
+        assert result.shape == (0, 5, 6), f"expected (0,5,6), got {result.shape}"
+
+    def test_stack_band0_non_empty(
+        self, cube_with_values: DatasetCollection, expected: np.ndarray
+    ):
+        """_stack_band0 over all datasets reproduces the full cube.
+
+        Test scenario:
+            Stack every timestep's band 0 — expected: the (3, 5, 6) source cube.
+        """
+        result = cube_with_values._stack_band0(cube_with_values.datasets)
+        assert result.shape == (3, 5, 6), f"expected (3,5,6), got {result.shape}"
+        np.testing.assert_array_equal(result, expected)
+
+
+class TestFromFilesValidate:
+    """Tests for ``from_files(validate=...)`` + ``_validate_headers`` (ARC-75b)."""
+
+    def test_validate_true_matching_files_succeeds(self, tmp_path):
+        """Homogeneous files pass validation and build the collection.
+
+        Test scenario:
+            Two same-shape / same-dtype int16 files with ``validate=True`` —
+            expected: a 2-timestep collection, no error.
+        """
+        t0 = _write_geotiff(
+            tmp_path / "t0.tif", np.arange(20, dtype="int16").reshape(4, 5)
+        )
+        t1 = _write_geotiff(
+            tmp_path / "t1.tif", np.arange(20, dtype="int16").reshape(4, 5) + 5
+        )
+        col = DatasetCollection.from_files([t0, t1], validate=True)
+        assert col.time_length == 2, f"expected 2 timesteps, got {col.time_length}"
+
+    def test_crs_equal_treats_same_epsg_encodings_as_equal(self):
+        """_crs_equal treats same-EPSG CRS as equal across encodings (N2).
+
+        Test scenario:
+            An EPSG:4326 CRS vs an equivalent proj4 longlat-WGS84 CRS (which
+            ``pyproj``'s strict ``==`` reports unequal) — expected: ``_crs_equal``
+            returns True via the shared EPSG code, so validation does not reject a
+            co-registered file on a cosmetic encoding difference; a genuinely
+            different system (EPSG:3857) still returns False.
+        """
+        from pyproj import CRS
+
+        from pyramids.dataset.collection import _crs_equal
+
+        epsg = CRS.from_epsg(4326)
+        proj4 = CRS.from_proj4("+proj=longlat +datum=WGS84 +no_defs")
+        assert epsg != proj4, "precondition: pyproj's == is strict for this pair"
+        assert _crs_equal(epsg, proj4), "same-EPSG encodings should compare equal"
+        assert not _crs_equal(epsg, CRS.from_epsg(3857)), "different CRS must differ"
+
+    def test_validate_true_shape_mismatch_raises(self, tmp_path):
+        """A file with a different (rows, cols) raises AlignmentError naming it.
+
+        Test scenario:
+            Template (4, 5) + a (3, 5) file with ``validate=True`` — expected:
+            AlignmentError whose message names the offending path.
+        """
+        t0 = _write_geotiff(tmp_path / "t0.tif", np.zeros((4, 5), dtype="int16"))
+        bad = _write_geotiff(tmp_path / "bad.tif", np.zeros((3, 5), dtype="int16"))
+        with pytest.raises(AlignmentError, match="bad.tif") as exc:
+            DatasetCollection.from_files([t0, bad], validate=True)
+        assert "must share" in str(exc.value), f"unexpected message: {exc.value}"
+
+    def test_validate_true_dtype_mismatch_raises(self, tmp_path):
+        """A file with a different dtype raises AlignmentError naming it.
+
+        Test scenario:
+            Template int16 + a float64 file (same shape) with ``validate=True`` —
+            expected: AlignmentError naming the offending path.
+        """
+        t0 = _write_geotiff(tmp_path / "t0.tif", np.zeros((4, 5), dtype="int16"))
+        bad = _write_geotiff(tmp_path / "bad.tif", np.zeros((4, 5), dtype="float64"))
+        with pytest.raises(AlignmentError, match="bad.tif"):
+            DatasetCollection.from_files([t0, bad], validate=True)
+
+    def test_validate_true_shifted_extent_raises(self, tmp_path):
+        """A same-shape raster with a shifted extent raises on the geotransform (M1)."""
+        t0 = _write_geotiff(tmp_path / "t0.tif", np.zeros((4, 5), dtype="int16"))
+        bad = _write_geotiff(
+            tmp_path / "bad.tif", np.zeros((4, 5), dtype="int16"), top_left=(100.0, 4.0)
+        )
+        with pytest.raises(AlignmentError, match="geotransform") as exc:
+            DatasetCollection.from_files([t0, bad], validate=True)
+        assert "bad.tif" in str(exc.value), f"path not named: {exc.value}"
+
+    def test_validate_true_crs_mismatch_raises(self, tmp_path):
+        """A same-shape/geotransform raster in a different CRS raises on CRS (M1)."""
+        t0 = _write_geotiff(tmp_path / "t0.tif", np.zeros((4, 5), dtype="int16"))
+        bad = _write_geotiff(
+            tmp_path / "bad.tif", np.zeros((4, 5), dtype="int16"), epsg=3857
+        )
+        with pytest.raises(AlignmentError, match="CRS"):
+            DatasetCollection.from_files([t0, bad], validate=True)
+
+    def test_validate_false_does_not_open_other_files(self, tmp_path, monkeypatch):
+        """validate=False (default) opens only the first file, never the rest.
+
+        Test scenario:
+            Spy on ``Dataset.read_file`` — expected: only the template path is
+            opened; the second file is left untouched.
+        """
+        t0 = _write_geotiff(tmp_path / "t0.tif", np.zeros((4, 5), dtype="int16"))
+        t1 = _write_geotiff(tmp_path / "t1.tif", np.zeros((4, 5), dtype="int16"))
+        opened: list[str] = []
+        orig = Dataset.read_file
+
+        def spy(path, *args, **kwargs):
+            opened.append(str(path))
+            return orig(path, *args, **kwargs)
+
+        monkeypatch.setattr(Dataset, "read_file", staticmethod(spy))
+        DatasetCollection.from_files([t0, t1], validate=False)
+        assert t0 in opened, f"template file was not opened: {opened}"
+        assert t1 not in opened, f"validate=False opened a non-template file: {opened}"
+
+    def test_validate_true_opens_every_file(self, tmp_path, monkeypatch):
+        """validate=True opens every file's header (the opt-in cost).
+
+        Test scenario:
+            Spy on ``Dataset.read_file`` with ``validate=True`` — expected: the
+            second file is opened too.
+        """
+        t0 = _write_geotiff(tmp_path / "t0.tif", np.zeros((4, 5), dtype="int16"))
+        t1 = _write_geotiff(tmp_path / "t1.tif", np.zeros((4, 5), dtype="int16"))
+        opened: list[str] = []
+        orig = Dataset.read_file
+
+        def spy(path, *args, **kwargs):
+            opened.append(str(path))
+            return orig(path, *args, **kwargs)
+
+        monkeypatch.setattr(Dataset, "read_file", staticmethod(spy))
+        DatasetCollection.from_files([t0, t1], validate=True)
+        assert t1 in opened, f"validate=True did not open the second file: {opened}"
+
+
+class TestDatasetAtLazyHandles:
+    """Tests for ``_dataset_at`` + the per-index ``_handle_cache`` (ARC-44)."""
+
+    def test_first_opens_only_one_file(self, tmp_path):
+        """``first()`` on a file-backed cube opens one file, not all N.
+
+        Test scenario:
+            A 3-file collection, then ``first()`` — expected: the bulk
+            ``_datasets`` list is still ``None`` and exactly one handle is
+            cached (only index 0 was opened).
+        """
+        col, _ = make_int16_collection(tmp_path, count=3)
+        result = col.first()
+        assert col._datasets is None, "first() must not materialise the bulk list"
+        assert len(col._handle_cache) == 1, (
+            f"first() should open one file; cached {len(col._handle_cache)}"
+        )
+        assert set(col._handle_cache) == {0}, (
+            f"expected index 0, got {set(col._handle_cache)}"
+        )
+        np.testing.assert_array_equal(
+            result,
+            np.arange(20, dtype="int16").reshape(4, 5),
+            err_msg="first() returned the wrong timestep array",
+        )
+
+    def test_first_then_last_caches_two(self, tmp_path):
+        """``first()`` then ``last()`` caches exactly two handles.
+
+        Test scenario:
+            A 3-file collection — expected: after ``first()`` + ``last()`` the
+            handle cache holds indices ``{0, 2}`` and the bulk list stays lazy.
+        """
+        col, _ = make_int16_collection(tmp_path, count=3)
+        col.first()
+        col.last()
+        assert col._datasets is None, (
+            "point accessors must not materialise the bulk list"
+        )
+        assert len(col._handle_cache) == 2, (
+            f"first()+last() should cache 2 handles; got {len(col._handle_cache)}"
+        )
+        assert set(col._handle_cache) == {0, 2}, (
+            f"expected indices {{0, 2}}, got {set(col._handle_cache)}"
+        )
+
+    def test_negative_index_normalises(self, tmp_path):
+        """A negative index reads from the end and caches the normalised slot.
+
+        Test scenario:
+            ``_dataset_at(-1)`` on a 3-file cube — expected: the same handle as
+            index 2, cached under key 2 (negative normalised via ``range``).
+        """
+        col, _ = make_int16_collection(tmp_path, count=3)
+        last = col._dataset_at(-1)
+        assert set(col._handle_cache) == {2}, (
+            f"negative index not normalised: {set(col._handle_cache)}"
+        )
+        assert col._dataset_at(2) is last, (
+            "negative and positive index disagree on the handle"
+        )
+
+    def test_handle_reused_within_instance(self, tmp_path):
+        """Repeated access to the same index returns the cached handle.
+
+        Test scenario:
+            Two ``_dataset_at(0)`` calls — expected: the identical ``Dataset``
+            object, proving the cache slot is reused, not reopened.
+        """
+        col, _ = make_int16_collection(tmp_path, count=2)
+        first = col._dataset_at(0)
+        again = col._dataset_at(0)
+        assert first is again, "the same index should return one cached handle"
+        assert len(col._handle_cache) == 1, "a re-read must not add a cache slot"
+
+    def test_getitem_int_uses_handle_cache(self, tmp_path):
+        """``collection[i]`` (int) reads one file through the handle cache.
+
+        Test scenario:
+            ``col[1]`` on a 3-file cube — expected: a 2D array equal to the
+            second timestep, with only index 1 cached and the bulk list lazy.
+        """
+        col, _ = make_int16_collection(tmp_path, count=3)
+        arr = col[1]
+        assert arr.shape == (4, 5), f"expected a 2D (4,5) slice, got {arr.shape}"
+        assert col._datasets is None, (
+            "__getitem__[int] must not materialise the bulk list"
+        )
+        assert set(col._handle_cache) == {1}, (
+            f"expected index 1 cached, got {set(col._handle_cache)}"
+        )
+        np.testing.assert_array_equal(
+            arr, np.arange(20, dtype="int16").reshape(4, 5) + 100
+        )
+
+    def test_defers_to_bulk_once_materialised(self, tmp_path):
+        """Once ``.datasets`` is built, ``_dataset_at`` returns from that list.
+
+        Test scenario:
+            Access ``.datasets`` to materialise the bulk cache — expected:
+            ``_dataset_at(i)`` returns the same object as ``datasets[i]`` and no
+            per-index handle cache is populated.
+        """
+        col, _ = make_int16_collection(tmp_path, count=3)
+        bulk = col.datasets
+        assert col._dataset_at(1) is bulk[1], (
+            "should defer to the materialised bulk list"
+        )
+        assert col._handle_cache == {}, (
+            "the per-index cache must stay empty after bulk build"
+        )
+
+    def test_legacy_in_memory_returns_base(self, base_dataset: Dataset):
+        """A legacy ``files=None`` collection returns the base at every index.
+
+        Test scenario:
+            ``DatasetCollection(base, time_length=3)`` with no files/datasets —
+            expected: every ``_dataset_at`` returns the shared base template.
+        """
+        col = DatasetCollection(base_dataset, time_length=3)
+        assert col._dataset_at(0) is base_dataset, "legacy cube should return the base"
+        assert col._dataset_at(2) is base_dataset, "legacy cube should return the base"
+        assert col._handle_cache == {}, "legacy path must not open files"
+
+    def test_getstate_drops_handle_cache_on_pickle(self, tmp_path):
+        """Pickling drops the live-handle ``_handle_cache`` (ARC-44 + pickle).
+
+        Test scenario:
+            Populate the cache via ``first()`` then pickle round-trip —
+            expected: no ``gdal.Dataset`` in the payload, and the unpickled
+            instance starts with an empty cache and a lazy bulk list.
+        """
+        col, _ = make_int16_collection(tmp_path, count=2)
+        col.first()
+        assert len(col._handle_cache) == 1, "precondition: one cached handle"
+        payload = pickle.dumps(col)
+        assert b"gdal.Dataset" not in payload, (
+            "a live gdal handle leaked into the pickle"
+        )
+        restored = pickle.loads(payload)
+        assert restored._handle_cache == {}, "unpickled cache should be empty"
+        assert restored._datasets is None, "unpickled bulk list should be lazy"
+        assert restored.time_length == 2, "time_length should survive the round-trip"
+
+
+class TestTargetEpsg:
+    """Tests for the module-level ``_target_epsg`` helper (ARC-54)."""
+
+    def test_int_passthrough(self):
+        """An integer EPSG is returned unchanged.
+
+        Test scenario:
+            ``_target_epsg(3857)`` — expected: ``3857`` without a pyproj lookup.
+        """
+        assert _target_epsg(3857) == 3857, "an int EPSG should pass through unchanged"
+
+    def test_authority_string_resolves(self):
+        """An ``EPSG:`` authority string resolves to its integer code.
+
+        Test scenario:
+            ``_target_epsg("EPSG:4326")`` — expected: ``4326``.
+        """
+        assert _target_epsg("EPSG:4326") == 4326, (
+            "authority string should resolve to 4326"
+        )
+
+    def test_non_epsg_crs_returns_none(self):
+        """A CRS with no EPSG code (proj4 Robinson) returns ``None``.
+
+        Test scenario:
+            A proj4 string with no registered EPSG — expected: ``None`` so
+            ``to_crs`` takes the direct per-timestep fallback.
+        """
+        proj4 = "+proj=laea +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        assert _target_epsg(proj4) is None, "a no-EPSG CRS should return None"
+
+
+class TestToCrsEager:
+    """Eager ``to_crs`` routing through the plan-once + fallback paths (ARC-54)."""
+
+    def test_epsg_target_returns_reprojected_collection(self, tmp_path):
+        """``to_crs(epsg)`` (non-inplace) returns a new reprojected collection.
+
+        Test scenario:
+            A 4326 file-backed cube reprojected to 3857 — expected: a distinct
+            ``DatasetCollection`` at EPSG 3857 with the same ``time_length``.
+        """
+        col, _ = make_int16_collection(tmp_path, count=2)
+        out = col.to_crs(3857)
+        assert isinstance(out, DatasetCollection), (
+            f"expected a collection, got {type(out)}"
+        )
+        assert out is not col, "non-inplace to_crs should return a new collection"
+        assert out.base.epsg == 3857, f"expected EPSG 3857, got {out.base.epsg}"
+        assert out.time_length == 2, (
+            f"time_length should be preserved, got {out.time_length}"
+        )
+
+    def test_non_epsg_target_reprojects_eagerly(self, tmp_path):
+        """A no-EPSG target still reprojects eagerly via the direct fallback.
+
+        Test scenario:
+            ``to_crs`` to a proj4 LAEA CRS (no EPSG code) — expected: a
+            ``DatasetCollection`` with the same ``time_length``; ``_target_epsg``
+            returned ``None`` so the ``Reprojector`` plan-once path was skipped.
+        """
+        proj4 = "+proj=laea +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        assert _target_epsg(proj4) is None, (
+            "precondition: the target must have no EPSG code"
+        )
+        col, _ = make_int16_collection(tmp_path, count=2)
+        out = col.to_crs(proj4)
+        assert isinstance(out, DatasetCollection), (
+            f"expected a collection, got {type(out)}"
+        )
+        assert out.time_length == 2, (
+            f"time_length should be preserved, got {out.time_length}"
+        )
+
+    def test_compute_false_without_dask_raises(self, tmp_path, monkeypatch):
+        """``compute=False`` without dask raises ``OptionalPackageDoesNotExist``.
+
+        Test scenario:
+            Simulate a missing dask import — expected: the ``[lazy]`` extra error
+            from ``_apply_operator``'s deferred branch, naming the extra.
+        """
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "dask" or name.startswith("dask."):
+                raise ImportError("no dask")
+            return real_import(name, *args, **kwargs)
+
+        col, _ = make_int16_collection(tmp_path, count=2)
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        with pytest.raises(OptionalPackageDoesNotExist, match="lazy"):
+            col.to_crs(3857, compute=False)

@@ -643,6 +643,45 @@ class TestToNetcdfNoFilesPath:
 
 
 @pytest.mark.xarray
+class TestToNetcdfLargeCubeWarning:
+    """ARC-46: ``to_netcdf`` warns (pointing at ``to_zarr``) for an oversized cube."""
+
+    def test_warns_when_estimate_exceeds_threshold(self, tmp_path, monkeypatch):
+        """A cube above ``_TO_NETCDF_WARN_BYTES`` emits a UserWarning naming to_zarr.
+
+        Args:
+            tmp_path: pytest temp directory.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            Shrink the module warn-threshold to 1 byte so the tiny fixture cube
+            trips it — expected: a UserWarning steering the caller at ``to_zarr``.
+        """
+        col, _ = _make_int16_collection(tmp_path, count=2)
+        monkeypatch.setattr("pyramids.dataset.collection._TO_NETCDF_WARN_BYTES", 1)
+        with pytest.warns(UserWarning, match="to_zarr"):
+            col.to_netcdf(str(tmp_path / "warn.nc"))
+
+    def test_no_warning_for_small_cube(self, tmp_path):
+        """A small cube (default 2 GiB threshold) emits no size warning.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Default threshold, tiny fixture cube — expected: none of the emitted
+            warnings mention the streaming ``to_zarr`` guidance.
+        """
+        col, _ = _make_int16_collection(tmp_path, count=2)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            col.to_netcdf(str(tmp_path / "ok.nc"))
+        assert not any("streams the cube" in str(w.message) for w in caught), (
+            f"unexpected size warning: {[str(w.message) for w in caught]}"
+        )
+
+
+@pytest.mark.xarray
 class TestToNetcdfRoundTrip:
     """End-to-end: re-open the written file via :class:`NetCDF` and compare."""
 

@@ -111,31 +111,201 @@ class TestManagerCaching:
                 "Repeated compute should reuse the cached gdal.Dataset"
             )
 
-    def test_path_and_str_share_cache_slot(self, three_files):
-        """M1 regression: `_read_time_step` normalises Path → str.
 
-        Pre-fix passing `Path("foo.tif")` and `"foo.tif"` produced
-        two distinct `FILE_CACHE` slots (the cache key is built
-        from the literal `manager_id`, and Path/str hash to
-        different keys). Post-fix the function calls `str(path)`
-        before constructing the manager, so both forms collapse
-        to a single slot.
+class TestTiledDataCube:
+    """The `data` cube stacks per-timestep tiled dask arrays (ARC-45).
+
+    Each timestep is built by :func:`_lazy_timestep` (windowed
+    ``_read_chunk`` reads) and stacked along time, so a reduction tiles
+    spatially instead of holding whole rasters. The tiny fixtures stay a
+    single spatial chunk; ``test_multichunk_data_matches_eager`` forces a
+    tiny dask chunk-size so a raster actually splits into several Y/X
+    blocks, proving the multi-block tiles reassemble exactly.
+    """
+
+    @requires_dask
+    def test_data_matches_eager_stack(self, three_files):
+        """`data.compute()` equals the old-style eager per-file stack.
+
+        Test scenario:
+            Compare band 0 of the lazy cube against
+            ``np.stack([Dataset.read_file(p).read_array() for p in paths])`` —
+            expected: element-for-element equality.
         """
-        from pathlib import Path
+        collection = DatasetCollection.from_files(three_files)
+        expected = np.stack(
+            [Dataset.read_file(p).read_array() for p in three_files], axis=0
+        )
+        got = collection.data.compute()
+        assert got.shape == (3, 1, 4, 5), f"expected (3, 1, 4, 5), got {got.shape}"
+        np.testing.assert_array_equal(
+            got[:, 0, :, :],
+            expected,
+            err_msg="tiled cube values differ from the eager stack",
+        )
 
-        from pyramids.base._file_manager import FILE_CACHE
-        from pyramids.dataset.collection import _read_time_step
+    @requires_dask
+    def test_data_is_time_stacked_dask_array(self, three_files):
+        """`data` is a `(T, B, Y, X)` dask array stacked along time.
 
-        first_path = three_files[0]
-        for key in [k for k in FILE_CACHE._cache if first_path in tuple(k)]:
-            del FILE_CACHE._cache[key]
+        Test scenario:
+            Inspect ``collection.data`` — expected: a dask array of shape
+            ``(3, 1, 4, 5)`` whose leading axis has one block per timestep.
+        """
+        collection = DatasetCollection.from_files(three_files)
+        data = collection.data
+        assert hasattr(data, "dask"), "data should be a lazy dask array"
+        assert data.shape == (3, 1, 4, 5), f"expected (3, 1, 4, 5), got {data.shape}"
+        assert data.numblocks[0] == 3, (
+            f"time axis should be stacked one block per timestep, got {data.numblocks[0]}"
+        )
 
-        _read_time_step(first_path)
-        _read_time_step(Path(first_path))
-        path_keys = [k for k in FILE_CACHE._cache if first_path in tuple(k)]
-        assert len(path_keys) == 1, (
-            f"Path and str inputs should share a FILE_CACHE slot; got "
-            f"{len(path_keys)} entries: {path_keys}"
+    @requires_dask
+    def test_reduction_matches_numpy(self, three_files):
+        """A time-axis reduction over the tiled cube matches numpy.
+
+        Test scenario:
+            ``collection.mean()`` vs the eager stack's ``mean(axis=0)`` —
+            expected: identical values (the tiled read path does not perturb
+            the reduction).
+        """
+        collection = DatasetCollection.from_files(three_files)
+        expected = np.stack(
+            [Dataset.read_file(p).read_array() for p in three_files], axis=0
+        ).mean(axis=0)
+        got = collection.mean()
+        assert got.shape == (1, 4, 5), f"expected (1, 4, 5), got {got.shape}"
+        np.testing.assert_allclose(
+            np.squeeze(got), expected, err_msg="tiled reduction differs from numpy mean"
+        )
+
+    @requires_dask
+    def test_multichunk_data_matches_eager(self, tmp_path):
+        """A raster that tiles into >1 spatial block reassembles exactly (ARC-45).
+
+        Test scenario:
+            With dask's array chunk-size forced tiny, a single-timestep cube over
+            an 8x10 raster builds multiple Y/X blocks — expected: the spatial axes
+            split into more than one block and ``data.compute()`` still equals the
+            whole-raster read, proving the windowed ``_read_chunk`` tiles reassemble
+            to the exact array (the 4x5 fixtures stay single-chunk and never exercise
+            this multi-block path).
+        """
+        import dask
+
+        arr = np.arange(80, dtype=np.float32).reshape(8, 10)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        p = str(tmp_path / "big.tif")
+        ds.to_file(p)
+        collection = DatasetCollection.from_files([p])
+        with dask.config.set({"array.chunk-size": "256B"}):
+            data = collection.data
+            got = data.compute()
+        spatial_blocks = data.numblocks[2] * data.numblocks[3]
+        assert spatial_blocks > 1, (
+            f"expected >1 spatial block, got numblocks {data.numblocks}"
+        )
+        assert got.shape == (1, 1, 8, 10), f"expected (1, 1, 8, 10), got {got.shape}"
+        np.testing.assert_array_equal(
+            got[0, 0],
+            arr,
+            err_msg="multi-block tiled assembly differs from the eager read",
+        )
+
+
+class TestDuplicatePathSharedLock:
+    """A path repeated in the file list shares one IO lock across its timesteps (L4)."""
+
+    @requires_dask
+    def test_duplicate_path_data_computes_and_shares_lock(self, tmp_path, monkeypatch):
+        """`from_files([p, p])` computes a correct 2-step cube sharing one lock.
+
+        Test scenario:
+            A single GeoTIFF listed twice — expected: ``.data`` is a ``(2, 1, 4, 5)``
+            cube whose two timesteps equal the source array, and both timesteps were
+            built with the *same* lock object (one IO lock per distinct path, so
+            duplicate paths that share a FILE_CACHE handle serialise on one lock).
+        """
+        from pyramids.dataset import collection as coll_mod
+
+        arr = np.arange(20, dtype=np.float32).reshape(4, 5)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 4.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        p = str(tmp_path / "dup.tif")
+        ds.to_file(p)
+
+        captured: list[Any] = []
+        real = coll_mod._lazy_timestep
+
+        def spy(path, meta, gdal_env, lock):
+            captured.append(lock)
+            return real(path, meta, gdal_env, lock)
+
+        monkeypatch.setattr(coll_mod, "_lazy_timestep", spy)
+        collection = DatasetCollection.from_files([p, p])
+        got = collection.data.compute()
+
+        assert got.shape == (2, 1, 4, 5), f"expected (2, 1, 4, 5), got {got.shape}"
+        np.testing.assert_array_equal(
+            got[0, 0], arr, err_msg="first duplicate timestep differs from source"
+        )
+        np.testing.assert_array_equal(
+            got[1, 0], arr, err_msg="second duplicate timestep differs from source"
+        )
+        assert len(captured) == 2, f"expected two timesteps, got {len(captured)}"
+        assert captured[0] is captured[1], (
+            "duplicate paths must share one IO lock, got distinct lock objects"
+        )
+
+    @requires_dask
+    def test_separate_data_graphs_share_underlying_lock(self, tmp_path, monkeypatch):
+        """Two `.data` graphs over one path share a single underlying mutex (L1).
+
+        Test scenario:
+            Build two separate collections over the same file and access `.data`
+            on each — expected: the IO locks handed to `_lazy_timestep` are
+            distinct objects but resolve to the *same* underlying `threading.Lock`
+            (keyed by a path token), so concurrent reads on the shared FILE_CACHE
+            handle serialise across graphs, not just within one graph.
+        """
+        from pyramids.dataset import collection as coll_mod
+
+        arr = np.arange(20, dtype=np.float32).reshape(4, 5)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 4.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        p = str(tmp_path / "shared.tif")
+        ds.to_file(p)
+
+        captured: list[Any] = []
+        real = coll_mod._lazy_timestep
+
+        def spy(path, meta, gdal_env, lock):
+            captured.append(lock)
+            return real(path, meta, gdal_env, lock)
+
+        monkeypatch.setattr(coll_mod, "_lazy_timestep", spy)
+        _ = DatasetCollection.from_files([p]).data
+        _ = DatasetCollection.from_files([p]).data
+
+        assert len(captured) == 2, f"expected two graphs, got {len(captured)}"
+        assert captured[0] is not captured[1], (
+            "separate graphs should build distinct lock objects"
+        )
+        assert captured[0].lock is captured[1].lock, (
+            "distinct graphs over one path must share the underlying mutex"
         )
 
 

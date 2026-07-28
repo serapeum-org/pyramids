@@ -288,3 +288,154 @@ class TestAppendAndRegion:
         cube = DatasetCollection.from_zarr(store).data.compute()
         means = [float(cube[i].mean()) for i in range(3)]
         assert means == [1.0, 9.0, 1.0], f"region write wrong: {means}"
+
+
+class TestAppendAtomicity:
+    """ARC-75a: deferred (compute=False) append behaviour and rollback atomicity."""
+
+    def _col(self, tmp_path, vals, tag):
+        paths = []
+        for i, v in enumerate(vals):
+            ds = Dataset.create_from_array(
+                np.full((3, 4), float(v), dtype=np.float32),
+                top_left_corner=(0.0, 3.0),
+                cell_size=1.0,
+                epsg=4326,
+            )
+            p = str(tmp_path / f"{tag}_{v}_{i}.tif")
+            ds.to_file(p)
+            paths.append(p)
+        return DatasetCollection.from_files(paths)
+
+    @staticmethod
+    def _boom(*args, **kwargs):
+        """Stand-in finalize that fails after the region write has grown the store."""
+        raise RuntimeError("boom during finalize")
+
+    @requires_zarr
+    def test_compute_true_rolls_back_shape_on_failure(self, tmp_path, monkeypatch):
+        """A finalize failure during a compute=True append leaves the shape unchanged.
+
+        Test scenario:
+            Append onto a 2-step store with the finalize monkeypatched to raise —
+            expected: the exception propagates and the store's ``data`` array is
+            resized back to its original 2-step shape (never left grown-but-empty).
+        """
+        store = str(tmp_path / "atomic_true.zarr")
+        self._col(tmp_path, [1, 2], "a").to_zarr(store)
+        before = zarr.open_group(store, mode="r")["data"].shape
+        monkeypatch.setattr(
+            "pyramids.dataset.collection._finalize_append_metadata", self._boom
+        )
+        col = self._col(tmp_path, [3, 4, 5], "b")
+        with pytest.raises(RuntimeError, match="boom"):
+            col.to_zarr(store, mode="a", append_dim="time")
+        after = zarr.open_group(store, mode="r")["data"].shape
+        assert after == before, f"shape not rolled back: {before} -> {after}"
+
+    @requires_zarr
+    def test_compute_false_rolls_back_shape_on_failure(self, tmp_path, monkeypatch):
+        """A finalize failure while computing the deferred append also rolls back.
+
+        Test scenario:
+            Build the ``compute=False`` delayed, then compute it with the finalize
+            monkeypatched to raise — expected: the exception propagates from
+            ``_append_region`` and the store's ``data`` shape is rolled back.
+        """
+        store = str(tmp_path / "atomic_false.zarr")
+        self._col(tmp_path, [1, 2], "a").to_zarr(store)
+        before = zarr.open_group(store, mode="r")["data"].shape
+        monkeypatch.setattr(
+            "pyramids.dataset.collection._finalize_append_metadata", self._boom
+        )
+        delayed = self._col(tmp_path, [3, 4, 5], "b").to_zarr(
+            store, mode="a", append_dim="time", compute=False
+        )
+        with pytest.raises(RuntimeError, match="boom"):
+            delayed.compute(scheduler="synchronous")
+        after = zarr.open_group(store, mode="r")["data"].shape
+        assert after == before, f"shape not rolled back: {before} -> {after}"
+
+    @requires_zarr
+    def test_compute_false_append_succeeds(self, tmp_path):
+        """Computing the deferred append grows the store and updates time_length.
+
+        Test scenario:
+            Build the ``compute=False`` delayed and compute it (no injected
+            failure) — expected: the store round-trips 5 ordered timesteps, so the
+            ``_append_region`` success path and its finalize both ran.
+        """
+        store = str(tmp_path / "deferred_ok.zarr")
+        self._col(tmp_path, [1, 2], "a").to_zarr(store)
+        delayed = self._col(tmp_path, [3, 4, 5], "b").to_zarr(
+            store, mode="a", append_dim="time", compute=False
+        )
+        delayed.compute(scheduler="synchronous")
+        rt = DatasetCollection.from_zarr(store)
+        assert rt.time_length == 5, f"time_length {rt.time_length}"
+        means = [float(rt.data.compute()[i].mean()) for i in range(5)]
+        assert means == [1.0, 2.0, 3.0, 4.0, 5.0], f"means {means}"
+
+    @requires_zarr
+    def test_compute_false_recompute_is_idempotent(self, tmp_path):
+        """Computing the deferred append twice does not double-append (L2).
+
+        Test scenario:
+            Build the ``compute=False`` delayed and compute it twice — expected: a
+            recompute is a no-op, so the store stays at 5 ordered timesteps with a
+            5-entry ``pyramids_file_list``, not a grown shape or duplicated file list.
+        """
+        store = str(tmp_path / "recompute.zarr")
+        self._col(tmp_path, [1, 2], "a").to_zarr(store)
+        delayed = self._col(tmp_path, [3, 4, 5], "b").to_zarr(
+            store, mode="a", append_dim="time", compute=False
+        )
+        delayed.compute(scheduler="synchronous")
+        delayed.compute(scheduler="synchronous")
+        rt = DatasetCollection.from_zarr(store)
+        assert rt.time_length == 5, f"time_length {rt.time_length}"
+        file_list = list(
+            zarr.open_group(store, mode="r").attrs.get("pyramids_file_list", [])
+        )
+        assert len(file_list) == 5, (
+            f"file list should stay length 5, got {len(file_list)}"
+        )
+        means = [float(rt.data.compute()[i].mean()) for i in range(5)]
+        assert means == [1.0, 2.0, 3.0, 4.0, 5.0], f"means {means}"
+
+    @requires_zarr
+    def test_compute_false_append_default_scheduler(self, tmp_path):
+        """The deferred append computes under the default scheduler without deadlock.
+
+        Test scenario:
+            Compute the ``compute=False`` delayed with a bare ``.compute()`` (the
+            default threaded scheduler a real caller gets, not ``scheduler=
+            "synchronous"``) — expected: it returns and the store round-trips 5
+            ordered timesteps. ``_append_region`` drives its inner write on the
+            synchronous scheduler, so the nested compute cannot deadlock the outer
+            worker pool (M1).
+        """
+        store = str(tmp_path / "deferred_default.zarr")
+        self._col(tmp_path, [1, 2], "a").to_zarr(store)
+        delayed = self._col(tmp_path, [3, 4, 5], "b").to_zarr(
+            store, mode="a", append_dim="time", compute=False
+        )
+        delayed.compute()
+        rt = DatasetCollection.from_zarr(store)
+        assert rt.time_length == 5, f"time_length {rt.time_length}"
+        means = [float(rt.data.compute()[i].mean()) for i in range(5)]
+        assert means == [1.0, 2.0, 3.0, 4.0, 5.0], f"means {means}"
+
+    @requires_zarr
+    def test_append_dim_not_time_raises(self, tmp_path):
+        """An append_dim other than 'time' raises ValueError (a (T,B,Y,X) cube guard).
+
+        Test scenario:
+            ``append_dim='band'`` on an existing store — expected: ValueError
+            stating the append dim must be ``'time'``.
+        """
+        store = str(tmp_path / "wrong_dim.zarr")
+        self._col(tmp_path, [1, 2], "a").to_zarr(store)
+        col = self._col(tmp_path, [3], "b")
+        with pytest.raises(ValueError, match="append_dim must be 'time'"):
+            col.to_zarr(store, mode="a", append_dim="band")

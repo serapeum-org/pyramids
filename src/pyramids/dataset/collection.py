@@ -12,10 +12,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
+from pyproj import CRS
 
 from pyramids import _io
-from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
+from pyramids.base._locks import default_lock
 from pyramids.base._raster_meta import RasterMeta
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
@@ -38,10 +40,12 @@ from pyramids.dataset.ops._geobox_zarr import (
     read_geobox,
 )
 from pyramids.dataset.ops._zarr import _resolve_store
+from pyramids.dataset.ops.io import _read_chunk
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
     from cleopatra.array_glyph import ArrayGlyph
+    from dask.delayed import Delayed
 
 
 class _GroupedCollection:
@@ -232,6 +236,23 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
     )
 
 
+def _crs_equal(a: CRS, b: CRS) -> bool:
+    """Return True if two CRS describe the same reference system (N2).
+
+    ``pyproj.CRS.__eq__`` is strict: a file carrying an EPSG code and one carrying
+    only an equivalent WKT string — so :meth:`RasterMeta.from_dataset` builds one via
+    ``CRS.from_epsg`` and the other via ``CRS.from_wkt`` — can compare unequal even
+    though the grids are co-registered. Treat them as equal when both resolve to the
+    same EPSG code, falling back to pyproj's own equality otherwise. Used by
+    :meth:`DatasetCollection._validate_headers` so a valid input is not rejected on a
+    cosmetic CRS-encoding difference.
+    """
+    if a == b:
+        return True
+    epsg_a, epsg_b = a.to_epsg(), b.to_epsg()
+    return epsg_a is not None and epsg_a == epsg_b
+
+
 def _finalize_append_metadata(
     resolved_store, new_time_length: int, added_files: list
 ) -> None:
@@ -259,12 +280,56 @@ def _finalize_append_metadata(
         zarr.consolidate_metadata(resolved_store)
 
 
-def _finalize_append_after_write(
-    data_result, resolved_store, new_time_length, added_files
+def _append_region(
+    data, resolved_store, old_t: int, new_total: int, slices, added_files
 ) -> None:
-    """Run :func:`_finalize_append_metadata` after the appended data write."""
-    del data_result
-    _finalize_append_metadata(resolved_store, new_time_length, added_files)
+    """Atomically grow, stream-write, and finalize a zarr time-append (ARC-75a).
+
+    The deferred (``compute=False``) append routes through this single task so the
+    store's ``data`` shape only grows when the append actually runs; on any failure
+    the resize is rolled back, so the store never advertises a larger shape than it
+    holds. ``data`` stays a lazy dask array and is **streamed** into the region via
+    ``to_zarr(..., compute=False)`` (never materialising the whole appended cube, M2).
+    The caller must keep ``data`` lazy (capture it in a closure), not pass it as a
+    delayed argument (which dask would compute up front).
+
+    This function runs *inside* a ``dask.delayed`` task, so it drives the region write
+    with an explicit ``scheduler="synchronous"`` compute: a nested threaded /
+    distributed compute from within a running task can deadlock (a worker thread
+    blocking on the same pool while several deferred appends are computed together).
+    The synchronous scheduler runs the write inline in this task's thread — still
+    streaming tile-by-tile — so the deferred append is safe under any outer scheduler
+    (M1). Passing the scheduler to ``.compute`` keeps the choice call-local (no global
+    ``dask.config`` mutation that could race with sibling tasks).
+
+    Idempotent under recompute: a dask ``Delayed`` re-executes on every ``.compute()``.
+    If a prior successful compute already grew the store to ``new_total``, this returns
+    early instead of re-writing and double-appending to ``pyramids_file_list`` (L2); a
+    prior *failed* compute rolled the resize back to ``old_t``, so a retry proceeds.
+    """
+    import zarr
+
+    root = zarr.open_group(resolved_store, mode="a")
+    arr = root["data"]
+    if not isinstance(
+        arr, zarr.Array
+    ):  # to_zarr writes 'data' as an Array, not a Group
+        raise TypeError(f"expected a zarr Array at 'data' in {resolved_store!r}")
+    if int(arr.shape[0]) == new_total:
+        # dask Delayeds re-execute on every .compute(); a prior successful compute of
+        # THIS append already grew the store to new_total and finalized. Make a
+        # recompute a no-op so it doesn't double-append to pyramids_file_list (L2). A
+        # failed prior compute rolled the resize back to old_t, so a retry still finds
+        # old_t here and proceeds normally.
+        return
+    arr.resize((new_total, *arr.shape[1:]))
+    try:
+        store_task = data.to_zarr(arr, region=slices, overwrite=False, compute=False)
+        store_task.compute(scheduler="synchronous")
+        _finalize_append_metadata(resolved_store, new_total, added_files)
+    except Exception:
+        arr.resize((old_t, *arr.shape[1:]))
+        raise
 
 
 def _region_to_slices(region: dict, ndim: int) -> tuple:
@@ -296,62 +361,79 @@ def _finalize_after_write(data_result, resolved_store, meta, files) -> None:
     _finalize_collection_metadata(resolved_store, meta, files)
 
 
-def _read_time_step(
-    path: str | Path, gdal_env: dict[str, str] | None = None
-) -> np.typing.NDArray:
-    """Synchronous per-file reader used by the lazy `data` dask graph.
+def _lazy_timestep(
+    path: str | Path, meta: RasterMeta, gdal_env: dict[str, str] | None, lock: Any
+):
+    """Build a spatially-tiled ``(B, Y, X)`` dask array for one timestep (ARC-45).
 
-    Module-level (not a closure) so each
-    :func:`dask.delayed` task pickles as `(_read_time_step, path, gdal_env)`
-    — no live GDAL handle crosses the wire, only the path and a plain
-    config dict.
+    Reuses :func:`pyramids.dataset.ops.io._read_chunk`, so each dask block reads only
+    its own window (``ReadAsArray(xoff, yoff, xsize, ysize)``) through a path-keyed
+    :class:`CachingFileManager`. Stacking these along time gives a ``(T, B, Y, X)``
+    cube tiled on ``(Y, X)`` — so a time-axis reduction tiles spatially instead of
+    holding whole rasters, and a single raster larger than RAM is read tile-by-tile
+    instead of failing outright. Module-level so the graph stays pickle-safe (only
+    the path + config dict cross the wire).
 
     Args:
-        path: The backing file path for this timestep.
-        gdal_env: H4 — the collection's persisted signer GDAL config
-            (Requester-Pays / bearer / SAS), installed inside the worker
-            around the open + read so a signed file-backed collection
-            authenticates its Path B reads. A no-op when empty/`None`
-            (the common, unsigned case pays nothing).
+        path: The backing file for this timestep.
+        meta: The collection's picklable :class:`RasterMeta` (shape / dtype / native
+            block size), assumed uniform across timesteps.
+        gdal_env: The collection's persisted signer GDAL config, installed inside each
+            worker around the open + read (a no-op when empty).
+        lock: The IO lock guarding this file's shared GDAL handle. Callers pass one
+            lock per distinct path so duplicate-path timesteps (which share a
+            `FILE_CACHE` slot) serialise their tile reads on the same handle (L4).
 
-    Routes the per-file open through a fresh
-    :class:`CachingFileManager` whose `manager_id` is the path
-    itself, so two calls for the same path resolve to the same
-    :data:`FILE_CACHE` slot and share one cached `gdal.Dataset`.
-    The shared LRU bounds open file descriptors (default 128,
-    overridable via `PYRAMIDS_FILE_CACHE_MAXSIZE`) and evicts the
-    least-recently-used handle when full — so a long-running
-    process scanning many file lists no longer leaks handles or
-    manager objects.
-
-    The path is normalised to ``str`` before key construction so
-    callers passing ``pathlib.Path`` and ``str`` for the same file
-    hit one cache slot, not two — avoiding silent FILE_CACHE
-    fragmentation under mixed-type call sites.
-
-    The read runs inside :meth:`CachingFileManager.acquire_context`,
-    which pins the cache slot: a cube of more than ``maxsize`` files
-    keeps the LRU under constant pressure, and an unpinned handle can
-    be evicted and closed by another worker's insert while this read
-    is still going through it.
+    Returns:
+        dask.array.Array: A lazy ``(B, Y, X)`` array tiled on the spatial axes.
     """
-    path = str(path)
-    with cloud_config_from_env(gdal_env):
-        manager = CachingFileManager(
-            gdal_raster_open,
-            path,
-            "read_only",
-            lock=False,
-            manager_id=path,
-        )
-        with manager.acquire_context() as handle:
-            band_count = handle.RasterCount
-            if band_count == 1:
-                arr = handle.GetRasterBand(1).ReadAsArray()
-                arr = arr[np.newaxis, :, :]
-            else:
-                arr = handle.ReadAsArray()
-    return np.ascontiguousarray(arr)
+    import dask.array as da
+    from dask.array.core import normalize_chunks
+
+    band_count, rows, cols = meta.shape
+    dtype = np.dtype(meta.dtype)
+    block_w, block_h = meta.block_size[0] if meta.block_size else (cols, rows)
+    normalized = normalize_chunks(
+        "auto",
+        shape=(band_count, rows, cols),
+        dtype=dtype,
+        previous_chunks=(1, block_h, block_w),
+    )
+    manager = CachingFileManager(
+        gdal_raster_open, str(path), "read_only", lock=False, manager_id=str(path)
+    )
+    return da.map_blocks(
+        _read_chunk,
+        chunks=normalized,
+        dtype=dtype,
+        meta=np.empty((0, 0, 0), dtype=dtype),
+        manager=manager,
+        lock=lock,
+        band=None,
+        out_dtype=dtype,
+        single_band=False,
+        gdal_env=gdal_env or None,
+    )
+
+
+# Above this in-RAM (T, B, Y, X) size, DatasetCollection.to_netcdf warns and points
+# the caller at the streaming to_zarr writer (ARC-46). Default 2 GiB.
+_TO_NETCDF_WARN_BYTES = 2 * 1024**3
+
+
+def _target_epsg(to_epsg: int | str | Any) -> int | None:
+    """Return the integer EPSG for ``to_epsg``, or ``None`` for a non-EPSG CRS.
+
+    Lets :meth:`DatasetCollection.to_crs` decide whether the plan-once
+    :class:`~pyramids.dataset.ops.reproject.Reprojector` (int-EPSG only) applies, or
+    the direct per-timestep path must handle a target CRS with no EPSG code (ARC-54).
+    """
+    if isinstance(to_epsg, int):
+        return to_epsg
+    try:
+        return CRS.from_user_input(to_epsg).to_epsg()
+    except Exception:  # pragma: no cover - defensive against odd CRS inputs
+        return None
 
 
 class DatasetCollection:
@@ -400,8 +482,8 @@ class DatasetCollection:
     Path B — dask graph over file paths (``self._files``)
         Backing store is a list of file path strings. The ``data``
         property assembles a ``dask.array.Array`` of shape
-        ``(time, bands, rows, cols)`` from
-        ``[dask.delayed(_read_time_step)(p) for p in self._files]``.
+        ``(time, bands, rows, cols)`` by stacking a spatially-tiled
+        per-timestep array (:func:`_lazy_timestep`) along time.
         Workers re-open each path on demand via a process-cached
         ``CachingFileManager`` — gdal handles never cross the
         pickle boundary, only path strings do. This is what makes
@@ -522,6 +604,10 @@ class DatasetCollection:
         self._datasets: list[Dataset] | None = (
             list(datasets) if datasets is not None else None
         )
+        # Lazy per-index handle cache for the point accessors (first/last/iloc/[i]),
+        # so reading one timestep opens one file instead of all N via `datasets`
+        # (ARC-44). Only used before the bulk `_datasets` list is materialised.
+        self._handle_cache: dict[int, Dataset] = {}
 
     def __getstate__(self):
         """Pickle state — drop the lazy `_datasets` cache.
@@ -533,6 +619,7 @@ class DatasetCollection:
         """
         state = self.__dict__.copy()
         state["_datasets"] = None
+        state["_handle_cache"] = {}
         return state
 
     @property
@@ -569,7 +656,39 @@ class DatasetCollection:
                     ]
             else:
                 self._datasets = [self._base] * self._time_length
+            # The bulk list supersedes the per-index point-accessor cache; drop it so
+            # a file opened by first/last/iloc is not held open twice (L2).
+            self._handle_cache.clear()
         return self._datasets
+
+    def _dataset_at(self, i: int) -> Dataset:
+        """Return the single timestep at index ``i``, opening only that file (ARC-44).
+
+        For a file-backed collection this opens (and caches) just index ``i``'s
+        handle instead of materialising all N via the :attr:`datasets` property — so
+        :meth:`first` / :meth:`last` / :meth:`iloc` / ``collection[i]`` read one file,
+        not the whole set. Once the bulk cache exists (or for a legacy in-memory
+        collection) it defers to that.
+
+        Args:
+            i: Timestep index; negatives count from the end.
+
+        Returns:
+            Dataset: The handle at position ``i``.
+        """
+        if self._datasets is not None:
+            return self._datasets[i]
+        if self._files is None:
+            # Legacy `DatasetCollection(src, time_length=N)`: every slot is the base.
+            return self._base
+        idx = range(self._time_length)[i]  # normalise negatives + bounds-check
+        handle = self._handle_cache.get(idx)
+        if handle is None:
+            env = self._gdal_env or None
+            with cloud_config_from_env(self._gdal_env):
+                handle = Dataset.read_file(str(self._files[idx]), gdal_env=env)
+            self._handle_cache[idx] = handle
+        return handle
 
     def __str__(self):
         """__str__."""
@@ -797,20 +916,9 @@ class DatasetCollection:
 
         reduced = getattr(self.groupby(window_labels), op)(skipna=skipna)
 
-        geo = self._base.geotransform
-        # epsg is None only for a no-EPSG CRS reported as such (a NetCDF geostationary
-        # grid); create_from_array raises CRSError on None, so fall back to the WKT.
-        # A no-EPSG plain Dataset reports 4326, where this is a no-op (#706).
-        epsg = self._base.epsg or self._base.crs
-        no_data_value = self._base.no_data_value[0]
         result: list[tuple[Any, Dataset]] = []
         for label in sorted(reduced):
-            dataset = Dataset.create_from_array(
-                np.asarray(reduced[label]),
-                geo=geo,
-                epsg=epsg,
-                no_data_value=no_data_value,
-            )
+            dataset = self._mem_dataset_from_array(np.asarray(reduced[label]))
             result.append((label, dataset))
         return result
 
@@ -819,6 +927,59 @@ class DatasetCollection:
         func = resolve_dask_op(op_name, skipna=skipna)
         result = func(self.data, axis=0)
         return np.asarray(result.compute())
+
+    def _mem_dataset_from_array(
+        self, arr: np.typing.NDArray, source: Dataset | None = None
+    ) -> Dataset:
+        """Build an in-memory ``Dataset`` from ``arr``, reusing a source's georef.
+
+        Preserves ``arr``'s own dtype — cloning the template would cast through the
+        base's dtype and silently lossy-round (e.g. a float32 base rounding a float64
+        input). ``source`` defaults to the collection's base template; pass a
+        per-timestep dataset (e.g. from :meth:`iloc`) when writing slices at their
+        own georeferencing.
+
+        Args:
+            arr: The array to wrap.
+            source: The ``Dataset`` whose geotransform / CRS / no-data value are
+                copied. Defaults to ``self._base``.
+
+        Returns:
+            Dataset: A new in-memory dataset carrying ``arr``'s dtype and
+            ``source``'s georeferencing.
+        """
+        src = self._base if source is None else source
+        # epsg is None only for a no-EPSG CRS reported as such (a NetCDF geostationary
+        # grid); create_from_array raises CRSError on None, so fall back to the WKT.
+        # No-op for a plain Dataset (reports 4326) (#706).
+        return Dataset.create_from_array(
+            arr,
+            geo=src.geotransform,
+            epsg=src.epsg or src.crs,
+            no_data_value=src.no_data_value[0],
+        )
+
+    def _require_files(self, method: str) -> list[str]:
+        """Guard a method that needs a file-backed collection.
+
+        Args:
+            method: The public method name, interpolated into the error message.
+
+        Returns:
+            list[str]: The collection's non-empty ``files`` list (also narrows the
+            type for the caller).
+
+        Raises:
+            RuntimeError: The collection has no ``files`` list (a legacy in-memory
+                cube). The ``data`` property, which also accepts a Zarr-backed cube,
+                keeps its own broader guard.
+        """
+        if self._files is None or len(self._files) == 0:
+            raise RuntimeError(
+                f"DatasetCollection.{method} requires a file-backed collection. "
+                "Use DatasetCollection.from_files(...) to construct one."
+            )
+        return self._files
 
     def mean(self, *, skipna: bool = True) -> np.typing.NDArray:
         """Element-wise mean across the time axis.
@@ -857,12 +1018,12 @@ class DatasetCollection:
     def data(self) -> Any:
         """Return a lazy `dask.array.Array` of shape `(T, B, R, C)`.
 
-        Each per-file read is scheduled as a
-        :func:`dask.delayed` task that opens the file via
-        :class:`~pyramids.base._file_manager.CachingFileManager`
-         and reads its full array. Workers therefore never
-        serialise a `gdal.Dataset` — only the file path crosses the
-        pickle boundary, which keeps the graph safe under dask.distributed.
+        Each timestep is a spatially-tiled dask array whose blocks read only their
+        own window via :class:`~pyramids.base._file_manager.CachingFileManager`
+        (see :func:`_lazy_timestep`), stacked along time — so a time-axis reduction
+        tiles spatially and a raster larger than RAM is read tile-by-tile rather than
+        all at once. Workers never serialise a `gdal.Dataset`; only the file path
+        crosses the pickle boundary, keeping the graph safe under dask.distributed.
 
         Raises:
             ImportError: If the optional `dask` extra is not
@@ -877,7 +1038,6 @@ class DatasetCollection:
                 "DatasetCollection.from_zarr(...) to construct one."
             )
         try:
-            import dask
             import dask.array as da
         except ImportError as exc:
             raise OptionalPackageDoesNotExist(
@@ -893,13 +1053,26 @@ class DatasetCollection:
         # self._zarr_store is None.
         assert self._files is not None
         meta = self._meta
-        shape = meta.shape
-        dtype = np.dtype(meta.dtype)
-        delayed_reads = [
-            dask.delayed(_read_time_step)(path, self._gdal_env) for path in self._files
+        # ARC-45: build each timestep as a spatially-tiled dask array (windowed reads
+        # via _read_chunk) and stack along time, so a reduction tiles spatially and a
+        # single raster larger than RAM is read tile-by-tile instead of all at once.
+        # One IO lock per distinct path (L4): duplicate paths share a FILE_CACHE
+        # handle, so their tile reads must serialise on the same lock. The lock is
+        # keyed by a path-derived token (L1) so *separate* `.data` graphs over the
+        # same path share one underlying mutex too (SerializableLock dedupes by
+        # token process-wide) — not just chunks within this one graph. The local
+        # dict keeps object identity within this graph.
+        path_locks: dict[str, Any] = {}
+        per_step = [
+            _lazy_timestep(
+                path,
+                meta,
+                self._gdal_env,
+                path_locks.setdefault(str(path), default_lock(f"data:{path}")),
+            )
+            for path in self._files
         ]
-        arrays = [da.from_delayed(d, shape=shape, dtype=dtype) for d in delayed_reads]
-        return da.stack(arrays, axis=0)
+        return da.stack(per_step, axis=0)
 
     @property
     def meta(self) -> RasterMeta:
@@ -944,19 +1117,14 @@ class DatasetCollection:
             ImportError: When kerchunk is not installed.
             RuntimeError: When the collection has no files list.
         """
-        if self._files is None or len(self._files) == 0:
-            raise RuntimeError(
-                "DatasetCollection.to_kerchunk requires a file-backed "
-                "collection. Use DatasetCollection.from_files(...) to "
-                "construct one."
-            )
+        files = self._require_files("to_kerchunk")
         # current backend only handles HDF5 / NetCDF. Detect
         # GeoTIFF inputs and raise a clear NotImplementedError rather
         # than letting kerchunk.hdf produce a confusing failure mode.
         geotiff_exts = {".tif", ".tiff", ".cog"}
         geotiff_files = [
             p
-            for p in self._files
+            for p in files
             if any(str(p).lower().endswith(ext) for ext in geotiff_exts)
         ]
         if geotiff_files:
@@ -970,7 +1138,7 @@ class DatasetCollection:
         from pyramids.netcdf._kerchunk_facade import combine_kerchunk
 
         return combine_kerchunk(
-            self._files,
+            files,
             output_path,
             concat_dims=(concat_dim,),
             identical_dims=(),
@@ -1000,7 +1168,11 @@ class DatasetCollection:
         Args:
             store: Target store (path, fsspec URL, or zarr.Store).
             compute: `True` (default) writes immediately; `False`
-                returns a :class:`dask.delayed.Delayed`.
+                returns a :class:`dask.delayed.Delayed`. For an ``append_dim``
+                write the deferred task streams the region write on the
+                synchronous scheduler internally, so the returned `Delayed` is
+                safe to compute under any scheduler (threaded / distributed)
+                without a nested-compute deadlock.
             mode: Zarr open mode. ``"w"`` (default) writes a fresh cube;
                 ``"a"`` is only valid together with ``append_dim`` or ``region``
                 (incremental writes — see those args). ``mode="a"`` on its own
@@ -1026,12 +1198,7 @@ class DatasetCollection:
                 installed.
             RuntimeError: When the collection has no files list.
         """
-        if self._files is None or len(self._files) == 0:
-            raise RuntimeError(
-                "DatasetCollection.to_zarr requires a file-backed "
-                "collection. Use DatasetCollection.from_files(...) to "
-                "construct one."
-            )
+        files = self._require_files("to_zarr")
         import_zarr(
             lazy_extra_hint(
                 "DatasetCollection.to_zarr requires the optional 'zarr' dependency."
@@ -1070,7 +1237,7 @@ class DatasetCollection:
             **codec_kwargs,
         )
         if compute:
-            _finalize_collection_metadata(resolved_store, self._meta, self._files)
+            _finalize_collection_metadata(resolved_store, self._meta, files)
             result: Any = None
         else:
             import dask
@@ -1079,7 +1246,7 @@ class DatasetCollection:
                 write_result,
                 resolved_store,
                 self._meta,
-                self._files,
+                files,
             )
         return result
 
@@ -1110,21 +1277,35 @@ class DatasetCollection:
             )
         old_t = int(existing.shape[0])
         new_total = old_t + int(data.shape[0])
-        existing.resize((new_total, *existing.shape[1:]))
         slices = (slice(old_t, new_total),) + (slice(None),) * (data.ndim - 1)
-        # dask's region write targets the zarr.Array directly (not store+component).
-        write_result = data.to_zarr(
-            existing,
-            region=slices,
-            overwrite=False,
-            compute=compute,
-        )
+
         if compute:
-            _finalize_append_metadata(resolved_store, new_total, self._files)
+            # Grow the time axis, stream the append, then finalize. On any failure
+            # roll the resize back so the store never advertises a larger shape than
+            # it holds (ARC-75a). dask's region write targets the zarr.Array directly.
+            existing.resize((new_total, *existing.shape[1:]))
+            try:
+                data.to_zarr(existing, region=slices, overwrite=False, compute=True)
+                _finalize_append_metadata(resolved_store, new_total, self._files)
+            except Exception:
+                existing.resize((old_t, *existing.shape[1:]))
+                raise
             return None
-        return dask.delayed(_finalize_append_after_write)(
-            write_result, resolved_store, new_total, self._files
-        )
+
+        # compute=False: defer the resize+write+finalize into one task, capturing
+        # `data` in a closure so it stays a lazy dask array streamed inside the write
+        # (M2) — passing it as a delayed argument would make dask compute the whole
+        # appended cube into memory first. No window where a grown-but-empty store is
+        # visible, and rollback on failure (ARC-75a). _append_region drives the inner
+        # write with scheduler="synchronous" so computing this Delayed can't deadlock
+        # under a threaded/distributed outer scheduler (M1).
+        files = self._files
+
+        @dask.delayed
+        def _deferred_append() -> None:
+            _append_region(data, resolved_store, old_t, new_total, slices, files)
+
+        return _deferred_append()
 
     def to_netcdf(
         self,
@@ -1296,6 +1477,20 @@ class DatasetCollection:
             else [f"band_{i + 1}" for i in range(band_count)]
         )
 
+        # ARC-46: this writer stacks the whole (T, B, Y, X) cube in RAM and xarray
+        # copies it again. Warn (pointing at the streaming to_zarr writer) when that
+        # allocation would be large, rather than OOM without explanation.
+        est_bytes = (
+            self.time_length * int(np.prod(meta.shape)) * np.dtype(meta.dtype).itemsize
+        )
+        if est_bytes > _TO_NETCDF_WARN_BYTES:
+            warnings.warn(
+                f"DatasetCollection.to_netcdf materialises the full (T, B, Y, X) cube "
+                f"in memory (~{est_bytes / 1024**3:.1f} GiB here, then copied again by "
+                f"xarray). For large cubes prefer DatasetCollection.to_zarr, which "
+                f"streams the cube chunk-by-chunk.",
+                stacklevel=2,
+            )
         # Per-timestep read_array() returns (rows, cols) for a single-band
         # dataset and (bands, rows, cols) for multi-band, so np.stack gives
         # (T, rows, cols) or (T, bands, rows, cols). Insert a length-1 band
@@ -1544,6 +1739,7 @@ class DatasetCollection:
         *,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
+        validate: bool = False,
     ) -> DatasetCollection:
         """Build a collection from a list of files without pre-opening all.
 
@@ -1562,6 +1758,12 @@ class DatasetCollection:
                 files, including the eager template open below. Persisted
                 on the collection for the lazy read paths. `None` (default)
                 installs no extra config.
+            validate: When `True`, open every file's header (no pixel read) and check
+                its `(band, rows, cols)` shape and dtype against the template — a
+                heterogeneous file raises `AlignmentError` at construction instead of
+                silently corrupting the lazy cube (whose dask assembly trusts the
+                first file's shape/dtype). Defaults to `False`, preserving the lazy
+                "only open the first file" design.
 
         Returns:
             DatasetCollection: A new collection whose `time_length`
@@ -1569,6 +1771,8 @@ class DatasetCollection:
 
         Raises:
             ValueError: When `files` is empty.
+            AlignmentError: When `validate=True` and a file's header does not match
+                the template's shape/dtype.
         """
         resolved = [str(p) for p in files]
         if not resolved:
@@ -1581,9 +1785,56 @@ class DatasetCollection:
             template = Dataset.read_file(resolved[0], gdal_env=gdal_env)
             if meta is None:
                 meta = RasterMeta.from_dataset(template)
+        if validate:
+            cls._validate_headers(resolved, meta, gdal_env)
         return cls(
             template, len(resolved), files=resolved, meta=meta, gdal_env=gdal_env
         )
+
+    @staticmethod
+    def _validate_headers(
+        files: list[str], meta: RasterMeta, gdal_env: dict[str, str] | None
+    ) -> None:
+        """Check every file's header (shape, dtype, geotransform, CRS) matches ``meta``.
+
+        Reads each file's header only (no pixels) and raises :class:`AlignmentError`
+        on the first mismatch, naming the offending path — so a heterogeneous or
+        misaligned input fails at construction instead of silently corrupting the lazy
+        cube (which stacks per-file pixels positionally and stamps only the first
+        file's geobox on every timestep). Geotransform and CRS are checked as well as
+        shape/dtype, since two same-shape rasters with a shifted extent or a different
+        CRS would otherwise mis-georeference the cube. Opt-in via
+        ``from_files(validate=True)`` because it touches every file.
+
+        Raises:
+            AlignmentError: A file's shape, dtype, geotransform, or CRS does not match
+                the template.
+        """
+        expected_dtype = str(np.dtype(meta.dtype))
+        with cloud_config_from_env(gdal_env):
+            for path in files:
+                ds = Dataset.read_file(path, gdal_env=gdal_env)
+                try:
+                    fm = RasterMeta.from_dataset(ds)
+                finally:
+                    ds.close()
+                if fm.shape != meta.shape:
+                    mismatch = f"shape {fm.shape} != {meta.shape}"
+                elif str(np.dtype(fm.dtype)) != expected_dtype:
+                    mismatch = f"dtype {np.dtype(fm.dtype)} != {expected_dtype}"
+                elif not np.allclose(
+                    fm.transform, meta.transform, rtol=1e-9, atol=1e-6
+                ):
+                    mismatch = f"geotransform {fm.transform} != {meta.transform}"
+                elif not _crs_equal(fm.crs, meta.crs):
+                    mismatch = f"CRS {fm.crs.to_string()} != {meta.crs.to_string()}"
+                else:
+                    continue
+                raise AlignmentError(
+                    f"header mismatch in {path!r}: {mismatch}. All files in a "
+                    f"DatasetCollection must share (band, rows, cols), dtype, "
+                    f"geotransform, and CRS."
+                )
 
     @classmethod
     def from_zarr(
@@ -1976,26 +2227,12 @@ class DatasetCollection:
                 f"({self._time_length}, {self.rows}, {self.columns}); "
                 f"please redefine the base Dataset and dataset_length first"
             )
-        # Build a fresh MEM Dataset per timestep using the INPUT
-        # dtype (not the base template's). Cloning the base preserves
-        # geo-ref but forces a dtype cast that silently lossy-rounds
-        # if the base is e.g. float32 and the input is float64.
-        # Using ``Dataset.create_from_array`` gives us the input
-        # dtype back verbatim and reuses the base's georef explicitly.
-        from pyramids.dataset.dataset import Dataset as _Dataset
-
-        new_datasets = []
-        for i in range(val.shape[0]):
-            ds = _Dataset.create_from_array(
-                arr=val[i],
-                geo=self._base.geotransform,
-                # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
-                # geostationary grid); create_from_array raises CRSError on None, so
-                # fall back to the WKT. No-op for a plain Dataset (reports 4326) (#706).
-                epsg=self._base.epsg or self._base.crs,
-                no_data_value=self._base.no_data_value[0],
-            )
-            new_datasets.append(ds)
+        # Build a fresh MEM Dataset per timestep from the INPUT array via
+        # _mem_dataset_from_array (preserves the input dtype instead of casting
+        # through the base template's dtype).
+        new_datasets = [
+            self._mem_dataset_from_array(val[i]) for i in range(val.shape[0])
+        ]
         self._datasets = new_datasets
         self._time_length = val.shape[0]
         self._files = None
@@ -2038,7 +2275,7 @@ class DatasetCollection:
         # ndarray (the dask.Array arm of ArrayLike is unreachable here); numpy's
         # __getitem__ stub returns Any for a general index.
         if isinstance(key, int):
-            return cast(np.typing.NDArray, self.datasets[key].read_array(band=0))
+            return cast(np.typing.NDArray, self._dataset_at(key).read_array(band=0))
         return cast(np.typing.NDArray, self.values[key])
 
     def __setitem__(self, key: int, value: np.ndarray) -> None:
@@ -2058,22 +2295,11 @@ class DatasetCollection:
                 f"index along the time axis; got {type(key).__name__}. "
                 f"Rebuild the collection if you need bulk replacement."
             )
-        # Materialise the cache (so we have a list to modify) without
-        # building the full cube. Use ``create_from_array`` so the
-        # input array's dtype is preserved (CreateCopy on the base
-        # would cast through whatever dtype the base happened to use).
-        from pyramids.dataset.dataset import Dataset as _Dataset
-
+        # Materialise the cache (so we have a list to modify) without building the
+        # full cube. _mem_dataset_from_array preserves the input array's dtype (a
+        # CreateCopy on the base would cast through the base's dtype).
         datasets = self.datasets
-        datasets[key] = _Dataset.create_from_array(
-            arr=value,
-            geo=self._base.geotransform,
-            # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
-            # geostationary grid); create_from_array raises CRSError on None, so fall
-            # back to the WKT. No-op for a plain Dataset (reports 4326) (#706).
-            epsg=self._base.epsg or self._base.crs,
-            no_data_value=self._base.no_data_value[0],
-        )
+        datasets[key] = self._mem_dataset_from_array(value)
         # The mutation breaks the disk correspondence for that slot;
         # if the user mutates any timestep, the lazy reductions can no
         # longer trust ``_files``. Drop the path list so they fall
@@ -2089,8 +2315,28 @@ class DatasetCollection:
         for ds in self.datasets:
             yield ds.read_array(band=0)
 
+    def _stack_band0(self, datasets: list[Dataset]) -> np.typing.NDArray:
+        """Stack band 0 of each dataset into a ``(len, rows, cols)`` cube.
+
+        Empty-safe: an empty selection returns a ``(0, rows, cols)`` array rather
+        than tripping ``np.stack``'s "need at least one array" error. The empty
+        array carries the collection's own dtype (from :attr:`meta`), not NumPy's
+        default float64, so ``head(0)``/``tail(0)`` match the dtype of a non-empty
+        selection (N1). Lets :meth:`head`/:meth:`tail` read only the selected
+        timesteps instead of materialising the whole cube via :attr:`values`.
+        """
+        if not datasets:
+            return np.empty(
+                (0, self.rows, self.columns), dtype=np.dtype(self._meta.dtype)
+            )
+        return np.stack([ds.read_array(band=0) for ds in datasets], axis=0)
+
     def head(self, n: int = 5) -> np.typing.NDArray:
         """First ``n`` timestep arrays as a 3D numpy slice.
+
+        Reads only the first ``n`` timesteps — each opened on demand via
+        :meth:`_dataset_at`, so a file-backed collection opens ``n`` files rather
+        than all ``time_length`` — instead of materialising the whole cube.
 
         Args:
             n (int): Number of timesteps. Defaults to 5.
@@ -2098,25 +2344,32 @@ class DatasetCollection:
         Returns:
             np.ndarray: ``(min(n, time_length), rows, cols)`` array.
         """
-        return self.values[:n]
+        return self._stack_band0(
+            [self._dataset_at(j) for j in range(self._time_length)[:n]]
+        )
 
     def tail(self, n: int = -5) -> np.typing.NDArray:
-        """Last ``-n`` timestep arrays as a 3D numpy slice.
+        """Last ``abs(n)`` timestep arrays as a 3D numpy slice.
 
-        Matches the legacy signature: a NEGATIVE ``n`` (the default
-        ``-5``) means "last 5". Implementation simply does
-        ``self.values[n:]``, so a positive ``n`` would skip the first
-        ``n`` rows instead — that's the legacy behaviour and left as
-        is for back-compat.
+        Returns the last ``abs(n)`` timesteps regardless of the sign of ``n`` — so
+        both ``tail(5)`` and the legacy default ``tail(-5)`` give the last 5 — and
+        reads only those timesteps rather than materialising the whole cube.
+
+        Note: this corrects the previous behaviour where a *positive* ``n`` skipped
+        the first ``n`` rows instead of returning the last ``n`` (ARC-46). ``tail(0)``
+        returns an empty ``(0, rows, cols)`` array ("last zero"), whereas the old
+        ``values[0:]`` returned every timestep.
 
         Args:
-            n (int): Negative integer giving the offset from the
-                end. Defaults to ``-5`` (last 5).
+            n (int): Number of trailing timesteps; the sign is ignored. Defaults to
+                ``-5`` (last 5).
 
         Returns:
-            np.ndarray: ``(abs(n), rows, cols)`` array (when ``n < 0``).
+            np.ndarray: ``(min(abs(n), time_length), rows, cols)`` array.
         """
-        return self.values[n:]
+        keep = min(abs(n), self.time_length)
+        indices = range(self.time_length - keep, self.time_length)
+        return self._stack_band0([self._dataset_at(j) for j in indices])
 
     def first(self) -> np.typing.NDArray:
         """First timestep array (2D).
@@ -2125,7 +2378,7 @@ class DatasetCollection:
         timestep instead of the full cube.
         """
         # No chunks=, so this always returns a plain ndarray.
-        return cast(np.typing.NDArray, self.datasets[0].read_array(band=0))
+        return cast(np.typing.NDArray, self._dataset_at(0).read_array(band=0))
 
     def last(self) -> np.typing.NDArray:
         """Last timestep array (2D).
@@ -2134,7 +2387,7 @@ class DatasetCollection:
         timestep instead of the full cube.
         """
         # No chunks=, so this always returns a plain ndarray.
-        return cast(np.typing.NDArray, self.datasets[-1].read_array(band=0))
+        return cast(np.typing.NDArray, self._dataset_at(-1).read_array(band=0))
 
     def iloc(self, i: int) -> Dataset:
         """Return the ``Dataset`` at position ``i``.
@@ -2148,7 +2401,7 @@ class DatasetCollection:
             Pixel values are not loaded — they're read on demand when
             the caller invokes a method on the returned Dataset.
         """
-        return self.datasets[i]
+        return self._dataset_at(i)
 
     def plot(
         self,
@@ -2461,16 +2714,7 @@ class DatasetCollection:
 
         for i in range(self.time_length):
             src = self.iloc(i)
-            arr = src.read_array()
-            transient = Dataset.create_from_array(
-                arr=arr,
-                geo=src.geotransform,
-                # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
-                # geostationary grid); create_from_array raises CRSError on None, so
-                # fall back to the WKT. No-op for a plain Dataset (reports 4326) (#706).
-                epsg=src.epsg or src.crs,
-                no_data_value=src.no_data_value[0],
-            )
+            transient = self._mem_dataset_from_array(src.read_array(), source=src)
             transient.to_file(path[i], band=band)
             transient.close()
         self._datasets = None
@@ -2599,7 +2843,9 @@ class DatasetCollection:
         method: str = DEFAULT_RESAMPLING,
         maintain_alignment: bool = False,
         inplace: bool = False,
-    ) -> DatasetCollection | None:
+        *,
+        compute: bool = True,
+    ) -> DatasetCollection | None | Delayed:
         """Reproject every timestep to a target CRS.
 
         Args:
@@ -2623,10 +2869,20 @@ class DatasetCollection:
             inplace (bool):
                 If True, mutate this collection in place and return None.
                 If False (default), return a new `DatasetCollection`.
+            compute (bool):
+                If True (default), reproject every timestep eagerly. If False, defer
+                the whole reproject into one `dask.delayed.Delayed` that builds the
+                reprojected `DatasetCollection` when computed — so a many-raster
+                collection reprojects in a single graph (ARC-54). Keyword-only;
+                cannot be combined with `inplace=True`. The deferred results are
+                MEM-backed (in-memory GDAL warps) and so cannot be pickled to
+                `dask.distributed` workers — compute it on the local / threaded
+                scheduler.
 
         Returns:
-            DatasetCollection | None: New collection when
-            `inplace=False`; `None` when `inplace=True`.
+            DatasetCollection | None | dask.delayed.Delayed: A new collection when
+            `inplace=False`; `None` when `inplace=True`; a `Delayed` when
+            `compute=False`.
 
         Examples:
             - Reproject every timestep to EPSG:3857 and keep the result:
@@ -2642,13 +2898,32 @@ class DatasetCollection:
 
               ```
         """
-        new_datasets = self._apply_per_timestep(
-            "to_crs",
-            to_epsg,
-            method=method,
-            maintain_alignment=maintain_alignment,
-        )
-        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
+        from pyramids.dataset.ops.reproject import Reprojector
+
+        epsg = _target_epsg(to_epsg)
+        if epsg is not None:
+            # Plan-once: build one Reprojector and reuse it across every timestep, so
+            # a compute=False call defers the whole reproject into one dask graph
+            # (ARC-54).
+            op = Reprojector(epsg, method=method, maintain_alignment=maintain_alignment)
+
+            def per_step(ds: Dataset, do_compute: bool) -> Any:
+                return op(ds, compute=do_compute)
+        else:
+            # A target CRS with no EPSG code (orthographic / Robinson / …) cannot go
+            # through Reprojector (int-EPSG only); reproject each timestep directly.
+            def per_step(ds: Dataset, do_compute: bool) -> Any:
+                if do_compute:
+                    return ds.to_crs(
+                        to_epsg, method=method, maintain_alignment=maintain_alignment
+                    )
+                import dask
+
+                return dask.delayed(ds.to_crs)(
+                    to_epsg, method=method, maintain_alignment=maintain_alignment
+                )
+
+        return self._apply_operator(per_step, inplace=inplace, compute=compute)
 
     def crop(
         self,
@@ -2743,8 +3018,8 @@ class DatasetCollection:
         return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
 
     def align(
-        self, alignment_src: Dataset, inplace: bool = False
-    ) -> DatasetCollection | None:
+        self, alignment_src: Dataset, inplace: bool = False, *, compute: bool = True
+    ) -> DatasetCollection | None | Delayed:
         """Align every timestep to `alignment_src`.
 
         Matches the coordinate system, the number of rows and columns,
@@ -2756,10 +3031,18 @@ class DatasetCollection:
             inplace (bool):
                 If True, mutate this collection in place and return None.
                 If False (default), return a new `DatasetCollection`.
+            compute (bool):
+                If True (default), align every timestep eagerly. If False, defer the
+                whole align into one `dask.delayed.Delayed` that builds the aligned
+                `DatasetCollection` when computed (ARC-54). Keyword-only; cannot be
+                combined with `inplace=True`. The deferred results are MEM-backed and
+                cannot be pickled to `dask.distributed` workers — compute it on the
+                local / threaded scheduler.
 
         Returns:
-            DatasetCollection | None: New collection when
-            `inplace=False`; `None` when `inplace=True`.
+            DatasetCollection | None | dask.delayed.Delayed: A new collection when
+            `inplace=False`; `None` when `inplace=True`; a `Delayed` when
+            `compute=False`.
 
         Examples:
             - Align every timestep to a DEM template:
@@ -2771,8 +3054,24 @@ class DatasetCollection:
         """
         if not isinstance(alignment_src, Dataset):
             raise TypeError("alignment_src input should be a Dataset object")
-        new_datasets = self._apply_per_timestep("align", alignment_src)
-        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
+        from pyramids.dataset.ops.reproject import Aligner
+
+        if alignment_src.epsg is not None:
+            # Plan-once: one Aligner reused across every timestep (ARC-54).
+            op = Aligner(alignment_src)
+
+            def per_step(ds: Dataset, do_compute: bool) -> Any:
+                return op(ds, compute=do_compute)
+        else:
+            # A reference with no EPSG code can't go through Aligner; align directly.
+            def per_step(ds: Dataset, do_compute: bool) -> Any:
+                if do_compute:
+                    return ds.align(alignment_src)
+                import dask
+
+                return dask.delayed(ds.align)(alignment_src)
+
+        return self._apply_operator(per_step, inplace=inplace, compute=compute)
 
     def _finalize_per_timestep_result(
         self,
@@ -2802,6 +3101,53 @@ class DatasetCollection:
             new_datasets[0],
             time_length=len(new_datasets),
             datasets=new_datasets,
+        )
+
+    def _apply_operator(
+        self, per_step: Any, *, inplace: bool, compute: bool
+    ) -> DatasetCollection | None | Delayed:
+        """Apply a per-timestep reproject/align op, eagerly or as a deferred graph.
+
+        ``per_step(ds, compute)`` returns a :class:`~pyramids.dataset.Dataset` when
+        ``compute`` is ``True`` and a :class:`dask.delayed.Delayed` when ``False``.
+        Eager results are finalised into a collection (respecting ``inplace``); the
+        deferred path returns a ``Delayed`` that builds the whole reprojected /
+        aligned collection when computed — so a 365-raster reproject is assembled into
+        one dask graph and computed once (ARC-54).
+
+        Raises:
+            ValueError: ``compute=False`` combined with ``inplace=True``.
+            OptionalPackageDoesNotExist: ``compute=False`` without the ``dask`` extra.
+        """
+        if compute:
+            new_datasets = [per_step(ds, True) for ds in self.datasets]
+            return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
+        if inplace:
+            raise ValueError("compute=False cannot be combined with inplace=True.")
+        try:
+            import dask
+        except ImportError as exc:
+            raise OptionalPackageDoesNotExist(
+                lazy_extra_hint(
+                    "DatasetCollection.to_crs / align (compute=False) requires the "
+                    "optional 'dask' dependency."
+                )
+            ) from exc
+        delayeds = [per_step(ds, False) for ds in self.datasets]
+        return cast(
+            "Delayed",
+            dask.delayed(DatasetCollection._collection_from_datasets)(delayeds),
+        )
+
+    @staticmethod
+    def _collection_from_datasets(datasets: list[Dataset]) -> DatasetCollection:
+        """Wrap computed per-timestep Datasets into a collection (compute=False path).
+
+        A staticmethod so the ``compute=False`` reproject / align
+        :func:`dask.delayed` can pickle it by qualified name.
+        """
+        return DatasetCollection(
+            datasets[0], time_length=len(datasets), datasets=datasets
         )
 
     def merge(
