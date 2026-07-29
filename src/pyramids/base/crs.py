@@ -434,9 +434,14 @@ def epsg_of_crs(wkt: str | None) -> int | None:
 # match the stem rather than one literal.
 LON_UNIT_PREFIXES = ("degrees_e", "degree_e", "degreee")
 LAT_UNIT_PREFIXES = ("degrees_n", "degree_n", "degreen")
+# Units that mark a *projected* spatial axis. Their presence is counter-evidence:
+# a file carrying metre x/y axes is projected, and any degrees arrays alongside
+# them are auxiliary lat/lon coordinates, not the grid's CRS.
+PROJECTED_AXIS_UNITS = ("m", "metre", "meter", "metres", "meters", "km", "kilometre",
+                        "kilometer", "kilometres", "kilometers")
 
 
-def cf_geographic_wkt(units: set[str]) -> str:
+def cf_geographic_wkt(units: set[str], axis_units: set[str] | None = None) -> str:
     """WGS 84 WKT when CF axis units describe a lat/lon grid, else ``""``.
 
     CF-1.x lets a data variable carry no ``grid_mapping``; when its coordinate
@@ -448,8 +453,12 @@ def cf_geographic_wkt(units: set[str]) -> str:
     and no such evidence still reports no CRS.
 
     Args:
-        units: Lower-cased unit strings collected from the dataset's coordinate
-            axes.
+        units: Lower-cased unit strings from every coordinate array, including
+            the 2-D auxiliary lat/lon a curvilinear grid uses.
+        axis_units: Lower-cased unit strings from the true dimension axes only.
+            A linear unit here (`m`, `km`, ...) vetoes the inference: the grid
+            is projected and its degrees arrays are auxiliary coordinates.
+            Defaults to `None` (no veto).
 
     Returns:
         str: WGS 84 WKT when both a longitude and a latitude axis are in degrees,
@@ -481,7 +490,15 @@ def cf_geographic_wkt(units: set[str]) -> str:
     """
     has_lon = any(u.startswith(LON_UNIT_PREFIXES) for u in units)
     has_lat = any(u.startswith(LAT_UNIT_PREFIXES) for u in units)
-    return sr_from_epsg(4326).ExportToWkt() if (has_lon and has_lat) else ""
+    # A linear unit on a real *axis* means the grid is projected, and any degrees
+    # arrays are auxiliary lat/lon coordinates rather than the CRS. Without this
+    # a CF file with metre x/y plus 2-D aux lat/lon and no grid_mapping is
+    # reported as WGS 84 on a metre geotransform. The check looks only at
+    # `axis_units` because a data variable may legitimately be in metres (a ROMS
+    # bathymetry or sea-surface height) on an otherwise geographic grid.
+    projected = any(u in PROJECTED_AXIS_UNITS for u in (axis_units or set()))
+    geographic = has_lon and has_lat and not projected
+    return sr_from_epsg(4326).ExportToWkt() if geographic else ""
 
 
 def crs_spec(epsg: int | None, wkt: str | None) -> int | str | None:

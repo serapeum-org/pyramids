@@ -902,8 +902,13 @@ class NetCDF(Dataset):
         result = ""
         try:
             metadata = self.raster.GetMetadata() or {}
+            # Only NC_GLOBAL attributes count. Stripping the prefix off every key
+            # would let an `epsg` attribute on any *variable* in a foreign file
+            # define the whole dataset's CRS.
             attrs = {
-                key.rsplit("#", 1)[-1].lower(): value for key, value in metadata.items()
+                key.split("#", 1)[1].lower(): value
+                for key, value in metadata.items()
+                if key.upper().startswith("NC_GLOBAL#")
             }
             # A multidim open exposes globals as root-group attributes rather
             # than through GetMetadata(), so consult the group too.
@@ -953,7 +958,17 @@ class NetCDF(Dataset):
             if group is None and self._parent_nc is not None:
                 group = getattr(self._parent_nc, "_gdal_rg_ref", None)
             units: set[str] = set()
+            axis_units: set[str] = set()
             if group is not None and not self._is_geostationary():
+                # A dimension's indexing variable IS an axis; anything else is a
+                # data or auxiliary array. Only the former can veto (see
+                # `cf_geographic_wkt`).
+                for name in group.GetMDArrayNames():
+                    array = group.OpenMDArray(name)
+                    for dimension in array.GetDimensions():
+                        indexing = dimension.GetIndexingVariable()
+                        if indexing is not None and indexing.GetUnit():
+                            axis_units.add(indexing.GetUnit().strip().lower())
                 for name in group.GetMDArrayNames():
                     # 2-D auxiliary lat/lon arrays count as evidence too: a
                     # curvilinear grid stores its geographic coordinates that
@@ -967,7 +982,7 @@ class NetCDF(Dataset):
             # `degree_east`, `degrees_E`, `degreeE`, ...), so match the stem
             # rather than one literal. `_LON_UNITS`/`_LAT_UNITS` mirror the
             # vocabulary `pyramids.netcdf.cf` already accepts.
-            result = cf_geographic_wkt(units)
+            result = cf_geographic_wkt(units, axis_units)
         except Exception:  # noqa: BLE001 - CRS inference must never break a read
             result = ""
         return result
@@ -1023,16 +1038,16 @@ class NetCDF(Dataset):
         if not crs and not getattr(self, "_is_subset", True):
             crs = self._container_crs()
         if not crs:
-            # Honour the CRS pyramids itself writes. `DatasetCollection.to_netcdf`
-            # records it as the `crs_wkt` / `epsg` global attributes rather than a
-            # grid_mapping, so a round-trip would otherwise come back
-            # ungeoreferenced now that an absent projection is no longer rewritten
-            # to WGS 84 (ARC-26).
-            crs = self._crs_from_global_attrs()
-        if not crs:
-            # Last resort, and only on evidence: CF degrees axes with no
+            # The file's own axes come first: CF degrees axes with no
             # grid_mapping mean a geographic grid (see `_cf_geographic_crs`).
             crs = self._cf_geographic_crs()
+        if not crs:
+            # Then honour the CRS pyramids itself writes. `to_netcdf` records it
+            # as NC_GLOBAL `crs_wkt` / `epsg` rather than a grid_mapping, so a
+            # round-trip would otherwise come back ungeoreferenced. Ranked below
+            # the axis evidence so a recorded attribute cannot override what the
+            # file's own coordinates say.
+            crs = self._crs_from_global_attrs()
         return crs
 
     @property
