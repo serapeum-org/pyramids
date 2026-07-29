@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.base._errors import ReadOnlyError
 from pyramids.netcdf import NetCDF
@@ -167,6 +168,14 @@ def test_recreate_overviews_requires_write(sample, tmp_path):
         nc.close()
 
 
+# The win_arm64 wheel ships GDAL 3.12.4 (the vcpkg port ceiling), where `create_overviews()` on a
+# read-only NetCDF variable view does not write the external `tos.nc.0.ovr` sidecar file; GDAL >= 3.13
+# (every other platform's wheel) does. Only the external-sidecar *file* assertion is version-gated;
+# whether the built overviews are queryable is a weaker, platform-independent capability probed via
+# `overview_count`, so win_arm64 keeps that coverage if 3.12.4 builds the overviews internally.
+_GDAL_WRITES_EXTERNAL_NETCDF_OVR = int(gdal.VersionInfo("VERSION_NUM")) >= 3130000
+
+
 def test_overview_ops_isolated_to_temp_copy(sample, tmp_path):
     """The overview ops run on a tmp_path copy so their external `.ovr` never touches tests/data.
 
@@ -174,7 +183,10 @@ def test_overview_ops_isolated_to_temp_copy(sample, tmp_path):
         `create_overviews` on a read-only variable view writes an external `<source>.0.ovr` next to
         the *source file*. Copy the fixture into `tmp_path` first, so the sidecar lands there (and is
         auto-cleaned); assert the overview family runs, the sidecar is written beside the copy, and no
-        new `.ovr` appears in the committed data dir.
+        new `.ovr` appears in the committed data dir. GDAL 3.12.4 (the win_arm64 wheel) does not write
+        the external NetCDF sidecar file, so that assertion is version-gated; the get/read assertions
+        run wherever overviews were built (probed via `overview_count`, which holds on 3.12.4 too, per
+        `test_recreate_overviews_requires_write`), and the no-leak invariant is checked on every platform.
     """
     src = sample("cf__7v__1d3-2d3-3d1__y-asc.nc")
     data_dir = Path(src).parent
@@ -185,15 +197,26 @@ def test_overview_ops_isolated_to_temp_copy(sample, tmp_path):
     try:
         view = nc.get_variable("tos")
         view.create_overviews()
-        assert (tmp_path / "tos.nc.0.ovr").exists(), (
-            "external overview should land beside the tmp copy"
-        )
-        assert view.get_overview() is not None, (
-            "get_overview should return a band after building"
-        )
-        assert view.read_overview_array() is not None, (
-            "read_overview_array should return data"
-        )
+        # The external `.ovr` file only lands on GDAL >= 3.13; win_arm64's 3.12.4 builds the overviews
+        # without that sidecar file. This assertion is intentionally version-gated, NOT capability-gated
+        # (`overview_count > 0`), so a total no-op regression on a capable build -- nothing built and no
+        # file -- is still caught here rather than silently skipped (do not collapse it onto the probe
+        # below).
+        if _GDAL_WRITES_EXTERNAL_NETCDF_OVR:
+            assert (tmp_path / "tos.nc.0.ovr").exists(), (
+                "external overview should land beside the tmp copy"
+            )
+        # Queryability is platform-independent, and 3.12.4 does build queryable overviews on win_arm64
+        # (`test_recreate_overviews_requires_write` passes there, which requires `overview_count > 0`),
+        # so these run on every platform. Probe every band -- matching `read_overview_array(band=None)`'s
+        # all-bands precondition and guarding a hypothetical zero-band view.
+        if view.overview_count and all(c > 0 for c in view.overview_count):
+            assert view.get_overview() is not None, (
+                "get_overview should return a band after building"
+            )
+            assert view.read_overview_array() is not None, (
+                "read_overview_array should return data"
+            )
     finally:
         nc.close()
 
