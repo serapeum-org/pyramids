@@ -22,7 +22,7 @@ from osgeo import gdal, osr
 
 from pyramids import _io
 from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
-from pyramids.base.crs import crs_spec, epsg_of_crs, sr_from_epsg
+from pyramids.base.crs import cf_geographic_wkt, crs_spec, epsg_of_crs, sr_from_epsg
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset
@@ -886,6 +886,47 @@ class NetCDF(Dataset):
     _LON_UNIT_PREFIXES = ("degrees_e", "degree_e", "degreee", "degrees_east")
     _LAT_UNIT_PREFIXES = ("degrees_n", "degree_n", "degreen", "degrees_north")
 
+    def _crs_from_global_attrs(self) -> str:
+        """CRS from the ``crs_wkt`` / ``epsg`` global attributes, or ``""``.
+
+        :meth:`pyramids.dataset.DatasetCollection.to_netcdf` writes the grid's
+        CRS as NetCDF global attributes (it goes through the xarray writer, which
+        has no place to hang a spatial reference), so reading one of our own
+        files back has to look there. GDAL surfaces them as ``NC_GLOBAL#crs_wkt``
+        and ``NC_GLOBAL#epsg``.
+
+        Returns:
+            str: WKT built from those attributes, or ``""`` when neither is
+            present or usable.
+        """
+        result = ""
+        try:
+            metadata = self.raster.GetMetadata() or {}
+            attrs = {
+                key.rsplit("#", 1)[-1].lower(): value for key, value in metadata.items()
+            }
+            # A multidim open exposes globals as root-group attributes rather
+            # than through GetMetadata(), so consult the group too.
+            group = getattr(self, "_gdal_rg_ref", None)
+            if group is None and self._parent_nc is not None:
+                group = getattr(self._parent_nc, "_gdal_rg_ref", None)
+            if group is None:
+                group = self.raster.GetRootGroup() if self._is_md_array else None
+            if group is not None:
+                for attribute in group.GetAttributes():
+                    attrs.setdefault(
+                        attribute.GetName().lower(), attribute.ReadAsString()
+                    )
+            wkt = attrs.get("crs_wkt")
+            code = attrs.get("epsg")
+            if wkt:
+                result = str(wkt)
+            elif code:
+                result = sr_from_epsg(int(code)).ExportToWkt()
+        except Exception:  # noqa: BLE001 - CRS recovery must never break a read
+            result = ""
+        return result
+
     def _cf_geographic_crs(self) -> str:
         """WGS 84 WKT when CF metadata says this is a lat/lon grid, else ``""``.
 
@@ -926,10 +967,7 @@ class NetCDF(Dataset):
             # `degree_east`, `degrees_E`, `degreeE`, ...), so match the stem
             # rather than one literal. `_LON_UNITS`/`_LAT_UNITS` mirror the
             # vocabulary `pyramids.netcdf.cf` already accepts.
-            has_lon = any(u.startswith(self._LON_UNIT_PREFIXES) for u in units)
-            has_lat = any(u.startswith(self._LAT_UNIT_PREFIXES) for u in units)
-            if has_lon and has_lat:
-                result = sr_from_epsg(4326).ExportToWkt()
+            result = cf_geographic_wkt(units)
         except Exception:  # noqa: BLE001 - CRS inference must never break a read
             result = ""
         return result
@@ -984,6 +1022,13 @@ class NetCDF(Dataset):
         crs = super()._get_crs()
         if not crs and not getattr(self, "_is_subset", True):
             crs = self._container_crs()
+        if not crs:
+            # Honour the CRS pyramids itself writes. `DatasetCollection.to_netcdf`
+            # records it as the `crs_wkt` / `epsg` global attributes rather than a
+            # grid_mapping, so a round-trip would otherwise come back
+            # ungeoreferenced now that an absent projection is no longer rewritten
+            # to WGS 84 (ARC-26).
+            crs = self._crs_from_global_attrs()
         if not crs:
             # Last resort, and only on evidence: CF degrees axes with no
             # grid_mapping mean a geographic grid (see `_cf_geographic_crs`).

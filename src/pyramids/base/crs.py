@@ -429,6 +429,61 @@ def epsg_of_crs(wkt: str | None) -> int | None:
     return epsg_from_wkt(wkt) if wkt else None
 
 
+# CF longitude/latitude unit spellings, lower-cased stems. CF permits
+# `degrees_east`, `degree_east`, `degrees_E`, `degreeE` and friends, so callers
+# match the stem rather than one literal.
+LON_UNIT_PREFIXES = ("degrees_e", "degree_e", "degreee")
+LAT_UNIT_PREFIXES = ("degrees_n", "degree_n", "degreen")
+
+
+def cf_geographic_wkt(units: set[str]) -> str:
+    """WGS 84 WKT when CF axis units describe a lat/lon grid, else ``""``.
+
+    CF-1.x lets a data variable carry no ``grid_mapping``; when its coordinate
+    axes are in degrees east/north the file *is* geographic and CF simply leaves
+    the datum implicit. GDAL reports an empty projection for those, and the whole
+    ecosystem reads them as WGS 84 — so inferring EPSG:4326 from this evidence is
+    a convention-backed reading of the metadata, not the blanket "assume WGS 84
+    for anything unprojected" default that ARC-26 removed. A raster with no CRS
+    and no such evidence still reports no CRS.
+
+    Args:
+        units: Lower-cased unit strings collected from the dataset's coordinate
+            axes.
+
+    Returns:
+        str: WGS 84 WKT when both a longitude and a latitude axis are in degrees,
+        otherwise ``""``.
+
+    Examples:
+        - Degrees on both axes identify a geographic grid:
+            ```python
+            >>> from pyramids.base.crs import cf_geographic_wkt
+            >>> wkt = cf_geographic_wkt({"degrees_east", "degrees_north"})
+            >>> "WGS 84" in wkt
+            True
+
+            ```
+        - The CF singular spellings are accepted too:
+            ```python
+            >>> from pyramids.base.crs import cf_geographic_wkt
+            >>> bool(cf_geographic_wkt({"degree_east", "degree_north"}))
+            True
+
+            ```
+        - One axis alone, or non-degree units, is not evidence:
+            ```python
+            >>> from pyramids.base.crs import cf_geographic_wkt
+            >>> cf_geographic_wkt({"degrees_east", "meter"})
+            ''
+
+            ```
+    """
+    has_lon = any(u.startswith(LON_UNIT_PREFIXES) for u in units)
+    has_lat = any(u.startswith(LAT_UNIT_PREFIXES) for u in units)
+    return sr_from_epsg(4326).ExportToWkt() if (has_lon and has_lat) else ""
+
+
 def crs_spec(epsg: int | None, wkt: str | None) -> int | str | None:
     """Best usable CRS specification for a dataset, or `None` when it has none.
 

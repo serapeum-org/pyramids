@@ -26,7 +26,7 @@ from pyramids.base._utils import (
     UNDEFINED_COLOR_INTERP,
     numpy_to_gdal_dtype,
 )
-from pyramids.base.crs import crs_spec, epsg_of_crs, sr_from_epsg, sr_from_user_input
+from pyramids.base.crs import cf_geographic_wkt, crs_spec, epsg_of_crs, sr_from_epsg, sr_from_user_input
 from pyramids.base.remote import cloud_config_from_env, redact_credentials
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
 from pyramids.dataset._wcs import from_wcs as _from_wcs
@@ -1280,7 +1280,21 @@ class Dataset(RasterBase):
         up the Spatial collaborator. The Spatial collaborator's
         `_get_crs` body is the same one-liner.
         """
-        return str(self.raster.GetProjection())
+        crs = str(self.raster.GetProjection())
+        if not crs:
+            # A CF NetCDF opened through the classic driver reports no
+            # projection but exposes its axis units as `<axis>#units`. Degrees
+            # east/north there mean a geographic grid by CF convention, so read
+            # it as WGS 84 rather than as ungeoreferenced (ARC-26). Any other
+            # unprojected raster still reports no CRS.
+            metadata = self.raster.GetMetadata() or {}
+            units = {
+                value.strip().lower()
+                for key, value in metadata.items()
+                if key.lower().endswith("#units") and isinstance(value, str)
+            }
+            crs = cf_geographic_wkt(units)
+        return crs
 
     def _get_epsg(self) -> int | None:
         """Concrete override of :meth:`RasterBase._get_epsg`.
