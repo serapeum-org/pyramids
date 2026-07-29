@@ -52,8 +52,13 @@ def _irregular_lon_mdim() -> gdal.Dataset:
     dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float32)
     lat = rg.CreateMDArray("lat", [y_dim], dtype)
     lat.WriteArray(np.array([1.0, 2.0, 3.0, 4.0], "f4"))
+    # CF degrees units make this a geographic grid by convention. They were
+    # unnecessary while an absent CRS was silently rewritten to WGS 84; now the
+    # fixture has to declare what it is, exactly as a real file would.
+    lat.SetUnit("degrees_north")
     lon = rg.CreateMDArray("lon", [x_dim], dtype)
     lon.WriteArray(np.array([1.0, 2.0, 4.0, 8.0, 16.0], "f4"))
+    lon.SetUnit("degrees_east")
     y_dim.SetIndexingVariable(lat)
     x_dim.SetIndexingVariable(lon)
     rg.CreateMDArray("v", [y_dim, x_dim], dtype).WriteArray(

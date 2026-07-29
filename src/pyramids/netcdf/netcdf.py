@@ -908,15 +908,12 @@ class NetCDF(Dataset):
             units: set[str] = set()
             if group is not None and not self._is_geostationary():
                 for name in group.GetMDArrayNames():
-                    array = group.OpenMDArray(name)
-                    # Only true 1-D CF coordinate axes count. A projected grid
-                    # (curvilinear, geostationary) often ships *auxiliary* 2-D
-                    # lat/lon arrays in degrees alongside its real axes; reading
-                    # those as the grid's CRS would mislabel it as WGS 84 —
-                    # exactly the geostationary regression #706 fixed.
-                    if len(array.GetDimensions()) != 1:
-                        continue
-                    unit = array.GetUnit()
+                    # 2-D auxiliary lat/lon arrays count as evidence too: a
+                    # curvilinear grid stores its geographic coordinates that
+                    # way and has no 1-D degrees axis at all. The one case where
+                    # degrees arrays sit on a *projected* grid — geostationary —
+                    # is excluded above rather than by arity (#706).
+                    unit = group.OpenMDArray(name).GetUnit()
                     if unit:
                         units.add(unit.strip().lower())
             if any(u.startswith("degrees_e") for u in units) and any(
