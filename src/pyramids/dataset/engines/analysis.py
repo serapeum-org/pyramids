@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
     from pyramids.dataset.dataset import Dataset
 
+from pyramids.base.crs import crs_spec
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._validate import (
     resolve_band_indices,
@@ -1487,7 +1488,7 @@ class Analysis(_Engine["Dataset"]):
         new_dataset = Dataset.create_from_array(
             arr,
             geo=self._ds.geotransform,
-            epsg=self._ds.epsg or self._ds.crs,
+            epsg=crs_spec(self._ds.epsg, self._ds.crs),
             no_data_value=0,
         )
         # The mask is always single-band (the one extracted band flagged as 2 / nodata),

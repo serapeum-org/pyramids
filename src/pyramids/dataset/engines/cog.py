@@ -42,6 +42,7 @@ from pyramids.dataset.cog import (
 from pyramids.dataset.cog.validate import _resolve_read_config, config_context
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._validate import world_to_pixel
+from pyramids.base.crs import require_crs_spec
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import (  # noqa: F401  (forward ref in _Engine["Dataset"])
@@ -1245,7 +1246,9 @@ class COG(_Engine["Dataset"]):
         min_x, min_y, max_x, max_y = bbox
         if self._ds.epsg == bbox_crs:
             return min_x, min_y, max_x, max_y
-        transformer = _cached_transformer(bbox_crs, self._ds.epsg or self._ds.crs)
+        transformer = _cached_transformer(
+            bbox_crs, require_crs_spec(self._ds.epsg, self._ds.crs, "read a bbox window")
+        )
         corners = [
             transformer.transform(min_x, min_y),
             transformer.transform(min_x, max_y),
@@ -1268,7 +1271,10 @@ class COG(_Engine["Dataset"]):
             `(col, row)` integer pixel indices (floored).
         """
         if self._ds.epsg != point_crs:
-            transformer = _cached_transformer(point_crs, self._ds.epsg or self._ds.crs)
+            transformer = _cached_transformer(
+                point_crs,
+                require_crs_spec(self._ds.epsg, self._ds.crs, "sample a point"),
+            )
             x, y = transformer.transform(x, y)
         col, row = world_to_pixel(self._ds._raster.GetGeoTransform(), x, y)
         return int(math.floor(col)), int(math.floor(row))

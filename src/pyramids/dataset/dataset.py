@@ -26,7 +26,7 @@ from pyramids.base._utils import (
     UNDEFINED_COLOR_INTERP,
     numpy_to_gdal_dtype,
 )
-from pyramids.base.crs import epsg_from_wkt, sr_from_epsg, sr_from_user_input
+from pyramids.base.crs import crs_spec, epsg_of_crs, sr_from_epsg, sr_from_user_input
 from pyramids.base.remote import cloud_config_from_env, redact_credentials
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
 from pyramids.dataset._wcs import from_wcs as _from_wcs
@@ -1246,7 +1246,7 @@ class Dataset(RasterBase):
         coords = [(x_min, y_max), (x_min, y_min), (x_max, y_min), (x_max, y_max)]
         poly = create_polygon(coords)
         gdf = gpd.GeoDataFrame(geometry=[poly])
-        gdf.set_crs(self.epsg or self.crs, inplace=True)
+        gdf.set_crs(crs_spec(self.epsg, self.crs), inplace=True)
         return gdf
 
     def _get_band_names(self) -> list[str]:
@@ -1287,8 +1287,12 @@ class Dataset(RasterBase):
 
         Defined directly on Dataset for the same reason as
         :meth:`_get_crs`.
+
+        Returns `None` for a raster with no CRS, honouring the documented
+        `int | None` contract of :attr:`epsg` — a missing georeference must not
+        be reported as WGS 84.
         """
-        return epsg_from_wkt(self._get_crs())
+        return epsg_of_crs(self._get_crs())
 
     def zonal_stats(
         self,
@@ -1680,7 +1684,7 @@ class Dataset(RasterBase):
         result = self.create_from_array(
             result_array,
             geo=self.geotransform,
-            epsg=self.epsg or self.crs,
+            epsg=crs_spec(self.epsg, self.crs),
             no_data_value=list(no_data),
         )
         result.band_units = new_units
@@ -3554,10 +3558,17 @@ class Dataset(RasterBase):
         # Keep the exact `sr_from_epsg` path for an EPSG int/numeric string; carry
         # a no-EPSG CRS (e.g. geostationary) through as a WKT string so rebuilds
         # preserve it instead of crashing on `int(None)` (#706).
-        try:
-            crs_wkt = sr_from_epsg(int(epsg)).ExportToWkt()
-        except (TypeError, ValueError):
-            crs_wkt = sr_from_user_input(epsg).ExportToWkt()
+        if not epsg:
+            # No CRS at all (`None`/""), e.g. rebuilding from a source that is
+            # itself ungeoreferenced. Propagate that rather than stamping a
+            # default: an unprojected result must not claim a projection
+            # (ARC-26). `_build_dataset` skips SetProjection for an empty WKT.
+            crs_wkt = ""
+        else:
+            try:
+                crs_wkt = sr_from_epsg(int(epsg)).ExportToWkt()
+            except (TypeError, ValueError):
+                crs_wkt = sr_from_user_input(epsg).ExportToWkt()
 
         return cls._build_dataset(
             cols,
@@ -3820,7 +3831,7 @@ class Dataset(RasterBase):
                     # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
                     # geostationary grid); create_from_array raises CRSError on None,
                     # so fall back to the WKT. No-op for a plain Dataset (#706).
-                    epsg=template.epsg or template.crs,
+                    epsg=crs_spec(template.epsg, template.crs),
                     no_data_value=resolved_nd,
                 )
             obj = cls._build_dataset(

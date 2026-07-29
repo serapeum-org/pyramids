@@ -18,7 +18,9 @@ from osgeo import gdal, osr
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
-    epsg_from_wkt,
+    crs_spec,
+    require_crs_spec,
+    epsg_of_crs,
     reproject_coordinates,
     sr_from_epsg,
     sr_from_user_input,
@@ -308,7 +310,7 @@ def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Datase
         # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
         # geostationary grid); create_from_array raises CRSError on None, so fall
         # back to the WKT. No-op for a plain Dataset (reports 4326) (#706).
-        epsg=west_part.epsg or west_part.crs,
+        epsg=crs_spec(west_part.epsg, west_part.crs),
         no_data_value=west_part.no_data_value,
     )
     out.band_names = ds.band_names
@@ -363,10 +365,9 @@ class Spatial(_Engine["Dataset"]):
         # second change the epsg attribute of the Dataset object
         if crs is not None:
             self._ds.raster.SetProjection(crs)
-            # fallback to 4326 when crs is an empty string
-            # (get_epsg_from_prj raises in that case); epsg_from_wkt
-            # absorbs the fallback in one place.
-            self._ds._epsg = epsg_from_wkt(crs)
+            # An empty crs string means "no CRS", which propagates as None
+            # rather than being tagged WGS 84 (ARC-26).
+            self._ds._epsg = epsg_of_crs(crs)
         else:
             # crs is None here, so epsg is not None (the neither-None check above
             # rejects both being None); cast narrows it for the type checker without
@@ -677,10 +678,9 @@ class Spatial(_Engine["Dataset"]):
             int: EPSG number.
         """
         prj = self._get_crs()
-        # get_epsg_from_prj raises on empty input; epsg_from_wkt
-        # absorbs the historical 4326 fallback for datasets without a
-        # projection.
-        epsg = epsg_from_wkt(prj)
+        # No projection means no EPSG; None propagates instead of a
+        # fabricated WGS 84 code (ARC-26).
+        epsg = epsg_of_crs(prj)
 
         return epsg
 
@@ -1444,7 +1444,9 @@ class Spatial(_Engine["Dataset"]):
         # reproject the raster to match the projection of alignment_src
         reprojected_raster_b: Dataset = self._ds
         if self._ds.epsg != src.epsg:
-            reprojected_raster_b = self.to_crs(src.epsg or src.crs)  # type: ignore[assignment]
+            reprojected_raster_b = self.to_crs(  # type: ignore[assignment]
+                require_crs_spec(src.epsg, src.crs, "align to the source grid")
+            )
         dst_obj = self._ds.__class__._build_dataset(
             src.columns,
             src.rows,

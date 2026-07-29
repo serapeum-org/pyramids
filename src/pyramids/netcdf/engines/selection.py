@@ -25,7 +25,7 @@ import geopandas as gpd
 import numpy as np
 from shapely import box, contains_xy
 
-from pyramids.base.crs import sr_from_epsg, sr_from_user_input
+from pyramids.base.crs import crs_spec, sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines.spatial import (
@@ -540,7 +540,7 @@ class Selection(_Engine["NetCDF"]):
         container = nc.create_from_array(
             data_win,
             geo=nc._bbox_geotransform(lon_win, lat_win),
-            epsg=nc.epsg or 4326,
+            epsg=crs_spec(nc.epsg, nc.crs),
             no_data_value=nd,
             variable_name=var_name,
         )
@@ -703,7 +703,7 @@ class Selection(_Engine["NetCDF"]):
         ds_result = Dataset.create_from_array(
             selected,
             geo=nc.geotransform,
-            epsg=nc.epsg or nc.crs,
+            epsg=crs_spec(nc.epsg, nc.crs),
             no_data_value=ndv_scalar,
         )
         result = nc._preserve_netcdf_metadata(ds_result)
@@ -1059,7 +1059,7 @@ class Selection(_Engine["NetCDF"]):
                 var_name,
                 arr,
                 var.geotransform,
-                var.epsg or var.crs,
+                crs_spec(var.epsg, var.crs),
                 ndv,
                 band_names,
                 values_map,

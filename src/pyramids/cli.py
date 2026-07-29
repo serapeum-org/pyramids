@@ -364,6 +364,9 @@ def _cmd_georeference(args: argparse.Namespace) -> int:
         source.read_array(),
         top_left_corner=source.top_left_corner,
         cell_size=source.cell_size,
+        # Scratch placeholder, not a claim about the data: set_gcps replaces the
+        # georeference wholesale with the GCPs and --gcp-crs below, so this CRS
+        # never reaches the output. `epsg` is None for a CRS-less source.
         epsg=source.epsg or 4326,
         no_data_value=source.no_data_value,
     )
@@ -530,11 +533,18 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     if args.dtype:
         result = result.astype(args.dtype)
     template = datasets[0]
+    if template.epsg is None:
+        raise ValueError(
+            f"{args.input[0]!r} has no CRS, so the result of --expr cannot be "
+            "georeferenced. Stamping a default would claim a projection the "
+            "input does not have; set a CRS on the input first (e.g. "
+            "gdal_edit.py -a_srs EPSG:<code> <file>) and re-run."
+        )
     Dataset.create_from_array(
         result,
         top_left_corner=template.top_left_corner,
         cell_size=template.cell_size,
-        epsg=template.epsg or 4326,
+        epsg=template.epsg,
     ).to_file(output)
     print(f"wrote {output}")
     return 0

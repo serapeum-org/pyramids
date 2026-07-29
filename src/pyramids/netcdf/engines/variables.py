@@ -789,8 +789,9 @@ def _require_create_inputs(
         raise ValueError("Variable_name cannot be None")
     if geo is None:
         raise ValueError("geo cannot be None")
-    if epsg is None:
-        raise ValueError("epsg cannot be None")
+    # `epsg` may legitimately be None: a source with no CRS produces an
+    # ungeoreferenced result rather than one stamped with a default (ARC-26).
+    # The creator below skips the spatial reference in that case.
 
 
 def _create_netcdf_from_array(
@@ -851,10 +852,11 @@ def _create_netcdf_from_array(
     from pyramids.netcdf.netcdf import NetCDF
 
     _require_create_inputs(variable_name, geo, epsg)
-    # `_require_create_inputs` raises `ValueError` on a None `geo`/`epsg`; restate that
-    # invariant so the geotransform indexing and the `int(epsg)` below are guarded.
+    # `_require_create_inputs` raises `ValueError` on a None `geo`; restate that
+    # invariant so the geotransform indexing below is guarded. `epsg` is NOT
+    # restated — it may legitimately be None, which builds an ungeoreferenced
+    # variable rather than one stamped with a default (ARC-26).
     assert geo is not None
-    assert epsg is not None
 
     if extra_dims is None:
         extra_dims = []
@@ -883,11 +885,18 @@ def _create_netcdf_from_array(
     # path for those. A geostationary (and other no-EPSG) CRS is carried through
     # as a WKT string so the fan-out that rebuilds each variable preserves it
     # instead of crashing on a None EPSG code (#706).
-    try:
-        srse = sr_from_epsg(int(epsg))
-    except (TypeError, ValueError):
-        srse = sr_from_user_input(epsg)
-    is_geographic = srse.IsGeographic() == 1
+    if not epsg:
+        # No CRS at all: build the variable without a spatial reference rather
+        # than inventing one. The axes are then plain numeric dimensions, so
+        # treat them as non-geographic (ARC-26).
+        srse = None
+        is_geographic = False
+    else:
+        try:
+            srse = sr_from_epsg(int(epsg))
+        except (TypeError, ValueError):
+            srse = sr_from_user_input(epsg)
+        is_geographic = srse.IsGeographic() == 1
 
     dim_x = NetCDF._create_dimension(
         rg,
@@ -931,7 +940,8 @@ def _create_netcdf_from_array(
     ndv_scalar = scalar_no_data(no_data_value)
     if ndv_scalar is not None:
         md_arr.SetNoDataValueDouble(float(ndv_scalar))
-    md_arr.SetSpatialRef(srse)
+    if srse is not None:
+        md_arr.SetSpatialRef(srse)
     # Eager NumPy input writes in one call; a dask input streams block-by-block so
     # peak source memory is one block rather than the whole array (ARC-11). Both
     # produce byte-identical output. nodata + SRS are set above first — the netCDF
@@ -941,7 +951,7 @@ def _create_netcdf_from_array(
     else:
         md_arr.Write(arr)
 
-    if driver_type == "MEM":
+    if driver_type == "MEM" and srse is not None:
         _write_grid_mapping(rg, md_arr, srse)
 
     return src

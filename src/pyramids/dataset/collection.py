@@ -42,6 +42,7 @@ from pyramids.dataset.ops._geobox_zarr import (
 from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.dataset.ops.io import _read_chunk
 from pyramids.feature import FeatureCollection
+from pyramids.base.crs import crs_spec
 
 if TYPE_CHECKING:
     from cleopatra.array_glyph import ArrayGlyph
@@ -955,7 +956,7 @@ class DatasetCollection:
         return Dataset.create_from_array(
             arr,
             geo=src.geotransform,
-            epsg=src.epsg or src.crs,
+            epsg=crs_spec(src.epsg, src.crs),
             no_data_value=src.no_data_value[0],
         )
 

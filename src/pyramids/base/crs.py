@@ -380,6 +380,158 @@ def get_epsg_from_prj(prj: str) -> int:
     return int(code)
 
 
+def epsg_of_crs(wkt: str | None) -> int | None:
+    """Resolve the EPSG of a CRS string, or `None` when there is no CRS at all.
+
+    Distinguishes the two cases :func:`epsg_from_wkt` conflates:
+
+    * **No CRS** — an empty (or `None`) projection. The dataset is not
+      georeferenced, so there is no EPSG to report and `None` is returned.
+      Fabricating WGS 84 here would claim a georeference the data does not have.
+    * **A CRS with no EPSG code** — a non-empty projection that resolves to no
+      EPSG authority (GDAL's spherical-earth GRIB GEOGCS, say). That *is* a real
+      CRS, so the historical :func:`epsg_from_wkt` fallback still applies.
+
+    This mirrors how GDAL, rasterio, rioxarray and geopandas all behave: a
+    missing CRS propagates as `None` and only an operation that genuinely needs
+    one fails.
+
+    Args:
+        wkt: Projection string (WKT, ESRI WKT, or Proj4), possibly empty/`None`.
+
+    Returns:
+        int | None: The EPSG code, or `None` when `wkt` is empty or `None`.
+
+    Examples:
+        - An empty projection means "no CRS", not WGS 84:
+            ```python
+            >>> from pyramids.base.crs import epsg_of_crs
+            >>> epsg_of_crs("") is None
+            True
+            >>> epsg_of_crs(None) is None
+            True
+
+            ```
+        - A real projection resolves to its EPSG code:
+            ```python
+            >>> from osgeo import osr
+            >>> from pyramids.base.crs import epsg_of_crs
+            >>> ref = osr.SpatialReference()
+            >>> _ = ref.ImportFromEPSG(3857)
+            >>> epsg_of_crs(ref.ExportToWkt())
+            3857
+
+            ```
+
+    See Also:
+        epsg_from_wkt: The soft variant that substitutes `default` for both cases.
+    """
+    return epsg_from_wkt(wkt) if wkt else None
+
+
+def crs_spec(epsg: int | None, wkt: str | None) -> int | str | None:
+    """Best usable CRS specification for a dataset, or `None` when it has none.
+
+    Replaces the `dataset.epsg or dataset.crs` idiom. That expression looks
+    total but is not: once `epsg` propagates `None` for an ungeoreferenced
+    raster, it evaluates to the empty CRS string, which every downstream
+    constructor rejects with an opaque *"Invalid projection: ''"*. Returning
+    `None` instead makes the absence explicit, so callers either pass it on
+    (producing an ungeoreferenced result) or reject it deliberately via
+    :func:`require_crs_spec`.
+
+    Args:
+        epsg: EPSG code, or `None` for a CRS that carries no EPSG authority.
+        wkt: Projection WKT, or an empty string / `None` when there is no CRS.
+
+    Returns:
+        int | str | None: The EPSG code when there is one, else the WKT, else
+        `None`.
+
+    Examples:
+        - An EPSG code is preferred when present:
+            ```python
+            >>> from pyramids.base.crs import crs_spec
+            >>> crs_spec(4326, 'GEOGCS["WGS 84"]')
+            4326
+
+            ```
+        - A CRS with no EPSG authority falls back to its WKT:
+            ```python
+            >>> from pyramids.base.crs import crs_spec
+            >>> crs_spec(None, 'GEOGCS["custom"]')
+            'GEOGCS["custom"]'
+
+            ```
+        - No CRS at all is reported as `None`, not as an empty string:
+            ```python
+            >>> from pyramids.base.crs import crs_spec
+            >>> crs_spec(None, "") is None
+            True
+
+            ```
+
+    See Also:
+        require_crs_spec: The variant that raises when there is no CRS.
+    """
+    result: int | str | None = None
+    if epsg is not None:
+        result = epsg
+    elif wkt:
+        result = wkt
+    return result
+
+
+def require_crs_spec(epsg: int | None, wkt: str | None, operation: str) -> int | str:
+    """Like :func:`crs_spec`, but raise when the dataset has no CRS.
+
+    Use at the point of an operation that genuinely cannot proceed without a
+    CRS — reprojection, a coordinate transform, a spatial join against a vector.
+    Mirrors how GDAL, rasterio, rioxarray and geopandas all behave: a missing
+    CRS propagates quietly until something actually needs it, and then fails
+    with a message naming the fix.
+
+    Args:
+        epsg: EPSG code, or `None`.
+        wkt: Projection WKT, or an empty string / `None`.
+        operation: Short description of what needs the CRS, used in the error.
+
+    Returns:
+        int | str: The EPSG code when there is one, else the WKT.
+
+    Raises:
+        CRSError: Neither an EPSG code nor a WKT is available.
+
+    Examples:
+        - Resolves exactly as :func:`crs_spec` when a CRS is present:
+            ```python
+            >>> from pyramids.base.crs import require_crs_spec
+            >>> require_crs_spec(3857, "", "reproject")
+            3857
+
+            ```
+        - Refuses, naming the operation, when there is none:
+            ```python
+            >>> from pyramids.base.crs import require_crs_spec
+            >>> try:
+            ...     require_crs_spec(None, "", "reproject")
+            ... except ValueError as exc:
+            ...     print("reproject" in str(exc))
+            True
+
+            ```
+    """
+    spec = crs_spec(epsg, wkt)
+    if spec is None:
+        raise CRSError(
+            f"cannot {operation}: the dataset has no CRS. Set one first (e.g. "
+            "`dataset.epsg = <code>`, or `gdal_edit.py -a_srs EPSG:<code> "
+            "<file>` on disk); pyramids does not assume WGS 84 for an "
+            "ungeoreferenced raster."
+        )
+    return spec
+
+
 def epsg_from_wkt(wkt: str | None, default: int = 4326) -> int:
     """Resolve an EPSG code from a WKT / Proj string with a fallback.
 
