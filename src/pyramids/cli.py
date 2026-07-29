@@ -535,7 +535,7 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     template = datasets[0]
     if template.epsg is None:
         raise ValueError(
-            f"{args.input[0]!r} has no CRS, so the result of --expr cannot be "
+            f"{inputs[0]!r} has no CRS, so the result of --expr cannot be "
             "georeferenced. Stamping a default would claim a projection the "
             "input does not have; set a CRS on the input first (e.g. "
             "gdal_edit.py -a_srs EPSG:<code> <file>) and re-run."
