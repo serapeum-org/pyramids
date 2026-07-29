@@ -25,6 +25,7 @@ from pyramids.base._utils import (
     import_zarr,
     lazy_extra_hint,
 )
+from pyramids.base.crs import crs_spec
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
@@ -42,7 +43,6 @@ from pyramids.dataset.ops._geobox_zarr import (
 from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.dataset.ops.io import _read_chunk
 from pyramids.feature import FeatureCollection
-from pyramids.base.crs import crs_spec
 
 if TYPE_CHECKING:
     from cleopatra.array_glyph import ArrayGlyph

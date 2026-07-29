@@ -19,9 +19,9 @@ from pyramids.base._domain import is_no_data
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
     crs_spec,
-    require_crs_spec,
     epsg_of_crs,
     reproject_coordinates,
+    require_crs_spec,
     sr_from_epsg,
     sr_from_user_input,
     sr_from_wkt,

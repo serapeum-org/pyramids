@@ -33,9 +33,9 @@ from pyramids.feature import create_polygon
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
+from pyramids.base.crs import crs_spec
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._validate import validate_band_index
-from pyramids.base.crs import crs_spec
 
 # Substring GDAL raises when a write is attempted on a read-only band; matched in
 # several no-data setters below to re-raise a friendly ReadOnlyError. Named once

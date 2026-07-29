@@ -22,7 +22,7 @@ from osgeo import gdal, osr
 
 from pyramids import _io
 from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
-from pyramids.base.crs import cf_geographic_wkt, crs_spec, epsg_of_crs, sr_from_epsg
+from pyramids.base.crs import cf_geographic_wkt, crs_spec, sr_from_epsg
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset

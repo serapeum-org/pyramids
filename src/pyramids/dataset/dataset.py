@@ -26,7 +26,13 @@ from pyramids.base._utils import (
     UNDEFINED_COLOR_INTERP,
     numpy_to_gdal_dtype,
 )
-from pyramids.base.crs import cf_geographic_wkt, crs_spec, epsg_of_crs, sr_from_epsg, sr_from_user_input
+from pyramids.base.crs import (
+    cf_geographic_wkt,
+    crs_spec,
+    epsg_of_crs,
+    sr_from_epsg,
+    sr_from_user_input,
+)
 from pyramids.base.remote import cloud_config_from_env, redact_credentials
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
 from pyramids.dataset._wcs import from_wcs as _from_wcs

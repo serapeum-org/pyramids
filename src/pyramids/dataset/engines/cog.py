@@ -27,6 +27,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
     resolve_cog_predictor,
 )
+from pyramids.base.crs import require_crs_spec
 from pyramids.dataset.abstract_dataset import under_gdal_env
 from pyramids.dataset.cog import (
     COGInfo,
@@ -42,7 +43,6 @@ from pyramids.dataset.cog import (
 from pyramids.dataset.cog.validate import _resolve_read_config, config_context
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._validate import world_to_pixel
-from pyramids.base.crs import require_crs_spec
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import (  # noqa: F401  (forward ref in _Engine["Dataset"])
