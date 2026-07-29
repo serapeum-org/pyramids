@@ -37,6 +37,7 @@ from pyramids.dataset.merge import merge_rasters
 from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
     finalize_zarr_metadata,
+    geobox_crs,
     normalize_compressors,
     read_geobox,
 )
@@ -237,7 +238,7 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
     )
 
 
-def _crs_equal(a: CRS, b: CRS) -> bool:
+def _crs_equal(a: CRS | None, b: CRS | None) -> bool:
     """Return True if two CRS describe the same reference system (N2).
 
     ``pyproj.CRS.__eq__`` is strict: a file carrying an EPSG code and one carrying
@@ -248,6 +249,11 @@ def _crs_equal(a: CRS, b: CRS) -> bool:
     :meth:`DatasetCollection._validate_headers` so a valid input is not rejected on a
     cosmetic CRS-encoding difference.
     """
+    # Either side may be None now that a CRS-less raster reports no CRS
+    # (ARC-26). Two absent CRSes match; one absent and one present do not, and
+    # must not reach `.to_epsg()`.
+    if a is None or b is None:
+        return a is None and b is None
     if a == b:
         return True
     epsg_a, epsg_b = a.to_epsg(), b.to_epsg()
@@ -1904,7 +1910,7 @@ class DatasetCollection:
         template = Dataset.create_from_array(
             template_arr if bands > 1 else template_arr[0],
             geo=geo_6,
-            epsg=geobox["epsg"] or 4326,
+            epsg=geobox_crs(geobox),
             no_data_value=no_data_value,
         )
         if geobox["crs_wkt"]:
