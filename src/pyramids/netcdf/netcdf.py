@@ -1071,6 +1071,12 @@ class NetCDF(Dataset):
             # the geostationary guard lives there, and going straight to the CRS
             # would relabel a scan-angle grid as WGS 84 (#706).
             code = self._get_epsg()
+            # Write the answer back. Resolution walks every MDArray (one
+            # `OpenMDArray` per variable) and is on the hot path for spatial ops,
+            # so leaving `_epsg` unset made each `.epsg` read repeat the whole
+            # scan. `_update_inplace` clears the cache, so a raster swap
+            # re-resolves.
+            self._epsg = code
         return code
 
     @epsg.setter
@@ -4598,6 +4604,9 @@ class NetCDF(Dataset):
         # Same reasoning for the borrowed container CRS: it is derived from the
         # variables behind the old raster, so a swap must not carry it over.
         self._container_crs_cache = None
+        # And the memoised EPSG, which the `epsg` property writes back after
+        # resolving it from that same evidence.
+        self._epsg = self._get_epsg()
 
     @property
     def is_subset(self) -> bool:
