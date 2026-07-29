@@ -1247,7 +1247,8 @@ class COG(_Engine["Dataset"]):
         if self._ds.epsg == bbox_crs:
             return min_x, min_y, max_x, max_y
         transformer = _cached_transformer(
-            bbox_crs, require_crs_spec(self._ds.epsg, self._ds.crs, "read a bbox window")
+            bbox_crs,
+            require_crs_spec(self._ds.epsg, self._ds.crs, "read a bbox window"),
         )
         corners = [
             transformer.transform(min_x, min_y),
