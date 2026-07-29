@@ -1444,6 +1444,13 @@ class Spatial(_Engine["Dataset"]):
         # reproject the raster to match the projection of alignment_src
         reprojected_raster_b: Dataset = self._ds
         if self._ds.epsg != src.epsg:
+            # Both sides are required, not just the reference. Warping *from* a
+            # dataset with no CRS silently produced a result stamped with the
+            # reference's projection — the fabrication this change removes — so
+            # refuse symmetrically (ARC-26).
+            require_crs_spec(
+                self._ds.epsg, self._ds.crs, "align a raster onto another grid"
+            )
             reprojected_raster_b = self.to_crs(  # type: ignore[assignment]
                 require_crs_spec(src.epsg, src.crs, "align to the source grid")
             )
