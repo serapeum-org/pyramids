@@ -133,6 +133,54 @@ def write_geobox(
     data.attrs["grid_mapping"] = GRID_MAPPING_VAR
 
 
+def geobox_crs(geobox: dict) -> int | str | None:
+    """Best CRS specification recorded in a geobox, or `None` when it has none.
+
+    The geobox stores both `crs_wkt` (authoritative) and `epsg`, where `0` is the
+    sentinel for "no authority code". Readers used to spell this
+    `geobox["epsg"] or 4326`, which resurrected the WGS 84 default this branch
+    removed — a raster written without a CRS came back claiming one (ARC-26).
+
+    Args:
+        geobox: Mapping as returned by the geobox reader, with optional
+            `crs_wkt` and `epsg` entries.
+
+    Returns:
+        int | str | None: The WKT when present, else the EPSG code, else `None`.
+
+    Examples:
+        - WKT wins, because it is the authoritative field:
+            ```python
+            >>> from pyramids.dataset.ops._geobox_zarr import geobox_crs
+            >>> geobox_crs({"crs_wkt": 'GEOGCS["WGS 84"]', "epsg": 4326})
+            'GEOGCS["WGS 84"]'
+
+            ```
+        - A bare EPSG code is used when there is no WKT:
+            ```python
+            >>> from pyramids.dataset.ops._geobox_zarr import geobox_crs
+            >>> geobox_crs({"crs_wkt": "", "epsg": 3857})
+            3857
+
+            ```
+        - Neither recorded means no CRS, not WGS 84:
+            ```python
+            >>> from pyramids.dataset.ops._geobox_zarr import geobox_crs
+            >>> geobox_crs({"crs_wkt": "", "epsg": 0}) is None
+            True
+
+            ```
+    """
+    wkt = geobox.get("crs_wkt")
+    code = geobox.get("epsg")
+    result: int | str | None = None
+    if wkt:
+        result = str(wkt)
+    elif code:
+        result = int(code)
+    return result
+
+
 def finalize_zarr_metadata(
     resolved_store: Any,
     *,
