@@ -226,7 +226,12 @@ class TestNetCDFPlotForwardingExtra:
 
         def _spy(self_, name, x_dim=None, y_dim=None):
             sub = real_get_variable(self_, name, x_dim=x_dim, y_dim=y_dim)
+            # Strip the CRS itself, not just the cached `_epsg`. That cache is no
+            # longer authoritative: `epsg` re-derives from the CRS when it is
+            # None, so a subset is only genuinely CRS-less once `_get_crs`
+            # reports nothing either.
             sub._epsg = None
+            sub._get_crs = lambda: ""
             return sub
 
         with patch.object(type(nc), "get_variable", _spy):

@@ -880,6 +880,12 @@ class NetCDF(Dataset):
         """
         return dataset_is_geostationary(dataset)
 
+    # CF longitude/latitude unit spellings, lower-cased stems. CF accepts
+    # `degrees_east`, `degree_east`, `degrees_E`, `degreeE` and friends, so match
+    # the stem rather than a single literal (see `pyramids.netcdf.cf`).
+    _LON_UNIT_PREFIXES = ("degrees_e", "degree_e", "degreee", "degrees_east")
+    _LAT_UNIT_PREFIXES = ("degrees_n", "degree_n", "degreen", "degrees_north")
+
     def _cf_geographic_crs(self) -> str:
         """WGS 84 WKT when CF metadata says this is a lat/lon grid, else ``""``.
 
@@ -916,9 +922,13 @@ class NetCDF(Dataset):
                     unit = group.OpenMDArray(name).GetUnit()
                     if unit:
                         units.add(unit.strip().lower())
-            if any(u.startswith("degrees_e") for u in units) and any(
-                u.startswith("degrees_n") for u in units
-            ):
+            # CF permits several spellings for each axis (`degrees_east`,
+            # `degree_east`, `degrees_E`, `degreeE`, ...), so match the stem
+            # rather than one literal. `_LON_UNITS`/`_LAT_UNITS` mirror the
+            # vocabulary `pyramids.netcdf.cf` already accepts.
+            has_lon = any(u.startswith(self._LON_UNIT_PREFIXES) for u in units)
+            has_lat = any(u.startswith(self._LAT_UNIT_PREFIXES) for u in units)
+            if has_lon and has_lat:
                 result = sr_from_epsg(4326).ExportToWkt()
         except Exception:  # noqa: BLE001 - CRS inference must never break a read
             result = ""
@@ -2859,6 +2869,14 @@ class NetCDF(Dataset):
                 stacklevel=3,
             )
             return
+        # Carry the CRS across before the swap. The AsClassicDataset view often has
+        # no SRS of its own — the projection is resolved from the multidim group
+        # (a CF degrees grid) or borrowed from the container — and dropping
+        # `_gdal_rg_ref` below destroys the evidence, so a materialized variable
+        # would silently lose its georeference. Resolve first, then stamp.
+        resolved_crs = self._get_crs()
+        if resolved_crs and mem.GetSpatialRef() is None:
+            mem.SetProjection(resolved_crs)
         self._raster = mem
         # The MEM copy owns its data; drop the SWIG views that backed the AsClassicDataset.
         self._gdal_md_arr_ref = None
