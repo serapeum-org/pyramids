@@ -184,8 +184,9 @@ def test_overview_ops_isolated_to_temp_copy(sample, tmp_path):
         the *source file*. Copy the fixture into `tmp_path` first, so the sidecar lands there (and is
         auto-cleaned); assert the overview family runs, the sidecar is written beside the copy, and no
         new `.ovr` appears in the committed data dir. GDAL 3.12.4 (the win_arm64 wheel) does not write
-        the external NetCDF sidecar file, so that assertion is version-gated; overview queryability is
-        probed via `overview_count`, and the no-leak invariant is checked on every platform.
+        the external NetCDF sidecar file, so that assertion is version-gated; the get/read assertions
+        run wherever overviews were built (probed via `overview_count`, which holds on 3.12.4 too, per
+        `test_recreate_overviews_requires_write`), and the no-leak invariant is checked on every platform.
     """
     src = sample("cf__7v__1d3-2d3-3d1__y-asc.nc")
     data_dir = Path(src).parent
@@ -196,15 +197,20 @@ def test_overview_ops_isolated_to_temp_copy(sample, tmp_path):
     try:
         view = nc.get_variable("tos")
         view.create_overviews()
-        # The external `.ovr` file only lands on GDAL >= 3.13; require it there so a real regression on
-        # a capable build is caught, and skip only the file check on win_arm64's 3.12.4.
+        # The external `.ovr` file only lands on GDAL >= 3.13; win_arm64's 3.12.4 builds the overviews
+        # without that sidecar file. This assertion is intentionally version-gated, NOT capability-gated
+        # (`overview_count > 0`), so a total no-op regression on a capable build -- nothing built and no
+        # file -- is still caught here rather than silently skipped (do not collapse it onto the probe
+        # below).
         if _GDAL_WRITES_EXTERNAL_NETCDF_OVR:
             assert (tmp_path / "tos.nc.0.ovr").exists(), (
                 "external overview should land beside the tmp copy"
             )
-        # Queryability is platform-independent: assert it wherever create_overviews actually built the
-        # overviews (probe the count, not the GDAL version), so win_arm64 keeps this coverage too.
-        if view.overview_count[0] > 0:
+        # Queryability is platform-independent, and 3.12.4 does build queryable overviews on win_arm64
+        # (`test_recreate_overviews_requires_write` passes there, which requires `overview_count > 0`),
+        # so these run on every platform. Probe every band -- matching `read_overview_array(band=None)`'s
+        # all-bands precondition and guarding a hypothetical zero-band view.
+        if view.overview_count and all(c > 0 for c in view.overview_count):
             assert view.get_overview() is not None, (
                 "get_overview should return a band after building"
             )
