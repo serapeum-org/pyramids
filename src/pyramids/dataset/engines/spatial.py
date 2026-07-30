@@ -1448,6 +1448,12 @@ class Spatial(_Engine["Dataset"]):
               ```
 
             ![align-result](./../../_images/dataset/align-result.png)
+
+        Raises:
+            TypeError: `alignment_src` is not a `RasterBase`.
+            CRSError: Either raster has no CRS. Aligning needs both, and
+                pyramids will not assume WGS 84 for an unprojected grid
+                (ARC-26).
         """
         if isinstance(alignment_src, RasterBase):
             src = alignment_src

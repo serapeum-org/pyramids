@@ -232,8 +232,10 @@ if TYPE_CHECKING:
     from geopandas import GeoDataFrame
 
 
-# Names the classic netCDF driver gives coordinate variables. Units on these are
-# axis units — the only ones allowed to veto the CF geographic inference.
+# Conventional coordinate-variable names, used as a fallback when a file
+# declares no `<var>#axis` attributes. Units on these count as *axis* units,
+# the only ones allowed to veto the CF geographic inference — except the
+# vertical names above, which describe depth rather than the horizontal CRS.
 _AXIS_VARIABLE_NAMES = frozenset(
     {
         "x",
