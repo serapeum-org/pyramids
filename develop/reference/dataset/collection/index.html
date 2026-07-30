@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -11613,7 +11613,7 @@ to construct one.&quot;)``.
 <a id="__codelineno-0-1539" name="__codelineno-0-1539"></a>
 <a id="__codelineno-0-1540" name="__codelineno-0-1540"></a>        <span class="n">root_attrs</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;Conventions&quot;</span><span class="p">:</span> <span class="s2">&quot;CF-1.8&quot;</span><span class="p">}</span>
 <a id="__codelineno-0-1541" name="__codelineno-0-1541"></a>        <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-1542" name="__codelineno-0-1542"></a>            <span class="n">crs_wkt</span> <span class="o">=</span> <span class="n">meta</span><span class="o">.</span><span class="n">crs</span><span class="o">.</span><span class="n">to_wkt</span><span class="p">()</span> <span class="k">if</span> <span class="n">meta</span><span class="o">.</span><span class="n">crs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+<a id="__codelineno-0-1542" name="__codelineno-0-1542"></a>            <span class="n">crs_wkt</span> <span class="o">=</span> <span class="n">meta</span><span class="o">.</span><span class="n">crs</span><span class="o">.</span><span class="n">to_wkt</span><span class="p">()</span> <span class="k">if</span> <span class="n">meta</span><span class="o">.</span><span class="n">crs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
 <a id="__codelineno-0-1543" name="__codelineno-0-1543"></a>        <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
 <a id="__codelineno-0-1544" name="__codelineno-0-1544"></a>            <span class="n">crs_wkt</span> <span class="o">=</span> <span class="kc">None</span>
 <a id="__codelineno-0-1545" name="__codelineno-0-1545"></a>        <span class="k">if</span> <span class="n">crs_wkt</span><span class="p">:</span>
@@ -16492,7 +16492,7 @@ the file.</p>
 <a id="__codelineno-0-1539" name="__codelineno-0-1539"></a>
 <a id="__codelineno-0-1540" name="__codelineno-0-1540"></a>    <span class="n">root_attrs</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;Conventions&quot;</span><span class="p">:</span> <span class="s2">&quot;CF-1.8&quot;</span><span class="p">}</span>
 <a id="__codelineno-0-1541" name="__codelineno-0-1541"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-1542" name="__codelineno-0-1542"></a>        <span class="n">crs_wkt</span> <span class="o">=</span> <span class="n">meta</span><span class="o">.</span><span class="n">crs</span><span class="o">.</span><span class="n">to_wkt</span><span class="p">()</span> <span class="k">if</span> <span class="n">meta</span><span class="o">.</span><span class="n">crs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+<a id="__codelineno-0-1542" name="__codelineno-0-1542"></a>        <span class="n">crs_wkt</span> <span class="o">=</span> <span class="n">meta</span><span class="o">.</span><span class="n">crs</span><span class="o">.</span><span class="n">to_wkt</span><span class="p">()</span> <span class="k">if</span> <span class="n">meta</span><span class="o">.</span><span class="n">crs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
 <a id="__codelineno-0-1543" name="__codelineno-0-1543"></a>    <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
 <a id="__codelineno-0-1544" name="__codelineno-0-1544"></a>        <span class="n">crs_wkt</span> <span class="o">=</span> <span class="kc">None</span>
 <a id="__codelineno-0-1545" name="__codelineno-0-1545"></a>    <span class="k">if</span> <span class="n">crs_wkt</span><span class="p">:</span>
