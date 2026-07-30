@@ -913,8 +913,9 @@ class NetCDF(Dataset):
             # A multidim open exposes globals as root-group attributes rather
             # than through GetMetadata(), so consult the group too.
             group = getattr(self, "_gdal_rg_ref", None)
-            if group is None and self._parent_nc is not None:
-                group = getattr(self._parent_nc, "_gdal_rg_ref", None)
+            parent = getattr(self, "_parent_nc", None)
+            if group is None and parent is not None:
+                group = getattr(parent, "_gdal_rg_ref", None)
             if group is None:
                 group = self.raster.GetRootGroup() if self._is_md_array else None
             if group is not None:
@@ -928,7 +929,8 @@ class NetCDF(Dataset):
                 result = str(wkt)
             elif code:
                 result = sr_from_epsg(int(code)).ExportToWkt()
-        except Exception:  # noqa: BLE001 - CRS recovery must never break a read
+        except (RuntimeError, AttributeError, ValueError, TypeError):
+            # See `_container_crs`: narrow so a real fault still surfaces.
             result = ""
         return result
 
@@ -955,8 +957,9 @@ class NetCDF(Dataset):
             # back to the parent container's group for a variable subset, which
             # does not hold its own reference.
             group = getattr(self, "_gdal_rg_ref", None)
-            if group is None and self._parent_nc is not None:
-                group = getattr(self._parent_nc, "_gdal_rg_ref", None)
+            parent = getattr(self, "_parent_nc", None)
+            if group is None and parent is not None:
+                group = getattr(parent, "_gdal_rg_ref", None)
             units: set[str] = set()
             axis_units: set[str] = set()
             if group is not None and not self._is_geostationary():
@@ -983,7 +986,8 @@ class NetCDF(Dataset):
             # rather than one literal. `_LON_UNITS`/`_LAT_UNITS` mirror the
             # vocabulary `pyramids.netcdf.cf` already accepts.
             result = cf_geographic_wkt(units, axis_units)
-        except Exception:  # noqa: BLE001 - CRS inference must never break a read
+        except (RuntimeError, AttributeError, ValueError, TypeError):
+            # See `_container_crs`: narrow so a real fault still surfaces.
             result = ""
         return result
 
@@ -1015,7 +1019,10 @@ class NetCDF(Dataset):
                     if variable_crs:
                         crs = str(variable_crs)
                         break
-            except Exception:  # noqa: BLE001 - CRS resolution must never break a read
+            except (RuntimeError, AttributeError, ValueError, TypeError):
+            # GDAL surfaces a bad/absent group as RuntimeError; the rest guard a
+            # half-built object during __init__. Deliberately NOT bare Exception:
+            # that hid the initialisation-order bug this comment used to excuse.
                 crs = ""
             cached = crs
             self._container_crs_cache = cached
