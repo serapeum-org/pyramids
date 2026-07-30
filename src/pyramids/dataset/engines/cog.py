@@ -919,7 +919,7 @@ class COG(_Engine["Dataset"]):
         *,
         dst_width: int | None = None,
         dst_height: int | None = None,
-        bbox_crs: int = 4326,
+        bbox_crs: int | str | None = None,
         resampling: str = "bilinear",
         band: int | None = None,
     ) -> np.typing.NDArray:
@@ -1134,7 +1134,7 @@ class COG(_Engine["Dataset"]):
         x: float,
         y: float,
         *,
-        point_crs: int = 4326,
+        point_crs: int | str | None = None,
         band: int | None = None,
     ) -> np.typing.NDArray:
         """Sample band value(s) at a single coordinate.
@@ -1230,7 +1230,7 @@ class COG(_Engine["Dataset"]):
         )
 
     def _reproject_bbox(
-        self, bbox: tuple[float, float, float, float], bbox_crs: int
+        self, bbox: tuple[float, float, float, float], bbox_crs: int | str | None
     ) -> tuple[float, float, float, float]:
         """Reproject a bbox into the dataset CRS, returning its envelope.
 
@@ -1244,13 +1244,13 @@ class COG(_Engine["Dataset"]):
             returned unchanged.
         """
         min_x, min_y, max_x, max_y = bbox
-        if self._ds.epsg == bbox_crs:
+        if bbox_crs is not None and self._ds.epsg == bbox_crs:
             return min_x, min_y, max_x, max_y
-        if crs_spec(self._ds.epsg, self._ds.crs) is None:
-            # No CRS to transform into. `bbox_crs` defaults to 4326, so refusing
-            # here would break a plain `read_part(bbox=...)` on an ungeoreferenced
-            # raster, which worked before. Read the bbox as already being in the
-            # raster's own coordinate space instead (ARC-26).
+        if bbox_crs is None:
+            # Caller named no CRS, so the bbox is already in the raster's own
+            # coordinates -- nothing to transform (ARC-26). An *explicit*
+            # bbox_crs still goes through the guard below, so a real mismatch is
+            # reported rather than silently ignored.
             return min_x, min_y, max_x, max_y
         transformer = _cached_transformer(
             bbox_crs,
@@ -1266,7 +1266,9 @@ class COG(_Engine["Dataset"]):
         ys = [c[1] for c in corners]
         return min(xs), min(ys), max(xs), max(ys)
 
-    def _world_to_pixel(self, x: float, y: float, point_crs: int) -> tuple[int, int]:
+    def _world_to_pixel(
+        self, x: float, y: float, point_crs: int | str | None
+    ) -> tuple[int, int]:
         """Convert a world coordinate to integer `(col, row)` pixel indices.
 
         Args:
