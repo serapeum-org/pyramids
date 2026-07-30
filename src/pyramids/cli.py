@@ -519,7 +519,9 @@ def _cmd_calc(args: argparse.Namespace) -> int:
         int: `0` on success.
 
     Raises:
-        ValueError: Fewer than one input + output, or a disallowed expression.
+        ValueError: Fewer than one input + output, a disallowed expression, or
+            the first input has no CRS — the result cannot be georeferenced and
+            pyramids will not stamp a default (ARC-26).
     """
     if len(args.operands) < 2:
         raise ValueError("calc needs at least one input raster and an output path.")

@@ -35,6 +35,26 @@ ergonomic continuity (e.g.
         show_root_heading: true
         heading_level: 3
 
+::: pyramids.base.crs.epsg_of_crs
+    options:
+        show_root_heading: true
+        heading_level: 3
+
+::: pyramids.base.crs.crs_spec
+    options:
+        show_root_heading: true
+        heading_level: 3
+
+::: pyramids.base.crs.require_crs_spec
+    options:
+        show_root_heading: true
+        heading_level: 3
+
+::: pyramids.base.crs.cf_geographic_wkt
+    options:
+        show_root_heading: true
+        heading_level: 3
+
 ::: pyramids.base.crs.reproject_coordinates
     options:
         show_root_heading: true

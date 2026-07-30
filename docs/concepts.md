@@ -51,7 +51,7 @@ grp = nc.get_group("subgroup")       # a nested netCDF-4 group, itself a contain
 Terms used across the docs and API, each with the pyramids call that surfaces it.
 
 - **CRS / EPSG** — coordinate reference system. `ds.epsg` returns the integer code, or `None` when the raster
-  has no CRS or its CRS carries no EPSG authority (a geostationary grid, say); `ds.crs` the WKT; `ds.to_crs(4326)`
+  has no CRS at all (and, for a NetCDF geostationary grid, when the CRS carries no EPSG authority); `ds.crs` the WKT; `ds.to_crs(4326)`
   reprojects. pyramids does not assume WGS 84 for an unprojected raster — operations that need a CRS raise
   `CRSError` instead. A CF NetCDF whose axes are in degrees is still read as EPSG:4326, by CF convention.
   See [CRS helpers](reference/base/crs.md).
