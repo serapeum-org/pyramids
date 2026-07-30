@@ -379,8 +379,10 @@ class Spatial(_Engine["Dataset"]):
         # result, so both caches are stale now. Without this, clearing a
         # container's CRS is a no-op: `_get_crs` falls straight back to the
         # cached borrowed value (ARC-26).
+        # NetCDF-only caches; `hasattr` because a plain Dataset has neither.
         if hasattr(self._ds, "_container_crs_cache"):
             self._ds._container_crs_cache = None
+            self._ds._crs_cache = None  # type: ignore[attr-defined]
         if hasattr(self._ds, "_epsg_resolved"):
             self._ds._epsg_resolved = True
 
@@ -1465,7 +1467,11 @@ class Spatial(_Engine["Dataset"]):
         )
         require_crs_spec(src.epsg, src.crs, "align to the reference grid")
         reprojected_raster_b: Dataset = self._ds
-        if self._ds.epsg != src.epsg:
+        # Compare the resolved CRS, not `epsg` alone: two grids with different
+        # real CRSes can both report `epsg is None` (the geostationary shape),
+        # compare equal, skip the warp, and be stamped with the reference's
+        # projection further down (ARC-26).
+        if crs_spec(self._ds.epsg, self._ds.crs) != crs_spec(src.epsg, src.crs):
             reprojected_raster_b = self.to_crs(  # type: ignore[assignment]
                 require_crs_spec(src.epsg, src.crs, "align to the source grid")
             )
