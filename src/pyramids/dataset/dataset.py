@@ -231,6 +231,16 @@ if TYPE_CHECKING:
     from geopandas import GeoDataFrame
 
 
+# Names the classic netCDF driver gives coordinate variables. Units on these are
+# axis units — the only ones allowed to veto the CF geographic inference.
+_AXIS_VARIABLE_NAMES = frozenset(
+    {
+        "x", "y", "lon", "lat", "longitude", "latitude",
+        "rlon", "rlat", "easting", "northing", "xc", "yc",
+    }
+)
+
+
 class Dataset(RasterBase):
     """Single-band or multi-band raster dataset (GeoTIFF, etc.).
 
@@ -1299,7 +1309,18 @@ class Dataset(RasterBase):
                 for key, value in metadata.items()
                 if key.lower().endswith("#units") and isinstance(value, str)
             }
-            crs = cf_geographic_wkt(units)
+            # Units belonging to a spatial *axis* are the only ones that may veto
+            # the inference; a data variable in metres on a geographic grid must
+            # not (see `cf_geographic_wkt`). The classic driver names coordinate
+            # variables after their axis, so match on that.
+            axis_units = {
+                value.strip().lower()
+                for key, value in metadata.items()
+                if isinstance(value, str)
+                and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower() in _AXIS_VARIABLE_NAMES
+                and key.lower().endswith("#units")
+            }
+            crs = cf_geographic_wkt(units, axis_units)
         return crs
 
     def _get_epsg(self) -> int | None:
