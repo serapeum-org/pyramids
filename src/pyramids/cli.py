@@ -49,7 +49,7 @@ from pandas import DataFrame
 
 from pyramids.base._errors import _PyramidsError
 from pyramids.base._utils import DEFAULT_RESAMPLING
-from pyramids.base.crs import sr_from_user_input, sr_from_wkt
+from pyramids.base.crs import crs_spec, sr_from_user_input, sr_from_wkt
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS
@@ -533,7 +533,7 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     if args.dtype:
         result = result.astype(args.dtype)
     template = datasets[0]
-    if template.epsg is None:
+    if not template.crs:
         raise ValueError(
             f"{inputs[0]!r} has no CRS, so the result of --expr cannot be "
             "georeferenced. Stamping a default would claim a projection the "
@@ -544,7 +544,7 @@ def _cmd_calc(args: argparse.Namespace) -> int:
         result,
         top_left_corner=template.top_left_corner,
         cell_size=template.cell_size,
-        epsg=template.epsg,
+        epsg=crs_spec(template.epsg, template.crs),
     ).to_file(output)
     print(f"wrote {output}")
     return 0
