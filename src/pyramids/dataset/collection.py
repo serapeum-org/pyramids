@@ -1834,7 +1834,7 @@ class DatasetCollection:
                 ):
                     mismatch = f"geotransform {fm.transform} != {meta.transform}"
                 elif not _crs_equal(fm.crs, meta.crs):
-                    mismatch = f"CRS {fm.crs.to_string()} != {meta.crs.to_string()}"
+                    mismatch = f"CRS {(fm.crs.to_string() if fm.crs is not None else 'no CRS')} != {(meta.crs.to_string() if meta.crs is not None else 'no CRS')}"
                 else:
                     continue
                 raise AlignmentError(

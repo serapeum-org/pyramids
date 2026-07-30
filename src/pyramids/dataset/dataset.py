@@ -3521,7 +3521,7 @@ class Dataset(RasterBase):
         top_left_corner: tuple[float, float] | None = None,
         cell_size: int | float | None = None,
         geo: tuple[float, float, float, float, float, float] | None = None,
-        epsg: str | int = 4326,
+        epsg: str | int | None = 4326,
         no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
         driver_type: str = "MEM",
         path: str | Path | None = None,

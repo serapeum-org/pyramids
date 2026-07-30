@@ -1098,7 +1098,7 @@ class NetCDF(Dataset):
         """
         # `Dataset.epsg` is a property object on the base class, so its setter
         # has to be invoked explicitly rather than through `super()`.
-        Dataset.epsg.fset(self, value)
+        Dataset.epsg.fset(self, value)  # type: ignore[attr-defined]
         self._container_crs_cache = None
 
     def _get_epsg(self) -> int | None:
