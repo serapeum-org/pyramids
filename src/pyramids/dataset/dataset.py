@@ -1349,16 +1349,27 @@ class Dataset(RasterBase):
             # to the conventional coordinate names only when the file declares
             # none. Name alone is not enough: a *data* variable called "x" in
             # metres would otherwise veto a real geographic grid and strip its CRS.
-            declared_axes = {
-                key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
-                for key in metadata
-                if key.lower().endswith("#axis")
-            }
-            # Union, not all-or-nothing: a file may declare `axis` on some
-            # variables (a conventional `time#axis = "T"`) while leaving its
-            # projected x/y undeclared, and keying on the declarations alone
-            # would then miss the veto entirely.
-            axis_names = declared_axes | _AXIS_VARIABLE_NAMES
+            # CF's `axis` VALUE tells us which axis it is. Z means vertical --
+            # a depth or height in metres says nothing about the horizontal CRS,
+            # so it must not veto. Reading the value (rather than only the key)
+            # is what makes this work for deptht / olevel / nav_lev / sigma and
+            # every other name a nine-entry allow-list would miss.
+            declared_axes = set()
+            declared_vertical = set()
+            for key, value in metadata.items():
+                if not key.lower().endswith("#axis"):
+                    continue
+                name = key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
+                declared_axes.add(name)
+                if isinstance(value, str) and value.strip().upper() == "Z":
+                    declared_vertical.add(name)
+            # A file that declares `axis` on its horizontal axes has told us
+            # exactly which variables are axes; trust it and do NOT fall back to
+            # the name list, or a *data* variable that happens to be called "x"
+            # or "north" would veto a real geographic grid. The name list is the
+            # fallback only when the file declares no horizontal axis at all.
+            declared_horizontal = declared_axes - declared_vertical
+            axis_names = declared_horizontal or _AXIS_VARIABLE_NAMES
             axis_units = {
                 value.strip().lower()
                 for key, value in metadata.items()
@@ -1366,7 +1377,7 @@ class Dataset(RasterBase):
                 and key.lower().endswith("#units")
                 and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower() in axis_names
                 and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
-                not in VERTICAL_AXIS_NAMES
+                not in (VERTICAL_AXIS_NAMES | declared_vertical)
             }
             crs = cf_geographic_wkt(units, axis_units)
             self._cf_crs_cache = crs
@@ -1864,6 +1875,9 @@ class Dataset(RasterBase):
         self._require_writable("set metadata")
         for key, val in value.items():
             self._raster.SetMetadataItem(key, val)
+        # The CF geographic inference reads this metadata (axis units), so
+        # the memoised answer is stale once it changes.
+        self.__dict__.pop("_cf_crs_cache", None)
 
     @property
     def file_name(self) -> str:

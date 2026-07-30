@@ -385,9 +385,10 @@ class Spatial(_Engine["Dataset"]):
         if hasattr(self._ds, "_container_crs_cache"):
             self._ds._container_crs_cache = None
             self._ds._crs_cache = None  # type: ignore[attr-defined]
+            # Leave it False: the property re-resolves on the next read. Setting
+            # it True here (as an earlier revision did, two lines below) pinned
+            # the pre-set answer and made clearing a CRS a no-op.
             self._ds._epsg_resolved = False  # type: ignore[attr-defined]
-        if hasattr(self._ds, "_epsg_resolved"):
-            self._ds._epsg_resolved = True
 
     def to_crs(
         self,

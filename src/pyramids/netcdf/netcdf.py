@@ -1008,7 +1008,13 @@ class NetCDF(Dataset):
                     continue
                 # A vertical axis in metres describes depth or height, never the
                 # horizontal CRS, so it must not veto a geographic grid.
-                if dimension.GetName().lower() in VERTICAL_AXIS_NAMES:
+                # GDAL exposes the CF axis role as the dimension type; prefer it
+                # over the name list so a vertical axis is recognised whatever it
+                # is called (deptht, olevel, nav_lev, sigma, ...).
+                dim_type = (dimension.GetType() or "").upper()
+                if dim_type == "VERTICAL":
+                    continue
+                if not dim_type and dimension.GetName().lower() in VERTICAL_AXIS_NAMES:
                     continue
                 axis_units.add(indexing.GetUnit().strip().lower())
         return units, axis_units
