@@ -38,8 +38,10 @@ What changed, and what did not:
 
 - **No CRS and no evidence** (a GeoTIFF or ASCII grid with an empty projection) → `epsg` is `None`. Operations
   that genuinely need a CRS raise `CRSError` naming the fix instead of proceeding.
-- **A CRS with no EPSG authority** (geostationary, spherical-earth GRIB) → unchanged; `epsg` was already `None`
-  there and `crs` still carries the WKT.
+- **A CRS with no EPSG authority** (geostationary, spherical-earth GRIB) → unchanged by this release. Note that
+  `epsg` is *not* uniformly `None` here: `NetCDF` reports `None` for a geostationary grid (see #706), while a
+  spherical-earth GRIB still resolves through `epsg_from_wkt`'s `4326` default. Read `crs` when you need the
+  authoritative answer for such a grid.
 - **A CF NetCDF with `degrees_east` / `degrees_north` axes and no `grid_mapping`** → still `4326`. CF leaves the
   datum implicit for these and the whole ecosystem reads them as WGS 84, so this is a reading of the file's
   metadata rather than an assumption. A projected grid that merely ships auxiliary lat/lon arrays is *not*

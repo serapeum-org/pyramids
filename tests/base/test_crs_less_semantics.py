@@ -199,3 +199,52 @@ class TestGeoboxCrs:
         assert geobox_crs({"crs_wkt": "", "epsg": 0}) is None, (
             "epsg 0 means no authority code"
         )
+
+
+class TestOperationsRefuseWithoutACrs:
+    """Tests that CRS-requiring operations refuse rather than fabricate."""
+
+    def test_to_crs_refuses(self, crs_less_raster: str):
+        """`to_crs` refuses instead of stamping the target code.
+
+        Test scenario:
+            Warping from an unknown frame produced a raster carrying `to_epsg`
+            as an unearned claim, with the geotransform untouched.
+        """
+        dataset = Dataset.read_file(crs_less_raster)
+        with pytest.raises(CRSError, match="reproject"):
+            dataset.to_crs(3857)
+
+    def test_align_refuses_when_both_sides_lack_a_crs(self, crs_less_raster: str):
+        """Two CRS-less rasters do not slip past the guard by comparing equal.
+
+        Test scenario:
+            Both report `epsg is None`, so an equality check on `epsg` alone
+            skipped the guard and the result was stamped with the reference's
+            projection anyway.
+        """
+        first = Dataset.read_file(crs_less_raster)
+        second = Dataset.read_file(crs_less_raster)
+        with pytest.raises(CRSError, match="align"):
+            first.align(second)
+
+
+class TestReadsStillWorkWithoutACrs:
+    """Tests that reads which need no transform keep working."""
+
+    def test_read_part_reads_in_the_rasters_own_coordinates(self, crs_less_raster: str):
+        """A bbox read needs no CRS when no reprojection is involved.
+
+        Test scenario:
+            `bbox_crs` defaults to 4326 and never equals `None`, so guarding the
+            transform unconditionally broke a plain windowed read that worked
+            before. With no CRS the bbox is read in the raster's own space —
+            here the fixture's own extent, x 0..4 and y -4..0.
+        """
+        dataset = Dataset.read_file(crs_less_raster)
+        assert dataset.read_part((1, -3, 3, -1)) is not None, "a windowed read must not require a CRS"
+
+    def test_point_reads_in_the_rasters_own_coordinates(self, crs_less_raster: str):
+        """Point sampling likewise needs no CRS when no transform is involved."""
+        dataset = Dataset.read_file(crs_less_raster)
+        assert dataset.point(2, -2) is not None, "point sampling must not require a CRS"
