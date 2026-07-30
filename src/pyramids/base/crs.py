@@ -1004,6 +1004,10 @@ def reproject_coordinates(
 
 
 __all__ = [
+    "LAT_UNIT_PREFIXES",
+    "LON_UNIT_PREFIXES",
+    "PROJECTED_AXIS_UNITS",
+    "VERTICAL_AXIS_NAMES",
     "cf_geographic_wkt",
     "create_sr_from_proj",
     "crs_spec",

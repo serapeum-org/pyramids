@@ -936,13 +936,19 @@ class COG(_Engine["Dataset"]):
                 width (no decimation).
             dst_height: Output height in pixels. Defaults to the source window
                 height.
-            bbox_crs: EPSG code of `bbox`. Reprojected to the dataset CRS
+            bbox_crs: CRS of `bbox`. `None` (default) means the bbox is already
+                in the raster's own coordinates. Reprojected to the dataset CRS
                 when different. Defaults to 4326 (WGS84 lon/lat).
             resampling: Resampling method, case-insensitive. One of `nearest`,
                 `bilinear`, `cubic`, `cubicspline` (alias `cubic_spline`),
                 `lanczos`, `average`, `mode`, plus `gauss` and `rms` when the
                 GDAL build provides them.
             band: 0-based band index. `None` reads all bands.
+
+        Raises:
+            CRSError: An explicit CRS was given for the coordinates but the
+                raster has none to transform into. Omit it to read in the
+                raster's own coordinates (ARC-26).
 
         Returns:
             numpy.ndarray: `(rows, cols)` for a single band, or
@@ -1146,6 +1152,11 @@ class COG(_Engine["Dataset"]):
                 when different. Defaults to 4326.
             band: 0-based band index. `None` samples all bands.
 
+        Raises:
+            CRSError: An explicit CRS was given for the coordinates but the
+                raster has none to transform into. Omit it to read in the
+                raster's own coordinates (ARC-26).
+
         Returns:
             numpy.ndarray: A scalar 0-d array for a single band, or a
             `(bands,)` array when `band` is `None`. Pixel values only — no
@@ -1236,7 +1247,8 @@ class COG(_Engine["Dataset"]):
 
         Args:
             bbox: `(min_x, min_y, max_x, max_y)` in `bbox_crs`.
-            bbox_crs: EPSG code of `bbox`.
+            bbox_crs: CRS of `bbox`. `None` (default) means the bbox is already
+                in the raster's own coordinates.
 
         Returns:
             `(min_x, min_y, max_x, max_y)` in the dataset CRS. When

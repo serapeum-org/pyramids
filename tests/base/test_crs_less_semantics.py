@@ -25,6 +25,9 @@ from pyramids.dataset.ops._geobox_zarr import geobox_crs
 
 pytestmark = pytest.mark.core
 
+_CF_GEOGRAPHIC = "tests/data/netcdf/cf__7v__1d3-2d3-3d1__y-asc.nc"
+_GEOSTATIONARY = "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-desc.nc"
+
 
 @pytest.fixture(scope="function")
 def crs_less_raster(tmp_path) -> str:
@@ -250,3 +253,55 @@ class TestReadsStillWorkWithoutACrs:
         """Point sampling likewise needs no CRS when no transform is involved."""
         dataset = Dataset.read_file(crs_less_raster)
         assert dataset.point(2, -2) is not None, "point sampling must not require a CRS"
+
+
+class TestNetCDFCrsResolution:
+    """Tests for how a NetCDF resolves its CRS (ARC-26)."""
+
+    def test_cf_geographic_variable_resolves_to_wgs84(self):
+        """A CF variable with degrees axes and no grid_mapping reads as 4326."""
+        from pyramids.netcdf import NetCDF
+
+        container = NetCDF.read_file(_CF_GEOGRAPHIC)
+        variable = container.get_variable("tos")
+        assert variable.epsg == 4326, f"CF degrees axes should read as WGS 84, got {variable.epsg}"
+
+    def test_container_borrows_its_variables_crs(self):
+        """A root container has no projection of its own and borrows one.
+
+        Test scenario:
+            The georeference lives on the variables, so `GetProjection()` is
+            empty for the container even when every variable is georeferenced.
+        """
+        from pyramids.netcdf import NetCDF
+
+        container = NetCDF.read_file(_CF_GEOGRAPHIC)
+        assert container.raster.GetProjection() == "", "the container should carry no projection itself"
+        assert container.epsg == 4326, f"the container should borrow its variables' CRS, got {container.epsg}"
+
+    def test_geostationary_is_not_relabelled(self):
+        """A geostationary grid keeps reporting no EPSG code.
+
+        Test scenario:
+            Its auxiliary arrays are in degrees, so an inference that ignored
+            axis units would mislabel the scan-angle grid as WGS 84 (#706).
+        """
+        from pyramids.netcdf import NetCDF
+
+        variable = NetCDF.read_file(_GEOSTATIONARY).get_variable("CMI")
+        assert variable.epsg is None, f"a geostationary grid has no EPSG code, got {variable.epsg}"
+        assert variable.crs, "but it does carry a CRS as WKT"
+
+    def test_resolved_epsg_is_memoised(self):
+        """Repeated `.epsg` reads do not re-run the variable scan.
+
+        Test scenario:
+            Resolution opens every MDArray, and `.epsg` sits on the hot path for
+            spatial ops, so the answer has to stick — including when it is None.
+        """
+        from pyramids.netcdf import NetCDF
+
+        variable = NetCDF.read_file(_CF_GEOGRAPHIC).get_variable("tos")
+        first = variable.epsg
+        assert variable._epsg_resolved is True, "the first read should mark the resolution as done"
+        assert variable.epsg == first, "the memoised answer must match the resolved one"

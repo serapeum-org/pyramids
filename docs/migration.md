@@ -44,8 +44,10 @@ What changed, and what did not:
   authoritative answer for such a grid.
 - **A CF NetCDF with `degrees_east` / `degrees_north` axes and no `grid_mapping`** → still `4326`. CF leaves the
   datum implicit for these and the whole ecosystem reads them as WGS 84, so this is a reading of the file's
-  metadata rather than an assumption. A projected grid that merely ships auxiliary lat/lon arrays is *not*
-  relabelled.
+  metadata rather than an assumption. The inference is vetoed when a horizontal *axis* carries a linear unit
+  (`m`, `km`) or plain `degrees`/`rad` — so a projected grid, a rotated-pole grid, and a geostationary grid are
+  not relabelled on the strength of auxiliary lat/lon arrays. A metre *vertical* axis (depth, height) does not
+  veto: it says nothing about the horizontal frame.
 
 If you relied on the old default, set the CRS explicitly — `dataset.epsg = <code>` in process, or
 `gdal_edit.py -a_srs EPSG:<code> <file>` on disk. To find affected code, look for `.epsg` used without a `None`
@@ -106,6 +108,30 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 | `numpy_to_gdal_dtype(<unmapped dtype>)` | `IndexError` | `ValueError` |
 | `gdal_to_numpy_dtype(gdal.GDT_Unknown)` | `AttributeError` | `ValueError` |
 | `gdal_to_ogr_dtype(<complex band>)` | `TypeError` | `ValueError` |
+
+## dataset
+
+### unreleased
+
+**Operations that need a CRS now refuse instead of assuming one.** Each raises `CRSError` naming the operation
+and how to fix it, where previously the missing CRS was silently filled in with WGS 84:
+
+- `Dataset.to_crs(...)` — reprojection has no source frame to warp from.
+- `Dataset.align(...)` — both the receiver and the reference must carry a CRS; two rasters that both report
+  `epsg is None` are no longer treated as matching.
+- `Dataset.crop(bbox=...)` / `NetCDF.crop(bbox=...)` without an explicit `epsg=`.
+
+`read_part(bbox=...)` and `point(...)` do **not** refuse: their `bbox_crs` / `point_crs` parameters now default to
+`None`, meaning "already in the raster's own coordinates", so a windowed read of an ungeoreferenced raster keeps
+working. Passing an explicit CRS against a raster that has none does raise, rather than being ignored.
+
+## cli
+
+### unreleased
+
+**`pyramids calc` refuses a first input with no CRS.** The result cannot be georeferenced and pyramids will not
+stamp a default; set a CRS on the input first. `pyramids georeference` is unaffected — its GCPs and `--gcp-crs`
+replace the georeference wholesale.
 
 ## netcdf
 
