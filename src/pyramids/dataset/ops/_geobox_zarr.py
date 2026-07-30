@@ -92,7 +92,10 @@ def write_geobox(
     Args:
         group: An open, writable :class:`zarr.hierarchy.Group`.
         data_name: Name of the already-written data array in ``group``.
-        epsg: EPSG code, or ``0`` when the CRS has no authority code.
+        epsg: EPSG code, ``0`` when the CRS has no authority code, and also
+            ``0`` when there is no CRS at all -- paired with an empty
+            ``crs_wkt``, which is what distinguishes the two. Read both back
+            through :func:`geobox_crs`.
         geotransform: GDAL 6-tuple.
         crs_wkt: CRS as WKT (the authoritative CRS; preferred over ``epsg`` on read).
         rows: Raster row count.

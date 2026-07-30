@@ -222,9 +222,11 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
             "pyramids_file_list": list(files),
         },
         data_attrs={
-            "epsg": int(meta.epsg) if meta.epsg is not None else None,
+            # 0 is the geobox's documented "no authority code" sentinel; emit
+            # it here too so a store does not record absence two ways.
+            "epsg": int(meta.epsg) if meta.epsg is not None else 0,
             "GeoTransform": " ".join(str(v) for v in meta.geotransform),
-            "crs_wkt": meta.crs.to_wkt() if meta.crs is not None else None,
+            "crs_wkt": meta.crs.to_wkt() if meta.crs is not None else "",
             "nodata": [None if v is None else float(v) for v in meta.nodata],
             "band_names": list(meta.band_names) if meta.band_names else [],
             "dtype": str(meta.dtype),
