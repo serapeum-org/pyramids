@@ -791,6 +791,29 @@ def _require_create_inputs(variable_name, geo) -> None:
     # The creator below skips the spatial reference in that case.
 
 
+def _resolve_write_crs(epsg):
+    """Spatial reference and axis kind to write for a variable.
+
+    Args:
+        epsg: EPSG code, WKT/user-input CRS string, or a falsy value meaning the
+            source has no CRS.
+
+    Returns:
+        tuple: `(srs_or_None, is_geographic)` where `is_geographic` is `True`
+        for degrees axes, `False` for projected (metre) axes, and `None` when
+        the CRS is unknown — the third state, which writes the axis role without
+        asserting any units. Stamping metres there would be the same fabrication
+        ARC-26 removed on the read side.
+    """
+    if not epsg:
+        return None, None
+    try:
+        srse = sr_from_epsg(int(epsg))
+    except (TypeError, ValueError):
+        srse = sr_from_user_input(epsg)
+    return srse, srse.IsGeographic() == 1
+
+
 def _create_netcdf_from_array(
     arr: np.ndarray,
     variable_name: str,
@@ -882,21 +905,7 @@ def _create_netcdf_from_array(
     # path for those. A geostationary (and other no-EPSG) CRS is carried through
     # as a WKT string so the fan-out that rebuilds each variable preserves it
     # instead of crashing on a None EPSG code (#706).
-    if not epsg:
-        # No CRS at all: build the variable without a spatial reference rather
-        # than inventing one. The axes are then plain numeric dimensions, so
-        # treat them as non-geographic (ARC-26).
-        srse = None
-        # Not False: False means "projected", which would stamp metres on the
-        # axes. `None` is the third state -- no CRS -- so the writer emits the
-        # axis role without asserting any units (ARC-26).
-        is_geographic = None
-    else:
-        try:
-            srse = sr_from_epsg(int(epsg))
-        except (TypeError, ValueError):
-            srse = sr_from_user_input(epsg)
-        is_geographic = srse.IsGeographic() == 1
+    srse, is_geographic = _resolve_write_crs(epsg)
 
     dim_x = NetCDF._create_dimension(
         rg,

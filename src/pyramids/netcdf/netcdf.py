@@ -950,6 +950,49 @@ class NetCDF(Dataset):
             result = ""
         return result
 
+    def _multidim_group(self):
+        """The multidim root group backing this cube, or ``None``.
+
+        A variable subset holds no group of its own, so fall back to the parent
+        container's.
+
+        Returns:
+            The GDAL root group, or ``None`` when neither carries one.
+        """
+        group = getattr(self, "_gdal_rg_ref", None)
+        if group is None:
+            parent = getattr(self, "_parent_nc", None)
+            if parent is not None:
+                group = getattr(parent, "_gdal_rg_ref", None)
+        return group
+
+    @staticmethod
+    def _collect_axis_units(group) -> tuple[set[str], set[str]]:
+        """Units on every array, and separately on the true dimension axes.
+
+        A dimension's indexing variable IS an axis; anything else is a data or
+        auxiliary array. Only the former may veto the geographic inference — a
+        data variable is legitimately in metres on a geographic grid.
+
+        Args:
+            group: A GDAL multidim root group.
+
+        Returns:
+            tuple[set[str], set[str]]: `(all units, axis units)`, lower-cased.
+        """
+        units: set[str] = set()
+        axis_units: set[str] = set()
+        for name in group.GetMDArrayNames():
+            array = group.OpenMDArray(name)
+            unit = array.GetUnit()
+            if unit:
+                units.add(unit.strip().lower())
+            for dimension in array.GetDimensions():
+                indexing = dimension.GetIndexingVariable()
+                if indexing is not None and indexing.GetUnit():
+                    axis_units.add(indexing.GetUnit().strip().lower())
+        return units, axis_units
+
     def _cf_geographic_crs(self) -> str:
         """WGS 84 WKT when CF metadata says this is a lat/lon grid, else ``""``.
 
@@ -963,45 +1006,14 @@ class NetCDF(Dataset):
         ``None``.
 
         Returns:
-            str: WGS 84 WKT when both a longitude and a latitude axis are in
-            degrees, otherwise ``""``.
+            str: WGS 84 WKT when the axis units say geographic, otherwise ``""``.
         """
         result = ""
         try:
-            # The multidim view exposes no classic `<var>#units` metadata, so
-            # read the coordinate arrays' units off the root group instead. Fall
-            # back to the parent container's group for a variable subset, which
-            # does not hold its own reference.
-            group = getattr(self, "_gdal_rg_ref", None)
-            parent = getattr(self, "_parent_nc", None)
-            if group is None and parent is not None:
-                group = getattr(parent, "_gdal_rg_ref", None)
-            units: set[str] = set()
-            axis_units: set[str] = set()
+            group = self._multidim_group()
             if group is not None and not self._is_geostationary():
-                # A dimension's indexing variable IS an axis; anything else is a
-                # data or auxiliary array. Only the former can veto (see
-                # `cf_geographic_wkt`).
-                for name in group.GetMDArrayNames():
-                    array = group.OpenMDArray(name)
-                    for dimension in array.GetDimensions():
-                        indexing = dimension.GetIndexingVariable()
-                        if indexing is not None and indexing.GetUnit():
-                            axis_units.add(indexing.GetUnit().strip().lower())
-                for name in group.GetMDArrayNames():
-                    # 2-D auxiliary lat/lon arrays count as evidence too: a
-                    # curvilinear grid stores its geographic coordinates that
-                    # way and has no 1-D degrees axis at all. The one case where
-                    # degrees arrays sit on a *projected* grid — geostationary —
-                    # is excluded above rather than by arity (#706).
-                    unit = group.OpenMDArray(name).GetUnit()
-                    if unit:
-                        units.add(unit.strip().lower())
-            # CF permits several spellings for each axis (`degrees_east`,
-            # `degree_east`, `degrees_E`, `degreeE`, ...), so match the stem
-            # rather than one literal. the shared table mirrors the
-            # vocabulary `pyramids.netcdf.cf` already accepts.
-            result = cf_geographic_wkt(units, axis_units)
+                units, axis_units = self._collect_axis_units(group)
+                result = cf_geographic_wkt(units, axis_units)
         except (RuntimeError, AttributeError, ValueError, TypeError):
             # See `_container_crs`: narrow so a real fault still surfaces.
             result = ""

@@ -166,9 +166,10 @@ class TestWindowedRead705:
         ]
         window = warped.read_array(bbox=sub)
         assert window.ndim >= 2, f"expected a 2-D+ window, got shape {window.shape}"
-        assert (
-            window.shape[-1] < full.shape[-1] and window.shape[-2] < full.shape[-2]
-        ), (
+        assert window.shape[-1] < full.shape[-1], (
+            f"window width {window.shape[-1]} should be under the full {full.shape[-1]}"
+        )
+        assert window.shape[-2] < full.shape[-2], (
             f"window {window.shape} should be strictly smaller than the full read {full.shape}"
         )
 
@@ -326,7 +327,8 @@ class TestCoordinateDerivedGeotransform:
         cube = container.get_variable("v")
         # lon = [1, 2, 4, 8, 16] ascending -> no X flip -> west edge derives from lon[0] = 1.
         # lat = [1, 2, 3, 4] ascending -> Y flipped   -> north edge derives from lat[-1] = 4.
-        assert cube._md_x_flipped is False and cube._md_y_flipped is True
+        assert cube._md_x_flipped is False, "ascending lon must not flip X"
+        assert cube._md_y_flipped is True, "ascending lat must flip Y"
         assert cube.geotransform[0] == pytest.approx(0.5), (
             "west edge should be lon[0] - cell/2"
         )
