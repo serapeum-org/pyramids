@@ -315,3 +315,50 @@ class TestNetCDFCrsResolution:
             "the first read should mark the resolution as done"
         )
         assert variable.epsg == first, "the memoised answer must match the resolved one"
+
+
+class TestDefaultCoordinateReads:
+    """Tests for the default `bbox_crs` / `point_crs`, on a *georeferenced* raster.
+
+    Every pre-existing call site passes the CRS explicitly, so a regression in
+    the default path was invisible to the suite.
+    """
+
+    @pytest.fixture(scope="function")
+    def wgs84_raster(self, tmp_path) -> str:
+        """Create a small GeoTIFF that does carry EPSG:4326.
+
+        Args:
+            tmp_path: pytest temporary directory.
+
+        Returns:
+            str: Path to the created raster.
+        """
+        path = str(tmp_path / "wgs84.tif")
+        dataset = gdal.GetDriverByName("GTiff").Create(path, 8, 8, 1, gdal.GDT_Byte)
+        dataset.SetGeoTransform([0, 1, 0, 8, 0, -1])
+        dataset.SetProjection(sr_from_epsg(4326).ExportToWkt())
+        dataset.GetRasterBand(1).WriteArray(np.ones((8, 8), dtype="uint8"))
+        dataset = None
+        return path
+
+    def test_point_without_a_crs_argument(self, wgs84_raster: str):
+        """`point(x, y)` works on a georeferenced raster with no `point_crs`.
+
+        Test scenario:
+            Defaulting `point_crs` to None must mean "already in the raster's
+            coordinates", not "transform from None" — which raised on every
+            georeferenced raster.
+        """
+        dataset = Dataset.read_file(wgs84_raster)
+        assert dataset.point(2, 2) is not None, "point() must work without an explicit CRS"
+
+    def test_read_part_without_a_crs_argument(self, wgs84_raster: str):
+        """`read_part(bbox)` works on a georeferenced raster with no `bbox_crs`."""
+        dataset = Dataset.read_file(wgs84_raster)
+        assert dataset.read_part((1, 1, 4, 4)) is not None, "read_part() must work without an explicit CRS"
+
+    def test_explicit_matching_crs_still_works(self, wgs84_raster: str):
+        """Passing the raster's own CRS explicitly is still a no-op transform."""
+        dataset = Dataset.read_file(wgs84_raster)
+        assert dataset.point(2, 2, point_crs=4326) is not None, "an explicit matching CRS must still work"

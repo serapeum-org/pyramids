@@ -233,7 +233,7 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
         },
         epsg=int(meta.epsg) if meta.epsg is not None else None,
         geotransform=tuple(float(v) for v in meta.geotransform),
-        crs_wkt=meta.crs.to_wkt() if meta.crs is not None else None,
+        crs_wkt=meta.crs.to_wkt() if meta.crs is not None else "",
         rows=int(meta.rows),
         cols=int(meta.columns),
         dims=["time", "band", "y", "x"],
@@ -1539,7 +1539,7 @@ class DatasetCollection:
 
         root_attrs: dict = {"Conventions": "CF-1.8"}
         try:
-            crs_wkt = meta.crs.to_wkt() if meta.crs is not None else None
+            crs_wkt = meta.crs.to_wkt() if meta.crs is not None else ""
         except AttributeError:
             crs_wkt = None
         if crs_wkt:
