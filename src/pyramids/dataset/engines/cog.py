@@ -27,7 +27,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
     resolve_cog_predictor,
 )
-from pyramids.base.crs import require_crs_spec
+from pyramids.base.crs import crs_spec, require_crs_spec
 from pyramids.dataset.abstract_dataset import under_gdal_env
 from pyramids.dataset.cog import (
     COGInfo,
@@ -1246,6 +1246,12 @@ class COG(_Engine["Dataset"]):
         min_x, min_y, max_x, max_y = bbox
         if self._ds.epsg == bbox_crs:
             return min_x, min_y, max_x, max_y
+        if crs_spec(self._ds.epsg, self._ds.crs) is None:
+            # No CRS to transform into. `bbox_crs` defaults to 4326, so refusing
+            # here would break a plain `read_part(bbox=...)` on an ungeoreferenced
+            # raster, which worked before. Read the bbox as already being in the
+            # raster's own coordinate space instead (ARC-26).
+            return min_x, min_y, max_x, max_y
         transformer = _cached_transformer(
             bbox_crs,
             require_crs_spec(self._ds.epsg, self._ds.crs, "read a bbox window"),
@@ -1271,7 +1277,9 @@ class COG(_Engine["Dataset"]):
         Returns:
             `(col, row)` integer pixel indices (floored).
         """
-        if self._ds.epsg != point_crs:
+        # Same reasoning as the bbox path: with no CRS the point is read as
+        # already being in the raster's own coordinate space rather than refused.
+        if self._ds.epsg != point_crs and crs_spec(self._ds.epsg, self._ds.crs) is not None:
             transformer = _cached_transformer(
                 point_crs,
                 require_crs_spec(self._ds.epsg, self._ds.crs, "sample a point"),

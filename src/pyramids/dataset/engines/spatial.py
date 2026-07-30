@@ -375,6 +375,14 @@ class Spatial(_Engine["Dataset"]):
             sr = sr_from_epsg(cast(int, epsg))
             self._ds.raster.SetProjection(sr.ExportToWkt())
             self._ds._epsg = epsg
+        # A NetCDF container derives its CRS from its variables and memoises the
+        # result, so both caches are stale now. Without this, clearing a
+        # container's CRS is a no-op: `_get_crs` falls straight back to the
+        # cached borrowed value (ARC-26).
+        if hasattr(self._ds, "_container_crs_cache"):
+            self._ds._container_crs_cache = None
+        if hasattr(self._ds, "_epsg_resolved"):
+            self._ds._epsg_resolved = True
 
     def to_crs(
         self,
@@ -521,6 +529,12 @@ class Spatial(_Engine["Dataset"]):
               :class:`osr.SpatialReference`.
 
         """
+        # Reprojection is meaningless without a source CRS: GDAL would warp from
+        # an unknown frame and the result would carry `to_epsg` as an unearned
+        # claim, with the geotransform untouched. This is the operation
+        # `require_crs_spec` exists for, so guard it here rather than only at the
+        # callers (ARC-26).
+        require_crs_spec(self._ds.epsg, self._ds.crs, "reproject to another CRS")
         dst_sr = sr_from_user_input(to_epsg)
         resampling_method: int = resolve_resampling(method)
 
@@ -1442,15 +1456,14 @@ class Spatial(_Engine["Dataset"]):
             )
 
         # reproject the raster to match the projection of alignment_src
+        # Both sides are required, and the check must sit OUTSIDE the inequality
+        # below: two CRS-less rasters both report `epsg is None`, so they compare
+        # equal, skip the branch, and the result is still stamped with the
+        # reference's projection further down (ARC-26).
+        require_crs_spec(self._ds.epsg, self._ds.crs, "align a raster onto another grid")
+        require_crs_spec(src.epsg, src.crs, "align to the reference grid")
         reprojected_raster_b: Dataset = self._ds
         if self._ds.epsg != src.epsg:
-            # Both sides are required, not just the reference. Warping *from* a
-            # dataset with no CRS silently produced a result stamped with the
-            # reference's projection — the fabrication this change removes — so
-            # refuse symmetrically (ARC-26).
-            require_crs_spec(
-                self._ds.epsg, self._ds.crs, "align a raster onto another grid"
-            )
             reprojected_raster_b = self.to_crs(  # type: ignore[assignment]
                 require_crs_spec(src.epsg, src.crs, "align to the source grid")
             )
