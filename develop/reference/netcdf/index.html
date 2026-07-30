@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -13685,9 +13685,9 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-1014" name="__codelineno-0-1014"></a>                        <span class="n">crs</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">variable_crs</span><span class="p">)</span>
 <a id="__codelineno-0-1015" name="__codelineno-0-1015"></a>                        <span class="k">break</span>
 <a id="__codelineno-0-1016" name="__codelineno-0-1016"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span> <span class="ne">AttributeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
-<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a>            <span class="c1"># GDAL surfaces a bad/absent group as RuntimeError; the rest guard a</span>
-<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a>            <span class="c1"># half-built object during __init__. Deliberately NOT bare Exception:</span>
-<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a>            <span class="c1"># that hid the initialisation-order bug this comment used to excuse.</span>
+<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a>                <span class="c1"># GDAL surfaces a bad/absent group as RuntimeError; the rest guard a</span>
+<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a>                <span class="c1"># half-built object during __init__. Deliberately NOT bare Exception:</span>
+<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a>                <span class="c1"># that hid the initialisation-order bug this comment used to excuse.</span>
 <a id="__codelineno-0-1020" name="__codelineno-0-1020"></a>                <span class="n">crs</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
 <a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>            <span class="n">cached</span> <span class="o">=</span> <span class="n">crs</span>
 <a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_container_crs_cache</span> <span class="o">=</span> <span class="n">cached</span>
