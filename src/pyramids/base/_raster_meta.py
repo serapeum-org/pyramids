@@ -93,10 +93,17 @@ class RasterMeta:
 
     @property
     def epsg(self) -> int | None:
-        """EPSG code if the CRS has one; else `None`."""
+        """EPSG code if there is a CRS and it has one; else `None`.
+
+        `crs` is `None` for a genuinely ungeoreferenced raster (an ASCII grid,
+        say), which is a normal state rather than a defensive edge case — hence
+        the explicit check rather than relying on the handler below.
+        """
+        if self.crs is None:
+            return None
         try:
             return self.crs.to_epsg()
-        except Exception:  # pragma: no cover - defensive
+        except (AttributeError, ValueError):
             return None
 
     @property
