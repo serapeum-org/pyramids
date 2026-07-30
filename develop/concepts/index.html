@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6163,7 +6163,8 @@ a <code>GeoDataFrame</code>. You work with Python objects and attributes — nev
 <p>Terms used across the docs and API, each with the pyramids call that surfaces it.</p>
 <ul>
 <li><strong>CRS / EPSG</strong> — coordinate reference system. <code>ds.epsg</code> returns the integer code, or <code>None</code> when the raster
-  has no CRS at all (and, for a NetCDF geostationary grid, when the CRS carries no EPSG authority); <code>ds.crs</code> the WKT; <code>ds.to_crs(4326)</code>
+  has no CRS at all (and, for a NetCDF geostationary grid, when the CRS
+  carries no EPSG authority); <code>ds.crs</code> the WKT; <code>ds.to_crs(4326)</code>
   reprojects. pyramids does not assume WGS 84 for an unprojected raster — operations that need a CRS raise
   <code>CRSError</code> instead. A CF NetCDF whose axes are in degrees is still read as EPSG:4326, by CF convention.
   See <a href="../reference/base/crs/">CRS helpers</a>.</li>
