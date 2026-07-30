@@ -6162,8 +6162,11 @@ a <code>GeoDataFrame</code>. You work with Python objects and attributes — nev
 <h2 id="glossary"><a class="toclink" href="#glossary">Glossary</a><a class="headerlink" href="#glossary" title="Permanent link">#</a></h2>
 <p>Terms used across the docs and API, each with the pyramids call that surfaces it.</p>
 <ul>
-<li><strong>CRS / EPSG</strong> — coordinate reference system. <code>ds.epsg</code> returns the integer code; <code>ds.crs</code> the WKT;
-  <code>ds.to_crs(4326)</code> reprojects. See <a href="../reference/base/crs/">CRS helpers</a>.</li>
+<li><strong>CRS / EPSG</strong> — coordinate reference system. <code>ds.epsg</code> returns the integer code, or <code>None</code> when the raster
+  has no CRS or its CRS carries no EPSG authority (a geostationary grid, say); <code>ds.crs</code> the WKT; <code>ds.to_crs(4326)</code>
+  reprojects. pyramids does not assume WGS 84 for an unprojected raster — operations that need a CRS raise
+  <code>CRSError</code> instead. A CF NetCDF whose axes are in degrees is still read as EPSG:4326, by CF convention.
+  See <a href="../reference/base/crs/">CRS helpers</a>.</li>
 <li><strong>Geotransform</strong> — the six-number affine mapping pixel (row, col) → map (x, y): <code>ds.geotransform</code>.</li>
 <li><strong>Cell size</strong> — pixel size in CRS units (<code>ds.cell_size</code>); resample with <code>ds.resample(...)</code>.</li>
 <li><strong>Bounds / bbox / extent</strong> — the raster's spatial envelope: <code>ds.bbox</code> (min-x, min-y, max-x, max-y).</li>

@@ -5535,6 +5535,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unreleased
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#0461" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6121,6 +6132,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unreleased
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#0461" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6297,6 +6319,25 @@ every deprecated call site:</p>
 </code></pre></div>
 <p>This catches the deprecations; the hard behavior changes do <strong>not</strong> warn — search for them manually.</p>
 <h2 id="base"><a class="toclink" href="#base">base</a><a class="headerlink" href="#base" title="Permanent link">#</a></h2>
+<h3 id="unreleased"><a class="toclink" href="#unreleased">unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">#</a></h3>
+<p><strong><code>Dataset.epsg</code> no longer reports EPSG:4326 for a raster that has no CRS.</strong> It previously substituted WGS 84
+whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that
+claim propagated into <code>to_file</code>, <code>to_crs</code>, <code>bounds</code> and alignment checks. It now returns <code>None</code>, matching GDAL,
+rasterio, rioxarray and geopandas, none of which substitute a default.</p>
+<p>What changed, and what did not:</p>
+<ul>
+<li><strong>No CRS and no evidence</strong> (a GeoTIFF or ASCII grid with an empty projection) → <code>epsg</code> is <code>None</code>. Operations
+  that genuinely need a CRS raise <code>CRSError</code> naming the fix instead of proceeding.</li>
+<li><strong>A CRS with no EPSG authority</strong> (geostationary, spherical-earth GRIB) → unchanged; <code>epsg</code> was already <code>None</code>
+  there and <code>crs</code> still carries the WKT.</li>
+<li><strong>A CF NetCDF with <code>degrees_east</code> / <code>degrees_north</code> axes and no <code>grid_mapping</code></strong> → still <code>4326</code>. CF leaves the
+  datum implicit for these and the whole ecosystem reads them as WGS 84, so this is a reading of the file's
+  metadata rather than an assumption. A projected grid that merely ships auxiliary lat/lon arrays is <em>not</em>
+  relabelled.</li>
+</ul>
+<p>If you relied on the old default, set the CRS explicitly — <code>dataset.epsg = &lt;code&gt;</code> in process, or
+<code>gdal_edit.py -a_srs EPSG:&lt;code&gt; &lt;file&gt;</code> on disk. To find affected code, look for <code>.epsg</code> used without a <code>None</code>
+check, and for the <code>dataset.epsg or dataset.crs</code> idiom, which is now <code>crs_spec(dataset.epsg, dataset.crs)</code>.</p>
 <h3 id="0461"><a class="toclink" href="#0461">0.46.1</a><a class="headerlink" href="#0461" title="Permanent link">#</a></h3>
 <p><strong><code>import pyramids</code> no longer configures logging.</strong> Previously, importing the package ran <code>Config()</code>, which
 added a handler to the <strong>root</strong> logger, called <code>root.setLevel(logging.INFO)</code>, pinned six third-party loggers to
