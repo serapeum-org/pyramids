@@ -7817,7 +7817,19 @@ categorical-raster resampling guardrail
 <span class="normal"><a href="#__codelineno-0-1351">1351</a></span>
 <span class="normal"><a href="#__codelineno-0-1352">1352</a></span>
 <span class="normal"><a href="#__codelineno-0-1353">1353</a></span>
-<span class="normal"><a href="#__codelineno-0-1354">1354</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-176" name="__codelineno-0-176"></a><span class="k">class</span><span class="w"> </span><span class="nc">COG</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
+<span class="normal"><a href="#__codelineno-0-1354">1354</a></span>
+<span class="normal"><a href="#__codelineno-0-1355">1355</a></span>
+<span class="normal"><a href="#__codelineno-0-1356">1356</a></span>
+<span class="normal"><a href="#__codelineno-0-1357">1357</a></span>
+<span class="normal"><a href="#__codelineno-0-1358">1358</a></span>
+<span class="normal"><a href="#__codelineno-0-1359">1359</a></span>
+<span class="normal"><a href="#__codelineno-0-1360">1360</a></span>
+<span class="normal"><a href="#__codelineno-0-1361">1361</a></span>
+<span class="normal"><a href="#__codelineno-0-1362">1362</a></span>
+<span class="normal"><a href="#__codelineno-0-1363">1363</a></span>
+<span class="normal"><a href="#__codelineno-0-1364">1364</a></span>
+<span class="normal"><a href="#__codelineno-0-1365">1365</a></span>
+<span class="normal"><a href="#__codelineno-0-1366">1366</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-176" name="__codelineno-0-176"></a><span class="k">class</span><span class="w"> </span><span class="nc">COG</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
 <a id="__codelineno-0-177" name="__codelineno-0-177"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Cloud Optimized GeoTIFF read/write/validate operations for `Dataset`.</span>
 <a id="__codelineno-0-178" name="__codelineno-0-178"></a>
 <a id="__codelineno-0-179" name="__codelineno-0-179"></a><span class="sd">    Owns the real implementations of `to_cog`, `is_cog` (property),</span>
@@ -8580,422 +8592,434 @@ categorical-raster resampling guardrail
 <a id="__codelineno-0-936" name="__codelineno-0-936"></a><span class="sd">                width (no decimation).</span>
 <a id="__codelineno-0-937" name="__codelineno-0-937"></a><span class="sd">            dst_height: Output height in pixels. Defaults to the source window</span>
 <a id="__codelineno-0-938" name="__codelineno-0-938"></a><span class="sd">                height.</span>
-<a id="__codelineno-0-939" name="__codelineno-0-939"></a><span class="sd">            bbox_crs: EPSG code of `bbox`. Reprojected to the dataset CRS</span>
-<a id="__codelineno-0-940" name="__codelineno-0-940"></a><span class="sd">                when different. Defaults to 4326 (WGS84 lon/lat).</span>
-<a id="__codelineno-0-941" name="__codelineno-0-941"></a><span class="sd">            resampling: Resampling method, case-insensitive. One of `nearest`,</span>
-<a id="__codelineno-0-942" name="__codelineno-0-942"></a><span class="sd">                `bilinear`, `cubic`, `cubicspline` (alias `cubic_spline`),</span>
-<a id="__codelineno-0-943" name="__codelineno-0-943"></a><span class="sd">                `lanczos`, `average`, `mode`, plus `gauss` and `rms` when the</span>
-<a id="__codelineno-0-944" name="__codelineno-0-944"></a><span class="sd">                GDAL build provides them.</span>
-<a id="__codelineno-0-945" name="__codelineno-0-945"></a><span class="sd">            band: 0-based band index. `None` reads all bands.</span>
-<a id="__codelineno-0-946" name="__codelineno-0-946"></a>
-<a id="__codelineno-0-947" name="__codelineno-0-947"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-948" name="__codelineno-0-948"></a><span class="sd">            numpy.ndarray: `(rows, cols)` for a single band, or</span>
-<a id="__codelineno-0-949" name="__codelineno-0-949"></a><span class="sd">            `(bands, rows, cols)` for all bands; always sized</span>
-<a id="__codelineno-0-950" name="__codelineno-0-950"></a><span class="sd">            `dst_height x dst_width` (the requested output size). Pixel values</span>
-<a id="__codelineno-0-951" name="__codelineno-0-951"></a><span class="sd">            only — no transform, bounds, or CRS is attached.</span>
+<a id="__codelineno-0-939" name="__codelineno-0-939"></a><span class="sd">            bbox_crs: CRS of `bbox`. `None` (default) means the bbox is already</span>
+<a id="__codelineno-0-940" name="__codelineno-0-940"></a><span class="sd">                in the raster&#39;s own coordinates. Reprojected to the dataset CRS</span>
+<a id="__codelineno-0-941" name="__codelineno-0-941"></a><span class="sd">                when different. Defaults to 4326 (WGS84 lon/lat).</span>
+<a id="__codelineno-0-942" name="__codelineno-0-942"></a><span class="sd">            resampling: Resampling method, case-insensitive. One of `nearest`,</span>
+<a id="__codelineno-0-943" name="__codelineno-0-943"></a><span class="sd">                `bilinear`, `cubic`, `cubicspline` (alias `cubic_spline`),</span>
+<a id="__codelineno-0-944" name="__codelineno-0-944"></a><span class="sd">                `lanczos`, `average`, `mode`, plus `gauss` and `rms` when the</span>
+<a id="__codelineno-0-945" name="__codelineno-0-945"></a><span class="sd">                GDAL build provides them.</span>
+<a id="__codelineno-0-946" name="__codelineno-0-946"></a><span class="sd">            band: 0-based band index. `None` reads all bands.</span>
+<a id="__codelineno-0-947" name="__codelineno-0-947"></a>
+<a id="__codelineno-0-948" name="__codelineno-0-948"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-949" name="__codelineno-0-949"></a><span class="sd">            CRSError: An explicit CRS was given for the coordinates but the</span>
+<a id="__codelineno-0-950" name="__codelineno-0-950"></a><span class="sd">                raster has none to transform into. Omit it to read in the</span>
+<a id="__codelineno-0-951" name="__codelineno-0-951"></a><span class="sd">                raster&#39;s own coordinates (ARC-26).</span>
 <a id="__codelineno-0-952" name="__codelineno-0-952"></a>
-<a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-954" name="__codelineno-0-954"></a><span class="sd">            TypeError: `resampling` is not a string.</span>
-<a id="__codelineno-0-955" name="__codelineno-0-955"></a><span class="sd">            ValueError: Unknown `resampling`.</span>
-<a id="__codelineno-0-956" name="__codelineno-0-956"></a><span class="sd">            OutOfBoundsError: The window does not intersect the raster at all.</span>
-<a id="__codelineno-0-957" name="__codelineno-0-957"></a>
-<a id="__codelineno-0-958" name="__codelineno-0-958"></a><span class="sd">        Note:</span>
-<a id="__codelineno-0-959" name="__codelineno-0-959"></a><span class="sd">            A window that only **partially** overlaps the raster is **not**</span>
-<a id="__codelineno-0-960" name="__codelineno-0-960"></a><span class="sd">            stretched to fill the output: the intersection is read and placed</span>
-<a id="__codelineno-0-961" name="__codelineno-0-961"></a><span class="sd">            at its correct offset inside a `dst_height x dst_width` buffer</span>
-<a id="__codelineno-0-962" name="__codelineno-0-962"></a><span class="sd">            whose out-of-raster remainder is filled with NoData (the band&#39;s</span>
-<a id="__codelineno-0-963" name="__codelineno-0-963"></a><span class="sd">            NoData value, else NaN for float / `0` for integer — see</span>
-<a id="__codelineno-0-964" name="__codelineno-0-964"></a><span class="sd">            :meth:`_nodata_fill`). A fully-inside window is returned without</span>
-<a id="__codelineno-0-965" name="__codelineno-0-965"></a><span class="sd">            padding. This keeps the result aligned to the requested window,</span>
-<a id="__codelineno-0-966" name="__codelineno-0-966"></a><span class="sd">            which matters for edge tiles served by :meth:`read_tile`.</span>
-<a id="__codelineno-0-967" name="__codelineno-0-967"></a>
-<a id="__codelineno-0-968" name="__codelineno-0-968"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-969" name="__codelineno-0-969"></a><span class="sd">            - Read a 256x256 decimated thumbnail of a bbox:</span>
-<a id="__codelineno-0-970" name="__codelineno-0-970"></a><span class="sd">                ```python</span>
-<a id="__codelineno-0-971" name="__codelineno-0-971"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset  # doctest: +SKIP</span>
-<a id="__codelineno-0-972" name="__codelineno-0-972"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.read_file(&quot;scene_cog.tif&quot;)  # doctest: +SKIP</span>
-<a id="__codelineno-0-973" name="__codelineno-0-973"></a><span class="sd">                &gt;&gt;&gt; arr = ds.read_part(  # doctest: +SKIP</span>
-<a id="__codelineno-0-974" name="__codelineno-0-974"></a><span class="sd">                ...     (12.4, 41.8, 12.6, 42.0), dst_width=256, dst_height=256,</span>
-<a id="__codelineno-0-975" name="__codelineno-0-975"></a><span class="sd">                ... )</span>
-<a id="__codelineno-0-976" name="__codelineno-0-976"></a><span class="sd">                &gt;&gt;&gt; arr.shape[-2:]  # doctest: +SKIP</span>
-<a id="__codelineno-0-977" name="__codelineno-0-977"></a><span class="sd">                (256, 256)</span>
-<a id="__codelineno-0-978" name="__codelineno-0-978"></a>
-<a id="__codelineno-0-979" name="__codelineno-0-979"></a><span class="sd">                ```</span>
-<a id="__codelineno-0-980" name="__codelineno-0-980"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-981" name="__codelineno-0-981"></a>        <span class="n">alg</span> <span class="o">=</span> <span class="n">_resolve_read_resampling</span><span class="p">(</span><span class="n">resampling</span><span class="p">)</span>
-<a id="__codelineno-0-982" name="__codelineno-0-982"></a>        <span class="c1"># This serves a decimated window from the source; a NetCDF multidim view can&#39;t be window-read</span>
-<a id="__codelineno-0-983" name="__codelineno-0-983"></a>        <span class="c1"># by GDAL &gt;= 3.13, so materialise it first (no-op for an ordinary raster).</span>
-<a id="__codelineno-0-984" name="__codelineno-0-984"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_materialize_md_view</span><span class="p">()</span>
-<a id="__codelineno-0-985" name="__codelineno-0-985"></a>        <span class="n">ds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_raster</span>
-<a id="__codelineno-0-986" name="__codelineno-0-986"></a>        <span class="n">min_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">,</span> <span class="n">max_x</span><span class="p">,</span> <span class="n">max_y</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reproject_bbox</span><span class="p">(</span><span class="n">bbox</span><span class="p">,</span> <span class="n">bbox_crs</span><span class="p">)</span>
-<a id="__codelineno-0-987" name="__codelineno-0-987"></a>        <span class="n">geotransform</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">GetGeoTransform</span><span class="p">()</span>
-<a id="__codelineno-0-988" name="__codelineno-0-988"></a>        <span class="n">px_tl</span><span class="p">,</span> <span class="n">py_tl</span> <span class="o">=</span> <span class="n">world_to_pixel</span><span class="p">(</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">min_x</span><span class="p">,</span> <span class="n">max_y</span><span class="p">)</span>
-<a id="__codelineno-0-989" name="__codelineno-0-989"></a>        <span class="n">px_br</span><span class="p">,</span> <span class="n">py_br</span> <span class="o">=</span> <span class="n">world_to_pixel</span><span class="p">(</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">max_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">)</span>
-<a id="__codelineno-0-990" name="__codelineno-0-990"></a>
-<a id="__codelineno-0-991" name="__codelineno-0-991"></a>        <span class="c1"># The full requested window, in source pixel coordinates (may extend</span>
-<a id="__codelineno-0-992" name="__codelineno-0-992"></a>        <span class="c1"># beyond the raster on any side).</span>
-<a id="__codelineno-0-993" name="__codelineno-0-993"></a>        <span class="n">req_xoff</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">px_tl</span><span class="p">,</span> <span class="n">px_br</span><span class="p">)))</span>
-<a id="__codelineno-0-994" name="__codelineno-0-994"></a>        <span class="n">req_yoff</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">py_tl</span><span class="p">,</span> <span class="n">py_br</span><span class="p">)))</span>
-<a id="__codelineno-0-995" name="__codelineno-0-995"></a>        <span class="n">req_xsize</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">px_tl</span><span class="p">,</span> <span class="n">px_br</span><span class="p">)))</span> <span class="o">-</span> <span class="n">req_xoff</span>
-<a id="__codelineno-0-996" name="__codelineno-0-996"></a>        <span class="n">req_ysize</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">py_tl</span><span class="p">,</span> <span class="n">py_br</span><span class="p">)))</span> <span class="o">-</span> <span class="n">req_yoff</span>
-<a id="__codelineno-0-997" name="__codelineno-0-997"></a>        <span class="k">if</span> <span class="n">req_xsize</span> <span class="o">&lt;=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">req_ysize</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-998" name="__codelineno-0-998"></a>            <span class="k">raise</span> <span class="n">OutOfBoundsError</span><span class="p">(</span>
-<a id="__codelineno-0-999" name="__codelineno-0-999"></a>                <span class="sa">f</span><span class="s2">&quot;bbox </span><span class="si">{</span><span class="n">bbox</span><span class="si">}</span><span class="s2"> (crs </span><span class="si">{</span><span class="n">bbox_crs</span><span class="si">}</span><span class="s2">) has zero pixel extent&quot;</span>
-<a id="__codelineno-0-1000" name="__codelineno-0-1000"></a>            <span class="p">)</span>
-<a id="__codelineno-0-1001" name="__codelineno-0-1001"></a>
-<a id="__codelineno-0-1002" name="__codelineno-0-1002"></a>        <span class="c1"># Intersection of the requested window with the raster.</span>
-<a id="__codelineno-0-1003" name="__codelineno-0-1003"></a>        <span class="n">ix0</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">req_xoff</span><span class="p">)</span>
-<a id="__codelineno-0-1004" name="__codelineno-0-1004"></a>        <span class="n">iy0</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">req_yoff</span><span class="p">)</span>
-<a id="__codelineno-0-1005" name="__codelineno-0-1005"></a>        <span class="n">ix1</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">ds</span><span class="o">.</span><span class="n">RasterXSize</span><span class="p">,</span> <span class="n">req_xoff</span> <span class="o">+</span> <span class="n">req_xsize</span><span class="p">)</span>
-<a id="__codelineno-0-1006" name="__codelineno-0-1006"></a>        <span class="n">iy1</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">ds</span><span class="o">.</span><span class="n">RasterYSize</span><span class="p">,</span> <span class="n">req_yoff</span> <span class="o">+</span> <span class="n">req_ysize</span><span class="p">)</span>
-<a id="__codelineno-0-1007" name="__codelineno-0-1007"></a>        <span class="k">if</span> <span class="n">ix1</span> <span class="o">-</span> <span class="n">ix0</span> <span class="o">&lt;=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">iy1</span> <span class="o">-</span> <span class="n">iy0</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-1008" name="__codelineno-0-1008"></a>            <span class="k">raise</span> <span class="n">OutOfBoundsError</span><span class="p">(</span>
-<a id="__codelineno-0-1009" name="__codelineno-0-1009"></a>                <span class="sa">f</span><span class="s2">&quot;bbox </span><span class="si">{</span><span class="n">bbox</span><span class="si">}</span><span class="s2"> (crs </span><span class="si">{</span><span class="n">bbox_crs</span><span class="si">}</span><span class="s2">) does not intersect the raster&quot;</span>
-<a id="__codelineno-0-1010" name="__codelineno-0-1010"></a>            <span class="p">)</span>
-<a id="__codelineno-0-1011" name="__codelineno-0-1011"></a>
-<a id="__codelineno-0-1012" name="__codelineno-0-1012"></a>        <span class="n">out_w</span> <span class="o">=</span> <span class="n">dst_width</span> <span class="k">if</span> <span class="n">dst_width</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">req_xsize</span>
-<a id="__codelineno-0-1013" name="__codelineno-0-1013"></a>        <span class="n">out_h</span> <span class="o">=</span> <span class="n">dst_height</span> <span class="k">if</span> <span class="n">dst_height</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">req_ysize</span>
-<a id="__codelineno-0-1014" name="__codelineno-0-1014"></a>        <span class="n">source</span> <span class="o">=</span> <span class="n">ds</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">ds</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-1015" name="__codelineno-0-1015"></a>
-<a id="__codelineno-0-1016" name="__codelineno-0-1016"></a>        <span class="n">fully_inside</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a>            <span class="n">ix0</span> <span class="o">==</span> <span class="n">req_xoff</span>
-<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a>            <span class="ow">and</span> <span class="n">iy0</span> <span class="o">==</span> <span class="n">req_yoff</span>
-<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a>            <span class="ow">and</span> <span class="n">ix1</span> <span class="o">==</span> <span class="n">req_xoff</span> <span class="o">+</span> <span class="n">req_xsize</span>
-<a id="__codelineno-0-1020" name="__codelineno-0-1020"></a>            <span class="ow">and</span> <span class="n">iy1</span> <span class="o">==</span> <span class="n">req_yoff</span> <span class="o">+</span> <span class="n">req_ysize</span>
-<a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>        <span class="p">)</span>
-<a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>        <span class="k">if</span> <span class="n">fully_inside</span><span class="p">:</span>
-<a id="__codelineno-0-1023" name="__codelineno-0-1023"></a>            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
-<a id="__codelineno-0-1024" name="__codelineno-0-1024"></a>                <span class="n">source</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">(</span>
-<a id="__codelineno-0-1025" name="__codelineno-0-1025"></a>                    <span class="n">ix0</span><span class="p">,</span>
-<a id="__codelineno-0-1026" name="__codelineno-0-1026"></a>                    <span class="n">iy0</span><span class="p">,</span>
-<a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>                    <span class="n">ix1</span> <span class="o">-</span> <span class="n">ix0</span><span class="p">,</span>
-<a id="__codelineno-0-1028" name="__codelineno-0-1028"></a>                    <span class="n">iy1</span> <span class="o">-</span> <span class="n">iy0</span><span class="p">,</span>
-<a id="__codelineno-0-1029" name="__codelineno-0-1029"></a>                    <span class="n">buf_xsize</span><span class="o">=</span><span class="n">out_w</span><span class="p">,</span>
-<a id="__codelineno-0-1030" name="__codelineno-0-1030"></a>                    <span class="n">buf_ysize</span><span class="o">=</span><span class="n">out_h</span><span class="p">,</span>
-<a id="__codelineno-0-1031" name="__codelineno-0-1031"></a>                    <span class="n">resample_alg</span><span class="o">=</span><span class="n">alg</span><span class="p">,</span>
-<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a>                <span class="p">)</span>
-<a id="__codelineno-0-1033" name="__codelineno-0-1033"></a>            <span class="p">)</span>
-<a id="__codelineno-0-1034" name="__codelineno-0-1034"></a>
-<a id="__codelineno-0-1035" name="__codelineno-0-1035"></a>        <span class="c1"># Partial overlap: read only the intersection, then place it at its</span>
-<a id="__codelineno-0-1036" name="__codelineno-0-1036"></a>        <span class="c1"># correct offset inside a full-size output buffer padded with NoData,</span>
-<a id="__codelineno-0-1037" name="__codelineno-0-1037"></a>        <span class="c1"># so the returned array stays aligned to the requested window.</span>
-<a id="__codelineno-0-1038" name="__codelineno-0-1038"></a>        <span class="n">scale_x</span> <span class="o">=</span> <span class="n">out_w</span> <span class="o">/</span> <span class="n">req_xsize</span>
-<a id="__codelineno-0-1039" name="__codelineno-0-1039"></a>        <span class="n">scale_y</span> <span class="o">=</span> <span class="n">out_h</span> <span class="o">/</span> <span class="n">req_ysize</span>
-<a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>        <span class="n">ox0</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">out_w</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">((</span><span class="n">ix0</span> <span class="o">-</span> <span class="n">req_xoff</span><span class="p">)</span> <span class="o">*</span> <span class="n">scale_x</span><span class="p">))))</span>
-<a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>        <span class="n">oy0</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">out_h</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">((</span><span class="n">iy0</span> <span class="o">-</span> <span class="n">req_yoff</span><span class="p">)</span> <span class="o">*</span> <span class="n">scale_y</span><span class="p">))))</span>
-<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a>        <span class="n">ox1</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">ox0</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">out_w</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">((</span><span class="n">ix1</span> <span class="o">-</span> <span class="n">req_xoff</span><span class="p">)</span> <span class="o">*</span> <span class="n">scale_x</span><span class="p">))))</span>
-<a id="__codelineno-0-1043" name="__codelineno-0-1043"></a>        <span class="n">oy1</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">oy0</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">out_h</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">((</span><span class="n">iy1</span> <span class="o">-</span> <span class="n">req_yoff</span><span class="p">)</span> <span class="o">*</span> <span class="n">scale_y</span><span class="p">))))</span>
-<a id="__codelineno-0-1044" name="__codelineno-0-1044"></a>        <span class="n">sub</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
-<a id="__codelineno-0-1045" name="__codelineno-0-1045"></a>            <span class="n">source</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">(</span>
-<a id="__codelineno-0-1046" name="__codelineno-0-1046"></a>                <span class="n">ix0</span><span class="p">,</span>
-<a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>                <span class="n">iy0</span><span class="p">,</span>
-<a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>                <span class="n">ix1</span> <span class="o">-</span> <span class="n">ix0</span><span class="p">,</span>
-<a id="__codelineno-0-1049" name="__codelineno-0-1049"></a>                <span class="n">iy1</span> <span class="o">-</span> <span class="n">iy0</span><span class="p">,</span>
-<a id="__codelineno-0-1050" name="__codelineno-0-1050"></a>                <span class="n">buf_xsize</span><span class="o">=</span><span class="n">ox1</span> <span class="o">-</span> <span class="n">ox0</span><span class="p">,</span>
-<a id="__codelineno-0-1051" name="__codelineno-0-1051"></a>                <span class="n">buf_ysize</span><span class="o">=</span><span class="n">oy1</span> <span class="o">-</span> <span class="n">oy0</span><span class="p">,</span>
-<a id="__codelineno-0-1052" name="__codelineno-0-1052"></a>                <span class="n">resample_alg</span><span class="o">=</span><span class="n">alg</span><span class="p">,</span>
-<a id="__codelineno-0-1053" name="__codelineno-0-1053"></a>            <span class="p">)</span>
-<a id="__codelineno-0-1054" name="__codelineno-0-1054"></a>        <span class="p">)</span>
-<a id="__codelineno-0-1055" name="__codelineno-0-1055"></a>        <span class="n">fill</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nodata_fill</span><span class="p">(</span><span class="n">ds</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
-<a id="__codelineno-0-1056" name="__codelineno-0-1056"></a>        <span class="k">if</span> <span class="n">sub</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
-<a id="__codelineno-0-1057" name="__codelineno-0-1057"></a>            <span class="n">out</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="n">sub</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">out_h</span><span class="p">,</span> <span class="n">out_w</span><span class="p">),</span> <span class="n">fill</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">sub</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
-<a id="__codelineno-0-1058" name="__codelineno-0-1058"></a>            <span class="n">out</span><span class="p">[:,</span> <span class="n">oy0</span><span class="p">:</span><span class="n">oy1</span><span class="p">,</span> <span class="n">ox0</span><span class="p">:</span><span class="n">ox1</span><span class="p">]</span> <span class="o">=</span> <span class="n">sub</span>
-<a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>            <span class="n">out</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="n">out_h</span><span class="p">,</span> <span class="n">out_w</span><span class="p">),</span> <span class="n">fill</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">sub</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
-<a id="__codelineno-0-1061" name="__codelineno-0-1061"></a>            <span class="n">out</span><span class="p">[</span><span class="n">oy0</span><span class="p">:</span><span class="n">oy1</span><span class="p">,</span> <span class="n">ox0</span><span class="p">:</span><span class="n">ox1</span><span class="p">]</span> <span class="o">=</span> <span class="n">sub</span>
-<a id="__codelineno-0-1062" name="__codelineno-0-1062"></a>        <span class="k">return</span> <span class="n">out</span>
-<a id="__codelineno-0-1063" name="__codelineno-0-1063"></a>
-<a id="__codelineno-0-1064" name="__codelineno-0-1064"></a>    <span class="nd">@staticmethod</span>
-<a id="__codelineno-0-1065" name="__codelineno-0-1065"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_nodata_fill</span><span class="p">(</span><span class="n">band</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
-<a id="__codelineno-0-1066" name="__codelineno-0-1066"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Pick a fill value for padding partial reads.</span>
-<a id="__codelineno-0-1067" name="__codelineno-0-1067"></a>
-<a id="__codelineno-0-1068" name="__codelineno-0-1068"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-1069" name="__codelineno-0-1069"></a><span class="sd">            band: The GDAL band whose NoData value (if any) to use.</span>
-<a id="__codelineno-0-1070" name="__codelineno-0-1070"></a>
-<a id="__codelineno-0-1071" name="__codelineno-0-1071"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-1072" name="__codelineno-0-1072"></a><span class="sd">            float: The band&#39;s NoData value, else NaN for floating-point bands</span>
-<a id="__codelineno-0-1073" name="__codelineno-0-1073"></a><span class="sd">            and ``0`` for integer bands.</span>
-<a id="__codelineno-0-1074" name="__codelineno-0-1074"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1075" name="__codelineno-0-1075"></a>        <span class="n">nodata</span> <span class="o">=</span> <span class="n">band</span><span class="o">.</span><span class="n">GetNoDataValue</span><span class="p">()</span>
-<a id="__codelineno-0-1076" name="__codelineno-0-1076"></a>        <span class="k">if</span> <span class="n">nodata</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1077" name="__codelineno-0-1077"></a>            <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="nb">float</span><span class="p">,</span> <span class="n">nodata</span><span class="p">)</span>
-<a id="__codelineno-0-1078" name="__codelineno-0-1078"></a>        <span class="k">return</span> <span class="mi">0</span> <span class="k">if</span> <span class="n">is_integer_gdal_dtype</span><span class="p">(</span><span class="n">band</span><span class="o">.</span><span class="n">DataType</span><span class="p">)</span> <span class="k">else</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;nan&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-1079" name="__codelineno-0-1079"></a>
-<a id="__codelineno-0-1080" name="__codelineno-0-1080"></a>    <span class="nd">@under_gdal_env</span>
-<a id="__codelineno-0-1081" name="__codelineno-0-1081"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">preview</span><span class="p">(</span>
-<a id="__codelineno-0-1082" name="__codelineno-0-1082"></a>        <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-1083" name="__codelineno-0-1083"></a>        <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-1084" name="__codelineno-0-1084"></a>        <span class="n">max_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1024</span><span class="p">,</span>
-<a id="__codelineno-0-1085" name="__codelineno-0-1085"></a>        <span class="n">resampling</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;bilinear&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-1086" name="__codelineno-0-1086"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1087" name="__codelineno-0-1087"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-1088" name="__codelineno-0-1088"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Read a whole-image thumbnail downsampled to `max_size` on the long edge.</span>
-<a id="__codelineno-0-1089" name="__codelineno-0-1089"></a>
-<a id="__codelineno-0-1090" name="__codelineno-0-1090"></a><span class="sd">        Pulls from a coarse overview when one exists, so previewing a huge COG</span>
-<a id="__codelineno-0-1091" name="__codelineno-0-1091"></a><span class="sd">        is cheap.</span>
-<a id="__codelineno-0-1092" name="__codelineno-0-1092"></a>
-<a id="__codelineno-0-1093" name="__codelineno-0-1093"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-1094" name="__codelineno-0-1094"></a><span class="sd">            max_size: Maximum pixels on the longer edge. Defaults to 1024.</span>
-<a id="__codelineno-0-1095" name="__codelineno-0-1095"></a><span class="sd">            resampling: Resampling method (see :meth:`read_part`).</span>
-<a id="__codelineno-0-1096" name="__codelineno-0-1096"></a><span class="sd">            band: 0-based band index. `None` reads all bands.</span>
-<a id="__codelineno-0-1097" name="__codelineno-0-1097"></a>
-<a id="__codelineno-0-1098" name="__codelineno-0-1098"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-1099" name="__codelineno-0-1099"></a><span class="sd">            numpy.ndarray: The downsampled array, `(rows, cols)` or</span>
-<a id="__codelineno-0-1100" name="__codelineno-0-1100"></a><span class="sd">            `(bands, rows, cols)`. Pixel values only — no transform, bounds,</span>
-<a id="__codelineno-0-1101" name="__codelineno-0-1101"></a><span class="sd">            or CRS is attached to the returned array.</span>
-<a id="__codelineno-0-1102" name="__codelineno-0-1102"></a>
-<a id="__codelineno-0-1103" name="__codelineno-0-1103"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-1104" name="__codelineno-0-1104"></a><span class="sd">            TypeError: `resampling` is not a string.</span>
-<a id="__codelineno-0-1105" name="__codelineno-0-1105"></a><span class="sd">            ValueError: Unknown `resampling`.</span>
-<a id="__codelineno-0-1106" name="__codelineno-0-1106"></a>
-<a id="__codelineno-0-1107" name="__codelineno-0-1107"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-1108" name="__codelineno-0-1108"></a><span class="sd">            - Build a 128px thumbnail of a single band:</span>
-<a id="__codelineno-0-1109" name="__codelineno-0-1109"></a><span class="sd">                ```python</span>
-<a id="__codelineno-0-1110" name="__codelineno-0-1110"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset  # doctest: +SKIP</span>
-<a id="__codelineno-0-1111" name="__codelineno-0-1111"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.read_file(&quot;scene_cog.tif&quot;)  # doctest: +SKIP</span>
-<a id="__codelineno-0-1112" name="__codelineno-0-1112"></a><span class="sd">                &gt;&gt;&gt; thumb = ds.preview(max_size=128, band=0)  # doctest: +SKIP</span>
-<a id="__codelineno-0-1113" name="__codelineno-0-1113"></a><span class="sd">                &gt;&gt;&gt; max(thumb.shape)  # doctest: +SKIP</span>
-<a id="__codelineno-0-1114" name="__codelineno-0-1114"></a><span class="sd">                128</span>
-<a id="__codelineno-0-1115" name="__codelineno-0-1115"></a>
-<a id="__codelineno-0-1116" name="__codelineno-0-1116"></a><span class="sd">                ```</span>
-<a id="__codelineno-0-1117" name="__codelineno-0-1117"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1118" name="__codelineno-0-1118"></a>        <span class="n">alg</span> <span class="o">=</span> <span class="n">_resolve_read_resampling</span><span class="p">(</span><span class="n">resampling</span><span class="p">)</span>
-<a id="__codelineno-0-1119" name="__codelineno-0-1119"></a>        <span class="n">width</span><span class="p">,</span> <span class="n">height</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">columns</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">rows</span>
-<a id="__codelineno-0-1120" name="__codelineno-0-1120"></a>        <span class="n">scale</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span> <span class="o">/</span> <span class="n">max_size</span>
-<a id="__codelineno-0-1121" name="__codelineno-0-1121"></a>        <span class="k">if</span> <span class="n">scale</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
-<a id="__codelineno-0-1122" name="__codelineno-0-1122"></a>            <span class="n">out_w</span><span class="p">,</span> <span class="n">out_h</span> <span class="o">=</span> <span class="n">width</span><span class="p">,</span> <span class="n">height</span>
-<a id="__codelineno-0-1123" name="__codelineno-0-1123"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-1124" name="__codelineno-0-1124"></a>            <span class="n">out_w</span><span class="p">,</span> <span class="n">out_h</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">width</span> <span class="o">/</span> <span class="n">scale</span><span class="p">)),</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">height</span> <span class="o">/</span> <span class="n">scale</span><span class="p">))</span>
-<a id="__codelineno-0-1125" name="__codelineno-0-1125"></a>        <span class="n">ds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_raster</span>
-<a id="__codelineno-0-1126" name="__codelineno-0-1126"></a>        <span class="n">source</span> <span class="o">=</span> <span class="n">ds</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">ds</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-1127" name="__codelineno-0-1127"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
-<a id="__codelineno-0-1128" name="__codelineno-0-1128"></a>            <span class="n">source</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">(</span><span class="n">buf_xsize</span><span class="o">=</span><span class="n">out_w</span><span class="p">,</span> <span class="n">buf_ysize</span><span class="o">=</span><span class="n">out_h</span><span class="p">,</span> <span class="n">resample_alg</span><span class="o">=</span><span class="n">alg</span><span class="p">)</span>
-<a id="__codelineno-0-1129" name="__codelineno-0-1129"></a>        <span class="p">)</span>
-<a id="__codelineno-0-1130" name="__codelineno-0-1130"></a>
-<a id="__codelineno-0-1131" name="__codelineno-0-1131"></a>    <span class="nd">@under_gdal_env</span>
-<a id="__codelineno-0-1132" name="__codelineno-0-1132"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">point</span><span class="p">(</span>
-<a id="__codelineno-0-1133" name="__codelineno-0-1133"></a>        <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-1134" name="__codelineno-0-1134"></a>        <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
-<a id="__codelineno-0-1135" name="__codelineno-0-1135"></a>        <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
-<a id="__codelineno-0-1136" name="__codelineno-0-1136"></a>        <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-1137" name="__codelineno-0-1137"></a>        <span class="n">point_crs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1138" name="__codelineno-0-1138"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1139" name="__codelineno-0-1139"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-1140" name="__codelineno-0-1140"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Sample band value(s) at a single coordinate.</span>
-<a id="__codelineno-0-1141" name="__codelineno-0-1141"></a>
-<a id="__codelineno-0-1142" name="__codelineno-0-1142"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-1143" name="__codelineno-0-1143"></a><span class="sd">            x: X / longitude / easting in `point_crs`.</span>
-<a id="__codelineno-0-1144" name="__codelineno-0-1144"></a><span class="sd">            y: Y / latitude / northing in `point_crs`.</span>
-<a id="__codelineno-0-1145" name="__codelineno-0-1145"></a><span class="sd">            point_crs: EPSG code of `(x, y)`. Reprojected to the dataset CRS</span>
-<a id="__codelineno-0-1146" name="__codelineno-0-1146"></a><span class="sd">                when different. Defaults to 4326.</span>
-<a id="__codelineno-0-1147" name="__codelineno-0-1147"></a><span class="sd">            band: 0-based band index. `None` samples all bands.</span>
-<a id="__codelineno-0-1148" name="__codelineno-0-1148"></a>
-<a id="__codelineno-0-1149" name="__codelineno-0-1149"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-1150" name="__codelineno-0-1150"></a><span class="sd">            numpy.ndarray: A scalar 0-d array for a single band, or a</span>
-<a id="__codelineno-0-1151" name="__codelineno-0-1151"></a><span class="sd">            `(bands,)` array when `band` is `None`. Pixel values only — no</span>
-<a id="__codelineno-0-1152" name="__codelineno-0-1152"></a><span class="sd">            coordinate metadata is attached.</span>
-<a id="__codelineno-0-1153" name="__codelineno-0-1153"></a>
-<a id="__codelineno-0-1154" name="__codelineno-0-1154"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-1155" name="__codelineno-0-1155"></a><span class="sd">            OutOfBoundsError: The point falls outside the raster extent.</span>
-<a id="__codelineno-0-1156" name="__codelineno-0-1156"></a>
-<a id="__codelineno-0-1157" name="__codelineno-0-1157"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-1158" name="__codelineno-0-1158"></a><span class="sd">            - Sample all bands at a lon/lat coordinate:</span>
-<a id="__codelineno-0-1159" name="__codelineno-0-1159"></a><span class="sd">                ```python</span>
-<a id="__codelineno-0-1160" name="__codelineno-0-1160"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset  # doctest: +SKIP</span>
-<a id="__codelineno-0-1161" name="__codelineno-0-1161"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.read_file(&quot;scene_cog.tif&quot;)  # doctest: +SKIP</span>
-<a id="__codelineno-0-1162" name="__codelineno-0-1162"></a><span class="sd">                &gt;&gt;&gt; ds.point(12.5, 41.9)  # doctest: +SKIP</span>
-<a id="__codelineno-0-1163" name="__codelineno-0-1163"></a><span class="sd">                array([1234.], dtype=float32)</span>
+<a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-954" name="__codelineno-0-954"></a><span class="sd">            numpy.ndarray: `(rows, cols)` for a single band, or</span>
+<a id="__codelineno-0-955" name="__codelineno-0-955"></a><span class="sd">            `(bands, rows, cols)` for all bands; always sized</span>
+<a id="__codelineno-0-956" name="__codelineno-0-956"></a><span class="sd">            `dst_height x dst_width` (the requested output size). Pixel values</span>
+<a id="__codelineno-0-957" name="__codelineno-0-957"></a><span class="sd">            only — no transform, bounds, or CRS is attached.</span>
+<a id="__codelineno-0-958" name="__codelineno-0-958"></a>
+<a id="__codelineno-0-959" name="__codelineno-0-959"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-960" name="__codelineno-0-960"></a><span class="sd">            TypeError: `resampling` is not a string.</span>
+<a id="__codelineno-0-961" name="__codelineno-0-961"></a><span class="sd">            ValueError: Unknown `resampling`.</span>
+<a id="__codelineno-0-962" name="__codelineno-0-962"></a><span class="sd">            OutOfBoundsError: The window does not intersect the raster at all.</span>
+<a id="__codelineno-0-963" name="__codelineno-0-963"></a>
+<a id="__codelineno-0-964" name="__codelineno-0-964"></a><span class="sd">        Note:</span>
+<a id="__codelineno-0-965" name="__codelineno-0-965"></a><span class="sd">            A window that only **partially** overlaps the raster is **not**</span>
+<a id="__codelineno-0-966" name="__codelineno-0-966"></a><span class="sd">            stretched to fill the output: the intersection is read and placed</span>
+<a id="__codelineno-0-967" name="__codelineno-0-967"></a><span class="sd">            at its correct offset inside a `dst_height x dst_width` buffer</span>
+<a id="__codelineno-0-968" name="__codelineno-0-968"></a><span class="sd">            whose out-of-raster remainder is filled with NoData (the band&#39;s</span>
+<a id="__codelineno-0-969" name="__codelineno-0-969"></a><span class="sd">            NoData value, else NaN for float / `0` for integer — see</span>
+<a id="__codelineno-0-970" name="__codelineno-0-970"></a><span class="sd">            :meth:`_nodata_fill`). A fully-inside window is returned without</span>
+<a id="__codelineno-0-971" name="__codelineno-0-971"></a><span class="sd">            padding. This keeps the result aligned to the requested window,</span>
+<a id="__codelineno-0-972" name="__codelineno-0-972"></a><span class="sd">            which matters for edge tiles served by :meth:`read_tile`.</span>
+<a id="__codelineno-0-973" name="__codelineno-0-973"></a>
+<a id="__codelineno-0-974" name="__codelineno-0-974"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-975" name="__codelineno-0-975"></a><span class="sd">            - Read a 256x256 decimated thumbnail of a bbox:</span>
+<a id="__codelineno-0-976" name="__codelineno-0-976"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-977" name="__codelineno-0-977"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset  # doctest: +SKIP</span>
+<a id="__codelineno-0-978" name="__codelineno-0-978"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.read_file(&quot;scene_cog.tif&quot;)  # doctest: +SKIP</span>
+<a id="__codelineno-0-979" name="__codelineno-0-979"></a><span class="sd">                &gt;&gt;&gt; arr = ds.read_part(  # doctest: +SKIP</span>
+<a id="__codelineno-0-980" name="__codelineno-0-980"></a><span class="sd">                ...     (12.4, 41.8, 12.6, 42.0), dst_width=256, dst_height=256,</span>
+<a id="__codelineno-0-981" name="__codelineno-0-981"></a><span class="sd">                ... )</span>
+<a id="__codelineno-0-982" name="__codelineno-0-982"></a><span class="sd">                &gt;&gt;&gt; arr.shape[-2:]  # doctest: +SKIP</span>
+<a id="__codelineno-0-983" name="__codelineno-0-983"></a><span class="sd">                (256, 256)</span>
+<a id="__codelineno-0-984" name="__codelineno-0-984"></a>
+<a id="__codelineno-0-985" name="__codelineno-0-985"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-986" name="__codelineno-0-986"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-987" name="__codelineno-0-987"></a>        <span class="n">alg</span> <span class="o">=</span> <span class="n">_resolve_read_resampling</span><span class="p">(</span><span class="n">resampling</span><span class="p">)</span>
+<a id="__codelineno-0-988" name="__codelineno-0-988"></a>        <span class="c1"># This serves a decimated window from the source; a NetCDF multidim view can&#39;t be window-read</span>
+<a id="__codelineno-0-989" name="__codelineno-0-989"></a>        <span class="c1"># by GDAL &gt;= 3.13, so materialise it first (no-op for an ordinary raster).</span>
+<a id="__codelineno-0-990" name="__codelineno-0-990"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_materialize_md_view</span><span class="p">()</span>
+<a id="__codelineno-0-991" name="__codelineno-0-991"></a>        <span class="n">ds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_raster</span>
+<a id="__codelineno-0-992" name="__codelineno-0-992"></a>        <span class="n">min_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">,</span> <span class="n">max_x</span><span class="p">,</span> <span class="n">max_y</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reproject_bbox</span><span class="p">(</span><span class="n">bbox</span><span class="p">,</span> <span class="n">bbox_crs</span><span class="p">)</span>
+<a id="__codelineno-0-993" name="__codelineno-0-993"></a>        <span class="n">geotransform</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">GetGeoTransform</span><span class="p">()</span>
+<a id="__codelineno-0-994" name="__codelineno-0-994"></a>        <span class="n">px_tl</span><span class="p">,</span> <span class="n">py_tl</span> <span class="o">=</span> <span class="n">world_to_pixel</span><span class="p">(</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">min_x</span><span class="p">,</span> <span class="n">max_y</span><span class="p">)</span>
+<a id="__codelineno-0-995" name="__codelineno-0-995"></a>        <span class="n">px_br</span><span class="p">,</span> <span class="n">py_br</span> <span class="o">=</span> <span class="n">world_to_pixel</span><span class="p">(</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">max_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">)</span>
+<a id="__codelineno-0-996" name="__codelineno-0-996"></a>
+<a id="__codelineno-0-997" name="__codelineno-0-997"></a>        <span class="c1"># The full requested window, in source pixel coordinates (may extend</span>
+<a id="__codelineno-0-998" name="__codelineno-0-998"></a>        <span class="c1"># beyond the raster on any side).</span>
+<a id="__codelineno-0-999" name="__codelineno-0-999"></a>        <span class="n">req_xoff</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">px_tl</span><span class="p">,</span> <span class="n">px_br</span><span class="p">)))</span>
+<a id="__codelineno-0-1000" name="__codelineno-0-1000"></a>        <span class="n">req_yoff</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">py_tl</span><span class="p">,</span> <span class="n">py_br</span><span class="p">)))</span>
+<a id="__codelineno-0-1001" name="__codelineno-0-1001"></a>        <span class="n">req_xsize</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">px_tl</span><span class="p">,</span> <span class="n">px_br</span><span class="p">)))</span> <span class="o">-</span> <span class="n">req_xoff</span>
+<a id="__codelineno-0-1002" name="__codelineno-0-1002"></a>        <span class="n">req_ysize</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">py_tl</span><span class="p">,</span> <span class="n">py_br</span><span class="p">)))</span> <span class="o">-</span> <span class="n">req_yoff</span>
+<a id="__codelineno-0-1003" name="__codelineno-0-1003"></a>        <span class="k">if</span> <span class="n">req_xsize</span> <span class="o">&lt;=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">req_ysize</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-1004" name="__codelineno-0-1004"></a>            <span class="k">raise</span> <span class="n">OutOfBoundsError</span><span class="p">(</span>
+<a id="__codelineno-0-1005" name="__codelineno-0-1005"></a>                <span class="sa">f</span><span class="s2">&quot;bbox </span><span class="si">{</span><span class="n">bbox</span><span class="si">}</span><span class="s2"> (crs </span><span class="si">{</span><span class="n">bbox_crs</span><span class="si">}</span><span class="s2">) has zero pixel extent&quot;</span>
+<a id="__codelineno-0-1006" name="__codelineno-0-1006"></a>            <span class="p">)</span>
+<a id="__codelineno-0-1007" name="__codelineno-0-1007"></a>
+<a id="__codelineno-0-1008" name="__codelineno-0-1008"></a>        <span class="c1"># Intersection of the requested window with the raster.</span>
+<a id="__codelineno-0-1009" name="__codelineno-0-1009"></a>        <span class="n">ix0</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">req_xoff</span><span class="p">)</span>
+<a id="__codelineno-0-1010" name="__codelineno-0-1010"></a>        <span class="n">iy0</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">req_yoff</span><span class="p">)</span>
+<a id="__codelineno-0-1011" name="__codelineno-0-1011"></a>        <span class="n">ix1</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">ds</span><span class="o">.</span><span class="n">RasterXSize</span><span class="p">,</span> <span class="n">req_xoff</span> <span class="o">+</span> <span class="n">req_xsize</span><span class="p">)</span>
+<a id="__codelineno-0-1012" name="__codelineno-0-1012"></a>        <span class="n">iy1</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">ds</span><span class="o">.</span><span class="n">RasterYSize</span><span class="p">,</span> <span class="n">req_yoff</span> <span class="o">+</span> <span class="n">req_ysize</span><span class="p">)</span>
+<a id="__codelineno-0-1013" name="__codelineno-0-1013"></a>        <span class="k">if</span> <span class="n">ix1</span> <span class="o">-</span> <span class="n">ix0</span> <span class="o">&lt;=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">iy1</span> <span class="o">-</span> <span class="n">iy0</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-1014" name="__codelineno-0-1014"></a>            <span class="k">raise</span> <span class="n">OutOfBoundsError</span><span class="p">(</span>
+<a id="__codelineno-0-1015" name="__codelineno-0-1015"></a>                <span class="sa">f</span><span class="s2">&quot;bbox </span><span class="si">{</span><span class="n">bbox</span><span class="si">}</span><span class="s2"> (crs </span><span class="si">{</span><span class="n">bbox_crs</span><span class="si">}</span><span class="s2">) does not intersect the raster&quot;</span>
+<a id="__codelineno-0-1016" name="__codelineno-0-1016"></a>            <span class="p">)</span>
+<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a>
+<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a>        <span class="n">out_w</span> <span class="o">=</span> <span class="n">dst_width</span> <span class="k">if</span> <span class="n">dst_width</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">req_xsize</span>
+<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a>        <span class="n">out_h</span> <span class="o">=</span> <span class="n">dst_height</span> <span class="k">if</span> <span class="n">dst_height</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">req_ysize</span>
+<a id="__codelineno-0-1020" name="__codelineno-0-1020"></a>        <span class="n">source</span> <span class="o">=</span> <span class="n">ds</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">ds</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>
+<a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>        <span class="n">fully_inside</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-0-1023" name="__codelineno-0-1023"></a>            <span class="n">ix0</span> <span class="o">==</span> <span class="n">req_xoff</span>
+<a id="__codelineno-0-1024" name="__codelineno-0-1024"></a>            <span class="ow">and</span> <span class="n">iy0</span> <span class="o">==</span> <span class="n">req_yoff</span>
+<a id="__codelineno-0-1025" name="__codelineno-0-1025"></a>            <span class="ow">and</span> <span class="n">ix1</span> <span class="o">==</span> <span class="n">req_xoff</span> <span class="o">+</span> <span class="n">req_xsize</span>
+<a id="__codelineno-0-1026" name="__codelineno-0-1026"></a>            <span class="ow">and</span> <span class="n">iy1</span> <span class="o">==</span> <span class="n">req_yoff</span> <span class="o">+</span> <span class="n">req_ysize</span>
+<a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1028" name="__codelineno-0-1028"></a>        <span class="k">if</span> <span class="n">fully_inside</span><span class="p">:</span>
+<a id="__codelineno-0-1029" name="__codelineno-0-1029"></a>            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+<a id="__codelineno-0-1030" name="__codelineno-0-1030"></a>                <span class="n">source</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">(</span>
+<a id="__codelineno-0-1031" name="__codelineno-0-1031"></a>                    <span class="n">ix0</span><span class="p">,</span>
+<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a>                    <span class="n">iy0</span><span class="p">,</span>
+<a id="__codelineno-0-1033" name="__codelineno-0-1033"></a>                    <span class="n">ix1</span> <span class="o">-</span> <span class="n">ix0</span><span class="p">,</span>
+<a id="__codelineno-0-1034" name="__codelineno-0-1034"></a>                    <span class="n">iy1</span> <span class="o">-</span> <span class="n">iy0</span><span class="p">,</span>
+<a id="__codelineno-0-1035" name="__codelineno-0-1035"></a>                    <span class="n">buf_xsize</span><span class="o">=</span><span class="n">out_w</span><span class="p">,</span>
+<a id="__codelineno-0-1036" name="__codelineno-0-1036"></a>                    <span class="n">buf_ysize</span><span class="o">=</span><span class="n">out_h</span><span class="p">,</span>
+<a id="__codelineno-0-1037" name="__codelineno-0-1037"></a>                    <span class="n">resample_alg</span><span class="o">=</span><span class="n">alg</span><span class="p">,</span>
+<a id="__codelineno-0-1038" name="__codelineno-0-1038"></a>                <span class="p">)</span>
+<a id="__codelineno-0-1039" name="__codelineno-0-1039"></a>            <span class="p">)</span>
+<a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>
+<a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>        <span class="c1"># Partial overlap: read only the intersection, then place it at its</span>
+<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a>        <span class="c1"># correct offset inside a full-size output buffer padded with NoData,</span>
+<a id="__codelineno-0-1043" name="__codelineno-0-1043"></a>        <span class="c1"># so the returned array stays aligned to the requested window.</span>
+<a id="__codelineno-0-1044" name="__codelineno-0-1044"></a>        <span class="n">scale_x</span> <span class="o">=</span> <span class="n">out_w</span> <span class="o">/</span> <span class="n">req_xsize</span>
+<a id="__codelineno-0-1045" name="__codelineno-0-1045"></a>        <span class="n">scale_y</span> <span class="o">=</span> <span class="n">out_h</span> <span class="o">/</span> <span class="n">req_ysize</span>
+<a id="__codelineno-0-1046" name="__codelineno-0-1046"></a>        <span class="n">ox0</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">out_w</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">((</span><span class="n">ix0</span> <span class="o">-</span> <span class="n">req_xoff</span><span class="p">)</span> <span class="o">*</span> <span class="n">scale_x</span><span class="p">))))</span>
+<a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>        <span class="n">oy0</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">out_h</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">((</span><span class="n">iy0</span> <span class="o">-</span> <span class="n">req_yoff</span><span class="p">)</span> <span class="o">*</span> <span class="n">scale_y</span><span class="p">))))</span>
+<a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>        <span class="n">ox1</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">ox0</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">out_w</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">((</span><span class="n">ix1</span> <span class="o">-</span> <span class="n">req_xoff</span><span class="p">)</span> <span class="o">*</span> <span class="n">scale_x</span><span class="p">))))</span>
+<a id="__codelineno-0-1049" name="__codelineno-0-1049"></a>        <span class="n">oy1</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">oy0</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">out_h</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">((</span><span class="n">iy1</span> <span class="o">-</span> <span class="n">req_yoff</span><span class="p">)</span> <span class="o">*</span> <span class="n">scale_y</span><span class="p">))))</span>
+<a id="__codelineno-0-1050" name="__codelineno-0-1050"></a>        <span class="n">sub</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+<a id="__codelineno-0-1051" name="__codelineno-0-1051"></a>            <span class="n">source</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">(</span>
+<a id="__codelineno-0-1052" name="__codelineno-0-1052"></a>                <span class="n">ix0</span><span class="p">,</span>
+<a id="__codelineno-0-1053" name="__codelineno-0-1053"></a>                <span class="n">iy0</span><span class="p">,</span>
+<a id="__codelineno-0-1054" name="__codelineno-0-1054"></a>                <span class="n">ix1</span> <span class="o">-</span> <span class="n">ix0</span><span class="p">,</span>
+<a id="__codelineno-0-1055" name="__codelineno-0-1055"></a>                <span class="n">iy1</span> <span class="o">-</span> <span class="n">iy0</span><span class="p">,</span>
+<a id="__codelineno-0-1056" name="__codelineno-0-1056"></a>                <span class="n">buf_xsize</span><span class="o">=</span><span class="n">ox1</span> <span class="o">-</span> <span class="n">ox0</span><span class="p">,</span>
+<a id="__codelineno-0-1057" name="__codelineno-0-1057"></a>                <span class="n">buf_ysize</span><span class="o">=</span><span class="n">oy1</span> <span class="o">-</span> <span class="n">oy0</span><span class="p">,</span>
+<a id="__codelineno-0-1058" name="__codelineno-0-1058"></a>                <span class="n">resample_alg</span><span class="o">=</span><span class="n">alg</span><span class="p">,</span>
+<a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>            <span class="p">)</span>
+<a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1061" name="__codelineno-0-1061"></a>        <span class="n">fill</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nodata_fill</span><span class="p">(</span><span class="n">ds</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+<a id="__codelineno-0-1062" name="__codelineno-0-1062"></a>        <span class="k">if</span> <span class="n">sub</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+<a id="__codelineno-0-1063" name="__codelineno-0-1063"></a>            <span class="n">out</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="n">sub</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">out_h</span><span class="p">,</span> <span class="n">out_w</span><span class="p">),</span> <span class="n">fill</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">sub</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+<a id="__codelineno-0-1064" name="__codelineno-0-1064"></a>            <span class="n">out</span><span class="p">[:,</span> <span class="n">oy0</span><span class="p">:</span><span class="n">oy1</span><span class="p">,</span> <span class="n">ox0</span><span class="p">:</span><span class="n">ox1</span><span class="p">]</span> <span class="o">=</span> <span class="n">sub</span>
+<a id="__codelineno-0-1065" name="__codelineno-0-1065"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-1066" name="__codelineno-0-1066"></a>            <span class="n">out</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="n">out_h</span><span class="p">,</span> <span class="n">out_w</span><span class="p">),</span> <span class="n">fill</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">sub</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+<a id="__codelineno-0-1067" name="__codelineno-0-1067"></a>            <span class="n">out</span><span class="p">[</span><span class="n">oy0</span><span class="p">:</span><span class="n">oy1</span><span class="p">,</span> <span class="n">ox0</span><span class="p">:</span><span class="n">ox1</span><span class="p">]</span> <span class="o">=</span> <span class="n">sub</span>
+<a id="__codelineno-0-1068" name="__codelineno-0-1068"></a>        <span class="k">return</span> <span class="n">out</span>
+<a id="__codelineno-0-1069" name="__codelineno-0-1069"></a>
+<a id="__codelineno-0-1070" name="__codelineno-0-1070"></a>    <span class="nd">@staticmethod</span>
+<a id="__codelineno-0-1071" name="__codelineno-0-1071"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_nodata_fill</span><span class="p">(</span><span class="n">band</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<a id="__codelineno-0-1072" name="__codelineno-0-1072"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Pick a fill value for padding partial reads.</span>
+<a id="__codelineno-0-1073" name="__codelineno-0-1073"></a>
+<a id="__codelineno-0-1074" name="__codelineno-0-1074"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-1075" name="__codelineno-0-1075"></a><span class="sd">            band: The GDAL band whose NoData value (if any) to use.</span>
+<a id="__codelineno-0-1076" name="__codelineno-0-1076"></a>
+<a id="__codelineno-0-1077" name="__codelineno-0-1077"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-1078" name="__codelineno-0-1078"></a><span class="sd">            float: The band&#39;s NoData value, else NaN for floating-point bands</span>
+<a id="__codelineno-0-1079" name="__codelineno-0-1079"></a><span class="sd">            and ``0`` for integer bands.</span>
+<a id="__codelineno-0-1080" name="__codelineno-0-1080"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1081" name="__codelineno-0-1081"></a>        <span class="n">nodata</span> <span class="o">=</span> <span class="n">band</span><span class="o">.</span><span class="n">GetNoDataValue</span><span class="p">()</span>
+<a id="__codelineno-0-1082" name="__codelineno-0-1082"></a>        <span class="k">if</span> <span class="n">nodata</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1083" name="__codelineno-0-1083"></a>            <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="nb">float</span><span class="p">,</span> <span class="n">nodata</span><span class="p">)</span>
+<a id="__codelineno-0-1084" name="__codelineno-0-1084"></a>        <span class="k">return</span> <span class="mi">0</span> <span class="k">if</span> <span class="n">is_integer_gdal_dtype</span><span class="p">(</span><span class="n">band</span><span class="o">.</span><span class="n">DataType</span><span class="p">)</span> <span class="k">else</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;nan&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-1085" name="__codelineno-0-1085"></a>
+<a id="__codelineno-0-1086" name="__codelineno-0-1086"></a>    <span class="nd">@under_gdal_env</span>
+<a id="__codelineno-0-1087" name="__codelineno-0-1087"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">preview</span><span class="p">(</span>
+<a id="__codelineno-0-1088" name="__codelineno-0-1088"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-1089" name="__codelineno-0-1089"></a>        <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-1090" name="__codelineno-0-1090"></a>        <span class="n">max_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1024</span><span class="p">,</span>
+<a id="__codelineno-0-1091" name="__codelineno-0-1091"></a>        <span class="n">resampling</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;bilinear&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-1092" name="__codelineno-0-1092"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1093" name="__codelineno-0-1093"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
+<a id="__codelineno-0-1094" name="__codelineno-0-1094"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Read a whole-image thumbnail downsampled to `max_size` on the long edge.</span>
+<a id="__codelineno-0-1095" name="__codelineno-0-1095"></a>
+<a id="__codelineno-0-1096" name="__codelineno-0-1096"></a><span class="sd">        Pulls from a coarse overview when one exists, so previewing a huge COG</span>
+<a id="__codelineno-0-1097" name="__codelineno-0-1097"></a><span class="sd">        is cheap.</span>
+<a id="__codelineno-0-1098" name="__codelineno-0-1098"></a>
+<a id="__codelineno-0-1099" name="__codelineno-0-1099"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-1100" name="__codelineno-0-1100"></a><span class="sd">            max_size: Maximum pixels on the longer edge. Defaults to 1024.</span>
+<a id="__codelineno-0-1101" name="__codelineno-0-1101"></a><span class="sd">            resampling: Resampling method (see :meth:`read_part`).</span>
+<a id="__codelineno-0-1102" name="__codelineno-0-1102"></a><span class="sd">            band: 0-based band index. `None` reads all bands.</span>
+<a id="__codelineno-0-1103" name="__codelineno-0-1103"></a>
+<a id="__codelineno-0-1104" name="__codelineno-0-1104"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-1105" name="__codelineno-0-1105"></a><span class="sd">            numpy.ndarray: The downsampled array, `(rows, cols)` or</span>
+<a id="__codelineno-0-1106" name="__codelineno-0-1106"></a><span class="sd">            `(bands, rows, cols)`. Pixel values only — no transform, bounds,</span>
+<a id="__codelineno-0-1107" name="__codelineno-0-1107"></a><span class="sd">            or CRS is attached to the returned array.</span>
+<a id="__codelineno-0-1108" name="__codelineno-0-1108"></a>
+<a id="__codelineno-0-1109" name="__codelineno-0-1109"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-1110" name="__codelineno-0-1110"></a><span class="sd">            TypeError: `resampling` is not a string.</span>
+<a id="__codelineno-0-1111" name="__codelineno-0-1111"></a><span class="sd">            ValueError: Unknown `resampling`.</span>
+<a id="__codelineno-0-1112" name="__codelineno-0-1112"></a>
+<a id="__codelineno-0-1113" name="__codelineno-0-1113"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-1114" name="__codelineno-0-1114"></a><span class="sd">            - Build a 128px thumbnail of a single band:</span>
+<a id="__codelineno-0-1115" name="__codelineno-0-1115"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-1116" name="__codelineno-0-1116"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset  # doctest: +SKIP</span>
+<a id="__codelineno-0-1117" name="__codelineno-0-1117"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.read_file(&quot;scene_cog.tif&quot;)  # doctest: +SKIP</span>
+<a id="__codelineno-0-1118" name="__codelineno-0-1118"></a><span class="sd">                &gt;&gt;&gt; thumb = ds.preview(max_size=128, band=0)  # doctest: +SKIP</span>
+<a id="__codelineno-0-1119" name="__codelineno-0-1119"></a><span class="sd">                &gt;&gt;&gt; max(thumb.shape)  # doctest: +SKIP</span>
+<a id="__codelineno-0-1120" name="__codelineno-0-1120"></a><span class="sd">                128</span>
+<a id="__codelineno-0-1121" name="__codelineno-0-1121"></a>
+<a id="__codelineno-0-1122" name="__codelineno-0-1122"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-1123" name="__codelineno-0-1123"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1124" name="__codelineno-0-1124"></a>        <span class="n">alg</span> <span class="o">=</span> <span class="n">_resolve_read_resampling</span><span class="p">(</span><span class="n">resampling</span><span class="p">)</span>
+<a id="__codelineno-0-1125" name="__codelineno-0-1125"></a>        <span class="n">width</span><span class="p">,</span> <span class="n">height</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">columns</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">rows</span>
+<a id="__codelineno-0-1126" name="__codelineno-0-1126"></a>        <span class="n">scale</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span> <span class="o">/</span> <span class="n">max_size</span>
+<a id="__codelineno-0-1127" name="__codelineno-0-1127"></a>        <span class="k">if</span> <span class="n">scale</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+<a id="__codelineno-0-1128" name="__codelineno-0-1128"></a>            <span class="n">out_w</span><span class="p">,</span> <span class="n">out_h</span> <span class="o">=</span> <span class="n">width</span><span class="p">,</span> <span class="n">height</span>
+<a id="__codelineno-0-1129" name="__codelineno-0-1129"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-1130" name="__codelineno-0-1130"></a>            <span class="n">out_w</span><span class="p">,</span> <span class="n">out_h</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">width</span> <span class="o">/</span> <span class="n">scale</span><span class="p">)),</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">height</span> <span class="o">/</span> <span class="n">scale</span><span class="p">))</span>
+<a id="__codelineno-0-1131" name="__codelineno-0-1131"></a>        <span class="n">ds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_raster</span>
+<a id="__codelineno-0-1132" name="__codelineno-0-1132"></a>        <span class="n">source</span> <span class="o">=</span> <span class="n">ds</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">ds</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-1133" name="__codelineno-0-1133"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+<a id="__codelineno-0-1134" name="__codelineno-0-1134"></a>            <span class="n">source</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">(</span><span class="n">buf_xsize</span><span class="o">=</span><span class="n">out_w</span><span class="p">,</span> <span class="n">buf_ysize</span><span class="o">=</span><span class="n">out_h</span><span class="p">,</span> <span class="n">resample_alg</span><span class="o">=</span><span class="n">alg</span><span class="p">)</span>
+<a id="__codelineno-0-1135" name="__codelineno-0-1135"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1136" name="__codelineno-0-1136"></a>
+<a id="__codelineno-0-1137" name="__codelineno-0-1137"></a>    <span class="nd">@under_gdal_env</span>
+<a id="__codelineno-0-1138" name="__codelineno-0-1138"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">point</span><span class="p">(</span>
+<a id="__codelineno-0-1139" name="__codelineno-0-1139"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-1140" name="__codelineno-0-1140"></a>        <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+<a id="__codelineno-0-1141" name="__codelineno-0-1141"></a>        <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+<a id="__codelineno-0-1142" name="__codelineno-0-1142"></a>        <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-1143" name="__codelineno-0-1143"></a>        <span class="n">point_crs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1144" name="__codelineno-0-1144"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1145" name="__codelineno-0-1145"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
+<a id="__codelineno-0-1146" name="__codelineno-0-1146"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Sample band value(s) at a single coordinate.</span>
+<a id="__codelineno-0-1147" name="__codelineno-0-1147"></a>
+<a id="__codelineno-0-1148" name="__codelineno-0-1148"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-1149" name="__codelineno-0-1149"></a><span class="sd">            x: X / longitude / easting in `point_crs`.</span>
+<a id="__codelineno-0-1150" name="__codelineno-0-1150"></a><span class="sd">            y: Y / latitude / northing in `point_crs`.</span>
+<a id="__codelineno-0-1151" name="__codelineno-0-1151"></a><span class="sd">            point_crs: EPSG code of `(x, y)`. Reprojected to the dataset CRS</span>
+<a id="__codelineno-0-1152" name="__codelineno-0-1152"></a><span class="sd">                when different. Defaults to 4326.</span>
+<a id="__codelineno-0-1153" name="__codelineno-0-1153"></a><span class="sd">            band: 0-based band index. `None` samples all bands.</span>
+<a id="__codelineno-0-1154" name="__codelineno-0-1154"></a>
+<a id="__codelineno-0-1155" name="__codelineno-0-1155"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-1156" name="__codelineno-0-1156"></a><span class="sd">            CRSError: An explicit CRS was given for the coordinates but the</span>
+<a id="__codelineno-0-1157" name="__codelineno-0-1157"></a><span class="sd">                raster has none to transform into. Omit it to read in the</span>
+<a id="__codelineno-0-1158" name="__codelineno-0-1158"></a><span class="sd">                raster&#39;s own coordinates (ARC-26).</span>
+<a id="__codelineno-0-1159" name="__codelineno-0-1159"></a>
+<a id="__codelineno-0-1160" name="__codelineno-0-1160"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-1161" name="__codelineno-0-1161"></a><span class="sd">            numpy.ndarray: A scalar 0-d array for a single band, or a</span>
+<a id="__codelineno-0-1162" name="__codelineno-0-1162"></a><span class="sd">            `(bands,)` array when `band` is `None`. Pixel values only — no</span>
+<a id="__codelineno-0-1163" name="__codelineno-0-1163"></a><span class="sd">            coordinate metadata is attached.</span>
 <a id="__codelineno-0-1164" name="__codelineno-0-1164"></a>
-<a id="__codelineno-0-1165" name="__codelineno-0-1165"></a><span class="sd">                ```</span>
-<a id="__codelineno-0-1166" name="__codelineno-0-1166"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1167" name="__codelineno-0-1167"></a>        <span class="n">col</span><span class="p">,</span> <span class="n">row</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_to_pixel</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">point_crs</span><span class="p">)</span>
-<a id="__codelineno-0-1168" name="__codelineno-0-1168"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">col</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">columns</span> <span class="ow">and</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">row</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">rows</span><span class="p">):</span>
-<a id="__codelineno-0-1169" name="__codelineno-0-1169"></a>            <span class="k">raise</span> <span class="n">OutOfBoundsError</span><span class="p">(</span>
-<a id="__codelineno-0-1170" name="__codelineno-0-1170"></a>                <span class="sa">f</span><span class="s2">&quot;point (</span><span class="si">{</span><span class="n">x</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">y</span><span class="si">}</span><span class="s2">) in crs </span><span class="si">{</span><span class="n">point_crs</span><span class="si">}</span><span class="s2"> is outside the raster extent&quot;</span>
-<a id="__codelineno-0-1171" name="__codelineno-0-1171"></a>            <span class="p">)</span>
-<a id="__codelineno-0-1172" name="__codelineno-0-1172"></a>        <span class="n">ds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_raster</span>
-<a id="__codelineno-0-1173" name="__codelineno-0-1173"></a>        <span class="n">source</span> <span class="o">=</span> <span class="n">ds</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">ds</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-1174" name="__codelineno-0-1174"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">source</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">(</span><span class="n">col</span><span class="p">,</span> <span class="n">row</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
-<a id="__codelineno-0-1175" name="__codelineno-0-1175"></a>        <span class="k">return</span> <span class="n">arr</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">arr</span><span class="o">.</span><span class="n">reshape</span><span class="p">(())</span>
-<a id="__codelineno-0-1176" name="__codelineno-0-1176"></a>
-<a id="__codelineno-0-1177" name="__codelineno-0-1177"></a>    <span class="nd">@under_gdal_env</span>
-<a id="__codelineno-0-1178" name="__codelineno-0-1178"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">read_tile</span><span class="p">(</span>
-<a id="__codelineno-0-1179" name="__codelineno-0-1179"></a>        <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-1180" name="__codelineno-0-1180"></a>        <span class="n">z</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-1181" name="__codelineno-0-1181"></a>        <span class="n">x</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-1182" name="__codelineno-0-1182"></a>        <span class="n">y</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-1183" name="__codelineno-0-1183"></a>        <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-1184" name="__codelineno-0-1184"></a>        <span class="n">tilesize</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">,</span>
-<a id="__codelineno-0-1185" name="__codelineno-0-1185"></a>        <span class="n">resampling</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;bilinear&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-1186" name="__codelineno-0-1186"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1187" name="__codelineno-0-1187"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
-<a id="__codelineno-0-1188" name="__codelineno-0-1188"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Read a Web-Mercator XYZ/slippy-map tile.</span>
-<a id="__codelineno-0-1189" name="__codelineno-0-1189"></a>
-<a id="__codelineno-0-1190" name="__codelineno-0-1190"></a><span class="sd">        Computes the EPSG:3857 bounds of tile `(z, x, y)` from the closed-form</span>
-<a id="__codelineno-0-1191" name="__codelineno-0-1191"></a><span class="sd">        Web-Mercator formula and delegates to :meth:`read_part` at `tilesize`</span>
-<a id="__codelineno-0-1192" name="__codelineno-0-1192"></a><span class="sd">        resolution — no extra tiling dependency needed.</span>
-<a id="__codelineno-0-1193" name="__codelineno-0-1193"></a>
-<a id="__codelineno-0-1194" name="__codelineno-0-1194"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-1195" name="__codelineno-0-1195"></a><span class="sd">            z: Zoom level.</span>
-<a id="__codelineno-0-1196" name="__codelineno-0-1196"></a><span class="sd">            x: Tile column index.</span>
-<a id="__codelineno-0-1197" name="__codelineno-0-1197"></a><span class="sd">            y: Tile row index (origin top-left / north-west).</span>
-<a id="__codelineno-0-1198" name="__codelineno-0-1198"></a><span class="sd">            tilesize: Output tile size in pixels (square). Defaults to 256.</span>
-<a id="__codelineno-0-1199" name="__codelineno-0-1199"></a><span class="sd">            resampling: Resampling method (see :meth:`read_part`).</span>
-<a id="__codelineno-0-1200" name="__codelineno-0-1200"></a><span class="sd">            band: 0-based band index. `None` reads all bands.</span>
-<a id="__codelineno-0-1201" name="__codelineno-0-1201"></a>
-<a id="__codelineno-0-1202" name="__codelineno-0-1202"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-1203" name="__codelineno-0-1203"></a><span class="sd">            numpy.ndarray: A `(tilesize, tilesize)` or</span>
-<a id="__codelineno-0-1204" name="__codelineno-0-1204"></a><span class="sd">            `(bands, tilesize, tilesize)` array. Pixel values only — the tile&#39;s</span>
-<a id="__codelineno-0-1205" name="__codelineno-0-1205"></a><span class="sd">            georeferencing is defined by its `(z, x, y)`, not attached to the</span>
-<a id="__codelineno-0-1206" name="__codelineno-0-1206"></a><span class="sd">            array; edge tiles are NoData-padded (see :meth:`read_part`).</span>
-<a id="__codelineno-0-1207" name="__codelineno-0-1207"></a>
-<a id="__codelineno-0-1208" name="__codelineno-0-1208"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-1209" name="__codelineno-0-1209"></a><span class="sd">            OutOfBoundsError: The tile does not intersect the raster.</span>
-<a id="__codelineno-0-1210" name="__codelineno-0-1210"></a>
-<a id="__codelineno-0-1211" name="__codelineno-0-1211"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-1212" name="__codelineno-0-1212"></a><span class="sd">            - Read the zoom-0 world tile of a global COG:</span>
-<a id="__codelineno-0-1213" name="__codelineno-0-1213"></a><span class="sd">                ```python</span>
-<a id="__codelineno-0-1214" name="__codelineno-0-1214"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset  # doctest: +SKIP</span>
-<a id="__codelineno-0-1215" name="__codelineno-0-1215"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.read_file(&quot;global_cog.tif&quot;)  # doctest: +SKIP</span>
-<a id="__codelineno-0-1216" name="__codelineno-0-1216"></a><span class="sd">                &gt;&gt;&gt; tile = ds.read_tile(0, 0, 0)  # doctest: +SKIP</span>
-<a id="__codelineno-0-1217" name="__codelineno-0-1217"></a><span class="sd">                &gt;&gt;&gt; tile.shape[-2:]  # doctest: +SKIP</span>
-<a id="__codelineno-0-1218" name="__codelineno-0-1218"></a><span class="sd">                (256, 256)</span>
-<a id="__codelineno-0-1219" name="__codelineno-0-1219"></a>
-<a id="__codelineno-0-1220" name="__codelineno-0-1220"></a><span class="sd">                ```</span>
-<a id="__codelineno-0-1221" name="__codelineno-0-1221"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1222" name="__codelineno-0-1222"></a>        <span class="n">bounds</span> <span class="o">=</span> <span class="n">_xyz_bounds_3857</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
-<a id="__codelineno-0-1223" name="__codelineno-0-1223"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">read_part</span><span class="p">(</span>
-<a id="__codelineno-0-1224" name="__codelineno-0-1224"></a>            <span class="n">bounds</span><span class="p">,</span>
-<a id="__codelineno-0-1225" name="__codelineno-0-1225"></a>            <span class="n">dst_width</span><span class="o">=</span><span class="n">tilesize</span><span class="p">,</span>
-<a id="__codelineno-0-1226" name="__codelineno-0-1226"></a>            <span class="n">dst_height</span><span class="o">=</span><span class="n">tilesize</span><span class="p">,</span>
-<a id="__codelineno-0-1227" name="__codelineno-0-1227"></a>            <span class="n">bbox_crs</span><span class="o">=</span><span class="mi">3857</span><span class="p">,</span>
-<a id="__codelineno-0-1228" name="__codelineno-0-1228"></a>            <span class="n">resampling</span><span class="o">=</span><span class="n">resampling</span><span class="p">,</span>
-<a id="__codelineno-0-1229" name="__codelineno-0-1229"></a>            <span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">,</span>
-<a id="__codelineno-0-1230" name="__codelineno-0-1230"></a>        <span class="p">)</span>
-<a id="__codelineno-0-1231" name="__codelineno-0-1231"></a>
-<a id="__codelineno-0-1232" name="__codelineno-0-1232"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_reproject_bbox</span><span class="p">(</span>
-<a id="__codelineno-0-1233" name="__codelineno-0-1233"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">bbox</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">bbox_crs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
-<a id="__codelineno-0-1234" name="__codelineno-0-1234"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
-<a id="__codelineno-0-1235" name="__codelineno-0-1235"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Reproject a bbox into the dataset CRS, returning its envelope.</span>
-<a id="__codelineno-0-1236" name="__codelineno-0-1236"></a>
-<a id="__codelineno-0-1237" name="__codelineno-0-1237"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-1238" name="__codelineno-0-1238"></a><span class="sd">            bbox: `(min_x, min_y, max_x, max_y)` in `bbox_crs`.</span>
-<a id="__codelineno-0-1239" name="__codelineno-0-1239"></a><span class="sd">            bbox_crs: EPSG code of `bbox`.</span>
-<a id="__codelineno-0-1240" name="__codelineno-0-1240"></a>
-<a id="__codelineno-0-1241" name="__codelineno-0-1241"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-1242" name="__codelineno-0-1242"></a><span class="sd">            `(min_x, min_y, max_x, max_y)` in the dataset CRS. When</span>
-<a id="__codelineno-0-1243" name="__codelineno-0-1243"></a><span class="sd">            `bbox_crs` already matches the dataset EPSG the bbox is</span>
-<a id="__codelineno-0-1244" name="__codelineno-0-1244"></a><span class="sd">            returned unchanged.</span>
-<a id="__codelineno-0-1245" name="__codelineno-0-1245"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1246" name="__codelineno-0-1246"></a>        <span class="n">min_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">,</span> <span class="n">max_x</span><span class="p">,</span> <span class="n">max_y</span> <span class="o">=</span> <span class="n">bbox</span>
-<a id="__codelineno-0-1247" name="__codelineno-0-1247"></a>        <span class="k">if</span> <span class="n">bbox_crs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span> <span class="o">==</span> <span class="n">bbox_crs</span><span class="p">:</span>
-<a id="__codelineno-0-1248" name="__codelineno-0-1248"></a>            <span class="k">return</span> <span class="n">min_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">,</span> <span class="n">max_x</span><span class="p">,</span> <span class="n">max_y</span>
-<a id="__codelineno-0-1249" name="__codelineno-0-1249"></a>        <span class="k">if</span> <span class="n">bbox_crs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1250" name="__codelineno-0-1250"></a>            <span class="c1"># Caller named no CRS, so the bbox is already in the raster&#39;s own</span>
-<a id="__codelineno-0-1251" name="__codelineno-0-1251"></a>            <span class="c1"># coordinates -- nothing to transform (ARC-26). An *explicit*</span>
-<a id="__codelineno-0-1252" name="__codelineno-0-1252"></a>            <span class="c1"># bbox_crs still goes through the guard below, so a real mismatch is</span>
-<a id="__codelineno-0-1253" name="__codelineno-0-1253"></a>            <span class="c1"># reported rather than silently ignored.</span>
-<a id="__codelineno-0-1254" name="__codelineno-0-1254"></a>            <span class="k">return</span> <span class="n">min_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">,</span> <span class="n">max_x</span><span class="p">,</span> <span class="n">max_y</span>
-<a id="__codelineno-0-1255" name="__codelineno-0-1255"></a>        <span class="n">transformer</span> <span class="o">=</span> <span class="n">_cached_transformer</span><span class="p">(</span>
-<a id="__codelineno-0-1256" name="__codelineno-0-1256"></a>            <span class="n">bbox_crs</span><span class="p">,</span>
-<a id="__codelineno-0-1257" name="__codelineno-0-1257"></a>            <span class="n">require_crs_spec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">crs</span><span class="p">,</span> <span class="s2">&quot;read a bbox window&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-1258" name="__codelineno-0-1258"></a>        <span class="p">)</span>
-<a id="__codelineno-0-1259" name="__codelineno-0-1259"></a>        <span class="n">corners</span> <span class="o">=</span> <span class="p">[</span>
-<a id="__codelineno-0-1260" name="__codelineno-0-1260"></a>            <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">min_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">),</span>
-<a id="__codelineno-0-1261" name="__codelineno-0-1261"></a>            <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">min_x</span><span class="p">,</span> <span class="n">max_y</span><span class="p">),</span>
-<a id="__codelineno-0-1262" name="__codelineno-0-1262"></a>            <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">max_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">),</span>
-<a id="__codelineno-0-1263" name="__codelineno-0-1263"></a>            <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">max_x</span><span class="p">,</span> <span class="n">max_y</span><span class="p">),</span>
-<a id="__codelineno-0-1264" name="__codelineno-0-1264"></a>        <span class="p">]</span>
-<a id="__codelineno-0-1265" name="__codelineno-0-1265"></a>        <span class="n">xs</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">corners</span><span class="p">]</span>
-<a id="__codelineno-0-1266" name="__codelineno-0-1266"></a>        <span class="n">ys</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">corners</span><span class="p">]</span>
-<a id="__codelineno-0-1267" name="__codelineno-0-1267"></a>        <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="nb">min</span><span class="p">(</span><span class="n">ys</span><span class="p">),</span> <span class="nb">max</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="nb">max</span><span class="p">(</span><span class="n">ys</span><span class="p">)</span>
-<a id="__codelineno-0-1268" name="__codelineno-0-1268"></a>
-<a id="__codelineno-0-1269" name="__codelineno-0-1269"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_world_to_pixel</span><span class="p">(</span>
-<a id="__codelineno-0-1270" name="__codelineno-0-1270"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">point_crs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
-<a id="__codelineno-0-1271" name="__codelineno-0-1271"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
-<a id="__codelineno-0-1272" name="__codelineno-0-1272"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert a world coordinate to integer `(col, row)` pixel indices.</span>
-<a id="__codelineno-0-1273" name="__codelineno-0-1273"></a>
-<a id="__codelineno-0-1274" name="__codelineno-0-1274"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-1275" name="__codelineno-0-1275"></a><span class="sd">            x: X / longitude in `point_crs`.</span>
-<a id="__codelineno-0-1276" name="__codelineno-0-1276"></a><span class="sd">            y: Y / latitude in `point_crs`.</span>
-<a id="__codelineno-0-1277" name="__codelineno-0-1277"></a><span class="sd">            point_crs: EPSG code of `(x, y)`.</span>
-<a id="__codelineno-0-1278" name="__codelineno-0-1278"></a>
-<a id="__codelineno-0-1279" name="__codelineno-0-1279"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-1280" name="__codelineno-0-1280"></a><span class="sd">            `(col, row)` integer pixel indices (floored).</span>
-<a id="__codelineno-0-1281" name="__codelineno-0-1281"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1282" name="__codelineno-0-1282"></a>        <span class="c1"># Same reasoning as the bbox path: with no CRS the point is read as</span>
-<a id="__codelineno-0-1283" name="__codelineno-0-1283"></a>        <span class="c1"># already being in the raster&#39;s own coordinate space rather than refused.</span>
-<a id="__codelineno-0-1284" name="__codelineno-0-1284"></a>        <span class="k">if</span> <span class="p">(</span>
-<a id="__codelineno-0-1285" name="__codelineno-0-1285"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span> <span class="o">!=</span> <span class="n">point_crs</span>
-<a id="__codelineno-0-1286" name="__codelineno-0-1286"></a>            <span class="ow">and</span> <span class="n">crs_spec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">crs</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-<a id="__codelineno-0-1287" name="__codelineno-0-1287"></a>        <span class="p">):</span>
-<a id="__codelineno-0-1288" name="__codelineno-0-1288"></a>            <span class="n">transformer</span> <span class="o">=</span> <span class="n">_cached_transformer</span><span class="p">(</span>
-<a id="__codelineno-0-1289" name="__codelineno-0-1289"></a>                <span class="n">point_crs</span><span class="p">,</span>
-<a id="__codelineno-0-1290" name="__codelineno-0-1290"></a>                <span class="n">require_crs_spec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">crs</span><span class="p">,</span> <span class="s2">&quot;sample a point&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-1291" name="__codelineno-0-1291"></a>            <span class="p">)</span>
-<a id="__codelineno-0-1292" name="__codelineno-0-1292"></a>            <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
-<a id="__codelineno-0-1293" name="__codelineno-0-1293"></a>        <span class="n">col</span><span class="p">,</span> <span class="n">row</span> <span class="o">=</span> <span class="n">world_to_pixel</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_raster</span><span class="o">.</span><span class="n">GetGeoTransform</span><span class="p">(),</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
-<a id="__codelineno-0-1294" name="__codelineno-0-1294"></a>        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="n">col</span><span class="p">)),</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="n">row</span><span class="p">))</span>
-<a id="__codelineno-0-1295" name="__codelineno-0-1295"></a>
-<a id="__codelineno-0-1296" name="__codelineno-0-1296"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_warn_if_categorical_with_averaging</span><span class="p">(</span>
-<a id="__codelineno-0-1297" name="__codelineno-0-1297"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">overview_resampling</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-1298" name="__codelineno-0-1298"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1299" name="__codelineno-0-1299"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Emit a `UserWarning` if an averaging resampler is used on categorical data.</span>
-<a id="__codelineno-0-1300" name="__codelineno-0-1300"></a>
-<a id="__codelineno-0-1301" name="__codelineno-0-1301"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-1302" name="__codelineno-0-1302"></a><span class="sd">            overview_resampling: The resampling method requested by the</span>
-<a id="__codelineno-0-1303" name="__codelineno-0-1303"></a><span class="sd">                caller. Case-insensitive. Only averaging-family methods</span>
-<a id="__codelineno-0-1304" name="__codelineno-0-1304"></a><span class="sd">                (`average`, `bilinear`, `cubic`, `cubicspline`,</span>
-<a id="__codelineno-0-1305" name="__codelineno-0-1305"></a><span class="sd">                `lanczos`) trigger the check.</span>
-<a id="__codelineno-0-1306" name="__codelineno-0-1306"></a><span class="sd">            band: GDAL band whose dtype/colour-table decides &quot;categorical&quot;.</span>
-<a id="__codelineno-0-1307" name="__codelineno-0-1307"></a><span class="sd">                Defaults to band 1 of the backing raster; a pre-processed</span>
-<a id="__codelineno-0-1308" name="__codelineno-0-1308"></a><span class="sd">                (cast/subset) band is passed when those options are used so</span>
-<a id="__codelineno-0-1309" name="__codelineno-0-1309"></a><span class="sd">                the check reflects the *output* dtype (PB-4).</span>
-<a id="__codelineno-0-1310" name="__codelineno-0-1310"></a>
-<a id="__codelineno-0-1311" name="__codelineno-0-1311"></a><span class="sd">        Warns:</span>
-<a id="__codelineno-0-1312" name="__codelineno-0-1312"></a><span class="sd">            UserWarning: When `overview_resampling` is an averaging</span>
-<a id="__codelineno-0-1313" name="__codelineno-0-1313"></a><span class="sd">                method and the source has a color table OR integer</span>
-<a id="__codelineno-0-1314" name="__codelineno-0-1314"></a><span class="sd">                dtype — both strong signals of categorical data.</span>
-<a id="__codelineno-0-1315" name="__codelineno-0-1315"></a>
-<a id="__codelineno-0-1316" name="__codelineno-0-1316"></a><span class="sd">        Note:</span>
-<a id="__codelineno-0-1317" name="__codelineno-0-1317"></a><span class="sd">            Silent when `overview_resampling` is `nearest` or</span>
-<a id="__codelineno-0-1318" name="__codelineno-0-1318"></a><span class="sd">            `mode` (both category-safe) or when the source is</span>
-<a id="__codelineno-0-1319" name="__codelineno-0-1319"></a><span class="sd">            floating-point and has no color table (continuous data).</span>
-<a id="__codelineno-0-1320" name="__codelineno-0-1320"></a>
-<a id="__codelineno-0-1321" name="__codelineno-0-1321"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-1322" name="__codelineno-0-1322"></a><span class="sd">            - Integer dataset + averaging method emits a warning:</span>
-<a id="__codelineno-0-1323" name="__codelineno-0-1323"></a><span class="sd">                ```python</span>
-<a id="__codelineno-0-1324" name="__codelineno-0-1324"></a><span class="sd">                &gt;&gt;&gt; import warnings  # doctest: +SKIP</span>
-<a id="__codelineno-0-1325" name="__codelineno-0-1325"></a><span class="sd">                &gt;&gt;&gt; with warnings.catch_warnings(record=True) as caught:  # doctest: +SKIP</span>
-<a id="__codelineno-0-1326" name="__codelineno-0-1326"></a><span class="sd">                ...     warnings.simplefilter(&quot;always&quot;)</span>
-<a id="__codelineno-0-1327" name="__codelineno-0-1327"></a><span class="sd">                ...     byte_ds.cog._warn_if_categorical_with_averaging(&quot;average&quot;)</span>
-<a id="__codelineno-0-1328" name="__codelineno-0-1328"></a><span class="sd">                ...     [str(w.message) for w in caught if issubclass(w.category, UserWarning)]</span>
-<a id="__codelineno-0-1329" name="__codelineno-0-1329"></a><span class="sd">                [&#39;overview_resampling=\\&#39;average\\&#39; averages pixel values, ...&#39;]</span>
-<a id="__codelineno-0-1330" name="__codelineno-0-1330"></a>
-<a id="__codelineno-0-1331" name="__codelineno-0-1331"></a><span class="sd">                ```</span>
-<a id="__codelineno-0-1332" name="__codelineno-0-1332"></a><span class="sd">            - Nearest resampling is always silent:</span>
-<a id="__codelineno-0-1333" name="__codelineno-0-1333"></a><span class="sd">                ```python</span>
-<a id="__codelineno-0-1334" name="__codelineno-0-1334"></a><span class="sd">                &gt;&gt;&gt; with warnings.catch_warnings(record=True) as caught:  # doctest: +SKIP</span>
-<a id="__codelineno-0-1335" name="__codelineno-0-1335"></a><span class="sd">                ...     warnings.simplefilter(&quot;always&quot;)</span>
-<a id="__codelineno-0-1336" name="__codelineno-0-1336"></a><span class="sd">                ...     byte_ds.cog._warn_if_categorical_with_averaging(&quot;nearest&quot;)</span>
-<a id="__codelineno-0-1337" name="__codelineno-0-1337"></a><span class="sd">                ...     len(caught)</span>
-<a id="__codelineno-0-1338" name="__codelineno-0-1338"></a><span class="sd">                0</span>
-<a id="__codelineno-0-1339" name="__codelineno-0-1339"></a>
-<a id="__codelineno-0-1340" name="__codelineno-0-1340"></a><span class="sd">                ```</span>
-<a id="__codelineno-0-1341" name="__codelineno-0-1341"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1342" name="__codelineno-0-1342"></a>        <span class="k">if</span> <span class="n">overview_resampling</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_AVERAGING_RESAMPLERS</span><span class="p">:</span>
-<a id="__codelineno-0-1343" name="__codelineno-0-1343"></a>            <span class="k">return</span>
-<a id="__codelineno-0-1344" name="__codelineno-0-1344"></a>        <span class="n">first_band</span> <span class="o">=</span> <span class="n">band</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_raster</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-1345" name="__codelineno-0-1345"></a>        <span class="n">has_color_table</span> <span class="o">=</span> <span class="n">first_band</span><span class="o">.</span><span class="n">GetColorTable</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-<a id="__codelineno-0-1346" name="__codelineno-0-1346"></a>        <span class="n">is_integer</span> <span class="o">=</span> <span class="n">is_integer_gdal_dtype</span><span class="p">(</span><span class="n">first_band</span><span class="o">.</span><span class="n">DataType</span><span class="p">)</span>
-<a id="__codelineno-0-1347" name="__codelineno-0-1347"></a>        <span class="k">if</span> <span class="n">has_color_table</span> <span class="ow">or</span> <span class="n">is_integer</span><span class="p">:</span>
-<a id="__codelineno-0-1348" name="__codelineno-0-1348"></a>            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
-<a id="__codelineno-0-1349" name="__codelineno-0-1349"></a>                <span class="sa">f</span><span class="s2">&quot;overview_resampling=</span><span class="si">{</span><span class="n">overview_resampling</span><span class="si">!r}</span><span class="s2"> averages pixel &quot;</span>
-<a id="__codelineno-0-1350" name="__codelineno-0-1350"></a>                <span class="s2">&quot;values, which corrupts categorical rasters (land cover, IDs). &quot;</span>
-<a id="__codelineno-0-1351" name="__codelineno-0-1351"></a>                <span class="s2">&quot;Use overview_resampling=&#39;nearest&#39; or &#39;mode&#39; instead.&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-1352" name="__codelineno-0-1352"></a>                <span class="ne">UserWarning</span><span class="p">,</span>
-<a id="__codelineno-0-1353" name="__codelineno-0-1353"></a>                <span class="n">stacklevel</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
-<a id="__codelineno-0-1354" name="__codelineno-0-1354"></a>            <span class="p">)</span>
+<a id="__codelineno-0-1165" name="__codelineno-0-1165"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-1166" name="__codelineno-0-1166"></a><span class="sd">            OutOfBoundsError: The point falls outside the raster extent.</span>
+<a id="__codelineno-0-1167" name="__codelineno-0-1167"></a>
+<a id="__codelineno-0-1168" name="__codelineno-0-1168"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-1169" name="__codelineno-0-1169"></a><span class="sd">            - Sample all bands at a lon/lat coordinate:</span>
+<a id="__codelineno-0-1170" name="__codelineno-0-1170"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-1171" name="__codelineno-0-1171"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset  # doctest: +SKIP</span>
+<a id="__codelineno-0-1172" name="__codelineno-0-1172"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.read_file(&quot;scene_cog.tif&quot;)  # doctest: +SKIP</span>
+<a id="__codelineno-0-1173" name="__codelineno-0-1173"></a><span class="sd">                &gt;&gt;&gt; ds.point(12.5, 41.9)  # doctest: +SKIP</span>
+<a id="__codelineno-0-1174" name="__codelineno-0-1174"></a><span class="sd">                array([1234.], dtype=float32)</span>
+<a id="__codelineno-0-1175" name="__codelineno-0-1175"></a>
+<a id="__codelineno-0-1176" name="__codelineno-0-1176"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-1177" name="__codelineno-0-1177"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1178" name="__codelineno-0-1178"></a>        <span class="n">col</span><span class="p">,</span> <span class="n">row</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_world_to_pixel</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">point_crs</span><span class="p">)</span>
+<a id="__codelineno-0-1179" name="__codelineno-0-1179"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">col</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">columns</span> <span class="ow">and</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">row</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">rows</span><span class="p">):</span>
+<a id="__codelineno-0-1180" name="__codelineno-0-1180"></a>            <span class="k">raise</span> <span class="n">OutOfBoundsError</span><span class="p">(</span>
+<a id="__codelineno-0-1181" name="__codelineno-0-1181"></a>                <span class="sa">f</span><span class="s2">&quot;point (</span><span class="si">{</span><span class="n">x</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">y</span><span class="si">}</span><span class="s2">) in crs </span><span class="si">{</span><span class="n">point_crs</span><span class="si">}</span><span class="s2"> is outside the raster extent&quot;</span>
+<a id="__codelineno-0-1182" name="__codelineno-0-1182"></a>            <span class="p">)</span>
+<a id="__codelineno-0-1183" name="__codelineno-0-1183"></a>        <span class="n">ds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_raster</span>
+<a id="__codelineno-0-1184" name="__codelineno-0-1184"></a>        <span class="n">source</span> <span class="o">=</span> <span class="n">ds</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">ds</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-1185" name="__codelineno-0-1185"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">source</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">(</span><span class="n">col</span><span class="p">,</span> <span class="n">row</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<a id="__codelineno-0-1186" name="__codelineno-0-1186"></a>        <span class="k">return</span> <span class="n">arr</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">arr</span><span class="o">.</span><span class="n">reshape</span><span class="p">(())</span>
+<a id="__codelineno-0-1187" name="__codelineno-0-1187"></a>
+<a id="__codelineno-0-1188" name="__codelineno-0-1188"></a>    <span class="nd">@under_gdal_env</span>
+<a id="__codelineno-0-1189" name="__codelineno-0-1189"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">read_tile</span><span class="p">(</span>
+<a id="__codelineno-0-1190" name="__codelineno-0-1190"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-1191" name="__codelineno-0-1191"></a>        <span class="n">z</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-1192" name="__codelineno-0-1192"></a>        <span class="n">x</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-1193" name="__codelineno-0-1193"></a>        <span class="n">y</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-1194" name="__codelineno-0-1194"></a>        <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-1195" name="__codelineno-0-1195"></a>        <span class="n">tilesize</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">,</span>
+<a id="__codelineno-0-1196" name="__codelineno-0-1196"></a>        <span class="n">resampling</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;bilinear&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-1197" name="__codelineno-0-1197"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1198" name="__codelineno-0-1198"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">:</span>
+<a id="__codelineno-0-1199" name="__codelineno-0-1199"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Read a Web-Mercator XYZ/slippy-map tile.</span>
+<a id="__codelineno-0-1200" name="__codelineno-0-1200"></a>
+<a id="__codelineno-0-1201" name="__codelineno-0-1201"></a><span class="sd">        Computes the EPSG:3857 bounds of tile `(z, x, y)` from the closed-form</span>
+<a id="__codelineno-0-1202" name="__codelineno-0-1202"></a><span class="sd">        Web-Mercator formula and delegates to :meth:`read_part` at `tilesize`</span>
+<a id="__codelineno-0-1203" name="__codelineno-0-1203"></a><span class="sd">        resolution — no extra tiling dependency needed.</span>
+<a id="__codelineno-0-1204" name="__codelineno-0-1204"></a>
+<a id="__codelineno-0-1205" name="__codelineno-0-1205"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-1206" name="__codelineno-0-1206"></a><span class="sd">            z: Zoom level.</span>
+<a id="__codelineno-0-1207" name="__codelineno-0-1207"></a><span class="sd">            x: Tile column index.</span>
+<a id="__codelineno-0-1208" name="__codelineno-0-1208"></a><span class="sd">            y: Tile row index (origin top-left / north-west).</span>
+<a id="__codelineno-0-1209" name="__codelineno-0-1209"></a><span class="sd">            tilesize: Output tile size in pixels (square). Defaults to 256.</span>
+<a id="__codelineno-0-1210" name="__codelineno-0-1210"></a><span class="sd">            resampling: Resampling method (see :meth:`read_part`).</span>
+<a id="__codelineno-0-1211" name="__codelineno-0-1211"></a><span class="sd">            band: 0-based band index. `None` reads all bands.</span>
+<a id="__codelineno-0-1212" name="__codelineno-0-1212"></a>
+<a id="__codelineno-0-1213" name="__codelineno-0-1213"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-1214" name="__codelineno-0-1214"></a><span class="sd">            numpy.ndarray: A `(tilesize, tilesize)` or</span>
+<a id="__codelineno-0-1215" name="__codelineno-0-1215"></a><span class="sd">            `(bands, tilesize, tilesize)` array. Pixel values only — the tile&#39;s</span>
+<a id="__codelineno-0-1216" name="__codelineno-0-1216"></a><span class="sd">            georeferencing is defined by its `(z, x, y)`, not attached to the</span>
+<a id="__codelineno-0-1217" name="__codelineno-0-1217"></a><span class="sd">            array; edge tiles are NoData-padded (see :meth:`read_part`).</span>
+<a id="__codelineno-0-1218" name="__codelineno-0-1218"></a>
+<a id="__codelineno-0-1219" name="__codelineno-0-1219"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-1220" name="__codelineno-0-1220"></a><span class="sd">            OutOfBoundsError: The tile does not intersect the raster.</span>
+<a id="__codelineno-0-1221" name="__codelineno-0-1221"></a>
+<a id="__codelineno-0-1222" name="__codelineno-0-1222"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-1223" name="__codelineno-0-1223"></a><span class="sd">            - Read the zoom-0 world tile of a global COG:</span>
+<a id="__codelineno-0-1224" name="__codelineno-0-1224"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-1225" name="__codelineno-0-1225"></a><span class="sd">                &gt;&gt;&gt; from pyramids.dataset import Dataset  # doctest: +SKIP</span>
+<a id="__codelineno-0-1226" name="__codelineno-0-1226"></a><span class="sd">                &gt;&gt;&gt; ds = Dataset.read_file(&quot;global_cog.tif&quot;)  # doctest: +SKIP</span>
+<a id="__codelineno-0-1227" name="__codelineno-0-1227"></a><span class="sd">                &gt;&gt;&gt; tile = ds.read_tile(0, 0, 0)  # doctest: +SKIP</span>
+<a id="__codelineno-0-1228" name="__codelineno-0-1228"></a><span class="sd">                &gt;&gt;&gt; tile.shape[-2:]  # doctest: +SKIP</span>
+<a id="__codelineno-0-1229" name="__codelineno-0-1229"></a><span class="sd">                (256, 256)</span>
+<a id="__codelineno-0-1230" name="__codelineno-0-1230"></a>
+<a id="__codelineno-0-1231" name="__codelineno-0-1231"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-1232" name="__codelineno-0-1232"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1233" name="__codelineno-0-1233"></a>        <span class="n">bounds</span> <span class="o">=</span> <span class="n">_xyz_bounds_3857</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-0-1234" name="__codelineno-0-1234"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">read_part</span><span class="p">(</span>
+<a id="__codelineno-0-1235" name="__codelineno-0-1235"></a>            <span class="n">bounds</span><span class="p">,</span>
+<a id="__codelineno-0-1236" name="__codelineno-0-1236"></a>            <span class="n">dst_width</span><span class="o">=</span><span class="n">tilesize</span><span class="p">,</span>
+<a id="__codelineno-0-1237" name="__codelineno-0-1237"></a>            <span class="n">dst_height</span><span class="o">=</span><span class="n">tilesize</span><span class="p">,</span>
+<a id="__codelineno-0-1238" name="__codelineno-0-1238"></a>            <span class="n">bbox_crs</span><span class="o">=</span><span class="mi">3857</span><span class="p">,</span>
+<a id="__codelineno-0-1239" name="__codelineno-0-1239"></a>            <span class="n">resampling</span><span class="o">=</span><span class="n">resampling</span><span class="p">,</span>
+<a id="__codelineno-0-1240" name="__codelineno-0-1240"></a>            <span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">,</span>
+<a id="__codelineno-0-1241" name="__codelineno-0-1241"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1242" name="__codelineno-0-1242"></a>
+<a id="__codelineno-0-1243" name="__codelineno-0-1243"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_reproject_bbox</span><span class="p">(</span>
+<a id="__codelineno-0-1244" name="__codelineno-0-1244"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">bbox</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">bbox_crs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+<a id="__codelineno-0-1245" name="__codelineno-0-1245"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
+<a id="__codelineno-0-1246" name="__codelineno-0-1246"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Reproject a bbox into the dataset CRS, returning its envelope.</span>
+<a id="__codelineno-0-1247" name="__codelineno-0-1247"></a>
+<a id="__codelineno-0-1248" name="__codelineno-0-1248"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-1249" name="__codelineno-0-1249"></a><span class="sd">            bbox: `(min_x, min_y, max_x, max_y)` in `bbox_crs`.</span>
+<a id="__codelineno-0-1250" name="__codelineno-0-1250"></a><span class="sd">            bbox_crs: CRS of `bbox`. `None` (default) means the bbox is already</span>
+<a id="__codelineno-0-1251" name="__codelineno-0-1251"></a><span class="sd">                in the raster&#39;s own coordinates.</span>
+<a id="__codelineno-0-1252" name="__codelineno-0-1252"></a>
+<a id="__codelineno-0-1253" name="__codelineno-0-1253"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-1254" name="__codelineno-0-1254"></a><span class="sd">            `(min_x, min_y, max_x, max_y)` in the dataset CRS. When</span>
+<a id="__codelineno-0-1255" name="__codelineno-0-1255"></a><span class="sd">            `bbox_crs` already matches the dataset EPSG the bbox is</span>
+<a id="__codelineno-0-1256" name="__codelineno-0-1256"></a><span class="sd">            returned unchanged.</span>
+<a id="__codelineno-0-1257" name="__codelineno-0-1257"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1258" name="__codelineno-0-1258"></a>        <span class="n">min_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">,</span> <span class="n">max_x</span><span class="p">,</span> <span class="n">max_y</span> <span class="o">=</span> <span class="n">bbox</span>
+<a id="__codelineno-0-1259" name="__codelineno-0-1259"></a>        <span class="k">if</span> <span class="n">bbox_crs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span> <span class="o">==</span> <span class="n">bbox_crs</span><span class="p">:</span>
+<a id="__codelineno-0-1260" name="__codelineno-0-1260"></a>            <span class="k">return</span> <span class="n">min_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">,</span> <span class="n">max_x</span><span class="p">,</span> <span class="n">max_y</span>
+<a id="__codelineno-0-1261" name="__codelineno-0-1261"></a>        <span class="k">if</span> <span class="n">bbox_crs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1262" name="__codelineno-0-1262"></a>            <span class="c1"># Caller named no CRS, so the bbox is already in the raster&#39;s own</span>
+<a id="__codelineno-0-1263" name="__codelineno-0-1263"></a>            <span class="c1"># coordinates -- nothing to transform (ARC-26). An *explicit*</span>
+<a id="__codelineno-0-1264" name="__codelineno-0-1264"></a>            <span class="c1"># bbox_crs still goes through the guard below, so a real mismatch is</span>
+<a id="__codelineno-0-1265" name="__codelineno-0-1265"></a>            <span class="c1"># reported rather than silently ignored.</span>
+<a id="__codelineno-0-1266" name="__codelineno-0-1266"></a>            <span class="k">return</span> <span class="n">min_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">,</span> <span class="n">max_x</span><span class="p">,</span> <span class="n">max_y</span>
+<a id="__codelineno-0-1267" name="__codelineno-0-1267"></a>        <span class="n">transformer</span> <span class="o">=</span> <span class="n">_cached_transformer</span><span class="p">(</span>
+<a id="__codelineno-0-1268" name="__codelineno-0-1268"></a>            <span class="n">bbox_crs</span><span class="p">,</span>
+<a id="__codelineno-0-1269" name="__codelineno-0-1269"></a>            <span class="n">require_crs_spec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">crs</span><span class="p">,</span> <span class="s2">&quot;read a bbox window&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-1270" name="__codelineno-0-1270"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1271" name="__codelineno-0-1271"></a>        <span class="n">corners</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-0-1272" name="__codelineno-0-1272"></a>            <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">min_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">),</span>
+<a id="__codelineno-0-1273" name="__codelineno-0-1273"></a>            <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">min_x</span><span class="p">,</span> <span class="n">max_y</span><span class="p">),</span>
+<a id="__codelineno-0-1274" name="__codelineno-0-1274"></a>            <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">max_x</span><span class="p">,</span> <span class="n">min_y</span><span class="p">),</span>
+<a id="__codelineno-0-1275" name="__codelineno-0-1275"></a>            <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">max_x</span><span class="p">,</span> <span class="n">max_y</span><span class="p">),</span>
+<a id="__codelineno-0-1276" name="__codelineno-0-1276"></a>        <span class="p">]</span>
+<a id="__codelineno-0-1277" name="__codelineno-0-1277"></a>        <span class="n">xs</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">corners</span><span class="p">]</span>
+<a id="__codelineno-0-1278" name="__codelineno-0-1278"></a>        <span class="n">ys</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">corners</span><span class="p">]</span>
+<a id="__codelineno-0-1279" name="__codelineno-0-1279"></a>        <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="nb">min</span><span class="p">(</span><span class="n">ys</span><span class="p">),</span> <span class="nb">max</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="nb">max</span><span class="p">(</span><span class="n">ys</span><span class="p">)</span>
+<a id="__codelineno-0-1280" name="__codelineno-0-1280"></a>
+<a id="__codelineno-0-1281" name="__codelineno-0-1281"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_world_to_pixel</span><span class="p">(</span>
+<a id="__codelineno-0-1282" name="__codelineno-0-1282"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">point_crs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+<a id="__codelineno-0-1283" name="__codelineno-0-1283"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+<a id="__codelineno-0-1284" name="__codelineno-0-1284"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert a world coordinate to integer `(col, row)` pixel indices.</span>
+<a id="__codelineno-0-1285" name="__codelineno-0-1285"></a>
+<a id="__codelineno-0-1286" name="__codelineno-0-1286"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-1287" name="__codelineno-0-1287"></a><span class="sd">            x: X / longitude in `point_crs`.</span>
+<a id="__codelineno-0-1288" name="__codelineno-0-1288"></a><span class="sd">            y: Y / latitude in `point_crs`.</span>
+<a id="__codelineno-0-1289" name="__codelineno-0-1289"></a><span class="sd">            point_crs: EPSG code of `(x, y)`.</span>
+<a id="__codelineno-0-1290" name="__codelineno-0-1290"></a>
+<a id="__codelineno-0-1291" name="__codelineno-0-1291"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-1292" name="__codelineno-0-1292"></a><span class="sd">            `(col, row)` integer pixel indices (floored).</span>
+<a id="__codelineno-0-1293" name="__codelineno-0-1293"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1294" name="__codelineno-0-1294"></a>        <span class="c1"># Same reasoning as the bbox path: with no CRS the point is read as</span>
+<a id="__codelineno-0-1295" name="__codelineno-0-1295"></a>        <span class="c1"># already being in the raster&#39;s own coordinate space rather than refused.</span>
+<a id="__codelineno-0-1296" name="__codelineno-0-1296"></a>        <span class="k">if</span> <span class="p">(</span>
+<a id="__codelineno-0-1297" name="__codelineno-0-1297"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span> <span class="o">!=</span> <span class="n">point_crs</span>
+<a id="__codelineno-0-1298" name="__codelineno-0-1298"></a>            <span class="ow">and</span> <span class="n">crs_spec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">crs</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+<a id="__codelineno-0-1299" name="__codelineno-0-1299"></a>        <span class="p">):</span>
+<a id="__codelineno-0-1300" name="__codelineno-0-1300"></a>            <span class="n">transformer</span> <span class="o">=</span> <span class="n">_cached_transformer</span><span class="p">(</span>
+<a id="__codelineno-0-1301" name="__codelineno-0-1301"></a>                <span class="n">point_crs</span><span class="p">,</span>
+<a id="__codelineno-0-1302" name="__codelineno-0-1302"></a>                <span class="n">require_crs_spec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">crs</span><span class="p">,</span> <span class="s2">&quot;sample a point&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-1303" name="__codelineno-0-1303"></a>            <span class="p">)</span>
+<a id="__codelineno-0-1304" name="__codelineno-0-1304"></a>            <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-0-1305" name="__codelineno-0-1305"></a>        <span class="n">col</span><span class="p">,</span> <span class="n">row</span> <span class="o">=</span> <span class="n">world_to_pixel</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_raster</span><span class="o">.</span><span class="n">GetGeoTransform</span><span class="p">(),</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-0-1306" name="__codelineno-0-1306"></a>        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="n">col</span><span class="p">)),</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="n">row</span><span class="p">))</span>
+<a id="__codelineno-0-1307" name="__codelineno-0-1307"></a>
+<a id="__codelineno-0-1308" name="__codelineno-0-1308"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_warn_if_categorical_with_averaging</span><span class="p">(</span>
+<a id="__codelineno-0-1309" name="__codelineno-0-1309"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">overview_resampling</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-1310" name="__codelineno-0-1310"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1311" name="__codelineno-0-1311"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Emit a `UserWarning` if an averaging resampler is used on categorical data.</span>
+<a id="__codelineno-0-1312" name="__codelineno-0-1312"></a>
+<a id="__codelineno-0-1313" name="__codelineno-0-1313"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-1314" name="__codelineno-0-1314"></a><span class="sd">            overview_resampling: The resampling method requested by the</span>
+<a id="__codelineno-0-1315" name="__codelineno-0-1315"></a><span class="sd">                caller. Case-insensitive. Only averaging-family methods</span>
+<a id="__codelineno-0-1316" name="__codelineno-0-1316"></a><span class="sd">                (`average`, `bilinear`, `cubic`, `cubicspline`,</span>
+<a id="__codelineno-0-1317" name="__codelineno-0-1317"></a><span class="sd">                `lanczos`) trigger the check.</span>
+<a id="__codelineno-0-1318" name="__codelineno-0-1318"></a><span class="sd">            band: GDAL band whose dtype/colour-table decides &quot;categorical&quot;.</span>
+<a id="__codelineno-0-1319" name="__codelineno-0-1319"></a><span class="sd">                Defaults to band 1 of the backing raster; a pre-processed</span>
+<a id="__codelineno-0-1320" name="__codelineno-0-1320"></a><span class="sd">                (cast/subset) band is passed when those options are used so</span>
+<a id="__codelineno-0-1321" name="__codelineno-0-1321"></a><span class="sd">                the check reflects the *output* dtype (PB-4).</span>
+<a id="__codelineno-0-1322" name="__codelineno-0-1322"></a>
+<a id="__codelineno-0-1323" name="__codelineno-0-1323"></a><span class="sd">        Warns:</span>
+<a id="__codelineno-0-1324" name="__codelineno-0-1324"></a><span class="sd">            UserWarning: When `overview_resampling` is an averaging</span>
+<a id="__codelineno-0-1325" name="__codelineno-0-1325"></a><span class="sd">                method and the source has a color table OR integer</span>
+<a id="__codelineno-0-1326" name="__codelineno-0-1326"></a><span class="sd">                dtype — both strong signals of categorical data.</span>
+<a id="__codelineno-0-1327" name="__codelineno-0-1327"></a>
+<a id="__codelineno-0-1328" name="__codelineno-0-1328"></a><span class="sd">        Note:</span>
+<a id="__codelineno-0-1329" name="__codelineno-0-1329"></a><span class="sd">            Silent when `overview_resampling` is `nearest` or</span>
+<a id="__codelineno-0-1330" name="__codelineno-0-1330"></a><span class="sd">            `mode` (both category-safe) or when the source is</span>
+<a id="__codelineno-0-1331" name="__codelineno-0-1331"></a><span class="sd">            floating-point and has no color table (continuous data).</span>
+<a id="__codelineno-0-1332" name="__codelineno-0-1332"></a>
+<a id="__codelineno-0-1333" name="__codelineno-0-1333"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-1334" name="__codelineno-0-1334"></a><span class="sd">            - Integer dataset + averaging method emits a warning:</span>
+<a id="__codelineno-0-1335" name="__codelineno-0-1335"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-1336" name="__codelineno-0-1336"></a><span class="sd">                &gt;&gt;&gt; import warnings  # doctest: +SKIP</span>
+<a id="__codelineno-0-1337" name="__codelineno-0-1337"></a><span class="sd">                &gt;&gt;&gt; with warnings.catch_warnings(record=True) as caught:  # doctest: +SKIP</span>
+<a id="__codelineno-0-1338" name="__codelineno-0-1338"></a><span class="sd">                ...     warnings.simplefilter(&quot;always&quot;)</span>
+<a id="__codelineno-0-1339" name="__codelineno-0-1339"></a><span class="sd">                ...     byte_ds.cog._warn_if_categorical_with_averaging(&quot;average&quot;)</span>
+<a id="__codelineno-0-1340" name="__codelineno-0-1340"></a><span class="sd">                ...     [str(w.message) for w in caught if issubclass(w.category, UserWarning)]</span>
+<a id="__codelineno-0-1341" name="__codelineno-0-1341"></a><span class="sd">                [&#39;overview_resampling=\\&#39;average\\&#39; averages pixel values, ...&#39;]</span>
+<a id="__codelineno-0-1342" name="__codelineno-0-1342"></a>
+<a id="__codelineno-0-1343" name="__codelineno-0-1343"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-1344" name="__codelineno-0-1344"></a><span class="sd">            - Nearest resampling is always silent:</span>
+<a id="__codelineno-0-1345" name="__codelineno-0-1345"></a><span class="sd">                ```python</span>
+<a id="__codelineno-0-1346" name="__codelineno-0-1346"></a><span class="sd">                &gt;&gt;&gt; with warnings.catch_warnings(record=True) as caught:  # doctest: +SKIP</span>
+<a id="__codelineno-0-1347" name="__codelineno-0-1347"></a><span class="sd">                ...     warnings.simplefilter(&quot;always&quot;)</span>
+<a id="__codelineno-0-1348" name="__codelineno-0-1348"></a><span class="sd">                ...     byte_ds.cog._warn_if_categorical_with_averaging(&quot;nearest&quot;)</span>
+<a id="__codelineno-0-1349" name="__codelineno-0-1349"></a><span class="sd">                ...     len(caught)</span>
+<a id="__codelineno-0-1350" name="__codelineno-0-1350"></a><span class="sd">                0</span>
+<a id="__codelineno-0-1351" name="__codelineno-0-1351"></a>
+<a id="__codelineno-0-1352" name="__codelineno-0-1352"></a><span class="sd">                ```</span>
+<a id="__codelineno-0-1353" name="__codelineno-0-1353"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1354" name="__codelineno-0-1354"></a>        <span class="k">if</span> <span class="n">overview_resampling</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_AVERAGING_RESAMPLERS</span><span class="p">:</span>
+<a id="__codelineno-0-1355" name="__codelineno-0-1355"></a>            <span class="k">return</span>
+<a id="__codelineno-0-1356" name="__codelineno-0-1356"></a>        <span class="n">first_band</span> <span class="o">=</span> <span class="n">band</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_raster</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-1357" name="__codelineno-0-1357"></a>        <span class="n">has_color_table</span> <span class="o">=</span> <span class="n">first_band</span><span class="o">.</span><span class="n">GetColorTable</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+<a id="__codelineno-0-1358" name="__codelineno-0-1358"></a>        <span class="n">is_integer</span> <span class="o">=</span> <span class="n">is_integer_gdal_dtype</span><span class="p">(</span><span class="n">first_band</span><span class="o">.</span><span class="n">DataType</span><span class="p">)</span>
+<a id="__codelineno-0-1359" name="__codelineno-0-1359"></a>        <span class="k">if</span> <span class="n">has_color_table</span> <span class="ow">or</span> <span class="n">is_integer</span><span class="p">:</span>
+<a id="__codelineno-0-1360" name="__codelineno-0-1360"></a>            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+<a id="__codelineno-0-1361" name="__codelineno-0-1361"></a>                <span class="sa">f</span><span class="s2">&quot;overview_resampling=</span><span class="si">{</span><span class="n">overview_resampling</span><span class="si">!r}</span><span class="s2"> averages pixel &quot;</span>
+<a id="__codelineno-0-1362" name="__codelineno-0-1362"></a>                <span class="s2">&quot;values, which corrupts categorical rasters (land cover, IDs). &quot;</span>
+<a id="__codelineno-0-1363" name="__codelineno-0-1363"></a>                <span class="s2">&quot;Use overview_resampling=&#39;nearest&#39; or &#39;mode&#39; instead.&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-1364" name="__codelineno-0-1364"></a>                <span class="ne">UserWarning</span><span class="p">,</span>
+<a id="__codelineno-0-1365" name="__codelineno-0-1365"></a>                <span class="n">stacklevel</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<a id="__codelineno-0-1366" name="__codelineno-0-1366"></a>            <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
               </details>
 

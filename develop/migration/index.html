@@ -5562,6 +5562,62 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#dataset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dataset
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="dataset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#unreleased_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unreleased
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cli
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="cli">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#unreleased_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unreleased
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#netcdf" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6159,6 +6215,62 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#dataset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dataset
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="dataset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#unreleased_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unreleased
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cli
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="cli">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#unreleased_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unreleased
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#netcdf" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6334,8 +6446,10 @@ rasterio, rioxarray and geopandas, none of which substitute a default.</p>
   authoritative answer for such a grid.</li>
 <li><strong>A CF NetCDF with <code>degrees_east</code> / <code>degrees_north</code> axes and no <code>grid_mapping</code></strong> → still <code>4326</code>. CF leaves the
   datum implicit for these and the whole ecosystem reads them as WGS 84, so this is a reading of the file's
-  metadata rather than an assumption. A projected grid that merely ships auxiliary lat/lon arrays is <em>not</em>
-  relabelled.</li>
+  metadata rather than an assumption. The inference is vetoed when a horizontal <em>axis</em> carries a linear unit
+  (<code>m</code>, <code>km</code>) or plain <code>degrees</code>/<code>rad</code> — so a projected grid, a rotated-pole grid, and a geostationary grid are
+  not relabelled on the strength of auxiliary lat/lon arrays. A metre <em>vertical</em> axis (depth, height) does not
+  veto: it says nothing about the horizontal frame.</li>
 </ul>
 <p>If you relied on the old default, set the CRS explicitly — <code>dataset.epsg = &lt;code&gt;</code> in process, or
 <code>gdal_edit.py -a_srs EPSG:&lt;code&gt; &lt;file&gt;</code> on disk. To find affected code, look for <code>.epsg</code> used without a <code>None</code>
@@ -6431,6 +6545,24 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 </tr>
 </tbody>
 </table>
+<h2 id="dataset"><a class="toclink" href="#dataset">dataset</a><a class="headerlink" href="#dataset" title="Permanent link">#</a></h2>
+<h3 id="unreleased_1"><a class="toclink" href="#unreleased_1">unreleased</a><a class="headerlink" href="#unreleased_1" title="Permanent link">#</a></h3>
+<p><strong>Operations that need a CRS now refuse instead of assuming one.</strong> Each raises <code>CRSError</code> naming the operation
+and how to fix it, where previously the missing CRS was silently filled in with WGS 84:</p>
+<ul>
+<li><code>Dataset.to_crs(...)</code> — reprojection has no source frame to warp from.</li>
+<li><code>Dataset.align(...)</code> — both the receiver and the reference must carry a CRS; two rasters that both report
+  <code>epsg is None</code> are no longer treated as matching.</li>
+<li><code>Dataset.crop(bbox=...)</code> / <code>NetCDF.crop(bbox=...)</code> without an explicit <code>epsg=</code>.</li>
+</ul>
+<p><code>read_part(bbox=...)</code> and <code>point(...)</code> do <strong>not</strong> refuse: their <code>bbox_crs</code> / <code>point_crs</code> parameters now default to
+<code>None</code>, meaning "already in the raster's own coordinates", so a windowed read of an ungeoreferenced raster keeps
+working. Passing an explicit CRS against a raster that has none does raise, rather than being ignored.</p>
+<h2 id="cli"><a class="toclink" href="#cli">cli</a><a class="headerlink" href="#cli" title="Permanent link">#</a></h2>
+<h3 id="unreleased_2"><a class="toclink" href="#unreleased_2">unreleased</a><a class="headerlink" href="#unreleased_2" title="Permanent link">#</a></h3>
+<p><strong><code>pyramids calc</code> refuses a first input with no CRS.</strong> The result cannot be georeferenced and pyramids will not
+stamp a default; set a CRS on the input first. <code>pyramids georeference</code> is unaffected — its GCPs and <code>--gcp-crs</code>
+replace the georeference wholesale.</p>
 <h2 id="netcdf"><a class="toclink" href="#netcdf">netcdf</a><a class="headerlink" href="#netcdf" title="Permanent link">#</a></h2>
 <h3 id="0370"><a class="toclink" href="#0370">0.37.0</a><a class="headerlink" href="#0370" title="Permanent link">#</a></h3>
 <p>Introduces the <code>Container</code> / <code>Variable</code> type split plus a wave of API consolidation. Each change below shows
