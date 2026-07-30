@@ -15,8 +15,10 @@ Public surface:
   Proj4 string with auto-detect.
 * :func:`get_epsg_from_prj` — resolve the EPSG code identified by a
   projection string. Raises :class:`CRSError` on empty input.
-* :func:`epsg_from_wkt` — same, but with a configurable default
-  for the empty-input case.
+* :func:`epsg_from_wkt` — same, but with a configurable default for
+  the empty-input case. Prefer :func:`epsg_of_crs` for a dataset's EPSG:
+  this one's `4326` default is what ARC-26 removed from that path, and it
+  is kept only for a CRS that resolves to no EPSG authority.
 * :func:`epsg_of_crs` — EPSG of a CRS string, or `None` when there is
   no CRS at all (distinct from a CRS that carries no EPSG code).
 * :func:`crs_spec` / :func:`require_crs_spec` — best usable CRS
@@ -602,7 +604,8 @@ def require_crs_spec(epsg: int | None, wkt: str | None, operation: str) -> int |
     spec = crs_spec(epsg, wkt)
     if spec is None:
         raise CRSError(
-            f"cannot {operation}: the dataset has no CRS. Set one first (e.g. "
+            f"cannot {operation}: the raster involved has no CRS. Set one first "
+            f"(e.g. "
             "`dataset.epsg = <code>`, or `gdal_edit.py -a_srs EPSG:<code> "
             "<file>` on disk); pyramids does not assume WGS 84 for an "
             "ungeoreferenced raster."

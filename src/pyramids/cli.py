@@ -364,8 +364,9 @@ def _cmd_georeference(args: argparse.Namespace) -> int:
         source.read_array(),
         top_left_corner=source.top_left_corner,
         cell_size=source.cell_size,
-        # Scratch placeholder, not a claim about the data: set_gcps replaces the
-        # georeference wholesale with the GCPs and --gcp-crs below, so this CRS
+        # Scratch placeholder, not a claim about the data, and deliberately
+        # unlike `calc` (which refuses a CRS-less input): set_gcps replaces the
+        # georeference wholesale with the GCPs and --gcp-crs below, so this value
         # never reaches the output. `epsg` is None for a CRS-less source.
         epsg=source.epsg or 4326,
         no_data_value=source.no_data_value,

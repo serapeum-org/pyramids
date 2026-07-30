@@ -1090,9 +1090,11 @@ class NetCDF(Dataset):
         Args:
             value: EPSG code to stamp on the dataset.
         """
-        # `Dataset.epsg` is a property object on the base class, so its setter
-        # has to be invoked explicitly rather than through `super()`.
-        Dataset.epsg.fset(self, value)  # type: ignore[attr-defined]
+        # The base `epsg` is a property object, so its setter must be invoked
+        # explicitly rather than through `super()`. Resolve it off the MRO
+        # rather than naming `Dataset`, so an intermediate class that overrides
+        # the setter is not skipped.
+        super(NetCDF, type(self)).epsg.fset(self, value)  # type: ignore[attr-defined]
         self._container_crs_cache = None
 
     def _get_epsg(self) -> int | None:
@@ -2936,11 +2938,13 @@ class NetCDF(Dataset):
                 stacklevel=3,
             )
             return
-        # Carry the CRS across before the swap. The AsClassicDataset view often has
-        # no SRS of its own — the projection is resolved from the multidim group
-        # (a CF degrees grid) or borrowed from the container — and dropping
-        # `_gdal_rg_ref` below destroys the evidence, so a materialized variable
-        # would silently lose its georeference. Resolve first, then stamp.
+        # Carry the CRS across before the swap. The AsClassicDataset view often
+        # has no SRS of its own — for a variable subset the projection is
+        # resolved from the multidim group (a CF degrees grid) — and dropping
+        # `_gdal_rg_ref` below destroys that evidence, so a materialized
+        # variable would silently lose its georeference. Resolve first, then
+        # stamp. (The container fallback cannot apply here: this method returns
+        # early unless `_is_subset`.)
         resolved_crs = self._get_crs()
         if resolved_crs and mem.GetSpatialRef() is None:
             mem.SetProjection(resolved_crs)
