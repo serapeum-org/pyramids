@@ -968,6 +968,14 @@ class NetCDF(Dataset):
             parent = getattr(self, "_parent_nc", None)
             if parent is not None:
                 group = getattr(parent, "_gdal_rg_ref", None)
+        if group is None and getattr(self, "_is_md_array", False):
+            # A container keeps no `_gdal_rg_ref` of its own -- without this the
+            # CF inference was a no-op on every container, masked only by the
+            # variable-borrow that usually answers first.
+            try:
+                group = self.raster.GetRootGroup()
+            except (RuntimeError, AttributeError):
+                group = None
         return group
 
     @staticmethod
@@ -1138,14 +1146,15 @@ class NetCDF(Dataset):
         return code
 
     @epsg.setter
-    def epsg(self, value: int) -> None:
+    def epsg(self, value: int | str) -> None:
         """Set the EPSG code.
 
         Re-declared because overriding the getter would otherwise drop the
         inherited setter and make :attr:`epsg` read-only on ``NetCDF``.
 
         Args:
-            value: EPSG code to stamp on the dataset.
+            value: EPSG code (or any spec `sr_from_epsg` accepts) to stamp on
+                the dataset.
         """
         # The base `epsg` is a property object, so its setter must be invoked
         # explicitly rather than through `super()`. Resolve it off the MRO
