@@ -22,8 +22,8 @@ from pyramids.base.crs import (
     sr_from_epsg,
 )
 from pyramids.dataset import Dataset, DatasetCollection
-from pyramids.netcdf import NetCDF
 from pyramids.dataset.ops._geobox_zarr import geobox_crs
+from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -345,17 +345,23 @@ class TestDefaultCoordinateReads:
             georeferenced raster.
         """
         dataset = Dataset.read_file(wgs84_raster)
-        assert dataset.point(2, 2) is not None, "point() must work without an explicit CRS"
+        assert dataset.point(2, 2) is not None, (
+            "point() must work without an explicit CRS"
+        )
 
     def test_read_part_without_a_crs_argument(self, wgs84_raster: str):
         """`read_part(bbox)` works on a georeferenced raster with no `bbox_crs`."""
         dataset = Dataset.read_file(wgs84_raster)
-        assert dataset.read_part((1, 1, 4, 4)) is not None, "read_part() must work without an explicit CRS"
+        assert dataset.read_part((1, 1, 4, 4)) is not None, (
+            "read_part() must work without an explicit CRS"
+        )
 
     def test_explicit_matching_crs_still_works(self, wgs84_raster: str):
         """Passing the raster's own CRS explicitly is still a no-op transform."""
         dataset = Dataset.read_file(wgs84_raster)
-        assert dataset.point(2, 2, point_crs=4326) is not None, "an explicit matching CRS must still work"
+        assert dataset.point(2, 2, point_crs=4326) is not None, (
+            "an explicit matching CRS must still work"
+        )
 
 
 def _tagged_raster(path: str, metadata: dict, geotransform: list) -> Dataset:
@@ -556,7 +562,10 @@ class TestCrsEquality:
         """
         spatial_ref = sr_from_epsg(32636)
         paths = []
-        spellings = [spatial_ref.ExportToWkt(), spatial_ref.ExportToWkt(["FORMAT=WKT2"])]
+        spellings = [
+            spatial_ref.ExportToWkt(),
+            spatial_ref.ExportToWkt(["FORMAT=WKT2"]),
+        ]
         for index, wkt in enumerate(spellings):
             path = str(tmp_path / f"grid{index}.tif")
             raster = gdal.GetDriverByName("GTiff").Create(path, 4, 4, 1, gdal.GDT_Byte)

@@ -1376,7 +1376,9 @@ class Dataset(RasterBase):
             # fallback only when the file declares no horizontal axis at all.
             declared_horizontal = declared_axes - declared_vertical
             axis_names = declared_horizontal or _AXIS_VARIABLE_NAMES
-            evidence_names = declared_horizontal | coordinate_refs | _AXIS_VARIABLE_NAMES
+            evidence_names = (
+                declared_horizontal | coordinate_refs | _AXIS_VARIABLE_NAMES
+            )
             units = {
                 value.strip().lower()
                 for key, value in metadata.items()

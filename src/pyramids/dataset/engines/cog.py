@@ -27,7 +27,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
     resolve_cog_predictor,
 )
-from pyramids.base.crs import crs_equal, crs_spec, require_crs_spec
+from pyramids.base.crs import crs_equal, require_crs_spec
 from pyramids.dataset.abstract_dataset import under_gdal_env
 from pyramids.dataset.cog import (
     COGInfo,
