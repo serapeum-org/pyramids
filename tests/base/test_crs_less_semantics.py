@@ -1,0 +1,187 @@
+"""Tests for how pyramids reports a raster that has no CRS (ARC-26).
+
+The old behaviour rewrote an absent projection to EPSG:4326, which conflated
+three cases. These tests pin the distinction that replaced it: no evidence means
+no CRS, a CF grid's degrees axes still mean WGS 84, and a projected grid is
+never relabelled on the strength of auxiliary lat/lon arrays.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from osgeo import gdal
+
+from pyramids.base._errors import CRSError
+from pyramids.base.crs import (
+    cf_geographic_wkt,
+    crs_spec,
+    epsg_of_crs,
+    require_crs_spec,
+    sr_from_epsg,
+)
+from pyramids.dataset import Dataset
+from pyramids.dataset.ops._geobox_zarr import geobox_crs
+
+pytestmark = pytest.mark.core
+
+
+@pytest.fixture(scope="function")
+def crs_less_raster(tmp_path) -> str:
+    """Create a GeoTIFF with a geotransform but no projection.
+
+    Args:
+        tmp_path: pytest temporary directory.
+
+    Returns:
+        str: Path to the created raster.
+    """
+    path = str(tmp_path / "nocrs.tif")
+    dataset = gdal.GetDriverByName("GTiff").Create(path, 4, 4, 1, gdal.GDT_Byte)
+    dataset.SetGeoTransform([0, 1, 0, 0, 0, -1])
+    dataset.GetRasterBand(1).WriteArray(np.ones((4, 4), dtype="uint8"))
+    dataset = None
+    return path
+
+
+class TestEpsgOfCrs:
+    """Tests for `epsg_of_crs`."""
+
+    def test_empty_projection_is_absent_not_wgs84(self):
+        """An empty projection reports no CRS.
+
+        Test scenario:
+            This is the whole point of ARC-26 — the old helper substituted 4326
+            here, so an ungeoreferenced raster claimed to be WGS 84.
+        """
+        assert epsg_of_crs("") is None, "an empty projection must not resolve to a CRS"
+        assert epsg_of_crs(None) is None, "a missing projection must not resolve to a CRS"
+
+    def test_real_projection_resolves(self):
+        """A real projection still resolves to its EPSG code."""
+        wkt = sr_from_epsg(3857).ExportToWkt()
+        assert epsg_of_crs(wkt) == 3857, "a valid CRS must still resolve"
+
+
+class TestCrsSpec:
+    """Tests for `crs_spec` and `require_crs_spec`."""
+
+    def test_prefers_epsg_then_wkt_then_none(self):
+        """The spec falls back in order and ends at `None`.
+
+        Test scenario:
+            Replaces the `dataset.epsg or dataset.crs` idiom, which evaluated to
+            the empty string once `epsg` could be `None` — a value every CRS
+            constructor rejects with an opaque "Invalid projection".
+        """
+        assert crs_spec(4326, "WKT") == 4326, "an EPSG code should win"
+        assert crs_spec(None, "WKT") == "WKT", "the WKT is the fallback"
+        assert crs_spec(None, "") is None, "no CRS must be reported as None, not ''"
+
+    def test_require_names_the_operation(self):
+        """`require_crs_spec` refuses with a message naming the operation."""
+        with pytest.raises(CRSError, match="reproject"):
+            require_crs_spec(None, "", "reproject")
+
+    def test_require_passes_a_present_crs_through(self):
+        """A present CRS is returned unchanged."""
+        assert require_crs_spec(3857, "", "reproject") == 3857, "a real CRS must pass through"
+
+
+class TestCfGeographicInference:
+    """Tests for the CF degrees-axes convention."""
+
+    def test_degrees_axes_mean_wgs84(self):
+        """Degrees on both axes identify a geographic grid.
+
+        Test scenario:
+            CF leaves the datum implicit for a lat/lon grid with no
+            `grid_mapping`; the whole ecosystem reads those as WGS 84.
+        """
+        assert cf_geographic_wkt({"degrees_east", "degrees_north"}), "CF degrees axes are geographic"
+
+    @pytest.mark.parametrize(
+        "units", [{"degree_east", "degree_north"}, {"degreeE", "degreeN"}]
+    )
+    def test_cf_singular_spellings_are_accepted(self, units: set[str]):
+        """CF permits singular and abbreviated axis spellings.
+
+        Args:
+            units: Axis unit spellings to accept.
+
+        Test scenario:
+            The ROMS staggered sample uses `degree_east`, so matching only the
+            plural form read it as having no CRS at all.
+        """
+        lowered = {u.lower() for u in units}
+        assert cf_geographic_wkt(lowered), f"{units} should be recognised as geographic"
+
+    def test_one_axis_alone_is_not_evidence(self):
+        """A longitude axis without a latitude axis proves nothing."""
+        assert cf_geographic_wkt({"degrees_east"}) == "", "one axis alone is not a geographic grid"
+
+    def test_projected_axis_units_veto_the_inference(self):
+        """A metre axis means the grid is projected, whatever else it ships.
+
+        Test scenario:
+            A projected CF file often carries 2-D auxiliary lat/lon arrays in
+            degrees. Reading those as the CRS would label a 30-metre grid as
+            WGS 84.
+        """
+        result = cf_geographic_wkt({"degrees_east", "degrees_north"}, {"m"})
+        assert result == "", "a metre axis must veto the geographic inference"
+
+    def test_metres_on_a_data_variable_do_not_veto(self):
+        """Only axis units veto — a data variable may legitimately be in metres.
+
+        Test scenario:
+            A ROMS bathymetry or sea-surface height is in metres on an otherwise
+            geographic grid, so the veto reads dimension axes only.
+        """
+        result = cf_geographic_wkt({"degrees_east", "degrees_north", "meter"}, set())
+        assert result, "metres on a data variable must not veto a geographic grid"
+
+
+class TestDatasetReportsAbsentCrs:
+    """Tests for `Dataset.epsg` on a raster with no CRS."""
+
+    def test_crs_less_raster_reports_none(self, crs_less_raster: str):
+        """An ungeoreferenced raster reports no CRS rather than WGS 84."""
+        dataset = Dataset.read_file(crs_less_raster)
+        assert dataset.epsg is None, f"expected no CRS, got EPSG:{dataset.epsg}"
+
+    def test_create_from_array_propagates_absence(self):
+        """Building from a falsy `epsg` yields an ungeoreferenced raster.
+
+        Test scenario:
+            A result rebuilt from an ungeoreferenced source must not acquire a
+            projection its input never had.
+        """
+        dataset = Dataset.create_from_array(
+            np.ones((4, 4), dtype="float32"),
+            top_left_corner=(0.0, 0.0),
+            cell_size=1.0,
+            epsg=None,
+        )
+        assert dataset.epsg is None, f"expected no CRS, got EPSG:{dataset.epsg}"
+
+
+class TestGeoboxCrs:
+    """Tests for `geobox_crs`."""
+
+    def test_wkt_is_authoritative(self):
+        """The recorded WKT wins over the EPSG code."""
+        assert geobox_crs({"crs_wkt": "GEOGCS[]", "epsg": 4326}) == "GEOGCS[]", "crs_wkt is authoritative"
+
+    def test_epsg_used_when_no_wkt(self):
+        """A bare EPSG code is used when no WKT was recorded."""
+        assert geobox_crs({"crs_wkt": "", "epsg": 3857}) == 3857, "the EPSG code is the fallback"
+
+    def test_zero_sentinel_is_absent_not_wgs84(self):
+        """The `epsg: 0` sentinel means no CRS, not WGS 84.
+
+        Test scenario:
+            The readers previously spelled this `geobox["epsg"] or 4326`, which
+            resurrected the removed default on every round trip.
+        """
+        assert geobox_crs({"crs_wkt": "", "epsg": 0}) is None, "epsg 0 means no authority code"
