@@ -23,6 +23,7 @@ from osgeo import gdal, osr
 from pyramids import _io
 from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
 from pyramids.base.crs import (
+    VERTICAL_AXIS_NAMES,
     cf_geographic_wkt,
     crs_spec,
     sr_from_epsg,
@@ -598,6 +599,9 @@ class NetCDF(Dataset):
         # Memoised container CRS borrowed from the first georeferenced variable
         # (see `_container_crs`); None until resolved, "" when no variable has one.
         self._container_crs_cache: str | None = None
+        # Memoised fully-resolved CRS (container borrow + CF inference +
+        # recorded globals). Same lifetime as the cache above.
+        self._crs_cache: str | None = None
         # Whether `epsg` has run its lazy resolution; distinguishes a resolved
         # `None` (no CRS) from "not looked yet" (see the `epsg` property).
         self._epsg_resolved: bool = False
@@ -989,8 +993,13 @@ class NetCDF(Dataset):
                 units.add(unit.strip().lower())
             for dimension in array.GetDimensions():
                 indexing = dimension.GetIndexingVariable()
-                if indexing is not None and indexing.GetUnit():
-                    axis_units.add(indexing.GetUnit().strip().lower())
+                if indexing is None or not indexing.GetUnit():
+                    continue
+                # A vertical axis in metres describes depth or height, never the
+                # horizontal CRS, so it must not veto a geographic grid.
+                if dimension.GetName().lower() in VERTICAL_AXIS_NAMES:
+                    continue
+                axis_units.add(indexing.GetUnit().strip().lower())
         return units, axis_units
 
     def _cf_geographic_crs(self) -> str:
@@ -1069,6 +1078,9 @@ class NetCDF(Dataset):
             container whose root carries no projection; or WGS 84 when CF
             metadata identifies a lat/lon grid that declares no ``grid_mapping``.
         """
+        cached: str | None = getattr(self, "_crs_cache", None)
+        if cached is not None:
+            return cached
         crs = super()._get_crs()
         if not crs and not getattr(self, "_is_subset", True):
             crs = self._container_crs()
@@ -1083,6 +1095,12 @@ class NetCDF(Dataset):
             # the axis evidence so a recorded attribute cannot override what the
             # file's own coordinates say.
             crs = self._crs_from_global_attrs()
+        # Memoise: resolution walks the container's variables and every MDArray's
+        # units, and `crs_spec(epsg, crs)` evaluates BOTH arguments (unlike the
+        # `epsg or crs` idiom it replaced, which short-circuited), so `.crs` is
+        # now read on every spatial call. Cleared wherever `_container_crs_cache`
+        # is, since it derives from the same evidence.
+        self._crs_cache = crs
         return crs
 
     @property
@@ -1137,6 +1155,7 @@ class NetCDF(Dataset):
         # Both derived caches are now stale: the borrowed container CRS, and the
         # memoised resolution flag that would otherwise pin the old answer.
         self._container_crs_cache = None
+        self._crs_cache = None
         self._epsg_resolved = False
 
     def _get_epsg(self) -> int | None:
@@ -4622,6 +4641,7 @@ class NetCDF(Dataset):
         # keyed to the variables behind the OLD raster, and `_get_epsg` reads
         # through it, so re-deriving first would just re-cache the stale answer.
         self._container_crs_cache = None
+        self._crs_cache = None
         self._epsg = self._get_epsg()
         self._epsg_resolved = True
         self._rows = new_raster.RasterYSize
@@ -4656,6 +4676,7 @@ class NetCDF(Dataset):
         # Same reasoning for the borrowed container CRS: it is derived from the
         # variables behind the old raster, so a swap must not carry it over.
         self._container_crs_cache = None
+        self._crs_cache = None
         # Clear the memoised EPSG rather than re-deriving it here: eager
         # re-derivation walks every variable again and immediately re-fills the
         # cache this method just invalidated. The `epsg` property resolves it on

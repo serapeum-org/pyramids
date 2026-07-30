@@ -449,6 +449,22 @@ LAT_UNIT_PREFIXES = ("degrees_n", "degree_n", "degreen")
 # geostationary scan-angle axis. Their presence is counter-evidence:
 # a file carrying metre x/y axes is projected, and any degrees arrays alongside
 # them are auxiliary lat/lon coordinates, not the grid's CRS.
+# Vertical axis names. A linear unit here describes depth or height, never the
+# horizontal CRS, so such an axis must not veto the geographic inference.
+VERTICAL_AXIS_NAMES = frozenset(
+    {
+        "z",
+        "depth",
+        "height",
+        "lev",
+        "level",
+        "altitude",
+        "elevation",
+        "plev",
+        "pressure",
+    }
+)
+
 PROJECTED_AXIS_UNITS = (
     "m",
     "metre",

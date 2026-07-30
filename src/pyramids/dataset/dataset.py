@@ -27,6 +27,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
 )
 from pyramids.base.crs import (
+    VERTICAL_AXIS_NAMES,
     cf_geographic_wkt,
     crs_spec,
     epsg_of_crs,
@@ -1351,13 +1352,19 @@ class Dataset(RasterBase):
                 for key in metadata
                 if key.lower().endswith("#axis")
             }
-            axis_names = declared_axes or _AXIS_VARIABLE_NAMES
+            # Union, not all-or-nothing: a file may declare `axis` on some
+            # variables (a conventional `time#axis = "T"`) while leaving its
+            # projected x/y undeclared, and keying on the declarations alone
+            # would then miss the veto entirely.
+            axis_names = declared_axes | _AXIS_VARIABLE_NAMES
             axis_units = {
                 value.strip().lower()
                 for key, value in metadata.items()
                 if isinstance(value, str)
                 and key.lower().endswith("#units")
                 and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower() in axis_names
+                and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
+                not in VERTICAL_AXIS_NAMES
             }
             crs = cf_geographic_wkt(units, axis_units)
             self._cf_crs_cache = crs
