@@ -54,8 +54,9 @@ Terms used across the docs and API, each with the pyramids call that surfaces it
   has no CRS at all (and, for a NetCDF geostationary grid, when the CRS
   carries no EPSG authority); `ds.crs` the WKT; `ds.to_crs(4326)`
   reprojects. pyramids does not assume WGS 84 for an unprojected raster — operations that need a CRS raise
-  `CRSError` instead. A CF NetCDF whose horizontal axes are in degrees is still read as EPSG:4326, by CF
-  convention — unless an axis unit says the grid is projected, rotated-pole or geostationary.
+  `CRSError` instead. A CF NetCDF whose horizontal *coordinate* axes are in degrees is still read as EPSG:4326,
+  by CF convention — unless a horizontal axis unit says the grid is projected, rotated-pole or geostationary, or
+  the grid's own extent falls outside the lon/lat range.
   See [CRS helpers](reference/base/crs.md).
 - **Geotransform** — the six-number affine mapping pixel (row, col) → map (x, y): `ds.geotransform`.
 - **Cell size** — pixel size in CRS units (`ds.cell_size`); resample with `ds.resample(...)`.

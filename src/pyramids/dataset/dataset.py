@@ -33,6 +33,7 @@ from pyramids.base.crs import (
     epsg_of_crs,
     sr_from_epsg,
     sr_from_user_input,
+    within_lonlat_range,
 )
 from pyramids.base.remote import cloud_config_from_env, redact_credentials
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
@@ -1320,7 +1321,8 @@ class Dataset(RasterBase):
         `RasterBase.__init__` calls `_get_epsg()` (which calls
         `_get_crs()`) before `Dataset.__init__` has a chance to wire
         up the Spatial collaborator. The Spatial collaborator's
-        `_get_crs` body is the same one-liner.
+        `Spatial._get_crs` returns the projection as GDAL reports it; this
+        override adds the CF inference on top, so the two bodies differ.
         """
         crs = str(self.raster.GetProjection())
         cached: str | None = getattr(self, "_cf_crs_cache", None)
@@ -1336,11 +1338,15 @@ class Dataset(RasterBase):
             # it as WGS 84 rather than as ungeoreferenced (ARC-26). Any other
             # unprojected raster still reports no CRS.
             metadata = self.raster.GetMetadata() or {}
-            units = {
-                value.strip().lower()
-                for key, value in metadata.items()
-                if key.lower().endswith("#units") and isinstance(value, str)
-            }
+            # CF names its auxiliary coordinates in a `coordinates` attribute, so
+            # a curvilinear grid's 2-D lat/lon arrays are evidence even though
+            # they declare no `axis`. Everything else is a data variable: a wind
+            # direction in `degrees_east` or a solar angle in `degreeN` says
+            # nothing about the grid, and used to be read as a geographic CRS.
+            coordinate_refs: set[str] = set()
+            for key, value in metadata.items():
+                if key.lower().endswith("#coordinates") and isinstance(value, str):
+                    coordinate_refs.update(name.lower() for name in value.split())
             # Units belonging to a spatial *axis* are the only ones that may veto
             # the inference; a data variable in metres on a geographic grid must
             # not (see `cf_geographic_wkt`). The classic driver names coordinate
@@ -1370,6 +1376,14 @@ class Dataset(RasterBase):
             # fallback only when the file declares no horizontal axis at all.
             declared_horizontal = declared_axes - declared_vertical
             axis_names = declared_horizontal or _AXIS_VARIABLE_NAMES
+            evidence_names = declared_horizontal | coordinate_refs | _AXIS_VARIABLE_NAMES
+            units = {
+                value.strip().lower()
+                for key, value in metadata.items()
+                if isinstance(value, str)
+                and key.lower().endswith("#units")
+                and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower() in evidence_names
+            }
             axis_units = {
                 value.strip().lower()
                 for key, value in metadata.items()
@@ -1380,8 +1394,40 @@ class Dataset(RasterBase):
                 not in (VERTICAL_AXIS_NAMES | declared_vertical)
             }
             crs = cf_geographic_wkt(units, axis_units)
+            # Last check, on the geometry rather than the metadata: a grid whose
+            # own coordinates fall outside the lon/lat range is not lat/lon, no
+            # matter which variable supplied the degrees.
+            if crs and not within_lonlat_range(self._own_extent()):
+                crs = ""
             self._cf_crs_cache = crs
         return crs
+
+    def _own_extent(self) -> tuple[float, float, float, float] | None:
+        """Corner-to-corner extent in the raster's own coordinates, or ``None``.
+
+        Read straight off the GDAL handle rather than through :attr:`bounds`,
+        because this runs from :meth:`_get_crs` during ``RasterBase.__init__``,
+        before the Spatial collaborator exists.
+
+        Returns:
+            ``(min_x, min_y, max_x, max_y)``, or ``None`` when the raster carries
+            no real geotransform (GDAL's identity default) and its extent
+            therefore says nothing.
+        """
+        result: tuple[float, float, float, float] | None = None
+        try:
+            geotransform = self.raster.GetGeoTransform()
+            columns, rows = self.raster.RasterXSize, self.raster.RasterYSize
+        except (RuntimeError, AttributeError):
+            geotransform = None
+        # GDAL hands back the identity transform for a raster that has none; its
+        # "extent" is then pixel indices, which must not veto anything.
+        if geotransform and tuple(geotransform) != (0.0, 1.0, 0.0, 0.0, 0.0, 1.0):
+            x_a, y_a = geotransform[0], geotransform[3]
+            x_b = x_a + columns * geotransform[1] + rows * geotransform[2]
+            y_b = y_a + columns * geotransform[4] + rows * geotransform[5]
+            result = (min(x_a, x_b), min(y_a, y_b), max(x_a, x_b), max(y_a, y_b))
+        return result
 
     def _get_epsg(self) -> int | None:
         """Concrete override of :meth:`RasterBase._get_epsg`.
@@ -3630,8 +3676,11 @@ class Dataset(RasterBase):
             geo (Tuple[float, float, float, float, float, float], optional):
                 Geotransform tuple (minimum lon/x, pixel-size, rotation, maximum lat/y, rotation,
                 pixel-size).
-            epsg (int):
-                Integer reference number to the projection (https://epsg.io/).
+            epsg (str | int | None):
+                Reference number of the projection (https://epsg.io/) or any CRS
+                string GDAL accepts. `None` (or `0`) creates an ungeoreferenced
+                raster that reports no CRS, rather than one silently stamped
+                WGS 84. Defaults to 4326.
             no_data_value (Any, optional):
                 No data value to mask the cells out of the domain. The default is -9999.
             driver_type (str, optional):

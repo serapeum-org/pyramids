@@ -44,10 +44,17 @@ What changed, and what did not:
   authoritative answer for such a grid.
 - **A CF NetCDF with `degrees_east` / `degrees_north` axes and no `grid_mapping`** → still `4326`. CF leaves the
   datum implicit for these and the whole ecosystem reads them as WGS 84, so this is a reading of the file's
-  metadata rather than an assumption. The inference is vetoed when a horizontal *axis* carries a linear unit
-  (`m`, `km`) or plain `degrees`/`rad` — so a projected grid, a rotated-pole grid, and a geostationary grid are
-  not relabelled on the strength of auxiliary lat/lon arrays. A metre *vertical* axis (depth, height) does not
-  veto: it says nothing about the horizontal frame.
+  metadata rather than an assumption. Three things narrow it:
+    - Only a *coordinate* variable's units are evidence — one that declares `axis`, is named in a `coordinates`
+      attribute (a curvilinear grid's 2-D lat/lon), or carries a conventional coordinate name. A data variable in
+      `degrees_east` (a wind direction, a solar angle) is not evidence.
+    - A **horizontal** axis carrying a linear unit (`m`, `km`) or plain `degrees`/`rad` vetoes it, so a projected,
+      rotated-pole or geostationary grid is not relabelled on the strength of auxiliary lat/lon arrays. A
+      **vertical** axis does not veto — its units say nothing about the horizontal frame. Vertical axes are
+      recognised from CF's `axis: Z`, falling back to conventional names (`depth`, `lev`, …) only for a file that
+      declares no axes at all.
+    - The grid's own extent must fit in the lon/lat range. A metre-scale grid is not lat/lon whatever its
+      metadata says.
 
 If you relied on the old default, set the CRS explicitly — `dataset.epsg = <code>` in process, or
 `gdal_edit.py -a_srs EPSG:<code> <file>` on disk. To find affected code, look for `.epsg` used without a `None`
@@ -121,9 +128,25 @@ and how to fix it, where previously the missing CRS was silently filled in with 
   `epsg is None` are no longer treated as matching.
 - `Dataset.crop(bbox=...)` / `NetCDF.crop(bbox=...)` without an explicit `epsg=`.
 
-`read_part(bbox=...)` and `point(...)` do **not** refuse: their `bbox_crs` / `point_crs` parameters now default to
-`None`, meaning "already in the raster's own coordinates", so a windowed read of an ungeoreferenced raster keeps
-working. Passing an explicit CRS against a raster that has none does raise, rather than being ignored.
+**`DatasetCollection.to_zarr` / `to_netcdf` record an absent CRS explicitly.** A store written from a cube with
+no CRS now carries `epsg: 0` and an empty `crs_wkt` (previously `4326` and a WGS 84 WKT, which claimed a
+projection the data never had). Readers should treat `epsg: 0` / empty `crs_wkt` as "no CRS"; `geobox_crs()`
+does. A NetCDF's `crs_wkt` / `epsg` root attributes are adopted on read only when written beside the
+`GeoTransform` the same writer emits, so a stray attribute in a third-party file no longer defines the CRS.
+
+**`read_part(bbox=...)` and `point(...)` changed their default CRS, for every raster.** `bbox_crs` /
+`point_crs` used to default to `4326`, so an unqualified bbox or point was interpreted as lon/lat and
+reprojected into the raster's CRS. They now default to `None`, meaning "already in the raster's own
+coordinates", and nothing is transformed. On a raster that is not in EPSG:4326 this changes which pixel an
+unqualified call reads.
+
+- To keep the old behaviour, pass the CRS explicitly: `ds.read_part(bbox, bbox_crs=4326)`,
+  `ds.point(x, y, point_crs=4326)`.
+- To read in the raster's own coordinates — usually what you want — leave it out.
+
+Neither method refuses a raster with no CRS, so a windowed read of an ungeoreferenced raster keeps working.
+Passing an explicit `bbox_crs` / `point_crs` against a raster that has none raises `CRSError`, rather than being
+ignored: there is no frame to transform into.
 
 ## cli
 
