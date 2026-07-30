@@ -999,7 +999,7 @@ class NetCDF(Dataset):
                         units.add(unit.strip().lower())
             # CF permits several spellings for each axis (`degrees_east`,
             # `degree_east`, `degrees_E`, `degreeE`, ...), so match the stem
-            # rather than one literal. `_LON_UNITS`/`_LAT_UNITS` mirror the
+            # rather than one literal. the shared table mirrors the
             # vocabulary `pyramids.netcdf.cf` already accepts.
             result = cf_geographic_wkt(units, axis_units)
         except (RuntimeError, AttributeError, ValueError, TypeError):
@@ -2105,7 +2105,7 @@ class NetCDF(Dataset):
             )
         # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to the
         # WKT so a bbox in the grid's own CRS is still honoured (#706).
-        crs = epsg if epsg is not None else (self.epsg or self.crs)
+        crs = epsg if epsg is not None else crs_spec(self.epsg, self.crs)
         if not crs:
             raise ValueError(
                 "read_array(bbox=…) requires an explicit `epsg=` when the "
@@ -5270,7 +5270,7 @@ class NetCDF(Dataset):
             # always targets a concrete EPSG here, so epsg is provably
             # non-None -- the fallback is defense-in-depth, matching the
             # pattern used throughout pyramids.dataset.
-            epsg=reprojected.epsg or reprojected.crs,
+            epsg=crs_spec(reprojected.epsg, reprojected.crs),
             no_data_value=ndv_scalar,
         )
         NetCDF._copy_band_dim_metadata(materialized, var)
