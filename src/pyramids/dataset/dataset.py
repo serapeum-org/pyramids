@@ -237,16 +237,25 @@ _AXIS_VARIABLE_NAMES = frozenset(
     {
         "x",
         "y",
+        "xc",
+        "yc",
+        "xdim",
+        "ydim",
+        "x_dim",
+        "y_dim",
         "lon",
         "lat",
         "longitude",
         "latitude",
+        "long",
         "rlon",
         "rlat",
+        "east",
+        "north",
         "easting",
         "northing",
-        "xc",
-        "yc",
+        "nav_lon",
+        "nav_lat",
     }
 )
 
@@ -1323,13 +1332,22 @@ class Dataset(RasterBase):
             # the inference; a data variable in metres on a geographic grid must
             # not (see `cf_geographic_wkt`). The classic driver names coordinate
             # variables after their axis, so match on that.
+            # A variable is an axis when CF says so (`<var>#axis`), falling back
+            # to the conventional coordinate names only when the file declares
+            # none. Name alone is not enough: a *data* variable called "x" in
+            # metres would otherwise veto a real geographic grid and strip its CRS.
+            declared_axes = {
+                key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
+                for key in metadata
+                if key.lower().endswith("#axis")
+            }
+            axis_names = declared_axes or _AXIS_VARIABLE_NAMES
             axis_units = {
                 value.strip().lower()
                 for key, value in metadata.items()
                 if isinstance(value, str)
-                and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
-                in _AXIS_VARIABLE_NAMES
                 and key.lower().endswith("#units")
+                and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower() in axis_names
             }
             crs = cf_geographic_wkt(units, axis_units)
         return crs

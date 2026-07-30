@@ -442,7 +442,11 @@ def epsg_of_crs(wkt: str | None) -> int | None:
 # match the stem rather than one literal.
 LON_UNIT_PREFIXES = ("degrees_e", "degree_e", "degreee")
 LAT_UNIT_PREFIXES = ("degrees_n", "degree_n", "degreen")
-# Units that mark a *projected* spatial axis. Their presence is counter-evidence:
+# Units that mark a non-lon/lat spatial axis. Exact matches only, so a compound
+# unit like "m s-1" on a data variable never counts. Unqualified `degrees`
+# belongs here rather than with the lon/lat stems: a rotated-pole grid's
+# rlat/rlon are in plain degrees but are NOT WGS 84. `rad` covers a
+# geostationary scan-angle axis. Their presence is counter-evidence:
 # a file carrying metre x/y axes is projected, and any degrees arrays alongside
 # them are auxiliary lat/lon coordinates, not the grid's CRS.
 PROJECTED_AXIS_UNITS = (
@@ -456,6 +460,11 @@ PROJECTED_AXIS_UNITS = (
     "kilometer",
     "kilometres",
     "kilometers",
+    "degrees",
+    "degree",
+    "rad",
+    "radian",
+    "radians",
 )
 
 

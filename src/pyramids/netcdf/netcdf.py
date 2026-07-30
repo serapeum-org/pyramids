@@ -22,7 +22,12 @@ from osgeo import gdal, osr
 
 from pyramids import _io
 from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
-from pyramids.base.crs import cf_geographic_wkt, crs_spec, sr_from_epsg
+from pyramids.base.crs import (
+    cf_geographic_wkt,
+    crs_spec,
+    sr_from_epsg,
+    sr_from_wkt,
+)
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset
@@ -593,6 +598,9 @@ class NetCDF(Dataset):
         # Memoised container CRS borrowed from the first georeferenced variable
         # (see `_container_crs`); None until resolved, "" when no variable has one.
         self._container_crs_cache: str | None = None
+        # Whether `epsg` has run its lazy resolution; distinguishes a resolved
+        # `None` (no CRS) from "not looked yet" (see the `epsg` property).
+        self._epsg_resolved: bool = False
         self._md_array_dims: list[str] = []
         self._band_dim_name: str | None = None
         self._band_dim_values: list[Any] | None = None
@@ -920,7 +928,21 @@ class NetCDF(Dataset):
             wkt = attrs.get("crs_wkt")
             code = attrs.get("epsg")
             if wkt:
-                result = str(wkt)
+                # Validate before adopting: this attribute is file-controlled, and
+                # a junk string would otherwise surface from `.crs` and blow up
+                # inside GDAL on the next `.epsg` read.
+                candidate = sr_from_wkt(str(wkt))
+                # `Validate()` is stricter than the WKT we ourselves emit, so
+                # test usability instead: a junk string parses to an SRS that is
+                # neither geographic, projected, local nor geocentric.
+                usable = (
+                    candidate.IsGeographic()
+                    or candidate.IsProjected()
+                    or candidate.IsLocal()
+                    or candidate.IsGeocentric()
+                )
+                if usable:
+                    result = candidate.ExportToWkt()
             elif code:
                 result = sr_from_epsg(int(code)).ExportToWkt()
         except (RuntimeError, AttributeError, ValueError, TypeError):
@@ -1067,11 +1089,16 @@ class NetCDF(Dataset):
             (or the CRS carries no EPSG authority, e.g. geostationary).
         """
         code = super().epsg
-        if code is None:
+        if code is None and not getattr(self, "_epsg_resolved", False):
+            # `None` is a legitimate answer *and* the unresolved state, so a bare
+            # write-back never sticks: a CRS-less container re-ran the full scan
+            # on every read. Track resolution with its own flag.
+            #
             # Re-derive through `_get_epsg`, not `epsg_of_crs(self._get_crs())`:
             # the geostationary guard lives there, and going straight to the CRS
             # would relabel a scan-angle grid as WGS 84 (#706).
             code = self._get_epsg()
+            self._epsg_resolved = True
             # Write the answer back. Resolution walks every MDArray (one
             # `OpenMDArray` per variable) and is on the hot path for spatial ops,
             # so leaving `_epsg` unset made each `.epsg` read repeat the whole
@@ -1095,7 +1122,10 @@ class NetCDF(Dataset):
         # rather than naming `Dataset`, so an intermediate class that overrides
         # the setter is not skipped.
         super(NetCDF, type(self)).epsg.fset(self, value)  # type: ignore[attr-defined]
+        # Both derived caches are now stale: the borrowed container CRS, and the
+        # memoised resolution flag that would otherwise pin the old answer.
         self._container_crs_cache = None
+        self._epsg_resolved = False
 
     def _get_epsg(self) -> int | None:
         """EPSG code, or ``None`` for a geostationary CRS.
@@ -4581,6 +4611,7 @@ class NetCDF(Dataset):
         # through it, so re-deriving first would just re-cache the stale answer.
         self._container_crs_cache = None
         self._epsg = self._get_epsg()
+        self._epsg_resolved = True
         self._rows = new_raster.RasterYSize
         self._columns = new_raster.RasterXSize
         self._band_count = new_raster.RasterCount
@@ -4613,9 +4644,12 @@ class NetCDF(Dataset):
         # Same reasoning for the borrowed container CRS: it is derived from the
         # variables behind the old raster, so a swap must not carry it over.
         self._container_crs_cache = None
-        # And the memoised EPSG, which the `epsg` property writes back after
-        # resolving it from that same evidence.
-        self._epsg = self._get_epsg()
+        # Clear the memoised EPSG rather than re-deriving it here: eager
+        # re-derivation walks every variable again and immediately re-fills the
+        # cache this method just invalidated. The `epsg` property resolves it on
+        # the next read instead.
+        self._epsg = None
+        self._epsg_resolved = False
 
     @property
     def is_subset(self) -> bool:
@@ -4837,7 +4871,7 @@ class NetCDF(Dataset):
         values: np.ndarray,
         dim_type=None,
         set_indexing: bool = True,
-        is_geographic: bool = True,
+        is_geographic: bool | None = True,
     ) -> gdal.Dimension:
         """Create a dimension with its coordinate array and CF attributes.
 
@@ -4850,7 +4884,9 @@ class NetCDF(Dataset):
             set_indexing: If True, call SetIndexingVariable (works
                 on MEM driver). If False, skip it (required for
                 netCDF driver which doesn't support it).
-            is_geographic: If True, coordinate units are degrees.
+            is_geographic: If True, coordinate units are degrees; if False,
+                metres; if `None`, the CRS is unknown and only the axis role
+                is written (no units or standard_name).
                 If False, units are metres. Defaults to True.
 
         Returns:
