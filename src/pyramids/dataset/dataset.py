@@ -360,6 +360,10 @@ class Dataset(RasterBase):
         """
         new = type(self)(src, access=access or self._access)
         self.__dict__.update(new.__dict__)
+        # `update` merges, so a lazily-set cache the fresh instance never
+        # populated would survive the swap and describe the OLD raster. Drop the
+        # inferred-CF-CRS memo explicitly.
+        self.__dict__.pop("_cf_crs_cache", None)
         # Re-bind via `weakref.proxy` so the back-reference stays
         # weak after the dict swap (matches `_Engine.__init__`).
         # Direct slot reassignment is allowed because `_Engine`
@@ -1316,7 +1320,13 @@ class Dataset(RasterBase):
         `_get_crs` body is the same one-liner.
         """
         crs = str(self.raster.GetProjection())
-        if not crs:
+        cached: str | None = getattr(self, "_cf_crs_cache", None)
+        if not crs and cached is not None:
+            # Memoised: the scan below walks the whole metadata dict, and `.crs`
+            # is read on every spatial operation. Keyed to the current raster —
+            # `_update_inplace` drops it.
+            crs = cached
+        elif not crs:
             # A CF NetCDF opened through the classic driver reports no
             # projection but exposes its axis units as `<axis>#units`. Degrees
             # east/north there mean a geographic grid by CF convention, so read
@@ -1350,6 +1360,7 @@ class Dataset(RasterBase):
                 and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower() in axis_names
             }
             crs = cf_geographic_wkt(units, axis_units)
+            self._cf_crs_cache = crs
         return crs
 
     def _get_epsg(self) -> int | None:
@@ -1560,7 +1571,14 @@ class Dataset(RasterBase):
 
     @property
     def epsg(self) -> int | None:
-        """EPSG number, or ``None`` for a CRS with no EPSG code (e.g. geostationary)."""
+        """EPSG number, or ``None``.
+
+        ``None`` means either the raster has **no CRS at all** — pyramids does
+        not assume WGS 84 for an unprojected grid (ARC-26) — or its CRS carries
+        no EPSG authority code (a geostationary fixed-grid projection, say).
+        Read :attr:`crs` to tell the two apart: it is empty in the first case and
+        a WKT string in the second.
+        """
         return self._epsg
 
     @epsg.setter
