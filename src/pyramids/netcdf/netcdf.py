@@ -880,12 +880,6 @@ class NetCDF(Dataset):
         """
         return dataset_is_geostationary(dataset)
 
-    # CF longitude/latitude unit spellings, lower-cased stems. CF accepts
-    # `degrees_east`, `degree_east`, `degrees_E`, `degreeE` and friends, so match
-    # the stem rather than a single literal (see `pyramids.netcdf.cf`).
-    _LON_UNIT_PREFIXES = ("degrees_e", "degree_e", "degreee", "degrees_east")
-    _LAT_UNIT_PREFIXES = ("degrees_n", "degree_n", "degreen", "degrees_north")
-
     def _crs_from_global_attrs(self) -> str:
         """CRS from the ``crs_wkt`` / ``epsg`` global attributes, or ``""``.
 
@@ -4578,6 +4572,10 @@ class NetCDF(Dataset):
         self._geotransform = new_raster.GetGeoTransform()
         self._cell_size = self._geotransform[1]
         self._file_name = new_raster.GetDescription()
+        # Clear the borrowed container CRS *before* re-deriving the EPSG: it is
+        # keyed to the variables behind the OLD raster, and `_get_epsg` reads
+        # through it, so re-deriving first would just re-cache the stale answer.
+        self._container_crs_cache = None
         self._epsg = self._get_epsg()
         self._rows = new_raster.RasterYSize
         self._columns = new_raster.RasterXSize
