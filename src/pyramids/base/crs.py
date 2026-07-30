@@ -17,6 +17,12 @@ Public surface:
   projection string. Raises :class:`CRSError` on empty input.
 * :func:`epsg_from_wkt` — same, but with a configurable default
   for the empty-input case.
+* :func:`epsg_of_crs` — EPSG of a CRS string, or `None` when there is
+  no CRS at all (distinct from a CRS that carries no EPSG code).
+* :func:`crs_spec` / :func:`require_crs_spec` — best usable CRS
+  specification for a dataset; the latter refuses when there is none.
+* :func:`cf_geographic_wkt` — WGS 84 when CF axis units describe a
+  lat/lon grid that declares no `grid_mapping`.
 * :func:`reproject_coordinates` — reproject parallel `x` / `y`
   lists between CRSes via :class:`pyproj.Transformer`.
 """
@@ -960,11 +966,15 @@ def reproject_coordinates(
 
 
 __all__ = [
+    "cf_geographic_wkt",
     "create_sr_from_proj",
+    "crs_spec",
     "epsg_from_user_input",
     "epsg_from_wkt",
+    "epsg_of_crs",
     "get_epsg_from_prj",
     "reproject_coordinates",
+    "require_crs_spec",
     "sr_from_epsg",
     "sr_from_user_input",
     "sr_from_wkt",

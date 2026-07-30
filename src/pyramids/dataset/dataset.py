@@ -3603,7 +3603,8 @@ class Dataset(RasterBase):
             # No CRS at all (`None`/""), e.g. rebuilding from a source that is
             # itself ungeoreferenced. Propagate that rather than stamping a
             # default: an unprojected result must not claim a projection
-            # (ARC-26). `_build_dataset` skips SetProjection for an empty WKT.
+            # (ARC-26). `_build_dataset` calls SetProjection(""), which GDAL
+            # treats as clearing the projection.
             crs_wkt = ""
         else:
             try:

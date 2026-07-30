@@ -27,6 +27,28 @@ This catches the deprecations; the hard behavior changes do **not** warn — sea
 
 ## base
 
+### unreleased
+
+**`Dataset.epsg` no longer reports EPSG:4326 for a raster that has no CRS.** It previously substituted WGS 84
+whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that
+claim propagated into `to_file`, `to_crs`, `bounds` and alignment checks. It now returns `None`, matching GDAL,
+rasterio, rioxarray and geopandas, none of which substitute a default.
+
+What changed, and what did not:
+
+- **No CRS and no evidence** (a GeoTIFF or ASCII grid with an empty projection) → `epsg` is `None`. Operations
+  that genuinely need a CRS raise `CRSError` naming the fix instead of proceeding.
+- **A CRS with no EPSG authority** (geostationary, spherical-earth GRIB) → unchanged; `epsg` was already `None`
+  there and `crs` still carries the WKT.
+- **A CF NetCDF with `degrees_east` / `degrees_north` axes and no `grid_mapping`** → still `4326`. CF leaves the
+  datum implicit for these and the whole ecosystem reads them as WGS 84, so this is a reading of the file's
+  metadata rather than an assumption. A projected grid that merely ships auxiliary lat/lon arrays is *not*
+  relabelled.
+
+If you relied on the old default, set the CRS explicitly — `dataset.epsg = <code>` in process, or
+`gdal_edit.py -a_srs EPSG:<code> <file>` on disk. To find affected code, look for `.epsg` used without a `None`
+check, and for the `dataset.epsg or dataset.crs` idiom, which is now `crs_spec(dataset.epsg, dataset.crs)`.
+
 ### 0.46.1
 
 **`import pyramids` no longer configures logging.** Previously, importing the package ran `Config()`, which

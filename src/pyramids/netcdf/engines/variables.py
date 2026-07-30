@@ -770,20 +770,17 @@ def _write_blocks_streaming(md_arr: Any, dask_arr: Any) -> None:
         md_arr.Write(block, array_start_idx=starts, count=counts)
 
 
-def _require_create_inputs(
-    variable_name: str | None,
-    geo: tuple[float, float, float, float, float, float] | None,
-    epsg: str | int | None,
-) -> None:
+def _require_create_inputs(variable_name, geo) -> None:
     """Validate the required inputs for `_create_netcdf_from_array`.
 
     Args:
         variable_name: Name of the data variable.
         geo: Geotransform tuple.
-        epsg: EPSG code or WKT/user-input CRS string.
 
     Raises:
-        ValueError: If `variable_name`, `geo`, or `epsg` is None.
+        ValueError: If `variable_name` or `geo` is None. `epsg` is not
+            validated: it may legitimately be absent, which builds an
+            ungeoreferenced variable (ARC-26).
     """
     if variable_name is None:
         raise ValueError("Variable_name cannot be None")
@@ -851,7 +848,7 @@ def _create_netcdf_from_array(
     # set_variable and other call sites) and are reached through the class.
     from pyramids.netcdf.netcdf import NetCDF
 
-    _require_create_inputs(variable_name, geo, epsg)
+    _require_create_inputs(variable_name, geo)
     # `_require_create_inputs` raises `ValueError` on a None `geo`; restate that
     # invariant so the geotransform indexing below is guarded. `epsg` is NOT
     # restated — it may legitimately be None, which builds an ungeoreferenced

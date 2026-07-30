@@ -47,7 +47,8 @@ class RasterMeta:
             `(top_left_x, pixel_w, row_skew, top_left_y, col_skew,
             pixel_h)`. Stored as a plain tuple so the dataclass
             pickles cleanly without an `affine` dependency.
-        crs: :class:`pyproj.CRS` for the dataset. Pickles via its WKT.
+        crs: :class:`pyproj.CRS` for the dataset, or `None` when it has no
+            CRS at all (an ASCII grid, say). Pickles via its WKT.
         nodata: Per-band nodata tuple. `None` entries mean the
             band has no nodata sentinel.
         block_size: Per-band `(block_width, block_height)` tuple
