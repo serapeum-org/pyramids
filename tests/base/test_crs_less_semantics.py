@@ -264,7 +264,9 @@ class TestNetCDFCrsResolution:
 
         container = NetCDF.read_file(_CF_GEOGRAPHIC)
         variable = container.get_variable("tos")
-        assert variable.epsg == 4326, f"CF degrees axes should read as WGS 84, got {variable.epsg}"
+        assert variable.epsg == 4326, (
+            f"CF degrees axes should read as WGS 84, got {variable.epsg}"
+        )
 
     def test_container_borrows_its_variables_crs(self):
         """A root container has no projection of its own and borrows one.
@@ -276,8 +278,12 @@ class TestNetCDFCrsResolution:
         from pyramids.netcdf import NetCDF
 
         container = NetCDF.read_file(_CF_GEOGRAPHIC)
-        assert container.raster.GetProjection() == "", "the container should carry no projection itself"
-        assert container.epsg == 4326, f"the container should borrow its variables' CRS, got {container.epsg}"
+        assert container.raster.GetProjection() == "", (
+            "the container should carry no projection itself"
+        )
+        assert container.epsg == 4326, (
+            f"the container should borrow its variables' CRS, got {container.epsg}"
+        )
 
     def test_geostationary_is_not_relabelled(self):
         """A geostationary grid keeps reporting no EPSG code.
@@ -289,7 +295,9 @@ class TestNetCDFCrsResolution:
         from pyramids.netcdf import NetCDF
 
         variable = NetCDF.read_file(_GEOSTATIONARY).get_variable("CMI")
-        assert variable.epsg is None, f"a geostationary grid has no EPSG code, got {variable.epsg}"
+        assert variable.epsg is None, (
+            f"a geostationary grid has no EPSG code, got {variable.epsg}"
+        )
         assert variable.crs, "but it does carry a CRS as WKT"
 
     def test_resolved_epsg_is_memoised(self):
@@ -303,5 +311,7 @@ class TestNetCDFCrsResolution:
 
         variable = NetCDF.read_file(_CF_GEOGRAPHIC).get_variable("tos")
         first = variable.epsg
-        assert variable._epsg_resolved is True, "the first read should mark the resolution as done"
+        assert variable._epsg_resolved is True, (
+            "the first read should mark the resolution as done"
+        )
         assert variable.epsg == first, "the memoised answer must match the resolved one"
