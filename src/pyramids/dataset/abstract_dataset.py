@@ -1156,7 +1156,7 @@ class RasterBase(ABC):
         arr: np.ndarray,
         geo: tuple[float, float, float, float, float, float],
         bands_values: list | None = None,
-        epsg: str | int = 4326,
+        epsg: str | int | None = 4326,
         no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
         driver_type: str = "MEM",
         path: str | None = None,

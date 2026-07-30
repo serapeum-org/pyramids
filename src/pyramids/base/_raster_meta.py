@@ -99,12 +99,13 @@ class RasterMeta:
         say), which is a normal state rather than a defensive edge case — hence
         the explicit check rather than relying on the handler below.
         """
-        if self.crs is None:
-            return None
-        try:
-            return self.crs.to_epsg()
-        except (AttributeError, ValueError):
-            return None
+        code = None
+        if self.crs is not None:
+            try:
+                code = self.crs.to_epsg()
+            except (AttributeError, ValueError):
+                code = None
+        return code
 
     @property
     def cell_size(self) -> float:

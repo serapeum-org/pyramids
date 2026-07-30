@@ -901,9 +901,22 @@ class NetCDF(Dataset):
         files back has to look there. GDAL surfaces them as ``NC_GLOBAL#crs_wkt``
         and ``NC_GLOBAL#epsg``.
 
+        Two rules keep a foreign file's attributes from defining a CRS the file
+        never claimed:
+
+        * **Root only.** Attributes are read from the *root* group, matching the
+          ``NC_GLOBAL#`` filter on the classic path. A sub-group's own attributes
+          are not globals, so ``container.get_group("g1")`` no longer resolves a
+          CRS from an attribute that applies to ``g1`` alone.
+        * **Written as a pair.** The same writer always emits ``GeoTransform``
+          beside ``crs_wkt`` / ``epsg``, so the CRS attribute is adopted only when
+          that companion is present. A stray root attribute named ``epsg`` on a
+          third-party store -- a processing-level tag, a source-data note -- no
+          longer becomes the dataset's CRS.
+
         Returns:
-            str: WKT built from those attributes, or ``""`` when neither is
-            present or usable.
+            str: WKT built from those attributes, or ``""`` when they are absent,
+            unusable, or carry no ``GeoTransform`` companion.
         """
         result = ""
         try:
@@ -917,13 +930,10 @@ class NetCDF(Dataset):
                 if key.upper().startswith("NC_GLOBAL#")
             }
             # A multidim open exposes globals as root-group attributes rather
-            # than through GetMetadata(), so consult the group too.
-            group = getattr(self, "_gdal_rg_ref", None)
-            parent = getattr(self, "_parent_nc", None)
-            if group is None and parent is not None:
-                group = getattr(parent, "_gdal_rg_ref", None)
-            if group is None:
-                group = self.raster.GetRootGroup() if self._is_md_array else None
+            # than through GetMetadata(), so consult the group too. Prefer the
+            # real root: `_gdal_rg_ref` is the *sub-group* for a `get_group()`
+            # view, and a sub-group's attributes are not globals.
+            group = self._root_group_ref()
             if group is not None:
                 for attribute in group.GetAttributes():
                     attrs.setdefault(
@@ -931,6 +941,11 @@ class NetCDF(Dataset):
                     )
             wkt = attrs.get("crs_wkt")
             code = attrs.get("epsg")
+            if not attrs.get("geotransform"):
+                # No companion GeoTransform: these attributes were not written by
+                # the geobox writer, so they are not a provenance-backed CRS
+                # declaration (ARC-26).
+                wkt = code = None
             if wkt:
                 # Validate before adopting: this attribute is file-controlled, and
                 # a junk string would otherwise surface from `.crs` and blow up
@@ -980,6 +995,36 @@ class NetCDF(Dataset):
             except (RuntimeError, AttributeError):
                 group = None
         return group
+
+    def _root_group_ref(self):
+        """The *root* group of the backing NetCDF, or ``None``.
+
+        Distinct from :meth:`_multidim_group`, which answers "the group holding
+        this cube's arrays" and is deliberately the sub-group for a
+        :meth:`get_group` view. Global attributes are a property of the file, so
+        they must come from the root — reading them off a sub-group made
+        ``container.get_group("g1").epsg`` resolve from an attribute that applies
+        to ``g1`` alone, and made the classic and multidim branches disagree
+        about what "global" means for the same file.
+
+        Returns:
+            The GDAL root group, or ``None`` when the backing dataset exposes
+            none (a classic open, or a materialised in-memory view).
+        """
+        result = None
+        # A materialised view's own `_raster` is a MEM dataset with no root
+        # group, so fall back to the container it was carved from.
+        for candidate in (self, getattr(self, "_parent_nc", None)):
+            raster = getattr(candidate, "_raster", None) if candidate else None
+            if raster is None:
+                continue
+            try:
+                result = raster.GetRootGroup()
+            except (RuntimeError, AttributeError):
+                result = None
+            if result is not None:
+                break
+        return result
 
     @staticmethod
     def _collect_axis_units(group) -> tuple[set[str], set[str]]:
@@ -1155,7 +1200,7 @@ class NetCDF(Dataset):
         return code
 
     @epsg.setter
-    def epsg(self, value: int | str) -> None:
+    def epsg(self, value: int | str | None) -> None:
         """Set the EPSG code.
 
         Re-declared because overriding the getter would otherwise drop the
@@ -4940,8 +4985,7 @@ class NetCDF(Dataset):
                 netCDF driver which doesn't support it).
             is_geographic: If True, coordinate units are degrees; if False,
                 metres; if `None`, the CRS is unknown and only the axis role
-                is written (no units or standard_name).
-                If False, units are metres. Defaults to True.
+                is written (no units or standard_name). Defaults to True.
 
         Returns:
             gdal.Dimension

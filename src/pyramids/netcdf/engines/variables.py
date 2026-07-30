@@ -20,11 +20,12 @@ own GDAL plumbing (``_writable_root_group`` / ``_replace_raster`` /
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from pyramids.base._utils import numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
@@ -770,7 +771,9 @@ def _write_blocks_streaming(md_arr: Any, dask_arr: Any) -> None:
         md_arr.Write(block, array_start_idx=starts, count=counts)
 
 
-def _require_create_inputs(variable_name, geo) -> None:
+def _require_create_inputs(
+    variable_name: str | None, geo: Sequence[float] | None
+) -> None:
     """Validate the required inputs for `_create_netcdf_from_array`.
 
     Args:
@@ -791,7 +794,9 @@ def _require_create_inputs(variable_name, geo) -> None:
     # The creator below skips the spatial reference in that case.
 
 
-def _resolve_write_crs(epsg):
+def _resolve_write_crs(
+    epsg: str | int | None,
+) -> tuple[osr.SpatialReference | None, bool | None]:
     """Spatial reference and axis kind to write for a variable.
 
     Args:

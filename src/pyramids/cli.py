@@ -530,12 +530,10 @@ def _cmd_calc(args: argparse.Namespace) -> int:
         raise ValueError("calc supports at most 26 input rasters (bound A..Z).")
     _refuse_existing(output, args.overwrite)
     datasets = [Dataset.read_file(path) for path in inputs]
-    names = [chr(ord("A") + index) for index in range(len(datasets))]
-    variables = {name: np.asarray(ds.read_array()) for name, ds in zip(names, datasets)}
-    result = np.asarray(_safe_calc_eval(ast.parse(args.expr, mode="eval"), variables))
-    if args.dtype:
-        result = result.astype(args.dtype)
     template = datasets[0]
+    # Refuse before reading arrays and evaluating the expression: the answer
+    # cannot change, and a CRS-less input should not pay for the whole compute
+    # first (ARC-26).
     if not template.crs:
         raise ValueError(
             f"{inputs[0]!r} has no CRS, so the result of --expr cannot be "
@@ -543,6 +541,11 @@ def _cmd_calc(args: argparse.Namespace) -> int:
             "input does not have; set a CRS on the input first (e.g. "
             "gdal_edit.py -a_srs EPSG:<code> <file>) and re-run."
         )
+    names = [chr(ord("A") + index) for index in range(len(datasets))]
+    variables = {name: np.asarray(ds.read_array()) for name, ds in zip(names, datasets)}
+    result = np.asarray(_safe_calc_eval(ast.parse(args.expr, mode="eval"), variables))
+    if args.dtype:
+        result = result.astype(args.dtype)
     Dataset.create_from_array(
         result,
         top_left_corner=template.top_left_corner,
