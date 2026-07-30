@@ -1332,77 +1332,108 @@ class Dataset(RasterBase):
             # `_update_inplace` drops it.
             crs = cached
         elif not crs:
-            # A CF NetCDF opened through the classic driver reports no
-            # projection but exposes its axis units as `<axis>#units`. Degrees
-            # east/north there mean a geographic grid by CF convention, so read
-            # it as WGS 84 rather than as ungeoreferenced (ARC-26). Any other
-            # unprojected raster still reports no CRS.
-            metadata = self.raster.GetMetadata() or {}
-            # CF names its auxiliary coordinates in a `coordinates` attribute, so
-            # a curvilinear grid's 2-D lat/lon arrays are evidence even though
-            # they declare no `axis`. Everything else is a data variable: a wind
-            # direction in `degrees_east` or a solar angle in `degreeN` says
-            # nothing about the grid, and used to be read as a geographic CRS.
-            coordinate_refs: set[str] = set()
-            for key, value in metadata.items():
-                if key.lower().endswith("#coordinates") and isinstance(value, str):
-                    coordinate_refs.update(name.lower() for name in value.split())
-            # Units belonging to a spatial *axis* are the only ones that may veto
-            # the inference; a data variable in metres on a geographic grid must
-            # not (see `cf_geographic_wkt`). The classic driver names coordinate
-            # variables after their axis, so match on that.
-            # A variable is an axis when CF says so (`<var>#axis`), falling back
-            # to the conventional coordinate names only when the file declares
-            # none. Name alone is not enough: a *data* variable called "x" in
-            # metres would otherwise veto a real geographic grid and strip its CRS.
-            # CF's `axis` VALUE tells us which axis it is. Z means vertical --
-            # a depth or height in metres says nothing about the horizontal CRS,
-            # so it must not veto. Reading the value (rather than only the key)
-            # is what makes this work for deptht / olevel / nav_lev / sigma and
-            # every other name a nine-entry allow-list would miss.
-            declared_axes = set()
-            declared_vertical = set()
-            for key, value in metadata.items():
-                if not key.lower().endswith("#axis"):
-                    continue
-                name = key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
-                declared_axes.add(name)
-                if isinstance(value, str) and value.strip().upper() == "Z":
-                    declared_vertical.add(name)
-            # A file that declares `axis` on its horizontal axes has told us
-            # exactly which variables are axes; trust it and do NOT fall back to
-            # the name list, or a *data* variable that happens to be called "x"
-            # or "north" would veto a real geographic grid. The name list is the
-            # fallback only when the file declares no horizontal axis at all.
-            declared_horizontal = declared_axes - declared_vertical
-            axis_names = declared_horizontal or _AXIS_VARIABLE_NAMES
-            evidence_names = (
-                declared_horizontal | coordinate_refs | _AXIS_VARIABLE_NAMES
-            )
-            units = {
-                value.strip().lower()
-                for key, value in metadata.items()
-                if isinstance(value, str)
-                and key.lower().endswith("#units")
-                and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower() in evidence_names
-            }
-            axis_units = {
-                value.strip().lower()
-                for key, value in metadata.items()
-                if isinstance(value, str)
-                and key.lower().endswith("#units")
-                and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower() in axis_names
-                and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
-                not in (VERTICAL_AXIS_NAMES | declared_vertical)
-            }
-            crs = cf_geographic_wkt(units, axis_units)
-            # Last check, on the geometry rather than the metadata: a grid whose
-            # own coordinates fall outside the lon/lat range is not lat/lon, no
-            # matter which variable supplied the degrees.
-            if crs and not within_lonlat_range(self._own_extent()):
-                crs = ""
+            crs = self._infer_cf_crs()
             self._cf_crs_cache = crs
         return crs
+
+    def _infer_cf_crs(self) -> str:
+        """WGS 84 WKT when CF metadata says this is a lat/lon grid, else ``""``.
+
+        A CF NetCDF opened through the *classic* driver reports no projection but
+        exposes its coordinate metadata as ``<var>#units`` / ``<var>#axis``.
+        Degrees east/north on a coordinate there mean a geographic grid by CF
+        convention, so read it as WGS 84 rather than as ungeoreferenced (ARC-26).
+        Any other unprojected raster still reports no CRS.
+
+        The multidim equivalent is :meth:`pyramids.netcdf.NetCDF._cf_geographic_crs`,
+        which reads the same evidence off the GDAL group API instead of off
+        flattened metadata keys.
+
+        Returns:
+            str: WGS 84 WKT when the evidence says geographic, otherwise ``""``.
+        """
+        metadata = self.raster.GetMetadata() or {}
+        evidence_names, axis_names, vertical_names = self._classify_cf_variables(
+            metadata
+        )
+        units = self._units_of(metadata, evidence_names, set())
+        axis_units = self._units_of(metadata, axis_names, vertical_names)
+        crs = cf_geographic_wkt(units, axis_units)
+        # Last check, on the geometry rather than the metadata: a grid whose own
+        # coordinates fall outside the lon/lat range is not lat/lon, no matter
+        # which variable supplied the degrees.
+        if crs and not within_lonlat_range(self._own_extent()):
+            crs = ""
+        return crs
+
+    @staticmethod
+    def _classify_cf_variables(
+        metadata: dict,
+    ) -> tuple[set[str], set[str], set[str]]:
+        """Split CF variable names into evidence, veto and vertical sets.
+
+        Three distinct roles, easy to conflate:
+
+        * **Evidence** — variables whose degrees units may imply a geographic
+          grid. Only plausible coordinates qualify: one that declares ``axis``,
+          one named in a ``coordinates`` attribute (how CF identifies a
+          curvilinear grid's 2-D lat/lon, which declare no ``axis``), or one
+          carrying a conventional coordinate name. A wind direction in
+          ``degrees_east`` is a data variable and says nothing about the grid.
+        * **Veto** — variables whose linear units mean the grid is projected. A
+          file that declares its axes has said exactly which variables are axes,
+          so the name list is the fallback only when it declares none; otherwise
+          a *data* variable called "x" would strip a real geographic grid's CRS.
+        * **Vertical** — declared ``axis: Z``, plus the conventional names. A
+          depth or height in metres says nothing about the horizontal frame, so
+          it must never veto.
+
+        Args:
+            metadata: GDAL metadata dict, with flattened ``<var>#attr`` keys.
+
+        Returns:
+            tuple[set[str], set[str], set[str]]: ``(evidence, veto, vertical)``
+            variable names, lower-cased.
+        """
+        coordinate_refs: set[str] = set()
+        declared_axes: set[str] = set()
+        declared_vertical: set[str] = set()
+        for key, value in metadata.items():
+            if not isinstance(value, str):
+                continue
+            lowered = key.lower()
+            if lowered.endswith("#coordinates"):
+                coordinate_refs.update(name.lower() for name in value.split())
+            elif lowered.endswith("#axis"):
+                name = key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
+                declared_axes.add(name)
+                if value.strip().upper() == "Z":
+                    declared_vertical.add(name)
+        declared_horizontal = declared_axes - declared_vertical
+        evidence = declared_horizontal | coordinate_refs | _AXIS_VARIABLE_NAMES
+        veto = declared_horizontal or _AXIS_VARIABLE_NAMES
+        return evidence, set(veto), set(VERTICAL_AXIS_NAMES) | declared_vertical
+
+    @staticmethod
+    def _units_of(metadata: dict, include: set[str], exclude: set[str]) -> set[str]:
+        """Lower-cased ``#units`` values of the named variables.
+
+        Args:
+            metadata: GDAL metadata dict, with flattened ``<var>#attr`` keys.
+            include: Variable names to collect units from.
+            exclude: Variable names to skip even when they are in `include`.
+
+        Returns:
+            set[str]: The matching unit strings.
+        """
+        collected = set()
+        for key, value in metadata.items():
+            if not isinstance(value, str) or not key.lower().endswith("#units"):
+                continue
+            name = key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
+            if name in include and name not in exclude:
+                collected.add(value.strip().lower())
+        return collected
 
     def _own_extent(self) -> tuple[float, float, float, float] | None:
         """Corner-to-corner extent in the raster's own coordinates, or ``None``.

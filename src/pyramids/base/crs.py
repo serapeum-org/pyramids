@@ -765,7 +765,7 @@ def crs_equal(a: int | str | None, b: int | str | None) -> bool:
     else:
         try:
             equal = bool(sr_from_user_input(a).IsSame(sr_from_user_input(b)))
-        except (CRSError, RuntimeError, TypeError, ValueError):
+        except (RuntimeError, TypeError, ValueError):
             # An unparseable side cannot be shown to match; the caller then does
             # the conversion, which is the safe direction.
             equal = False

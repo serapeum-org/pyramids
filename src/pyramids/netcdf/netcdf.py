@@ -1048,21 +1048,39 @@ class NetCDF(Dataset):
             if unit:
                 units.add(unit.strip().lower())
             for dimension in array.GetDimensions():
-                indexing = dimension.GetIndexingVariable()
-                if indexing is None or not indexing.GetUnit():
-                    continue
-                # A vertical axis in metres describes depth or height, never the
-                # horizontal CRS, so it must not veto a geographic grid.
-                # GDAL exposes the CF axis role as the dimension type; prefer it
-                # over the name list so a vertical axis is recognised whatever it
-                # is called (deptht, olevel, nav_lev, sigma, ...).
-                dim_type = (dimension.GetType() or "").upper()
-                if dim_type == "VERTICAL":
-                    continue
-                if not dim_type and dimension.GetName().lower() in VERTICAL_AXIS_NAMES:
-                    continue
-                axis_units.add(indexing.GetUnit().strip().lower())
+                axis_unit = NetCDF._horizontal_axis_unit(dimension)
+                if axis_unit:
+                    axis_units.add(axis_unit)
         return units, axis_units
+
+    @staticmethod
+    def _horizontal_axis_unit(dimension) -> str:
+        """Unit of a *horizontal* dimension axis, or ``""``.
+
+        A vertical axis in metres describes depth or height, never the horizontal
+        CRS, so its unit must not veto a geographic grid. GDAL exposes the CF axis
+        role as the dimension type; prefer it over the name list so a vertical
+        axis is recognised whatever it is called (deptht, olevel, nav_lev,
+        sigma, ...). The name list is the fallback only for a dimension GDAL
+        types as nothing.
+
+        Args:
+            dimension: A GDAL multidim dimension.
+
+        Returns:
+            str: The indexing variable's lower-cased unit, or ``""`` when the
+            dimension has no indexing variable, no unit, or is vertical.
+        """
+        result = ""
+        indexing = dimension.GetIndexingVariable()
+        if indexing is not None and indexing.GetUnit():
+            dim_type = (dimension.GetType() or "").upper()
+            named_vertical = (
+                not dim_type and dimension.GetName().lower() in VERTICAL_AXIS_NAMES
+            )
+            if dim_type != "VERTICAL" and not named_vertical:
+                result = indexing.GetUnit().strip().lower()
+        return result
 
     def _cf_geographic_crs(self) -> str:
         """WGS 84 WKT when CF metadata says this is a lat/lon grid, else ``""``.
