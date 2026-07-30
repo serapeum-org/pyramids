@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6328,8 +6328,10 @@ rasterio, rioxarray and geopandas, none of which substitute a default.</p>
 <ul>
 <li><strong>No CRS and no evidence</strong> (a GeoTIFF or ASCII grid with an empty projection) → <code>epsg</code> is <code>None</code>. Operations
   that genuinely need a CRS raise <code>CRSError</code> naming the fix instead of proceeding.</li>
-<li><strong>A CRS with no EPSG authority</strong> (geostationary, spherical-earth GRIB) → unchanged; <code>epsg</code> was already <code>None</code>
-  there and <code>crs</code> still carries the WKT.</li>
+<li><strong>A CRS with no EPSG authority</strong> (geostationary, spherical-earth GRIB) → unchanged by this release. Note that
+  <code>epsg</code> is <em>not</em> uniformly <code>None</code> here: <code>NetCDF</code> reports <code>None</code> for a geostationary grid (see #706), while a
+  spherical-earth GRIB still resolves through <code>epsg_from_wkt</code>'s <code>4326</code> default. Read <code>crs</code> when you need the
+  authoritative answer for such a grid.</li>
 <li><strong>A CF NetCDF with <code>degrees_east</code> / <code>degrees_north</code> axes and no <code>grid_mapping</code></strong> → still <code>4326</code>. CF leaves the
   datum implicit for these and the whole ecosystem reads them as WGS 84, so this is a reading of the file's
   metadata rather than an assumption. A projected grid that merely ships auxiliary lat/lon arrays is <em>not</em>
