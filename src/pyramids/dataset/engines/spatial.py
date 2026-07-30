@@ -379,10 +379,13 @@ class Spatial(_Engine["Dataset"]):
         # result, so both caches are stale now. Without this, clearing a
         # container's CRS is a no-op: `_get_crs` falls straight back to the
         # cached borrowed value (ARC-26).
-        # NetCDF-only caches; `hasattr` because a plain Dataset has neither.
+        # The inferred-CF cache exists on every Dataset; the container ones only
+        # on NetCDF. All three derive from the projection just replaced.
+        self._ds.__dict__.pop("_cf_crs_cache", None)
         if hasattr(self._ds, "_container_crs_cache"):
             self._ds._container_crs_cache = None
             self._ds._crs_cache = None  # type: ignore[attr-defined]
+            self._ds._epsg_resolved = False  # type: ignore[attr-defined]
         if hasattr(self._ds, "_epsg_resolved"):
             self._ds._epsg_resolved = True
 
@@ -1955,7 +1958,15 @@ class Spatial(_Engine["Dataset"]):
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
             # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to
             # the WKT so a bbox in the grid's own CRS is still honoured (#706).
-            crs = epsg if epsg is not None else crs_spec(self._ds.epsg, self._ds.crs)
+            crs = (
+                epsg
+                if epsg is not None
+                else require_crs_spec(
+                    self._ds.epsg,
+                    self._ds.crs,
+                    "crop by a bbox without an explicit epsg=",
+                )
+            )
             west, _, east, _ = bbox
             crs_geo = bool(crs) and sr_from_user_input(crs).IsGeographic()
             ds_epsg = self._ds.epsg

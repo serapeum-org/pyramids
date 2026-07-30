@@ -939,10 +939,13 @@ class NetCDF(Dataset):
                 # `Validate()` is stricter than the WKT we ourselves emit, so
                 # test usability instead: a junk string parses to an SRS that is
                 # neither geographic, projected, local nor geocentric.
+                # IsLocal() is deliberately absent: a LOCAL_CS is an
+                # engineering frame with no earth reference, so accepting one
+                # would let a placeholder attribute stand in for a real CRS --
+                # the same fabrication this change removes.
                 usable = (
                     candidate.IsGeographic()
                     or candidate.IsProjected()
-                    or candidate.IsLocal()
                     or candidate.IsGeocentric()
                 )
                 if usable:
@@ -1165,6 +1168,7 @@ class NetCDF(Dataset):
         # memoised resolution flag that would otherwise pin the old answer.
         self._container_crs_cache = None
         self._crs_cache = None
+        self.__dict__.pop("_cf_crs_cache", None)
         self._epsg_resolved = False
 
     def _get_epsg(self) -> int | None:
@@ -4651,6 +4655,7 @@ class NetCDF(Dataset):
         # through it, so re-deriving first would just re-cache the stale answer.
         self._container_crs_cache = None
         self._crs_cache = None
+        self.__dict__.pop("_cf_crs_cache", None)
         self._epsg = self._get_epsg()
         self._epsg_resolved = True
         self._rows = new_raster.RasterYSize
@@ -4686,6 +4691,7 @@ class NetCDF(Dataset):
         # variables behind the old raster, so a swap must not carry it over.
         self._container_crs_cache = None
         self._crs_cache = None
+        self.__dict__.pop("_cf_crs_cache", None)
         # Clear the memoised EPSG rather than re-deriving it here: eager
         # re-derivation walks every variable again and immediately re-fills the
         # cache this method just invalidated. The `epsg` property resolves it on
