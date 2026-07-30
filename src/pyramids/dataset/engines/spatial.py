@@ -18,6 +18,7 @@ from osgeo import gdal, osr
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
+    crs_equal,
     crs_spec,
     epsg_of_crs,
     reproject_coordinates,
@@ -1472,19 +1473,22 @@ class Spatial(_Engine["Dataset"]):
         # below: two CRS-less rasters both report `epsg is None`, so they compare
         # equal, skip the branch, and the result is still stamped with the
         # reference's projection further down (ARC-26).
-        require_crs_spec(
+        own_crs = require_crs_spec(
             self._ds.epsg, self._ds.crs, "align a raster onto another grid"
         )
-        require_crs_spec(src.epsg, src.crs, "align to the reference grid")
+        target_crs = require_crs_spec(
+            src.epsg, src.crs, "align a raster onto another grid"
+        )
         reprojected_raster_b: Dataset = self._ds
         # Compare the resolved CRS, not `epsg` alone: two grids with different
         # real CRSes can both report `epsg is None` (the geostationary shape),
         # compare equal, skip the warp, and be stamped with the reference's
-        # projection further down (ARC-26).
-        if crs_spec(self._ds.epsg, self._ds.crs) != crs_spec(src.epsg, src.crs):
-            reprojected_raster_b = self.to_crs(  # type: ignore[assignment]
-                require_crs_spec(src.epsg, src.crs, "align to the source grid")
-            )
+        # projection further down (ARC-26). `crs_equal` rather than `!=`, because
+        # `crs_spec` falls back to the raw WKT for a CRS with no EPSG authority
+        # -- exactly that case -- so two spellings of one CRS would otherwise
+        # warp the data through an identity transform.
+        if not crs_equal(own_crs, target_crs):
+            reprojected_raster_b = self.to_crs(target_crs)  # type: ignore[assignment]
         dst_obj = self._ds.__class__._build_dataset(
             src.columns,
             src.rows,

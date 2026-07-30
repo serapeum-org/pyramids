@@ -23,8 +23,12 @@ Public surface:
   no CRS at all (distinct from a CRS that carries no EPSG code).
 * :func:`crs_spec` / :func:`require_crs_spec` — best usable CRS
   specification for a dataset; the latter refuses when there is none.
+* :func:`crs_equal` — whether two such specifications describe the same
+  system, tolerant of WKT-spelling differences.
 * :func:`cf_geographic_wkt` — WGS 84 when CF axis units describe a
   lat/lon grid that declares no `grid_mapping`.
+* :func:`within_lonlat_range` — whether an extent could be lon/lat
+  degrees at all; the geometric backstop on that inference.
 * :func:`reproject_coordinates` — reproject parallel `x` / `y`
   lists between CRSes via :class:`pyproj.Transformer`.
 """
@@ -442,15 +446,12 @@ def epsg_of_crs(wkt: str | None) -> int | None:
 # match the stem rather than one literal.
 LON_UNIT_PREFIXES = ("degrees_e", "degree_e", "degreee")
 LAT_UNIT_PREFIXES = ("degrees_n", "degree_n", "degreen")
-# Units that mark a non-lon/lat spatial axis. Exact matches only, so a compound
-# unit like "m s-1" on a data variable never counts. Unqualified `degrees`
-# belongs here rather than with the lon/lat stems: a rotated-pole grid's
-# rlat/rlon are in plain degrees but are NOT WGS 84. `rad` covers a
-# geostationary scan-angle axis. Their presence is counter-evidence:
-# a file carrying metre x/y axes is projected, and any degrees arrays alongside
-# them are auxiliary lat/lon coordinates, not the grid's CRS.
-# Vertical axis names. A linear unit here describes depth or height, never the
-# horizontal CRS, so such an axis must not veto the geographic inference.
+# Names of vertical axes, used only when a file declares no `axis` attribute at
+# all: a linear unit on one of these describes depth or height, never the
+# horizontal CRS, so such an axis must not veto the geographic inference. A file
+# that does declare `axis: Z` is classified from that value instead -- this list
+# cannot keep up with `deptht`, `olevel`, `nav_lev` and every other model's
+# spelling.
 VERTICAL_AXIS_NAMES = frozenset(
     {
         "z",
@@ -465,6 +466,13 @@ VERTICAL_AXIS_NAMES = frozenset(
     }
 )
 
+# Units that mark a horizontal axis as something other than lon/lat. Exact
+# matches only, so a compound unit like "m s-1" on a data variable never counts.
+# Unqualified `degrees` belongs here rather than with the lon/lat stems: a
+# rotated-pole grid's rlat/rlon are in plain degrees but are NOT WGS 84. `rad`
+# covers a geostationary scan-angle axis. Their presence is counter-evidence: a
+# file carrying metre x/y axes is projected, and any degrees arrays alongside
+# them are auxiliary lat/lon coordinates, not the grid's CRS.
 PROJECTED_AXIS_UNITS = (
     "m",
     "metre",
@@ -484,6 +492,63 @@ PROJECTED_AXIS_UNITS = (
 )
 
 
+def within_lonlat_range(bounds: tuple[float, float, float, float] | None) -> bool:
+    """Whether a raster's own extent could be longitude / latitude degrees.
+
+    A grid cannot be lat/lon if its coordinates do not fit in the lat/lon range,
+    whatever its metadata says. This is the backstop for CF unit evidence that
+    comes from something other than the grid's real axes — a UTM raster carrying
+    a ``degrees_east`` data variable (a wind direction, a solar angle) still has
+    metre-scale eastings, so the geographic reading is refused on the geometry
+    rather than on the name of the variable that offered the units.
+
+    Longitudes are allowed out to +-360 because CF files use both the -180..180
+    and 0..360 conventions, and a subset of either may be shifted.
+
+    Args:
+        bounds: ``(min_x, min_y, max_x, max_y)`` in the raster's own coordinates,
+            or ``None`` when it has no usable geotransform.
+
+    Returns:
+        bool: True when the extent fits in the lon/lat range, or when there is
+        no extent to judge (``None`` — an unknown extent is not counter-evidence).
+
+    Examples:
+        - A degree-scale extent passes:
+            ```python
+            >>> from pyramids.base.crs import within_lonlat_range
+            >>> within_lonlat_range((-10.0, 40.0, 5.0, 55.0))
+            True
+
+            ```
+        - A UTM extent cannot be degrees:
+            ```python
+            >>> from pyramids.base.crs import within_lonlat_range
+            >>> within_lonlat_range((400000.0, 5000000.0, 410000.0, 5010000.0))
+            False
+
+            ```
+        - An unknown extent is not counter-evidence:
+            ```python
+            >>> from pyramids.base.crs import within_lonlat_range
+            >>> within_lonlat_range(None)
+            True
+
+            ```
+    """
+    if bounds is None:
+        plausible = True
+    else:
+        min_x, min_y, max_x, max_y = bounds
+        plausible = (
+            -360.0 <= min_x <= 360.0
+            and -360.0 <= max_x <= 360.0
+            and -90.001 <= min_y <= 90.001
+            and -90.001 <= max_y <= 90.001
+        )
+    return plausible
+
+
 def cf_geographic_wkt(units: set[str], axis_units: set[str] | None = None) -> str:
     """WGS 84 WKT when CF axis units describe a lat/lon grid, else ``""``.
 
@@ -498,10 +563,13 @@ def cf_geographic_wkt(units: set[str], axis_units: set[str] | None = None) -> st
     Args:
         units: Lower-cased unit strings from every coordinate array, including
             the 2-D auxiliary lat/lon a curvilinear grid uses.
-        axis_units: Lower-cased unit strings from the true dimension axes only.
-            A linear unit here (`m`, `km`, ...) vetoes the inference: the grid
-            is projected and its degrees arrays are auxiliary coordinates.
-            Defaults to `None` (no veto).
+        axis_units: Lower-cased unit strings from the true *horizontal* dimension
+            axes only. A unit here that belongs to a projected or rotated frame
+            (`m`, `km`, unqualified `degrees` / `degree`, `rad`, ...) vetoes the
+            inference: the grid is projected, rotated-pole or geostationary, and
+            its degrees arrays are auxiliary coordinates. See
+            :data:`PROJECTED_AXIS_UNITS` for the exact set. Defaults to `None`
+            (no veto).
 
     Returns:
         str: WGS 84 WKT when both a longitude and a latitude axis are in degrees,
@@ -646,6 +714,62 @@ def require_crs_spec(epsg: int | None, wkt: str | None, operation: str) -> int |
             "ungeoreferenced raster."
         )
     return spec
+
+
+def crs_equal(a: int | str | None, b: int | str | None) -> bool:
+    """Return True when two CRS specifications describe the same system.
+
+    Comparing two :func:`crs_spec` results with ``!=`` is string identity
+    whenever a CRS carries no EPSG authority, because ``crs_spec`` then falls
+    back to the raw WKT. Two spellings of one CRS (WKT1 vs WKT2, or a differently
+    ordered ``AUTHORITY`` block) would compare unequal and trigger a full warp
+    between identical grids — a resampling pass the data did not need. Compare
+    through OSR instead, which normalises both sides before testing.
+
+    Args:
+        a: EPSG code, WKT / authority string, or ``None`` for "no CRS".
+        b: The other specification, same forms.
+
+    Returns:
+        bool: True when both sides are absent, or both resolve to the same
+        reference system. False when exactly one side is absent, or either side
+        cannot be parsed.
+
+    Examples:
+        - Two spellings of one CRS are equal:
+            ```python
+            >>> from pyramids.base.crs import crs_equal, sr_from_epsg
+            >>> crs_equal(32636, sr_from_epsg(32636).ExportToWkt())
+            True
+
+            ```
+        - Different systems are not:
+            ```python
+            >>> from pyramids.base.crs import crs_equal
+            >>> crs_equal(4326, 32636)
+            False
+
+            ```
+        - Absence matches only absence:
+            ```python
+            >>> from pyramids.base.crs import crs_equal
+            >>> crs_equal(None, None), crs_equal(None, 4326)
+            (True, False)
+
+            ```
+    """
+    if a is None or b is None:
+        equal = a is None and b is None
+    elif a == b:
+        equal = True
+    else:
+        try:
+            equal = bool(sr_from_user_input(a).IsSame(sr_from_user_input(b)))
+        except (CRSError, RuntimeError, TypeError, ValueError):
+            # An unparseable side cannot be shown to match; the caller then does
+            # the conversion, which is the safe direction.
+            equal = False
+    return equal
 
 
 def epsg_from_wkt(wkt: str | None, default: int = 4326) -> int:
@@ -1010,6 +1134,7 @@ __all__ = [
     "VERTICAL_AXIS_NAMES",
     "cf_geographic_wkt",
     "create_sr_from_proj",
+    "crs_equal",
     "crs_spec",
     "epsg_from_user_input",
     "epsg_from_wkt",
@@ -1020,4 +1145,5 @@ __all__ = [
     "sr_from_epsg",
     "sr_from_user_input",
     "sr_from_wkt",
+    "within_lonlat_range",
 ]
