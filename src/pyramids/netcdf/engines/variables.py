@@ -890,7 +890,10 @@ def _create_netcdf_from_array(
         # than inventing one. The axes are then plain numeric dimensions, so
         # treat them as non-geographic (ARC-26).
         srse = None
-        is_geographic = False
+        # Not False: False means "projected", which would stamp metres on the
+        # axes. `None` is the third state -- no CRS -- so the writer emits the
+        # axis role without asserting any units (ARC-26).
+        is_geographic = None
     else:
         try:
             srse = sr_from_epsg(int(epsg))
