@@ -1279,7 +1279,10 @@ class COG(_Engine["Dataset"]):
         """
         # Same reasoning as the bbox path: with no CRS the point is read as
         # already being in the raster's own coordinate space rather than refused.
-        if self._ds.epsg != point_crs and crs_spec(self._ds.epsg, self._ds.crs) is not None:
+        if (
+            self._ds.epsg != point_crs
+            and crs_spec(self._ds.epsg, self._ds.crs) is not None
+        ):
             transformer = _cached_transformer(
                 point_crs,
                 require_crs_spec(self._ds.epsg, self._ds.crs, "sample a point"),

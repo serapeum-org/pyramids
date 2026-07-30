@@ -242,7 +242,9 @@ class TestReadsStillWorkWithoutACrs:
             here the fixture's own extent, x 0..4 and y -4..0.
         """
         dataset = Dataset.read_file(crs_less_raster)
-        assert dataset.read_part((1, -3, 3, -1)) is not None, "a windowed read must not require a CRS"
+        assert dataset.read_part((1, -3, 3, -1)) is not None, (
+            "a windowed read must not require a CRS"
+        )
 
     def test_point_reads_in_the_rasters_own_coordinates(self, crs_less_raster: str):
         """Point sampling likewise needs no CRS when no transform is involved."""

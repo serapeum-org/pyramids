@@ -1460,7 +1460,9 @@ class Spatial(_Engine["Dataset"]):
         # below: two CRS-less rasters both report `epsg is None`, so they compare
         # equal, skip the branch, and the result is still stamped with the
         # reference's projection further down (ARC-26).
-        require_crs_spec(self._ds.epsg, self._ds.crs, "align a raster onto another grid")
+        require_crs_spec(
+            self._ds.epsg, self._ds.crs, "align a raster onto another grid"
+        )
         require_crs_spec(src.epsg, src.crs, "align to the reference grid")
         reprojected_raster_b: Dataset = self._ds
         if self._ds.epsg != src.epsg:
