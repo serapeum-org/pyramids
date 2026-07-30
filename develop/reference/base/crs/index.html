@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -3914,6 +3914,50 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pyramids.base.crs.epsg_of_crs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        epsg_of_crs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyramids.base.crs.crs_spec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        crs_spec
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyramids.base.crs.require_crs_spec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        require_crs_spec
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyramids.base.crs.cf_geographic_wkt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cf_geographic_wkt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pyramids.base.crs.reproject_coordinates" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6098,6 +6142,50 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pyramids.base.crs.epsg_of_crs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        epsg_of_crs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyramids.base.crs.crs_spec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        crs_spec
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyramids.base.crs.require_crs_spec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        require_crs_spec
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyramids.base.crs.cf_geographic_wkt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cf_geographic_wkt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pyramids.base.crs.reproject_coordinates" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7467,6 +7555,947 @@ when its CRS cannot be resolved to an EPSG. Defaults to
 <a id="__codelineno-0-712" name="__codelineno-0-712"></a>            <span class="c1"># propagating the hard error to property reads like Dataset.epsg.</span>
 <a id="__codelineno-0-713" name="__codelineno-0-713"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">default</span>
 <a id="__codelineno-0-714" name="__codelineno-0-714"></a>    <span class="k">return</span> <span class="n">result</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pyramids.base.crs.epsg_of_crs" class="doc doc-heading"><a href="#pyramids.base.crs.epsg_of_crs" class="toclink">
+            <code class="highlight language-python"><span class="n">pyramids</span><span class="o">.</span><span class="n">base</span><span class="o">.</span><span class="n">crs</span><span class="o">.</span><span class="n">epsg_of_crs</span><span class="p">(</span><span class="n">wkt</span><span class="p">)</span></code>
+
+</a><a href="#pyramids.base.crs.epsg_of_crs" class="headerlink" title="Permanent link">#</a></h3>
+
+
+    <div class="doc doc-contents first">
+
+        <p>Resolve the EPSG of a CRS string, or <code>None</code> when there is no CRS at all.</p>
+<p>Distinguishes the two cases :func:<code>epsg_from_wkt</code> conflates:</p>
+<ul>
+<li><strong>No CRS</strong> — an empty (or <code>None</code>) projection. The dataset is not
+  georeferenced, so there is no EPSG to report and <code>None</code> is returned.
+  Fabricating WGS 84 here would claim a georeference the data does not have.</li>
+<li><strong>A CRS with no EPSG code</strong> — a non-empty projection that resolves to no
+  EPSG authority (GDAL's spherical-earth GRIB GEOGCS, say). That <em>is</em> a real
+  CRS, so the historical :func:<code>epsg_from_wkt</code> fallback still applies.</li>
+</ul>
+<p>This mirrors how GDAL, rasterio, rioxarray and geopandas all behave: a
+missing CRS propagates as <code>None</code> and only an operation that genuinely needs
+one fails.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>wkt</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Projection string (WKT, ESRI WKT, or Proj4), possibly empty/<code>None</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>int | None: The EPSG code, or <code>None</code> when <code>wkt</code> is empty or <code>None</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <ul>
+<li>An empty projection means "no CRS", not WGS 84:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">epsg_of_crs</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">epsg_of_crs</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kc">True</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">epsg_of_crs</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="kc">True</span>
+</code></pre></div></li>
+<li>A real projection resolves to its EPSG code:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">osgeo</span><span class="w"> </span><span class="kn">import</span> <span class="n">osr</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">epsg_of_crs</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ref</span> <span class="o">=</span> <span class="n">osr</span><span class="o">.</span><span class="n">SpatialReference</span><span class="p">()</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ref</span><span class="o">.</span><span class="n">ImportFromEPSG</span><span class="p">(</span><span class="mi">3857</span><span class="p">)</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">epsg_of_crs</span><span class="p">(</span><span class="n">ref</span><span class="o">.</span><span class="n">ExportToWkt</span><span class="p">())</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="mi">3857</span>
+</code></pre></div></li>
+</ul>
+
+
+<details class="see-also" open>
+  <summary>See Also</summary>
+  <p>epsg_from_wkt: The soft variant that substitutes <code>default</code> for both cases.</p>
+</details>
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/pyramids/base/crs.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-391">391</a></span>
+<span class="normal"><a href="#__codelineno-0-392">392</a></span>
+<span class="normal"><a href="#__codelineno-0-393">393</a></span>
+<span class="normal"><a href="#__codelineno-0-394">394</a></span>
+<span class="normal"><a href="#__codelineno-0-395">395</a></span>
+<span class="normal"><a href="#__codelineno-0-396">396</a></span>
+<span class="normal"><a href="#__codelineno-0-397">397</a></span>
+<span class="normal"><a href="#__codelineno-0-398">398</a></span>
+<span class="normal"><a href="#__codelineno-0-399">399</a></span>
+<span class="normal"><a href="#__codelineno-0-400">400</a></span>
+<span class="normal"><a href="#__codelineno-0-401">401</a></span>
+<span class="normal"><a href="#__codelineno-0-402">402</a></span>
+<span class="normal"><a href="#__codelineno-0-403">403</a></span>
+<span class="normal"><a href="#__codelineno-0-404">404</a></span>
+<span class="normal"><a href="#__codelineno-0-405">405</a></span>
+<span class="normal"><a href="#__codelineno-0-406">406</a></span>
+<span class="normal"><a href="#__codelineno-0-407">407</a></span>
+<span class="normal"><a href="#__codelineno-0-408">408</a></span>
+<span class="normal"><a href="#__codelineno-0-409">409</a></span>
+<span class="normal"><a href="#__codelineno-0-410">410</a></span>
+<span class="normal"><a href="#__codelineno-0-411">411</a></span>
+<span class="normal"><a href="#__codelineno-0-412">412</a></span>
+<span class="normal"><a href="#__codelineno-0-413">413</a></span>
+<span class="normal"><a href="#__codelineno-0-414">414</a></span>
+<span class="normal"><a href="#__codelineno-0-415">415</a></span>
+<span class="normal"><a href="#__codelineno-0-416">416</a></span>
+<span class="normal"><a href="#__codelineno-0-417">417</a></span>
+<span class="normal"><a href="#__codelineno-0-418">418</a></span>
+<span class="normal"><a href="#__codelineno-0-419">419</a></span>
+<span class="normal"><a href="#__codelineno-0-420">420</a></span>
+<span class="normal"><a href="#__codelineno-0-421">421</a></span>
+<span class="normal"><a href="#__codelineno-0-422">422</a></span>
+<span class="normal"><a href="#__codelineno-0-423">423</a></span>
+<span class="normal"><a href="#__codelineno-0-424">424</a></span>
+<span class="normal"><a href="#__codelineno-0-425">425</a></span>
+<span class="normal"><a href="#__codelineno-0-426">426</a></span>
+<span class="normal"><a href="#__codelineno-0-427">427</a></span>
+<span class="normal"><a href="#__codelineno-0-428">428</a></span>
+<span class="normal"><a href="#__codelineno-0-429">429</a></span>
+<span class="normal"><a href="#__codelineno-0-430">430</a></span>
+<span class="normal"><a href="#__codelineno-0-431">431</a></span>
+<span class="normal"><a href="#__codelineno-0-432">432</a></span>
+<span class="normal"><a href="#__codelineno-0-433">433</a></span>
+<span class="normal"><a href="#__codelineno-0-434">434</a></span>
+<span class="normal"><a href="#__codelineno-0-435">435</a></span>
+<span class="normal"><a href="#__codelineno-0-436">436</a></span>
+<span class="normal"><a href="#__codelineno-0-437">437</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-391" name="__codelineno-0-391"></a><span class="k">def</span><span class="w"> </span><span class="nf">epsg_of_crs</span><span class="p">(</span><span class="n">wkt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-392" name="__codelineno-0-392"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve the EPSG of a CRS string, or `None` when there is no CRS at all.</span>
+<a id="__codelineno-0-393" name="__codelineno-0-393"></a>
+<a id="__codelineno-0-394" name="__codelineno-0-394"></a><span class="sd">    Distinguishes the two cases :func:`epsg_from_wkt` conflates:</span>
+<a id="__codelineno-0-395" name="__codelineno-0-395"></a>
+<a id="__codelineno-0-396" name="__codelineno-0-396"></a><span class="sd">    * **No CRS** — an empty (or `None`) projection. The dataset is not</span>
+<a id="__codelineno-0-397" name="__codelineno-0-397"></a><span class="sd">      georeferenced, so there is no EPSG to report and `None` is returned.</span>
+<a id="__codelineno-0-398" name="__codelineno-0-398"></a><span class="sd">      Fabricating WGS 84 here would claim a georeference the data does not have.</span>
+<a id="__codelineno-0-399" name="__codelineno-0-399"></a><span class="sd">    * **A CRS with no EPSG code** — a non-empty projection that resolves to no</span>
+<a id="__codelineno-0-400" name="__codelineno-0-400"></a><span class="sd">      EPSG authority (GDAL&#39;s spherical-earth GRIB GEOGCS, say). That *is* a real</span>
+<a id="__codelineno-0-401" name="__codelineno-0-401"></a><span class="sd">      CRS, so the historical :func:`epsg_from_wkt` fallback still applies.</span>
+<a id="__codelineno-0-402" name="__codelineno-0-402"></a>
+<a id="__codelineno-0-403" name="__codelineno-0-403"></a><span class="sd">    This mirrors how GDAL, rasterio, rioxarray and geopandas all behave: a</span>
+<a id="__codelineno-0-404" name="__codelineno-0-404"></a><span class="sd">    missing CRS propagates as `None` and only an operation that genuinely needs</span>
+<a id="__codelineno-0-405" name="__codelineno-0-405"></a><span class="sd">    one fails.</span>
+<a id="__codelineno-0-406" name="__codelineno-0-406"></a>
+<a id="__codelineno-0-407" name="__codelineno-0-407"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-408" name="__codelineno-0-408"></a><span class="sd">        wkt: Projection string (WKT, ESRI WKT, or Proj4), possibly empty/`None`.</span>
+<a id="__codelineno-0-409" name="__codelineno-0-409"></a>
+<a id="__codelineno-0-410" name="__codelineno-0-410"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-411" name="__codelineno-0-411"></a><span class="sd">        int | None: The EPSG code, or `None` when `wkt` is empty or `None`.</span>
+<a id="__codelineno-0-412" name="__codelineno-0-412"></a>
+<a id="__codelineno-0-413" name="__codelineno-0-413"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-414" name="__codelineno-0-414"></a><span class="sd">        - An empty projection means &quot;no CRS&quot;, not WGS 84:</span>
+<a id="__codelineno-0-415" name="__codelineno-0-415"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-416" name="__codelineno-0-416"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import epsg_of_crs</span>
+<a id="__codelineno-0-417" name="__codelineno-0-417"></a><span class="sd">            &gt;&gt;&gt; epsg_of_crs(&quot;&quot;) is None</span>
+<a id="__codelineno-0-418" name="__codelineno-0-418"></a><span class="sd">            True</span>
+<a id="__codelineno-0-419" name="__codelineno-0-419"></a><span class="sd">            &gt;&gt;&gt; epsg_of_crs(None) is None</span>
+<a id="__codelineno-0-420" name="__codelineno-0-420"></a><span class="sd">            True</span>
+<a id="__codelineno-0-421" name="__codelineno-0-421"></a>
+<a id="__codelineno-0-422" name="__codelineno-0-422"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-423" name="__codelineno-0-423"></a><span class="sd">        - A real projection resolves to its EPSG code:</span>
+<a id="__codelineno-0-424" name="__codelineno-0-424"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-425" name="__codelineno-0-425"></a><span class="sd">            &gt;&gt;&gt; from osgeo import osr</span>
+<a id="__codelineno-0-426" name="__codelineno-0-426"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import epsg_of_crs</span>
+<a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="sd">            &gt;&gt;&gt; ref = osr.SpatialReference()</span>
+<a id="__codelineno-0-428" name="__codelineno-0-428"></a><span class="sd">            &gt;&gt;&gt; _ = ref.ImportFromEPSG(3857)</span>
+<a id="__codelineno-0-429" name="__codelineno-0-429"></a><span class="sd">            &gt;&gt;&gt; epsg_of_crs(ref.ExportToWkt())</span>
+<a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">            3857</span>
+<a id="__codelineno-0-431" name="__codelineno-0-431"></a>
+<a id="__codelineno-0-432" name="__codelineno-0-432"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-433" name="__codelineno-0-433"></a>
+<a id="__codelineno-0-434" name="__codelineno-0-434"></a><span class="sd">    See Also:</span>
+<a id="__codelineno-0-435" name="__codelineno-0-435"></a><span class="sd">        epsg_from_wkt: The soft variant that substitutes `default` for both cases.</span>
+<a id="__codelineno-0-436" name="__codelineno-0-436"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-437" name="__codelineno-0-437"></a>    <span class="k">return</span> <span class="n">epsg_from_wkt</span><span class="p">(</span><span class="n">wkt</span><span class="p">)</span> <span class="k">if</span> <span class="n">wkt</span> <span class="k">else</span> <span class="kc">None</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pyramids.base.crs.crs_spec" class="doc doc-heading"><a href="#pyramids.base.crs.crs_spec" class="toclink">
+            <code class="highlight language-python"><span class="n">pyramids</span><span class="o">.</span><span class="n">base</span><span class="o">.</span><span class="n">crs</span><span class="o">.</span><span class="n">crs_spec</span><span class="p">(</span><span class="n">epsg</span><span class="p">,</span> <span class="n">wkt</span><span class="p">)</span></code>
+
+</a><a href="#pyramids.base.crs.crs_spec" class="headerlink" title="Permanent link">#</a></h3>
+
+
+    <div class="doc doc-contents first">
+
+        <p>Best usable CRS specification for a dataset, or <code>None</code> when it has none.</p>
+<p>Replaces the <code>dataset.epsg or dataset.crs</code> idiom. That expression looks
+total but is not: once <code>epsg</code> propagates <code>None</code> for an ungeoreferenced
+raster, it evaluates to the empty CRS string, which every downstream
+constructor rejects with an opaque <em>"Invalid projection: ''"</em>. Returning
+<code>None</code> instead makes the absence explicit, so callers either pass it on
+(producing an ungeoreferenced result) or reject it deliberately via
+:func:<code>require_crs_spec</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>epsg</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>EPSG code, or <code>None</code> for a CRS that carries no EPSG authority.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>wkt</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Projection WKT, or an empty string / <code>None</code> when there is no CRS.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="int">int</span> | <span title="str">str</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>int | str | None: The EPSG code when there is one, else the WKT, else</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="int">int</span> | <span title="str">str</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>None</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <ul>
+<li>An EPSG code is preferred when present:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">crs_spec</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">crs_spec</span><span class="p">(</span><span class="mi">4326</span><span class="p">,</span> <span class="s1">&#39;GEOGCS[&quot;WGS 84&quot;]&#39;</span><span class="p">)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="mi">4326</span>
+</code></pre></div></li>
+<li>A CRS with no EPSG authority falls back to its WKT:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">crs_spec</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">crs_spec</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s1">&#39;GEOGCS[&quot;custom&quot;]&#39;</span><span class="p">)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s1">&#39;GEOGCS[&quot;custom&quot;]&#39;</span>
+</code></pre></div></li>
+<li>No CRS at all is reported as <code>None</code>, not as an empty string:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">crs_spec</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">crs_spec</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kc">True</span>
+</code></pre></div></li>
+</ul>
+
+
+<details class="see-also" open>
+  <summary>See Also</summary>
+  <p>require_crs_spec: The variant that raises when there is no CRS.</p>
+</details>
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/pyramids/base/crs.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-531">531</a></span>
+<span class="normal"><a href="#__codelineno-0-532">532</a></span>
+<span class="normal"><a href="#__codelineno-0-533">533</a></span>
+<span class="normal"><a href="#__codelineno-0-534">534</a></span>
+<span class="normal"><a href="#__codelineno-0-535">535</a></span>
+<span class="normal"><a href="#__codelineno-0-536">536</a></span>
+<span class="normal"><a href="#__codelineno-0-537">537</a></span>
+<span class="normal"><a href="#__codelineno-0-538">538</a></span>
+<span class="normal"><a href="#__codelineno-0-539">539</a></span>
+<span class="normal"><a href="#__codelineno-0-540">540</a></span>
+<span class="normal"><a href="#__codelineno-0-541">541</a></span>
+<span class="normal"><a href="#__codelineno-0-542">542</a></span>
+<span class="normal"><a href="#__codelineno-0-543">543</a></span>
+<span class="normal"><a href="#__codelineno-0-544">544</a></span>
+<span class="normal"><a href="#__codelineno-0-545">545</a></span>
+<span class="normal"><a href="#__codelineno-0-546">546</a></span>
+<span class="normal"><a href="#__codelineno-0-547">547</a></span>
+<span class="normal"><a href="#__codelineno-0-548">548</a></span>
+<span class="normal"><a href="#__codelineno-0-549">549</a></span>
+<span class="normal"><a href="#__codelineno-0-550">550</a></span>
+<span class="normal"><a href="#__codelineno-0-551">551</a></span>
+<span class="normal"><a href="#__codelineno-0-552">552</a></span>
+<span class="normal"><a href="#__codelineno-0-553">553</a></span>
+<span class="normal"><a href="#__codelineno-0-554">554</a></span>
+<span class="normal"><a href="#__codelineno-0-555">555</a></span>
+<span class="normal"><a href="#__codelineno-0-556">556</a></span>
+<span class="normal"><a href="#__codelineno-0-557">557</a></span>
+<span class="normal"><a href="#__codelineno-0-558">558</a></span>
+<span class="normal"><a href="#__codelineno-0-559">559</a></span>
+<span class="normal"><a href="#__codelineno-0-560">560</a></span>
+<span class="normal"><a href="#__codelineno-0-561">561</a></span>
+<span class="normal"><a href="#__codelineno-0-562">562</a></span>
+<span class="normal"><a href="#__codelineno-0-563">563</a></span>
+<span class="normal"><a href="#__codelineno-0-564">564</a></span>
+<span class="normal"><a href="#__codelineno-0-565">565</a></span>
+<span class="normal"><a href="#__codelineno-0-566">566</a></span>
+<span class="normal"><a href="#__codelineno-0-567">567</a></span>
+<span class="normal"><a href="#__codelineno-0-568">568</a></span>
+<span class="normal"><a href="#__codelineno-0-569">569</a></span>
+<span class="normal"><a href="#__codelineno-0-570">570</a></span>
+<span class="normal"><a href="#__codelineno-0-571">571</a></span>
+<span class="normal"><a href="#__codelineno-0-572">572</a></span>
+<span class="normal"><a href="#__codelineno-0-573">573</a></span>
+<span class="normal"><a href="#__codelineno-0-574">574</a></span>
+<span class="normal"><a href="#__codelineno-0-575">575</a></span>
+<span class="normal"><a href="#__codelineno-0-576">576</a></span>
+<span class="normal"><a href="#__codelineno-0-577">577</a></span>
+<span class="normal"><a href="#__codelineno-0-578">578</a></span>
+<span class="normal"><a href="#__codelineno-0-579">579</a></span>
+<span class="normal"><a href="#__codelineno-0-580">580</a></span>
+<span class="normal"><a href="#__codelineno-0-581">581</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="k">def</span><span class="w"> </span><span class="nf">crs_spec</span><span class="p">(</span><span class="n">epsg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">wkt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Best usable CRS specification for a dataset, or `None` when it has none.</span>
+<a id="__codelineno-0-533" name="__codelineno-0-533"></a>
+<a id="__codelineno-0-534" name="__codelineno-0-534"></a><span class="sd">    Replaces the `dataset.epsg or dataset.crs` idiom. That expression looks</span>
+<a id="__codelineno-0-535" name="__codelineno-0-535"></a><span class="sd">    total but is not: once `epsg` propagates `None` for an ungeoreferenced</span>
+<a id="__codelineno-0-536" name="__codelineno-0-536"></a><span class="sd">    raster, it evaluates to the empty CRS string, which every downstream</span>
+<a id="__codelineno-0-537" name="__codelineno-0-537"></a><span class="sd">    constructor rejects with an opaque *&quot;Invalid projection: &#39;&#39;&quot;*. Returning</span>
+<a id="__codelineno-0-538" name="__codelineno-0-538"></a><span class="sd">    `None` instead makes the absence explicit, so callers either pass it on</span>
+<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">    (producing an ungeoreferenced result) or reject it deliberately via</span>
+<a id="__codelineno-0-540" name="__codelineno-0-540"></a><span class="sd">    :func:`require_crs_spec`.</span>
+<a id="__codelineno-0-541" name="__codelineno-0-541"></a>
+<a id="__codelineno-0-542" name="__codelineno-0-542"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-543" name="__codelineno-0-543"></a><span class="sd">        epsg: EPSG code, or `None` for a CRS that carries no EPSG authority.</span>
+<a id="__codelineno-0-544" name="__codelineno-0-544"></a><span class="sd">        wkt: Projection WKT, or an empty string / `None` when there is no CRS.</span>
+<a id="__codelineno-0-545" name="__codelineno-0-545"></a>
+<a id="__codelineno-0-546" name="__codelineno-0-546"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-547" name="__codelineno-0-547"></a><span class="sd">        int | str | None: The EPSG code when there is one, else the WKT, else</span>
+<a id="__codelineno-0-548" name="__codelineno-0-548"></a><span class="sd">        `None`.</span>
+<a id="__codelineno-0-549" name="__codelineno-0-549"></a>
+<a id="__codelineno-0-550" name="__codelineno-0-550"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-551" name="__codelineno-0-551"></a><span class="sd">        - An EPSG code is preferred when present:</span>
+<a id="__codelineno-0-552" name="__codelineno-0-552"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-553" name="__codelineno-0-553"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import crs_spec</span>
+<a id="__codelineno-0-554" name="__codelineno-0-554"></a><span class="sd">            &gt;&gt;&gt; crs_spec(4326, &#39;GEOGCS[&quot;WGS 84&quot;]&#39;)</span>
+<a id="__codelineno-0-555" name="__codelineno-0-555"></a><span class="sd">            4326</span>
+<a id="__codelineno-0-556" name="__codelineno-0-556"></a>
+<a id="__codelineno-0-557" name="__codelineno-0-557"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-558" name="__codelineno-0-558"></a><span class="sd">        - A CRS with no EPSG authority falls back to its WKT:</span>
+<a id="__codelineno-0-559" name="__codelineno-0-559"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-560" name="__codelineno-0-560"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import crs_spec</span>
+<a id="__codelineno-0-561" name="__codelineno-0-561"></a><span class="sd">            &gt;&gt;&gt; crs_spec(None, &#39;GEOGCS[&quot;custom&quot;]&#39;)</span>
+<a id="__codelineno-0-562" name="__codelineno-0-562"></a><span class="sd">            &#39;GEOGCS[&quot;custom&quot;]&#39;</span>
+<a id="__codelineno-0-563" name="__codelineno-0-563"></a>
+<a id="__codelineno-0-564" name="__codelineno-0-564"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-565" name="__codelineno-0-565"></a><span class="sd">        - No CRS at all is reported as `None`, not as an empty string:</span>
+<a id="__codelineno-0-566" name="__codelineno-0-566"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-567" name="__codelineno-0-567"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import crs_spec</span>
+<a id="__codelineno-0-568" name="__codelineno-0-568"></a><span class="sd">            &gt;&gt;&gt; crs_spec(None, &quot;&quot;) is None</span>
+<a id="__codelineno-0-569" name="__codelineno-0-569"></a><span class="sd">            True</span>
+<a id="__codelineno-0-570" name="__codelineno-0-570"></a>
+<a id="__codelineno-0-571" name="__codelineno-0-571"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-572" name="__codelineno-0-572"></a>
+<a id="__codelineno-0-573" name="__codelineno-0-573"></a><span class="sd">    See Also:</span>
+<a id="__codelineno-0-574" name="__codelineno-0-574"></a><span class="sd">        require_crs_spec: The variant that raises when there is no CRS.</span>
+<a id="__codelineno-0-575" name="__codelineno-0-575"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-576" name="__codelineno-0-576"></a>    <span class="n">result</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-577" name="__codelineno-0-577"></a>    <span class="k">if</span> <span class="n">epsg</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-578" name="__codelineno-0-578"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">epsg</span>
+<a id="__codelineno-0-579" name="__codelineno-0-579"></a>    <span class="k">elif</span> <span class="n">wkt</span><span class="p">:</span>
+<a id="__codelineno-0-580" name="__codelineno-0-580"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">wkt</span>
+<a id="__codelineno-0-581" name="__codelineno-0-581"></a>    <span class="k">return</span> <span class="n">result</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pyramids.base.crs.require_crs_spec" class="doc doc-heading"><a href="#pyramids.base.crs.require_crs_spec" class="toclink">
+            <code class="highlight language-python"><span class="n">pyramids</span><span class="o">.</span><span class="n">base</span><span class="o">.</span><span class="n">crs</span><span class="o">.</span><span class="n">require_crs_spec</span><span class="p">(</span><span class="n">epsg</span><span class="p">,</span> <span class="n">wkt</span><span class="p">,</span> <span class="n">operation</span><span class="p">)</span></code>
+
+</a><a href="#pyramids.base.crs.require_crs_spec" class="headerlink" title="Permanent link">#</a></h3>
+
+
+    <div class="doc doc-contents first">
+
+        <p>Like :func:<code>crs_spec</code>, but raise when the dataset has no CRS.</p>
+<p>Use at the point of an operation that genuinely cannot proceed without a
+CRS — reprojection, a coordinate transform, a spatial join against a vector.
+Mirrors how GDAL, rasterio, rioxarray and geopandas all behave: a missing
+CRS propagates quietly until something actually needs it, and then fails
+with a message naming the fix.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>epsg</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>EPSG code, or <code>None</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>wkt</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Projection WKT, or an empty string / <code>None</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>operation</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Short description of what needs the CRS, used in the error.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="int">int</span> | <span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>int | str: The EPSG code when there is one, else the WKT.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="pyramids.base._errors.CRSError">CRSError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Neither an EPSG code nor a WKT is available.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <ul>
+<li>Resolves exactly as :func:<code>crs_spec</code> when a CRS is present:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">require_crs_spec</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">require_crs_spec</span><span class="p">(</span><span class="mi">3857</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="s2">&quot;reproject&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="mi">3857</span>
+</code></pre></div></li>
+<li>Refuses, naming the operation, when there is none:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">require_crs_spec</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">...</span>     <span class="n">require_crs_spec</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="s2">&quot;reproject&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">...</span> <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="o">...</span>     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;reproject&quot;</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">))</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="kc">True</span>
+</code></pre></div></li>
+</ul>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/pyramids/base/crs.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-584">584</a></span>
+<span class="normal"><a href="#__codelineno-0-585">585</a></span>
+<span class="normal"><a href="#__codelineno-0-586">586</a></span>
+<span class="normal"><a href="#__codelineno-0-587">587</a></span>
+<span class="normal"><a href="#__codelineno-0-588">588</a></span>
+<span class="normal"><a href="#__codelineno-0-589">589</a></span>
+<span class="normal"><a href="#__codelineno-0-590">590</a></span>
+<span class="normal"><a href="#__codelineno-0-591">591</a></span>
+<span class="normal"><a href="#__codelineno-0-592">592</a></span>
+<span class="normal"><a href="#__codelineno-0-593">593</a></span>
+<span class="normal"><a href="#__codelineno-0-594">594</a></span>
+<span class="normal"><a href="#__codelineno-0-595">595</a></span>
+<span class="normal"><a href="#__codelineno-0-596">596</a></span>
+<span class="normal"><a href="#__codelineno-0-597">597</a></span>
+<span class="normal"><a href="#__codelineno-0-598">598</a></span>
+<span class="normal"><a href="#__codelineno-0-599">599</a></span>
+<span class="normal"><a href="#__codelineno-0-600">600</a></span>
+<span class="normal"><a href="#__codelineno-0-601">601</a></span>
+<span class="normal"><a href="#__codelineno-0-602">602</a></span>
+<span class="normal"><a href="#__codelineno-0-603">603</a></span>
+<span class="normal"><a href="#__codelineno-0-604">604</a></span>
+<span class="normal"><a href="#__codelineno-0-605">605</a></span>
+<span class="normal"><a href="#__codelineno-0-606">606</a></span>
+<span class="normal"><a href="#__codelineno-0-607">607</a></span>
+<span class="normal"><a href="#__codelineno-0-608">608</a></span>
+<span class="normal"><a href="#__codelineno-0-609">609</a></span>
+<span class="normal"><a href="#__codelineno-0-610">610</a></span>
+<span class="normal"><a href="#__codelineno-0-611">611</a></span>
+<span class="normal"><a href="#__codelineno-0-612">612</a></span>
+<span class="normal"><a href="#__codelineno-0-613">613</a></span>
+<span class="normal"><a href="#__codelineno-0-614">614</a></span>
+<span class="normal"><a href="#__codelineno-0-615">615</a></span>
+<span class="normal"><a href="#__codelineno-0-616">616</a></span>
+<span class="normal"><a href="#__codelineno-0-617">617</a></span>
+<span class="normal"><a href="#__codelineno-0-618">618</a></span>
+<span class="normal"><a href="#__codelineno-0-619">619</a></span>
+<span class="normal"><a href="#__codelineno-0-620">620</a></span>
+<span class="normal"><a href="#__codelineno-0-621">621</a></span>
+<span class="normal"><a href="#__codelineno-0-622">622</a></span>
+<span class="normal"><a href="#__codelineno-0-623">623</a></span>
+<span class="normal"><a href="#__codelineno-0-624">624</a></span>
+<span class="normal"><a href="#__codelineno-0-625">625</a></span>
+<span class="normal"><a href="#__codelineno-0-626">626</a></span>
+<span class="normal"><a href="#__codelineno-0-627">627</a></span>
+<span class="normal"><a href="#__codelineno-0-628">628</a></span>
+<span class="normal"><a href="#__codelineno-0-629">629</a></span>
+<span class="normal"><a href="#__codelineno-0-630">630</a></span>
+<span class="normal"><a href="#__codelineno-0-631">631</a></span>
+<span class="normal"><a href="#__codelineno-0-632">632</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-584" name="__codelineno-0-584"></a><span class="k">def</span><span class="w"> </span><span class="nf">require_crs_spec</span><span class="p">(</span><span class="n">epsg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">wkt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">operation</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-585" name="__codelineno-0-585"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Like :func:`crs_spec`, but raise when the dataset has no CRS.</span>
+<a id="__codelineno-0-586" name="__codelineno-0-586"></a>
+<a id="__codelineno-0-587" name="__codelineno-0-587"></a><span class="sd">    Use at the point of an operation that genuinely cannot proceed without a</span>
+<a id="__codelineno-0-588" name="__codelineno-0-588"></a><span class="sd">    CRS — reprojection, a coordinate transform, a spatial join against a vector.</span>
+<a id="__codelineno-0-589" name="__codelineno-0-589"></a><span class="sd">    Mirrors how GDAL, rasterio, rioxarray and geopandas all behave: a missing</span>
+<a id="__codelineno-0-590" name="__codelineno-0-590"></a><span class="sd">    CRS propagates quietly until something actually needs it, and then fails</span>
+<a id="__codelineno-0-591" name="__codelineno-0-591"></a><span class="sd">    with a message naming the fix.</span>
+<a id="__codelineno-0-592" name="__codelineno-0-592"></a>
+<a id="__codelineno-0-593" name="__codelineno-0-593"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-594" name="__codelineno-0-594"></a><span class="sd">        epsg: EPSG code, or `None`.</span>
+<a id="__codelineno-0-595" name="__codelineno-0-595"></a><span class="sd">        wkt: Projection WKT, or an empty string / `None`.</span>
+<a id="__codelineno-0-596" name="__codelineno-0-596"></a><span class="sd">        operation: Short description of what needs the CRS, used in the error.</span>
+<a id="__codelineno-0-597" name="__codelineno-0-597"></a>
+<a id="__codelineno-0-598" name="__codelineno-0-598"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-599" name="__codelineno-0-599"></a><span class="sd">        int | str: The EPSG code when there is one, else the WKT.</span>
+<a id="__codelineno-0-600" name="__codelineno-0-600"></a>
+<a id="__codelineno-0-601" name="__codelineno-0-601"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-602" name="__codelineno-0-602"></a><span class="sd">        CRSError: Neither an EPSG code nor a WKT is available.</span>
+<a id="__codelineno-0-603" name="__codelineno-0-603"></a>
+<a id="__codelineno-0-604" name="__codelineno-0-604"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-605" name="__codelineno-0-605"></a><span class="sd">        - Resolves exactly as :func:`crs_spec` when a CRS is present:</span>
+<a id="__codelineno-0-606" name="__codelineno-0-606"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-607" name="__codelineno-0-607"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import require_crs_spec</span>
+<a id="__codelineno-0-608" name="__codelineno-0-608"></a><span class="sd">            &gt;&gt;&gt; require_crs_spec(3857, &quot;&quot;, &quot;reproject&quot;)</span>
+<a id="__codelineno-0-609" name="__codelineno-0-609"></a><span class="sd">            3857</span>
+<a id="__codelineno-0-610" name="__codelineno-0-610"></a>
+<a id="__codelineno-0-611" name="__codelineno-0-611"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-612" name="__codelineno-0-612"></a><span class="sd">        - Refuses, naming the operation, when there is none:</span>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-614" name="__codelineno-0-614"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import require_crs_spec</span>
+<a id="__codelineno-0-615" name="__codelineno-0-615"></a><span class="sd">            &gt;&gt;&gt; try:</span>
+<a id="__codelineno-0-616" name="__codelineno-0-616"></a><span class="sd">            ...     require_crs_spec(None, &quot;&quot;, &quot;reproject&quot;)</span>
+<a id="__codelineno-0-617" name="__codelineno-0-617"></a><span class="sd">            ... except ValueError as exc:</span>
+<a id="__codelineno-0-618" name="__codelineno-0-618"></a><span class="sd">            ...     print(&quot;reproject&quot; in str(exc))</span>
+<a id="__codelineno-0-619" name="__codelineno-0-619"></a><span class="sd">            True</span>
+<a id="__codelineno-0-620" name="__codelineno-0-620"></a>
+<a id="__codelineno-0-621" name="__codelineno-0-621"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-622" name="__codelineno-0-622"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-623" name="__codelineno-0-623"></a>    <span class="n">spec</span> <span class="o">=</span> <span class="n">crs_spec</span><span class="p">(</span><span class="n">epsg</span><span class="p">,</span> <span class="n">wkt</span><span class="p">)</span>
+<a id="__codelineno-0-624" name="__codelineno-0-624"></a>    <span class="k">if</span> <span class="n">spec</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a>        <span class="k">raise</span> <span class="n">CRSError</span><span class="p">(</span>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a>            <span class="sa">f</span><span class="s2">&quot;cannot </span><span class="si">{</span><span class="n">operation</span><span class="si">}</span><span class="s2">: the raster involved has no CRS. Set one first &quot;</span>
+<a id="__codelineno-0-627" name="__codelineno-0-627"></a>            <span class="sa">f</span><span class="s2">&quot;(e.g. &quot;</span>
+<a id="__codelineno-0-628" name="__codelineno-0-628"></a>            <span class="s2">&quot;`dataset.epsg = &lt;code&gt;`, or `gdal_edit.py -a_srs EPSG:&lt;code&gt; &quot;</span>
+<a id="__codelineno-0-629" name="__codelineno-0-629"></a>            <span class="s2">&quot;&lt;file&gt;` on disk); pyramids does not assume WGS 84 for an &quot;</span>
+<a id="__codelineno-0-630" name="__codelineno-0-630"></a>            <span class="s2">&quot;ungeoreferenced raster.&quot;</span>
+<a id="__codelineno-0-631" name="__codelineno-0-631"></a>        <span class="p">)</span>
+<a id="__codelineno-0-632" name="__codelineno-0-632"></a>    <span class="k">return</span> <span class="n">spec</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pyramids.base.crs.cf_geographic_wkt" class="doc doc-heading"><a href="#pyramids.base.crs.cf_geographic_wkt" class="toclink">
+            <code class="highlight language-python"><span class="n">pyramids</span><span class="o">.</span><span class="n">base</span><span class="o">.</span><span class="n">crs</span><span class="o">.</span><span class="n">cf_geographic_wkt</span><span class="p">(</span><span class="n">units</span><span class="p">,</span> <span class="n">axis_units</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+</a><a href="#pyramids.base.crs.cf_geographic_wkt" class="headerlink" title="Permanent link">#</a></h3>
+
+
+    <div class="doc doc-contents first">
+
+        <p>WGS 84 WKT when CF axis units describe a lat/lon grid, else <code>""</code>.</p>
+<p>CF-1.x lets a data variable carry no <code>grid_mapping</code>; when its coordinate
+axes are in degrees east/north the file <em>is</em> geographic and CF simply leaves
+the datum implicit. GDAL reports an empty projection for those, and the whole
+ecosystem reads them as WGS 84 — so inferring EPSG:4326 from this evidence is
+a convention-backed reading of the metadata, not the blanket "assume WGS 84
+for anything unprojected" default that ARC-26 removed. A raster with no CRS
+and no such evidence still reports no CRS.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>units</code>
+            </td>
+            <td>
+                  <code><span title="set">set</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Lower-cased unit strings from every coordinate array, including
+the 2-D auxiliary lat/lon a curvilinear grid uses.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>axis_units</code>
+            </td>
+            <td>
+                  <code><span title="set">set</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Lower-cased unit strings from the true dimension axes only.
+A linear unit here (<code>m</code>, <code>km</code>, ...) vetoes the inference: the grid
+is projected and its degrees arrays are auxiliary coordinates.
+Defaults to <code>None</code> (no veto).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>str</code></td>            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>WGS 84 WKT when both a longitude and a latitude axis are in degrees,</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>otherwise <code>""</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <ul>
+<li>Degrees on both axes identify a geographic grid:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">cf_geographic_wkt</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">wkt</span> <span class="o">=</span> <span class="n">cf_geographic_wkt</span><span class="p">({</span><span class="s2">&quot;degrees_east&quot;</span><span class="p">,</span> <span class="s2">&quot;degrees_north&quot;</span><span class="p">})</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">&gt;&gt;&gt;</span> <span class="s2">&quot;WGS 84&quot;</span> <span class="ow">in</span> <span class="n">wkt</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="kc">True</span>
+</code></pre></div></li>
+<li>The CF singular spellings are accepted too:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">cf_geographic_wkt</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="nb">bool</span><span class="p">(</span><span class="n">cf_geographic_wkt</span><span class="p">({</span><span class="s2">&quot;degree_east&quot;</span><span class="p">,</span> <span class="s2">&quot;degree_north&quot;</span><span class="p">}))</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kc">True</span>
+</code></pre></div></li>
+<li>One axis alone, or non-degree units, is not evidence:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.base.crs</span><span class="w"> </span><span class="kn">import</span> <span class="n">cf_geographic_wkt</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">cf_geographic_wkt</span><span class="p">({</span><span class="s2">&quot;degrees_east&quot;</span><span class="p">,</span> <span class="s2">&quot;meter&quot;</span><span class="p">})</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="s1">&#39;&#39;</span>
+</code></pre></div></li>
+</ul>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/pyramids/base/crs.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-471">471</a></span>
+<span class="normal"><a href="#__codelineno-0-472">472</a></span>
+<span class="normal"><a href="#__codelineno-0-473">473</a></span>
+<span class="normal"><a href="#__codelineno-0-474">474</a></span>
+<span class="normal"><a href="#__codelineno-0-475">475</a></span>
+<span class="normal"><a href="#__codelineno-0-476">476</a></span>
+<span class="normal"><a href="#__codelineno-0-477">477</a></span>
+<span class="normal"><a href="#__codelineno-0-478">478</a></span>
+<span class="normal"><a href="#__codelineno-0-479">479</a></span>
+<span class="normal"><a href="#__codelineno-0-480">480</a></span>
+<span class="normal"><a href="#__codelineno-0-481">481</a></span>
+<span class="normal"><a href="#__codelineno-0-482">482</a></span>
+<span class="normal"><a href="#__codelineno-0-483">483</a></span>
+<span class="normal"><a href="#__codelineno-0-484">484</a></span>
+<span class="normal"><a href="#__codelineno-0-485">485</a></span>
+<span class="normal"><a href="#__codelineno-0-486">486</a></span>
+<span class="normal"><a href="#__codelineno-0-487">487</a></span>
+<span class="normal"><a href="#__codelineno-0-488">488</a></span>
+<span class="normal"><a href="#__codelineno-0-489">489</a></span>
+<span class="normal"><a href="#__codelineno-0-490">490</a></span>
+<span class="normal"><a href="#__codelineno-0-491">491</a></span>
+<span class="normal"><a href="#__codelineno-0-492">492</a></span>
+<span class="normal"><a href="#__codelineno-0-493">493</a></span>
+<span class="normal"><a href="#__codelineno-0-494">494</a></span>
+<span class="normal"><a href="#__codelineno-0-495">495</a></span>
+<span class="normal"><a href="#__codelineno-0-496">496</a></span>
+<span class="normal"><a href="#__codelineno-0-497">497</a></span>
+<span class="normal"><a href="#__codelineno-0-498">498</a></span>
+<span class="normal"><a href="#__codelineno-0-499">499</a></span>
+<span class="normal"><a href="#__codelineno-0-500">500</a></span>
+<span class="normal"><a href="#__codelineno-0-501">501</a></span>
+<span class="normal"><a href="#__codelineno-0-502">502</a></span>
+<span class="normal"><a href="#__codelineno-0-503">503</a></span>
+<span class="normal"><a href="#__codelineno-0-504">504</a></span>
+<span class="normal"><a href="#__codelineno-0-505">505</a></span>
+<span class="normal"><a href="#__codelineno-0-506">506</a></span>
+<span class="normal"><a href="#__codelineno-0-507">507</a></span>
+<span class="normal"><a href="#__codelineno-0-508">508</a></span>
+<span class="normal"><a href="#__codelineno-0-509">509</a></span>
+<span class="normal"><a href="#__codelineno-0-510">510</a></span>
+<span class="normal"><a href="#__codelineno-0-511">511</a></span>
+<span class="normal"><a href="#__codelineno-0-512">512</a></span>
+<span class="normal"><a href="#__codelineno-0-513">513</a></span>
+<span class="normal"><a href="#__codelineno-0-514">514</a></span>
+<span class="normal"><a href="#__codelineno-0-515">515</a></span>
+<span class="normal"><a href="#__codelineno-0-516">516</a></span>
+<span class="normal"><a href="#__codelineno-0-517">517</a></span>
+<span class="normal"><a href="#__codelineno-0-518">518</a></span>
+<span class="normal"><a href="#__codelineno-0-519">519</a></span>
+<span class="normal"><a href="#__codelineno-0-520">520</a></span>
+<span class="normal"><a href="#__codelineno-0-521">521</a></span>
+<span class="normal"><a href="#__codelineno-0-522">522</a></span>
+<span class="normal"><a href="#__codelineno-0-523">523</a></span>
+<span class="normal"><a href="#__codelineno-0-524">524</a></span>
+<span class="normal"><a href="#__codelineno-0-525">525</a></span>
+<span class="normal"><a href="#__codelineno-0-526">526</a></span>
+<span class="normal"><a href="#__codelineno-0-527">527</a></span>
+<span class="normal"><a href="#__codelineno-0-528">528</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-471" name="__codelineno-0-471"></a><span class="k">def</span><span class="w"> </span><span class="nf">cf_geographic_wkt</span><span class="p">(</span><span class="n">units</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">axis_units</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-472" name="__codelineno-0-472"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;WGS 84 WKT when CF axis units describe a lat/lon grid, else ``&quot;&quot;``.</span>
+<a id="__codelineno-0-473" name="__codelineno-0-473"></a>
+<a id="__codelineno-0-474" name="__codelineno-0-474"></a><span class="sd">    CF-1.x lets a data variable carry no ``grid_mapping``; when its coordinate</span>
+<a id="__codelineno-0-475" name="__codelineno-0-475"></a><span class="sd">    axes are in degrees east/north the file *is* geographic and CF simply leaves</span>
+<a id="__codelineno-0-476" name="__codelineno-0-476"></a><span class="sd">    the datum implicit. GDAL reports an empty projection for those, and the whole</span>
+<a id="__codelineno-0-477" name="__codelineno-0-477"></a><span class="sd">    ecosystem reads them as WGS 84 — so inferring EPSG:4326 from this evidence is</span>
+<a id="__codelineno-0-478" name="__codelineno-0-478"></a><span class="sd">    a convention-backed reading of the metadata, not the blanket &quot;assume WGS 84</span>
+<a id="__codelineno-0-479" name="__codelineno-0-479"></a><span class="sd">    for anything unprojected&quot; default that ARC-26 removed. A raster with no CRS</span>
+<a id="__codelineno-0-480" name="__codelineno-0-480"></a><span class="sd">    and no such evidence still reports no CRS.</span>
+<a id="__codelineno-0-481" name="__codelineno-0-481"></a>
+<a id="__codelineno-0-482" name="__codelineno-0-482"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-483" name="__codelineno-0-483"></a><span class="sd">        units: Lower-cased unit strings from every coordinate array, including</span>
+<a id="__codelineno-0-484" name="__codelineno-0-484"></a><span class="sd">            the 2-D auxiliary lat/lon a curvilinear grid uses.</span>
+<a id="__codelineno-0-485" name="__codelineno-0-485"></a><span class="sd">        axis_units: Lower-cased unit strings from the true dimension axes only.</span>
+<a id="__codelineno-0-486" name="__codelineno-0-486"></a><span class="sd">            A linear unit here (`m`, `km`, ...) vetoes the inference: the grid</span>
+<a id="__codelineno-0-487" name="__codelineno-0-487"></a><span class="sd">            is projected and its degrees arrays are auxiliary coordinates.</span>
+<a id="__codelineno-0-488" name="__codelineno-0-488"></a><span class="sd">            Defaults to `None` (no veto).</span>
+<a id="__codelineno-0-489" name="__codelineno-0-489"></a>
+<a id="__codelineno-0-490" name="__codelineno-0-490"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-491" name="__codelineno-0-491"></a><span class="sd">        str: WGS 84 WKT when both a longitude and a latitude axis are in degrees,</span>
+<a id="__codelineno-0-492" name="__codelineno-0-492"></a><span class="sd">        otherwise ``&quot;&quot;``.</span>
+<a id="__codelineno-0-493" name="__codelineno-0-493"></a>
+<a id="__codelineno-0-494" name="__codelineno-0-494"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-495" name="__codelineno-0-495"></a><span class="sd">        - Degrees on both axes identify a geographic grid:</span>
+<a id="__codelineno-0-496" name="__codelineno-0-496"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-497" name="__codelineno-0-497"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import cf_geographic_wkt</span>
+<a id="__codelineno-0-498" name="__codelineno-0-498"></a><span class="sd">            &gt;&gt;&gt; wkt = cf_geographic_wkt({&quot;degrees_east&quot;, &quot;degrees_north&quot;})</span>
+<a id="__codelineno-0-499" name="__codelineno-0-499"></a><span class="sd">            &gt;&gt;&gt; &quot;WGS 84&quot; in wkt</span>
+<a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="sd">            True</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-503" name="__codelineno-0-503"></a><span class="sd">        - The CF singular spellings are accepted too:</span>
+<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-505" name="__codelineno-0-505"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import cf_geographic_wkt</span>
+<a id="__codelineno-0-506" name="__codelineno-0-506"></a><span class="sd">            &gt;&gt;&gt; bool(cf_geographic_wkt({&quot;degree_east&quot;, &quot;degree_north&quot;}))</span>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a><span class="sd">            True</span>
+<a id="__codelineno-0-508" name="__codelineno-0-508"></a>
+<a id="__codelineno-0-509" name="__codelineno-0-509"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-510" name="__codelineno-0-510"></a><span class="sd">        - One axis alone, or non-degree units, is not evidence:</span>
+<a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-512" name="__codelineno-0-512"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import cf_geographic_wkt</span>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="sd">            &gt;&gt;&gt; cf_geographic_wkt({&quot;degrees_east&quot;, &quot;meter&quot;})</span>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">            &#39;&#39;</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a>
+<a id="__codelineno-0-516" name="__codelineno-0-516"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a>    <span class="n">has_lon</span> <span class="o">=</span> <span class="nb">any</span><span class="p">(</span><span class="n">u</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">LON_UNIT_PREFIXES</span><span class="p">)</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">units</span><span class="p">)</span>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a>    <span class="n">has_lat</span> <span class="o">=</span> <span class="nb">any</span><span class="p">(</span><span class="n">u</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">LAT_UNIT_PREFIXES</span><span class="p">)</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">units</span><span class="p">)</span>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a>    <span class="c1"># A linear unit on a real *axis* means the grid is projected, and any degrees</span>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a>    <span class="c1"># arrays are auxiliary lat/lon coordinates rather than the CRS. Without this</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a>    <span class="c1"># a CF file with metre x/y plus 2-D aux lat/lon and no grid_mapping is</span>
+<a id="__codelineno-0-523" name="__codelineno-0-523"></a>    <span class="c1"># reported as WGS 84 on a metre geotransform. The check looks only at</span>
+<a id="__codelineno-0-524" name="__codelineno-0-524"></a>    <span class="c1"># `axis_units` because a data variable may legitimately be in metres (a ROMS</span>
+<a id="__codelineno-0-525" name="__codelineno-0-525"></a>    <span class="c1"># bathymetry or sea-surface height) on an otherwise geographic grid.</span>
+<a id="__codelineno-0-526" name="__codelineno-0-526"></a>    <span class="n">projected</span> <span class="o">=</span> <span class="nb">any</span><span class="p">(</span><span class="n">u</span> <span class="ow">in</span> <span class="n">PROJECTED_AXIS_UNITS</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="p">(</span><span class="n">axis_units</span> <span class="ow">or</span> <span class="nb">set</span><span class="p">()))</span>
+<a id="__codelineno-0-527" name="__codelineno-0-527"></a>    <span class="n">geographic</span> <span class="o">=</span> <span class="n">has_lon</span> <span class="ow">and</span> <span class="n">has_lat</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">projected</span>
+<a id="__codelineno-0-528" name="__codelineno-0-528"></a>    <span class="k">return</span> <span class="n">sr_from_epsg</span><span class="p">(</span><span class="mi">4326</span><span class="p">)</span><span class="o">.</span><span class="n">ExportToWkt</span><span class="p">()</span> <span class="k">if</span> <span class="n">geographic</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
