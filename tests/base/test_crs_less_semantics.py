@@ -55,7 +55,9 @@ class TestEpsgOfCrs:
             here, so an ungeoreferenced raster claimed to be WGS 84.
         """
         assert epsg_of_crs("") is None, "an empty projection must not resolve to a CRS"
-        assert epsg_of_crs(None) is None, "a missing projection must not resolve to a CRS"
+        assert epsg_of_crs(None) is None, (
+            "a missing projection must not resolve to a CRS"
+        )
 
     def test_real_projection_resolves(self):
         """A real projection still resolves to its EPSG code."""
@@ -85,7 +87,9 @@ class TestCrsSpec:
 
     def test_require_passes_a_present_crs_through(self):
         """A present CRS is returned unchanged."""
-        assert require_crs_spec(3857, "", "reproject") == 3857, "a real CRS must pass through"
+        assert require_crs_spec(3857, "", "reproject") == 3857, (
+            "a real CRS must pass through"
+        )
 
 
 class TestCfGeographicInference:
@@ -98,7 +102,9 @@ class TestCfGeographicInference:
             CF leaves the datum implicit for a lat/lon grid with no
             `grid_mapping`; the whole ecosystem reads those as WGS 84.
         """
-        assert cf_geographic_wkt({"degrees_east", "degrees_north"}), "CF degrees axes are geographic"
+        assert cf_geographic_wkt({"degrees_east", "degrees_north"}), (
+            "CF degrees axes are geographic"
+        )
 
     @pytest.mark.parametrize(
         "units", [{"degree_east", "degree_north"}, {"degreeE", "degreeN"}]
@@ -118,7 +124,9 @@ class TestCfGeographicInference:
 
     def test_one_axis_alone_is_not_evidence(self):
         """A longitude axis without a latitude axis proves nothing."""
-        assert cf_geographic_wkt({"degrees_east"}) == "", "one axis alone is not a geographic grid"
+        assert cf_geographic_wkt({"degrees_east"}) == "", (
+            "one axis alone is not a geographic grid"
+        )
 
     def test_projected_axis_units_veto_the_inference(self):
         """A metre axis means the grid is projected, whatever else it ships.
@@ -171,11 +179,15 @@ class TestGeoboxCrs:
 
     def test_wkt_is_authoritative(self):
         """The recorded WKT wins over the EPSG code."""
-        assert geobox_crs({"crs_wkt": "GEOGCS[]", "epsg": 4326}) == "GEOGCS[]", "crs_wkt is authoritative"
+        assert geobox_crs({"crs_wkt": "GEOGCS[]", "epsg": 4326}) == "GEOGCS[]", (
+            "crs_wkt is authoritative"
+        )
 
     def test_epsg_used_when_no_wkt(self):
         """A bare EPSG code is used when no WKT was recorded."""
-        assert geobox_crs({"crs_wkt": "", "epsg": 3857}) == 3857, "the EPSG code is the fallback"
+        assert geobox_crs({"crs_wkt": "", "epsg": 3857}) == 3857, (
+            "the EPSG code is the fallback"
+        )
 
     def test_zero_sentinel_is_absent_not_wgs84(self):
         """The `epsg: 0` sentinel means no CRS, not WGS 84.
@@ -184,4 +196,6 @@ class TestGeoboxCrs:
             The readers previously spelled this `geobox["epsg"] or 4326`, which
             resurrected the removed default on every round trip.
         """
-        assert geobox_crs({"crs_wkt": "", "epsg": 0}) is None, "epsg 0 means no authority code"
+        assert geobox_crs({"crs_wkt": "", "epsg": 0}) is None, (
+            "epsg 0 means no authority code"
+        )

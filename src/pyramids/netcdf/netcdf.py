@@ -1014,9 +1014,9 @@ class NetCDF(Dataset):
                         crs = str(variable_crs)
                         break
             except (RuntimeError, AttributeError, ValueError, TypeError):
-            # GDAL surfaces a bad/absent group as RuntimeError; the rest guard a
-            # half-built object during __init__. Deliberately NOT bare Exception:
-            # that hid the initialisation-order bug this comment used to excuse.
+                # GDAL surfaces a bad/absent group as RuntimeError; the rest guard a
+                # half-built object during __init__. Deliberately NOT bare Exception:
+                # that hid the initialisation-order bug this comment used to excuse.
                 crs = ""
             cached = crs
             self._container_crs_cache = cached

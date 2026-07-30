@@ -445,8 +445,18 @@ LAT_UNIT_PREFIXES = ("degrees_n", "degree_n", "degreen")
 # Units that mark a *projected* spatial axis. Their presence is counter-evidence:
 # a file carrying metre x/y axes is projected, and any degrees arrays alongside
 # them are auxiliary lat/lon coordinates, not the grid's CRS.
-PROJECTED_AXIS_UNITS = ("m", "metre", "meter", "metres", "meters", "km", "kilometre",
-                        "kilometer", "kilometres", "kilometers")
+PROJECTED_AXIS_UNITS = (
+    "m",
+    "metre",
+    "meter",
+    "metres",
+    "meters",
+    "km",
+    "kilometre",
+    "kilometer",
+    "kilometres",
+    "kilometers",
+)
 
 
 def cf_geographic_wkt(units: set[str], axis_units: set[str] | None = None) -> str:

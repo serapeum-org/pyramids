@@ -235,8 +235,18 @@ if TYPE_CHECKING:
 # axis units — the only ones allowed to veto the CF geographic inference.
 _AXIS_VARIABLE_NAMES = frozenset(
     {
-        "x", "y", "lon", "lat", "longitude", "latitude",
-        "rlon", "rlat", "easting", "northing", "xc", "yc",
+        "x",
+        "y",
+        "lon",
+        "lat",
+        "longitude",
+        "latitude",
+        "rlon",
+        "rlat",
+        "easting",
+        "northing",
+        "xc",
+        "yc",
     }
 )
 
@@ -1317,7 +1327,8 @@ class Dataset(RasterBase):
                 value.strip().lower()
                 for key, value in metadata.items()
                 if isinstance(value, str)
-                and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower() in _AXIS_VARIABLE_NAMES
+                and key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
+                in _AXIS_VARIABLE_NAMES
                 and key.lower().endswith("#units")
             }
             crs = cf_geographic_wkt(units, axis_units)
