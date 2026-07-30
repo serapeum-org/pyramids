@@ -938,7 +938,8 @@ class COG(_Engine["Dataset"]):
                 height.
             bbox_crs: CRS of `bbox`. `None` (default) means the bbox is already
                 in the raster's own coordinates. Reprojected to the dataset CRS
-                when different. Defaults to 4326 (WGS84 lon/lat).
+                when different. Defaults to `None`, meaning the coordinates are
+                already in the raster's own CRS, so nothing is transformed.
             resampling: Resampling method, case-insensitive. One of `nearest`,
                 `bilinear`, `cubic`, `cubicspline` (alias `cubic_spline`),
                 `lanczos`, `average`, `mode`, plus `gauss` and `rms` when the
@@ -1148,8 +1149,10 @@ class COG(_Engine["Dataset"]):
         Args:
             x: X / longitude / easting in `point_crs`.
             y: Y / latitude / northing in `point_crs`.
-            point_crs: EPSG code of `(x, y)`. Reprojected to the dataset CRS
-                when different. Defaults to 4326.
+            point_crs: CRS of `(x, y)`. `None` (the default) means the point is
+                already in the raster's own coordinates. Reprojected to the dataset CRS
+                when different. Defaults to `None`, meaning the coordinates are
+                already in the raster's own CRS, so nothing is transformed.
             band: 0-based band index. `None` samples all bands.
 
         Raises:
@@ -1286,17 +1289,17 @@ class COG(_Engine["Dataset"]):
         Args:
             x: X / longitude in `point_crs`.
             y: Y / latitude in `point_crs`.
-            point_crs: EPSG code of `(x, y)`.
+            point_crs: CRS of `(x, y)`. `None` (the default) means the point is
+                already in the raster's own coordinates.
 
         Returns:
             `(col, row)` integer pixel indices (floored).
         """
-        # Same reasoning as the bbox path: with no CRS the point is read as
-        # already being in the raster's own coordinate space rather than refused.
-        if (
-            self._ds.epsg != point_crs
-            and crs_spec(self._ds.epsg, self._ds.crs) is not None
-        ):
+        # Mirrors the bbox path: `None` means the point is already in the
+        # raster's own coordinates, so there is nothing to transform. Without
+        # this early-out the default builds a transformer FROM None and fails on
+        # every georeferenced raster.
+        if point_crs is not None and self._ds.epsg != point_crs:
             transformer = _cached_transformer(
                 point_crs,
                 require_crs_spec(self._ds.epsg, self._ds.crs, "sample a point"),
