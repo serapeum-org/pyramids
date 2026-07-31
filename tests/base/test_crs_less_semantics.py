@@ -20,6 +20,7 @@ from pyramids.base.crs import (
     epsg_of_crs,
     require_crs_spec,
     sr_from_epsg,
+    within_lonlat_range,
 )
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.ops._geobox_zarr import geobox_crs
@@ -635,3 +636,55 @@ class TestNetCDFGlobalAttributeProvenance:
         raster.SetMetadataItem("epsg", "32636")
         raster = None
         assert NetCDF.read_file(path).epsg is None, "a stray attribute is not a CRS"
+
+
+class TestGlobalGridExtents:
+    """Tests that the lon/lat range check does not reject real global grids.
+
+    The check exists to stop a projected grid being read as lat/lon. It must not
+    cost the geographic files it was never aimed at — a geotransform measures the
+    *outer pixel edge*, so a global grid legitimately overshoots +-180 / +-90.
+    """
+
+    @pytest.mark.parametrize(
+        ("label", "geotransform", "size"),
+        [
+            ("pole-centred 2.5 deg", [-181.25, 2.5, 0.0, 91.25, 0.0, -2.5], (144, 73)),
+            ("pole-centred 5 deg", [-182.5, 5.0, 0.0, 92.5, 0.0, -5.0], (72, 37)),
+            ("0..360 longitudes", [-0.5, 1.0, 0.0, 90.5, 0.0, -1.0], (360, 181)),
+            ("edge-based -180..180", [-180.0, 1.0, 0.0, 90.0, 0.0, -1.0], (360, 180)),
+        ],
+    )
+    def test_a_global_cf_grid_keeps_its_crs(self, tmp_path, label, geotransform, size):
+        """A global CF grid is still WGS 84 however its edges fall.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            label: Human-readable grid description, used for the filename.
+            geotransform: Six-element GDAL geotransform under test.
+            size: `(columns, rows)` of the grid.
+
+        Test scenario:
+            Grids whose cell *centres* sit at +-90 / 0..360 put the geotransform
+            edge half a cell beyond the pole or the antimeridian. A tight range
+            check strips the CRS from some of the most common files there are.
+        """
+        columns, rows = size
+        path = str(tmp_path / f"{label.replace(' ', '_').replace('.', '')}.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(
+            path, columns, rows, 1, gdal.GDT_Float32
+        )
+        raster.SetGeoTransform(geotransform)
+        raster.SetMetadata({"lon#units": "degrees_east", "lat#units": "degrees_north"})
+        raster = None
+        dataset = Dataset.read_file(path)
+        assert dataset.epsg == 4326, f"{label} must still read as WGS 84"
+
+    def test_a_projected_extent_is_still_refused(self):
+        """The check still does the job it was added for."""
+        assert not within_lonlat_range((400000.0, 5000000.0, 410000.0, 5010000.0)), (
+            "a UTM extent must not pass as lon/lat"
+        )
+        assert not within_lonlat_range(
+            (-20037508.0, -20037508.0, 20037508.0, 20037508.0)
+        ), "a Web-Mercator extent must not pass as lon/lat"

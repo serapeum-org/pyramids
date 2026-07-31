@@ -492,6 +492,13 @@ PROJECTED_AXIS_UNITS = (
 )
 
 
+# Loosest extent still readable as lon/lat degrees. See `within_lonlat_range`:
+# these only have to separate degrees from projected coordinates, so they err
+# generous -- a pole-centred or 0..360 grid must not be misread as projected.
+_MAX_PLAUSIBLE_LON = 400.0
+_MAX_PLAUSIBLE_LAT = 100.0
+
+
 def within_lonlat_range(bounds: tuple[float, float, float, float] | None) -> bool:
     """Whether a raster's own extent could be longitude / latitude degrees.
 
@@ -502,8 +509,14 @@ def within_lonlat_range(bounds: tuple[float, float, float, float] | None) -> boo
     metre-scale eastings, so the geographic reading is refused on the geometry
     rather than on the name of the variable that offered the units.
 
-    Longitudes are allowed out to +-360 because CF files use both the -180..180
-    and 0..360 conventions, and a subset of either may be shifted.
+    The bounds are deliberately loose, because the check only has to separate
+    degrees from *projected* coordinates and every projected frame is orders of
+    magnitude larger (a UTM northing runs to 10^7, Web Mercator to 2x10^7). Being
+    tight instead costs real files: longitudes are allowed out to +-400 because CF
+    uses both the -180..180 and 0..360 conventions and a geotransform measures the
+    outer pixel edge, and latitudes out to +-100 because a pole-centred global grid
+    -- lat *centres* at +-90, as many GCMs and reanalyses are written -- has an
+    edge half a cell beyond the pole (91.25 at 2.5 degrees, 92.5 at 5).
 
     Args:
         bounds: ``(min_x, min_y, max_x, max_y)`` in the raster's own coordinates,
@@ -528,6 +541,14 @@ def within_lonlat_range(bounds: tuple[float, float, float, float] | None) -> boo
             False
 
             ```
+        - A pole-centred global grid overshoots the pole by half a cell, and is
+          still lat/lon:
+            ```python
+            >>> from pyramids.base.crs import within_lonlat_range
+            >>> within_lonlat_range((-181.25, -91.25, 181.25, 91.25))
+            True
+
+            ```
         - An unknown extent is not counter-evidence:
             ```python
             >>> from pyramids.base.crs import within_lonlat_range
@@ -541,10 +562,10 @@ def within_lonlat_range(bounds: tuple[float, float, float, float] | None) -> boo
     else:
         min_x, min_y, max_x, max_y = bounds
         plausible = (
-            -360.0 <= min_x <= 360.0
-            and -360.0 <= max_x <= 360.0
-            and -90.001 <= min_y <= 90.001
-            and -90.001 <= max_y <= 90.001
+            -_MAX_PLAUSIBLE_LON <= min_x <= _MAX_PLAUSIBLE_LON
+            and -_MAX_PLAUSIBLE_LON <= max_x <= _MAX_PLAUSIBLE_LON
+            and -_MAX_PLAUSIBLE_LAT <= min_y <= _MAX_PLAUSIBLE_LAT
+            and -_MAX_PLAUSIBLE_LAT <= max_y <= _MAX_PLAUSIBLE_LAT
         )
     return plausible
 
