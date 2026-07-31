@@ -6460,6 +6460,13 @@ rasterio, rioxarray and geopandas, none of which substitute a default.</p>
 </ul>
 </li>
 </ul>
+<p><strong>A CRS with no EPSG code now reports <code>epsg is None</code> too.</strong> Previously any projection the EPSG register does
+not name — an orthographic or geostationary projection, a rotated pole, a spherical-earth GRIB <code>GEOGCS</code> — fell
+back to <code>4326</code>. That claimed WGS 84 for grids that are not WGS 84: an orthographic frame is not lat/lon at all,
+and a spherical datum differs from the WGS 84 ellipsoid by up to ~20 km.</p>
+<p>The CRS itself is unaffected — <code>ds.crs</code> still returns the WKT, <code>crs_spec()</code> falls back to it, and reprojection,
+cropping and alignment all keep working. Only the <em>code</em> is absent, because there is not one. If your code reads
+<code>ds.epsg</code> on such a grid, read <code>ds.crs</code> (or <code>crs_spec(ds.epsg, ds.crs)</code>) instead.</p>
 <p>If you relied on the old default, set the CRS explicitly — <code>dataset.epsg = &lt;code&gt;</code> in process, or
 <code>gdal_edit.py -a_srs EPSG:&lt;code&gt; &lt;file&gt;</code> on disk. To find affected code, look for <code>.epsg</code> used without a <code>None</code>
 check, and for the <code>dataset.epsg or dataset.crs</code> idiom, which is now <code>crs_spec(dataset.epsg, dataset.crs)</code>.</p>
