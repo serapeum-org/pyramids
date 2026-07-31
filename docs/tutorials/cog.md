@@ -324,10 +324,13 @@ fetched:
 # Whole-image thumbnail (long edge <= 1024 px):
 thumb = ds.preview(max_size=1024)
 
-# A geographic window, decimated to an explicit output size:
-part = ds.read_part((12.4, 41.8, 12.6, 42.0), dst_width=256, dst_height=256)
+# A window, decimated to an explicit output size. `bbox_crs` names the CRS of
+# the bbox; omit it when the bbox is already in the raster's own coordinates.
+part = ds.read_part(
+    (12.4, 41.8, 12.6, 42.0), dst_width=256, dst_height=256, bbox_crs=4326
+)
 
-# A single coordinate value (reprojected from bbox_crs if needed):
+# A single coordinate value, reprojected from `point_crs` when it differs:
 value = ds.point(12.5, 41.9, point_crs=4326)
 
 # A Web-Mercator XYZ/slippy-map tile (no morecantile dependency):

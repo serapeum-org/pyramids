@@ -128,11 +128,15 @@ and how to fix it, where previously the missing CRS was silently filled in with 
   `epsg is None` are no longer treated as matching.
 - `Dataset.crop(bbox=...)` / `NetCDF.crop(bbox=...)` without an explicit `epsg=`.
 
-**`DatasetCollection.to_zarr` / `to_netcdf` record an absent CRS explicitly.** A store written from a cube with
-no CRS now carries `epsg: 0` and an empty `crs_wkt` (previously `4326` and a WGS 84 WKT, which claimed a
-projection the data never had). Readers should treat `epsg: 0` / empty `crs_wkt` as "no CRS"; `geobox_crs()`
-does. A NetCDF's `crs_wkt` / `epsg` root attributes are adopted on read only when written beside the
-`GeoTransform` the same writer emits, so a stray attribute in a third-party file no longer defines the CRS.
+**A cube with no CRS no longer writes a fabricated one.** Previously both writers recorded `4326` and a WGS 84
+WKT, claiming a projection the data never had. Now:
+
+- `to_zarr` records `epsg: 0` with an empty `crs_wkt`. Readers should treat that pair as "no CRS";
+  `geobox_crs()` does.
+- `to_netcdf` **omits** both attributes entirely, since a NetCDF has no geobox slot to put a null in.
+
+On read, a NetCDF's `crs_wkt` / `epsg` root attributes are adopted only when written beside the `GeoTransform`
+the same writer emits, so a stray attribute in a third-party file no longer defines the CRS.
 
 **`read_part(bbox=...)` and `point(...)` changed their default CRS, for every raster.** `bbox_crs` /
 `point_crs` used to default to `4326`, so an unqualified bbox or point was interpreted as lon/lat and
