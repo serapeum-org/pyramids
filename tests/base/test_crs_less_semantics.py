@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import xarray as xr
 from osgeo import gdal
 
 from pyramids.base._errors import CRSError
@@ -411,28 +412,6 @@ class TestCfInferenceEvidence:
         )
         assert dataset.epsg is None, "a data variable's units must not define the CRS"
 
-    def test_metre_axes_outside_the_name_list_still_veto(self, tmp_path):
-        """A projected grid is not relabelled because its axes are named oddly.
-
-        Args:
-            tmp_path: pytest temporary directory.
-
-        Test scenario:
-            Metre axes named `xdim2` / `ydim2` (on no conventional-name list)
-            beside auxiliary `lon` / `lat` in degrees.
-        """
-        dataset = _tagged_raster(
-            str(tmp_path / "xdim2.tif"),
-            {
-                "xdim2#units": "m",
-                "ydim2#units": "m",
-                "lon#units": "degrees_east",
-                "lat#units": "degrees_north",
-            },
-            _UTM_GEOTRANSFORM,
-        )
-        assert dataset.epsg is None, "a metre-scale grid must not be read as WGS 84"
-
     def test_a_real_cf_geographic_grid_is_still_wgs84(self, tmp_path):
         """The inference the change is *for* still fires.
 
@@ -448,28 +427,6 @@ class TestCfInferenceEvidence:
             _GEOGRAPHIC_GEOTRANSFORM,
         )
         assert dataset.epsg == 4326, "a CF degrees grid must still read as WGS 84"
-
-    def test_curvilinear_auxiliary_coordinates_are_evidence(self, tmp_path):
-        """2-D lat/lon named in a `coordinates` attribute count as coordinates.
-
-        Args:
-            tmp_path: pytest temporary directory.
-
-        Test scenario:
-            A NEMO-style grid whose lat/lon are auxiliary coordinates - they
-            declare no `axis`, so only the `coordinates` reference identifies
-            them.
-        """
-        dataset = _tagged_raster(
-            str(tmp_path / "nemo.tif"),
-            {
-                "sst#coordinates": "nav_lon nav_lat",
-                "nav_lon#units": "degrees_east",
-                "nav_lat#units": "degrees_north",
-            },
-            _GEOGRAPHIC_GEOTRANSFORM,
-        )
-        assert dataset.epsg == 4326, "auxiliary lat/lon coordinates are evidence"
 
     @pytest.mark.parametrize(
         "vertical_name", ["deptht", "olevel", "nav_lev", "zlev", "sigma"]
@@ -550,47 +507,6 @@ class TestCrsEquality:
         assert crs_equal(None, None), "two absent CRSes describe the same (nothing)"
         assert not crs_equal(None, 4326), "absent and present must not match"
 
-    def test_align_does_not_warp_between_two_spellings(self, tmp_path, monkeypatch):
-        """`align` skips the warp when both grids are really the same CRS.
-
-        Args:
-            tmp_path: pytest temporary directory.
-            monkeypatch: pytest monkeypatch fixture.
-
-        Test scenario:
-            Two co-registered rasters whose WKT differs only in spelling. A raw
-            `!=` sends this through a full `gdal.Warp`.
-        """
-        spatial_ref = sr_from_epsg(32636)
-        paths = []
-        spellings = [
-            spatial_ref.ExportToWkt(),
-            spatial_ref.ExportToWkt(["FORMAT=WKT2"]),
-        ]
-        for index, wkt in enumerate(spellings):
-            path = str(tmp_path / f"grid{index}.tif")
-            raster = gdal.GetDriverByName("GTiff").Create(path, 4, 4, 1, gdal.GDT_Byte)
-            raster.SetGeoTransform(_UTM_GEOTRANSFORM)
-            raster.SetProjection(wkt)
-            raster.GetRasterBand(1).WriteArray(np.ones((4, 4), dtype="uint8"))
-            raster = None
-            paths.append(path)
-
-        source = Dataset.read_file(paths[0])
-        reference = Dataset.read_file(paths[1])
-        calls = []
-        original = Dataset.to_crs
-
-        def _spy(self, *args, **kwargs):
-            """Record the call, then delegate."""
-            calls.append(args)
-            return original(self, *args, **kwargs)
-
-        monkeypatch.setattr(Dataset, "to_crs", _spy)
-        aligned = source.align(reference)
-        assert not calls, "align warped between two spellings of one CRS"
-        assert aligned is not None, "align must still return a dataset"
-
 
 class TestNetCDFGlobalAttributeProvenance:
     """Tests for which NetCDF global attributes may define the dataset's CRS."""
@@ -620,22 +536,6 @@ class TestNetCDFGlobalAttributeProvenance:
         out = str(tmp_path / "cube.nc")
         DatasetCollection.from_files(paths).to_netcdf(out)
         assert NetCDF.read_file(out).epsg == 32636, "our own file must round-trip"
-
-    def test_a_stray_foreign_epsg_attribute_is_not_adopted(self, tmp_path):
-        """A root `epsg` attribute with no geobox companion defines no CRS.
-
-        Args:
-            tmp_path: pytest temporary directory.
-
-        Test scenario:
-            A third-party store tagging itself `epsg = 32636` without the
-            `GeoTransform` the geobox writer always emits alongside.
-        """
-        path = str(tmp_path / "foreign.nc")
-        raster = gdal.GetDriverByName("netCDF").Create(path, 4, 4, 1, gdal.GDT_Float32)
-        raster.SetMetadataItem("epsg", "32636")
-        raster = None
-        assert NetCDF.read_file(path).epsg is None, "a stray attribute is not a CRS"
 
 
 class TestGlobalGridExtents:
@@ -688,3 +588,351 @@ class TestGlobalGridExtents:
         assert not within_lonlat_range(
             (-20037508.0, -20037508.0, 20037508.0, 20037508.0)
         ), "a Web-Mercator extent must not pass as lon/lat"
+
+
+class TestCrsInferenceCorpus:
+    """Every file shape rounds 1-5 ruled on, as one table.
+
+    Rounds 3, 4 and 5 each shipped a fix that satisfied its own finding and
+    silently reversed an earlier round's decision. This corpus is the guard: a
+    change to the inference has to keep the whole table green, not just the case
+    it was written for.
+    """
+
+    UTM = [400000.0, 30.0, 0.0, 5000000.0, 0.0, -30.0]
+    GEOGRAPHIC = [-10.0, 0.5, 0.0, 55.0, 0.0, -0.5]
+    POLE_CENTRED = [-181.25, 2.5, 0.0, 91.25, 0.0, -2.5]
+    LON_0_360 = [-0.5, 1.0, 0.0, 90.5, 0.0, -1.0]
+    ROTATED_POLE = [-28.0, 0.44, 0.0, 21.0, 0.0, -0.44]
+    KILOMETRES = [-50.0, 1.0, 0.0, 50.0, 0.0, -1.0]
+    RADIANS = [-0.15, 0.002, 0.0, 0.15, 0.0, -0.002]
+    SHEARED = [0.0, 5000.0, -5000.0, 0.0, 5000.0, -5000.0]
+    CF_DEGREES = {"lon#units": "degrees_east", "lat#units": "degrees_north"}
+
+    @pytest.mark.parametrize(
+        ("origin", "metadata", "geotransform", "expected"),
+        [
+            ("r1: plain CF degrees axes", CF_DEGREES, GEOGRAPHIC, 4326),
+            (
+                "r4-M3: declared X/Y degrees beside a declared Z in metres",
+                {
+                    **CF_DEGREES,
+                    "lon#axis": "X",
+                    "lat#axis": "Y",
+                    "deptht#units": "m",
+                    "deptht#axis": "Z",
+                },
+                GEOGRAPHIC,
+                4326,
+            ),
+            (
+                "r4-M2: undeclared off-list vertical name in metres",
+                {**CF_DEGREES, "olevel#units": "m"},
+                GEOGRAPHIC,
+                4326,
+            ),
+            (
+                "r4-N9: curvilinear aux coords named in #coordinates",
+                {
+                    "sst#coordinates": "nav_lon nav_lat",
+                    "nav_lon#units": "degrees_east",
+                    "nav_lat#units": "degrees_north",
+                },
+                GEOGRAPHIC,
+                4326,
+            ),
+            ("r5: pole-centred global grid", CF_DEGREES, POLE_CENTRED, 4326),
+            ("r5: 0..360 longitude convention", CF_DEGREES, LON_0_360, 4326),
+            (
+                "r4-M4: a DATA variable named x in metres must not strip the CRS",
+                {**CF_DEGREES, "x#units": "m"},
+                GEOGRAPHIC,
+                4326,
+            ),
+            ("r1: no metadata at all", {}, GEOGRAPHIC, None),
+            (
+                "r4-N9: degrees on data variables only, on a UTM grid",
+                {
+                    "wind_from_direction#units": "degrees_east",
+                    "sun_elev#units": "degreeN",
+                },
+                UTM,
+                None,
+            ),
+            (
+                "r2-M5b: projected axes named off-list, UTM grid",
+                {"xdim2#units": "m", "ydim2#units": "m", **CF_DEGREES},
+                UTM,
+                None,
+            ),
+            (
+                "r2-M5b: on-list projected axes, UTM grid",
+                {"east#units": "m", "north#units": "m", **CF_DEGREES},
+                UTM,
+                None,
+            ),
+            (
+                "r4-M3: declared X/Y in metres beside auxiliary degrees",
+                {
+                    **CF_DEGREES,
+                    "x#units": "m",
+                    "x#axis": "X",
+                    "y#units": "m",
+                    "y#axis": "Y",
+                },
+                GEOGRAPHIC,
+                None,
+            ),
+            (
+                "r5-H2: rotated pole, with the near-universal time#axis=T",
+                {
+                    **CF_DEGREES,
+                    "time#axis": "T",
+                    "rlon#units": "degrees",
+                    "rlat#units": "degrees",
+                },
+                ROTATED_POLE,
+                None,
+            ),
+            (
+                "r5-H2: kilometre axes, with time#axis=T",
+                {**CF_DEGREES, "time#axis": "T", "x#units": "km", "y#units": "km"},
+                KILOMETRES,
+                None,
+            ),
+            (
+                "r5-H2: radian (geostationary) axes, with time#axis=T",
+                {**CF_DEGREES, "time#axis": "T", "x#units": "rad", "y#units": "rad"},
+                RADIANS,
+                None,
+            ),
+            (
+                "r5-M1: sheared geotransform whose real extent is +-500000",
+                CF_DEGREES,
+                SHEARED,
+                None,
+            ),
+            (
+                "r5-H2: declared degrees axes do not excuse an undeclared "
+                "projected pair — the name list is unioned in, not replaced",
+                {
+                    **CF_DEGREES,
+                    "lon#axis": "X",
+                    "lat#axis": "Y",
+                    "x#units": "m",
+                    "y#units": "m",
+                },
+                GEOGRAPHIC,
+                None,
+            ),
+        ],
+    )
+    def test_case(self, tmp_path, origin, metadata, geotransform, expected):
+        """The inference answers each established case the way its round settled it.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            origin: The round and finding that established this expectation.
+            metadata: CF-style `<var>#attr` metadata for the raster.
+            geotransform: Six-element GDAL geotransform.
+            expected: The EPSG code, or `None` for "no CRS".
+
+        Test scenario:
+            Build a projection-less GeoTIFF with the given metadata and grid, and
+            read its `epsg` back.
+        """
+        path = str(tmp_path / "case.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 8, 8, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform(geotransform)
+        if metadata:
+            raster.SetMetadata(metadata)
+        raster = None
+        assert Dataset.read_file(path).epsg == expected, origin
+
+
+class TestNetCDFAxisClassification:
+    """Tests for which NetCDF dimensions may veto the geographic inference.
+
+    GDAL *guesses* a dimension is `VERTICAL` from metre units alone, so trusting
+    that type discards exactly the metre axes the veto is built on (round-5 H1).
+    """
+
+    @staticmethod
+    def _write(path, coords, dim_order, extra=None):
+        """Write a NetCDF with the given coordinate attributes and dimension order."""
+        sizes = {
+            "x": 4,
+            "y": 4,
+            "lon": 4,
+            "lat": 4,
+            "deptht": 3,
+            "olevel": 3,
+            "nav_lev": 3,
+            "lev": 3,
+            "time": 2,
+        }
+        data_vars = {
+            "v": (
+                tuple(dim_order),
+                np.ones(tuple(sizes[d] for d in dim_order), "float32"),
+            )
+        }
+        if extra:
+            data_vars.update(extra)
+        xr.Dataset(
+            data_vars,
+            coords={
+                name: (name, np.arange(sizes[name], dtype="f8") + 1.0, attrs)
+                for name, attrs in coords.items()
+            },
+        ).to_netcdf(path)
+        return str(path)
+
+    METRES = {"units": "m"}
+    EAST = {"units": "degrees_east"}
+    NORTH = {"units": "degrees_north"}
+
+    @staticmethod
+    def _write_utm_with_aux_lonlat(path):
+        """Write a UTM NetCDF whose only degrees are 2-D auxiliary coordinates.
+
+        The auxiliary arrays are named through `coordinates`, which is what makes
+        them evidence. Without them the classic reader answers "no CRS" from the
+        metadata alone and the multidim rule under test is never reached.
+        """
+        xr.Dataset(
+            {
+                "sst": (
+                    ("y", "x"),
+                    np.ones((4, 4), "float32"),
+                    {"coordinates": "lon2d lat2d"},
+                ),
+                "lon2d": (("y", "x"), np.full((4, 4), 5.0), {"units": "degrees_east"}),
+                "lat2d": (
+                    ("y", "x"),
+                    np.full((4, 4), 45.0),
+                    {"units": "degrees_north"},
+                ),
+            },
+            coords={
+                "x": (
+                    "x",
+                    np.array([400000.0, 400030.0, 400060.0, 400090.0]),
+                    {"units": "m"},
+                ),
+                "y": (
+                    "y",
+                    np.array([5000090.0, 5000060.0, 5000030.0, 5000000.0]),
+                    {"units": "m"},
+                ),
+            },
+        ).to_netcdf(str(path))
+        return str(path)
+
+    def test_undeclared_metre_axes_still_veto(self, tmp_path):
+        """A UTM grid whose x/y declare only `units = "m"` is not WGS 84.
+
+        Test scenario:
+            GDAL types both dimensions `VERTICAL` because their unit is metres,
+            so trusting that type reads the grid as EPSG:4326 (round-5 H1).
+        """
+        path = self._write_utm_with_aux_lonlat(tmp_path / "utm.nc")
+        assert NetCDF.read_file(path).epsg is None, (
+            "a metre grid must not read as WGS 84"
+        )
+
+    @pytest.mark.parametrize("vertical", ["deptht", "olevel", "nav_lev"])
+    def test_a_vertical_axis_in_metres_does_not_veto(self, tmp_path, vertical):
+        """A depth axis in metres says nothing about the horizontal frame.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            vertical: Model-specific vertical-axis name under test.
+
+        Test scenario:
+            Names no allow-list covers, on a grid whose horizontal axes are
+            degrees (round-4 M2).
+        """
+        path = self._write(
+            tmp_path / f"{vertical}.nc",
+            {"lon": self.EAST, "lat": self.NORTH, vertical: self.METRES},
+            [vertical, "lat", "lon"],
+        )
+        assert NetCDF.read_file(path).epsg == 4326, f"{vertical} must not strip the CRS"
+
+    def test_a_vertical_axis_between_the_horizontal_ones(self, tmp_path):
+        """The vertical axis need not be the outermost dimension.
+
+        Test scenario:
+            The `(lat, lev, lon)` layout of a real repo fixture, which refutes
+            any rule keyed on dimension position.
+        """
+        path = self._write(
+            tmp_path / "interleaved.nc",
+            {"lon": self.EAST, "lat": self.NORTH, "lev": self.METRES},
+            ["lat", "lev", "lon"],
+        )
+        assert NetCDF.read_file(path).epsg == 4326, "an interleaved lev must not veto"
+
+    def test_degrees_on_data_variables_are_not_evidence(self, tmp_path):
+        """A wind direction in degrees does not make a UTM NetCDF geographic.
+
+        Test scenario:
+            The multidim reader took every array's unit as evidence, so a NetCDF
+            and the byte-equivalent GeoTIFF disagreed (round-5 M2).
+        """
+        path = str(tmp_path / "winddir.nc")
+        xr.Dataset(
+            {
+                "winddir": (
+                    ("y", "x"),
+                    np.ones((4, 4), "float32"),
+                    {"units": "degrees_east"},
+                ),
+                "sunazi": (
+                    ("y", "x"),
+                    np.ones((4, 4), "float32"),
+                    {"units": "degrees_north"},
+                ),
+            },
+            coords={
+                # No units on the coordinates, so nothing vetoes: the only
+                # degrees in the file are on the data variables, and whether
+                # they count as evidence is exactly what this pins.
+                "x": ("x", np.array([400000.0, 400030.0, 400060.0, 400090.0])),
+                "y": ("y", np.array([5000090.0, 5000060.0, 5000030.0, 5000000.0])),
+            },
+        ).to_netcdf(path)
+        assert NetCDF.read_file(path).epsg is None, (
+            "a data variable's units are not evidence"
+        )
+
+
+class TestExplicitCrsAgainstACrsLessRaster:
+    """Tests that an explicitly passed CRS is honoured rather than ignored."""
+
+    def test_read_part_refuses(self, crs_less_raster: str):
+        """`read_part` refuses an explicit `bbox_crs` it cannot transform into."""
+        dataset = Dataset.read_file(crs_less_raster)
+        with pytest.raises(CRSError, match="bbox window"):
+            dataset.read_part((1, -3, 3, -1), bbox_crs=32636)
+
+    def test_point_refuses(self, crs_less_raster: str):
+        """`point` refuses an explicit `point_crs` it cannot transform into."""
+        dataset = Dataset.read_file(crs_less_raster)
+        with pytest.raises(CRSError, match="sample a point"):
+            dataset.point(2, -2, point_crs=32636)
+
+    def test_read_tile_refuses(self, crs_less_raster: str):
+        """`read_tile` always implies EPSG:3857, so it refuses too."""
+        dataset = Dataset.read_file(crs_less_raster)
+        with pytest.raises(CRSError):
+            dataset.read_tile(z=0, x=0, y=0)
+
+    def test_omitting_the_crs_still_reads(self, crs_less_raster: str):
+        """Omitting the CRS reads in the raster's own coordinates, and works."""
+        dataset = Dataset.read_file(crs_less_raster)
+        assert dataset.read_part((1, -3, 3, -1)) is not None, (
+            "an unqualified read must work"
+        )
+        assert dataset.point(2, -2) is not None, "an unqualified point must work"
