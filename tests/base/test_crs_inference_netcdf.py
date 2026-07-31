@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base.crs import sr_from_epsg
 from pyramids.netcdf import NetCDF
 
 xr = pytest.importorskip("xarray")
@@ -173,3 +174,66 @@ class TestNetCDFAxisClassification:
         assert NetCDF.read_file(path).epsg is None, (
             "a data variable's units are not evidence"
         )
+
+
+class TestGlobalAttributeProvenance:
+    """Tests for which NetCDF root attributes may define the dataset's CRS.
+
+    The geobox writer always emits `GeoTransform` beside `crs_wkt` / `epsg`, so
+    that companion is what distinguishes our own file from a third-party store
+    that happens to carry an attribute called `epsg` (round-5 M5).
+    """
+
+    @staticmethod
+    def _write(path, attrs):
+        """Write a UTM-gridded NetCDF carrying the given root attributes."""
+        dataset = xr.Dataset(
+            {"v": (("y", "x"), np.ones((4, 4), "float32"))},
+            coords={
+                "x": ("x", np.array([400000.0, 400030.0, 400060.0, 400090.0])),
+                "y": ("y", np.array([5000090.0, 5000060.0, 5000030.0, 5000000.0])),
+            },
+        )
+        dataset.attrs.update(attrs)
+        dataset.to_netcdf(str(path))
+        return str(path)
+
+    def test_an_epsg_attribute_alone_is_not_adopted(self, tmp_path):
+        """A root `epsg` with no `GeoTransform` companion defines no CRS.
+
+        Args:
+            tmp_path: pytest temporary directory.
+
+        Test scenario:
+            A third-party store tagging itself `epsg = 32636` — a processing
+            note, a source-data tag — must not become the dataset's CRS.
+        """
+        path = self._write(tmp_path / "foreign.nc", {"epsg": 32636})
+        assert NetCDF.read_file(path).epsg is None, "a stray attribute is not a CRS"
+
+    def test_an_epsg_attribute_beside_a_geotransform_is_adopted(self, tmp_path):
+        """The pair the geobox writer emits together is adopted.
+
+        Args:
+            tmp_path: pytest temporary directory.
+
+        Test scenario:
+            The positive counterpart, so the gate cannot pass by refusing
+            everything.
+        """
+        path = self._write(
+            tmp_path / "ours.nc",
+            {"epsg": 32636, "GeoTransform": "399985 30 0 5000075 0 -30"},
+        )
+        assert NetCDF.read_file(path).epsg == 32636, "our own pair must be adopted"
+
+    def test_a_crs_wkt_attribute_alone_is_not_adopted(self, tmp_path):
+        """The same rule applies to `crs_wkt`.
+
+        Args:
+            tmp_path: pytest temporary directory.
+        """
+        path = self._write(
+            tmp_path / "wkt_only.nc", {"crs_wkt": sr_from_epsg(32636).ExportToWkt()}
+        )
+        assert NetCDF.read_file(path).epsg is None, "a stray crs_wkt is not a CRS"

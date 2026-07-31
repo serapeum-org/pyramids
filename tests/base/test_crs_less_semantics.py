@@ -15,6 +15,7 @@ from osgeo import gdal
 from pyramids.base._errors import CRSError
 from pyramids.base.crs import (
     cf_geographic_wkt,
+    create_sr_from_proj,
     crs_equal,
     crs_spec,
     epsg_of_crs,
@@ -23,6 +24,7 @@ from pyramids.base.crs import (
     within_lonlat_range,
 )
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.engines.spatial import Spatial
 from pyramids.dataset.ops._geobox_zarr import geobox_crs
 from pyramids.netcdf import NetCDF
 
@@ -497,6 +499,43 @@ class TestCrsEquality:
         assert wkt1 != wkt2, "fixture must use two genuinely different spellings"
         assert crs_equal(wkt1, wkt2), "one CRS in two spellings must compare equal"
 
+    def test_one_crs_under_two_citation_names_is_equal(self):
+        """The same definition under a different name is the same CRS.
+
+        Test scenario:
+            What happens when two packages write one projection: identical
+            parameters, different `PROJCS` citation. A raw `!=` on the WKT calls
+            these different systems and warps the data through an identity
+            transform.
+        """
+        spatial_ref = create_sr_from_proj(
+            "+proj=ortho +lat_0=45 +lon_0=9 +datum=WGS84 +units=m +no_defs",
+            string_type="PROJ4",
+        )
+        renamed = create_sr_from_proj(
+            "+proj=ortho +lat_0=45 +lon_0=9 +datum=WGS84 +units=m +no_defs",
+            string_type="PROJ4",
+        )
+        renamed.SetProjCS("my orthographic")
+        first, second = spatial_ref.ExportToWkt(), renamed.ExportToWkt()
+        assert first != second, "fixture must use two spellings"
+        assert crs_equal(first, second), "one CRS renamed is still one CRS"
+
+    def test_the_wkt_branch_is_reachable_through_a_netcdf_variable(self):
+        """`crs_spec` falls back to raw WKT only where no EPSG resolves.
+
+        Test scenario:
+            A geostationary NetCDF variable is the shape that reaches
+            `crs_equal`'s WKT comparison — a plain `Dataset` with an
+            authority-less CRS still resolves to 4326 through `epsg_from_wkt`'s
+            documented default, so it never gets there.
+        """
+        variable = NetCDF.read_file(_GEOSTATIONARY).get_variable("CMI")
+        assert variable.epsg is None, "a geostationary grid resolves to no EPSG"
+        assert isinstance(crs_spec(variable.epsg, variable.crs), str), (
+            "crs_spec must fall back to the raw WKT here"
+        )
+
     def test_different_systems_are_not_equal(self):
         """Distinct CRSes stay distinct."""
         assert not crs_equal(4326, 32636), "different systems must not compare equal"
@@ -777,3 +816,159 @@ class TestExplicitCrsAgainstACrsLessRaster:
             "an unqualified read must work"
         )
         assert dataset.point(2, -2) is not None, "an unqualified point must work"
+
+
+class TestAuxiliaryCoordinateReferences:
+    """Tests that `coordinates` references are what identify auxiliary lat/lon.
+
+    A curvilinear grid's 2-D lat/lon index no dimension and declare no `axis`,
+    so the only thing marking them as coordinates is the data variable's
+    `coordinates` attribute. Using names that are already on the conventional
+    list would pass without the reference ever being read (round-5 L2).
+    """
+
+    def test_off_list_names_are_evidence_when_referenced(self, tmp_path):
+        """Auxiliary coordinates named off-list still identify a geographic grid.
+
+        Args:
+            tmp_path: pytest temporary directory.
+
+        Test scenario:
+            `XLONG_M` / `XLAT_M` (WRF's spelling) appear on no conventional-name
+            list, so only the `coordinates` reference can carry them.
+        """
+        path = str(tmp_path / "wrf.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 8, 8, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform([-10.0, 0.5, 0.0, 55.0, 0.0, -0.5])
+        raster.SetMetadata(
+            {
+                "T2#coordinates": "XLONG_M XLAT_M",
+                "XLONG_M#units": "degrees_east",
+                "XLAT_M#units": "degrees_north",
+            }
+        )
+        raster = None
+        assert Dataset.read_file(path).epsg == 4326, (
+            "a referenced auxiliary coordinate must count as evidence"
+        )
+
+    def test_off_list_names_are_not_evidence_when_unreferenced(self, tmp_path):
+        """The same arrays with no `coordinates` reference are data variables.
+
+        Args:
+            tmp_path: pytest temporary directory.
+
+        Test scenario:
+            Identical metadata minus the reference — nothing then says these are
+            coordinates rather than two more data variables.
+        """
+        path = str(tmp_path / "unreferenced.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 8, 8, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform([-10.0, 0.5, 0.0, 55.0, 0.0, -0.5])
+        raster.SetMetadata(
+            {"XLONG_M#units": "degrees_east", "XLAT_M#units": "degrees_north"}
+        )
+        raster = None
+        assert Dataset.read_file(path).epsg is None, (
+            "an unreferenced array must not count as a coordinate"
+        )
+
+
+class TestAlignSkipsAnUnnecessaryWarp:
+    """Tests that `align` compares CRSes rather than their spellings.
+
+    `crs_spec` falls back to the raw WKT for a CRS with no EPSG authority, which
+    is the only case where the comparison matters — so the fixture must use one,
+    and the spy must patch `Spatial.to_crs`, which is what `align` actually
+    calls (round-5 M6).
+    """
+
+    ORTHOGRAPHIC = "+proj=ortho +lat_0=45 +lon_0=9 +datum=WGS84 +units=m +no_defs"
+
+    def _grid(self, path: str, wkt: str):
+        """Write a small raster carrying the given projection WKT."""
+        raster = gdal.GetDriverByName("GTiff").Create(path, 4, 4, 1, gdal.GDT_Byte)
+        raster.SetGeoTransform([0.0, 30.0, 0.0, 1200.0, 0.0, -30.0])
+        raster.SetProjection(wkt)
+        raster.GetRasterBand(1).WriteArray(np.ones((4, 4), dtype="uint8"))
+        raster = None
+        return Dataset.read_file(path)
+
+    def test_no_warp_between_two_spellings_of_one_crs(self, tmp_path, monkeypatch):
+        """Two spellings of one authority-less CRS must not trigger a warp.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            WKT1 and WKT2 of the same orthographic CRS. Neither resolves to an
+            EPSG code, so `crs_spec` returns the raw WKT and a string comparison
+            warps identical grids through an identity transform.
+        """
+        spatial_ref = create_sr_from_proj(self.ORTHOGRAPHIC, string_type="PROJ4")
+        assert spatial_ref.GetAuthorityCode(None) is None, (
+            "fixture must use a CRS with no EPSG authority"
+        )
+        # The same definition under a different citation name -- what happens
+        # when two packages write the same projection. GDAL normalises WKT on
+        # write, so a WKT1/WKT2 pair would collapse to one string on read.
+        renamed = create_sr_from_proj(self.ORTHOGRAPHIC, string_type="PROJ4")
+        renamed.SetProjCS("my orthographic")
+        source = self._grid(str(tmp_path / "a.tif"), spatial_ref.ExportToWkt())
+        reference = self._grid(str(tmp_path / "b.tif"), renamed.ExportToWkt())
+        assert source.crs != reference.crs, "fixture must use two spellings"
+
+        calls = []
+        original = Spatial.to_crs
+
+        def _spy(self, *args, **kwargs):
+            """Record the call, then delegate."""
+            calls.append(args)
+            return original(self, *args, **kwargs)
+
+        # Reproduce the only shape that reaches the comparison: `epsg is None`
+        # with a CRS set, so `crs_spec` returns the raw WKT. That is what a
+        # geostationary NetCDF variable reports (pinned by
+        # `TestCrsEquality.test_the_wkt_branch_is_reachable_through_a_netcdf_variable`);
+        # a plain Dataset resolves an authority-less CRS to 4326 instead, which
+        # makes both sides ints and the comparison trivially equal either way.
+        source._epsg = None
+        reference._epsg = None
+        assert isinstance(crs_spec(source.epsg, source.crs), str), (
+            "the fixture must reach the raw-WKT comparison"
+        )
+
+        monkeypatch.setattr(Spatial, "to_crs", _spy)
+        assert source.align(reference) is not None, "align must return a dataset"
+        assert not calls, "align warped between two spellings of one CRS"
+
+    def test_the_spy_does_fire_when_a_warp_is_needed(self, tmp_path, monkeypatch):
+        """The same spy records a call when the CRSes genuinely differ.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            Without this, the no-warp assertion above would hold vacuously — the
+            defect round 5 found in its predecessor.
+        """
+        source = self._grid(
+            str(tmp_path / "utm.tif"), sr_from_epsg(32636).ExportToWkt()
+        )
+        reference = self._grid(
+            str(tmp_path / "other.tif"), sr_from_epsg(32637).ExportToWkt()
+        )
+
+        calls = []
+        original = Spatial.to_crs
+
+        def _spy(self, *args, **kwargs):
+            """Record the call, then delegate."""
+            calls.append(args)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(Spatial, "to_crs", _spy)
+        source.align(reference)
+        assert calls, "the spy must fire when a warp is genuinely required"
