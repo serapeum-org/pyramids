@@ -1049,31 +1049,48 @@ class NetCDF(Dataset):
             tuple[set[str], set[str]]: `(coordinate units, horizontal axis
             units)`, lower-cased.
         """
-        units: set[str] = set()
+        arrays = {
+            name.rsplit("/", 1)[-1].lower(): group.OpenMDArray(name)
+            for name in group.GetMDArrayNames()
+        }
+        coordinate_names = NetCDF._coordinate_names(arrays.values())
         axis_units: set[str] = set()
-        coordinate_names: set[str] = set()
-        arrays = {}
-        for name in group.GetMDArrayNames():
-            array = group.OpenMDArray(name)
-            arrays[name.rsplit("/", 1)[-1].lower()] = array
-            for attribute in NetCDF._array_attributes(array).items():
-                if attribute[0] == "coordinates":
-                    coordinate_names.update(n.lower() for n in attribute[1].split())
-            for dimension in array.GetDimensions():
-                indexing = dimension.GetIndexingVariable()
-                if indexing is not None:
-                    coordinate_names.add(dimension.GetName().rsplit("/", 1)[-1].lower())
+        for array in arrays.values():
             # Only a data array defines the grid. A 1-D coordinate array's own
             # dimension must not be classified on its own: `deptht(deptht)` has
             # no horizontal pair to compare against, so it would fall through to
             # the fallback and veto as if it were a horizontal axis.
             if len(array.GetDimensions()) >= 2:
                 axis_units.update(NetCDF._horizontal_axis_units(array))
-        for name, array in arrays.items():
-            unit = array.GetUnit()
-            if unit and name in coordinate_names:
-                units.add(unit.strip().lower())
+        units = {
+            array.GetUnit().strip().lower()
+            for name, array in arrays.items()
+            if array.GetUnit() and name in coordinate_names
+        }
         return units, axis_units
+
+    @staticmethod
+    def _coordinate_names(arrays) -> set[str]:
+        """Names of every array that acts as a coordinate.
+
+        Two ways an array qualifies: it indexes a dimension, or a data variable
+        names it in a ``coordinates`` attribute -- which is how CF identifies a
+        curvilinear grid's 2-D lat/lon, since those index nothing.
+
+        Args:
+            arrays: The group's MDArrays.
+
+        Returns:
+            set[str]: Lower-cased coordinate names.
+        """
+        names: set[str] = set()
+        for array in arrays:
+            referenced = NetCDF._array_attributes(array).get("coordinates", "")
+            names.update(name.lower() for name in referenced.split())
+            for dimension in array.GetDimensions():
+                if dimension.GetIndexingVariable() is not None:
+                    names.add(dimension.GetName().rsplit("/", 1)[-1].lower())
+        return names
 
     @staticmethod
     def _array_attributes(node) -> dict[str, str]:
@@ -1155,26 +1172,51 @@ class NetCDF(Dataset):
                 if dim_type in ("HORIZONTAL_X", "HORIZONTAL_Y")
             ]
         else:
-            horizontal = []
-            for dimension, dim_type in zip(dimensions, types):
-                indexing = dimension.GetIndexingVariable()
-                named_vertical = (
-                    dim_type == "VERTICAL"
-                    and dimension.GetName().rsplit("/", 1)[-1].lower()
-                    in VERTICAL_AXIS_NAMES
-                )
-                if dim_type == "TEMPORAL" or named_vertical:
-                    continue
-                if NetCDF._declares_vertical(indexing):
-                    continue
-                horizontal.append(dimension)
-        collected = set()
-        for dimension in horizontal:
-            indexing = dimension.GetIndexingVariable()
-            unit = (indexing.GetUnit() if indexing is not None else "") or ""
-            if unit:
-                collected.add(unit.strip().lower())
-        return collected
+            horizontal = [
+                dimension
+                for dimension, dim_type in zip(dimensions, types)
+                if not NetCDF._is_non_horizontal(dimension, dim_type)
+            ]
+        return {
+            unit.strip().lower()
+            for unit in (NetCDF._dimension_unit(d) for d in horizontal)
+            if unit
+        }
+
+    @staticmethod
+    def _is_non_horizontal(dimension, dim_type: str) -> bool:
+        """Whether a dimension is temporal or vertical when GDAL could not tell.
+
+        Args:
+            dimension: A GDAL multidim dimension.
+            dim_type: Its upper-cased GDAL type.
+
+        Returns:
+            bool: True for a temporal axis, one that declares itself vertical, or
+            a guessed-vertical carrying a conventional vertical name.
+        """
+        named_vertical = (
+            dim_type == "VERTICAL"
+            and dimension.GetName().rsplit("/", 1)[-1].lower() in VERTICAL_AXIS_NAMES
+        )
+        return (
+            dim_type == "TEMPORAL"
+            or named_vertical
+            or NetCDF._declares_vertical(dimension.GetIndexingVariable())
+        )
+
+    @staticmethod
+    def _dimension_unit(dimension) -> str:
+        """Unit of a dimension's indexing variable, or ``""``.
+
+        Args:
+            dimension: A GDAL multidim dimension.
+
+        Returns:
+            str: The unit, or ``""`` when the dimension indexes nothing.
+        """
+        indexing = dimension.GetIndexingVariable()
+        return (indexing.GetUnit() if indexing is not None else "") or ""
 
     def _cf_geographic_crs(self) -> str:
         """WGS 84 WKT when CF metadata says this is a lat/lon grid, else ``""``.
