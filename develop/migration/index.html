@@ -6564,11 +6564,15 @@ and how to fix it, where previously the missing CRS was silently filled in with 
   <code>epsg is None</code> are no longer treated as matching.</li>
 <li><code>Dataset.crop(bbox=...)</code> / <code>NetCDF.crop(bbox=...)</code> without an explicit <code>epsg=</code>.</li>
 </ul>
-<p><strong><code>DatasetCollection.to_zarr</code> / <code>to_netcdf</code> record an absent CRS explicitly.</strong> A store written from a cube with
-no CRS now carries <code>epsg: 0</code> and an empty <code>crs_wkt</code> (previously <code>4326</code> and a WGS 84 WKT, which claimed a
-projection the data never had). Readers should treat <code>epsg: 0</code> / empty <code>crs_wkt</code> as "no CRS"; <code>geobox_crs()</code>
-does. A NetCDF's <code>crs_wkt</code> / <code>epsg</code> root attributes are adopted on read only when written beside the
-<code>GeoTransform</code> the same writer emits, so a stray attribute in a third-party file no longer defines the CRS.</p>
+<p><strong>A cube with no CRS no longer writes a fabricated one.</strong> Previously both writers recorded <code>4326</code> and a WGS 84
+WKT, claiming a projection the data never had. Now:</p>
+<ul>
+<li><code>to_zarr</code> records <code>epsg: 0</code> with an empty <code>crs_wkt</code>. Readers should treat that pair as "no CRS";
+  <code>geobox_crs()</code> does.</li>
+<li><code>to_netcdf</code> <strong>omits</strong> both attributes entirely, since a NetCDF has no geobox slot to put a null in.</li>
+</ul>
+<p>On read, a NetCDF's <code>crs_wkt</code> / <code>epsg</code> root attributes are adopted only when written beside the <code>GeoTransform</code>
+the same writer emits, so a stray attribute in a third-party file no longer defines the CRS.</p>
 <p><strong><code>read_part(bbox=...)</code> and <code>point(...)</code> changed their default CRS, for every raster.</strong> <code>bbox_crs</code> /
 <code>point_crs</code> used to default to <code>4326</code>, so an unqualified bbox or point was interpreted as lon/lat and
 reprojected into the raster's CRS. They now default to <code>None</code>, meaning "already in the raster's own
