@@ -731,7 +731,8 @@ class TestNonSquareResolution:
         """resample((2, 1)) halves the columns, keeps the rows, and yields a 2°×1° grid."""
         result = self._square_source().resample(cell_size=(2.0, 1.0))
         gt = result.geotransform
-        assert abs(gt[1]) == pytest.approx(2.0) and abs(gt[5]) == pytest.approx(1.0), gt
+        assert abs(gt[1]) == pytest.approx(2.0), gt
+        assert abs(gt[5]) == pytest.approx(1.0), gt
         assert result.shape[-2:] == (
             10,
             5,
@@ -741,14 +742,16 @@ class TestNonSquareResolution:
         """A scalar cell_size still produces square cells (no behaviour change)."""
         result = self._square_source().resample(cell_size=2.0)
         gt = result.geotransform
-        assert abs(gt[1]) == pytest.approx(2.0) and abs(gt[5]) == pytest.approx(2.0), gt
+        assert abs(gt[1]) == pytest.approx(2.0), gt
+        assert abs(gt[5]) == pytest.approx(2.0), gt
         assert result.shape[-2:] == (5, 5), f"expected (5, 5), got {result.shape[-2:]}"
 
     def test_to_crs_nonsquare_output(self):
         """to_crs(..., cell_size=(2, 1)) produces a non-square output grid."""
         result = self._square_source().to_crs(4326, cell_size=(2.0, 1.0))
         gt = result.geotransform
-        assert abs(gt[1]) == pytest.approx(2.0) and abs(gt[5]) == pytest.approx(1.0), gt
+        assert abs(gt[1]) == pytest.approx(2.0), gt
+        assert abs(gt[5]) == pytest.approx(1.0), gt
 
     def test_resample_rejects_bad_resolution(self):
         """A non-positive or malformed cell_size raises a clear ValueError."""
@@ -1223,7 +1226,8 @@ class TestArrayToMapCoordinates:
     def test_array_to_map_empty_input(self):
         """Empty index inputs return a pair of empty lists, not an error."""
         x, y = self._nonsquare().array_to_map_coordinates([], [])
-        assert x == [] and y == [], f"empty input must give ([], []), got ({x}, {y})"
+        assert x == [], f"empty input must give an empty x, got {x}"
+        assert y == [], f"empty input must give an empty y, got {y}"
 
     def test_array_to_map_accepts_iterator(self):
         """Non-Sized iterator index inputs are accepted, same as lists.
@@ -1237,7 +1241,8 @@ class TestArrayToMapCoordinates:
             iter([0, 1, 3]), iter([0, 1, 2]), center=True
         )
         x_list, y_list = ds.array_to_map_coordinates([0, 1, 3], [0, 1, 2], center=True)
-        assert x_iter == x_list and y_iter == y_list, "iterator input must match list"
+        assert x_iter == x_list, "iterator x must match list x"
+        assert y_iter == y_list, "iterator y must match list y"
 
     def test_array_to_map_ndarray_input_returns_python_floats(self):
         """NumPy-array indices yield plain Python floats, same values as lists.
@@ -1253,7 +1258,8 @@ class TestArrayToMapCoordinates:
             f"elements must be plain Python floats, got {[type(v) for v in x + y]}"
         )
         x_list, y_list = ds.array_to_map_coordinates([0, 1, 3], [0, 1, 2], center=True)
-        assert x == x_list and y == y_list, "ndarray and list inputs must agree"
+        assert x == x_list, "ndarray and list x must agree"
+        assert y == y_list, "ndarray and list y must agree"
 
     def test_array_to_map_square_unchanged(self):
         """Square north-up grids match the historical width-based formula."""

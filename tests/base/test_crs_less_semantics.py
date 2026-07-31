@@ -1073,7 +1073,8 @@ class TestDerivedStateStaysConsistent:
         raster.SetGeoTransform([-10.0, 0.5, 0.0, 55.0, 0.0, -0.5])
         raster = None
         dataset = Dataset.read_file(path, read_only=False)
-        assert dataset.epsg is None and not dataset.crs, "fixture must start CRS-less"
+        assert dataset.epsg is None, "fixture must start with no EPSG"
+        assert not dataset.crs, "fixture must start with no CRS"
 
         dataset.meta_data = {
             "lon#units": "degrees_east",
@@ -1117,5 +1118,7 @@ class TestDerivedStateStaysConsistent:
         raster.GetRasterBand(1).WriteArray(np.ones((4, 4), dtype="uint8"))
         raster = None
 
+        georeferenced = Dataset.read_file(path)
+        reference = Dataset.read_file(crs_less_raster)
         with pytest.raises(CRSError, match="reference grid"):
-            Dataset.read_file(path).align(Dataset.read_file(crs_less_raster))
+            georeferenced.align(reference)
