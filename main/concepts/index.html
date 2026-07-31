@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6162,8 +6162,14 @@ a <code>GeoDataFrame</code>. You work with Python objects and attributes — nev
 <h2 id="glossary"><a class="toclink" href="#glossary">Glossary</a><a class="headerlink" href="#glossary" title="Permanent link">#</a></h2>
 <p>Terms used across the docs and API, each with the pyramids call that surfaces it.</p>
 <ul>
-<li><strong>CRS / EPSG</strong> — coordinate reference system. <code>ds.epsg</code> returns the integer code; <code>ds.crs</code> the WKT;
-  <code>ds.to_crs(4326)</code> reprojects. See <a href="../reference/base/crs/">CRS helpers</a>.</li>
+<li><strong>CRS / EPSG</strong> — coordinate reference system. <code>ds.epsg</code> returns the integer code, or <code>None</code> when the raster
+  has no CRS at all (and, for a NetCDF geostationary grid, when the CRS
+  carries no EPSG authority); <code>ds.crs</code> the WKT; <code>ds.to_crs(4326)</code>
+  reprojects. pyramids does not assume WGS 84 for an unprojected raster — operations that need a CRS raise
+  <code>CRSError</code> instead. A CF NetCDF whose horizontal <em>coordinate</em> axes are in degrees is still read as EPSG:4326,
+  by CF convention — unless a horizontal axis unit says the grid is projected, rotated-pole or geostationary, or
+  the grid's own extent falls outside the lon/lat range.
+  See <a href="../reference/base/crs/">CRS helpers</a>.</li>
 <li><strong>Geotransform</strong> — the six-number affine mapping pixel (row, col) → map (x, y): <code>ds.geotransform</code>.</li>
 <li><strong>Cell size</strong> — pixel size in CRS units (<code>ds.cell_size</code>); resample with <code>ds.resample(...)</code>.</li>
 <li><strong>Bounds / bbox / extent</strong> — the raster's spatial envelope: <code>ds.bbox</code> (min-x, min-y, max-x, max-y).</li>
