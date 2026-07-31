@@ -936,10 +936,9 @@ class COG(_Engine["Dataset"]):
                 width (no decimation).
             dst_height: Output height in pixels. Defaults to the source window
                 height.
-            bbox_crs: CRS of `bbox`. `None` (default) means the bbox is already
-                in the raster's own coordinates. Reprojected to the dataset CRS
-                when different. Defaults to `None`, meaning the coordinates are
-                already in the raster's own CRS, so nothing is transformed.
+            bbox_crs: CRS of `bbox`, reprojected to the dataset CRS when it
+                differs. Defaults to `None`, meaning the bbox is already in the
+                raster's own coordinates, so nothing is transformed.
             resampling: Resampling method, case-insensitive. One of `nearest`,
                 `bilinear`, `cubic`, `cubicspline` (alias `cubic_spline`),
                 `lanczos`, `average`, `mode`, plus `gauss` and `rms` when the

@@ -447,12 +447,13 @@ def epsg_of_crs(wkt: str | None) -> int | None:
 # match the stem rather than one literal.
 LON_UNIT_PREFIXES = ("degrees_e", "degree_e", "degreee")
 LAT_UNIT_PREFIXES = ("degrees_n", "degree_n", "degreen")
-# Names of vertical axes, used only when a file declares no `axis` attribute at
-# all: a linear unit on one of these describes depth or height, never the
-# horizontal CRS, so such an axis must not veto the geographic inference. A file
-# that does declare `axis: Z` is classified from that value instead -- this list
-# cannot keep up with `deptht`, `olevel`, `nav_lev` and every other model's
-# spelling.
+# Names of vertical axes. A linear unit on one of these describes depth or
+# height, never the horizontal CRS, so such an axis must never veto the
+# geographic inference. This list is a supplement, not a fallback: a file that
+# declares `axis: Z` (or `positive`, or a vertical `standard_name`) is
+# classified from what it declares, because no name list can keep up with
+# `deptht`, `olevel`, `nav_lev` and every other model's spelling. The names
+# still matter for the files that declare nothing.
 VERTICAL_AXIS_NAMES = frozenset(
     {
         "z",
