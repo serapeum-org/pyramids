@@ -498,8 +498,8 @@ class Spatial(_Engine["Dataset"]):
               >>> ortho = dataset.to_crs(to_epsg=proj4)
               >>> osr.SpatialReference(wkt=ortho.crs).IsProjected()
               1
-              >>> ortho.epsg
-              4326
+              >>> ortho.epsg is None  # a bespoke projection has no EPSG code
+              True
 
               ```
             - Contrast ``maintain_alignment=False`` (default) with

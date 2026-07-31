@@ -1051,3 +1051,71 @@ class TestAuthorityLessCrsHasNoEpsg:
         raster.SetProjection(sr_from_epsg(32636).ExportToWkt())
         raster = None
         assert Dataset.read_file(path).epsg == 32636, "a registered CRS keeps its code"
+
+
+class TestDerivedStateStaysConsistent:
+    """Tests for the caches derived from the projection and the metadata."""
+
+    def test_setting_metadata_keeps_crs_and_epsg_in_step(self, tmp_path):
+        """`.crs` and `.epsg` must not disagree after a `meta_data` set.
+
+        Args:
+            tmp_path: pytest temporary directory.
+
+        Test scenario:
+            The CF inference reads this metadata, so setting it can change the
+            answer. Dropping only the WKT memo left `.crs` reporting WGS 84 while
+            `.epsg` reported `None` — a pair documented to mean "a CRS with no
+            EPSG authority", which is something else entirely (round-5 M3).
+        """
+        path = str(tmp_path / "meta.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 4, 4, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform([-10.0, 0.5, 0.0, 55.0, 0.0, -0.5])
+        raster = None
+        dataset = Dataset.read_file(path, read_only=False)
+        assert dataset.epsg is None and not dataset.crs, "fixture must start CRS-less"
+
+        dataset.meta_data = {
+            "lon#units": "degrees_east",
+            "lat#units": "degrees_north",
+        }
+        assert dataset.epsg == 4326, "the inference must re-run after a metadata set"
+        assert bool(dataset.crs) == (dataset.epsg is not None), (
+            "crs and epsg must agree about whether there is a CRS"
+        )
+
+    def test_crs_equal_is_memoised(self):
+        """`crs_equal` must not re-parse both CRSes on every call.
+
+        Test scenario:
+            `read_tile` passes `bbox_crs=3857` for every tile, so an unmemoised
+            comparison re-parsed a WKT per tile — on the very paths the
+            transformer cache exists to keep cheap (round-5 M4).
+        """
+        wkt = sr_from_epsg(32636).ExportToWkt()
+        crs_equal.cache_clear()
+        crs_equal(3857, wkt)
+        assert crs_equal.cache_info().misses == 1, "the first call must compute"
+        crs_equal(3857, wkt)
+        assert crs_equal.cache_info().hits == 1, "the second call must be a cache hit"
+
+    def test_align_says_which_side_lacks_a_crs(self, tmp_path, crs_less_raster: str):
+        """The refusal names the reference grid when that is the side at fault.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            crs_less_raster: A raster with a geotransform but no projection.
+
+        Test scenario:
+            Both `require_crs_spec` calls shared one operation string, so the
+            message could not tell a user which raster to fix (round-5 L5).
+        """
+        path = str(tmp_path / "georeferenced.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 4, 4, 1, gdal.GDT_Byte)
+        raster.SetGeoTransform([0.0, 1.0, 0.0, 4.0, 0.0, -1.0])
+        raster.SetProjection(sr_from_epsg(4326).ExportToWkt())
+        raster.GetRasterBand(1).WriteArray(np.ones((4, 4), dtype="uint8"))
+        raster = None
+
+        with pytest.raises(CRSError, match="reference grid"):
+            Dataset.read_file(path).align(Dataset.read_file(crs_less_raster))

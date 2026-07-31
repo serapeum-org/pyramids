@@ -127,8 +127,10 @@ class TestCorrectWrapCutlineError:
         )
         # The exact spherical GRIB datum is preserved, not relabeled to 4326.
         assert "6371229" in corrected.crs
-        # Reading .epsg must not crash; it falls back to the soft default.
-        assert corrected.epsg == 4326
+        # Reading .epsg must not crash. It reports no code, because a spherical
+        # GRIB datum has none -- the CRS above is preserved either way, and the
+        # test is named for exactly that (ARC-26).
+        assert corrected.epsg is None
 
     def test_unprojected_source_keeps_create_from_array_default(self):
         """An unprojected source keeps the default CRS, not an empty WKT.
