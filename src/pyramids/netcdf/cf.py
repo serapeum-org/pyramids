@@ -105,7 +105,7 @@ def write_attributes_to_md_array(
 
 def build_coordinate_attrs(
     dim_name: str,
-    is_geographic: bool = True,
+    is_geographic: bool | None = True,
 ) -> dict[str, str]:
     """Generate CF-compliant attributes for a coordinate variable.
 
@@ -120,8 +120,12 @@ def build_coordinate_attrs(
     Args:
         dim_name: Dimension name (e.g. `"x"`, `"y"`, `"lat"`,
             `"lon"`, `"time"`). Case-insensitive.
-        is_geographic: True if the CRS is geographic (lon/lat),
-            False if projected (easting/northing in metres).
+        is_geographic: True if the CRS is geographic (lon/lat), False if
+            projected (easting/northing in metres), or `None` when the
+            dataset has no CRS. `None` writes only the `axis` attribute:
+            claiming degrees or metres would assert a georeference the data
+            does not have, which is the same class of fabrication ARC-26
+            removed on the read side.
 
     Returns:
         Dict of CF attribute names to string values. Empty dict
@@ -132,7 +136,11 @@ def build_coordinate_attrs(
 
     if name_lower in ("x", "lon", "longitude"):
         attrs["axis"] = "X"
-        if is_geographic:
+        if is_geographic is None:
+            # No CRS: write the axis role only. Asserting degrees or
+            # metres here would claim a georeference the data lacks.
+            pass
+        elif is_geographic:
             attrs["standard_name"] = "longitude"
             attrs["long_name"] = "longitude"
             attrs["units"] = "degrees_east"
@@ -142,7 +150,11 @@ def build_coordinate_attrs(
             attrs["units"] = "m"
     elif name_lower in ("y", "lat", "latitude"):
         attrs["axis"] = "Y"
-        if is_geographic:
+        if is_geographic is None:
+            # No CRS: write the axis role only. Asserting degrees or
+            # metres here would claim a georeference the data lacks.
+            pass
+        elif is_geographic:
             attrs["standard_name"] = "latitude"
             attrs["long_name"] = "latitude"
             attrs["units"] = "degrees_north"

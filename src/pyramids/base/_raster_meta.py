@@ -47,7 +47,8 @@ class RasterMeta:
             `(top_left_x, pixel_w, row_skew, top_left_y, col_skew,
             pixel_h)`. Stored as a plain tuple so the dataclass
             pickles cleanly without an `affine` dependency.
-        crs: :class:`pyproj.CRS` for the dataset. Pickles via its WKT.
+        crs: :class:`pyproj.CRS` for the dataset, or `None` when it has no
+            CRS at all (an ASCII grid, say). Pickles via its WKT.
         nodata: Per-band nodata tuple. `None` entries mean the
             band has no nodata sentinel.
         block_size: Per-band `(block_width, block_height)` tuple
@@ -80,7 +81,7 @@ class RasterMeta:
     band_count: int
     dtype: str
     transform: GeoTransform
-    crs: CRS
+    crs: CRS | None
     nodata: tuple[float | None, ...] = field(default_factory=tuple)
     block_size: tuple[tuple[int, int], ...] = field(default_factory=tuple)
     band_names: tuple[str, ...] = field(default_factory=tuple)
@@ -92,11 +93,19 @@ class RasterMeta:
 
     @property
     def epsg(self) -> int | None:
-        """EPSG code if the CRS has one; else `None`."""
-        try:
-            return self.crs.to_epsg()
-        except Exception:  # pragma: no cover - defensive
-            return None
+        """EPSG code if there is a CRS and it has one; else `None`.
+
+        `crs` is `None` for a genuinely ungeoreferenced raster (an ASCII grid,
+        say), which is a normal state rather than a defensive edge case — hence
+        the explicit check rather than relying on the handler below.
+        """
+        code = None
+        if self.crs is not None:
+            try:
+                code = self.crs.to_epsg()
+            except (AttributeError, ValueError):
+                code = None
+        return code
 
     @property
     def cell_size(self) -> float:
@@ -122,7 +131,15 @@ class RasterMeta:
             tuple[float, float, float, float, float, float],
             tuple(float(v) for v in ds.geotransform),
         )
-        crs = CRS.from_epsg(int(ds.epsg)) if ds.epsg else CRS.from_wkt(ds.crs)
+        # `ds.crs` is empty for a genuinely ungeoreferenced raster (an ASCII
+        # grid, say). `CRS.from_wkt("")` raises, so report no CRS instead of
+        # inventing one (ARC-26); consumers already handle `crs is None`.
+        if ds.epsg:
+            crs = CRS.from_epsg(int(ds.epsg))
+        elif ds.crs:
+            crs = CRS.from_wkt(ds.crs)
+        else:
+            crs = None
         nodata_raw = tuple(ds.no_data_value) if ds.no_data_value else ()
         nodata = tuple(None if v is None else float(v) for v in nodata_raw)
         block_size = tuple(tuple(bs) for bs in ds._block_size)

@@ -18,8 +18,11 @@ from osgeo import gdal, osr
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
-    epsg_from_wkt,
+    crs_equal,
+    crs_spec,
+    epsg_of_crs,
     reproject_coordinates,
+    require_crs_spec,
     sr_from_epsg,
     sr_from_user_input,
     sr_from_wkt,
@@ -308,7 +311,7 @@ def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> Datase
         # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
         # geostationary grid); create_from_array raises CRSError on None, so fall
         # back to the WKT. No-op for a plain Dataset (reports 4326) (#706).
-        epsg=west_part.epsg or west_part.crs,
+        epsg=crs_spec(west_part.epsg, west_part.crs),
         no_data_value=west_part.no_data_value,
     )
     out.band_names = ds.band_names
@@ -363,10 +366,9 @@ class Spatial(_Engine["Dataset"]):
         # second change the epsg attribute of the Dataset object
         if crs is not None:
             self._ds.raster.SetProjection(crs)
-            # fallback to 4326 when crs is an empty string
-            # (get_epsg_from_prj raises in that case); epsg_from_wkt
-            # absorbs the fallback in one place.
-            self._ds._epsg = epsg_from_wkt(crs)
+            # An empty crs string means "no CRS", which propagates as None
+            # rather than being tagged WGS 84 (ARC-26).
+            self._ds._epsg = epsg_of_crs(crs)
         else:
             # crs is None here, so epsg is not None (the neither-None check above
             # rejects both being None); cast narrows it for the type checker without
@@ -374,6 +376,20 @@ class Spatial(_Engine["Dataset"]):
             sr = sr_from_epsg(cast(int, epsg))
             self._ds.raster.SetProjection(sr.ExportToWkt())
             self._ds._epsg = epsg
+        # A NetCDF container derives its CRS from its variables and memoises the
+        # result, so both caches are stale now. Without this, clearing a
+        # container's CRS is a no-op: `_get_crs` falls straight back to the
+        # cached borrowed value (ARC-26).
+        # The inferred-CF cache exists on every Dataset; the container ones only
+        # on NetCDF. All three derive from the projection just replaced.
+        self._ds.__dict__.pop("_cf_crs_cache", None)
+        if hasattr(self._ds, "_container_crs_cache"):
+            self._ds._container_crs_cache = None
+            self._ds._crs_cache = None  # type: ignore[attr-defined]
+            # Leave it False: the property re-resolves on the next read. Setting
+            # it True here (as an earlier revision did, two lines below) pinned
+            # the pre-set answer and made clearing a CRS a no-op.
+            self._ds._epsg_resolved = False  # type: ignore[attr-defined]
 
     def to_crs(
         self,
@@ -482,8 +498,8 @@ class Spatial(_Engine["Dataset"]):
               >>> ortho = dataset.to_crs(to_epsg=proj4)
               >>> osr.SpatialReference(wkt=ortho.crs).IsProjected()
               1
-              >>> ortho.epsg
-              4326
+              >>> ortho.epsg is None  # a bespoke projection has no EPSG code
+              True
 
               ```
             - Contrast ``maintain_alignment=False`` (default) with
@@ -520,6 +536,12 @@ class Spatial(_Engine["Dataset"]):
               :class:`osr.SpatialReference`.
 
         """
+        # Reprojection is meaningless without a source CRS: GDAL would warp from
+        # an unknown frame and the result would carry `to_epsg` as an unearned
+        # claim, with the geotransform untouched. This is the operation
+        # `require_crs_spec` exists for, so guard it here rather than only at the
+        # callers (ARC-26).
+        require_crs_spec(self._ds.epsg, self._ds.crs, "reproject to another CRS")
         dst_sr = sr_from_user_input(to_epsg)
         resampling_method: int = resolve_resampling(method)
 
@@ -677,10 +699,9 @@ class Spatial(_Engine["Dataset"]):
             int: EPSG number.
         """
         prj = self._get_crs()
-        # get_epsg_from_prj raises on empty input; epsg_from_wkt
-        # absorbs the historical 4326 fallback for datasets without a
-        # projection.
-        epsg = epsg_from_wkt(prj)
+        # No projection means no EPSG; None propagates instead of a
+        # fabricated WGS 84 code (ARC-26).
+        epsg = epsg_of_crs(prj)
 
         return epsg
 
@@ -1432,6 +1453,12 @@ class Spatial(_Engine["Dataset"]):
               ```
 
             ![align-result](./../../_images/dataset/align-result.png)
+
+        Raises:
+            TypeError: `alignment_src` is not a `RasterBase`.
+            CRSError: Either raster has no CRS. Aligning needs both, and
+                pyramids will not assume WGS 84 for an unprojected grid
+                (ARC-26).
         """
         if isinstance(alignment_src, RasterBase):
             src = alignment_src
@@ -1442,9 +1469,26 @@ class Spatial(_Engine["Dataset"]):
             )
 
         # reproject the raster to match the projection of alignment_src
+        # Both sides are required, and the check must sit OUTSIDE the inequality
+        # below: two CRS-less rasters both report `epsg is None`, so they compare
+        # equal, skip the branch, and the result is still stamped with the
+        # reference's projection further down (ARC-26).
+        own_crs = require_crs_spec(
+            self._ds.epsg, self._ds.crs, "align a raster onto another grid"
+        )
+        target_crs = require_crs_spec(
+            src.epsg, src.crs, "align onto this reference grid"
+        )
         reprojected_raster_b: Dataset = self._ds
-        if self._ds.epsg != src.epsg:
-            reprojected_raster_b = self.to_crs(src.epsg or src.crs)  # type: ignore[assignment]
+        # Compare the resolved CRS, not `epsg` alone: two grids with different
+        # real CRSes can both report `epsg is None` (the geostationary shape),
+        # compare equal, skip the warp, and be stamped with the reference's
+        # projection further down (ARC-26). `crs_equal` rather than `!=`, because
+        # `crs_spec` falls back to the raw WKT for a CRS with no EPSG authority
+        # -- exactly that case -- so two spellings of one CRS would otherwise
+        # warp the data through an identity transform.
+        if not crs_equal(own_crs, target_crs):
+            reprojected_raster_b = self.to_crs(target_crs)  # type: ignore[assignment]
         dst_obj = self._ds.__class__._build_dataset(
             src.columns,
             src.rows,
@@ -1919,7 +1963,15 @@ class Spatial(_Engine["Dataset"]):
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
             # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to
             # the WKT so a bbox in the grid's own CRS is still honoured (#706).
-            crs = epsg if epsg is not None else (self._ds.epsg or self._ds.crs)
+            crs = (
+                epsg
+                if epsg is not None
+                else require_crs_spec(
+                    self._ds.epsg,
+                    self._ds.crs,
+                    "crop by a bbox without an explicit epsg=",
+                )
+            )
             west, _, east, _ = bbox
             crs_geo = bool(crs) and sr_from_user_input(crs).IsGeographic()
             ds_epsg = self._ds.epsg

@@ -1010,7 +1010,7 @@ def to_stac_item(
     from pyramids.stac._extensions import geotransform_to_affine
 
     # `dataset.epsg` is None for a real CRS with no EPSG authority code (e.g.
-    # geostationary) and softly defaults to 4326 only for a raster with no
+    # geostationary) and reports None for a raster with no
     # projection at all. Either way a falsy `epsg` here (empty `dataset.crs`, or a
     # WKT-only CRS whose `epsg` is None) makes the world-bbox branch fire and the
     # proj:epsg field be omitted; the WKT stays available on `dataset.crs`.

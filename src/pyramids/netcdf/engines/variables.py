@@ -20,11 +20,12 @@ own GDAL plumbing (``_writable_root_group`` / ``_replace_raster`` /
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from pyramids.base._utils import numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
@@ -771,26 +772,51 @@ def _write_blocks_streaming(md_arr: Any, dask_arr: Any) -> None:
 
 
 def _require_create_inputs(
-    variable_name: str | None,
-    geo: tuple[float, float, float, float, float, float] | None,
-    epsg: str | int | None,
+    variable_name: str | None, geo: Sequence[float] | None
 ) -> None:
     """Validate the required inputs for `_create_netcdf_from_array`.
 
     Args:
         variable_name: Name of the data variable.
         geo: Geotransform tuple.
-        epsg: EPSG code or WKT/user-input CRS string.
 
     Raises:
-        ValueError: If `variable_name`, `geo`, or `epsg` is None.
+        ValueError: If `variable_name` or `geo` is None. `epsg` is not
+            validated: it may legitimately be absent, which builds an
+            ungeoreferenced variable (ARC-26).
     """
     if variable_name is None:
         raise ValueError("Variable_name cannot be None")
     if geo is None:
         raise ValueError("geo cannot be None")
-    if epsg is None:
-        raise ValueError("epsg cannot be None")
+    # `epsg` may legitimately be None: a source with no CRS produces an
+    # ungeoreferenced result rather than one stamped with a default (ARC-26).
+    # The creator below skips the spatial reference in that case.
+
+
+def _resolve_write_crs(
+    epsg: str | int | None,
+) -> tuple[osr.SpatialReference | None, bool | None]:
+    """Spatial reference and axis kind to write for a variable.
+
+    Args:
+        epsg: EPSG code, WKT/user-input CRS string, or a falsy value meaning the
+            source has no CRS.
+
+    Returns:
+        tuple: `(srs_or_None, is_geographic)` where `is_geographic` is `True`
+        for degrees axes, `False` for projected (metre) axes, and `None` when
+        the CRS is unknown — the third state, which writes the axis role without
+        asserting any units. Stamping metres there would be the same fabrication
+        ARC-26 removed on the read side.
+    """
+    if not epsg:
+        return None, None
+    try:
+        srse = sr_from_epsg(int(epsg))
+    except (TypeError, ValueError):
+        srse = sr_from_user_input(epsg)
+    return srse, srse.IsGeographic() == 1
 
 
 def _create_netcdf_from_array(
@@ -850,11 +876,12 @@ def _create_netcdf_from_array(
     # set_variable and other call sites) and are reached through the class.
     from pyramids.netcdf.netcdf import NetCDF
 
-    _require_create_inputs(variable_name, geo, epsg)
-    # `_require_create_inputs` raises `ValueError` on a None `geo`/`epsg`; restate that
-    # invariant so the geotransform indexing and the `int(epsg)` below are guarded.
+    _require_create_inputs(variable_name, geo)
+    # `_require_create_inputs` raises `ValueError` on a None `geo`; restate that
+    # invariant so the geotransform indexing below is guarded. `epsg` is NOT
+    # restated — it may legitimately be None, which builds an ungeoreferenced
+    # variable rather than one stamped with a default (ARC-26).
     assert geo is not None
-    assert epsg is not None
 
     if extra_dims is None:
         extra_dims = []
@@ -883,11 +910,7 @@ def _create_netcdf_from_array(
     # path for those. A geostationary (and other no-EPSG) CRS is carried through
     # as a WKT string so the fan-out that rebuilds each variable preserves it
     # instead of crashing on a None EPSG code (#706).
-    try:
-        srse = sr_from_epsg(int(epsg))
-    except (TypeError, ValueError):
-        srse = sr_from_user_input(epsg)
-    is_geographic = srse.IsGeographic() == 1
+    srse, is_geographic = _resolve_write_crs(epsg)
 
     dim_x = NetCDF._create_dimension(
         rg,
@@ -931,7 +954,8 @@ def _create_netcdf_from_array(
     ndv_scalar = scalar_no_data(no_data_value)
     if ndv_scalar is not None:
         md_arr.SetNoDataValueDouble(float(ndv_scalar))
-    md_arr.SetSpatialRef(srse)
+    if srse is not None:
+        md_arr.SetSpatialRef(srse)
     # Eager NumPy input writes in one call; a dask input streams block-by-block so
     # peak source memory is one block rather than the whole array (ARC-11). Both
     # produce byte-identical output. nodata + SRS are set above first — the netCDF
@@ -941,7 +965,7 @@ def _create_netcdf_from_array(
     else:
         md_arr.Write(arr)
 
-    if driver_type == "MEM":
+    if driver_type == "MEM" and srse is not None:
         _write_grid_mapping(rg, md_arr, srse)
 
     return src

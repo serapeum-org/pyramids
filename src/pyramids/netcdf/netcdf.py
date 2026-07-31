@@ -22,7 +22,15 @@ from osgeo import gdal, osr
 
 from pyramids import _io
 from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
-from pyramids.base.crs import sr_from_epsg
+from pyramids.base.crs import (
+    VERTICAL_AXIS_NAMES,
+    VERTICAL_STANDARD_NAMES,
+    cf_geographic_wkt,
+    crs_spec,
+    sr_from_epsg,
+    sr_from_wkt,
+    within_lonlat_range,
+)
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset
@@ -590,6 +598,15 @@ class NetCDF(Dataset):
         # on the parent container so each variable's metre geotransform is resolved with
         # at most one `NETCDF:<file>:<var>` open instead of re-opening on every access.
         self._geostationary_gt_cache: dict[str, tuple[float, ...] | None] = {}
+        # Memoised container CRS borrowed from the first georeferenced variable
+        # (see `_container_crs`); None until resolved, "" when no variable has one.
+        self._container_crs_cache: str | None = None
+        # Memoised fully-resolved CRS (container borrow + CF inference +
+        # recorded globals). Same lifetime as the cache above.
+        self._crs_cache: str | None = None
+        # Whether `epsg` has run its lazy resolution; distinguishes a resolved
+        # `None` (no CRS) from "not looked yet" (see the `epsg` property).
+        self._epsg_resolved: bool = False
         self._md_array_dims: list[str] = []
         self._band_dim_name: str | None = None
         self._band_dim_values: list[Any] | None = None
@@ -877,17 +894,502 @@ class NetCDF(Dataset):
         """
         return dataset_is_geostationary(dataset)
 
+    def _crs_from_global_attrs(self) -> str:
+        """CRS from the ``crs_wkt`` / ``epsg`` global attributes, or ``""``.
+
+        :meth:`pyramids.dataset.DatasetCollection.to_netcdf` writes the grid's
+        CRS as NetCDF global attributes (it goes through the xarray writer, which
+        has no place to hang a spatial reference), so reading one of our own
+        files back has to look there. GDAL surfaces them as ``NC_GLOBAL#crs_wkt``
+        and ``NC_GLOBAL#epsg``.
+
+        Two rules keep a foreign file's attributes from defining a CRS the file
+        never claimed:
+
+        * **Root only.** Attributes are read from the *root* group, matching the
+          ``NC_GLOBAL#`` filter on the classic path. A sub-group's own attributes
+          are not globals, so ``container.get_group("g1")`` no longer resolves a
+          CRS from an attribute that applies to ``g1`` alone.
+        * **Written as a pair.** The same writer always emits ``GeoTransform``
+          beside ``crs_wkt`` / ``epsg``, so the CRS attribute is adopted only when
+          that companion is present. A stray root attribute named ``epsg`` on a
+          third-party store -- a processing-level tag, a source-data note -- no
+          longer becomes the dataset's CRS.
+
+        Returns:
+            str: WKT built from those attributes, or ``""`` when they are absent,
+            unusable, or carry no ``GeoTransform`` companion.
+        """
+        result = ""
+        try:
+            metadata = self.raster.GetMetadata() or {}
+            # Only NC_GLOBAL attributes count. Stripping the prefix off every key
+            # would let an `epsg` attribute on any *variable* in a foreign file
+            # define the whole dataset's CRS.
+            attrs = {
+                key.split("#", 1)[1].lower(): value
+                for key, value in metadata.items()
+                if key.upper().startswith("NC_GLOBAL#")
+            }
+            # A multidim open exposes globals as root-group attributes rather
+            # than through GetMetadata(), so consult the group too. Prefer the
+            # real root: `_gdal_rg_ref` is the *sub-group* for a `get_group()`
+            # view, and a sub-group's attributes are not globals.
+            group = self._root_group_ref()
+            if group is not None:
+                for attribute in group.GetAttributes():
+                    attrs.setdefault(
+                        attribute.GetName().lower(), attribute.ReadAsString()
+                    )
+            wkt = attrs.get("crs_wkt")
+            code = attrs.get("epsg")
+            if not attrs.get("geotransform"):
+                # No companion GeoTransform: these attributes were not written by
+                # the geobox writer, so they are not a provenance-backed CRS
+                # declaration (ARC-26).
+                wkt = code = None
+            if wkt:
+                # Validate before adopting: this attribute is file-controlled, and
+                # a junk string would otherwise surface from `.crs` and blow up
+                # inside GDAL on the next `.epsg` read.
+                candidate = sr_from_wkt(str(wkt))
+                # `Validate()` is stricter than the WKT we ourselves emit, so
+                # test usability instead: a junk string parses to an SRS that is
+                # neither geographic, projected, local nor geocentric.
+                # IsLocal() is deliberately absent: a LOCAL_CS is an
+                # engineering frame with no earth reference, so accepting one
+                # would let a placeholder attribute stand in for a real CRS --
+                # the same fabrication this change removes.
+                usable = (
+                    candidate.IsGeographic()
+                    or candidate.IsProjected()
+                    or candidate.IsGeocentric()
+                )
+                if usable:
+                    result = candidate.ExportToWkt()
+            elif code:
+                result = sr_from_epsg(int(code)).ExportToWkt()
+        except (RuntimeError, AttributeError, ValueError, TypeError):
+            # See `_container_crs`: narrow so a real fault still surfaces.
+            result = ""
+        return result
+
+    def _multidim_group(self):
+        """The multidim root group backing this cube, or ``None``.
+
+        A variable subset holds no group of its own, so fall back to the parent
+        container's.
+
+        Returns:
+            The GDAL root group, or ``None`` when neither carries one.
+        """
+        group = getattr(self, "_gdal_rg_ref", None)
+        if group is None:
+            parent = getattr(self, "_parent_nc", None)
+            if parent is not None:
+                group = getattr(parent, "_gdal_rg_ref", None)
+        if group is None and getattr(self, "_is_md_array", False):
+            # A container keeps no `_gdal_rg_ref` of its own -- without this the
+            # CF inference was a no-op on every container, masked only by the
+            # variable-borrow that usually answers first.
+            try:
+                group = self.raster.GetRootGroup()
+            except (RuntimeError, AttributeError):
+                group = None
+        return group
+
+    def _root_group_ref(self):
+        """The *root* group of the backing NetCDF, or ``None``.
+
+        Distinct from :meth:`_multidim_group`, which answers "the group holding
+        this cube's arrays" and is deliberately the sub-group for a
+        :meth:`get_group` view. Global attributes are a property of the file, so
+        they must come from the root — reading them off a sub-group made
+        ``container.get_group("g1").epsg`` resolve from an attribute that applies
+        to ``g1`` alone, and made the classic and multidim branches disagree
+        about what "global" means for the same file.
+
+        Returns:
+            The GDAL root group -- this cube's own when it has one, else the
+            container it was carved from, since a materialised view's `_raster`
+            is an in-memory dataset with no root group of its own. ``None`` when
+            neither exposes one (a classic open).
+        """
+        result = None
+        # A materialised view's own `_raster` is a MEM dataset with no root
+        # group, so fall back to the container it was carved from.
+        for candidate in (self, getattr(self, "_parent_nc", None)):
+            raster = getattr(candidate, "_raster", None) if candidate else None
+            if raster is None:
+                continue
+            try:
+                result = raster.GetRootGroup()
+            except (RuntimeError, AttributeError):
+                result = None
+            if result is not None:
+                break
+        return result
+
+    @staticmethod
+    def _collect_axis_units(group) -> tuple[set[str], set[str]]:
+        """Units on every coordinate array, and separately on the horizontal axes.
+
+        Only a *coordinate* array is evidence for a geographic reading: a
+        dimension's indexing variable, or an array named in a ``coordinates``
+        attribute (how CF identifies a curvilinear grid's 2-D lat/lon, which
+        index no dimension). A data variable in ``degrees_east`` -- a wind
+        direction, a solar angle -- says nothing about the grid. Only the
+        *horizontal* axes may veto it, since a depth in metres says nothing about
+        the horizontal frame either.
+
+        Args:
+            group: A GDAL multidim root group.
+
+        Returns:
+            tuple[set[str], set[str]]: `(coordinate units, horizontal axis
+            units)`, lower-cased.
+        """
+        arrays = {
+            name.rsplit("/", 1)[-1].lower(): group.OpenMDArray(name)
+            for name in group.GetMDArrayNames()
+        }
+        coordinate_names = NetCDF._coordinate_names(arrays.values())
+        axis_units: set[str] = set()
+        for array in arrays.values():
+            # Only a data array defines the grid. A 1-D coordinate array's own
+            # dimension must not be classified on its own: `deptht(deptht)` has
+            # no horizontal pair to compare against, so it would fall through to
+            # the fallback and veto as if it were a horizontal axis.
+            if len(array.GetDimensions()) >= 2:
+                axis_units.update(NetCDF._horizontal_axis_units(array))
+        units = {
+            array.GetUnit().strip().lower()
+            for name, array in arrays.items()
+            if array.GetUnit() and name in coordinate_names
+        }
+        return units, axis_units
+
+    @staticmethod
+    def _coordinate_names(arrays) -> set[str]:
+        """Names of every array that acts as a coordinate.
+
+        Two ways an array qualifies: it indexes a dimension, or a data variable
+        names it in a ``coordinates`` attribute -- which is how CF identifies a
+        curvilinear grid's 2-D lat/lon, since those index nothing.
+
+        Args:
+            arrays: The group's MDArrays.
+
+        Returns:
+            set[str]: Lower-cased coordinate names.
+        """
+        names: set[str] = set()
+        for array in arrays:
+            referenced = NetCDF._array_attributes(array).get("coordinates", "")
+            names.update(name.lower() for name in referenced.split())
+            for dimension in array.GetDimensions():
+                if dimension.GetIndexingVariable() is not None:
+                    names.add(dimension.GetName().rsplit("/", 1)[-1].lower())
+        return names
+
+    @staticmethod
+    def _array_attributes(node) -> dict[str, str]:
+        """Attributes of an MDArray as a lower-cased name -> string mapping.
+
+        ``GetAttribute(name)`` *raises* when the attribute is absent under
+        ``gdal.UseExceptions()`` (which pyramids installs at import), so
+        enumerate instead of asking.
+
+        Args:
+            node: A GDAL MDArray (or anything exposing ``GetAttributes``).
+
+        Returns:
+            dict[str, str]: The attributes, or ``{}`` when there are none.
+        """
+        collected: dict[str, str] = {}
+        try:
+            for attribute in node.GetAttributes():
+                collected[attribute.GetName().strip().lower()] = (
+                    attribute.ReadAsString()
+                )
+        except (RuntimeError, AttributeError):
+            collected = {}
+        return collected
+
+    @staticmethod
+    def _declares_vertical(indexing) -> bool:
+        """Whether an indexing variable itself declares that it is a vertical axis.
+
+        Args:
+            indexing: The dimension's indexing variable, or ``None``.
+
+        Returns:
+            bool: True when it carries ``axis = "Z"``, a ``positive`` attribute,
+            or a vertical ``standard_name``.
+        """
+        result = False
+        if indexing is not None:
+            attributes = NetCDF._array_attributes(indexing)
+            standard_name = attributes.get("standard_name", "").strip().lower()
+            result = (
+                attributes.get("axis", "").strip().upper() == "Z"
+                or "positive" in attributes
+                or standard_name in VERTICAL_STANDARD_NAMES
+            )
+        return result
+
+    @staticmethod
+    def _horizontal_axis_units(array) -> set[str]:
+        """Units of an array's *horizontal* dimension axes.
+
+        GDAL's dimension type is only trustworthy in one direction. It reports
+        ``HORIZONTAL_X`` / ``HORIZONTAL_Y`` on real evidence -- a declared
+        ``axis`` / ``standard_name``, or degrees units -- but it *guesses*
+        ``VERTICAL`` from metre units alone, so a projected x/y axis carrying
+        only ``units = "m"`` comes back typed VERTICAL. Skipping on that type
+        therefore discards precisely the metre veto this exists to apply.
+
+        So: when GDAL has typed both horizontal axes, take exactly those and
+        ignore every other dimension -- which excludes depth, time and model
+        levels structurally, whatever they are named, including the
+        ``(time, lat, lev, lon)`` layouts where the vertical axis sits between
+        the horizontal ones. Otherwise GDAL could not tell, and a dimension
+        counts as horizontal unless it is temporal, *declares* itself vertical,
+        or is a guessed-vertical carrying a conventional vertical name.
+
+        Args:
+            array: A GDAL multidim MDArray.
+
+        Returns:
+            set[str]: Lower-cased units of the horizontal axes.
+        """
+        dimensions = array.GetDimensions()
+        types = [(dimension.GetType() or "").upper() for dimension in dimensions]
+        if "HORIZONTAL_X" in types and "HORIZONTAL_Y" in types:
+            horizontal = [
+                dimension
+                for dimension, dim_type in zip(dimensions, types)
+                if dim_type in ("HORIZONTAL_X", "HORIZONTAL_Y")
+            ]
+        else:
+            horizontal = [
+                dimension
+                for dimension, dim_type in zip(dimensions, types)
+                if not NetCDF._is_non_horizontal(dimension, dim_type)
+            ]
+        return {
+            unit.strip().lower()
+            for unit in (NetCDF._dimension_unit(d) for d in horizontal)
+            if unit
+        }
+
+    @staticmethod
+    def _is_non_horizontal(dimension, dim_type: str) -> bool:
+        """Whether a dimension is temporal or vertical when GDAL could not tell.
+
+        Args:
+            dimension: A GDAL multidim dimension.
+            dim_type: Its upper-cased GDAL type.
+
+        Returns:
+            bool: True for a temporal axis, one that declares itself vertical, or
+            a guessed-vertical carrying a conventional vertical name.
+        """
+        named_vertical = (
+            dim_type == "VERTICAL"
+            and dimension.GetName().rsplit("/", 1)[-1].lower() in VERTICAL_AXIS_NAMES
+        )
+        return (
+            dim_type == "TEMPORAL"
+            or named_vertical
+            or NetCDF._declares_vertical(dimension.GetIndexingVariable())
+        )
+
+    @staticmethod
+    def _dimension_unit(dimension) -> str:
+        """Unit of a dimension's indexing variable, or ``""``.
+
+        Args:
+            dimension: A GDAL multidim dimension.
+
+        Returns:
+            str: The unit, or ``""`` when the dimension indexes nothing.
+        """
+        indexing = dimension.GetIndexingVariable()
+        return (indexing.GetUnit() if indexing is not None else "") or ""
+
+    def _cf_geographic_crs(self) -> str:
+        """WGS 84 WKT when CF metadata says this is a lat/lon grid, else ``""``.
+
+        CF-1.x allows a data variable to carry no ``grid_mapping`` at all. When
+        its coordinate axes are ``degrees_east`` / ``degrees_north`` the file
+        *is* geographic — CF simply leaves the datum implicit — and GDAL's
+        netCDF driver reports an empty projection for it. Reading such a grid as
+        WGS 84 is a convention-backed interpretation of the metadata, not the
+        blanket "assume WGS 84 for anything unprojected" default that ARC-26
+        removed: a raster with no CRS *and no such evidence* still reports
+        ``None``.
+
+        Returns:
+            str: WGS 84 WKT when the axis units say geographic, otherwise ``""``.
+        """
+        result = ""
+        try:
+            group = self._multidim_group()
+            if group is not None and not self._is_geostationary():
+                units, axis_units = self._collect_axis_units(group)
+                result = cf_geographic_wkt(units, axis_units)
+                # The same geometric backstop the classic path applies, so a
+                # NetCDF and the byte-equivalent GeoTIFF cannot disagree and the
+                # migration/concepts docs are true of both readers.
+                if result and not within_lonlat_range(self._own_extent()):
+                    result = ""
+        except (RuntimeError, AttributeError, ValueError, TypeError):
+            # See `_container_crs`: narrow so a real fault still surfaces.
+            result = ""
+        return result
+
+    def _container_crs(self) -> str:
+        """CRS of a multi-variable container, borrowed from its first variable.
+
+        The root GDAL dataset of a NetCDF carries no projection of its own — the
+        georeference lives on each variable — so ``GetProjection()`` returns
+        ``""`` for a container even when every variable is properly
+        georeferenced. Historically that empty string was silently rewritten to
+        WGS84 by the base ``epsg_from_wkt`` fallback, which happened to be right
+        for CF geographic grids and wrong for everything else (ARC-26).
+
+        Resolve it honestly instead: a container's variables share one grid, so
+        the first variable that reports a CRS defines the container's CRS. The
+        result is memoised because every spatial operation on the container asks
+        for it.
+
+        Returns:
+            str: The first variable's CRS WKT, or ``""`` when this container has
+            no variable that reports one.
+        """
+        cached = getattr(self, "_container_crs_cache", None)
+        if cached is None:
+            crs = ""
+            try:
+                for name in self.variable_names:
+                    variable_crs = self.get_variable(name).crs
+                    if variable_crs:
+                        crs = str(variable_crs)
+                        break
+            except (RuntimeError, AttributeError, ValueError, TypeError):
+                # GDAL surfaces a bad/absent group as RuntimeError; the rest guard a
+                # half-built object during __init__. Deliberately NOT bare Exception:
+                # that hid the initialisation-order bug this comment used to excuse.
+                crs = ""
+            cached = crs
+            self._container_crs_cache = cached
+        return cached
+
+    def _get_crs(self) -> str:
+        """Projection WKT, falling back to the variables' CRS for a container.
+
+        ``_is_subset`` defaults to ``True`` here because ``super().__init__()``
+        resolves the EPSG *before* that flag is assigned; skipping the fallback
+        during construction keeps this off the half-built object, and the
+        property below re-resolves it once the container is usable.
+
+        Returns:
+            str: This dataset's CRS WKT; its first variable's when this is a
+            container whose root carries no projection; or WGS 84 when CF
+            metadata identifies a lat/lon grid that declares no ``grid_mapping``.
+        """
+        cached: str | None = getattr(self, "_crs_cache", None)
+        if cached is not None:
+            return cached
+        crs = super()._get_crs()
+        if not crs and not getattr(self, "_is_subset", True):
+            crs = self._container_crs()
+        if not crs:
+            # The file's own axes come first: CF degrees axes with no
+            # grid_mapping mean a geographic grid (see `_cf_geographic_crs`).
+            crs = self._cf_geographic_crs()
+        if not crs:
+            # Then honour the CRS pyramids itself writes. `to_netcdf` records it
+            # as NC_GLOBAL `crs_wkt` / `epsg` rather than a grid_mapping, so a
+            # round-trip would otherwise come back ungeoreferenced. Ranked below
+            # the axis evidence so a recorded attribute cannot override what the
+            # file's own coordinates say.
+            crs = self._crs_from_global_attrs()
+        # Memoise: resolution walks the container's variables and every MDArray's
+        # units, and `crs_spec(epsg, crs)` evaluates BOTH arguments (unlike the
+        # `epsg or crs` idiom it replaced, which short-circuited), so `.crs` is
+        # now read on every spatial call. Cleared wherever `_container_crs_cache`
+        # is, since it derives from the same evidence.
+        self._crs_cache = crs
+        return crs
+
+    @property
+    def epsg(self) -> int | None:
+        """EPSG code, resolving a container's code from its variables.
+
+        The base class caches ``_epsg`` during construction, but both of this
+        class's CRS fallbacks resolve *lazily* — a container borrows its CRS
+        from a variable, and a CF lat/lon grid infers WGS 84 from its axis units
+        — and neither is available on the half-built object. So a cached
+        ``None`` is not authoritative; re-derive it from :attr:`crs`, which runs
+        those fallbacks, and only then report an absent CRS.
+
+        Returns:
+            int | None: The EPSG code, or ``None`` when there is no CRS at all
+            (or the CRS carries no EPSG authority, e.g. geostationary).
+        """
+        code = super().epsg
+        if code is None and not getattr(self, "_epsg_resolved", False):
+            # `None` is a legitimate answer *and* the unresolved state, so a bare
+            # write-back never sticks: a CRS-less container re-ran the full scan
+            # on every read. Track resolution with its own flag.
+            #
+            # Re-derive through `_get_epsg`, not `epsg_of_crs(self._get_crs())`:
+            # the geostationary guard lives there, and going straight to the CRS
+            # would relabel a scan-angle grid as WGS 84 (#706).
+            code = self._get_epsg()
+            self._epsg_resolved = True
+            # Write the answer back. Resolution walks every MDArray (one
+            # `OpenMDArray` per variable) and is on the hot path for spatial ops,
+            # so leaving `_epsg` unset made each `.epsg` read repeat the whole
+            # scan. `_update_inplace` clears the cache, so a raster swap
+            # re-resolves.
+            self._epsg = code
+        return code
+
+    @epsg.setter
+    def epsg(self, value: int | str | None) -> None:
+        """Set the EPSG code.
+
+        Re-declared because overriding the getter would otherwise drop the
+        inherited setter and make :attr:`epsg` read-only on ``NetCDF``.
+
+        Args:
+            value: EPSG code (or any spec `sr_from_epsg` accepts) to stamp on
+                the dataset.
+        """
+        # The base `epsg` is a property object, so its setter must be invoked
+        # explicitly rather than through `super()`. Resolve it off the MRO
+        # rather than naming `Dataset`, so an intermediate class that overrides
+        # the setter is not skipped.
+        super(NetCDF, type(self)).epsg.fset(self, value)  # type: ignore[attr-defined]
+        # Both derived caches are now stale: the borrowed container CRS, and the
+        # memoised resolution flag that would otherwise pin the old answer.
+        self._container_crs_cache = None
+        self._crs_cache = None
+        self.__dict__.pop("_cf_crs_cache", None)
+        self._epsg_resolved = False
+
     def _get_epsg(self) -> int | None:
         """EPSG code, or ``None`` for a geostationary CRS.
 
         A geostationary (GOES / Himawari / MTG) fixed-grid projection is a
-        custom CRS with **no EPSG authority code**. The base
-        :meth:`~pyramids.dataset.dataset.Dataset._get_epsg` resolves the code
-        through :func:`~pyramids.base.crs.epsg_from_wkt`, whose ``4326``
-        fallback would then mislabel the non-geographic scan-angle grid as
-        WGS84 (issue #706). Report ``None`` instead so callers read
-        :attr:`crs` (the geostationary WKT); reprojection is unaffected because
-        :meth:`to_crs` warps from the WKT, not the EPSG code.
+        custom CRS with **no EPSG authority code**, so resolving one would
+        mislabel the non-geographic scan-angle grid as WGS84 (issue #706).
+        Report ``None`` instead so callers read :attr:`crs` (the geostationary
+        WKT); reprojection is unaffected because :meth:`to_crs` warps from the
+        WKT, not the EPSG code.
 
         Scope: geostationary detection lives on ``NetCDF`` (where these grids are
         read from), so a geostationary raster opened as a plain ``Dataset`` (e.g.
@@ -1857,7 +2359,7 @@ class NetCDF(Dataset):
             )
         # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to the
         # WKT so a bbox in the grid's own CRS is still honoured (#706).
-        crs = epsg if epsg is not None else (self.epsg or self.crs)
+        crs = epsg if epsg is not None else crs_spec(self.epsg, self.crs)
         if not crs:
             raise ValueError(
                 "read_array(bbox=…) requires an explicit `epsg=` when the "
@@ -2328,7 +2830,7 @@ class NetCDF(Dataset):
                     result = NetCDF.create_from_array(
                         arr=var_arr,
                         geo=var_result.geotransform,
-                        epsg=var_result.epsg or var_result.crs,
+                        epsg=crs_spec(var_result.epsg, var_result.crs),
                         no_data_value=var_ndv_scalar,
                         variable_name=var_name,
                         extra_dims=extra_dims,
@@ -2337,7 +2839,7 @@ class NetCDF(Dataset):
                     result = NetCDF.create_from_array(
                         arr=var_arr,
                         geo=var_result.geotransform,
-                        epsg=var_result.epsg or var_result.crs,
+                        epsg=crs_spec(var_result.epsg, var_result.crs),
                         no_data_value=var_ndv_scalar,
                         variable_name=var_name,
                     )
@@ -2346,7 +2848,7 @@ class NetCDF(Dataset):
                 ds = Dataset.create_from_array(
                     var_arr,
                     geo=var_result.geotransform,
-                    epsg=var_result.epsg or var_result.crs,
+                    epsg=crs_spec(var_result.epsg, var_result.crs),
                     no_data_value=var_ndv_scalar,
                 )
                 NetCDF._copy_band_dim_metadata(ds, var)
@@ -2720,6 +3222,16 @@ class NetCDF(Dataset):
                 stacklevel=3,
             )
             return
+        # Carry the CRS across before the swap. The AsClassicDataset view often
+        # has no SRS of its own — for a variable subset the projection is
+        # resolved from the multidim group (a CF degrees grid) — and dropping
+        # `_gdal_rg_ref` below destroys that evidence, so a materialized
+        # variable would silently lose its georeference. Resolve first, then
+        # stamp. (The container fallback cannot apply here: this method returns
+        # early unless `_is_subset`.)
+        resolved_crs = self._get_crs()
+        if resolved_crs and mem.GetSpatialRef() is None:
+            mem.SetProjection(resolved_crs)
         self._raster = mem
         # The MEM copy owns its data; drop the SWIG views that backed the AsClassicDataset.
         self._gdal_md_arr_ref = None
@@ -4348,7 +4860,14 @@ class NetCDF(Dataset):
         self._geotransform = new_raster.GetGeoTransform()
         self._cell_size = self._geotransform[1]
         self._file_name = new_raster.GetDescription()
+        # Clear the borrowed container CRS *before* re-deriving the EPSG: it is
+        # keyed to the variables behind the OLD raster, and `_get_epsg` reads
+        # through it, so re-deriving first would just re-cache the stale answer.
+        self._container_crs_cache = None
+        self._crs_cache = None
+        self.__dict__.pop("_cf_crs_cache", None)
         self._epsg = self._get_epsg()
+        self._epsg_resolved = True
         self._rows = new_raster.RasterYSize
         self._columns = new_raster.RasterXSize
         self._band_count = new_raster.RasterCount
@@ -4378,6 +4897,17 @@ class NetCDF(Dataset):
         # variable name and derived from the backing geometry, so it must not survive a
         # raster swap / in-place update that could change that geometry (latent staleness).
         self._geostationary_gt_cache = {}
+        # Same reasoning for the borrowed container CRS: it is derived from the
+        # variables behind the old raster, so a swap must not carry it over.
+        self._container_crs_cache = None
+        self._crs_cache = None
+        self.__dict__.pop("_cf_crs_cache", None)
+        # Clear the memoised EPSG rather than re-deriving it here: eager
+        # re-derivation walks every variable again and immediately re-fills the
+        # cache this method just invalidated. The `epsg` property resolves it on
+        # the next read instead.
+        self._epsg = None
+        self._epsg_resolved = False
 
     @property
     def is_subset(self) -> bool:
@@ -4599,7 +5129,7 @@ class NetCDF(Dataset):
         values: np.ndarray,
         dim_type=None,
         set_indexing: bool = True,
-        is_geographic: bool = True,
+        is_geographic: bool | None = True,
     ) -> gdal.Dimension:
         """Create a dimension with its coordinate array and CF attributes.
 
@@ -4612,8 +5142,9 @@ class NetCDF(Dataset):
             set_indexing: If True, call SetIndexingVariable (works
                 on MEM driver). If False, skip it (required for
                 netCDF driver which doesn't support it).
-            is_geographic: If True, coordinate units are degrees.
-                If False, units are metres. Defaults to True.
+            is_geographic: If True, coordinate units are degrees; if False,
+                metres; if `None`, the CRS is unknown and only the axis role
+                is written (no units or standard_name). Defaults to True.
 
         Returns:
             gdal.Dimension
@@ -4996,7 +5527,7 @@ class NetCDF(Dataset):
             # always targets a concrete EPSG here, so epsg is provably
             # non-None -- the fallback is defense-in-depth, matching the
             # pattern used throughout pyramids.dataset.
-            epsg=reprojected.epsg or reprojected.crs,
+            epsg=crs_spec(reprojected.epsg, reprojected.crs),
             no_data_value=ndv_scalar,
         )
         NetCDF._copy_band_dim_metadata(materialized, var)

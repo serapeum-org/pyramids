@@ -33,7 +33,7 @@ from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
     Catalog,
 )
-from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
+from pyramids.base.crs import epsg_of_crs, sr_from_epsg
 from pyramids.base.protocols import ArrayLike, FloatArray
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset.transform import GeoTransform
@@ -1156,7 +1156,7 @@ class RasterBase(ABC):
         arr: np.ndarray,
         geo: tuple[float, float, float, float, float, float],
         bands_values: list | None = None,
-        epsg: str | int = 4326,
+        epsg: str | int | None = 4326,
         no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
         driver_type: str = "MEM",
         path: str | None = None,
@@ -1233,10 +1233,9 @@ class RasterBase(ABC):
         # second change the epsg attribute of the Dataset object
         if crs is not None:
             self.raster.SetProjection(crs)
-            # ARC-7: get_epsg_from_prj raises on empty input;
-            # epsg_from_wkt absorbs the historical 4326 fallback so
-            # datasets with a missing projection still get tagged.
-            self._epsg = epsg_from_wkt(crs)
+            # An empty projection means "no CRS", which propagates as None
+            # rather than being tagged WGS 84 (ARC-26).
+            self._epsg = epsg_of_crs(crs)
         else:
             # crs is None here, so epsg is not None (the neither-None check above
             # rejects both being None); cast narrows it for the type checker without

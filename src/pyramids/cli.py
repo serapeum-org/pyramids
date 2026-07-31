@@ -49,7 +49,7 @@ from pandas import DataFrame
 
 from pyramids.base._errors import _PyramidsError
 from pyramids.base._utils import DEFAULT_RESAMPLING
-from pyramids.base.crs import sr_from_user_input, sr_from_wkt
+from pyramids.base.crs import crs_spec, sr_from_user_input, sr_from_wkt
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS
@@ -364,6 +364,10 @@ def _cmd_georeference(args: argparse.Namespace) -> int:
         source.read_array(),
         top_left_corner=source.top_left_corner,
         cell_size=source.cell_size,
+        # Scratch placeholder, not a claim about the data, and deliberately
+        # unlike `calc` (which refuses a CRS-less input): set_gcps replaces the
+        # georeference wholesale with the GCPs and --gcp-crs below, so this value
+        # never reaches the output. `epsg` is None for a CRS-less source.
         epsg=source.epsg or 4326,
         no_data_value=source.no_data_value,
     )
@@ -515,7 +519,9 @@ def _cmd_calc(args: argparse.Namespace) -> int:
         int: `0` on success.
 
     Raises:
-        ValueError: Fewer than one input + output, or a disallowed expression.
+        ValueError: Fewer than one input + output, a disallowed expression, or
+            the first input has no CRS — the result cannot be georeferenced and
+            pyramids will not stamp a default (ARC-26).
     """
     if len(args.operands) < 2:
         raise ValueError("calc needs at least one input raster and an output path.")
@@ -524,17 +530,27 @@ def _cmd_calc(args: argparse.Namespace) -> int:
         raise ValueError("calc supports at most 26 input rasters (bound A..Z).")
     _refuse_existing(output, args.overwrite)
     datasets = [Dataset.read_file(path) for path in inputs]
+    template = datasets[0]
+    # Refuse before reading arrays and evaluating the expression: the answer
+    # cannot change, and a CRS-less input should not pay for the whole compute
+    # first (ARC-26).
+    if not template.crs:
+        raise ValueError(
+            f"{inputs[0]!r} has no CRS, so the result of --expr cannot be "
+            "georeferenced. Stamping a default would claim a projection the "
+            "input does not have; set a CRS on the input first (e.g. "
+            "gdal_edit.py -a_srs EPSG:<code> <file>) and re-run."
+        )
     names = [chr(ord("A") + index) for index in range(len(datasets))]
     variables = {name: np.asarray(ds.read_array()) for name, ds in zip(names, datasets)}
     result = np.asarray(_safe_calc_eval(ast.parse(args.expr, mode="eval"), variables))
     if args.dtype:
         result = result.astype(args.dtype)
-    template = datasets[0]
     Dataset.create_from_array(
         result,
         top_left_corner=template.top_left_corner,
         cell_size=template.cell_size,
-        epsg=template.epsg or 4326,
+        epsg=crs_spec(template.epsg, template.crs),
     ).to_file(output)
     print(f"wrote {output}")
     return 0

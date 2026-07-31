@@ -27,6 +27,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
     resolve_cog_predictor,
 )
+from pyramids.base.crs import crs_equal, require_crs_spec
 from pyramids.dataset.abstract_dataset import under_gdal_env
 from pyramids.dataset.cog import (
     COGInfo,
@@ -918,7 +919,7 @@ class COG(_Engine["Dataset"]):
         *,
         dst_width: int | None = None,
         dst_height: int | None = None,
-        bbox_crs: int = 4326,
+        bbox_crs: int | str | None = None,
         resampling: str = "bilinear",
         band: int | None = None,
     ) -> np.typing.NDArray:
@@ -935,8 +936,9 @@ class COG(_Engine["Dataset"]):
                 width (no decimation).
             dst_height: Output height in pixels. Defaults to the source window
                 height.
-            bbox_crs: EPSG code of `bbox`. Reprojected to the dataset CRS
-                when different. Defaults to 4326 (WGS84 lon/lat).
+            bbox_crs: CRS of `bbox`, reprojected to the dataset CRS when it
+                differs. Defaults to `None`, meaning the bbox is already in the
+                raster's own coordinates, so nothing is transformed.
             resampling: Resampling method, case-insensitive. One of `nearest`,
                 `bilinear`, `cubic`, `cubicspline` (alias `cubic_spline`),
                 `lanczos`, `average`, `mode`, plus `gauss` and `rms` when the
@@ -950,6 +952,9 @@ class COG(_Engine["Dataset"]):
             only — no transform, bounds, or CRS is attached.
 
         Raises:
+            CRSError: An explicit `bbox_crs` was given but the raster has no CRS
+                to transform into. Omit it to read in the raster's own
+                coordinates (ARC-26).
             TypeError: `resampling` is not a string.
             ValueError: Unknown `resampling`.
             OutOfBoundsError: The window does not intersect the raster at all.
@@ -1133,7 +1138,7 @@ class COG(_Engine["Dataset"]):
         x: float,
         y: float,
         *,
-        point_crs: int = 4326,
+        point_crs: int | str | None = None,
         band: int | None = None,
     ) -> np.typing.NDArray:
         """Sample band value(s) at a single coordinate.
@@ -1141,8 +1146,9 @@ class COG(_Engine["Dataset"]):
         Args:
             x: X / longitude / easting in `point_crs`.
             y: Y / latitude / northing in `point_crs`.
-            point_crs: EPSG code of `(x, y)`. Reprojected to the dataset CRS
-                when different. Defaults to 4326.
+            point_crs: CRS of `(x, y)`, reprojected to the dataset CRS when it
+                differs. Defaults to `None`, meaning the coordinates are already
+                in the raster's own CRS, so nothing is transformed.
             band: 0-based band index. `None` samples all bands.
 
         Returns:
@@ -1151,6 +1157,9 @@ class COG(_Engine["Dataset"]):
             coordinate metadata is attached.
 
         Raises:
+            CRSError: An explicit `point_crs` was given but the raster has no
+                CRS to transform into. Omit it to read in the raster's own
+                coordinates (ARC-26).
             OutOfBoundsError: The point falls outside the raster extent.
 
         Examples:
@@ -1229,13 +1238,14 @@ class COG(_Engine["Dataset"]):
         )
 
     def _reproject_bbox(
-        self, bbox: tuple[float, float, float, float], bbox_crs: int
+        self, bbox: tuple[float, float, float, float], bbox_crs: int | str | None
     ) -> tuple[float, float, float, float]:
         """Reproject a bbox into the dataset CRS, returning its envelope.
 
         Args:
             bbox: `(min_x, min_y, max_x, max_y)` in `bbox_crs`.
-            bbox_crs: EPSG code of `bbox`.
+            bbox_crs: CRS of `bbox`. `None` (default) means the bbox is already
+                in the raster's own coordinates.
 
         Returns:
             `(min_x, min_y, max_x, max_y)` in the dataset CRS. When
@@ -1243,33 +1253,56 @@ class COG(_Engine["Dataset"]):
             returned unchanged.
         """
         min_x, min_y, max_x, max_y = bbox
-        if self._ds.epsg == bbox_crs:
-            return min_x, min_y, max_x, max_y
-        transformer = _cached_transformer(bbox_crs, self._ds.epsg or self._ds.crs)
-        corners = [
-            transformer.transform(min_x, min_y),
-            transformer.transform(min_x, max_y),
-            transformer.transform(max_x, min_y),
-            transformer.transform(max_x, max_y),
-        ]
-        xs = [c[0] for c in corners]
-        ys = [c[1] for c in corners]
-        return min(xs), min(ys), max(xs), max(ys)
+        envelope = bbox
+        # `None` means the caller named no CRS, so the bbox is already in the
+        # raster's own coordinates and there is nothing to transform (ARC-26).
+        # An *explicit* bbox_crs goes through `require_crs_spec`, so a raster
+        # with no CRS reports the mismatch rather than silently ignoring the
+        # argument.
+        if bbox_crs is not None:
+            target = require_crs_spec(
+                self._ds.epsg, self._ds.crs, "read a bbox window in another CRS"
+            )
+            if not crs_equal(bbox_crs, target):
+                transformer = _cached_transformer(bbox_crs, target)
+                corners = [
+                    transformer.transform(min_x, min_y),
+                    transformer.transform(min_x, max_y),
+                    transformer.transform(max_x, min_y),
+                    transformer.transform(max_x, max_y),
+                ]
+                xs = [c[0] for c in corners]
+                ys = [c[1] for c in corners]
+                envelope = (min(xs), min(ys), max(xs), max(ys))
+        return envelope
 
-    def _world_to_pixel(self, x: float, y: float, point_crs: int) -> tuple[int, int]:
+    def _world_to_pixel(
+        self, x: float, y: float, point_crs: int | str | None
+    ) -> tuple[int, int]:
         """Convert a world coordinate to integer `(col, row)` pixel indices.
 
         Args:
             x: X / longitude in `point_crs`.
             y: Y / latitude in `point_crs`.
-            point_crs: EPSG code of `(x, y)`.
+            point_crs: CRS of `(x, y)`. `None` (the default) means the point is
+                already in the raster's own coordinates.
 
         Returns:
             `(col, row)` integer pixel indices (floored).
         """
-        if self._ds.epsg != point_crs:
-            transformer = _cached_transformer(point_crs, self._ds.epsg or self._ds.crs)
-            x, y = transformer.transform(x, y)
+        # Mirrors the bbox path: `None` means the point is already in the
+        # raster's own coordinates, so there is nothing to transform. Without
+        # this early-out the default builds a transformer FROM None and fails on
+        # every georeferenced raster. Past it the caller HAS named a CRS, so the
+        # raster must have one to transform into -- `require_crs_spec` rather
+        # than a silent skip, which ignored the argument that was passed.
+        if point_crs is not None:
+            target = require_crs_spec(
+                self._ds.epsg, self._ds.crs, "sample a point given in another CRS"
+            )
+            if not crs_equal(point_crs, target):
+                transformer = _cached_transformer(point_crs, target)
+                x, y = transformer.transform(x, y)
         col, row = world_to_pixel(self._ds._raster.GetGeoTransform(), x, y)
         return int(math.floor(col)), int(math.floor(row))
 

@@ -15,14 +15,27 @@ Public surface:
   Proj4 string with auto-detect.
 * :func:`get_epsg_from_prj` — resolve the EPSG code identified by a
   projection string. Raises :class:`CRSError` on empty input.
-* :func:`epsg_from_wkt` — same, but with a configurable default
-  for the empty-input case.
+* :func:`epsg_from_wkt` — same, but with a configurable default for
+  the empty-input case. Prefer :func:`epsg_of_crs` for a dataset's EPSG:
+  this one's `4326` default is what ARC-26 removed from that path, and it
+  is kept only for a CRS that resolves to no EPSG authority.
+* :func:`epsg_of_crs` — EPSG of a CRS string, or `None` when there is
+  no CRS at all (distinct from a CRS that carries no EPSG code).
+* :func:`crs_spec` / :func:`require_crs_spec` — best usable CRS
+  specification for a dataset; the latter refuses when there is none.
+* :func:`crs_equal` — whether two such specifications describe the same
+  system, tolerant of WKT-spelling differences.
+* :func:`cf_geographic_wkt` — WGS 84 when CF axis units describe a
+  lat/lon grid that declares no `grid_mapping`.
+* :func:`within_lonlat_range` — whether an extent could be lon/lat
+  degrees at all; the geometric backstop on that inference.
 * :func:`reproject_coordinates` — reproject parallel `x` / `y`
   lists between CRSes via :class:`pyproj.Transformer`.
 """
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any, cast
 
 import numpy as np
@@ -378,6 +391,489 @@ def get_epsg_from_prj(prj: str) -> int:
             "epsg_from_wkt(prj, default=...)."
         )
     return int(code)
+
+
+def epsg_of_crs(wkt: str | None) -> int | None:
+    """Resolve the EPSG code a CRS declares, or `None` when it declares none.
+
+    `None` means "this CRS has no EPSG code", which covers two situations that
+    :func:`epsg_from_wkt` conflates by substituting 4326 for both:
+
+    * **No CRS at all** — an empty (or `None`) projection. The dataset is not
+      georeferenced, so there is nothing to report. Fabricating WGS 84 here would
+      claim a georeference the data does not have.
+    * **A CRS with no EPSG authority** — a real projection the EPSG register does
+      not name: an orthographic or geostationary projection, a rotated pole, a
+      spherical-earth GRIB `GEOGCS`. Reporting 4326 for these claimed WGS 84 for
+      grids that are not WGS 84 — an orthographic frame is not lat/lon at all,
+      and a spherical datum differs from the WGS 84 ellipsoid by up to ~20 km.
+
+    The CRS itself is not lost in the second case: `.crs` still returns the WKT,
+    and :func:`crs_spec` falls back to it, so reprojection and every other
+    CRS-consuming operation keeps working. Only the *code* is absent, because
+    there genuinely is not one.
+
+    This mirrors how GDAL, rasterio, rioxarray and geopandas all behave —
+    `to_epsg()` returns `None` rather than guessing.
+
+    Args:
+        wkt: Projection string (WKT, ESRI WKT, or Proj4), possibly empty/`None`.
+
+    Returns:
+        int | None: The EPSG code, or `None` when `wkt` is empty, `None`, or
+        names a CRS that carries no EPSG authority.
+
+    Examples:
+        - An empty projection means "no CRS", not WGS 84:
+            ```python
+            >>> from pyramids.base.crs import epsg_of_crs
+            >>> epsg_of_crs("") is None
+            True
+            >>> epsg_of_crs(None) is None
+            True
+
+            ```
+        - A real projection resolves to its EPSG code:
+            ```python
+            >>> from osgeo import osr
+            >>> from pyramids.base.crs import epsg_of_crs
+            >>> ref = osr.SpatialReference()
+            >>> _ = ref.ImportFromEPSG(3857)
+            >>> epsg_of_crs(ref.ExportToWkt())
+            3857
+
+            ```
+        - A CRS the EPSG register does not name has no code to report:
+            ```python
+            >>> from pyramids.base.crs import create_sr_from_proj, epsg_of_crs
+            >>> ortho = create_sr_from_proj(
+            ...     "+proj=ortho +lat_0=45 +lon_0=9 +datum=WGS84 +units=m +no_defs",
+            ...     string_type="PROJ4",
+            ... )
+            >>> epsg_of_crs(ortho.ExportToWkt()) is None
+            True
+
+            ```
+
+    See Also:
+        epsg_from_wkt: The soft variant that substitutes `default` for both cases.
+    """
+    code: int | None = None
+    if wkt:
+        try:
+            code = get_epsg_from_prj(wkt)
+        except CRSError:
+            # A real CRS the EPSG register does not name. `.crs` keeps the WKT,
+            # so nothing is lost but the code -- which does not exist.
+            code = None
+    return code
+
+
+# CF longitude/latitude unit spellings, lower-cased stems. CF permits
+# `degrees_east`, `degree_east`, `degrees_E`, `degreeE` and friends, so callers
+# match the stem rather than one literal.
+LON_UNIT_PREFIXES = ("degrees_e", "degree_e", "degreee")
+LAT_UNIT_PREFIXES = ("degrees_n", "degree_n", "degreen")
+# Names of vertical axes. A linear unit on one of these describes depth or
+# height, never the horizontal CRS, so such an axis must never veto the
+# geographic inference. This list is a supplement, not a fallback: a file that
+# declares `axis: Z` (or `positive`, or a vertical `standard_name`) is
+# classified from what it declares, because no name list can keep up with
+# `deptht`, `olevel`, `nav_lev` and every other model's spelling. The names
+# still matter for the files that declare nothing.
+VERTICAL_AXIS_NAMES = frozenset(
+    {
+        "z",
+        "depth",
+        "height",
+        "lev",
+        "level",
+        "altitude",
+        "elevation",
+        "plev",
+        "pressure",
+    }
+)
+
+# CF standard_names that identify a vertical coordinate. Unlike the name list
+# below, these are declared BY THE FILE, so they identify a vertical axis whatever
+# the variable is called -- deptht, olevel, nav_lev and every other model spelling.
+VERTICAL_STANDARD_NAMES = frozenset(
+    {
+        "depth",
+        "height",
+        "altitude",
+        "air_pressure",
+        "model_level_number",
+        "atmosphere_hybrid_sigma_pressure_coordinate",
+        "atmosphere_sigma_coordinate",
+        "ocean_s_coordinate",
+        "ocean_sigma_coordinate",
+        "geopotential_height",
+        "height_above_geopotential_datum",
+        "height_above_mean_sea_level",
+    }
+)
+
+# Units that mark a horizontal axis as something other than lon/lat. Exact
+# matches only, so a compound unit like "m s-1" on a data variable never counts.
+# Unqualified `degrees` belongs here rather than with the lon/lat stems: a
+# rotated-pole grid's rlat/rlon are in plain degrees but are NOT WGS 84. `rad`
+# covers a geostationary scan-angle axis. Their presence is counter-evidence: a
+# file carrying metre x/y axes is projected, and any degrees arrays alongside
+# them are auxiliary lat/lon coordinates, not the grid's CRS.
+PROJECTED_AXIS_UNITS = (
+    "m",
+    "metre",
+    "meter",
+    "metres",
+    "meters",
+    "km",
+    "kilometre",
+    "kilometer",
+    "kilometres",
+    "kilometers",
+    "degrees",
+    "degree",
+    "rad",
+    "radian",
+    "radians",
+)
+
+
+# Loosest extent still readable as lon/lat degrees. See `within_lonlat_range`:
+# these only have to separate degrees from projected coordinates, so they err
+# generous -- a pole-centred or 0..360 grid must not be misread as projected.
+_MAX_PLAUSIBLE_LON = 400.0
+_MAX_PLAUSIBLE_LAT = 100.0
+
+
+def within_lonlat_range(bounds: tuple[float, float, float, float] | None) -> bool:
+    """Whether a raster's own extent could be longitude / latitude degrees.
+
+    A grid cannot be lat/lon if its coordinates do not fit in the lat/lon range,
+    whatever its metadata says. This is the backstop for CF unit evidence that
+    comes from something other than the grid's real axes — a UTM raster carrying
+    a ``degrees_east`` data variable (a wind direction, a solar angle) still has
+    metre-scale eastings, so the geographic reading is refused on the geometry
+    rather than on the name of the variable that offered the units.
+
+    The bounds are deliberately loose, because the check only has to separate
+    degrees from *projected* coordinates and every projected frame is orders of
+    magnitude larger (a UTM northing runs to 10^7, Web Mercator to 2x10^7). Being
+    tight instead costs real files: longitudes are allowed out to +-400 because CF
+    uses both the -180..180 and 0..360 conventions and a geotransform measures the
+    outer pixel edge, and latitudes out to +-100 because a pole-centred global grid
+    -- lat *centres* at +-90, as many GCMs and reanalyses are written -- has an
+    edge half a cell beyond the pole (91.25 at 2.5 degrees, 92.5 at 5).
+
+    Args:
+        bounds: ``(min_x, min_y, max_x, max_y)`` in the raster's own coordinates,
+            or ``None`` when it has no usable geotransform.
+
+    Returns:
+        bool: True when the extent fits in the lon/lat range, or when there is
+        no extent to judge (``None`` — an unknown extent is not counter-evidence).
+
+    Examples:
+        - A degree-scale extent passes:
+            ```python
+            >>> from pyramids.base.crs import within_lonlat_range
+            >>> within_lonlat_range((-10.0, 40.0, 5.0, 55.0))
+            True
+
+            ```
+        - A UTM extent cannot be degrees:
+            ```python
+            >>> from pyramids.base.crs import within_lonlat_range
+            >>> within_lonlat_range((400000.0, 5000000.0, 410000.0, 5010000.0))
+            False
+
+            ```
+        - A pole-centred global grid overshoots the pole by half a cell, and is
+          still lat/lon:
+            ```python
+            >>> from pyramids.base.crs import within_lonlat_range
+            >>> within_lonlat_range((-181.25, -91.25, 181.25, 91.25))
+            True
+
+            ```
+        - An unknown extent is not counter-evidence:
+            ```python
+            >>> from pyramids.base.crs import within_lonlat_range
+            >>> within_lonlat_range(None)
+            True
+
+            ```
+    """
+    if bounds is None:
+        plausible = True
+    else:
+        min_x, min_y, max_x, max_y = bounds
+        plausible = (
+            -_MAX_PLAUSIBLE_LON <= min_x <= _MAX_PLAUSIBLE_LON
+            and -_MAX_PLAUSIBLE_LON <= max_x <= _MAX_PLAUSIBLE_LON
+            and -_MAX_PLAUSIBLE_LAT <= min_y <= _MAX_PLAUSIBLE_LAT
+            and -_MAX_PLAUSIBLE_LAT <= max_y <= _MAX_PLAUSIBLE_LAT
+        )
+    return plausible
+
+
+def cf_geographic_wkt(units: set[str], axis_units: set[str] | None = None) -> str:
+    """WGS 84 WKT when CF axis units describe a lat/lon grid, else ``""``.
+
+    CF-1.x lets a data variable carry no ``grid_mapping``; when its coordinate
+    axes are in degrees east/north the file *is* geographic and CF simply leaves
+    the datum implicit. GDAL reports an empty projection for those, and the whole
+    ecosystem reads them as WGS 84 — so inferring EPSG:4326 from this evidence is
+    a convention-backed reading of the metadata, not the blanket "assume WGS 84
+    for anything unprojected" default that ARC-26 removed. A raster with no CRS
+    and no such evidence still reports no CRS.
+
+    Args:
+        units: Lower-cased unit strings from every coordinate array, including
+            the 2-D auxiliary lat/lon a curvilinear grid uses.
+        axis_units: Lower-cased unit strings from the true *horizontal* dimension
+            axes only. A unit here that belongs to a projected or rotated frame
+            (`m`, `km`, unqualified `degrees` / `degree`, `rad`, ...) vetoes the
+            inference: the grid is projected, rotated-pole or geostationary, and
+            its degrees arrays are auxiliary coordinates. See
+            :data:`PROJECTED_AXIS_UNITS` for the exact set. Defaults to `None`
+            (no veto).
+
+    Returns:
+        str: WGS 84 WKT when both a longitude and a latitude axis are in degrees,
+        otherwise ``""``.
+
+    Examples:
+        - Degrees on both axes identify a geographic grid:
+            ```python
+            >>> from pyramids.base.crs import cf_geographic_wkt
+            >>> wkt = cf_geographic_wkt({"degrees_east", "degrees_north"})
+            >>> "WGS 84" in wkt
+            True
+
+            ```
+        - The CF singular spellings are accepted too:
+            ```python
+            >>> from pyramids.base.crs import cf_geographic_wkt
+            >>> bool(cf_geographic_wkt({"degree_east", "degree_north"}))
+            True
+
+            ```
+        - One axis alone, or non-degree units, is not evidence:
+            ```python
+            >>> from pyramids.base.crs import cf_geographic_wkt
+            >>> cf_geographic_wkt({"degrees_east", "meter"})
+            ''
+
+            ```
+    """
+    has_lon = any(u.startswith(LON_UNIT_PREFIXES) for u in units)
+    has_lat = any(u.startswith(LAT_UNIT_PREFIXES) for u in units)
+    # A linear unit on a real *axis* means the grid is projected, and any degrees
+    # arrays are auxiliary lat/lon coordinates rather than the CRS. Without this
+    # a CF file with metre x/y plus 2-D aux lat/lon and no grid_mapping is
+    # reported as WGS 84 on a metre geotransform. The check looks only at
+    # `axis_units` because a data variable may legitimately be in metres (a ROMS
+    # bathymetry or sea-surface height) on an otherwise geographic grid.
+    projected = any(u in PROJECTED_AXIS_UNITS for u in (axis_units or set()))
+    geographic = has_lon and has_lat and not projected
+    return sr_from_epsg(4326).ExportToWkt() if geographic else ""
+
+
+def crs_spec(epsg: int | None, wkt: str | None) -> int | str | None:
+    """Best usable CRS specification for a dataset, or `None` when it has none.
+
+    Replaces the `dataset.epsg or dataset.crs` idiom. That expression looks
+    total but is not: once `epsg` propagates `None` for an ungeoreferenced
+    raster, it evaluates to the empty CRS string, which every downstream
+    constructor rejects with an opaque *"Invalid projection: ''"*. Returning
+    `None` instead makes the absence explicit, so callers either pass it on
+    (producing an ungeoreferenced result) or reject it deliberately via
+    :func:`require_crs_spec`.
+
+    Args:
+        epsg: EPSG code, or `None` for a CRS that carries no EPSG authority.
+        wkt: Projection WKT, or an empty string / `None` when there is no CRS.
+
+    Returns:
+        int | str | None: The EPSG code when there is one, else the WKT, else
+        `None`.
+
+    Examples:
+        - An EPSG code is preferred when present:
+            ```python
+            >>> from pyramids.base.crs import crs_spec
+            >>> crs_spec(4326, 'GEOGCS["WGS 84"]')
+            4326
+
+            ```
+        - A CRS with no EPSG authority falls back to its WKT:
+            ```python
+            >>> from pyramids.base.crs import crs_spec
+            >>> crs_spec(None, 'GEOGCS["custom"]')
+            'GEOGCS["custom"]'
+
+            ```
+        - No CRS at all is reported as `None`, not as an empty string:
+            ```python
+            >>> from pyramids.base.crs import crs_spec
+            >>> crs_spec(None, "") is None
+            True
+
+            ```
+
+    See Also:
+        require_crs_spec: The variant that raises when there is no CRS.
+    """
+    result: int | str | None = None
+    if epsg is not None:
+        result = epsg
+    elif wkt:
+        result = wkt
+    return result
+
+
+def require_crs_spec(epsg: int | None, wkt: str | None, operation: str) -> int | str:
+    """Like :func:`crs_spec`, but raise when the dataset has no CRS.
+
+    Use at the point of an operation that genuinely cannot proceed without a
+    CRS — reprojection, a coordinate transform, a spatial join against a vector.
+    Mirrors how GDAL, rasterio, rioxarray and geopandas all behave: a missing
+    CRS propagates quietly until something actually needs it, and then fails
+    with a message naming the fix.
+
+    Args:
+        epsg: EPSG code, or `None`.
+        wkt: Projection WKT, or an empty string / `None`.
+        operation: Short description of what needs the CRS, used in the error.
+
+    Returns:
+        int | str: The EPSG code when there is one, else the WKT.
+
+    Raises:
+        CRSError: Neither an EPSG code nor a WKT is available.
+
+    Examples:
+        - Resolves exactly as :func:`crs_spec` when a CRS is present:
+            ```python
+            >>> from pyramids.base.crs import require_crs_spec
+            >>> require_crs_spec(3857, "", "reproject")
+            3857
+
+            ```
+        - Refuses, naming the operation, when there is none:
+            ```python
+            >>> from pyramids.base.crs import require_crs_spec
+            >>> try:
+            ...     require_crs_spec(None, "", "reproject")
+            ... except ValueError as exc:
+            ...     print("reproject" in str(exc))
+            True
+
+            ```
+    """
+    spec = crs_spec(epsg, wkt)
+    if spec is None:
+        raise CRSError(
+            f"cannot {operation}: the raster involved has no CRS. Set one first "
+            f"(e.g. "
+            "`dataset.epsg = <code>`, or `gdal_edit.py -a_srs EPSG:<code> "
+            "<file>` on disk); pyramids does not assume WGS 84 for an "
+            "ungeoreferenced raster."
+        )
+    return spec
+
+
+def _is_crs_spec(value: int | str) -> bool:
+    """Whether a value could name a CRS at all.
+
+    Guards the `a == b` fast path in :func:`crs_equal`: `True` equals `1`, and
+    `0` / `""` compare equal to themselves, but none of them is a CRS
+    specification :func:`sr_from_user_input` would accept.
+
+    Args:
+        value: The candidate specification.
+
+    Returns:
+        bool: True for a non-zero int (not a bool) or a non-empty string.
+    """
+    if isinstance(value, bool):
+        usable = False
+    elif isinstance(value, int):
+        usable = value > 0
+    else:
+        usable = isinstance(value, str) and bool(value.strip())
+    return usable
+
+
+@lru_cache(maxsize=256)
+def crs_equal(a: int | str | None, b: int | str | None) -> bool:
+    """Return True when two CRS specifications describe the same system.
+
+    Comparing two :func:`crs_spec` results with ``!=`` is string identity
+    whenever a CRS carries no EPSG authority, because ``crs_spec`` then falls
+    back to the raw WKT. Two spellings of one CRS (WKT1 vs WKT2, or a differently
+    ordered ``AUTHORITY`` block) would compare unequal and trigger a full warp
+    between identical grids — a resampling pass the data did not need. Compare
+    through OSR instead, which normalises both sides before testing.
+
+    Args:
+        a: EPSG code, WKT / authority string, or ``None`` for "no CRS".
+        b: The other specification, same forms.
+
+    Returns:
+        bool: True when both sides are absent, or both resolve to the same
+        reference system. False when exactly one side is absent, or either side
+        cannot be parsed.
+
+    Examples:
+        - Two spellings of one CRS are equal:
+            ```python
+            >>> from pyramids.base.crs import crs_equal, sr_from_epsg
+            >>> crs_equal(32636, sr_from_epsg(32636).ExportToWkt())
+            True
+
+            ```
+        - Different systems are not:
+            ```python
+            >>> from pyramids.base.crs import crs_equal
+            >>> crs_equal(4326, 32636)
+            False
+
+            ```
+        - Absence matches only absence:
+            ```python
+            >>> from pyramids.base.crs import crs_equal
+            >>> crs_equal(None, None), crs_equal(None, 4326)
+            (True, False)
+
+            ```
+        - Values that are not CRS specifications never compare equal:
+            ```python
+            >>> from pyramids.base.crs import crs_equal
+            >>> crs_equal(0, 0), crs_equal("", ""), crs_equal(True, True)
+            (False, False, False)
+
+            ```
+    """
+    if a is None or b is None:
+        equal = a is None and b is None
+    elif not _is_crs_spec(a) or not _is_crs_spec(b):
+        # `True == 1` and `0`/`""` would otherwise sail through the fast path as
+        # "equal" although neither is a CRS `sr_from_user_input` would accept.
+        equal = False
+    elif a == b:
+        equal = True
+    else:
+        try:
+            equal = bool(sr_from_user_input(a).IsSame(sr_from_user_input(b)))
+        except (RuntimeError, TypeError, ValueError):
+            # An unparseable side cannot be shown to match; the caller then does
+            # the conversion, which is the safe direction.
+            equal = False
+    return equal
 
 
 def epsg_from_wkt(wkt: str | None, default: int = 4326) -> int:
@@ -736,12 +1232,23 @@ def reproject_coordinates(
 
 
 __all__ = [
+    "LAT_UNIT_PREFIXES",
+    "LON_UNIT_PREFIXES",
+    "PROJECTED_AXIS_UNITS",
+    "VERTICAL_AXIS_NAMES",
+    "VERTICAL_STANDARD_NAMES",
+    "cf_geographic_wkt",
     "create_sr_from_proj",
+    "crs_equal",
+    "crs_spec",
     "epsg_from_user_input",
     "epsg_from_wkt",
+    "epsg_of_crs",
     "get_epsg_from_prj",
     "reproject_coordinates",
+    "require_crs_spec",
     "sr_from_epsg",
     "sr_from_user_input",
     "sr_from_wkt",
+    "within_lonlat_range",
 ]

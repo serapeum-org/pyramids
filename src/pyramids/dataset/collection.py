@@ -25,6 +25,7 @@ from pyramids.base._utils import (
     import_zarr,
     lazy_extra_hint,
 )
+from pyramids.base.crs import crs_spec
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
@@ -36,6 +37,7 @@ from pyramids.dataset.merge import merge_rasters
 from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
     finalize_zarr_metadata,
+    geobox_crs,
     normalize_compressors,
     read_geobox,
 )
@@ -220,23 +222,25 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
             "pyramids_file_list": list(files),
         },
         data_attrs={
-            "epsg": int(meta.epsg or 0),
+            # 0 is the geobox's documented "no authority code" sentinel; emit
+            # it here too so a store does not record absence two ways.
+            "epsg": int(meta.epsg) if meta.epsg is not None else 0,
             "GeoTransform": " ".join(str(v) for v in meta.geotransform),
-            "crs_wkt": meta.crs.to_wkt(),
+            "crs_wkt": meta.crs.to_wkt() if meta.crs is not None else "",
             "nodata": [None if v is None else float(v) for v in meta.nodata],
             "band_names": list(meta.band_names) if meta.band_names else [],
             "dtype": str(meta.dtype),
         },
-        epsg=int(meta.epsg or 0),
+        epsg=int(meta.epsg) if meta.epsg is not None else None,
         geotransform=tuple(float(v) for v in meta.geotransform),
-        crs_wkt=meta.crs.to_wkt(),
+        crs_wkt=meta.crs.to_wkt() if meta.crs is not None else "",
         rows=int(meta.rows),
         cols=int(meta.columns),
         dims=["time", "band", "y", "x"],
     )
 
 
-def _crs_equal(a: CRS, b: CRS) -> bool:
+def _crs_equal(a: CRS | None, b: CRS | None) -> bool:
     """Return True if two CRS describe the same reference system (N2).
 
     ``pyproj.CRS.__eq__`` is strict: a file carrying an EPSG code and one carrying
@@ -247,6 +251,11 @@ def _crs_equal(a: CRS, b: CRS) -> bool:
     :meth:`DatasetCollection._validate_headers` so a valid input is not rejected on a
     cosmetic CRS-encoding difference.
     """
+    # Either side may be None now that a CRS-less raster reports no CRS
+    # (ARC-26). Two absent CRSes match; one absent and one present do not, and
+    # must not reach `.to_epsg()`.
+    if a is None or b is None:
+        return a is None and b is None
     if a == b:
         return True
     epsg_a, epsg_b = a.to_epsg(), b.to_epsg()
@@ -955,7 +964,7 @@ class DatasetCollection:
         return Dataset.create_from_array(
             arr,
             geo=src.geotransform,
-            epsg=src.epsg or src.crs,
+            epsg=crs_spec(src.epsg, src.crs),
             no_data_value=src.no_data_value[0],
         )
 
@@ -1827,7 +1836,11 @@ class DatasetCollection:
                 ):
                     mismatch = f"geotransform {fm.transform} != {meta.transform}"
                 elif not _crs_equal(fm.crs, meta.crs):
-                    mismatch = f"CRS {fm.crs.to_string()} != {meta.crs.to_string()}"
+                    first_crs = fm.crs.to_string() if fm.crs is not None else "no CRS"
+                    this_crs = (
+                        meta.crs.to_string() if meta.crs is not None else "no CRS"
+                    )
+                    mismatch = f"CRS {first_crs} != {this_crs}"
                 else:
                     continue
                 raise AlignmentError(
@@ -1903,7 +1916,7 @@ class DatasetCollection:
         template = Dataset.create_from_array(
             template_arr if bands > 1 else template_arr[0],
             geo=geo_6,
-            epsg=geobox["epsg"] or 4326,
+            epsg=geobox_crs(geobox),
             no_data_value=no_data_value,
         )
         if geobox["crs_wkt"]:

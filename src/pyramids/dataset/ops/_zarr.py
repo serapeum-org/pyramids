@@ -32,6 +32,7 @@ from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
     detect_data_var,
     finalize_zarr_metadata,
+    geobox_crs,
     normalize_compressors,
     read_geobox,
 )
@@ -487,7 +488,7 @@ def read_dataset_from_zarr(
         arr_for_create,
         top_left_corner=(geotransform[0], geotransform[3]),
         cell_size=float(geotransform[1]),
-        epsg=geobox["epsg"] or 4326,
+        epsg=geobox_crs(geobox),
         no_data_value=_normalize_no_data(attrs),
     )
     # Prefer the stored WKT (handles CRSes without an EPSG authority code);

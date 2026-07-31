@@ -26,7 +26,16 @@ from pyramids.base._utils import (
     UNDEFINED_COLOR_INTERP,
     numpy_to_gdal_dtype,
 )
-from pyramids.base.crs import epsg_from_wkt, sr_from_epsg, sr_from_user_input
+from pyramids.base.crs import (
+    PROJECTED_AXIS_UNITS,
+    VERTICAL_AXIS_NAMES,
+    cf_geographic_wkt,
+    crs_spec,
+    epsg_of_crs,
+    sr_from_epsg,
+    sr_from_user_input,
+    within_lonlat_range,
+)
 from pyramids.base.remote import cloud_config_from_env, redact_credentials
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
 from pyramids.dataset._wcs import from_wcs as _from_wcs
@@ -225,6 +234,70 @@ if TYPE_CHECKING:
     from geopandas import GeoDataFrame
 
 
+# Conventional coordinate-variable names, used as a fallback when a file
+# declares no `<var>#axis` attributes. Units on these count as *axis* units,
+# the only ones allowed to veto the CF geographic inference — except the
+# vertical names above, which describe depth rather than the horizontal CRS.
+# The X-ish and Y-ish halves of `_AXIS_VARIABLE_NAMES`, used to require that a
+# veto comes from a PAIR of axes. Together they partition that list exactly, so
+# the pairing rule introduces no new vocabulary.
+_X_AXIS_NAMES = frozenset(
+    {
+        "x",
+        "xc",
+        "xdim",
+        "x_dim",
+        "lon",
+        "longitude",
+        "long",
+        "rlon",
+        "east",
+        "easting",
+        "nav_lon",
+    }
+)
+_Y_AXIS_NAMES = frozenset(
+    {
+        "y",
+        "yc",
+        "ydim",
+        "y_dim",
+        "lat",
+        "latitude",
+        "rlat",
+        "north",
+        "northing",
+        "nav_lat",
+    }
+)
+
+_AXIS_VARIABLE_NAMES = frozenset(
+    {
+        "x",
+        "y",
+        "xc",
+        "yc",
+        "xdim",
+        "ydim",
+        "x_dim",
+        "y_dim",
+        "lon",
+        "lat",
+        "longitude",
+        "latitude",
+        "long",
+        "rlon",
+        "rlat",
+        "east",
+        "north",
+        "easting",
+        "northing",
+        "nav_lon",
+        "nav_lat",
+    }
+)
+
+
 class Dataset(RasterBase):
     """Single-band or multi-band raster dataset (GeoTIFF, etc.).
 
@@ -325,6 +398,10 @@ class Dataset(RasterBase):
         """
         new = type(self)(src, access=access or self._access)
         self.__dict__.update(new.__dict__)
+        # `update` merges, so a lazily-set cache the fresh instance never
+        # populated would survive the swap and describe the OLD raster. Drop the
+        # inferred-CF-CRS memo explicitly.
+        self.__dict__.pop("_cf_crs_cache", None)
         # Re-bind via `weakref.proxy` so the back-reference stays
         # weak after the dict swap (matches `_Engine.__init__`).
         # Direct slot reassignment is allowed because `_Engine`
@@ -1246,7 +1323,7 @@ class Dataset(RasterBase):
         coords = [(x_min, y_max), (x_min, y_min), (x_max, y_min), (x_max, y_max)]
         poly = create_polygon(coords)
         gdf = gpd.GeoDataFrame(geometry=[poly])
-        gdf.set_crs(self.epsg or self.crs, inplace=True)
+        gdf.set_crs(crs_spec(self.epsg, self.crs), inplace=True)
         return gdf
 
     def _get_band_names(self) -> list[str]:
@@ -1278,17 +1355,211 @@ class Dataset(RasterBase):
         `RasterBase.__init__` calls `_get_epsg()` (which calls
         `_get_crs()`) before `Dataset.__init__` has a chance to wire
         up the Spatial collaborator. The Spatial collaborator's
-        `_get_crs` body is the same one-liner.
+        `Spatial._get_crs` returns the projection as GDAL reports it; this
+        override adds the CF inference on top, so the two bodies differ.
         """
-        return str(self.raster.GetProjection())
+        crs = str(self.raster.GetProjection())
+        cached: str | None = getattr(self, "_cf_crs_cache", None)
+        if not crs and cached is not None:
+            # Memoised: the scan below walks the whole metadata dict, and `.crs`
+            # is read on every spatial operation. Keyed to the current raster —
+            # `_update_inplace` drops it.
+            crs = cached
+        elif not crs:
+            crs = self._infer_cf_crs()
+            self._cf_crs_cache = crs
+        return crs
+
+    def _infer_cf_crs(self) -> str:
+        """WGS 84 WKT when CF metadata says this is a lat/lon grid, else ``""``.
+
+        A CF NetCDF opened through the *classic* driver reports no projection but
+        exposes its coordinate metadata as ``<var>#units`` / ``<var>#axis``.
+        Degrees east/north on a coordinate there mean a geographic grid by CF
+        convention, so read it as WGS 84 rather than as ungeoreferenced (ARC-26).
+        Any other unprojected raster still reports no CRS.
+
+        The multidim equivalent is :meth:`pyramids.netcdf.NetCDF._cf_geographic_crs`,
+        which reads the same evidence off the GDAL group API instead of off
+        flattened metadata keys.
+
+        Returns:
+            str: WGS 84 WKT when the evidence says geographic, otherwise ``""``.
+        """
+        metadata = self.raster.GetMetadata() or {}
+        evidence_names, axis_names, vertical_names = self._classify_cf_variables(
+            metadata
+        )
+        units = self._units_of(metadata, evidence_names, set())
+        axis_units = self._paired_axis_units(metadata, axis_names, vertical_names)
+        crs = cf_geographic_wkt(units, axis_units)
+        # Last check, on the geometry rather than the metadata: a grid whose own
+        # coordinates fall outside the lon/lat range is not lat/lon, no matter
+        # which variable supplied the degrees.
+        if crs and not within_lonlat_range(self._own_extent()):
+            crs = ""
+        return crs
+
+    @staticmethod
+    def _classify_cf_variables(
+        metadata: dict,
+    ) -> tuple[set[str], set[str], set[str]]:
+        """Split CF variable names into evidence, veto and vertical sets.
+
+        Three distinct roles, easy to conflate:
+
+        * **Evidence** — variables whose degrees units may imply a geographic
+          grid. Only plausible coordinates qualify: one that declares
+          `axis: X|Y`, one named in a `coordinates` attribute (how CF identifies
+          a curvilinear grid's 2-D lat/lon, which declare no `axis`), or one
+          carrying a conventional coordinate name. A wind direction in
+          `degrees_east` is a data variable and is not evidence.
+        * **Veto** — variables whose projected units mean the grid is not
+          lat/lon. The declared axes are *unioned* with the name list rather than
+          replacing it: a file may declare `axis` on some variables (the
+          near-universal `time#axis = "T"`) while leaving its projected x/y
+          undeclared, and keying on the declarations alone then misses the veto
+          entirely. Only `axis: X|Y` counts as a declared horizontal axis — a
+          declared `T` is not one.
+        * **Vertical** — declared `axis: Z`, plus the conventional names. A depth
+          or height in metres says nothing about the horizontal frame, so it must
+          never veto.
+
+        Args:
+            metadata: GDAL metadata dict, with flattened `<var>#attr` keys.
+
+        Returns:
+            tuple[set[str], set[str], set[str]]: `(evidence, veto, vertical)`
+            variable names, lower-cased.
+        """
+        coordinate_refs: set[str] = set()
+        declared_horizontal: set[str] = set()
+        declared_vertical: set[str] = set()
+        for key, value in metadata.items():
+            if not isinstance(value, str):
+                continue
+            lowered = key.lower()
+            if lowered.endswith("#coordinates"):
+                coordinate_refs.update(name.lower() for name in value.split())
+            elif lowered.endswith("#axis"):
+                name = key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
+                role = value.strip().upper()
+                if role == "Z":
+                    declared_vertical.add(name)
+                elif role in ("X", "Y"):
+                    declared_horizontal.add(name)
+        evidence = declared_horizontal | coordinate_refs | _AXIS_VARIABLE_NAMES
+        veto = declared_horizontal | _AXIS_VARIABLE_NAMES
+        return evidence, veto, set(VERTICAL_AXIS_NAMES) | declared_vertical
+
+    @staticmethod
+    def _paired_axis_units(
+        metadata: dict, include: set[str], exclude: set[str]
+    ) -> set[str]:
+        """Projected units, but only when both an X and a Y axis carry them.
+
+        A real projected grid always has *both* horizontal axes in projected
+        units. One variable named `x` in metres beside `lon` / `lat` in degrees
+        is a data variable — a ROMS bathymetry, a sea-surface height — and must
+        not strip a geographic grid's CRS; `east` **and** `north`, or `rlon`
+        **and** `rlat`, is a grid and must. Requiring the pair is what lets the
+        name-based veto stay strict without destroying the CRS of a file that
+        merely contains a similarly-named data variable.
+
+        Args:
+            metadata: GDAL metadata dict, with flattened `<var>#attr` keys.
+            include: Candidate axis names.
+            exclude: Names to skip (the vertical set).
+
+        Returns:
+            set[str]: The projected units when an X/Y pair carries them,
+            otherwise an empty set.
+        """
+        per_axis: dict[str, str] = {}
+        for key, value in metadata.items():
+            if not isinstance(value, str) or not key.lower().endswith("#units"):
+                continue
+            name = key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
+            if name in include and name not in exclude:
+                per_axis[name] = value.strip().lower()
+        projected = {
+            name: unit
+            for name, unit in per_axis.items()
+            if unit in PROJECTED_AXIS_UNITS
+        }
+        has_x = any(name in _X_AXIS_NAMES for name in projected)
+        has_y = any(name in _Y_AXIS_NAMES for name in projected)
+        return set(projected.values()) if has_x and has_y else set()
+
+    @staticmethod
+    def _units_of(metadata: dict, include: set[str], exclude: set[str]) -> set[str]:
+        """Lower-cased ``#units`` values of the named variables.
+
+        Args:
+            metadata: GDAL metadata dict, with flattened ``<var>#attr`` keys.
+            include: Variable names to collect units from.
+            exclude: Variable names to skip even when they are in `include`.
+
+        Returns:
+            set[str]: The matching unit strings.
+        """
+        collected = set()
+        for key, value in metadata.items():
+            if not isinstance(value, str) or not key.lower().endswith("#units"):
+                continue
+            name = key.rsplit("#", 1)[0].rsplit("/", 1)[-1].lower()
+            if name in include and name not in exclude:
+                collected.add(value.strip().lower())
+        return collected
+
+    def _own_extent(self) -> tuple[float, float, float, float] | None:
+        """Corner-to-corner extent in the raster's own coordinates, or ``None``.
+
+        Read straight off the GDAL handle rather than through :attr:`bounds`,
+        because this runs from :meth:`_get_crs` during ``RasterBase.__init__``,
+        before the Spatial collaborator exists.
+
+        Returns:
+            ``(min_x, min_y, max_x, max_y)``, or ``None`` when the raster carries
+            no real geotransform (GDAL's identity default) and its extent
+            therefore says nothing.
+        """
+        result: tuple[float, float, float, float] | None = None
+        try:
+            geotransform = self.raster.GetGeoTransform()
+            columns, rows = self.raster.RasterXSize, self.raster.RasterYSize
+        except (RuntimeError, AttributeError):
+            geotransform = None
+        # GDAL hands back the identity transform for a raster that has none; its
+        # "extent" is then pixel indices, which must not veto anything.
+        if geotransform and tuple(geotransform) != (0.0, 1.0, 0.0, 0.0, 0.0, 1.0):
+            # All four corners: with a rotated geotransform (non-zero gt[2] /
+            # gt[4]) the two diagonal corners do not bound the other two, and
+            # under a symmetric rotation they coincide -- collapsing the extent
+            # to a point, which silently disables the range check.
+            corners = [(0, 0), (columns, 0), (0, rows), (columns, rows)]
+            xs = [
+                geotransform[0] + col * geotransform[1] + row * geotransform[2]
+                for col, row in corners
+            ]
+            ys = [
+                geotransform[3] + col * geotransform[4] + row * geotransform[5]
+                for col, row in corners
+            ]
+            result = (min(xs), min(ys), max(xs), max(ys))
+        return result
 
     def _get_epsg(self) -> int | None:
         """Concrete override of :meth:`RasterBase._get_epsg`.
 
         Defined directly on Dataset for the same reason as
         :meth:`_get_crs`.
+
+        Returns `None` for a raster with no CRS, honouring the documented
+        `int | None` contract of :attr:`epsg` — a missing georeference must not
+        be reported as WGS 84.
         """
-        return epsg_from_wkt(self._get_crs())
+        return epsg_of_crs(self._get_crs())
 
     def zonal_stats(
         self,
@@ -1486,7 +1757,14 @@ class Dataset(RasterBase):
 
     @property
     def epsg(self) -> int | None:
-        """EPSG number, or ``None`` for a CRS with no EPSG code (e.g. geostationary)."""
+        """EPSG number, or ``None``.
+
+        ``None`` means either the raster has **no CRS at all** — pyramids does
+        not assume WGS 84 for an unprojected grid (ARC-26) — or its CRS carries
+        no EPSG authority code (a geostationary fixed-grid projection, say).
+        Read :attr:`crs` to tell the two apart: it is empty in the first case and
+        a WKT string in the second.
+        """
         return self._epsg
 
     @epsg.setter
@@ -1680,7 +1958,7 @@ class Dataset(RasterBase):
         result = self.create_from_array(
             result_array,
             geo=self.geotransform,
-            epsg=self.epsg or self.crs,
+            epsg=crs_spec(self.epsg, self.crs),
             no_data_value=list(no_data),
         )
         result.band_units = new_units
@@ -1763,6 +2041,13 @@ class Dataset(RasterBase):
         self._require_writable("set metadata")
         for key, val in value.items():
             self._raster.SetMetadataItem(key, val)
+        # The CF geographic inference reads this metadata (axis units), so the
+        # memoised answer is stale once it changes -- and `_epsg` was memoised
+        # from it during __init__, so re-derive that too. Dropping only the WKT
+        # cache left `.crs` reporting WGS 84 while `.epsg` reported None, a
+        # combination documented to mean "a CRS with no EPSG authority".
+        self.__dict__.pop("_cf_crs_cache", None)
+        self._epsg = self._get_epsg()
 
     @property
     def file_name(self) -> str:
@@ -3497,7 +3782,7 @@ class Dataset(RasterBase):
         top_left_corner: tuple[float, float] | None = None,
         cell_size: int | float | None = None,
         geo: tuple[float, float, float, float, float, float] | None = None,
-        epsg: str | int = 4326,
+        epsg: str | int | None = 4326,
         no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
         driver_type: str = "MEM",
         path: str | Path | None = None,
@@ -3515,8 +3800,11 @@ class Dataset(RasterBase):
             geo (Tuple[float, float, float, float, float, float], optional):
                 Geotransform tuple (minimum lon/x, pixel-size, rotation, maximum lat/y, rotation,
                 pixel-size).
-            epsg (int):
-                Integer reference number to the projection (https://epsg.io/).
+            epsg (str | int | None):
+                Reference number of the projection (https://epsg.io/) or any CRS
+                string GDAL accepts. `None` (or `0`) creates an ungeoreferenced
+                raster that reports no CRS, rather than one silently stamped
+                WGS 84. Defaults to 4326.
             no_data_value (Any, optional):
                 No data value to mask the cells out of the domain. The default is -9999.
             driver_type (str, optional):
@@ -3554,10 +3842,18 @@ class Dataset(RasterBase):
         # Keep the exact `sr_from_epsg` path for an EPSG int/numeric string; carry
         # a no-EPSG CRS (e.g. geostationary) through as a WKT string so rebuilds
         # preserve it instead of crashing on `int(None)` (#706).
-        try:
-            crs_wkt = sr_from_epsg(int(epsg)).ExportToWkt()
-        except (TypeError, ValueError):
-            crs_wkt = sr_from_user_input(epsg).ExportToWkt()
+        if not epsg:
+            # No CRS at all (`None`/""), e.g. rebuilding from a source that is
+            # itself ungeoreferenced. Propagate that rather than stamping a
+            # default: an unprojected result must not claim a projection
+            # (ARC-26). `_build_dataset` calls SetProjection(""), which GDAL
+            # treats as clearing the projection.
+            crs_wkt = ""
+        else:
+            try:
+                crs_wkt = sr_from_epsg(int(epsg)).ExportToWkt()
+            except (TypeError, ValueError):
+                crs_wkt = sr_from_user_input(epsg).ExportToWkt()
 
         return cls._build_dataset(
             cols,
@@ -3820,7 +4116,7 @@ class Dataset(RasterBase):
                     # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
                     # geostationary grid); create_from_array raises CRSError on None,
                     # so fall back to the WKT. No-op for a plain Dataset (#706).
-                    epsg=template.epsg or template.crs,
+                    epsg=crs_spec(template.epsg, template.crs),
                     no_data_value=resolved_nd,
                 )
             obj = cls._build_dataset(

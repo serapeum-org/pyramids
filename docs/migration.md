@@ -27,6 +27,48 @@ This catches the deprecations; the hard behavior changes do **not** warn — sea
 
 ## base
 
+### unreleased
+
+**`Dataset.epsg` no longer reports EPSG:4326 for a raster that has no CRS.** It previously substituted WGS 84
+whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that
+claim propagated into `to_file`, `to_crs`, `bounds` and alignment checks. It now returns `None`, matching GDAL,
+rasterio, rioxarray and geopandas, none of which substitute a default.
+
+What changed, and what did not:
+
+- **No CRS and no evidence** (a GeoTIFF or ASCII grid with an empty projection) → `epsg` is `None`. Operations
+  that genuinely need a CRS raise `CRSError` naming the fix instead of proceeding.
+- **A CRS with no EPSG authority** (geostationary, spherical-earth GRIB) → unchanged by this release. Note that
+  `epsg` is *not* uniformly `None` here: `NetCDF` reports `None` for a geostationary grid (see #706), while a
+  spherical-earth GRIB still resolves through `epsg_from_wkt`'s `4326` default. Read `crs` when you need the
+  authoritative answer for such a grid.
+- **A CF NetCDF with `degrees_east` / `degrees_north` axes and no `grid_mapping`** → still `4326`. CF leaves the
+  datum implicit for these and the whole ecosystem reads them as WGS 84, so this is a reading of the file's
+  metadata rather than an assumption. Three things narrow it:
+    - Only a *coordinate* variable's units are evidence — one that declares `axis`, is named in a `coordinates`
+      attribute (a curvilinear grid's 2-D lat/lon), or carries a conventional coordinate name. A data variable in
+      `degrees_east` (a wind direction, a solar angle) is not evidence.
+    - A **horizontal** axis carrying a linear unit (`m`, `km`) or plain `degrees`/`rad` vetoes it, so a projected,
+      rotated-pole or geostationary grid is not relabelled on the strength of auxiliary lat/lon arrays. A
+      **vertical** axis does not veto — its units say nothing about the horizontal frame. Vertical axes are
+      recognised from CF's `axis: Z`, falling back to conventional names (`depth`, `lev`, …) only for a file that
+      declares no axes at all.
+    - The grid's own extent must fit in the lon/lat range. A metre-scale grid is not lat/lon whatever its
+      metadata says.
+
+**A CRS with no EPSG code now reports `epsg is None` too.** Previously any projection the EPSG register does
+not name — an orthographic or geostationary projection, a rotated pole, a spherical-earth GRIB `GEOGCS` — fell
+back to `4326`. That claimed WGS 84 for grids that are not WGS 84: an orthographic frame is not lat/lon at all,
+and a spherical datum differs from the WGS 84 ellipsoid by up to ~20 km.
+
+The CRS itself is unaffected — `ds.crs` still returns the WKT, `crs_spec()` falls back to it, and reprojection,
+cropping and alignment all keep working. Only the *code* is absent, because there is not one. If your code reads
+`ds.epsg` on such a grid, read `ds.crs` (or `crs_spec(ds.epsg, ds.crs)`) instead.
+
+If you relied on the old default, set the CRS explicitly — `dataset.epsg = <code>` in process, or
+`gdal_edit.py -a_srs EPSG:<code> <file>` on disk. To find affected code, look for `.epsg` used without a `None`
+check, and for the `dataset.epsg or dataset.crs` idiom, which is now `crs_spec(dataset.epsg, dataset.crs)`.
+
 ### 0.46.1
 
 **`import pyramids` no longer configures logging.** Previously, importing the package ran `Config()`, which
@@ -82,6 +124,50 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 | `numpy_to_gdal_dtype(<unmapped dtype>)` | `IndexError` | `ValueError` |
 | `gdal_to_numpy_dtype(gdal.GDT_Unknown)` | `AttributeError` | `ValueError` |
 | `gdal_to_ogr_dtype(<complex band>)` | `TypeError` | `ValueError` |
+
+## dataset
+
+### unreleased
+
+**Operations that need a CRS now refuse instead of assuming one.** Each raises `CRSError` naming the operation
+and how to fix it, where previously the missing CRS was silently filled in with WGS 84:
+
+- `Dataset.to_crs(...)` — reprojection has no source frame to warp from.
+- `Dataset.align(...)` — both the receiver and the reference must carry a CRS; two rasters that both report
+  `epsg is None` are no longer treated as matching.
+- `Dataset.crop(bbox=...)` / `NetCDF.crop(bbox=...)` without an explicit `epsg=`.
+
+**A cube with no CRS no longer writes a fabricated one.** Previously both writers recorded `4326` and a WGS 84
+WKT, claiming a projection the data never had. Now:
+
+- `to_zarr` records `epsg: 0` with an empty `crs_wkt`. Readers should treat that pair as "no CRS";
+  `geobox_crs()` does.
+- `to_netcdf` **omits** both attributes entirely, since a NetCDF has no geobox slot to put a null in.
+
+On read, a NetCDF's `crs_wkt` / `epsg` root attributes are adopted only when written beside the `GeoTransform`
+the same writer emits, so a stray attribute in a third-party file no longer defines the CRS.
+
+**`read_part(bbox=...)` and `point(...)` changed their default CRS, for every raster.** `bbox_crs` /
+`point_crs` used to default to `4326`, so an unqualified bbox or point was interpreted as lon/lat and
+reprojected into the raster's CRS. They now default to `None`, meaning "already in the raster's own
+coordinates", and nothing is transformed. On a raster that is not in EPSG:4326 this changes which pixel an
+unqualified call reads.
+
+- To keep the old behaviour, pass the CRS explicitly: `ds.read_part(bbox, bbox_crs=4326)`,
+  `ds.point(x, y, point_crs=4326)`.
+- To read in the raster's own coordinates — usually what you want — leave it out.
+
+Neither method refuses a raster with no CRS, so a windowed read of an ungeoreferenced raster keeps working.
+Passing an explicit `bbox_crs` / `point_crs` against a raster that has none raises `CRSError`, rather than being
+ignored: there is no frame to transform into.
+
+## cli
+
+### unreleased
+
+**`pyramids calc` refuses a first input with no CRS.** The result cannot be georeferenced and pyramids will not
+stamp a default; set a CRS on the input first. `pyramids georeference` is unaffected — its GCPs and `--gcp-crs`
+replace the georeference wholesale.
 
 ## netcdf
 

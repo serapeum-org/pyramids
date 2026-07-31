@@ -33,6 +33,7 @@ from pyramids.feature import create_polygon
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
+from pyramids.base.crs import crs_spec
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._validate import validate_band_index
 
@@ -1033,7 +1034,7 @@ class Bands(_Engine["Dataset"]):
         coords = [(x_min, y_max), (x_min, y_min), (x_max, y_min), (x_max, y_max)]
         poly = create_polygon(coords)
         gdf = gpd.GeoDataFrame(geometry=[poly])
-        gdf.set_crs(self._ds.epsg or self._ds.crs, inplace=True)
+        gdf.set_crs(crs_spec(self._ds.epsg, self._ds.crs), inplace=True)
         return gdf
 
     def _set_no_data_value_backend(self, band: int, no_data_value: Any) -> None:
