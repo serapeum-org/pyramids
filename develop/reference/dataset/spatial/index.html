@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -8233,8 +8233,8 @@ and <code>bbox=</code> to fix the output grid/extent up front.</p>
 <a id="__codelineno-0-498" name="__codelineno-0-498"></a><span class="sd">              &gt;&gt;&gt; ortho = dataset.to_crs(to_epsg=proj4)</span>
 <a id="__codelineno-0-499" name="__codelineno-0-499"></a><span class="sd">              &gt;&gt;&gt; osr.SpatialReference(wkt=ortho.crs).IsProjected()</span>
 <a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="sd">              1</span>
-<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="sd">              &gt;&gt;&gt; ortho.epsg</span>
-<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="sd">              4326</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="sd">              &gt;&gt;&gt; ortho.epsg is None  # a bespoke projection has no EPSG code</span>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="sd">              True</span>
 <a id="__codelineno-0-503" name="__codelineno-0-503"></a>
 <a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="sd">              ```</span>
 <a id="__codelineno-0-505" name="__codelineno-0-505"></a><span class="sd">            - Contrast ``maintain_alignment=False`` (default) with</span>
@@ -10252,8 +10252,8 @@ output resolution. Not supported together with <code>maintain_alignment=True</co
 <a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ortho</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">to_crs</span><span class="p">(</span><span class="n">to_epsg</span><span class="o">=</span><span class="n">proj4</span><span class="p">)</span>
 <a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">osr</span><span class="o">.</span><span class="n">SpatialReference</span><span class="p">(</span><span class="n">wkt</span><span class="o">=</span><span class="n">ortho</span><span class="o">.</span><span class="n">crs</span><span class="p">)</span><span class="o">.</span><span class="n">IsProjected</span><span class="p">()</span>
 <a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="mi">1</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ortho</span><span class="o">.</span><span class="n">epsg</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="mi">4326</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">ortho</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">is</span> <span class="kc">None</span>  <span class="c1"># a bespoke projection has no EPSG code</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="kc">True</span>
 </code></pre></div>
 - Contrast <code>maintain_alignment=False</code> (default) with
   <code>maintain_alignment=True</code>. At 60°N a 4326 → 3857 warp distorts
@@ -10577,8 +10577,8 @@ output resolution. Not supported together with <code>maintain_alignment=True</co
 <a id="__codelineno-0-498" name="__codelineno-0-498"></a><span class="sd">          &gt;&gt;&gt; ortho = dataset.to_crs(to_epsg=proj4)</span>
 <a id="__codelineno-0-499" name="__codelineno-0-499"></a><span class="sd">          &gt;&gt;&gt; osr.SpatialReference(wkt=ortho.crs).IsProjected()</span>
 <a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="sd">          1</span>
-<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="sd">          &gt;&gt;&gt; ortho.epsg</span>
-<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="sd">          4326</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="sd">          &gt;&gt;&gt; ortho.epsg is None  # a bespoke projection has no EPSG code</span>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="sd">          True</span>
 <a id="__codelineno-0-503" name="__codelineno-0-503"></a>
 <a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="sd">          ```</span>
 <a id="__codelineno-0-505" name="__codelineno-0-505"></a><span class="sd">        - Contrast ``maintain_alignment=False`` (default) with</span>
