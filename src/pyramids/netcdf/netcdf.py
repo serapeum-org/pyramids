@@ -24,10 +24,12 @@ from pyramids import _io
 from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
 from pyramids.base.crs import (
     VERTICAL_AXIS_NAMES,
+    VERTICAL_STANDARD_NAMES,
     cf_geographic_wkt,
     crs_spec,
     sr_from_epsg,
     sr_from_wkt,
+    within_lonlat_range,
 )
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_remote
@@ -1008,8 +1010,10 @@ class NetCDF(Dataset):
         about what "global" means for the same file.
 
         Returns:
-            The GDAL root group, or ``None`` when the backing dataset exposes
-            none (a classic open, or a materialised in-memory view).
+            The GDAL root group -- this cube's own when it has one, else the
+            container it was carved from, since a materialised view's `_raster`
+            is an in-memory dataset with no root group of its own. ``None`` when
+            neither exposes one (a classic open).
         """
         result = None
         # A materialised view's own `_raster` is a MEM dataset with no root
@@ -1028,59 +1032,149 @@ class NetCDF(Dataset):
 
     @staticmethod
     def _collect_axis_units(group) -> tuple[set[str], set[str]]:
-        """Units on every array, and separately on the true dimension axes.
+        """Units on every coordinate array, and separately on the horizontal axes.
 
-        A dimension's indexing variable IS an axis; anything else is a data or
-        auxiliary array. Only the former may veto the geographic inference — a
-        data variable is legitimately in metres on a geographic grid.
+        Only a *coordinate* array is evidence for a geographic reading: a
+        dimension's indexing variable, or an array named in a ``coordinates``
+        attribute (how CF identifies a curvilinear grid's 2-D lat/lon, which
+        index no dimension). A data variable in ``degrees_east`` -- a wind
+        direction, a solar angle -- says nothing about the grid. Only the
+        *horizontal* axes may veto it, since a depth in metres says nothing about
+        the horizontal frame either.
 
         Args:
             group: A GDAL multidim root group.
 
         Returns:
-            tuple[set[str], set[str]]: `(all units, axis units)`, lower-cased.
+            tuple[set[str], set[str]]: `(coordinate units, horizontal axis
+            units)`, lower-cased.
         """
         units: set[str] = set()
         axis_units: set[str] = set()
+        coordinate_names: set[str] = set()
+        arrays = {}
         for name in group.GetMDArrayNames():
             array = group.OpenMDArray(name)
-            unit = array.GetUnit()
-            if unit:
-                units.add(unit.strip().lower())
+            arrays[name.rsplit("/", 1)[-1].lower()] = array
+            for attribute in NetCDF._array_attributes(array).items():
+                if attribute[0] == "coordinates":
+                    coordinate_names.update(n.lower() for n in attribute[1].split())
             for dimension in array.GetDimensions():
-                axis_unit = NetCDF._horizontal_axis_unit(dimension)
-                if axis_unit:
-                    axis_units.add(axis_unit)
+                indexing = dimension.GetIndexingVariable()
+                if indexing is not None:
+                    coordinate_names.add(dimension.GetName().rsplit("/", 1)[-1].lower())
+            # Only a data array defines the grid. A 1-D coordinate array's own
+            # dimension must not be classified on its own: `deptht(deptht)` has
+            # no horizontal pair to compare against, so it would fall through to
+            # the fallback and veto as if it were a horizontal axis.
+            if len(array.GetDimensions()) >= 2:
+                axis_units.update(NetCDF._horizontal_axis_units(array))
+        for name, array in arrays.items():
+            unit = array.GetUnit()
+            if unit and name in coordinate_names:
+                units.add(unit.strip().lower())
         return units, axis_units
 
     @staticmethod
-    def _horizontal_axis_unit(dimension) -> str:
-        """Unit of a *horizontal* dimension axis, or ``""``.
+    def _array_attributes(node) -> dict[str, str]:
+        """Attributes of an MDArray as a lower-cased name -> string mapping.
 
-        A vertical axis in metres describes depth or height, never the horizontal
-        CRS, so its unit must not veto a geographic grid. GDAL exposes the CF axis
-        role as the dimension type; prefer it over the name list so a vertical
-        axis is recognised whatever it is called (deptht, olevel, nav_lev,
-        sigma, ...). The name list is the fallback only for a dimension GDAL
-        types as nothing.
+        ``GetAttribute(name)`` *raises* when the attribute is absent under
+        ``gdal.UseExceptions()`` (which pyramids installs at import), so
+        enumerate instead of asking.
 
         Args:
-            dimension: A GDAL multidim dimension.
+            node: A GDAL MDArray (or anything exposing ``GetAttributes``).
 
         Returns:
-            str: The indexing variable's lower-cased unit, or ``""`` when the
-            dimension has no indexing variable, no unit, or is vertical.
+            dict[str, str]: The attributes, or ``{}`` when there are none.
         """
-        result = ""
-        indexing = dimension.GetIndexingVariable()
-        if indexing is not None and indexing.GetUnit():
-            dim_type = (dimension.GetType() or "").upper()
-            named_vertical = (
-                not dim_type and dimension.GetName().lower() in VERTICAL_AXIS_NAMES
+        collected: dict[str, str] = {}
+        try:
+            for attribute in node.GetAttributes():
+                collected[attribute.GetName().strip().lower()] = (
+                    attribute.ReadAsString()
+                )
+        except (RuntimeError, AttributeError):
+            collected = {}
+        return collected
+
+    @staticmethod
+    def _declares_vertical(indexing) -> bool:
+        """Whether an indexing variable itself declares that it is a vertical axis.
+
+        Args:
+            indexing: The dimension's indexing variable, or ``None``.
+
+        Returns:
+            bool: True when it carries ``axis = "Z"``, a ``positive`` attribute,
+            or a vertical ``standard_name``.
+        """
+        result = False
+        if indexing is not None:
+            attributes = NetCDF._array_attributes(indexing)
+            standard_name = attributes.get("standard_name", "").strip().lower()
+            result = (
+                attributes.get("axis", "").strip().upper() == "Z"
+                or "positive" in attributes
+                or standard_name in VERTICAL_STANDARD_NAMES
             )
-            if dim_type != "VERTICAL" and not named_vertical:
-                result = indexing.GetUnit().strip().lower()
         return result
+
+    @staticmethod
+    def _horizontal_axis_units(array) -> set[str]:
+        """Units of an array's *horizontal* dimension axes.
+
+        GDAL's dimension type is only trustworthy in one direction. It reports
+        ``HORIZONTAL_X`` / ``HORIZONTAL_Y`` on real evidence -- a declared
+        ``axis`` / ``standard_name``, or degrees units -- but it *guesses*
+        ``VERTICAL`` from metre units alone, so a projected x/y axis carrying
+        only ``units = "m"`` comes back typed VERTICAL. Skipping on that type
+        therefore discards precisely the metre veto this exists to apply.
+
+        So: when GDAL has typed both horizontal axes, take exactly those and
+        ignore every other dimension -- which excludes depth, time and model
+        levels structurally, whatever they are named, including the
+        ``(time, lat, lev, lon)`` layouts where the vertical axis sits between
+        the horizontal ones. Otherwise GDAL could not tell, and a dimension
+        counts as horizontal unless it is temporal, *declares* itself vertical,
+        or is a guessed-vertical carrying a conventional vertical name.
+
+        Args:
+            array: A GDAL multidim MDArray.
+
+        Returns:
+            set[str]: Lower-cased units of the horizontal axes.
+        """
+        dimensions = array.GetDimensions()
+        types = [(dimension.GetType() or "").upper() for dimension in dimensions]
+        if "HORIZONTAL_X" in types and "HORIZONTAL_Y" in types:
+            horizontal = [
+                dimension
+                for dimension, dim_type in zip(dimensions, types)
+                if dim_type in ("HORIZONTAL_X", "HORIZONTAL_Y")
+            ]
+        else:
+            horizontal = []
+            for dimension, dim_type in zip(dimensions, types):
+                indexing = dimension.GetIndexingVariable()
+                named_vertical = (
+                    dim_type == "VERTICAL"
+                    and dimension.GetName().rsplit("/", 1)[-1].lower()
+                    in VERTICAL_AXIS_NAMES
+                )
+                if dim_type == "TEMPORAL" or named_vertical:
+                    continue
+                if NetCDF._declares_vertical(indexing):
+                    continue
+                horizontal.append(dimension)
+        collected = set()
+        for dimension in horizontal:
+            indexing = dimension.GetIndexingVariable()
+            unit = (indexing.GetUnit() if indexing is not None else "") or ""
+            if unit:
+                collected.add(unit.strip().lower())
+        return collected
 
     def _cf_geographic_crs(self) -> str:
         """WGS 84 WKT when CF metadata says this is a lat/lon grid, else ``""``.
@@ -1103,6 +1197,11 @@ class NetCDF(Dataset):
             if group is not None and not self._is_geostationary():
                 units, axis_units = self._collect_axis_units(group)
                 result = cf_geographic_wkt(units, axis_units)
+                # The same geometric backstop the classic path applies, so a
+                # NetCDF and the byte-equivalent GeoTIFF cannot disagree and the
+                # migration/concepts docs are true of both readers.
+                if result and not within_lonlat_range(self._own_extent()):
+                    result = ""
         except (RuntimeError, AttributeError, ValueError, TypeError):
             # See `_container_crs`: narrow so a real fault still surfaces.
             result = ""
