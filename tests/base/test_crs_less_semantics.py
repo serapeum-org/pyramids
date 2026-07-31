@@ -972,3 +972,82 @@ class TestAlignSkipsAnUnnecessaryWarp:
         monkeypatch.setattr(Spatial, "to_crs", _spy)
         source.align(reference)
         assert calls, "the spy must fire when a warp is genuinely required"
+
+
+class TestAuthorityLessCrsHasNoEpsg:
+    """Tests that a CRS the EPSG register does not name reports no code.
+
+    `epsg_from_wkt`'s 4326 default used to apply here as well as to a missing
+    CRS, so an orthographic or geostationary grid reported "WGS 84" — the same
+    fabrication ARC-26 removed for ungeoreferenced rasters, one level down.
+    """
+
+    PROJ4 = {
+        "orthographic": "+proj=ortho +lat_0=45 +lon_0=9 +datum=WGS84 +units=m +no_defs",
+        "geostationary": (
+            "+proj=geos +h=35785831 +lon_0=-75 +sweep=x +datum=WGS84 +units=m +no_defs"
+        ),
+        "rotated pole": (
+            "+proj=ob_tran +o_proj=longlat +o_lat_p=39.25 +o_lon_p=-162 "
+            "+datum=WGS84 +no_defs"
+        ),
+        "spherical-earth GRIB": "+proj=longlat +a=6371229 +b=6371229 +no_defs",
+    }
+
+    def _raster(self, path: str, proj4: str) -> Dataset:
+        """Write a raster carrying the given projection."""
+        spatial_ref = create_sr_from_proj(proj4, string_type="PROJ4")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 4, 4, 1, gdal.GDT_Byte)
+        raster.SetGeoTransform([0.0, 30.0, 0.0, 1200.0, 0.0, -30.0])
+        raster.SetProjection(spatial_ref.ExportToWkt())
+        raster.GetRasterBand(1).WriteArray(np.ones((4, 4), dtype="uint8"))
+        raster = None
+        return Dataset.read_file(path)
+
+    @pytest.mark.parametrize("label", list(PROJ4))
+    def test_reports_no_epsg(self, tmp_path, label: str):
+        """A CRS with no EPSG authority reports `None`, not 4326.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            label: Which authority-less projection to build.
+
+        Test scenario:
+            None of these is EPSG:4326 — an orthographic frame is not lat/lon at
+            all, and a spherical datum differs from the WGS 84 ellipsoid.
+        """
+        dataset = self._raster(str(tmp_path / f"{label}.tif"), self.PROJ4[label])
+        assert dataset.epsg is None, f"{label} must not report an EPSG code"
+
+    @pytest.mark.parametrize("label", list(PROJ4))
+    def test_keeps_its_crs_and_stays_usable(self, tmp_path, label: str):
+        """Absent EPSG does not mean absent CRS.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            label: Which authority-less projection to build.
+
+        Test scenario:
+            The distinction that makes this safe: `.crs` still carries the WKT,
+            `crs_spec` falls back to it, and reprojection still works — only the
+            code is missing, because there is not one.
+        """
+        dataset = self._raster(str(tmp_path / f"{label}_usable.tif"), self.PROJ4[label])
+        assert dataset.crs, f"{label} must keep its CRS"
+        assert isinstance(crs_spec(dataset.epsg, dataset.crs), str), (
+            "crs_spec must fall back to the WKT"
+        )
+        assert dataset.to_crs(4326) is not None, f"{label} must stay reprojectable"
+
+    def test_a_registered_crs_still_reports_its_code(self, tmp_path):
+        """The change is confined to CRSes with no authority.
+
+        Args:
+            tmp_path: pytest temporary directory.
+        """
+        path = str(tmp_path / "utm.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 4, 4, 1, gdal.GDT_Byte)
+        raster.SetGeoTransform([400000.0, 30.0, 0.0, 5000000.0, 0.0, -30.0])
+        raster.SetProjection(sr_from_epsg(32636).ExportToWkt())
+        raster = None
+        assert Dataset.read_file(path).epsg == 32636, "a registered CRS keeps its code"

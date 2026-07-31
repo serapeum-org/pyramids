@@ -56,6 +56,15 @@ What changed, and what did not:
     - The grid's own extent must fit in the lon/lat range. A metre-scale grid is not lat/lon whatever its
       metadata says.
 
+**A CRS with no EPSG code now reports `epsg is None` too.** Previously any projection the EPSG register does
+not name — an orthographic or geostationary projection, a rotated pole, a spherical-earth GRIB `GEOGCS` — fell
+back to `4326`. That claimed WGS 84 for grids that are not WGS 84: an orthographic frame is not lat/lon at all,
+and a spherical datum differs from the WGS 84 ellipsoid by up to ~20 km.
+
+The CRS itself is unaffected — `ds.crs` still returns the WKT, `crs_spec()` falls back to it, and reprojection,
+cropping and alignment all keep working. Only the *code* is absent, because there is not one. If your code reads
+`ds.epsg` on such a grid, read `ds.crs` (or `crs_spec(ds.epsg, ds.crs)`) instead.
+
 If you relied on the old default, set the CRS explicitly — `dataset.epsg = <code>` in process, or
 `gdal_edit.py -a_srs EPSG:<code> <file>` on disk. To find affected code, look for `.epsg` used without a `None`
 check, and for the `dataset.epsg or dataset.crs` idiom, which is now `crs_spec(dataset.epsg, dataset.crs)`.

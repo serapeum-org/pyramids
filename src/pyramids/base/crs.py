@@ -394,26 +394,34 @@ def get_epsg_from_prj(prj: str) -> int:
 
 
 def epsg_of_crs(wkt: str | None) -> int | None:
-    """Resolve the EPSG of a CRS string, or `None` when there is no CRS at all.
+    """Resolve the EPSG code a CRS declares, or `None` when it declares none.
 
-    Distinguishes the two cases :func:`epsg_from_wkt` conflates:
+    `None` means "this CRS has no EPSG code", which covers two situations that
+    :func:`epsg_from_wkt` conflates by substituting 4326 for both:
 
-    * **No CRS** — an empty (or `None`) projection. The dataset is not
-      georeferenced, so there is no EPSG to report and `None` is returned.
-      Fabricating WGS 84 here would claim a georeference the data does not have.
-    * **A CRS with no EPSG code** — a non-empty projection that resolves to no
-      EPSG authority (GDAL's spherical-earth GRIB GEOGCS, say). That *is* a real
-      CRS, so the historical :func:`epsg_from_wkt` fallback still applies.
+    * **No CRS at all** — an empty (or `None`) projection. The dataset is not
+      georeferenced, so there is nothing to report. Fabricating WGS 84 here would
+      claim a georeference the data does not have.
+    * **A CRS with no EPSG authority** — a real projection the EPSG register does
+      not name: an orthographic or geostationary projection, a rotated pole, a
+      spherical-earth GRIB `GEOGCS`. Reporting 4326 for these claimed WGS 84 for
+      grids that are not WGS 84 — an orthographic frame is not lat/lon at all,
+      and a spherical datum differs from the WGS 84 ellipsoid by up to ~20 km.
 
-    This mirrors how GDAL, rasterio, rioxarray and geopandas all behave: a
-    missing CRS propagates as `None` and only an operation that genuinely needs
-    one fails.
+    The CRS itself is not lost in the second case: `.crs` still returns the WKT,
+    and :func:`crs_spec` falls back to it, so reprojection and every other
+    CRS-consuming operation keeps working. Only the *code* is absent, because
+    there genuinely is not one.
+
+    This mirrors how GDAL, rasterio, rioxarray and geopandas all behave —
+    `to_epsg()` returns `None` rather than guessing.
 
     Args:
         wkt: Projection string (WKT, ESRI WKT, or Proj4), possibly empty/`None`.
 
     Returns:
-        int | None: The EPSG code, or `None` when `wkt` is empty or `None`.
+        int | None: The EPSG code, or `None` when `wkt` is empty, `None`, or
+        names a CRS that carries no EPSG authority.
 
     Examples:
         - An empty projection means "no CRS", not WGS 84:
@@ -435,11 +443,30 @@ def epsg_of_crs(wkt: str | None) -> int | None:
             3857
 
             ```
+        - A CRS the EPSG register does not name has no code to report:
+            ```python
+            >>> from pyramids.base.crs import create_sr_from_proj, epsg_of_crs
+            >>> ortho = create_sr_from_proj(
+            ...     "+proj=ortho +lat_0=45 +lon_0=9 +datum=WGS84 +units=m +no_defs",
+            ...     string_type="PROJ4",
+            ... )
+            >>> epsg_of_crs(ortho.ExportToWkt()) is None
+            True
+
+            ```
 
     See Also:
         epsg_from_wkt: The soft variant that substitutes `default` for both cases.
     """
-    return epsg_from_wkt(wkt) if wkt else None
+    code: int | None = None
+    if wkt:
+        try:
+            code = get_epsg_from_prj(wkt)
+        except CRSError:
+            # A real CRS the EPSG register does not name. `.crs` keeps the WKT,
+            # so nothing is lost but the code -- which does not exist.
+            code = None
+    return code
 
 
 # CF longitude/latitude unit spellings, lower-cased stems. CF permits
