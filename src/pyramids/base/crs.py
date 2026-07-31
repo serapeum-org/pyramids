@@ -35,6 +35,7 @@ Public surface:
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any, cast
 
 import numpy as np
@@ -466,6 +467,26 @@ VERTICAL_AXIS_NAMES = frozenset(
     }
 )
 
+# CF standard_names that identify a vertical coordinate. Unlike the name list
+# below, these are declared BY THE FILE, so they identify a vertical axis whatever
+# the variable is called -- deptht, olevel, nav_lev and every other model spelling.
+VERTICAL_STANDARD_NAMES = frozenset(
+    {
+        "depth",
+        "height",
+        "altitude",
+        "air_pressure",
+        "model_level_number",
+        "atmosphere_hybrid_sigma_pressure_coordinate",
+        "atmosphere_sigma_coordinate",
+        "ocean_s_coordinate",
+        "ocean_sigma_coordinate",
+        "geopotential_height",
+        "height_above_geopotential_datum",
+        "height_above_mean_sea_level",
+    }
+)
+
 # Units that mark a horizontal axis as something other than lon/lat. Exact
 # matches only, so a compound unit like "m s-1" on a data variable never counts.
 # Unqualified `degrees` belongs here rather than with the lon/lat stems: a
@@ -737,6 +758,29 @@ def require_crs_spec(epsg: int | None, wkt: str | None, operation: str) -> int |
     return spec
 
 
+def _is_crs_spec(value: int | str) -> bool:
+    """Whether a value could name a CRS at all.
+
+    Guards the `a == b` fast path in :func:`crs_equal`: `True` equals `1`, and
+    `0` / `""` compare equal to themselves, but none of them is a CRS
+    specification :func:`sr_from_user_input` would accept.
+
+    Args:
+        value: The candidate specification.
+
+    Returns:
+        bool: True for a non-zero int (not a bool) or a non-empty string.
+    """
+    if isinstance(value, bool):
+        usable = False
+    elif isinstance(value, int):
+        usable = value > 0
+    else:
+        usable = isinstance(value, str) and bool(value.strip())
+    return usable
+
+
+@lru_cache(maxsize=256)
 def crs_equal(a: int | str | None, b: int | str | None) -> bool:
     """Return True when two CRS specifications describe the same system.
 
@@ -778,9 +822,20 @@ def crs_equal(a: int | str | None, b: int | str | None) -> bool:
             (True, False)
 
             ```
+        - Values that are not CRS specifications never compare equal:
+            ```python
+            >>> from pyramids.base.crs import crs_equal
+            >>> crs_equal(0, 0), crs_equal("", ""), crs_equal(True, True)
+            (False, False, False)
+
+            ```
     """
     if a is None or b is None:
         equal = a is None and b is None
+    elif not _is_crs_spec(a) or not _is_crs_spec(b):
+        # `True == 1` and `0`/`""` would otherwise sail through the fast path as
+        # "equal" although neither is a CRS `sr_from_user_input` would accept.
+        equal = False
     elif a == b:
         equal = True
     else:
@@ -1153,6 +1208,7 @@ __all__ = [
     "LON_UNIT_PREFIXES",
     "PROJECTED_AXIS_UNITS",
     "VERTICAL_AXIS_NAMES",
+    "VERTICAL_STANDARD_NAMES",
     "cf_geographic_wkt",
     "create_sr_from_proj",
     "crs_equal",

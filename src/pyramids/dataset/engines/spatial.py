@@ -1477,7 +1477,7 @@ class Spatial(_Engine["Dataset"]):
             self._ds.epsg, self._ds.crs, "align a raster onto another grid"
         )
         target_crs = require_crs_spec(
-            src.epsg, src.crs, "align a raster onto another grid"
+            src.epsg, src.crs, "align onto this reference grid"
         )
         reprojected_raster_b: Dataset = self._ds
         # Compare the resolved CRS, not `epsg` alone: two grids with different

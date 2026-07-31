@@ -1539,7 +1539,7 @@ class DatasetCollection:
 
         root_attrs: dict = {"Conventions": "CF-1.8"}
         try:
-            crs_wkt = meta.crs.to_wkt() if meta.crs is not None else ""
+            crs_wkt = meta.crs.to_wkt() if meta.crs is not None else None
         except AttributeError:
             crs_wkt = None
         if crs_wkt:

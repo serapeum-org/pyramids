@@ -946,11 +946,6 @@ class COG(_Engine["Dataset"]):
                 GDAL build provides them.
             band: 0-based band index. `None` reads all bands.
 
-        Raises:
-            CRSError: An explicit CRS was given for the coordinates but the
-                raster has none to transform into. Omit it to read in the
-                raster's own coordinates (ARC-26).
-
         Returns:
             numpy.ndarray: `(rows, cols)` for a single band, or
             `(bands, rows, cols)` for all bands; always sized
@@ -958,6 +953,9 @@ class COG(_Engine["Dataset"]):
             only — no transform, bounds, or CRS is attached.
 
         Raises:
+            CRSError: An explicit `bbox_crs` was given but the raster has no CRS
+                to transform into. Omit it to read in the raster's own
+                coordinates (ARC-26).
             TypeError: `resampling` is not a string.
             ValueError: Unknown `resampling`.
             OutOfBoundsError: The window does not intersect the raster at all.
@@ -1256,7 +1254,7 @@ class COG(_Engine["Dataset"]):
             returned unchanged.
         """
         min_x, min_y, max_x, max_y = bbox
-        envelope = (min_x, min_y, max_x, max_y)
+        envelope = bbox
         # `None` means the caller named no CRS, so the bbox is already in the
         # raster's own coordinates and there is nothing to transform (ARC-26).
         # An *explicit* bbox_crs goes through `require_crs_spec`, so a raster
