@@ -90,8 +90,33 @@ def _open(item: Any) -> Any:
 
 
 def _apply(step: Step, obj: Any) -> Any:
-    """Apply one pipeline step to ``obj`` and return the result."""
+    """Apply one pipeline step to ``obj`` and return the result.
+
+    Dispatches to ``obj``'s method only when ``obj``'s type matches the tool's
+    declared receiver. This is what makes a cross-receiver chain safe: a step whose
+    predecessor changed the object type (e.g. ``interpolate_to_raster`` turns a
+    ``FeatureCollection`` into a ``Dataset``) is checked against the *new* type, and
+    a step applied to the wrong receiver — including chaining past a terminal
+    array-returning op — raises a clear ``TypeError`` instead of an opaque
+    ``AttributeError``.
+
+    Args:
+        step: The pipeline step to apply.
+        obj: The current pipeline object.
+
+    Returns:
+        The step's output (which may be a different receiver type).
+
+    Raises:
+        TypeError: If ``obj``'s type does not match the tool's declared receiver.
+    """
     spec = resolve(step.tool)
+    actual = _receiver_type(obj)
+    if actual != spec.receiver:
+        raise TypeError(
+            f"tool {step.tool!r} expects a {spec.receiver}, but the current "
+            f"pipeline object is a {actual}"
+        )
     method = getattr(obj, spec.method_name)
     return method(**step.params)
 
