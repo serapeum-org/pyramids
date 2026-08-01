@@ -1,0 +1,8 @@
+pipeline:
+- tool: focal_mean
+  params:
+    radius: 1
+- tool: hillshade
+  params:
+    azimuth: 315.0
+    altitude: 45.0
