@@ -197,7 +197,9 @@ class TestPipeline:
         Test scenario:
             Mutating the returned list does not change the pipeline's length.
         """
-        p = Pipeline([("slope", {})])
+        p = Pipeline([("slope", {"band": 0})])
         got = p.steps
         got.append("x")
+        got[0].params["band"] = 99
         assert len(p) == 1, "mutating the steps copy must not affect the pipeline"
+        assert p.steps[0].params["band"] == 0, "mutating a step's params must not leak back"

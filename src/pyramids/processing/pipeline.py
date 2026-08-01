@@ -58,8 +58,12 @@ class Pipeline:
 
     @property
     def steps(self) -> list[Step]:
-        """A copy of the pipeline's steps."""
-        return list(self._steps)
+        """An independent copy of the pipeline's steps.
+
+        Returns fresh :class:`Step` objects with copied ``params`` dicts, so
+        mutating the returned steps (or their params) never affects the pipeline.
+        """
+        return [Step(step.tool, dict(step.params)) for step in self._steps]
 
     def __iter__(self) -> Iterator[Step]:
         return iter(self._steps)
