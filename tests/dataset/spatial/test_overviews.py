@@ -221,6 +221,69 @@ class TestRecreateOverviewsContract:
         finally:
             dataset.close()
 
+    def test_failing_status_without_an_exception_raises(
+        self, era5_raster_path, tmp_path, monkeypatch
+    ):
+        """A non-`CE_None` return is caught even when GDAL is not raising exceptions.
+
+        Test scenario:
+            `gdal.UseExceptions()` is process-global, so a caller that turned it off
+            leaves `RegenerateOverview` *returning* `CE_Failure` instead of raising.
+            Patch it to do exactly that on a writable dataset that does have overviews
+            — expected: a `RuntimeError` naming the band and level, since the
+            try/except alone would let this through as the silent no-op the method
+            exists to remove.
+        """
+        work = shutil.copy(era5_raster_path, tmp_path / "status_failure.tif")
+        dataset = Dataset.read_file(str(work), read_only=False)
+        try:
+            dataset.create_overviews(overview_levels=[2])
+            monkeypatch.setattr(
+                gdal, "RegenerateOverview", lambda *args, **kwargs: gdal.CE_Failure
+            )
+            with pytest.raises(RuntimeError) as excinfo:
+                dataset.recreate_overviews()
+            assert type(excinfo.value) is RuntimeError, (
+                f"a failing status must not be relabelled, got {type(excinfo.value).__name__}"
+            )
+            assert "overview 0 of band 0" in str(excinfo.value), (
+                f"the error must name the band and level, got: {excinfo.value}"
+            )
+        finally:
+            dataset.close()
+
+    def test_propagated_failure_is_noted_with_the_band_and_level(
+        self, era5_raster_path, tmp_path, monkeypatch
+    ):
+        """A propagated GDAL failure carries a note saying where regeneration stopped.
+
+        Test scenario:
+            An unrelated `RuntimeError` is raised from `gdal.RegenerateOverview` and
+            re-raised unchanged — expected: `__notes__` names the band and level and
+            says earlier bands may already have been rewritten, because the loop
+            rewrites in place and leaves the dataset half-regenerated.
+        """
+        work = shutil.copy(era5_raster_path, tmp_path / "noted_failure.tif")
+        dataset = Dataset.read_file(str(work), read_only=False)
+        try:
+            dataset.create_overviews(overview_levels=[2])
+
+            def raise_runtime_error(*args, **kwargs):
+                raise RuntimeError("Failed to write overview block: disk full")
+
+            monkeypatch.setattr(gdal, "RegenerateOverview", raise_runtime_error)
+            with pytest.raises(RuntimeError) as excinfo:
+                dataset.recreate_overviews()
+            notes = getattr(excinfo.value, "__notes__", [])
+            assert any("overview 0 of band 0" in note for note in notes), (
+                f"the note must name the band and level, got {notes}"
+            )
+            assert any("already have been rewritten" in note for note in notes), (
+                f"the note must flag the partial rewrite, got {notes}"
+            )
+        finally:
+            dataset.close()
+
     def test_mixed_counts_still_regenerate_the_populated_bands(
         self, tmp_path, monkeypatch
     ):
@@ -329,6 +392,29 @@ class TestRecreateOverviewsContract:
         try:
             with pytest.warns(UserWarning) as recorded:
                 dataset.recreate_overviews()
+            assert Path(recorded[0].filename).name == Path(__file__).name, (
+                f"warning blamed {recorded[0].filename}, expected this test file"
+            )
+        finally:
+            dataset.close()
+
+    def test_warning_points_at_the_caller_from_the_engine_entry_point(
+        self, era5_raster_path, tmp_path
+    ):
+        """Calling the engine directly is blamed on the caller too, one frame shallower.
+
+        Test scenario:
+            `ds.io.recreate_overviews()` reaches the warning through one frame fewer
+            than the `Dataset` facade, so a `stacklevel` hard-coded for the facade
+            overshoots into pytest's own frame or, at module level, `<sys>:0` —
+            expected: the recorded warning still names this test file, proving the
+            frame walk adapts to both entry points.
+        """
+        work = shutil.copy(era5_raster_path, tmp_path / "blame_engine.tif")
+        dataset = Dataset.read_file(str(work), read_only=False)
+        try:
+            with pytest.warns(UserWarning) as recorded:
+                dataset.io.recreate_overviews()
             assert Path(recorded[0].filename).name == Path(__file__).name, (
                 f"warning blamed {recorded[0].filename}, expected this test file"
             )
