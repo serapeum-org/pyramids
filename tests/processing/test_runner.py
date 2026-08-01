@@ -155,6 +155,19 @@ class TestRun:
         result = run(pipe, str(tmp_path / "*.geojson"), on_error="raise")
         assert len(result.outputs) == 2, [type(o) for o in result.outputs]
 
+    def test_empty_glob_raises(self, tmp_path):
+        """A glob that matches nothing is an error, not a silent success.
+
+        Args:
+            tmp_path: pytest temp directory (empty).
+
+        Test scenario:
+            A *.tif glob over an empty directory raises ValueError rather than
+            reporting zero-work success.
+        """
+        with pytest.raises(ValueError, match="no inputs matched glob"):
+            run(Pipeline([("slope", {})]), str(tmp_path / "*.tif"))
+
     def test_parallel_requires_out(self, points_fc):
         """parallel=True without an out directory is rejected.
 

@@ -63,6 +63,8 @@ def _resolve_inputs(inputs: Any) -> list[Any]:
     elif isinstance(inputs, str):
         if any(ch in inputs for ch in "*?["):
             items = sorted(_glob.glob(inputs))
+            if not items:
+                raise ValueError(f"no inputs matched glob {inputs!r}")
         else:
             items = [inputs]
     else:
