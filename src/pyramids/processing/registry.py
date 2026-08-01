@@ -24,6 +24,9 @@ _RESAMPLING_METHODS = tuple(sorted(INTERPOLATION_METHODS))
 #: Shared parameter description reused by the band-taking terrain tools.
 _BAND_DESC = "Zero-based band index."
 
+#: Shared parameter description reused by the focal (neighbourhood) tools.
+_RADIUS_DESC = "Neighbourhood radius in cells."
+
 
 def register(spec: ToolSpec) -> ToolSpec:
     """Add ``spec`` to the registry (overwriting any tool of the same name)."""
@@ -68,9 +71,9 @@ def get_registry() -> Mapping[str, ToolSpec]:
     return MappingProxyType(_REGISTRY)
 
 
-# Curated v1 allowlist (real signatures, serialization-safe params). Deviation
-# from the #780 DoD's "~15": v1 ships 7 fully-verified ops rather than a larger
-# half-verified set; the registry is extensible (see ADR 0007).
+# Curated v1 allowlist (real signatures, serialization-safe params) — ~15 ops per
+# the #780 DoD. Ops whose only useful params are non-serializable (masks, second
+# rasters, callables) are excluded; the registry is extensible (see ADR 0007).
 
 register(
     ToolSpec(
@@ -180,6 +183,99 @@ register(
         returns="FeatureCollection",
         description="Tag each point with its H3 cell index.",
         params=(ParamSpec("resolution", "Integer", None, False, "H3 resolution 0-15."),),
+    )
+)
+
+register(
+    ToolSpec(
+        name="fill",
+        receiver="Dataset",
+        returns="Dataset",
+        description="Fill every domain cell with a constant value.",
+        params=(ParamSpec("value", "Float", None, False, "Value to fill the domain with."),),
+    )
+)
+
+register(
+    ToolSpec(
+        name="sieve",
+        receiver="Dataset",
+        returns="Dataset",
+        description="Remove pixel clumps smaller than a threshold (speckle clean-up).",
+        params=(
+            ParamSpec("threshold", "Integer", None, False, "Minimum clump size in pixels."),
+            ParamSpec("band", "Integer", 0, True, _BAND_DESC),
+            ParamSpec("connectedness", "Integer", 4, True, "Pixel connectedness (4 or 8)."),
+        ),
+    )
+)
+
+register(
+    ToolSpec(
+        name="focal_mean",
+        receiver="Dataset",
+        returns="Array",
+        description="Mean of each cell's neighbourhood (smoothing filter).",
+        params=(
+            ParamSpec("radius", "Integer", 1, True, _RADIUS_DESC),
+            ParamSpec("band", "Integer", 0, True, _BAND_DESC),
+        ),
+    )
+)
+
+register(
+    ToolSpec(
+        name="focal_std",
+        receiver="Dataset",
+        returns="Array",
+        description="Standard deviation of each cell's neighbourhood.",
+        params=(
+            ParamSpec("radius", "Integer", 1, True, _RADIUS_DESC),
+            ParamSpec("band", "Integer", 0, True, _BAND_DESC),
+        ),
+    )
+)
+
+register(
+    ToolSpec(
+        name="voronoi",
+        receiver="FeatureCollection",
+        returns="FeatureCollection",
+        description="Voronoi (Thiessen) tessellation of a point layer.",
+        params=(ParamSpec("values", "Field", None, True, "Column copied onto each cell."),),
+    )
+)
+
+register(
+    ToolSpec(
+        name="quadtree",
+        receiver="FeatureCollection",
+        returns="FeatureCollection",
+        description="Adaptive quad-tree binning of a point layer into cells.",
+        params=(
+            ParamSpec("column", "Field", None, True, "Numeric column aggregated per cell."),
+            ParamSpec("agg", "String", "mean", True, "Aggregation function name."),
+            ParamSpec("nmax", "Integer", 100, True, "Max points per cell before splitting."),
+            ParamSpec("nmin", "Integer", 0, True, "Min points for a cell to be kept."),
+        ),
+    )
+)
+
+register(
+    ToolSpec(
+        name="with_centroid",
+        receiver="FeatureCollection",
+        returns="FeatureCollection",
+        description="Add centroid x/y columns to each feature.",
+    )
+)
+
+register(
+    ToolSpec(
+        name="with_coordinates",
+        receiver="FeatureCollection",
+        returns="FeatureCollection",
+        description="Add per-vertex x/y coordinate columns.",
     )
 )
 

@@ -195,7 +195,15 @@ class TestRun:
 
     @pytest.mark.parametrize(
         "tool, params",
-        [("to_crs", {"to_epsg": 3857}), ("resample", {"cell_size": 2.0}), ("hillshade", {})],
+        [
+            ("to_crs", {"to_epsg": 3857}),
+            ("resample", {"cell_size": 2.0}),
+            ("hillshade", {}),
+            ("fill", {"value": 1.0}),
+            ("sieve", {"threshold": 2}),
+            ("focal_mean", {"radius": 1}),
+            ("focal_std", {"radius": 1}),
+        ],
     )
     def test_dataset_tools_run_through_runner(self, raster_ds, tool, params):
         """Each Dataset-receiver tool dispatches and returns a Dataset.
@@ -206,22 +214,38 @@ class TestRun:
             params: its params.
 
         Test scenario:
-            to_crs/resample/hillshade run end-to-end (catches param-name or
-            method-name drift the metadata tests would miss).
+            Every Dataset tool runs end-to-end (catches param/method-name drift the
+            metadata tests would miss); array ops materialize back to a Dataset.
         """
         result = run(Pipeline([(tool, params)]), raster_ds, on_error="raise")
         assert result.ok, result.failures
-        assert isinstance(result.outputs[0], Dataset), result.failures
+        assert isinstance(result.outputs[0], Dataset), result.outputs
 
-    def test_to_h3_runs_through_runner(self, points_fc):
-        """to_h3 dispatches on a FeatureCollection and returns one.
+    @pytest.mark.parametrize(
+        "tool, params",
+        [
+            ("to_h3", {"resolution": 5}),
+            ("voronoi", {}),
+            ("quadtree", {"column": "elevation", "nmax": 3}),
+            ("with_centroid", {}),
+            ("with_coordinates", {}),
+        ],
+    )
+    def test_feature_tools_run_through_runner(self, points_fc, tool, params):
+        """Each FeatureCollection-receiver tool dispatches and returns one.
+
+        Args:
+            points_fc: point-collection fixture.
+            tool: the tool name.
+            params: its params.
 
         Test scenario:
-            to_h3 tags points and yields a FeatureCollection.
+            Every FeatureCollection tool runs end-to-end and yields a
+            FeatureCollection.
         """
-        result = run(Pipeline([("to_h3", {"resolution": 5})]), points_fc, on_error="raise")
+        result = run(Pipeline([(tool, params)]), points_fc, on_error="raise")
         assert result.ok, result.failures
-        assert isinstance(result.outputs[0], FeatureCollection), result.failures
+        assert isinstance(result.outputs[0], FeatureCollection), result.outputs
 
     def test_materialized_output_preserves_crs(self, raster_ds):
         """A materialized terrain output keeps the source CRS (M1 regression).

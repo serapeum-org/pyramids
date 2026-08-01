@@ -20,10 +20,10 @@ is hand-written rather than introspected). List it with `pyramids tools`:
 
 | tool | receiver → returns |
 |------|--------------------|
-| `slope`, `aspect`, `hillshade` | `Dataset` → `Array`\* |
-| `to_crs`, `resample` | `Dataset` → `Dataset` |
+| `slope`, `aspect`, `hillshade`, `focal_mean`, `focal_std` | `Dataset` → `Array`\* |
+| `to_crs`, `resample`, `fill`, `sieve` | `Dataset` → `Dataset` |
 | `interpolate_to_raster` | `FeatureCollection` → `Dataset` |
-| `to_h3` | `FeatureCollection` → `FeatureCollection` |
+| `to_h3`, `voronoi`, `quadtree`, `with_centroid`, `with_coordinates` | `FeatureCollection` → `FeatureCollection` |
 
 \* The terrain ops natively return a numpy array; inside a pipeline the runner materializes it back into a
 single-band, georeferenced `Dataset` (carrying the source raster's geotransform/CRS), so the result is writable to

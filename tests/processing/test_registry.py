@@ -16,8 +16,16 @@ EXPECTED_ALLOWLIST = {
     "hillshade",
     "to_crs",
     "resample",
+    "fill",
+    "sieve",
+    "focal_mean",
+    "focal_std",
     "interpolate_to_raster",
     "to_h3",
+    "voronoi",
+    "quadtree",
+    "with_centroid",
+    "with_coordinates",
 }
 
 
@@ -25,10 +33,10 @@ class TestRegistry:
     """Tests for the tool registry surface (register/resolve/tool_names/registry)."""
 
     def test_allowlist_names(self):
-        """The curated v1 allowlist is exactly the seven expected tools.
+        """The curated v1 allowlist is exactly the expected set of tools.
 
         Test scenario:
-            tool_names() returns the seven registered ops.
+            tool_names() returns the registered ops (the ~15 v1 allowlist).
         """
         assert set(reg.tool_names()) == EXPECTED_ALLOWLIST, reg.tool_names()
 
