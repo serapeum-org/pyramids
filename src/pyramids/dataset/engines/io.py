@@ -3370,7 +3370,29 @@ class IO(_Engine["Dataset"]):
             overview = self._overview_dataset_from_array(
                 selection, band, overview_index
             )
+        self._carry_overview_metadata(overview, selection)
         return overview
+
+    def _carry_overview_metadata(self, overview: Dataset, selection: list[int]) -> None:
+        """Copy the parent's band and dataset metadata onto an overview level.
+
+        Neither backing path carries this on its own: GDAL's overview dataset does not
+        propagate band metadata and `create_from_array` never sets it. Without it a
+        packed raster — a `scale`/`offset` pair, the norm for Sentinel, Landsat and CF
+        NetCDF — silently stops decoding to physical units the moment the overview is
+        written out, and every band loses its name and units.
+
+        Args:
+            overview: The freshly built overview dataset, mutated in place.
+            selection: The parent's 0-based band indices the overview holds, in order.
+        """
+        overview.band_names = [self._ds.band_names[index] for index in selection]
+        overview.band_units = [self._ds.band_units[index] for index in selection]
+        overview.scale = [self._ds.scale[index] for index in selection]
+        overview.offset = [self._ds.offset[index] for index in selection]
+        meta_data = self._ds.meta_data
+        if meta_data:
+            overview.meta_data = meta_data
 
     def _overview_dataset_from_file(
         self, file_name: str, band: int | None, overview_index: int
