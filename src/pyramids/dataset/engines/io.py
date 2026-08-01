@@ -3312,8 +3312,13 @@ class IO(_Engine["Dataset"]):
         Windows the file cannot be deleted. Neither form carries a path of its own, so
         `read_array(threadsafe=True)` and pickling it raise, and `read_array(chunks=...)`
         returns a graph that raises when it is computed; call `to_file()` first if you
-        need any of those. A `NetCDF` variable view returns a plain `Dataset` — an
-        overview level is an ordinary raster, not a NetCDF container.
+        need any of those, and note that `create_overviews()` on the level would drop a
+        stray `.ovr` into the process's working directory. The `read_only` label stops
+        pixel writes; metadata setters still work, since a pathless handle cannot spill
+        a PAM sidecar. A `NetCDF` variable view returns a plain `Dataset` — an overview
+        level is an ordinary raster, not a NetCDF container — and only a real mapping of
+        dataset metadata is carried, so a container's structured attributes stay behind.
+        The materialised form holds the level's pixels twice while it is being built.
 
         Args:
             band (int | None):
@@ -3334,6 +3339,9 @@ class IO(_Engine["Dataset"]):
             ValueError:
                 `band` is out of range, `overview_index` is negative or past the built
                 levels, a selected band has no overviews, or the dataset has no bands.
+            RuntimeError:
+                GDAL failed to describe the level — a source that disappeared between
+                the identity check and the open, or a driver that cannot express it.
 
         Warns:
             UserWarning:
@@ -3381,9 +3389,19 @@ class IO(_Engine["Dataset"]):
             # accessor rejects exactly what its gdal.Band sibling rejects.
             self.get_overview(index, overview_index)
         file_name = self._reopenable_source()
+        overview = None
         if file_name is not None:
-            overview = self._overview_dataset_from_file(file_name, band, overview_index)
-        else:
+            try:
+                overview = self._overview_dataset_from_file(
+                    file_name, band, overview_index
+                )
+            except RuntimeError:
+                # GDAL refuses OVERVIEW_LEVEL on some shapes it can still read band by
+                # band -- a VRT whose bands carry different overview counts, say. The
+                # materialised path handles those, so fall back rather than letting a
+                # raw GDAL error escape a method documented to raise ValueError.
+                overview = None
+        if overview is None:
             overview = self._overview_dataset_from_array(
                 selection, band, overview_index
             )
