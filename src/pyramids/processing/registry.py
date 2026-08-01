@@ -1,6 +1,6 @@
 """The tool registry — pyramids ops made addressable by name.
 
-Per ADR 0001 the registry is populated with **hand-written** :class:`ToolSpec`
+Per ADR 0007 the registry is populated with **hand-written** :class:`ToolSpec`
 entries for a curated allowlist of real-signature, serialization-safe ops, rather
 than introspected from the (mostly ``(*args, **kwargs)``) public method
 signatures. The allowlist is deliberately small for v1 and is trivially
@@ -60,9 +60,9 @@ def get_registry() -> Mapping[str, ToolSpec]:
     return MappingProxyType(_REGISTRY)
 
 
-# --- curated v1 allowlist (real signatures, serialization-safe params) ---
-# Deviation from the #780 DoD's "~15": v1 ships 7 fully-verified ops rather than a
-# larger half-verified set; the registry is extensible (see ADR 0001).
+# Curated v1 allowlist (real signatures, serialization-safe params). Deviation
+# from the #780 DoD's "~15": v1 ships 7 fully-verified ops rather than a larger
+# half-verified set; the registry is extensible (see ADR 0007).
 
 register(
     ToolSpec(

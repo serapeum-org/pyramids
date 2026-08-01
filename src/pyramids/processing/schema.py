@@ -7,7 +7,7 @@ metadata the pipeline layer needs — a default, whether it is optional, and
 whether its value can be serialized into a portable pipeline file.
 
 This schema is the single source of truth for CLI help, pipeline validation, and
-serialization-safety (see ADR 0001).
+serialization-safety (see ADR 0007).
 """
 
 from __future__ import annotations
@@ -39,8 +39,9 @@ _SERIALIZABLE_TYPES = frozenset(
 #: Object types a tool can be invoked on (must be a chainable pyramids object).
 RECEIVER_TYPES = frozenset({"Dataset", "FeatureCollection"})
 
-#: Types a tool may return. ``"Array"`` marks a terminal op (e.g. slope) whose
-#: numpy-array output cannot be the receiver of a further step.
+#: Types a tool may return. ``"Array"`` marks an op that natively returns a numpy
+#: array (e.g. slope); the runner materializes it into a single-band, georeferenced
+#: Dataset so the result stays writable and chainable.
 RETURN_TYPES = frozenset({"Dataset", "FeatureCollection", "Array"})
 
 

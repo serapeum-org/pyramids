@@ -36,7 +36,7 @@ class TestRegistry:
         """resolve returns the ToolSpec for a known tool.
 
         Test scenario:
-            resolve('slope') is a Dataset->Dataset ToolSpec named 'slope'.
+            resolve('slope') is a Dataset->Array ToolSpec named 'slope'.
         """
         spec = reg.resolve("slope")
         assert isinstance(spec, ToolSpec) and spec.name == "slope", spec
