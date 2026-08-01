@@ -2,6 +2,7 @@
 
 import contextlib
 import shutil
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -184,8 +185,52 @@ class TestRecreateOverviewsContract:
             cell_size=1.0,
             epsg=4326,
         )
-        with pytest.warns(UserWarning, match="no overviews to regenerate"):
-            dataset.recreate_overviews()
+        try:
+            with pytest.warns(UserWarning, match="no overviews to regenerate"):
+                dataset.recreate_overviews()
+        finally:
+            dataset.close()
+
+    def test_warning_points_at_the_caller_not_the_facade(self, tmp_path):
+        """The warning is attributed to the calling line, not `Dataset.recreate_overviews`.
+
+        Test scenario:
+            `Dataset.recreate_overviews` is a facade over the engine, so the warning
+            needs `stacklevel=3` to skip it — expected: the recorded warning names this
+            test file. At `stacklevel=2` it named `dataset.py`, which also collapsed
+            every call site in a user loop onto one dedupe key.
+        """
+        work = shutil.copy(NO_OVERVIEWS_RASTER, tmp_path / "blame.tif")
+        dataset = Dataset.read_file(str(work), read_only=False)
+        try:
+            with pytest.warns(UserWarning) as recorded:
+                dataset.recreate_overviews()
+            assert Path(recorded[0].filename).name == Path(__file__).name, (
+                f"warning blamed {recorded[0].filename}, expected this test file"
+            )
+        finally:
+            dataset.close()
+
+    def test_existing_overviews_regenerate_without_warning(self, tmp_path):
+        """The happy path stays silent — no warning when every band has overviews.
+
+        Test scenario:
+            Build overviews on a writable copy, then regenerate them — expected: no
+            `UserWarning`, so a future refactor cannot start warning on every call.
+        """
+        work = shutil.copy(NO_OVERVIEWS_RASTER, tmp_path / "happy.tif")
+        dataset = Dataset.read_file(str(work), read_only=False)
+        try:
+            dataset.create_overviews(overview_levels=[2])
+            with warnings.catch_warnings(record=True) as recorded:
+                warnings.simplefilter("always")
+                dataset.recreate_overviews()
+            user_warnings = [w for w in recorded if issubclass(w.category, UserWarning)]
+            assert not user_warnings, (
+                f"happy path should not warn, got {[str(w.message) for w in user_warnings]}"
+            )
+        finally:
+            dataset.close()
 
 
 class TestReadOverviewArray:

@@ -3067,21 +3067,24 @@ class IO(_Engine["Dataset"]):
         if not overview_count:
             warnings.warn(
                 "The dataset has no bands, so there are no overviews to regenerate.",
-                stacklevel=2,
+                UserWarning,
+                stacklevel=3,
             )
             return
         if len(bands_without) == len(overview_count):
             warnings.warn(
                 "The dataset has no overviews to regenerate; call create_overviews() "
                 "first to build them.",
-                stacklevel=2,
+                UserWarning,
+                stacklevel=3,
             )
             return
         if bands_without:
             warnings.warn(
                 f"Bands {bands_without} have no overviews to regenerate and were "
                 "skipped; call create_overviews() first to build them.",
-                stacklevel=2,
+                UserWarning,
+                stacklevel=3,
             )
         # Regenerate each existing overview level in place, honouring resampling_method.
         try:
