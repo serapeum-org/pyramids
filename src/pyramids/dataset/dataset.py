@@ -780,10 +780,12 @@ class Dataset(RasterBase):
         forwards the call to the generic rendering engine.
 
         When ``band`` is ``None`` and the dataset looks like an RGB image — i.e. it has
-        at least 3 bands **and** at least one band has a GDAL ``ColorInterpretation`` set —
-        the red band is auto-selected (either from ``rgb[0]`` or by resolving the colour
-        tags). Otherwise the facade defaults to band ``0``. See
-        :meth:`Analysis.plot` for the full kwargs surface.
+        at least 3 bands **and** at least one band is tagged as an RGB channel
+        (``red``/``green``/``blue``) — the red band is auto-selected (either from
+        ``rgb[0]`` or by resolving the colour tags). A ``palette_index``, ``gray_index``
+        or other non-RGB interpretation does **not** count as RGB imagery. Otherwise the
+        facade defaults to band ``0``. See :meth:`Analysis.plot` for the full kwargs
+        surface.
 
         The four satellite-imagery kwargs ``rgb``, ``surface_reflectance``, ``cutoff``,
         and ``percentile`` may be grouped under a single ``rgb_options=`` dict
