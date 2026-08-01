@@ -3083,18 +3083,27 @@ class IO(_Engine["Dataset"]):
                 "skipped; call create_overviews() first to build them.",
                 stacklevel=2,
             )
-        # Build overviews using nearest neighbor resampling
-        # nearest is the resampling method used. Other methods include AVERAGE, GAUSS, etc.
+        # Regenerate each existing overview level in place, honouring resampling_method.
         try:
             for i in range(self._ds.band_count):
                 band = self._ds._iloc(i)
                 for j in range(overview_count[i]):
                     ovr = self.get_overview(i, j)
                     gdal.RegenerateOverview(band, ovr, resampling_method)
-        except RuntimeError:
+        except RuntimeError as err:
+            # Only a read-only target becomes ReadOnlyError; a disk-full, corrupt
+            # overview, unsupported resampling or network failure is a different
+            # problem and must not be relabelled as an access-mode error. GDAL words
+            # the former "...opened in read-only mode".
+            if (
+                "read-only" not in str(err).lower()
+                and "read only" not in str(err).lower()
+            ):
+                raise
             raise ReadOnlyError(
-                "The Dataset is opened with a read only. Please read the dataset using read_only=False"
-            )
+                "The Dataset is opened read-only. Please read the dataset using "
+                "read_only=False to recreate overviews."
+            ) from err
 
     def get_overview(self, band: int = 0, overview_index: int = 0) -> gdal.Band:
         """Get an overview of a band.

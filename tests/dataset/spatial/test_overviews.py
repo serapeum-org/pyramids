@@ -115,7 +115,7 @@ class TestRecreateOverviewsContract:
         dataset = Dataset.read_file(str(work), read_only=True)
         try:
             assert any(dataset.overview_count), "fixture must carry internal overviews"
-            with pytest.raises(ReadOnlyError):
+            with pytest.raises(ReadOnlyError, match="opened read-only"):
                 dataset.recreate_overviews()
         finally:
             dataset.close()
