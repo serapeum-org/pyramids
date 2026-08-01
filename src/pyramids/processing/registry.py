@@ -168,3 +168,9 @@ register(
         params=(ParamSpec("resolution", "Integer", None, False, "H3 resolution 0-15."),),
     )
 )
+
+
+#: Tool names present in a freshly-imported registry — i.e. available inside a
+#: worker process. Tools added later via register() are absent from workers, so
+#: the parallel runner rejects a pipeline that uses them (see runner).
+BUILTIN_TOOLS = frozenset(_REGISTRY)

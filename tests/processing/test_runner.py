@@ -177,6 +177,27 @@ class TestRun:
         with pytest.raises(ValueError, match="requires an 'out' directory"):
             run(Pipeline([("slope", {})]), ["a.tif"], parallel=True, out=None)
 
+    def test_parallel_rejects_runtime_registered_tool(self, tmp_path):
+        """parallel=True rejects a tool not in the import-time allowlist.
+
+        Args:
+            tmp_path: a valid out directory.
+
+        Test scenario:
+            A pipeline using a runtime-registered tool raises up front under
+            parallel (workers would not see it), before any process spawns.
+        """
+        import pyramids.processing.registry as reg
+        from pyramids.processing.schema import ParamSpec, ToolSpec
+
+        reg.register(ToolSpec("__rt_tool__", "Dataset", "Dataset", (ParamSpec("x", "Integer"),)))
+        try:
+            pipe = Pipeline([("__rt_tool__", {"x": 1})])
+            with pytest.raises(ValueError, match="runtime-registered tools"):
+                run(pipe, ["a.tif"], parallel=True, out=str(tmp_path))
+        finally:
+            reg._REGISTRY.pop("__rt_tool__", None)
+
     def test_parallel_rejects_non_path_inputs(self, points_fc, tmp_path):
         """parallel=True with an in-memory object input is rejected.
 
