@@ -257,6 +257,31 @@ class TestResolvePlotBandPolicy:
             f"{[str(w.message) for w in deprecations]}"
         )
 
+    def test_explicit_rgb_on_non_rgb_tagged_raster_keys_band_on_rgb0(self):
+        """Explicit ``rgb`` sets the resolved band to ``rgb[0]`` even off the RGB branch.
+
+        Test scenario:
+            A 3-band raster tagged only ``gray_index`` takes the non-RGB
+            branch, but the user still passed ``rgb=[2, 1, 0]``. The resolved
+            band must be ``rgb[0] == 2`` (not the band-0 default), so the
+            downstream ``exclude_value`` nodata mask keys off the same band the
+            RGB render uses rather than band 0.
+        """
+        rng = np.random.default_rng(913)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.band_color = {0: "gray_index"}
+
+        resolved_band, resolved_rgb = dataset._resolve_plot_band(
+            band=None, rgb=[2, 1, 0]
+        )
+        assert resolved_band == 2, (
+            f"Explicit rgb[0]=2 must set the resolved band, got {resolved_band}"
+        )
+        assert resolved_rgb == [2, 1, 0]
+
     def test_full_rgb_tags_resolves_red_band(self):
         """All three R/G/B tags set → resolved band is red, rgb list filled.
 

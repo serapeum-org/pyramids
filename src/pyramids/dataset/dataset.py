@@ -725,11 +725,13 @@ class Dataset(RasterBase):
             # non-RGB interpretation from silently re-enabling that bug.
             has_rgb_interp = any(c in RGB_CHANNEL_INTERPS for c in band_colors)
             if not has_rgb_interp:
-                # No RGB channels: render a single band. Band 0 is a deliberate
-                # default -- the plot path does not (yet) render a palette
-                # through its colour table, so the band index is not meaningful
-                # for paletted data today.
-                resolved_band = 0
+                # No RGB channels: render a single band. Honour an explicit
+                # ``rgb`` so ``exclude_value`` downstream keys off the same band
+                # the RGB render uses; otherwise default to band 0 -- a
+                # deliberate placeholder, since the plot path does not (yet)
+                # render a palette through its colour table, so the band index
+                # is not meaningful for paletted data today.
+                resolved_band = int(rgb[0]) if rgb is not None else 0
                 resolved_rgb = rgb
             else:
                 if rgb is None:
