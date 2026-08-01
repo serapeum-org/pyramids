@@ -56,6 +56,7 @@ from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS
 from pyramids.dataset.cog import PROFILES, cog_info, validate
 from pyramids.dataset.merge import merge_rasters
 from pyramids.feature import FeatureCollection
+from pyramids.processing.cli import add_processing_commands
 
 
 def _json_safe(value: float | None) -> float | None:
@@ -1009,6 +1010,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     rasterize.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     rasterize.set_defaults(func=_cmd_rasterize)
+
+    add_processing_commands(sub)
 
     return parser
 
