@@ -51,7 +51,11 @@ class ParamSpec:
     Args:
         name: The keyword-argument name passed to the underlying op.
         param_type: One of :data:`PARAM_TYPES`.
-        default: Value used when the parameter is omitted (``None`` if none).
+        default: Display-only default shown in ``help`` — the runner passes only
+            the params a step supplies, so the *runtime* default is whatever the
+            underlying method uses. Set this only to mirror that method default
+            (leave ``None`` when the default lives in the method), so ``help``
+            never advertises a value the runner will not apply.
         optional: Whether the parameter may be omitted.
         description: Human-readable help text.
         choices: Allowed values for an ``"OptionList"`` parameter.
