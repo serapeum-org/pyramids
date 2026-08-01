@@ -210,6 +210,7 @@ nav:
       - Georeferencing (GCPs & RPCs): reference/dataset/georef.md
       - Merge & stack: reference/dataset/merge.md
     - DatasetCollection: reference/dataset/collection.md
+    - Processing pipelines: reference/processing.md
     - Zarr: reference/zarr.md
     - Feature:
       - Overview: reference/feature/index.md
