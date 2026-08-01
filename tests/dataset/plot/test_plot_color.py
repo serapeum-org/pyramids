@@ -152,6 +152,48 @@ class TestColorTable:
         assert band.GetColorTable() is not None
         assert band.GetColorInterpretation() == gdal.GCI_PaletteIndex
 
+    @pytest.mark.plot
+    def test_set_color_table_tags_only_targeted_bands(self):
+        rng = np.random.default_rng(3)
+        arr = rng.integers(1, 4, size=(3, 5, 5))
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.color_table = pd.DataFrame(
+            {
+                "band": [1, 1, 1],
+                "values": [1, 2, 3],
+                "color": ["#709959", "#F2EEA2", "#F2CE85"],
+            }
+        )
+        assert dataset.band_color == {
+            0: "palette_index",
+            1: "undefined",
+            2: "undefined",
+        }
+
+    @pytest.mark.plot
+    def test_palette_interpretation_survives_gtiff_roundtrip(self, tmp_path):
+        rng = np.random.default_rng(4)
+        arr = rng.integers(1, 4, size=(1, 5, 5)).astype("uint8")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326, no_data_value=255
+        )
+        dataset.color_table = pd.DataFrame(
+            {
+                "band": [1, 1, 1],
+                "values": [1, 2, 3],
+                "color": ["#709959", "#F2EEA2", "#F2CE85"],
+            }
+        )
+        path = tmp_path / "paletted.tif"
+        dataset.to_file(str(path))
+
+        reopened = Dataset.read_file(str(path))
+        band = reopened.raster.GetRasterBand(1)
+        assert band.GetColorInterpretation() == gdal.GCI_PaletteIndex
+        assert not reopened.color_table.empty
+
 
 class TestColorRelief:
     color_hex = ["#709959", "#F2EEA2", "#F2CE85", "#C28C7C", "#D6C19C"]
