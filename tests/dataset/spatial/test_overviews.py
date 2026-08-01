@@ -1,6 +1,7 @@
 """Tests for the Dataset class overview methods."""
 
 import contextlib
+import pickle
 import shutil
 import warnings
 from pathlib import Path
@@ -540,19 +541,249 @@ class TestGetOverviewDataset:
             dataset.close()
 
     def test_file_backed_level_is_not_materialised(self, tmp_path):
-        """A file-backed level is opened lazily rather than copied into memory.
+        """A file-backed level is described by a VRT rather than copied into memory.
 
         Test scenario:
-            Inspect the returned dataset's driver — expected: not the MEM driver, i.e.
-            it came through GDAL's ``OVERVIEW_LEVEL`` open option, so a large raster's
-            overview is not read into RAM just to be described.
+            Inspect the returned dataset's driver and handle — expected: the ``vrt``
+            driver (not merely "not memory", which an unrecognised driver would also
+            satisfy) and a handle distinct from the parent's, i.e. it came through
+            ``OVERVIEW_LEVEL`` without reading the level into RAM.
+        """
+        dataset = Dataset.read_file(_overviewed_raster(tmp_path))
+        overview = None
+        try:
+            overview = dataset.get_overview_dataset(overview_index=0)
+            assert overview.driver_type == "vrt", (
+                f"file-backed level should be a lazy VRT, got {overview.driver_type}"
+            )
+            assert overview.raster is not dataset.raster, "must be its own handle"
+        finally:
+            if overview is not None:
+                overview.close()
+            dataset.close()
+
+    def test_lazy_level_refuses_the_reopen_by_path_reads(self, tmp_path):
+        """The lazy level fails loudly on reads that would reopen it by path.
+
+        Test scenario:
+            `OpenEx(OVERVIEW_LEVEL=...)` alone yields a handle described by the
+            *parent's* path, so `threadsafe=`/`chunks=`/pickle would silently read the
+            full-resolution raster while the object reported the level's shape. The VRT
+            wrapper leaves it pathless — expected: a plain read is correct, and each
+            reopen-by-path route raises instead of returning parent pixels.
+        """
+        dataset = Dataset.read_file(_overviewed_raster(tmp_path, "gradient.tif"))
+        overview = None
+        try:
+            overview = dataset.get_overview_dataset(band=0, overview_index=1)
+            expected = dataset.read_overview_array(band=0, overview_index=1)
+            np.testing.assert_array_equal(
+                np.asarray(overview.read_array(band=0)),
+                expected,
+                err_msg="the plain read must return the level's own pixels",
+            )
+            assert overview.file_name == "", (
+                f"the lazy level must carry no path, got {overview.file_name!r}"
+            )
+            with pytest.raises(ValueError, match="reopenable path"):
+                overview.read_array(band=0, threadsafe=True)
+            with pytest.raises(TypeError, match="no on-disk path"):
+                pickle.dumps(overview)
+        finally:
+            if overview is not None:
+                overview.close()
+            dataset.close()
+
+    def test_vsimem_parent_stays_lazy(self):
+        """A /vsimem/ raster reopens under OVERVIEW_LEVEL, so it is not materialised.
+
+        Test scenario:
+            `/vsimem/` has a name GDAL can reopen, unlike a bare MEM handle — expected:
+            the VRT path, not a second RAM copy of the level.
+        """
+        path = "/vsimem/overview_lazy.tif"
+        raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((10.0, 0.5, 0.0, 80.0, 0.0, -0.5))
+        raster.GetRasterBand(1).WriteArray(
+            np.arange(4096, dtype="float32").reshape(64, 64)
+        )
+        raster = None
+        dataset = Dataset.read_file(path, read_only=False)
+        overview = None
+        try:
+            dataset.create_overviews(overview_levels=[2])
+            overview = dataset.get_overview_dataset(overview_index=0)
+            assert overview.driver_type == "vrt", (
+                f"/vsimem/ should stay lazy, got driver {overview.driver_type}"
+            )
+        finally:
+            if overview is not None:
+                overview.close()
+            dataset.close()
+            gdal.Unlink(path)
+
+    def test_rotated_grid_scales_the_same_on_both_paths(self, tmp_path):
+        """The rotation terms are scaled, so a skewed grid is not sheared.
+
+        Test scenario:
+            The same skewed geotransform on disk and in memory — expected: identical
+            geotransforms. Scaling only gt[1]/gt[5] left the rotation terms at half
+            their correct value, displacing every pixel but the origin.
+        """
+        geo = (10.0, 0.5, 0.1, 80.0, 0.2, -0.5)
+        arr = np.arange(4096, dtype="float32").reshape(64, 64)
+        path = str(tmp_path / "skewed.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform(geo)
+        raster.GetRasterBand(1).WriteArray(arr)
+        raster = None
+        handle = gdal.Open(path, gdal.GA_Update)
+        handle.BuildOverviews("AVERAGE", [2])
+        handle = None
+
+        on_disk = Dataset.read_file(path)
+        in_memory = Dataset.create_from_array(arr, geo=geo, epsg=4326)
+        in_memory.create_overviews(overview_levels=[2])
+        lazy_level = memory_level = None
+        try:
+            lazy_level = on_disk.get_overview_dataset(overview_index=0)
+            memory_level = in_memory.get_overview_dataset(overview_index=0)
+            np.testing.assert_allclose(
+                np.asarray(memory_level.geotransform),
+                np.asarray(lazy_level.geotransform),
+                err_msg="the two paths must agree on the scaled geotransform",
+            )
+            assert lazy_level.geotransform[2] == pytest.approx(0.2), (
+                f"gt[2] should scale to 0.2, got {lazy_level.geotransform[2]}"
+            )
+        finally:
+            for handle in (lazy_level, memory_level):
+                if handle is not None:
+                    handle.close()
+            on_disk.close()
+            in_memory.close()
+
+    def test_absent_no_data_is_not_fabricated(self):
+        """A parent with no no-data value does not gain one.
+
+        Test scenario:
+            A MEM parent created with `no_data_value=None` — expected: the level's
+            no-data stays `None`, rather than a list of `None`s being coerced into a
+            `nan` sentinel that masking and statistics would then honour.
+        """
+        dataset = Dataset.create_from_array(
+            np.stack([np.zeros((32, 32), dtype="float32")] * 2),
+            top_left_corner=(0.0, 32.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=None,
+        )
+        overview = None
+        try:
+            dataset.create_overviews(overview_levels=[2])
+            overview = dataset.get_overview_dataset()
+            assert all(value is None for value in overview.no_data_value), (
+                f"no-data should stay absent, got {overview.no_data_value}"
+            )
+        finally:
+            if overview is not None:
+                overview.close()
+            dataset.close()
+
+    def test_band_metadata_is_carried(self, tmp_path):
+        """Band names, units, scale and offset survive, so packed data still decodes.
+
+        Test scenario:
+            A raster whose bands carry a scale/offset pair and names — expected: the
+            level keeps them, since `to_file` on a level that lost its scale writes
+            values that no longer decode to physical units.
+        """
+        path = _overviewed_raster(tmp_path, "packed.tif")
+        writable = gdal.Open(path, gdal.GA_Update)
+        for index in range(3):
+            band = writable.GetRasterBand(index + 1)
+            band.SetDescription(["red", "green", "nir"][index])
+            band.SetScale(0.5)
+            band.SetOffset(3.0)
+        writable = None
+
+        dataset = Dataset.read_file(path)
+        overview = single = None
+        try:
+            overview = dataset.get_overview_dataset()
+            assert overview.band_names == ["red", "green", "nir"], (
+                f"band names lost: {overview.band_names}"
+            )
+            assert overview.scale == [0.5, 0.5, 0.5], f"scale lost: {overview.scale}"
+            assert overview.offset == [3.0, 3.0, 3.0], f"offset lost: {overview.offset}"
+            single = dataset.get_overview_dataset(band=2)
+            assert single.band_names == ["nir"], (
+                f"a band subset should keep that band's name, got {single.band_names}"
+            )
+        finally:
+            for handle in (overview, single):
+                if handle is not None:
+                    handle.close()
+            dataset.close()
+
+    def test_crs_without_an_epsg_code_survives(self):
+        """A CRS with no EPSG authority code is not silently cleared.
+
+        Test scenario:
+            A MEM parent in a geostationary projection, which has no EPSG code, so
+            `epsg` alone is `None` — expected: the level still carries a projection,
+            rather than `create_from_array` clearing it.
+        """
+        geostationary = (
+            "+proj=geos +h=35785831 +lon_0=0 +sweep=y +ellps=GRS80 +units=m +no_defs"
+        )
+        dataset = Dataset.create_from_array(
+            np.zeros((32, 32), dtype="float32"),
+            top_left_corner=(0.0, 32.0),
+            cell_size=1000.0,
+            epsg=geostationary,
+        )
+        overview = None
+        try:
+            dataset.create_overviews(overview_levels=[2])
+            assert dataset.epsg is None, "precondition: this CRS has no EPSG code"
+            overview = dataset.get_overview_dataset()
+            assert overview.crs, "the level lost its CRS entirely"
+        finally:
+            if overview is not None:
+                overview.close()
+            dataset.close()
+
+    def test_invalid_band_and_negative_level_raise(self, tmp_path):
+        """Bad `band` and negative `overview_index` raise the documented ValueError.
+
+        Test scenario:
+            `band` out of range previously raised `IndexError` from `_iloc`, and a
+            negative `overview_index` made GDAL hand back the *full-resolution* parent
+            labelled as an overview — expected: `ValueError` for both.
         """
         dataset = Dataset.read_file(_overviewed_raster(tmp_path))
         try:
-            overview = dataset.get_overview_dataset(overview_index=0)
-            assert overview.driver_type != "memory", (
-                f"file-backed level should stay lazy, got driver {overview.driver_type}"
-            )
+            with pytest.raises(ValueError, match="out of range"):
+                dataset.get_overview_dataset(band=9)
+            with pytest.raises(ValueError, match="out of range"):
+                dataset.get_overview_dataset(band=-1)
+            with pytest.raises(ValueError, match="must not be negative"):
+                dataset.get_overview_dataset(overview_index=-1)
+        finally:
+            dataset.close()
+
+    def test_band_less_dataset_raises(self):
+        """A dataset with no bands says so instead of failing inside numpy.
+
+        Test scenario:
+            A zero-band MEM raster — expected: the same clear message
+            `recreate_overviews` gives, not `need at least one array to stack`.
+        """
+        dataset = Dataset(gdal.GetDriverByName("MEM").Create("", 4, 4, 0))
+        try:
+            with pytest.raises(ValueError, match="no bands"):
+                dataset.get_overview_dataset()
         finally:
             dataset.close()
 
