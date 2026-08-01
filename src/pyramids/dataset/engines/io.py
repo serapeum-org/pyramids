@@ -3015,17 +3015,38 @@ class IO(_Engine["Dataset"]):
 
     def recreate_overviews(self, resampling_method: str = "nearest") -> None:
         """Recreate overviews for the dataset.
+
+        Regenerates the *existing* overviews in place; it never builds new ones — call
+        `create_overviews` for that. When the dataset has no overviews at all there is
+        nothing to regenerate, so this warns instead of returning silently; a read-only
+        on-disk dataset raises `ReadOnlyError` first, since regenerating could never
+        have succeeded there.
+
+        External `.ovr` overviews can still be regenerated while the *main* dataset is
+        open read-only — the sidecar is a separate writable file — so read-only access
+        is not rejected up front. Internal overviews live inside the raster itself, so
+        GDAL refuses to rewrite them on a read-only handle, which surfaces here as
+        `ReadOnlyError`.
+
         Args:
             resampling_method (str): Resampling method used to recreate overviews. Possible values are
                 "NEAREST", "CUBIC", "AVERAGE", "GAUSS", "CUBICSPLINE", "LANCZOS", "MODE",
                 "AVERAGE_MAGPHASE", "RMS", "BILINEAR". Defaults to "nearest".
+
+        Warns:
+            UserWarning:
+                The dataset has no overviews, so there is nothing to regenerate.
+
         Raises:
             ValueError:
                 If resampling_method is not one of the allowed values above.
             ReadOnlyError:
-                If overviews are internal and the dataset is opened read-only. Read with read_only=False.
+                If the dataset is a read-only on-disk file with no overviews to
+                regenerate, or if its overviews are internal and cannot be rewritten on
+                a read-only handle. Read with read_only=False.
+
         See Also:
-            - Dataset.create_overviews: Recreate the dataset overviews if they exist.
+            - Dataset.create_overviews: Create the dataset overviews.
             - Dataset.get_overview: Get an overview of a band.
             - Dataset.overview_count: Number of overviews.
             - Dataset.read_overview_array: Read overview values.
@@ -3033,12 +3054,25 @@ class IO(_Engine["Dataset"]):
         """
         if resampling_method.upper() not in RESAMPLING_METHODS:
             raise ValueError(f"resampling_method should be one of {RESAMPLING_METHODS}")
+        overview_count = self.overview_count
+        if not any(overview_count):
+            # Nothing to regenerate: the loop below would iterate zero times and return
+            # silently, so the caller never learns the call did nothing (#863). A
+            # read-only on-disk dataset could not have been regenerated either way, so
+            # report that stronger, documented failure first.
+            self._ds._require_writable("recreate overviews")
+            warnings.warn(
+                "The dataset has no overviews to regenerate; call create_overviews() "
+                "first to build them.",
+                stacklevel=2,
+            )
+            return
         # Build overviews using nearest neighbor resampling
         # nearest is the resampling method used. Other methods include AVERAGE, GAUSS, etc.
         try:
             for i in range(self._ds.band_count):
                 band = self._ds._iloc(i)
-                for j in range(self.overview_count[i]):
+                for j in range(overview_count[i]):
                     ovr = self.get_overview(i, j)
                     gdal.RegenerateOverview(band, ovr, resampling_method)
         except RuntimeError:
