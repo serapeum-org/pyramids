@@ -1536,6 +1536,27 @@ class RasterBase(ABC):
         pass
 
     @abstractmethod
+    def get_overview_dataset(self, band: int | None = None, overview_index: int = 0):
+        """Get an overview level as a standalone Dataset.
+
+        The `gdal.Band` from `get_overview` carries no geotransform and no CRS; this
+        returns the same pixels as a read-only `Dataset` view whose cell size is scaled
+        by the decimation factor. The caller owns the returned handle.
+
+        Args:
+            band (int | None, optional):
+                The band to take; None (the default) keeps every band.
+            overview_index (int):
+                Index of the overview. Default is 0.
+
+        Returns:
+            Dataset:
+                The overview level, carrying the parent's CRS, no-data value and band
+                metadata.
+        """
+        pass
+
+    @abstractmethod
     def read_overview_array(
         self, band: int | None = None, overview_index: int = 0
     ) -> np.typing.NDArray:

@@ -39,8 +39,9 @@ from pyramids.base._file_manager import (
 )
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import resolve_resampling
-from pyramids.base.crs import reproject_coordinates
+from pyramids.base.crs import crs_spec, reproject_coordinates
 from pyramids.base.protocols import ArrayLike
+from pyramids.base.remote import is_network_backed
 from pyramids.dataset.abstract_dataset import (
     OVERVIEW_LEVELS,
     RESAMPLING_METHODS,
@@ -3287,6 +3288,335 @@ class IO(_Engine["Dataset"]):
         if overview_index >= n_views:
             raise ValueError(f"overview_level should be less than {n_views}")
         return band_obj.GetOverview(overview_index)
+
+    def get_overview_dataset(
+        self, band: int | None = None, overview_index: int = 0
+    ) -> Dataset:
+        """Get an overview level as a standalone `Dataset`.
+
+        `get_overview` hands back a raw `gdal.Band`, which carries no geotransform and
+        no CRS, so an overview cannot be plotted, written, cropped or reprojected
+        without dropping to GDAL. This returns the same pixels as a first-class
+        `Dataset` whose cell size is scaled by the decimation factor.
+
+        A raster whose own GDAL description reopens to this same grid — an on-disk file,
+        a `/vsimem/` raster, any `/vsi*` URL — is described lazily through the
+        `OVERVIEW_LEVEL` open option and wrapped in a VRT, so no pixels are read and
+        GDAL derives the scaled geotransform itself. Everything else is materialised
+        into an in-memory `Dataset`, with the geotransform scaled here: a handle GDAL
+        cannot reopen by name (a `create_from_array` raster with no path, a `NetCDF`
+        variable view), a name that no longer reopens to this grid, and any level GDAL
+        refuses to describe.
+
+        The result is a **read-only view** of the parent's pixels: it is detached from
+        the parent handle and carries its own GDAL handle, which the caller owns and
+        should `close()` — until it is closed it keeps the parent file open, so on
+        Windows the file cannot be deleted. Neither form carries a path of its own, so
+        `read_array(threadsafe=True)` and pickling it raise, and `read_array(chunks=...)`
+        returns a graph that raises when it is computed; call `to_file()` first if you
+        need any of those. `create_overviews()` on the lazily described form has nowhere
+        to put the external sidecar it needs either, so it drops a stray `.ovr` into the
+        process's working directory — the materialised form builds its levels in RAM and
+        writes nothing. The `read_only` label stops pixel writes; metadata setters still
+        work, since a pathless handle cannot spill a PAM sidecar. A `NetCDF` variable
+        view returns a plain `Dataset` — an overview level is an ordinary raster, not a
+        NetCDF container — and only a real mapping of dataset metadata is carried, so a
+        container's structured attributes stay behind. While the materialised form is
+        being built it holds the level's pixels three times over: the per-band reads,
+        the array stacked from them, and the in-memory raster written from that (twice
+        when `band` selects one, which skips the stack).
+
+        Args:
+            band (int | None):
+                The band to take. `None` (the default) keeps every band, matching
+                `read_overview_array`; an `int` returns a single-band `Dataset`.
+            overview_index (int):
+                Index of the overview level. Defaults to 0, the largest (least
+                decimated) overview. Negative values are rejected rather than counting
+                from the end.
+
+        Returns:
+            Dataset:
+                The requested overview level, carrying the parent's CRS, its per-band
+                no-data values, band names/units/scale/offset, colour table and colour
+                interpretation, and its dataset metadata, with a cell size scaled by the
+                decimation factor. The caller owns its handle.
+
+        Raises:
+            ValueError:
+                `band` is out of range, `overview_index` is negative or past the built
+                levels, a selected band has no overviews, or the dataset has no bands.
+            RuntimeError:
+                GDAL failed while materialising the level — reading the parent's
+                overview pixels, or building the in-memory copy from them. A failure to
+                *describe* the level does not surface here; it is retried through that
+                same materialised path.
+
+        Warns:
+            UserWarning:
+                The parent is network-backed and carries cloud credentials, which GDAL
+                will not replay when the VRT reopens its source.
+
+        Examples:
+            - Build overviews on a 0.1-degree raster, then take level 1 (a 4x
+              decimation) as a `Dataset`:
+              ```python
+              >>> from pyramids.dataset import Dataset
+              >>> dataset = Dataset.read_file("dem.tif", read_only=False)  # doctest: +SKIP
+              >>> dataset.create_overviews()  # doctest: +SKIP
+              >>> overview = dataset.get_overview_dataset(overview_index=1)  # doctest: +SKIP
+              >>> overview.cell_size  # doctest: +SKIP
+              0.4
+              >>> overview.to_file("dem_ov1.tif")  # doctest: +SKIP
+              >>> overview.close()  # doctest: +SKIP
+
+              ```
+        See Also:
+            - Dataset.get_overview: The same level as a raw `gdal.Band`.
+            - Dataset.read_overview_array: The same level as a numpy array.
+            - Dataset.create_overviews: Create the dataset overviews.
+            - Dataset.overview_count: Number of overviews.
+        """
+        # get_overview resolves the band through _iloc, which raises IndexError; this
+        # accessor documents ValueError, and its read_overview_array sibling already
+        # rejects the same inputs that way.
+        validate_band_index(band, self._ds.band_count)
+        if overview_index < 0:
+            # GDAL reads a negative OVERVIEW_LEVEL as "no overview" and hands back the
+            # full-resolution raster, so a caller reaching for the Python "last element"
+            # idiom would silently load the parent instead of the coarsest level.
+            raise ValueError(
+                f"overview_index must not be negative; got {overview_index}"
+            )
+        if self._ds.band_count == 0:
+            raise ValueError(
+                "The dataset has no bands, so it has no overviews to return."
+            )
+        selection = [band] if band is not None else list(range(self._ds.band_count))
+        for index in selection:
+            # Reuse get_overview's "no overviews" / "index out of range" guards, so this
+            # accessor rejects exactly what its gdal.Band sibling rejects.
+            self.get_overview(index, overview_index)
+        file_name = self._reopenable_source()
+        overview = None
+        if file_name is not None:
+            try:
+                overview = self._overview_dataset_from_file(
+                    file_name, band, overview_index
+                )
+            except RuntimeError:
+                # GDAL refuses OVERVIEW_LEVEL on some shapes it can still read band by
+                # band -- a VRT whose bands carry different overview counts, say. The
+                # materialised path handles those, so fall back rather than letting a
+                # raw GDAL error escape a method documented to raise ValueError.
+                overview = None
+        if overview is None:
+            overview = self._overview_dataset_from_array(
+                selection, band, overview_index
+            )
+        self._carry_overview_metadata(overview, selection)
+        return overview
+
+    def _reopenable_source(self) -> str | None:
+        """Return a name that provably reopens *this* raster, or `None`.
+
+        The lazy path describes the level by name, so the name has to be an identity,
+        not a label. `Dataset.file_name` is not: `from_bytes(data, name="dem.tif")`
+        stamps a cosmetic label, so trusting it hands back the overview of whatever
+        `dem.tif` happens to sit in the process's working directory — silently, with no
+        error. A classic `NETCDF:"/data/x.nc":tos` subdataset string mangles the same
+        way. GDAL's own description survives both, so start there, then prove it by
+        reopening and comparing the grid; anything that fails falls back to being
+        materialised, which is always correct.
+
+        Returns:
+            str | None: A name that reopens to the same grid, or `None` to materialise.
+        """
+        description = self._ds.raster.GetDescription()
+        source = None
+        if description and self._ds.driver_type != "memory":
+            try:
+                with self._ds._cloud_config():
+                    candidate = gdal.OpenEx(description)
+            except RuntimeError:
+                candidate = None
+            if candidate is not None:
+                same_grid = (
+                    candidate.RasterXSize == self._ds.columns
+                    and candidate.RasterYSize == self._ds.rows
+                    and candidate.RasterCount == self._ds.band_count
+                    and np.allclose(
+                        candidate.GetGeoTransform(),
+                        tuple(self._ds.geotransform),
+                        rtol=0,
+                        atol=1e-9,
+                    )
+                )
+                source = description if same_grid else None
+        return source
+
+    def _carry_overview_metadata(self, overview: Dataset, selection: list[int]) -> None:
+        """Copy the parent's per-band properties and dataset metadata onto a level.
+
+        Neither backing path carries the band metadata on its own: GDAL's overview
+        dataset does not propagate it and `create_from_array` never sets it. Without it
+        a packed raster — a `scale`/`offset` pair, the norm for Sentinel, Landsat and CF
+        NetCDF — silently stops decoding to physical units the moment the overview is
+        written out, and every band loses its name and units.
+
+        The colour table and colour interpretation ride along too. The VRT path inherits
+        those from its source, so re-setting them there is a no-op, but a materialised
+        level comes back with neither and would render a paletted raster as raw grey
+        indices.
+
+        Args:
+            overview: The freshly built overview dataset, mutated in place.
+            selection: The parent's 0-based band indices the overview holds, in order.
+        """
+        # Each of these walks every band on access, so read them once instead of
+        # indexing them inside the comprehension: at 400 bands -- an ordinary NetCDF
+        # time series, and the branch that gets here -- that difference measured in
+        # seconds, not milliseconds.
+        band_names = self._ds.band_names
+        band_units = self._ds.band_units
+        scale = self._ds.scale
+        offset = self._ds.offset
+        overview.band_names = [band_names[index] for index in selection]
+        overview.band_units = [band_units[index] for index in selection]
+        overview.scale = [scale[index] for index in selection]
+        overview.offset = [offset[index] for index in selection]
+        for position, index in enumerate(selection):
+            source_band = self._ds._iloc(index)
+            target_band = overview._iloc(position)
+            colour_table = source_band.GetRasterColorTable()
+            if colour_table is not None:
+                target_band.SetRasterColorTable(colour_table)
+            target_band.SetRasterColorInterpretation(
+                source_band.GetRasterColorInterpretation()
+            )
+        meta_data = self._ds.meta_data
+        # A NetCDF exposes meta_data as a NetCDFMetadata, not a mapping, and the Dataset
+        # setter iterates .items(). An overview level is a plain raster, so carry only a
+        # real mapping and leave a container's structured attributes behind.
+        if isinstance(meta_data, dict) and meta_data:
+            overview.meta_data = meta_data
+
+    def _overview_dataset_from_file(
+        self, file_name: str, band: int | None, overview_index: int
+    ) -> Dataset:
+        """Describe one overview level of a re-openable raster, without reading pixels.
+
+        GDAL's `OVERVIEW_LEVEL` open option exposes the level as a full dataset and
+        scales the geotransform itself. That dataset is then wrapped in a VRT, which is
+        what makes the result **self-describing**: `OpenEx` alone returns a handle whose
+        description is still the *parent's* path, so every pyramids path that reopens by
+        name — `read_array(threadsafe=True)`, `read_array(chunks=...)`, `__reduce__` —
+        would silently read the full-resolution raster while the object reported the
+        level's shape. The VRT records `<OpenOptions><OOI key="OVERVIEW_LEVEL">` and
+        carries no path of its own, so those shortcuts are structurally unavailable.
+
+        Args:
+            file_name: Path or VSI URL of the parent raster.
+            band: A single 0-based band to keep, or `None` for every band.
+            overview_index: Index of the overview level to open.
+
+        Returns:
+            Dataset: The overview level, wrapping a lazily opened GDAL handle.
+        """
+        # Circular import: `pyramids.dataset.dataset` imports this engine module while it
+        # is still initialising, so `Dataset` is only reachable from inside a call. Same
+        # carve-out as `engines/analysis.py`.
+        from pyramids.dataset.dataset import Dataset as _Dataset
+
+        # The level is reopened from disk, so anything still sitting in the parent
+        # handle's write cache would otherwise be invisible to it.
+        self._ds.raster.FlushCache()
+        if self._ds.gdal_env and is_network_backed(file_name):
+            # A VRT opens its sources on the first pixel read, and GDAL does not consult
+            # the thread-local config CloudConfig installs when it does -- see
+            # pyramids/stac/_vrt.py, which measured every source request going out
+            # unauthenticated. The overview reads fine while the source stays in GDAL's
+            # dataset pool, then starts failing once it is evicted.
+            warnings.warn(
+                f"{file_name} is remote and this dataset carries cloud credentials, but "
+                "the overview is described by a VRT whose sources GDAL reopens without "
+                "the thread-local config. Later reads may go out unauthenticated; call "
+                "to_file() on the overview while the credentials are active to "
+                "materialise it.",
+                UserWarning,
+                stacklevel=_caller_stacklevel(),
+            )
+        band_list = None if band is None else [band + 1]
+        with self._ds._cloud_config():
+            level = gdal.OpenEx(
+                file_name, open_options=[f"OVERVIEW_LEVEL={overview_index}"]
+            )
+            level = gdal.Translate("", level, format="VRT", bandList=band_list)
+        return _Dataset(level, gdal_env=self._ds.gdal_env)
+
+    def _overview_dataset_from_array(
+        self, selection: list[int], band: int | None, overview_index: int
+    ) -> Dataset:
+        """Materialise one overview level of a nameless raster into a new `Dataset`.
+
+        Only a handle GDAL cannot reopen by name reaches this path — a nameless `MEM`
+        raster, or a NetCDF variable view — so it cannot be described by a VRT. Reads
+        each selected band's overview directly rather than through
+        `read_overview_array`, whose all-bands branch sizes its buffer from overview 0
+        and so cannot serve a higher `overview_index`.
+
+        Args:
+            selection: The 0-based band indices to read.
+            band: The single band requested, or `None` when every band was requested.
+            overview_index: Index of the overview level to read.
+
+        Returns:
+            Dataset: An in-memory dataset holding the overview pixels, with the parent's
+            CRS, its per-band no-data values — a band the parent left without one keeps
+            none — and a geotransform scaled by the decimation factor.
+        """
+        # Circular import: see _overview_dataset_from_file.
+        from pyramids.dataset.dataset import Dataset as _Dataset
+
+        planes = [
+            np.asarray(self.get_overview(index, overview_index).ReadAsArray())
+            for index in selection
+        ]
+        arr = planes[0] if band is not None else np.stack(planes, axis=0)
+        rows, columns = planes[0].shape
+        geo = self._ds.geotransform
+        # Scale all four resolution/rotation terms, as GDALOverviewDataset does: leaving
+        # the rotation terms unscaled shears every pixel but the origin on a skewed grid.
+        x_ratio = self._ds.columns / columns
+        y_ratio = self._ds.rows / rows
+        scaled_geo = (
+            geo[0],
+            geo[1] * x_ratio,
+            geo[2] * y_ratio,
+            geo[3],
+            geo[4] * x_ratio,
+            geo[5] * y_ratio,
+        )
+        parent_no_data = [self._ds.no_data_value[index] for index in selection]
+        # Build with no no-data at all, then declare it only for the bands that actually
+        # had one. Handing the builder a list containing Nones coerces each None into a
+        # real sentinel (nan), which invents a no-data the parent never had -- and a
+        # parent may well declare it on some bands and not others.
+        overview = _Dataset.create_from_array(
+            arr,
+            geo=scaled_geo,
+            # `epsg` alone is None for a CRS with no authority code (a geostationary
+            # grid, say), which would clear the projection outright.
+            epsg=crs_spec(self._ds.epsg, self._ds.crs),
+            no_data_value=None,
+        )
+        for position, value in enumerate(parent_no_data):
+            if value is not None:
+                overview.bands._change_no_data_value_attr(position, value)
+        # create_from_array hands back a "write" handle; label it like the VRT branch so
+        # one public method does not report two different access modes.
+        overview._access = "read_only"
+        return overview
 
     def read_overview_array(
         self, band: int | None = None, overview_index: int = 0

@@ -14,6 +14,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import ReadOnlyError
+from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -223,6 +224,37 @@ def test_overview_ops_isolated_to_temp_copy(sample, tmp_path):
     assert set(data_dir.glob("*.ovr")) == before, (
         "overview ops must not write a sidecar into the committed tests/data tree"
     )
+
+
+def test_overview_dataset_from_a_variable_view(sample, tmp_path):
+    """A variable view's overview level comes back as a usable plain `Dataset`.
+
+    Test scenario:
+        `NetCDF.meta_data` is a `NetCDFMetadata`, not a mapping, so carrying it onto
+        the level crashed the `Dataset.meta_data` setter — expected: the level builds,
+        halves the grid, and is a plain `Dataset` (an overview is an ordinary raster,
+        not a NetCDF container).
+    """
+    work = shutil.copy(sample("cf__7v__1d3-2d3-3d1__y-asc.nc"), tmp_path / "tos.nc")
+    nc = NetCDF.read_file(str(work))
+    overview = None
+    try:
+        view = nc.get_variable("tos")
+        view.create_overviews(overview_levels=[2])
+        overview = view.get_overview_dataset(band=0)
+        assert type(overview) is Dataset, (
+            f"expected a plain Dataset, got {type(overview).__name__}"
+        )
+        assert overview.columns == view.columns // 2, (
+            f"expected half the columns, got {overview.columns} of {view.columns}"
+        )
+        assert overview.cell_size == view.cell_size * 2, (
+            f"cell size should double, got {overview.cell_size}"
+        )
+    finally:
+        if overview is not None:
+            overview.close()
+        nc.close()
 
 
 def test_inherited_to_cog_writes_file(tos_view, tmp_path):

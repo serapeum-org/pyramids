@@ -13,6 +13,7 @@ from pyramids import _io
 from pyramids.base.remote import (
     CloudConfig,
     _to_vsi,
+    is_network_backed,
     is_remote,
     redact_credentials,
     signer_cloud_config,
@@ -184,6 +185,43 @@ class TestIsRemote:
     )
     def test_false_cases(self, path):
         assert is_remote(path) is False
+
+
+class TestIsNetworkBacked:
+    """`is_network_backed` narrows `is_remote` to the sources that cross the network."""
+
+    @pytest.mark.parametrize(
+        "path, network",
+        [
+            ("/vsis3/bucket/key.tif", True),
+            ("/vsigs/bucket/key.tif", True),
+            ("/vsiaz/container/blob.tif", True),
+            ("/vsicurl/https://foo/x.tif", True),
+            ("/vsicurl?empty_dir=yes&url=https%3A%2F%2Fh%2Fa.tif", True),
+            ("/vsicurl_streaming/https://foo/x.tif", True),
+            ("/vsiswift/container/x.tif", True),
+            ("s3://bucket/key.tif", True),
+            ("abfs://container/blob.tif", True),
+            ("dods://test.opendap.org/opendap/data/nc/coads.nc", True),
+            ("/vsimem/x.tif", False),
+            ("/vsizip/a.zip/b.tif", False),
+            ("/vsigzip/a.gz", False),
+            ("/vsitar/a.tar/b.tif", False),
+        ],
+    )
+    def test_only_the_network_handlers_are_network_backed(self, path, network):
+        """Every path here is remote; only the network-fetching ones are credentialed.
+
+        Test scenario:
+            The local virtual filesystems (`/vsimem/`, `/vsizip/`, `/vsigzip/`,
+            `/vsitar/`) never authenticate, so a caller reasoning about credentials must
+            not treat them like a cloud source — expected: `is_remote` is `True` for the
+            whole table while `is_network_backed` splits it.
+        """
+        assert is_remote(path) is True, f"{path} should be remote"
+        assert is_network_backed(path) is network, (
+            f"is_network_backed({path!r}) should be {network}"
+        )
 
 
 class TestCloudConfigAsGdalConfig:

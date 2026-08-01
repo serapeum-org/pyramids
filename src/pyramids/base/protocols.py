@@ -255,6 +255,12 @@ class RasterLike(SpatialObject, Protocol):
         """Return an overview level (protocol stub; see concrete impls)."""
         ...
 
+    def get_overview_dataset(
+        self, *args: Any, **kwargs: Any
+    ) -> Any:  # pragma: no cover - protocol stub
+        """Return an overview level as a Dataset (protocol stub; see concrete impls)."""
+        ...
+
     def read_overview_array(  # pragma: no cover - protocol stub
         self, *args: Any, **kwargs: Any
     ) -> ArrayLike:

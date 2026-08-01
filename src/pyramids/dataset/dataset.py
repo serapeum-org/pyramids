@@ -1228,6 +1228,10 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`IO.get_overview <pyramids.dataset.engines.IO.get_overview>`."""
         return self.io.get_overview(*args, **kwargs)
 
+    def get_overview_dataset(self, *args, **kwargs):
+        """Facade — delegates to :meth:`IO.get_overview_dataset <pyramids.dataset.engines.IO.get_overview_dataset>`."""
+        return self.io.get_overview_dataset(*args, **kwargs)
+
     def read_overview_array(self, *args, **kwargs):
         """Facade — delegates to :meth:`IO.read_overview_array <pyramids.dataset.engines.IO.read_overview_array>`."""
         return self.io.read_overview_array(*args, **kwargs)
