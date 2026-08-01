@@ -173,6 +173,65 @@ def is_remote(path: str) -> bool:
     return result
 
 
+_NETWORK_VSI_PREFIXES: tuple[str, ...] = (
+    _VSIS3,
+    _VSIGS,
+    _VSIAZ,
+    _VSICURL,
+    "/vsicurl?",
+    "/vsicurl_streaming/",
+    "/vsiadls/",
+    "/vsioss/",
+    "/vsiswift/",
+    "/vsihdfs/",
+    "/vsiwebhdfs/",
+)
+
+
+def is_network_backed(path: str) -> bool:
+    """True if reading `path` crosses the network, so credentials may matter.
+
+    Narrower than :func:`is_remote`, which answers "is this a URL or any `/vsi*`
+    path" and therefore also covers the purely local virtual filesystems —
+    `/vsimem/`, `/vsizip/`, `/vsigzip/`, `/vsitar/`. Those never authenticate, so
+    a caller reasoning about credentials wants this predicate instead.
+
+    Args:
+        path: A string path or URL.
+
+    Returns:
+        `True` for cloud URL schemes and for the `/vsi*` handlers that fetch over
+        the network; `False` for local paths and for local virtual filesystems.
+
+    Examples:
+        - Network-backed sources:
+            ```python
+            >>> is_network_backed("/vsicurl/https://foo/x.tif")
+            True
+            >>> is_network_backed("s3://bucket/key.tif")
+            True
+
+            ```
+        - Local virtual filesystems are not network-backed:
+            ```python
+            >>> is_network_backed("/vsimem/temp.tif")
+            False
+            >>> is_network_backed("/vsizip/local.zip/x.tif")
+            False
+            >>> is_network_backed("/data/x.tif")
+            False
+
+            ```
+    """
+    network: bool
+    if path.startswith(_NETWORK_VSI_PREFIXES):
+        network = True
+    else:
+        scheme = urlparse(path).scheme.lower()
+        network = (scheme in URL_SCHEMES or scheme == _DODS_SCHEME) and len(scheme) > 1
+    return network
+
+
 # Per-process cache of resolved S3 bucket regions (None caches a failed probe so
 # a single offline/blocked attempt is not retried on every open of the bucket).
 # Intentionally lock-free: two threads racing the first probe of the same bucket
