@@ -735,6 +735,11 @@ class Bands(_Engine["Dataset"]):
 
                     ```
 
+        Note:
+            Each band that receives a palette is also tagged with the
+            `palette_index` colour interpretation, so its reported `band_color`
+            changes from `undefined` to `palette_index`.
+
         Examples:
             - Create `Dataset` consisting of 4 bands, 10 rows, 10 columns, at lon/lat
               (0, 0):
@@ -857,8 +862,9 @@ class Bands(_Engine["Dataset"]):
                 )
 
             band.SetColorTable(color_table)
-            # tag the band as paletted so GDAL and downstream readers treat the
-            # values as palette indices, matching the COG writer (see cog.py).
+            # tag the band as paletted so GDAL and downstream readers read the
+            # values as palette indices rather than raw data (the COG writer sets
+            # the same interpretation on its paletted band, see cog.py).
             band.SetColorInterpretation(gdal.GCI_PaletteIndex)
 
     def _get_color_table(self, band: int | None = None) -> DataFrame:
