@@ -12,9 +12,14 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Mapping
 
+from pyramids.base._utils import INTERPOLATION_METHODS
 from pyramids.processing.schema import ParamSpec, ToolSpec
 
 _REGISTRY: dict[str, ToolSpec] = {}
+
+#: Resampling algorithm names accepted by to_crs/resample, sourced from the GDAL
+#: resampling table so the OptionList choices stay in sync with what the ops allow.
+_RESAMPLING_METHODS = tuple(sorted(INTERPOLATION_METHODS))
 
 
 def register(spec: ToolSpec) -> ToolSpec:
@@ -116,7 +121,10 @@ register(
         description="Reproject a raster to a target EPSG.",
         params=(
             ParamSpec("to_epsg", "Integer", None, False, "Target EPSG code."),
-            ParamSpec("method", "String", None, True, "Resampling method name."),
+            ParamSpec(
+                "method", "OptionList", None, True, "Resampling method.",
+                choices=_RESAMPLING_METHODS,
+            ),
             ParamSpec("cell_size", "Float", None, True, "Output cell size (CRS units)."),
         ),
     )
@@ -130,7 +138,10 @@ register(
         description="Resample a raster to a new cell size.",
         params=(
             ParamSpec("cell_size", "Float", None, False, "New cell size (CRS units)."),
-            ParamSpec("method", "String", None, True, "Resampling method name."),
+            ParamSpec(
+                "method", "OptionList", None, True, "Resampling method.",
+                choices=_RESAMPLING_METHODS,
+            ),
         ),
     )
 )
