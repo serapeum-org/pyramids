@@ -24,6 +24,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         on_error=args.on_error,
         out=args.out,
         parallel=args.parallel,
+        max_workers=args.max_workers,
     )
     print(f"processed {len(result.outputs)} input(s); {len(result.failures)} failure(s)")
     for source, exc in result.failures:
@@ -73,6 +74,13 @@ def add_processing_commands(sub: argparse._SubParsersAction) -> None:
         "--parallel",
         action="store_true",
         help="run the batch across a process pool (path inputs only)",
+    )
+    run_p.add_argument(
+        "--max-workers",
+        dest="max_workers",
+        type=int,
+        default=None,
+        help="worker-process count for --parallel (default: ~CPU count)",
     )
     run_p.set_defaults(func=_cmd_run)
 
