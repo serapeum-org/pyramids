@@ -63,9 +63,10 @@ pyramids run elevation_slope.yaml \
     --inputs "samples/*.geojson" --out out/      # batch over a glob, write to out/
 ```
 
-`run` writes each output into `--out`, named after its source; `--on-error skip` (default) collects failures and
-continues, `--on-error raise` fails fast, and `--parallel` fans the batch across a process pool (file-path inputs
-only — GDAL handles cannot cross process boundaries).
+`run` writes each output into `--out` as `<source-stem>_<index>` (the batch index keeps same-basename inputs from
+colliding); `--on-error skip` (default) collects failures and continues, `--on-error raise` fails fast, and
+`--parallel` (with `--max-workers`) fans the batch across a process pool (file-path inputs only — GDAL handles
+cannot cross process boundaries).
 
 ## API
 
