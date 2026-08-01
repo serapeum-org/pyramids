@@ -3053,9 +3053,10 @@ class IO(_Engine["Dataset"]):
         reopening the dataset writable yields this same warning. Read-only is not a
         blocker in itself either: external `.ovr` overviews live in a sidecar that
         `create_overviews` leaves open for update, so they regenerate through the very
-        read-only handle that built them. GDAL refuses only when the overview target is
-        itself read-only — internal overviews inside a read-only raster, or an external
-        `.ovr` that a later handle reopened read-only — which surfaces as `ReadOnlyError`.
+        read-only handle that built them. GDAL refuses on access grounds only when the
+        overview target is itself read-only — internal overviews inside a read-only
+        raster, or an external `.ovr` that a later handle reopened read-only — which
+        surfaces as `ReadOnlyError`.
 
         Args:
             resampling_method (str): Resampling method used to recreate overviews. Possible values are
@@ -3069,9 +3070,10 @@ class IO(_Engine["Dataset"]):
                 If GDAL refuses the rewrite because the overviews it targets are opened
                 read-only. Read with read_only=False.
             RuntimeError:
-                Propagated unchanged when GDAL fails the regeneration for any other
-                reason, so a disk-full, corrupt-overview or transport failure is not
-                relabelled as an access-mode error.
+                Any other GDAL regeneration failure, so a disk-full, corrupt-overview or
+                transport failure is not relabelled as an access-mode error. GDAL's own
+                error is re-raised carrying a note that names the band and level it
+                stopped on; a failing status that raised nothing is turned into one.
 
         Warns:
             UserWarning:
@@ -3128,9 +3130,10 @@ class IO(_Engine["Dataset"]):
         """Regenerate every existing overview level in place, band by band.
 
         Split out of :meth:`recreate_overviews` so the empty-count reporting reads as one
-        decision. Each call is bracketed by `gdal.ErrorReset()` so the CPL error number
+        decision. Each call is preceded by `gdal.ErrorReset()` so the CPL error number
         inspected on failure belongs to *this* regeneration and not to something earlier
-        in the process.
+        in the process. Overviews are rewritten in place, so a failure part-way through
+        leaves the earlier bands already regenerated.
 
         Args:
             overview_count: Per-band overview counts, snapshotted by the caller.
@@ -3138,9 +3141,12 @@ class IO(_Engine["Dataset"]):
 
         Raises:
             ReadOnlyError: GDAL refused the write because the overview target is
-                read-only (`CPLE_NoWriteAccess`).
-            RuntimeError: Any other GDAL failure, re-raised unchanged with a note naming
-                the band and level it stopped on.
+                read-only, as classified by :meth:`_is_write_refusal`. The original
+                error stays chained as `__cause__`.
+            RuntimeError: Any other GDAL failure — the error GDAL raised, re-raised with
+                a note naming the band and level it stopped on, or a fresh one carrying
+                `gdal.GetLastErrorMsg()` when `RegenerateOverview` reports a non-`CE_None`
+                status without raising (exceptions turned off process-wide).
         """
         for i in range(self._ds.band_count):
             band = self._ds._iloc(i)
@@ -3181,6 +3187,15 @@ class IO(_Engine["Dataset"]):
         `/mnt/read-only-archive/` as an access-mode error. The exact GDAL phrasings are
         kept only as a fallback for drivers that raise without setting the number —
         those phrases cannot occur incidentally in a path the way the bare token can.
+
+        Args:
+            err: The error GDAL raised. Only its message is read, and only on the
+                fallback path; the primary signal is GDAL's process-global last-error
+                number, which the caller keeps meaningful by resetting it before each
+                regeneration.
+
+        Returns:
+            bool: True when the failure is GDAL refusing to write the overview target.
         """
         if gdal.GetLastErrorNo() == gdal.CPLE_NoWriteAccess:
             refusal = True

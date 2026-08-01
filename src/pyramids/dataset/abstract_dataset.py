@@ -1506,8 +1506,10 @@ class RasterBase(ABC):
                 internal overviews inside a read-only dataset, or an external .ovr that a later handle
                 reopened read-only. Please read the dataset using read_only=False
             RuntimeError:
-                Propagated unchanged when GDAL fails the regeneration for any other reason, so a
-                disk-full, corrupt-overview or transport failure is not relabelled as an access-mode error.
+                Any other GDAL regeneration failure, so a disk-full, corrupt-overview or transport failure
+                is not relabelled as an access-mode error. GDAL's own error is re-raised carrying a note
+                that names the band and level it stopped on; a failing status that raised nothing is turned
+                into one.
 
         Warns:
             UserWarning:
