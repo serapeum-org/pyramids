@@ -67,7 +67,7 @@ def _resolve_inputs(inputs: Any) -> list[Any]:
     if isinstance(inputs, os.PathLike):
         inputs = os.fspath(inputs)
     if isinstance(inputs, (list, tuple)):
-        items = list(inputs)
+        items = [os.fspath(i) if isinstance(i, os.PathLike) else i for i in inputs]
     elif isinstance(inputs, str):
         if any(ch in inputs for ch in "*?["):
             items = sorted(_glob.glob(inputs, recursive=True))
@@ -249,7 +249,7 @@ def _execute_parallel(
     max_workers: int | None,
 ) -> RunResult:
     """Run the pipeline over ``items`` across a process pool (path-in/path-out)."""
-    non_paths = [item for item in items if not isinstance(item, str)]
+    non_paths = [item for item in items if not isinstance(item, (str, os.PathLike))]
     if non_paths:
         raise ValueError(
             "parallel=True requires file-path inputs — GDAL handles cannot cross "
@@ -321,15 +321,18 @@ def run(
     """
     if on_error not in {"skip", "raise"}:
         raise ValueError(f"on_error must be 'skip' or 'raise', got {on_error!r}")
-    items = _resolve_inputs(inputs)
-    if not items:
-        raise ValueError("no inputs to process (the resolved input set is empty)")
     if parallel:
         if out is None:
             raise ValueError(
                 "parallel=True requires an 'out' directory — outputs are written "
                 "worker-side, not returned as objects"
             )
+        if max_workers is not None and max_workers < 1:
+            raise ValueError(f"max_workers must be >= 1, got {max_workers}")
+    items = _resolve_inputs(inputs)
+    if not items:
+        raise ValueError("no inputs to process (the resolved input set is empty)")
+    if parallel:
         result = _execute_parallel(pipeline, items, on_error, out, max_workers)
     else:
         result = _execute_serial(pipeline, items, on_error, out)
