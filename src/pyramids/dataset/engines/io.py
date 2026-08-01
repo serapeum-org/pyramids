@@ -41,6 +41,7 @@ from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import resolve_resampling
 from pyramids.base.crs import crs_spec, reproject_coordinates
 from pyramids.base.protocols import ArrayLike
+from pyramids.base.remote import is_remote
 from pyramids.dataset.abstract_dataset import (
     OVERVIEW_LEVELS,
     RESAMPLING_METHODS,
@@ -3424,6 +3425,21 @@ class IO(_Engine["Dataset"]):
         # The level is reopened from disk, so anything still sitting in the parent
         # handle's write cache would otherwise be invisible to it.
         self._ds.raster.FlushCache()
+        if self._ds.gdal_env and is_remote(file_name):
+            # A VRT opens its sources on the first pixel read, and GDAL does not consult
+            # the thread-local config CloudConfig installs when it does -- see
+            # pyramids/stac/_vrt.py, which measured every source request going out
+            # unauthenticated. The overview reads fine while the source stays in GDAL's
+            # dataset pool, then starts failing once it is evicted.
+            warnings.warn(
+                f"{file_name} is remote and this dataset carries cloud credentials, but "
+                "the overview is described by a VRT whose sources GDAL reopens without "
+                "the thread-local config. Later reads may go out unauthenticated; call "
+                "to_file() on the overview while the credentials are active to "
+                "materialise it.",
+                UserWarning,
+                stacklevel=_caller_stacklevel(),
+            )
         band_list = None if band is None else [band + 1]
         with self._ds._cloud_config():
             level = gdal.OpenEx(
@@ -3485,7 +3501,7 @@ class IO(_Engine["Dataset"]):
             if all(value is None for value in parent_no_data)
             else (parent_no_data[0] if band is not None else parent_no_data)
         )
-        return _Dataset.create_from_array(
+        overview = _Dataset.create_from_array(
             arr,
             geo=scaled_geo,
             # `epsg` alone is None for a CRS with no authority code (a geostationary
@@ -3493,6 +3509,10 @@ class IO(_Engine["Dataset"]):
             epsg=crs_spec(self._ds.epsg, self._ds.crs),
             no_data_value=no_data_value,
         )
+        # create_from_array hands back a "write" handle; label it like the VRT branch so
+        # one public method does not report two different access modes.
+        overview._access = "read_only"
+        return overview
 
     def read_overview_array(
         self, band: int | None = None, overview_index: int = 0
