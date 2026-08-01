@@ -131,6 +131,27 @@ class TestColorTable:
             == gdal.GCI_PaletteIndex
         )
 
+    @pytest.mark.plot
+    def test_set_color_table_overwrite_false_starts_fresh_table(self):
+        rng = np.random.default_rng(2)
+        arr = rng.integers(1, 4, size=(1, 5, 5))
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        df = pd.DataFrame(
+            {
+                "band": [1, 1, 1],
+                "values": [1, 2, 3],
+                "color": ["#709959", "#F2EEA2", "#F2CE85"],
+            }
+        )
+        # the band has no existing palette, so overwrite=False must start a fresh
+        # table rather than raising on the None returned by GetColorTable.
+        dataset.bands._set_color_table(df, overwrite=False)
+        band = dataset.raster.GetRasterBand(1)
+        assert band.GetColorTable() is not None
+        assert band.GetColorInterpretation() == gdal.GCI_PaletteIndex
+
 
 class TestColorRelief:
     color_hex = ["#709959", "#F2EEA2", "#F2CE85", "#C28C7C", "#D6C19C"]

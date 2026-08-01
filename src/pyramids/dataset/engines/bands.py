@@ -853,7 +853,11 @@ class Bands(_Engine["Dataset"]):
             if overwrite:
                 color_table = gdal.ColorTable()
             else:
+                # a band with no existing palette returns None here; start a fresh
+                # table so appending entries does not raise on the None.
                 color_table = band.GetColorTable()
+                if color_table is None:
+                    color_table = gdal.ColorTable()
 
             for i, row in df_band.iterrows():
                 color_table.SetColorEntry(
