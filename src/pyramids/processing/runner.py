@@ -20,7 +20,7 @@ from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.processing.pipeline import Pipeline, Step
 from pyramids.processing.provenance import Provenance, StepRecord
-from pyramids.processing.registry import resolve
+from pyramids.processing.registry import BUILTIN_TOOLS, resolve
 
 #: File extensions opened as vector (FeatureCollection) rather than raster.
 _VECTOR_EXTS = frozenset(
@@ -229,6 +229,12 @@ def _execute_parallel(
             "parallel=True requires file-path inputs — GDAL handles cannot cross "
             "process boundaries, so pass paths/globs, not in-memory objects"
         )
+    non_builtin = sorted({step.tool for step in pipeline if step.tool not in BUILTIN_TOOLS})
+    if non_builtin:
+        raise ValueError(
+            f"parallel=True cannot use runtime-registered tools {non_builtin}; worker "
+            "processes only see the import-time allowlist. Run these serially."
+        )
     result = RunResult()
     pipe_dict = pipeline.to_dict()
     payloads = [(pipe_dict, src, out, i) for i, src in enumerate(items)]
@@ -242,6 +248,7 @@ def _execute_parallel(
                 result.provenance.append(prov)
             except Exception as exc:  # noqa: BLE001 - batch policy collects or re-raises
                 if on_error == "raise":
+                    pool.shutdown(cancel_futures=True)  # fail fast: drop pending work
                     raise
                 result.failures.append((source, exc))
     return result
