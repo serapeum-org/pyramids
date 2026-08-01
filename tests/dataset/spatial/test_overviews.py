@@ -85,18 +85,20 @@ class TestRecreateOverviewsContract:
         finally:
             dataset.close()
 
-    def test_no_overviews_on_read_only_dataset_raises(self, tmp_path):
-        """A read-only on-disk dataset with no overviews raises ReadOnlyError.
+    def test_no_overviews_on_read_only_dataset_warns(self, tmp_path):
+        """A read-only dataset with no overviews warns about the real cause.
 
         Test scenario:
             The pre-fix silent path — read-only *and* nothing to regenerate, so GDAL
-            never threw. Expected: `ReadOnlyError`, because the regeneration could not
-            have succeeded on a read-only file either way.
+            never threw. Expected: the same "nothing to regenerate" warning as the
+            writable case, not a `ReadOnlyError`; read-only is not the blocker (an
+            external `.ovr` regenerates fine read-only) and reopening writable would
+            only produce this warning anyway.
         """
         work = shutil.copy(NO_OVERVIEWS_RASTER, tmp_path / "ro_no_ovr.tif")
         dataset = Dataset.read_file(str(work), read_only=True)
         try:
-            with pytest.raises(ReadOnlyError, match="read-only"):
+            with pytest.warns(UserWarning, match="no overviews to regenerate"):
                 dataset.recreate_overviews()
         finally:
             dataset.close()

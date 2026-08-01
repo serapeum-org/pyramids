@@ -3017,15 +3017,14 @@ class IO(_Engine["Dataset"]):
         """Recreate overviews for the dataset.
 
         Regenerates the *existing* overviews in place; it never builds new ones — call
-        `create_overviews` for that. When the dataset has no overviews at all there is
-        nothing to regenerate, so this warns instead of returning silently; a read-only
-        on-disk dataset raises `ReadOnlyError` first, since regenerating could never
-        have succeeded there.
+        `create_overviews` for that. When the dataset has no overviews there is nothing
+        to regenerate, so this warns instead of returning silently.
 
-        External `.ovr` overviews can still be regenerated while the *main* dataset is
-        open read-only — the sidecar is a separate writable file — so read-only access
-        is not rejected up front. Internal overviews live inside the raster itself, so
-        GDAL refuses to rewrite them on a read-only handle, which surfaces here as
+        The warning is emitted in every access mode: having no overviews is independent
+        of read-only-ness, and read-only is not itself a blocker here — external `.ovr`
+        overviews live in a separate writable sidecar and regenerate fine through a
+        read-only handle. Internal overviews live inside the raster itself, so GDAL
+        refuses to rewrite them on a read-only handle, which surfaces as
         `ReadOnlyError`.
 
         Args:
@@ -3033,17 +3032,16 @@ class IO(_Engine["Dataset"]):
                 "NEAREST", "CUBIC", "AVERAGE", "GAUSS", "CUBICSPLINE", "LANCZOS", "MODE",
                 "AVERAGE_MAGPHASE", "RMS", "BILINEAR". Defaults to "nearest".
 
-        Warns:
-            UserWarning:
-                The dataset has no overviews, so there is nothing to regenerate.
-
         Raises:
             ValueError:
                 If resampling_method is not one of the allowed values above.
             ReadOnlyError:
-                If the dataset is a read-only on-disk file with no overviews to
-                regenerate, or if its overviews are internal and cannot be rewritten on
-                a read-only handle. Read with read_only=False.
+                If the overviews are internal and the dataset is opened read-only, so
+                GDAL cannot rewrite them. Read with read_only=False.
+
+        Warns:
+            UserWarning:
+                The dataset has no overviews, so there is nothing to regenerate.
 
         See Also:
             - Dataset.create_overviews: Create the dataset overviews.
@@ -3057,10 +3055,11 @@ class IO(_Engine["Dataset"]):
         overview_count = self.overview_count
         if not any(overview_count):
             # Nothing to regenerate: the loop below would iterate zero times and return
-            # silently, so the caller never learns the call did nothing (#863). A
-            # read-only on-disk dataset could not have been regenerated either way, so
-            # report that stronger, documented failure first.
-            self._ds._require_writable("recreate overviews")
+            # silently, so the caller never learns the call did nothing (#863). Warn in
+            # every access mode -- "has no overviews" is independent of read-only-ness,
+            # and refusing on read-only would misdiagnose the cause (reopening writable
+            # yields this same warning) and would wrongly reject a read-only handle
+            # whose external .ovr sidecar is perfectly regenerable.
             warnings.warn(
                 "The dataset has no overviews to regenerate; call create_overviews() "
                 "first to build them.",
