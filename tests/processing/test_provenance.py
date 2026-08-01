@@ -70,4 +70,5 @@ class TestRunProvenance:
             A wrong-receiver run under skip yields one failure and zero provenance.
         """
         result = run(Pipeline([("slope", {})]), _points_fc(), on_error="skip")
-        assert len(result.provenance) == 0 and len(result.failures) == 1, result
+        assert len(result.provenance) == 0, result.provenance
+        assert len(result.failures) == 1, result.failures

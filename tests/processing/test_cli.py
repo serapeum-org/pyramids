@@ -9,7 +9,7 @@ from pyramids.feature import FeatureCollection
 from pyramids.processing import Pipeline
 
 
-@pytest.fixture()
+@pytest.fixture
 def points_geojson(tmp_path):
     """Write a small point layer to GeoJSON and return its path.
 
@@ -40,7 +40,9 @@ class TestProcessingCli:
         """
         rc = main(["tools"])
         out = capsys.readouterr().out
-        assert rc == 0 and "slope" in out and "interpolate_to_raster" in out, out
+        assert rc == 0, out
+        assert "slope" in out, out
+        assert "interpolate_to_raster" in out, out
 
     def test_tool_prints_schema(self, capsys):
         """`pyramids tool slope` prints the tool's parameter schema.
@@ -50,7 +52,9 @@ class TestProcessingCli:
         """
         rc = main(["tool", "slope"])
         out = capsys.readouterr().out
-        assert rc == 0 and "Dataset -> Array" in out and "band" in out, out
+        assert rc == 0, out
+        assert "Dataset -> Array" in out, out
+        assert "band" in out, out
 
     def test_tool_unknown_returns_error(self, capsys):
         """`pyramids tool <unknown>` reports an error and exits non-zero.
@@ -60,7 +64,8 @@ class TestProcessingCli:
         """
         rc = main(["tool", "nope"])
         out = capsys.readouterr().out
-        assert rc == 1 and "unknown tool" in out, out
+        assert rc == 1, out
+        assert "unknown tool" in out, out
 
     def test_run_end_to_end_writes_output(self, points_geojson, tmp_path):
         """`pyramids run` executes a pipeline YAML and writes an output.
@@ -99,4 +104,5 @@ class TestProcessingCli:
             ["run", str(yaml_path), "--inputs", "C:/no/such.tif", "--out", str(out_dir)]
         )
         out = capsys.readouterr().out
-        assert rc == 1 and "FAILED" in out, out
+        assert rc == 1, out
+        assert "FAILED" in out, out

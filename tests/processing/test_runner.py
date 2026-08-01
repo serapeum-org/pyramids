@@ -59,7 +59,8 @@ class TestRun:
             [("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0}), ("slope", {})]
         )
         result = run(pipe, points_fc, on_error="raise")
-        assert len(result.outputs) == 1 and result.ok, result.failures
+        assert len(result.outputs) == 1, result.failures
+        assert result.ok, result.failures
         assert isinstance(result.outputs[0], Dataset), type(result.outputs[0])
 
     def test_wrong_receiver_is_collected(self, points_fc):
@@ -71,7 +72,8 @@ class TestRun:
         result = run(Pipeline([("slope", {})]), points_fc, on_error="skip")
         assert len(result.failures) == 1, result.outputs
         source, exc = result.failures[0]
-        assert isinstance(exc, TypeError) and "expects a Dataset" in str(exc), exc
+        assert isinstance(exc, TypeError), exc
+        assert "expects a Dataset" in str(exc), exc
 
     def test_array_op_output_is_materialized_and_chainable(self, points_fc):
         """A terminal array op is materialized to a Dataset, so it can be chained.
@@ -88,7 +90,8 @@ class TestRun:
             ]
         )
         result = run(pipe, points_fc, on_error="raise")
-        assert result.ok and isinstance(result.outputs[0], Dataset), result.failures
+        assert result.ok, result.failures
+        assert isinstance(result.outputs[0], Dataset), result.failures
 
     def test_terminal_array_op_writes_tif(self, points_fc, tmp_path):
         """A pipeline ending in a terminal array op writes a georeferenced .tif.
@@ -115,16 +118,18 @@ class TestRun:
             A nonexistent raster path is collected rather than raised.
         """
         result = run(Pipeline([("slope", {})]), ["C:/no/such/file.tif"], on_error="skip")
-        assert len(result.outputs) == 0 and len(result.failures) == 1, result
+        assert len(result.outputs) == 0, result.outputs
+        assert len(result.failures) == 1, result.failures
 
-    def test_error_policy_raise_propagates(self):
-        """A bad input under raise propagates the exception.
+    def test_error_policy_raise_propagates(self, points_fc):
+        """A per-item error under raise propagates rather than being collected.
 
         Test scenario:
-            A nonexistent path raises rather than being collected.
+            A Dataset op on a FeatureCollection raises TypeError under raise.
         """
-        with pytest.raises(Exception):
-            run(Pipeline([("slope", {})]), ["C:/no/such/file.tif"], on_error="raise")
+        pipe = Pipeline([("slope", {})])
+        with pytest.raises(TypeError):
+            run(pipe, points_fc, on_error="raise")
 
     def test_invalid_on_error_raises(self, points_fc):
         """An invalid on_error policy is rejected up front.
@@ -132,8 +137,9 @@ class TestRun:
         Test scenario:
             on_error='bogus' raises ValueError before any work.
         """
+        pipe = Pipeline([("slope", {})])
         with pytest.raises(ValueError, match="on_error must be"):
-            run(Pipeline([("slope", {})]), points_fc, on_error="bogus")
+            run(pipe, points_fc, on_error="bogus")
 
     def test_out_writes_file(self, points_fc, tmp_path):
         """With out set, a Dataset output is written as a .tif.
@@ -204,7 +210,8 @@ class TestRun:
             method-name drift the metadata tests would miss).
         """
         result = run(Pipeline([(tool, params)]), raster_ds, on_error="raise")
-        assert result.ok and isinstance(result.outputs[0], Dataset), result.failures
+        assert result.ok, result.failures
+        assert isinstance(result.outputs[0], Dataset), result.failures
 
     def test_to_h3_runs_through_runner(self, points_fc):
         """to_h3 dispatches on a FeatureCollection and returns one.
@@ -213,7 +220,8 @@ class TestRun:
             to_h3 tags points and yields a FeatureCollection.
         """
         result = run(Pipeline([("to_h3", {"resolution": 5})]), points_fc, on_error="raise")
-        assert result.ok and isinstance(result.outputs[0], FeatureCollection), result.failures
+        assert result.ok, result.failures
+        assert isinstance(result.outputs[0], FeatureCollection), result.failures
 
     def test_materialized_output_preserves_crs(self, raster_ds):
         """A materialized terrain output keeps the source CRS (M1 regression).
@@ -243,7 +251,8 @@ class TestRun:
         out = tmp_path / "out"
         pipe = Pipeline([("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})])
         result = run(pipe, [str(p1), str(p2)], out=str(out), on_error="raise")
-        assert result.ok and len(list(out.glob("*.tif"))) == 2, list(out.iterdir())
+        assert result.ok, result.failures
+        assert len(list(out.glob("*.tif"))) == 2, list(out.iterdir())
 
     def test_empty_list_raises(self):
         """An empty resolved input set is an error, like an empty glob (L5).
@@ -251,8 +260,9 @@ class TestRun:
         Test scenario:
             run(pipe, []) raises ValueError rather than silently doing nothing.
         """
+        pipe = Pipeline([("slope", {})])
         with pytest.raises(ValueError, match="no inputs to process"):
-            run(Pipeline([("slope", {})]), [])
+            run(pipe, [])
 
     def test_empty_glob_raises(self, tmp_path):
         """A glob that matches nothing is an error, not a silent success.
@@ -264,8 +274,9 @@ class TestRun:
             A *.tif glob over an empty directory raises ValueError rather than
             reporting zero-work success.
         """
+        pipe = Pipeline([("slope", {})])
         with pytest.raises(ValueError, match="no inputs matched glob"):
-            run(Pipeline([("slope", {})]), str(tmp_path / "*.tif"))
+            run(pipe, str(tmp_path / "*.tif"))
 
     def test_parallel_requires_out(self, points_fc):
         """parallel=True without an out directory is rejected.
@@ -273,8 +284,9 @@ class TestRun:
         Test scenario:
             run(..., parallel=True, out=None) raises ValueError.
         """
+        pipe = Pipeline([("slope", {})])
         with pytest.raises(ValueError, match="requires an 'out' directory"):
-            run(Pipeline([("slope", {})]), ["a.tif"], parallel=True, out=None)
+            run(pipe, ["a.tif"], parallel=True, out=None)
 
     def test_parallel_rejects_runtime_registered_tool(self, tmp_path):
         """parallel=True rejects a tool not in the import-time allowlist.
@@ -305,5 +317,6 @@ class TestRun:
             Passing a FeatureCollection under parallel raises ValueError naming the
             GDAL-handle constraint.
         """
+        pipe = Pipeline([("slope", {})])
         with pytest.raises(ValueError, match="file-path inputs"):
-            run(Pipeline([("slope", {})]), [points_fc], parallel=True, out=str(tmp_path))
+            run(pipe, [points_fc], parallel=True, out=str(tmp_path))

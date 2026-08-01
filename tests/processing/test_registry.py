@@ -39,7 +39,8 @@ class TestRegistry:
             resolve('slope') is a Dataset->Array ToolSpec named 'slope'.
         """
         spec = reg.resolve("slope")
-        assert isinstance(spec, ToolSpec) and spec.name == "slope", spec
+        assert isinstance(spec, ToolSpec), spec
+        assert spec.name == "slope", spec
 
     def test_resolve_unknown_raises_and_lists_tools(self):
         """resolve raises for an unknown tool and lists the registered names.
@@ -115,4 +116,6 @@ class TestRegistry:
             The 'column' param exists, is a Field, and is not optional.
         """
         column = reg.resolve("interpolate_to_raster").param("column")
-        assert column is not None and column.param_type == "Field" and not column.optional, column
+        assert column is not None, "column param should exist"
+        assert column.param_type == "Field", column
+        assert not column.optional, column

@@ -25,8 +25,9 @@ class TestValidateParams:
         Test scenario:
             slope with a 'nope' param raises ValueError listing valid names.
         """
+        spec = reg.resolve("slope")
         with pytest.raises(ValueError, match="unknown parameter"):
-            validate_params(reg.resolve("slope"), {"nope": 1})
+            validate_params(spec, {"nope": 1})
 
     def test_type_mismatch_rejects_array_value(self):
         """A non-serializable value handed to a scalar param is rejected.
@@ -34,8 +35,9 @@ class TestValidateParams:
         Test scenario:
             A numpy array for slope's Integer band raises ValueError.
         """
+        spec = reg.resolve("slope")
         with pytest.raises(ValueError, match="expects Integer"):
-            validate_params(reg.resolve("slope"), {"band": np.zeros(3)})
+            validate_params(spec, {"band": np.zeros(3)})
 
     def test_missing_required_raises(self):
         """A missing required parameter is reported.
@@ -43,8 +45,9 @@ class TestValidateParams:
         Test scenario:
             interpolate_to_raster without its required 'column' raises.
         """
+        spec = reg.resolve("interpolate_to_raster")
         with pytest.raises(ValueError, match="missing required parameter"):
-            validate_params(reg.resolve("interpolate_to_raster"), {})
+            validate_params(spec, {})
 
     def test_for_serialization_rejects_nonserializable_param(self):
         """for_serialization flags a non-serializable declared param.
@@ -71,7 +74,8 @@ class TestPipeline:
         p = Pipeline([("interpolate_to_raster", {"column": "z"}), ("slope", {})])
         assert len(p) == 2, f"expected 2 steps, got {len(p)}"
         first = next(iter(p))
-        assert isinstance(first, Step) and first.tool == "interpolate_to_raster", first
+        assert isinstance(first, Step), first
+        assert first.tool == "interpolate_to_raster", first
 
     def test_unknown_tool_raises_at_construction(self):
         """An unknown tool fails at construction, not at run.

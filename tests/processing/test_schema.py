@@ -86,8 +86,9 @@ class TestParamSpec:
         Test scenario:
             Passing a numpy-array-like / callable / bool to a Float param raises.
         """
+        spec = ParamSpec("x", "Float")
         with pytest.raises(ValueError, match="expects Float"):
-            ParamSpec("x", "Float").validate(value)
+            spec.validate(value)
 
     def test_validate_integer_rejects_bool_and_float(self):
         """Integer rejects bool and float.
@@ -181,8 +182,9 @@ class TestParamSpec:
         Test scenario:
             "maybe" is not a boolean and raises ValueError.
         """
+        spec = ParamSpec("x", "Boolean")
         with pytest.raises(ValueError, match="not a boolean"):
-            ParamSpec("x", "Boolean").coerce("maybe")
+            spec.coerce("maybe")
 
     def test_coerce_optionlist_invalid_raises(self):
         """coerce rejects a value outside an OptionList's choices.
@@ -201,7 +203,9 @@ class TestParamSpec:
             A required Field param's help mentions the name, type, and 'required'.
         """
         text = ParamSpec("column", "Field", optional=False, description="Numeric column.").help()
-        assert "column" in text and "Field" in text and "required" in text, text
+        assert "column" in text, text
+        assert "Field" in text, text
+        assert "required" in text, text
 
 
 class TestToolSpec:
@@ -264,7 +268,8 @@ class TestToolSpec:
             "slope", "Dataset", "Dataset", (ParamSpec("band", "Integer"),), "Slope."
         )
         text = spec.help()
-        assert "Dataset -> Dataset" in text and "band" in text, text
+        assert "Dataset -> Dataset" in text, text
+        assert "band" in text, text
 
     def test_help_no_params(self):
         """help states '(none)' when a tool has no parameters.
