@@ -10,13 +10,11 @@
       
       
       
-        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/adr/0004-dependency-graphing/">
+        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/adr/0007-processing-registry-approach/">
       
       
-        <link rel="prev" href="../0003-io-formats/">
+        <link rel="prev" href="../0006-docker-image/">
       
-      
-        <link rel="next" href="../0005-versioning-docs/">
       
       
         
@@ -27,7 +25,7 @@
     
     
       
-        <title>ADR-0004 Dependency graphing - pyramids</title>
+        <title>ADR-0007 Processing registry - pyramids</title>
       
     
     
@@ -83,7 +81,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#adr-0004-dependency-graphing-approach" class="md-skip">
+        <a href="#adr-0007-pyramidsprocessing-tool-registry-approach" class="md-skip">
           Skip to content
         </a>
       
@@ -122,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              ADR-0004 Dependency graphing
+              ADR-0007 Processing registry
             
           </span>
         </div>
@@ -5809,37 +5807,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ADR-0004 Dependency graphing
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../0004-dependency-graphing/" class="md-nav__link">
         
   
   
@@ -5855,59 +5826,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#context" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Context
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#consequences" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Consequences
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -5973,10 +5891,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../0007-processing-registry-approach/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR-0007 Processing registry
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -5992,6 +5937,70 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -6050,6 +6059,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#decision" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6088,7 +6108,7 @@
 
 
   
-    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/adr/0004-dependency-graphing.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/adr/0007-processing-registry-approach.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -6097,30 +6117,44 @@
     
       
     
-    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/adr/0004-dependency-graphing.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/adr/0007-processing-registry-approach.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
   
 
 
-<h1 id="adr-0004-dependency-graphing-approach"><a class="toclink" href="#adr-0004-dependency-graphing-approach">ADR-0004: Dependency graphing approach</a><a class="headerlink" href="#adr-0004-dependency-graphing-approach" title="Permanent link">#</a></h1>
-<ul>
-<li>Status: Accepted</li>
-<li>Date: 2025-08-16</li>
-</ul>
+<h1 id="adr-0007-pyramidsprocessing-tool-registry-approach"><a class="toclink" href="#adr-0007-pyramidsprocessing-tool-registry-approach">ADR 0007 — <code>pyramids.processing</code> tool-registry approach</a><a class="headerlink" href="#adr-0007-pyramidsprocessing-tool-registry-approach" title="Permanent link">#</a></h1>
+<p><strong>Status:</strong> Accepted · <strong>Date:</strong> 2026-08-01 · <strong>Issue:</strong> #780 (task T1)</p>
 <h2 id="context"><a class="toclink" href="#context">Context</a><a class="headerlink" href="#context" title="Permanent link">#</a></h2>
-<p>We want visibility into internal module dependencies, cycles, and layering to guide refactoring and documentation.</p>
-<h2 id="decision"><a class="toclink" href="#decision">Decision</a><a class="headerlink" href="#decision" title="Permanent link">#</a></h2>
+<p>The declarative pipeline layer (#780) needs a <strong>tool registry</strong>: existing pyramids ops made addressable by name, each
+with a parameter schema and a receiver type (<code>Dataset</code> vs <code>FeatureCollection</code>), so a serialized pipeline can reference
+<code>"slope"</code> or <code>"interpolate_to_raster"</code> and the runner dispatches to the right object.</p>
+<p>The blocker: most <code>Dataset</code> ops are exposed as bare <code>(*args, **kwargs)</code> facades that delegate to collaborator engines
+(69 of 104 public <code>Dataset</code> callables as of <code>main</code> 0.47.0). <code>inspect.signature(Dataset.crop)</code> returns
+<code>(self, *args, **kwargs)</code> — no parameter names, types, or defaults — so the registry <strong>cannot</strong> be built by
+introspecting the public method signatures.</p>
+<h2 id="options"><a class="toclink" href="#options">Options</a><a class="headerlink" href="#options" title="Permanent link">#</a></h2>
 <ul>
-<li>Represent a high-level dependency graph using Mermaid in the docs (modules only).</li>
-<li>Provide a simple, deterministic diagram generation step that exports Mermaid sources to artifacts for CI publishing.</li>
-<li>Optionally evaluate pydeps/pyan/grimp later for automated graphs; keep manual graph for now to avoid heavy dependencies.</li>
+<li><strong>(a) Hand-written <code>ToolSpec</code> schemas for a curated allowlist.</strong> Each registered tool declares its params
+  explicitly (<code>ParamSpec</code>), independent of whether the underlying method has a real signature.</li>
+<li><strong>(b) Restore real signatures to the 69 facades first</strong> (architecture-review ARC-121), then auto-introspect the
+  registry from signatures.</li>
 </ul>
+<h2 id="decision"><a class="toclink" href="#decision">Decision</a><a class="headerlink" href="#decision" title="Permanent link">#</a></h2>
+<p><strong>Adopt (a) for v1.</strong> Ship the registry with hand-written <code>ToolSpec</code>s over a <strong>curated allowlist</strong> of
+real-signature, serialization-safe ops. This decouples the pipeline work from the 69-facade refactor, ships a working
+v1 sooner, and is exactly what WhiteboxTools does (its JSON manifests are hand-authored per tool).</p>
+<p>Record (b)/ARC-121 as the follow-up that later lets the registry <strong>auto-expand</strong> beyond the allowlist by introspecting
+restored signatures — at which point the hand-written specs for those ops can be generated instead of maintained.</p>
 <h2 id="consequences"><a class="toclink" href="#consequences">Consequences</a><a class="headerlink" href="#consequences" title="Permanent link">#</a></h2>
 <ul>
-<li>Readers have a clear mental model of package layering.</li>
-<li>Automated cycle detection can be added in future CI without blocking current workflows.</li>
+<li>v1 scope is a curated allowlist, not the full ~136-member surface (see the registry module). Ops whose only useful
+  parameters are non-serializable (e.g. <code>crop(mask=&lt;FeatureCollection&gt;)</code>, <code>apply(func=...)</code>) are excluded until the
+  serialization model or ARC-121 lands.</li>
+<li>The <code>ParamSpec</code>/<code>ToolSpec</code> schema is the single source of truth for CLI help, pipeline validation, and
+  serialization-safety — so it must carry <code>serializable</code> and <code>receiver</code>/<code>returns</code> metadata that a bare signature would
+  not provide anyway. This makes (a) the right long-term shape even after ARC-121.</li>
 </ul>
 
 
@@ -6157,7 +6191,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../0003-io-formats/" class="md-footer__link md-footer__link--prev" aria-label="Previous: ADR-0003 IO formats">
+          <a href="../0006-docker-image/" class="md-footer__link md-footer__link--prev" aria-label="Previous: ADR-0006 Docker image">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -6167,27 +6201,11 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                ADR-0003 IO formats
+                ADR-0006 Docker image
               </div>
             </div>
           </a>
         
-        
-          
-          <a href="../0005-versioning-docs/" class="md-footer__link md-footer__link--next" aria-label="Next: ADR-0005 Versioning docs">
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                Next
-              </span>
-              <div class="md-ellipsis">
-                ADR-0005 Versioning docs
-              </div>
-            </div>
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
-            </div>
-          </a>
         
       </nav>
     
