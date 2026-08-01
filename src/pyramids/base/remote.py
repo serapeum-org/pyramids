@@ -190,17 +190,22 @@ _NETWORK_VSI_PREFIXES: tuple[str, ...] = (
 def is_network_backed(path: str) -> bool:
     """True if reading `path` crosses the network, so credentials may matter.
 
-    Narrower than :func:`is_remote`, which answers "is this a URL or any `/vsi*`
-    path" and therefore also covers the purely local virtual filesystems —
-    `/vsimem/`, `/vsizip/`, `/vsigzip/`, `/vsitar/`. Those never authenticate, so
-    a caller reasoning about credentials wants this predicate instead.
+    Narrower than :func:`is_remote`, which answers "is this a URL or one of the
+    `/vsi*` prefixes it lists" and therefore also covers the purely local virtual
+    filesystems — `/vsimem/`, `/vsizip/`, `/vsigzip/`, `/vsitar/` — and `file://`,
+    a URL that names a local path. None of those ever authenticate, so a caller
+    reasoning about credentials wants this predicate instead.
 
     Args:
         path: A string path or URL.
 
     Returns:
-        `True` for cloud URL schemes and for the `/vsi*` handlers that fetch over
-        the network; `False` for local paths and for local virtual filesystems.
+        `True` for the cloud URL schemes — `s3://`, `gs://`, `az://`, `abfs://`,
+        `http(s)://`, `dods://` — and for the network `/vsi*` handlers: `/vsis3/`,
+        `/vsigs/`, `/vsiaz/`, `/vsicurl/` and its query-string form,
+        `/vsicurl_streaming/`, `/vsioss/`, `/vsiswift/`, `/vsihdfs/`,
+        `/vsiwebhdfs/`. `False` for local paths, for `file://`, and for the local
+        virtual filesystems.
 
     Examples:
         - Network-backed sources:
@@ -211,11 +216,13 @@ def is_network_backed(path: str) -> bool:
             True
 
             ```
-        - Local virtual filesystems are not network-backed:
+        - Local virtual filesystems and `file://` are not network-backed:
             ```python
             >>> is_network_backed("/vsimem/temp.tif")
             False
             >>> is_network_backed("/vsizip/local.zip/x.tif")
+            False
+            >>> is_network_backed("file:///data/x.tif")
             False
             >>> is_network_backed("/data/x.tif")
             False

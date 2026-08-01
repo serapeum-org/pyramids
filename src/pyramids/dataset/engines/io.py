@@ -3299,12 +3299,14 @@ class IO(_Engine["Dataset"]):
         without dropping to GDAL. This returns the same pixels as a first-class
         `Dataset` whose cell size is scaled by the decimation factor.
 
-        A raster GDAL can reopen by name — an on-disk file, a `/vsimem/` raster, any
-        `/vsi*` URL — is described lazily through the `OVERVIEW_LEVEL` open option and
-        wrapped in a VRT, so no pixels are read and GDAL derives the scaled geotransform
-        itself. Only a handle GDAL cannot reopen by name (a `create_from_array` raster
-        with no path, a `NetCDF` variable view) is materialised into an in-memory
-        `Dataset`, with the geotransform scaled here.
+        A raster whose own GDAL description reopens to this same grid — an on-disk file,
+        a `/vsimem/` raster, any `/vsi*` URL — is described lazily through the
+        `OVERVIEW_LEVEL` open option and wrapped in a VRT, so no pixels are read and
+        GDAL derives the scaled geotransform itself. Everything else is materialised
+        into an in-memory `Dataset`, with the geotransform scaled here: a handle GDAL
+        cannot reopen by name (a `create_from_array` raster with no path, a `NetCDF`
+        variable view), a name that no longer reopens to this grid, and any level GDAL
+        refuses to describe.
 
         The result is a **read-only view** of the parent's pixels: it is detached from
         the parent handle and carries its own GDAL handle, which the caller owns and
@@ -3312,13 +3314,17 @@ class IO(_Engine["Dataset"]):
         Windows the file cannot be deleted. Neither form carries a path of its own, so
         `read_array(threadsafe=True)` and pickling it raise, and `read_array(chunks=...)`
         returns a graph that raises when it is computed; call `to_file()` first if you
-        need any of those, and note that `create_overviews()` on the level would drop a
-        stray `.ovr` into the process's working directory. The `read_only` label stops
-        pixel writes; metadata setters still work, since a pathless handle cannot spill
-        a PAM sidecar. A `NetCDF` variable view returns a plain `Dataset` — an overview
-        level is an ordinary raster, not a NetCDF container — and only a real mapping of
-        dataset metadata is carried, so a container's structured attributes stay behind.
-        The materialised form holds the level's pixels twice while it is being built.
+        need any of those. `create_overviews()` on the lazily described form has nowhere
+        to put the external sidecar it needs either, so it drops a stray `.ovr` into the
+        process's working directory — the materialised form builds its levels in RAM and
+        writes nothing. The `read_only` label stops pixel writes; metadata setters still
+        work, since a pathless handle cannot spill a PAM sidecar. A `NetCDF` variable
+        view returns a plain `Dataset` — an overview level is an ordinary raster, not a
+        NetCDF container — and only a real mapping of dataset metadata is carried, so a
+        container's structured attributes stay behind. While the materialised form is
+        being built it holds the level's pixels three times over: the per-band reads,
+        the array stacked from them, and the in-memory raster written from that (twice
+        when `band` selects one, which skips the stack).
 
         Args:
             band (int | None):
@@ -3331,22 +3337,25 @@ class IO(_Engine["Dataset"]):
 
         Returns:
             Dataset:
-                The requested overview level, carrying the parent's CRS, no-data value,
-                band names/units/scale/offset and dataset metadata, with a cell size
-                scaled by the decimation factor. The caller owns its handle.
+                The requested overview level, carrying the parent's CRS, its per-band
+                no-data values, band names/units/scale/offset, colour table and colour
+                interpretation, and its dataset metadata, with a cell size scaled by the
+                decimation factor. The caller owns its handle.
 
         Raises:
             ValueError:
                 `band` is out of range, `overview_index` is negative or past the built
                 levels, a selected band has no overviews, or the dataset has no bands.
             RuntimeError:
-                GDAL failed to describe the level — a source that disappeared between
-                the identity check and the open, or a driver that cannot express it.
+                GDAL failed while materialising the level — reading the parent's
+                overview pixels, or building the in-memory copy from them. A failure to
+                *describe* the level does not surface here; it is retried through that
+                same materialised path.
 
         Warns:
             UserWarning:
-                The parent is remote and carries cloud credentials, which GDAL will not
-                replay when the VRT reopens its source.
+                The parent is network-backed and carries cloud credentials, which GDAL
+                will not replay when the VRT reopens its source.
 
         Examples:
             - Build overviews on a 0.1-degree raster, then take level 1 (a 4x
@@ -3447,13 +3456,18 @@ class IO(_Engine["Dataset"]):
         return source
 
     def _carry_overview_metadata(self, overview: Dataset, selection: list[int]) -> None:
-        """Copy the parent's band and dataset metadata onto an overview level.
+        """Copy the parent's per-band properties and dataset metadata onto a level.
 
-        Neither backing path carries this on its own: GDAL's overview dataset does not
-        propagate band metadata and `create_from_array` never sets it. Without it a
-        packed raster — a `scale`/`offset` pair, the norm for Sentinel, Landsat and CF
+        Neither backing path carries the band metadata on its own: GDAL's overview
+        dataset does not propagate it and `create_from_array` never sets it. Without it
+        a packed raster — a `scale`/`offset` pair, the norm for Sentinel, Landsat and CF
         NetCDF — silently stops decoding to physical units the moment the overview is
         written out, and every band loses its name and units.
+
+        The colour table and colour interpretation ride along too. The VRT path inherits
+        those from its source, so re-setting them there is a no-op, but a materialised
+        level comes back with neither and would render a paletted raster as raw grey
+        indices.
 
         Args:
             overview: The freshly built overview dataset, mutated in place.
@@ -3558,7 +3572,8 @@ class IO(_Engine["Dataset"]):
 
         Returns:
             Dataset: An in-memory dataset holding the overview pixels, with the parent's
-            CRS and no-data value and a geotransform scaled by the decimation factor.
+            CRS, its per-band no-data values — a band the parent left without one keeps
+            none — and a geotransform scaled by the decimation factor.
         """
         # Circular import: see _overview_dataset_from_file.
         from pyramids.dataset.dataset import Dataset as _Dataset
