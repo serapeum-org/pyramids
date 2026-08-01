@@ -15,7 +15,12 @@ from pyramids.processing.registry import (
     resolve,
     tool_names,
 )
-from pyramids.processing.schema import PARAM_TYPES, ParamSpec, ToolSpec
+from pyramids.processing.schema import (
+    PARAM_TYPES,
+    ParamSpec,
+    ToolSpec,
+    validate_params,
+)
 
 __all__ = [
     "PARAM_TYPES",
@@ -25,4 +30,5 @@ __all__ = [
     "register",
     "resolve",
     "tool_names",
+    "validate_params",
 ]

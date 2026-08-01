@@ -231,3 +231,43 @@ class ToolSpec:
         else:
             lines.append("  parameters: (none)")
         return "\n".join(lines)
+
+
+def validate_params(
+    spec: ToolSpec, params: dict[str, Any], *, for_serialization: bool = False
+) -> None:
+    """Validate a parameter mapping against a tool's schema.
+
+    Args:
+        spec: The tool whose schema ``params`` must satisfy.
+        params: The supplied ``{name: value}`` mapping.
+        for_serialization: When ``True``, additionally reject any value whose
+            parameter is not pipeline-serializable (arrays, masks, callables,
+            in-memory ``Raster``/``Vector`` objects) so ``to_yaml`` never writes a
+            file that cannot be loaded back.
+
+    Raises:
+        ValueError: If a parameter is unknown, a value fails its type check, a
+            non-serializable value is supplied under ``for_serialization``, or a
+            required parameter is missing.
+    """
+    known = {p.name: p for p in spec.params}
+    for key, value in params.items():
+        try:
+            pspec = known[key]
+        except KeyError as exc:
+            raise ValueError(
+                f"tool {spec.name!r}: unknown parameter {key!r}; "
+                f"valid: {sorted(known)}"
+            ) from exc
+        pspec.validate(value)
+        if for_serialization and not pspec.is_serializable:
+            raise ValueError(
+                f"tool {spec.name!r}: parameter {key!r} ({pspec.param_type}) is not "
+                "pipeline-serializable and cannot be written to a pipeline file"
+            )
+    missing = [p.name for p in spec.params if not p.optional and p.name not in params]
+    if missing:
+        raise ValueError(
+            f"tool {spec.name!r}: missing required parameter(s): {missing}"
+        )
