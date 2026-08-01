@@ -485,6 +485,7 @@ class TestGetOverviewDataset:
             same origin, EPSG and no-data, and all three bands carried over.
         """
         dataset = Dataset.read_file(_overviewed_raster(tmp_path))
+        overview = None
         try:
             overview = dataset.get_overview_dataset(overview_index=0)
             assert (overview.rows, overview.columns) == (32, 32), (
@@ -500,6 +501,8 @@ class TestGetOverviewDataset:
                 "the origin must not move when decimating"
             )
         finally:
+            if overview is not None:
+                overview.close()
             dataset.close()
 
     def test_higher_level_scales_further(self, tmp_path):
@@ -510,6 +513,7 @@ class TestGetOverviewDataset:
             the scaling follows the requested level rather than always level 0.
         """
         dataset = Dataset.read_file(_overviewed_raster(tmp_path))
+        overview = None
         try:
             overview = dataset.get_overview_dataset(overview_index=1)
             assert (overview.rows, overview.columns) == (16, 16), (
@@ -517,6 +521,8 @@ class TestGetOverviewDataset:
             )
             assert overview.cell_size == 2.0, f"cell size {overview.cell_size} != 2.0"
         finally:
+            if overview is not None:
+                overview.close()
             dataset.close()
 
     def test_band_selection_returns_that_band(self, tmp_path):
@@ -528,6 +534,7 @@ class TestGetOverviewDataset:
             rather than defaulting to band 0.
         """
         dataset = Dataset.read_file(_overviewed_raster(tmp_path))
+        overview = None
         try:
             overview = dataset.get_overview_dataset(band=1, overview_index=0)
             assert overview.band_count == 1, (
@@ -538,6 +545,8 @@ class TestGetOverviewDataset:
                 f"expected band 1's constant 2.0, got {values[0, 0]}"
             )
         finally:
+            if overview is not None:
+                overview.close()
             dataset.close()
 
     def test_file_backed_level_is_not_materialised(self, tmp_path):
@@ -614,7 +623,7 @@ class TestGetOverviewDataset:
             assert lazy.shape == (32, 32), (
                 f"the graph must be shaped from the level, got {lazy.shape}"
             )
-            with pytest.raises(RuntimeError):
+            with pytest.raises(RuntimeError, match="No such file or directory"):
                 lazy.compute()
         finally:
             if overview is not None:
@@ -935,6 +944,9 @@ class TestGetOverviewDataset:
             assert dataset.epsg is None, "precondition: this CRS has no EPSG code"
             overview = dataset.get_overview_dataset()
             assert overview.crs, "the level lost its CRS entirely"
+            assert "geos" in overview.crs.lower(), (
+                f"expected the parent's geostationary projection, got {overview.crs[:60]}"
+            )
         finally:
             if overview is not None:
                 overview.close()
@@ -957,6 +969,30 @@ class TestGetOverviewDataset:
             with pytest.raises(ValueError, match="must not be negative"):
                 dataset.get_overview_dataset(overview_index=-1)
         finally:
+            dataset.close()
+
+    def test_all_bands_rejected_when_one_lacks_overviews(self, tmp_path):
+        """An all-bands request is rejected if any single band has no overviews.
+
+        Test scenario:
+            The mixed ``[1, 0]`` VRT — expected: ``band=None`` raises, since the level
+            cannot be assembled from a band that has none, while ``band=0`` still
+            succeeds. The guard loop runs per selected band, so only the all-bands path
+            reaches the empty one.
+        """
+        dataset = Dataset.read_file(_mixed_overview_vrt(tmp_path))
+        overview = None
+        try:
+            assert dataset.overview_count == [1, 0], (
+                f"fixture must produce mixed counts, got {dataset.overview_count}"
+            )
+            with pytest.raises(ValueError, match="no overviews"):
+                dataset.get_overview_dataset()
+            overview = dataset.get_overview_dataset(band=0)
+            assert overview.band_count == 1, "the populated band should still work"
+        finally:
+            if overview is not None:
+                overview.close()
             dataset.close()
 
     def test_band_less_dataset_raises(self):
@@ -987,6 +1023,7 @@ class TestGetOverviewDataset:
         dataset = Dataset.create_from_array(
             arr, top_left_corner=(10.0, 80.0), cell_size=0.5, epsg=4326
         )
+        overview = None
         try:
             dataset.create_overviews(overview_levels=[2, 4])
             overview = dataset.get_overview_dataset(band=1, overview_index=1)
@@ -999,6 +1036,8 @@ class TestGetOverviewDataset:
                 "the fallback must read the requested band, not band 0"
             )
         finally:
+            if overview is not None:
+                overview.close()
             dataset.close()
 
     def test_written_level_round_trips(self, tmp_path):
@@ -1012,7 +1051,9 @@ class TestGetOverviewDataset:
         dataset = Dataset.read_file(_overviewed_raster(tmp_path))
         out = str(tmp_path / "level0.tif")
         try:
-            dataset.get_overview_dataset(overview_index=0).to_file(out)
+            level = dataset.get_overview_dataset(overview_index=0)
+            level.to_file(out)
+            level.close()
         finally:
             dataset.close()
         saved = Dataset.read_file(out)
