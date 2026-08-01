@@ -20,10 +20,14 @@ is hand-written rather than introspected). List it with `pyramids tools`:
 
 | tool | receiver → returns |
 |------|--------------------|
-| `slope`, `aspect`, `hillshade` | `Dataset` → `Array` (terminal) |
+| `slope`, `aspect`, `hillshade` | `Dataset` → `Array`\* |
 | `to_crs`, `resample` | `Dataset` → `Dataset` |
 | `interpolate_to_raster` | `FeatureCollection` → `Dataset` |
 | `to_h3` | `FeatureCollection` → `FeatureCollection` |
+
+\* The terrain ops natively return a numpy array; inside a pipeline the runner materializes it back into a
+single-band, georeferenced `Dataset` (carrying the source raster's geotransform/CRS), so the result is writable to
+disk and can be chained into a further `Dataset` step.
 
 The registry is extensible — register a `ToolSpec` to add a tool.
 
@@ -46,7 +50,7 @@ pipe = Pipeline([
 pipe.to_yaml("elevation_slope.yaml")            # the portable "model"
 
 result = run(pipe, gauges)                       # batch over one or many inputs
-slope_array = result.outputs[0]                  # slope is a terminal (array) op
+slope_raster = result.outputs[0]                 # a georeferenced Dataset (slope array materialized)
 print(result.provenance[0].total_seconds)        # per-run timing
 ```
 

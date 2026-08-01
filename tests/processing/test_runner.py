@@ -48,7 +48,7 @@ class TestRun:
         )
         result = run(pipe, points_fc, on_error="raise")
         assert len(result.outputs) == 1 and result.ok, result.failures
-        assert isinstance(result.outputs[0], np.ndarray), type(result.outputs[0])
+        assert isinstance(result.outputs[0], Dataset), type(result.outputs[0])
 
     def test_wrong_receiver_is_collected(self, points_fc):
         """A Dataset op applied to a FeatureCollection fails with a clear error.
@@ -61,12 +61,12 @@ class TestRun:
         source, exc = result.failures[0]
         assert isinstance(exc, TypeError) and "expects a Dataset" in str(exc), exc
 
-    def test_chain_past_terminal_array_fails(self, points_fc):
-        """Chaining a Dataset op after a terminal array op fails.
+    def test_array_op_output_is_materialized_and_chainable(self, points_fc):
+        """A terminal array op is materialized to a Dataset, so it can be chained.
 
         Test scenario:
-            interpolate -> slope (Array) -> aspect: the aspect step sees an ndarray,
-            not a Dataset, and is collected as a failure.
+            interpolate -> slope -> aspect: slope's array is re-wrapped into a
+            georeferenced Dataset, so aspect runs on it and the run succeeds.
         """
         pipe = Pipeline(
             [
@@ -75,9 +75,26 @@ class TestRun:
                 ("aspect", {}),
             ]
         )
-        result = run(pipe, points_fc, on_error="skip")
-        assert len(result.failures) == 1, result.outputs
-        assert "expects a Dataset" in str(result.failures[0][1]), result.failures[0][1]
+        result = run(pipe, points_fc, on_error="raise")
+        assert result.ok and isinstance(result.outputs[0], Dataset), result.failures
+
+    def test_terminal_array_op_writes_tif(self, points_fc, tmp_path):
+        """A pipeline ending in a terminal array op writes a georeferenced .tif.
+
+        Args:
+            points_fc: point-collection fixture.
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            interpolate -> slope with out=dir writes output_0.tif (regression for
+            the array-output-not-writable bug).
+        """
+        pipe = Pipeline(
+            [("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0}), ("slope", {})]
+        )
+        result = run(pipe, points_fc, out=str(tmp_path), on_error="raise")
+        assert result.ok, result.failures
+        assert (tmp_path / "output_0.tif").exists(), list(tmp_path.iterdir())
 
     def test_error_policy_skip_collects(self, points_fc):
         """A bad input under skip yields zero outputs and one failure.

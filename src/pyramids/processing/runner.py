@@ -14,6 +14,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.processing.pipeline import Pipeline, Step
@@ -130,12 +132,37 @@ def _source_label(item: Any) -> str:
     return item if isinstance(item, str) else f"<{type(item).__name__}>"
 
 
+def _materialize_array(array: "np.ndarray", source: Dataset) -> Dataset:
+    """Wrap a bare array result into a single-band georeferenced ``Dataset``.
+
+    The terrain ops (``slope``/``aspect``/``hillshade``) return a plain numpy array
+    on the *same grid* as the raster they ran on. Re-attaching ``source``'s
+    geotransform/CRS/no-data makes that output writable to disk and chainable into
+    a subsequent ``Dataset`` step.
+    """
+    data = array if array.ndim == 3 else array[np.newaxis, :, :]
+    return Dataset.create_from_array(
+        data,
+        geo=source.geotransform,
+        epsg=source.epsg,
+        no_data_value=source.no_data_value[0],
+    )
+
+
 def _run_pipeline_on(pipeline: Pipeline, obj: Any, source: str) -> tuple[Any, Provenance]:
-    """Apply every step to ``obj``, timing each, and return output + provenance."""
+    """Apply every step to ``obj``, timing each, and return output + provenance.
+
+    A step whose tool declares ``returns="Array"`` yields a bare numpy array; it is
+    materialized back into a georeferenced :class:`~pyramids.dataset.Dataset` using
+    the array's source raster, so terminal terrain ops are writable and chainable.
+    """
     prov = Provenance(source=source)
     for step in pipeline:
+        source_obj = obj
         start = time.perf_counter()
         obj = _apply(step, obj)
+        if resolve(step.tool).returns == "Array" and isinstance(obj, np.ndarray):
+            obj = _materialize_array(obj, source_obj)
         prov.steps.append(StepRecord(step.tool, dict(step.params), time.perf_counter() - start))
     return obj, prov
 
