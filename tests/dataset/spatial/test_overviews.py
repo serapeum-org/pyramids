@@ -88,9 +88,9 @@ class TestRecreateOverviewsContract:
         Test scenario:
             The pre-fix silent path — read-only *and* nothing to regenerate, so GDAL
             never threw. Expected: the same "nothing to regenerate" warning as the
-            writable case, not a `ReadOnlyError`; read-only is not the blocker (an
-            external `.ovr` regenerates fine read-only) and reopening writable would
-            only produce this warning anyway.
+            writable case, not a `ReadOnlyError` — the blocker is the empty count, not
+            the access mode, and reopening writable would only produce this warning
+            anyway.
         """
         work = shutil.copy(era5_raster_path, tmp_path / "ro_no_ovr.tif")
         dataset = Dataset.read_file(str(work), read_only=True)
@@ -114,6 +114,77 @@ class TestRecreateOverviewsContract:
         try:
             assert any(dataset.overview_count), "fixture must carry internal overviews"
             with pytest.raises(ReadOnlyError, match="opened read-only"):
+                dataset.recreate_overviews()
+        finally:
+            dataset.close()
+
+    @pytest.mark.parametrize(
+        "gdal_message, expected_error, expected_text",
+        [
+            ("Failed to write overview block: disk full", RuntimeError, "disk full"),
+            (
+                "Attempt to write to a read only dataset",
+                ReadOnlyError,
+                "read_only=False",
+            ),
+        ],
+        ids=["unrelated-failure-propagates", "read-only-wording-is-translated"],
+    )
+    def test_gdal_failures_are_classified_by_message(
+        self,
+        era5_raster_path,
+        tmp_path,
+        monkeypatch,
+        gdal_message,
+        expected_error,
+        expected_text,
+    ):
+        """Only a read-only complaint becomes `ReadOnlyError`; other failures propagate.
+
+        Test scenario:
+            `gdal.RegenerateOverview` is patched to raise a `RuntimeError` while a
+            writable dataset that does have overviews is regenerated. Expected: a
+            disk-full failure surfaces unchanged as `RuntimeError` (the pre-fix code
+            relabelled *every* `RuntimeError` as `ReadOnlyError`, misdiagnosing it),
+            while GDAL's spaced "read only" wording is still translated — the hyphenated
+            wording is exercised for real in
+            ``test_internal_overviews_on_read_only_dataset_raises``.
+        """
+        work = shutil.copy(era5_raster_path, tmp_path / "gdal_failure.tif")
+        dataset = Dataset.read_file(str(work), read_only=False)
+        try:
+            dataset.create_overviews(overview_levels=[2])
+
+            def raise_runtime_error(*args, **kwargs):
+                raise RuntimeError(gdal_message)
+
+            monkeypatch.setattr(gdal, "RegenerateOverview", raise_runtime_error)
+            with pytest.raises(expected_error) as excinfo:
+                dataset.recreate_overviews()
+            assert type(excinfo.value) is expected_error, (
+                f"expected exactly {expected_error.__name__}, got {type(excinfo.value).__name__}"
+            )
+            assert expected_text in str(excinfo.value), (
+                f"expected {expected_text!r} in the message, got: {excinfo.value}"
+            )
+        finally:
+            dataset.close()
+
+    def test_dataset_without_bands_warns_about_the_bands(self):
+        """A band-less dataset is told it has no bands, not to call `create_overviews`.
+
+        Test scenario:
+            A zero-band in-memory raster, so `overview_count == []` — expected: the
+            "no bands" warning. `bands_without` is empty too, so the all-bands-empty
+            branch would also match; the band-less check has to come first or the
+            warning would point at `create_overviews`, which cannot help here.
+        """
+        dataset = Dataset(gdal.GetDriverByName("MEM").Create("", 4, 4, 0))
+        try:
+            assert dataset.overview_count == [], (
+                f"fixture must have no bands, got {dataset.overview_count}"
+            )
+            with pytest.warns(UserWarning, match="no bands"):
                 dataset.recreate_overviews()
         finally:
             dataset.close()
@@ -169,12 +240,12 @@ class TestRecreateOverviewsContract:
             dataset.close()
 
     def test_in_memory_dataset_without_overviews_warns(self):
-        """An in-memory dataset warns rather than raising, despite read_only access.
+        """An in-memory dataset gets the same no-overviews warning as an on-disk one.
 
         Test scenario:
-            `create_from_array` with no path reports ``access == "read_only"`` yet is a
-            writable in-RAM handle — expected: the no-overviews warning, not
-            `ReadOnlyError`, so the edit-in-memory workflow is not blocked.
+            A `create_from_array` raster with no path (MEM driver, `access == "write"`)
+            — expected: the no-overviews warning, so the edit-in-memory workflow reports
+            the empty count the same way and is never blocked by an access-mode error.
         """
         dataset = Dataset.create_from_array(
             np.ones((16, 16), dtype=np.float32),
