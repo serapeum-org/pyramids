@@ -621,45 +621,122 @@ class TestGetOverviewDataset:
                 overview.close()
             dataset.close()
 
-    def test_remote_parent_with_credentials_warns(self, tmp_path):
-        """A remote parent carrying cloud credentials warns that the VRT strands them.
+    def test_network_parent_with_credentials_warns(self, tmp_path, monkeypatch):
+        """A network-backed parent carrying credentials warns that the VRT strands them.
 
         Test scenario:
-            A `/vsimem/` path reads as remote, so attaching a `gdal_env` reproduces the
-            stranded-credentials case without a network — expected: a `UserWarning`
-            naming the credentials, and none at all for a local parent carrying the same
-            env, whose sources GDAL reopens without needing them.
+            The warning must key on *network* backing, not on `is_remote`, which is also
+            true for purely local `/vsimem/` and `/vsizip/`. Force the predicate true for
+            a local file so the branch is reachable offline — expected: a `UserWarning`
+            naming the credentials. The same parent without credentials, and a genuinely
+            local one, must stay silent.
         """
-        path = "/vsimem/overview_credentials.tif"
-        raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 1, gdal.GDT_Float32)
-        raster.SetGeoTransform((10.0, 0.5, 0.0, 80.0, 0.0, -0.5))
-        raster.GetRasterBand(1).WriteArray(
-            np.arange(4096, dtype="float32").reshape(64, 64)
-        )
-        raster = None
-        remote = Dataset.read_file(path, read_only=False)
-        local = Dataset.read_file(_overviewed_raster(tmp_path, "credentialed.tif"))
-        remote_level = local_level = None
+        from pyramids.dataset.engines import io as io_module
+
+        dataset = Dataset.read_file(_overviewed_raster(tmp_path, "credentialed.tif"))
+        with_env = without_env = local_level = None
         try:
-            remote.create_overviews(overview_levels=[2])
-            remote.attach_gdal_env({"AWS_REQUEST_PAYER": "requester"})
-            with pytest.warns(UserWarning, match="cloud credentials"):
-                remote_level = remote.get_overview_dataset()
-            local.attach_gdal_env({"AWS_REQUEST_PAYER": "requester"})
+            dataset.attach_gdal_env({"AWS_REQUEST_PAYER": "requester"})
             with warnings.catch_warnings(record=True) as recorded:
                 warnings.simplefilter("always")
-                local_level = local.get_overview_dataset()
-            stranded = [w for w in recorded if "cloud credentials" in str(w.message)]
-            assert not stranded, (
-                f"a local parent must not warn about credentials: {stranded}"
+                local_level = dataset.get_overview_dataset()
+            assert not [w for w in recorded if "cloud credentials" in str(w.message)], (
+                "a local parent must not warn, even carrying an env"
+            )
+
+            monkeypatch.setattr(io_module, "is_network_backed", lambda path: True)
+            with pytest.warns(UserWarning, match="cloud credentials"):
+                with_env = dataset.get_overview_dataset()
+
+            dataset.attach_gdal_env(None)
+            with warnings.catch_warnings(record=True) as recorded:
+                warnings.simplefilter("always")
+                without_env = dataset.get_overview_dataset()
+            assert not [w for w in recorded if "cloud credentials" in str(w.message)], (
+                "no credentials means nothing can be stranded"
             )
         finally:
-            for handle in (remote_level, local_level):
+            for handle in (with_env, without_env, local_level):
                 if handle is not None:
                     handle.close()
-            remote.close()
-            local.close()
-            gdal.Unlink(path)
+            dataset.close()
+
+    def test_from_bytes_label_does_not_reopen_a_same_named_file(
+        self, tmp_path, monkeypatch
+    ):
+        """A cosmetic `from_bytes` name never reopens an unrelated file of that name.
+
+        Test scenario:
+            `from_bytes(payload, name="dem.tif")` stamps a label, not an identity. With
+            a *different* `dem.tif` in the working directory, keying the lazy path off
+            `file_name` returned that decoy's overview — silently, with no error.
+            Expected: the level holds the payload's own value.
+        """
+        monkeypatch.chdir(tmp_path)
+        decoy = gdal.GetDriverByName("GTiff").Create(
+            "dem.tif", 32, 32, 1, gdal.GDT_Float32
+        )
+        decoy.SetGeoTransform((0.0, 1.0, 0.0, 32.0, 0.0, -1.0))
+        decoy.GetRasterBand(1).WriteArray(np.full((32, 32), 999.0, dtype="float32"))
+        decoy = None
+        handle = gdal.Open("dem.tif", gdal.GA_Update)
+        handle.BuildOverviews("AVERAGE", [2])
+        handle = None
+
+        real = str(tmp_path / "real.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(real, 32, 32, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 32.0, 0.0, -1.0))
+        raster.GetRasterBand(1).WriteArray(np.full((32, 32), 111.0, dtype="float32"))
+        raster = None
+        handle = gdal.Open(real, gdal.GA_Update)
+        handle.BuildOverviews("AVERAGE", [2])
+        handle = None
+
+        dataset = Dataset.from_bytes(Path(real).read_bytes(), name="dem.tif")
+        overview = None
+        try:
+            overview = dataset.get_overview_dataset()
+            value = float(np.asarray(overview.read_array(band=0))[0, 0])
+            assert value == pytest.approx(111.0), (
+                f"expected the payload's own value 111.0, got {value} "
+                "(999.0 means the decoy dem.tif in the CWD was read)"
+            )
+        finally:
+            if overview is not None:
+                overview.close()
+            dataset.close()
+
+    def test_partly_declared_no_data_is_not_completed(self):
+        """A band without a no-data value does not gain one from its neighbours.
+
+        Test scenario:
+            A parent declaring no-data on band 0 only — expected: band 1 stays `None`.
+            Passing the builder a list containing `None` coerced it into a `nan`
+            sentinel that masking and statistics would then honour.
+        """
+        raster = gdal.GetDriverByName("MEM").Create("", 32, 32, 2, gdal.GDT_Float32)
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 32.0, 0.0, -1.0))
+        raster.GetRasterBand(1).SetNoDataValue(-9999.0)
+        for index in range(2):
+            raster.GetRasterBand(index + 1).WriteArray(
+                np.zeros((32, 32), dtype="float32")
+            )
+        raster.BuildOverviews("AVERAGE", [2])
+        dataset = Dataset(raster)
+        overview = None
+        try:
+            assert dataset.no_data_value[1] is None, "precondition: band 1 has none"
+            overview = dataset.get_overview_dataset()
+            assert overview.no_data_value[0] == pytest.approx(-9999.0), (
+                f"band 0 should keep its no-data, got {overview.no_data_value[0]}"
+            )
+            assert overview.no_data_value[1] is None, (
+                f"band 1 must stay unset, got {overview.no_data_value[1]}"
+            )
+        finally:
+            if overview is not None:
+                overview.close()
+            dataset.close()
 
     def test_vsimem_parent_stays_lazy(self):
         """A /vsimem/ raster reopens under OVERVIEW_LEVEL, so it is not materialised.
