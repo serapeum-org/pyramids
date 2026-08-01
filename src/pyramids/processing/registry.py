@@ -50,8 +50,13 @@ def tool_names() -> list[str]:
     return sorted(_REGISTRY)
 
 
-def registry() -> Mapping[str, ToolSpec]:
-    """Return a read-only view of the registry."""
+def get_registry() -> Mapping[str, ToolSpec]:
+    """Return a read-only view of the registry.
+
+    Named ``get_registry`` rather than ``registry`` so it does not shadow the
+    ``pyramids.processing.registry`` submodule when re-exported at the package
+    root.
+    """
     return MappingProxyType(_REGISTRY)
 
 

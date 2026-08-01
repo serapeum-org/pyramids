@@ -10,8 +10,8 @@ module re-exports the stable pieces as they land.
 """
 
 from pyramids.processing.registry import (
+    get_registry,
     register,
-    registry,
     resolve,
     tool_names,
 )
@@ -21,8 +21,8 @@ __all__ = [
     "PARAM_TYPES",
     "ParamSpec",
     "ToolSpec",
+    "get_registry",
     "register",
-    "registry",
     "resolve",
     "tool_names",
 ]
