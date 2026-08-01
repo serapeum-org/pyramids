@@ -180,7 +180,6 @@ _NETWORK_VSI_PREFIXES: tuple[str, ...] = (
     _VSICURL,
     "/vsicurl?",
     "/vsicurl_streaming/",
-    "/vsiadls/",
     "/vsioss/",
     "/vsiswift/",
     "/vsihdfs/",
@@ -228,7 +227,13 @@ def is_network_backed(path: str) -> bool:
         network = True
     else:
         scheme = urlparse(path).scheme.lower()
-        network = (scheme in URL_SCHEMES or scheme == _DODS_SCHEME) and len(scheme) > 1
+        # `file://` is in URL_SCHEMES but names a local path, so it never needs
+        # credentials -- the one scheme in that map that does not cross the network.
+        network = (
+            (scheme in URL_SCHEMES or scheme == _DODS_SCHEME)
+            and scheme != "file"
+            and len(scheme) > 1
+        )
     return network
 
 
