@@ -180,11 +180,6 @@ COLOR_NAMES = [
     "YCbCr_CbBand",
     "YCbCr_CrBand",
 ]
-# Human-readable name for GDAL's "no colour interpretation set" sentinel
-# (`gdal.GCI_Undefined` -> `COLOR_NAMES[0]`). Use this constant instead
-# of the bare string literal so a name change can't silently break the
-# "is this band an RGB channel?" checks (e.g. `Dataset._resolve_plot_band`).
-UNDEFINED_COLOR_INTERP = COLOR_NAMES[0]
 
 # The GDAL colour interpretations that mark a band as an RGB channel
 # (`red` / `green` / `blue` -> `COLOR_NAMES[3:6]`). Only these signal that a
