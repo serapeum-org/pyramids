@@ -45,9 +45,11 @@ def _cmd_tool(args: argparse.Namespace) -> int:
         spec = resolve(args.name)
     except ValueError as exc:
         print(f"error: {exc}")
-        return 1
-    print(spec.help())
-    return 0
+        code = 1
+    else:
+        print(spec.help())
+        code = 0
+    return code
 
 
 def add_processing_commands(sub: argparse._SubParsersAction) -> None:
