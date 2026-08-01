@@ -722,50 +722,62 @@ class Dataset(RasterBase):
             resolved_band = 0
             resolved_rgb = rgb
         else:
-            band_colors = list(self.band_color.values())
-            # Only a true RGB channel (`red`/`green`/`blue`) signals RGB
-            # imagery. `undefined`, `palette_index`, `gray_index`, and the other
-            # single-channel/paletted interpretations do not -- otherwise a
-            # multi-band raster carrying any of them is mis-resolved as a
-            # false-colour RGB composite (see #910). An allowlist keeps a new
-            # non-RGB interpretation from silently re-enabling that bug.
-            has_rgb_interp = any(c in RGB_CHANNEL_INTERPS for c in band_colors)
-            if not has_rgb_interp:
-                # No RGB channels: render a single band. Honour an explicit
-                # ``rgb`` so ``exclude_value`` downstream keys off the same band
-                # the RGB render uses; otherwise default to band 0 -- a
-                # deliberate placeholder, since the plot path does not (yet)
-                # render a palette through its colour table, so the band index
-                # is not meaningful for paletted data today.
-                resolved_band = int(rgb[0]) if rgb is not None else 0
-                resolved_rgb = rgb
-            else:
-                if rgb is None:
-                    candidate: list[int | None] = [
-                        self.get_band_by_color("red"),
-                        self.get_band_by_color("green"),
-                        self.get_band_by_color("blue"),
-                    ]
-                    if None in candidate:
-                        warnings.warn(
-                            "The implicit Sentinel-2 RGB band order [2, 1, 0] used "
-                            "when colour-interpretation is absent is deprecated and "
-                            "will be removed: it is a remote-sensing sensor "
-                            "assumption, not a generic raster default. Pass an "
-                            "explicit rgb=[...] (e.g. via rgb_options) instead.",
-                            DeprecationWarning,
-                            stacklevel=3,
-                        )
-                        resolved_rgb = [2, 1, 0]
-                    else:
-                        # None NOT in candidate here, so every element is a
-                        # plain int -- mypy does not narrow list contents from
-                        # an `in` check.
-                        resolved_rgb = [int(v) for v in cast("list[int]", candidate)]
-                else:
-                    resolved_rgb = rgb
-                resolved_band = int(resolved_rgb[0])
+            resolved_band, resolved_rgb = self._resolve_multiband_plot(rgb)
         return resolved_band, resolved_rgb
+
+    def _resolve_multiband_plot(
+        self, rgb: list[int] | None
+    ) -> tuple[int, list[int] | None]:
+        """Resolve ``(band, rgb)`` for a raster with ``band_count >= 3``.
+
+        Only a true RGB channel (``red``/``green``/``blue``) marks the raster as
+        RGB imagery; ``undefined``, ``palette_index``, ``gray_index`` and the
+        other single-channel/paletted interpretations do not -- otherwise a
+        multi-band raster carrying any of them is mis-resolved as a false-colour
+        RGB composite (see #910). A non-RGB raster renders a single band: band 0
+        by default, or ``rgb[0]`` when an explicit ``rgb`` is supplied, so the
+        downstream ``exclude_value`` nodata mask keys off the same band the RGB
+        render uses.
+        """
+        band_colors = list(self.band_color.values())
+        has_rgb_interp = any(c in RGB_CHANNEL_INTERPS for c in band_colors)
+        if not has_rgb_interp:
+            resolved_rgb = rgb
+            resolved_band = int(rgb[0]) if rgb is not None else 0
+        else:
+            resolved_rgb = rgb if rgb is not None else self._infer_rgb_band_order()
+            resolved_band = int(resolved_rgb[0])
+        return resolved_band, resolved_rgb
+
+    def _infer_rgb_band_order(self) -> list[int]:
+        """Infer the ``[r, g, b]`` band-index order from the bands' colour tags.
+
+        Resolves red/green/blue via :meth:`get_band_by_color`; falls back to the
+        Sentinel-2 default ``[2, 1, 0]`` (emitting a :class:`DeprecationWarning`)
+        when any channel cannot be identified from the tags.
+        """
+        candidate: list[int | None] = [
+            self.get_band_by_color("red"),
+            self.get_band_by_color("green"),
+            self.get_band_by_color("blue"),
+        ]
+        if None in candidate:
+            warnings.warn(
+                "The implicit Sentinel-2 RGB band order [2, 1, 0] used "
+                "when colour-interpretation is absent is deprecated and "
+                "will be removed: it is a remote-sensing sensor "
+                "assumption, not a generic raster default. Pass an "
+                "explicit rgb=[...] (e.g. via rgb_options) instead.",
+                DeprecationWarning,
+                stacklevel=5,
+            )
+            resolved_rgb = [2, 1, 0]
+        else:
+            # None NOT in candidate here, so every element is a
+            # plain int -- mypy does not narrow list contents from
+            # an `in` check.
+            resolved_rgb = [int(v) for v in cast("list[int]", candidate)]
+        return resolved_rgb
 
     def plot(
         self,
