@@ -715,6 +715,55 @@ class TestGetOverviewDataset:
                 overview.close()
             dataset.close()
 
+    def test_a_source_that_now_holds_another_grid_is_not_trusted(self):
+        """A description that reopens to a different grid is refused, not described.
+
+        Test scenario:
+            The `from_bytes` sibling covers a label naming another file; this covers the
+            name itself going stale — the `/vsimem/` raster is unlinked and recreated at
+            16x16 under the open handle. Expected: `_reopenable_source` returns `None`
+            and the level is materialised from the parent's own 64x64 pixels (7.0),
+            rather than described from the 16x16 impostor now sitting at that name.
+        """
+        path = "/vsimem/overview_swapped.tif"
+        raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((10.0, 0.5, 0.0, 80.0, 0.0, -0.5))
+        raster.GetRasterBand(1).WriteArray(np.full((64, 64), 7.0, dtype="float32"))
+        raster = None
+        dataset = Dataset.read_file(path, read_only=False)
+        overview = None
+        try:
+            dataset.create_overviews(overview_levels=[2])
+            gdal.Unlink(path)
+            swap = gdal.GetDriverByName("GTiff").Create(
+                path, 16, 16, 1, gdal.GDT_Float32
+            )
+            swap.SetGeoTransform((0.0, 2.0, 0.0, 0.0, 0.0, -2.0))
+            swap.GetRasterBand(1).WriteArray(np.full((16, 16), 99.0, dtype="float32"))
+            swap = None
+
+            assert dataset.io._reopenable_source() is None, (
+                "a name that reopens to another grid is not an identity"
+            )
+            overview = dataset.get_overview_dataset()
+            assert overview.driver_type == "memory", (
+                f"the level should be materialised, got driver {overview.driver_type}"
+            )
+            assert (overview.rows, overview.columns) == (32, 32), (
+                f"expected the parent's own level, got "
+                f"{(overview.rows, overview.columns)}"
+            )
+            value = float(np.asarray(overview.read_array(band=0))[0, 0])
+            assert value == pytest.approx(7.0), (
+                f"expected the parent's own value 7.0, got {value} "
+                "(99.0 means the impostor at the same /vsimem/ name was described)"
+            )
+        finally:
+            if overview is not None:
+                overview.close()
+            dataset.close()
+            gdal.Unlink(path)
+
     def test_partly_declared_no_data_is_not_completed(self):
         """A band without a no-data value does not gain one from its neighbours.
 
@@ -878,6 +927,57 @@ class TestGetOverviewDataset:
                 if handle is not None:
                     handle.close()
             dataset.close()
+
+    def test_colour_table_and_interpretation_are_carried(self, tmp_path):
+        """A palette-indexed band keeps its colour table and its interpretation.
+
+        Test scenario:
+            The same paletted band on disk (described by a VRT) and in memory
+            (materialised) — expected: both levels come back `palette_index` carrying
+            the parent's two entries. `create_from_array` sets neither, so a
+            materialised level rendered as a plain grey band and wrote out a raster
+            whose class colours were gone.
+        """
+        table = gdal.ColorTable()
+        table.SetColorEntry(0, (10, 20, 30, 255))
+        table.SetColorEntry(1, (200, 100, 50, 255))
+        path = str(tmp_path / "palette.tif")
+        on_disk = gdal.GetDriverByName("GTiff").Create(path, 32, 32, 1, gdal.GDT_Byte)
+        in_memory = gdal.GetDriverByName("MEM").Create("", 32, 32, 1, gdal.GDT_Byte)
+        for target in (on_disk, in_memory):
+            target.SetGeoTransform((0.0, 1.0, 0.0, 32.0, 0.0, -1.0))
+            band = target.GetRasterBand(1)
+            band.SetRasterColorTable(table)
+            band.SetRasterColorInterpretation(gdal.GCI_PaletteIndex)
+            band.WriteArray(np.zeros((32, 32), dtype="uint8"))
+        on_disk = None
+        handle = gdal.Open(path)
+        handle.BuildOverviews("NEAREST", [2])
+        handle = None
+        in_memory.BuildOverviews("NEAREST", [2])
+
+        lazy_parent = Dataset.read_file(path)
+        memory_parent = Dataset(in_memory)
+        levels = {}
+        try:
+            levels["lazy"] = lazy_parent.get_overview_dataset()
+            levels["materialised"] = memory_parent.get_overview_dataset()
+            for tag, level in levels.items():
+                assert level.band_color == {0: "palette_index"}, (
+                    f"{tag} level lost its colour interpretation: {level.band_color}"
+                )
+                # GTiff pads its palette out to 256 entries and MEM does not, so compare
+                # the two the parent actually declared.
+                entries = level.color_table[["red", "green", "blue", "alpha"]]
+                assert entries.values.tolist()[:2] == [
+                    [10, 20, 30, 255],
+                    [200, 100, 50, 255],
+                ], f"{tag} level lost its colour table:\n{level.color_table.head()}"
+        finally:
+            for level in levels.values():
+                level.close()
+            lazy_parent.close()
+            memory_parent.close()
 
     def test_dataset_metadata_is_carried_but_never_invented(self):
         """The parent's dataset metadata is copied over, and absence stays absence.
