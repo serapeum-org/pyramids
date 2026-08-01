@@ -3299,11 +3299,21 @@ class IO(_Engine["Dataset"]):
         reprojected without dropping to GDAL. This returns the same pixels as a
         first-class `Dataset` whose cell size is scaled by the decimation factor.
 
-        A raster backed by a file is reopened lazily through GDAL's `OVERVIEW_LEVEL`
-        open option, so no pixels are read and GDAL derives the scaled geotransform
-        itself. A raster with no path to reopen — an in-memory `MEM` dataset, a
-        `/vsimem/` raster, or a `NetCDF` variable view — is materialised into a new
-        in-memory `Dataset` instead, with the geotransform scaled here.
+        A raster GDAL can reopen by name — an on-disk file, a `/vsimem/` raster, any
+        `/vsi*` URL — is described lazily through the `OVERVIEW_LEVEL` open option and
+        wrapped in a VRT, so no pixels are read and GDAL derives the scaled geotransform
+        itself. Only a nameless `MEM` handle (a `create_from_array` raster with no path,
+        a `NetCDF` variable view) is materialised into an in-memory `Dataset`, with the
+        geotransform scaled here.
+
+        The result is a **read-only view** of the parent's pixels: it is detached from
+        the parent handle and carries its own GDAL handle, which the caller owns and
+        should `close()` — until it is closed it keeps the parent file open, so on
+        Windows the file cannot be deleted. Because the lazy form has no path of its
+        own, `read_array(threadsafe=True)`, `read_array(chunks=...)` and pickling it are
+        unavailable and fail loudly; call `to_file()` first if you need any of those.
+        A `NetCDF` variable view returns a plain `Dataset` — an overview level is an
+        ordinary raster, not a NetCDF container.
 
         Args:
             band (int | None):
@@ -3311,27 +3321,37 @@ class IO(_Engine["Dataset"]):
                 `read_overview_array`; an `int` returns a single-band `Dataset`.
             overview_index (int):
                 Index of the overview level. Defaults to 0, the largest (least
-                decimated) overview.
+                decimated) overview. Negative values are rejected rather than counting
+                from the end.
 
         Returns:
             Dataset:
-                The requested overview level, carrying the parent's CRS and no-data
-                value and a cell size scaled by the decimation factor.
+                The requested overview level, carrying the parent's CRS, no-data value,
+                band names/units/scale/offset and dataset metadata, with a cell size
+                scaled by the decimation factor. The caller owns its handle.
 
         Raises:
             ValueError:
-                A selected band has no overviews, or `overview_index` is out of range.
+                `band` is out of range, `overview_index` is negative or past the built
+                levels, a selected band has no overviews, or the dataset has no bands.
+
+        Warns:
+            UserWarning:
+                The parent is remote and carries cloud credentials, which GDAL will not
+                replay when the VRT reopens its source.
 
         Examples:
-            - Build overviews on a raster, then take level 1 as a `Dataset`:
+            - Build overviews on a 0.1-degree raster, then take level 1 (a 4x
+              decimation) as a `Dataset`:
               ```python
               >>> from pyramids.dataset import Dataset
               >>> dataset = Dataset.read_file("dem.tif", read_only=False)  # doctest: +SKIP
               >>> dataset.create_overviews()  # doctest: +SKIP
               >>> overview = dataset.get_overview_dataset(overview_index=1)  # doctest: +SKIP
-              >>> overview.cell_size, overview.epsg  # doctest: +SKIP
-              (0.2, 4326)
+              >>> overview.cell_size  # doctest: +SKIP
+              0.4
               >>> overview.to_file("dem_ov1.tif")  # doctest: +SKIP
+              >>> overview.close()  # doctest: +SKIP
 
               ```
         See Also:

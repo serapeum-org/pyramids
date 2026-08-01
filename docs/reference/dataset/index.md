@@ -209,6 +209,7 @@ classDiagram
         +create_overviews()
         +recreate_overviews()
         +get_overview()
+        +get_overview_dataset()
     }
     Dataset --> Visualization : «visualisation»
 
