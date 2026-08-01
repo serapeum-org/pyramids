@@ -77,15 +77,19 @@ class Pipeline:
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Pipeline):
-            return NotImplemented
-        mine = [(s.tool, s.params) for s in self._steps]
-        theirs = [(s.tool, s.params) for s in other._steps]
-        return mine == theirs
+            result: bool = NotImplemented
+        else:
+            mine = [(s.tool, s.params) for s in self._steps]
+            theirs = [(s.tool, s.params) for s in other._steps]
+            result = mine == theirs
+        return result
 
     def to_dict(self) -> dict[str, Any]:
-        """Return the pipeline as a plain, YAML-ready mapping."""
+        """Return the pipeline as a plain, YAML-ready mapping (params are copied)."""
         return {
-            "pipeline": [{"tool": s.tool, "params": s.params} for s in self._steps]
+            "pipeline": [
+                {"tool": step.tool, "params": dict(step.params)} for step in self._steps
+            ]
         }
 
     @classmethod
