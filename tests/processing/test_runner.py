@@ -247,6 +247,36 @@ class TestRun:
         assert result.ok, result.failures
         assert isinstance(result.outputs[0], FeatureCollection), result.outputs
 
+    def test_materialized_output_uses_processed_band_nodata(self):
+        """A band>0 terrain op carries that band's no-data into the output (L2).
+
+        Test scenario:
+            slope(band=1) on a 2-band raster with distinct per-band no-data yields a
+            Dataset advertising band 1's sentinel, not band 0's.
+        """
+        arr = np.arange(2 * 8 * 8, dtype="float32").reshape(2, 8, 8)
+        ds = Dataset.create_from_array(arr, geo=(0, 1, 0, 8, 0, -1), epsg=4326)
+        ds.no_data_value = [-1.0, -2.0]
+        out = run(Pipeline([("slope", {"band": 1})]), ds, on_error="raise").outputs[0]
+        assert out.no_data_value[0] == -2.0, out.no_data_value
+
+    def test_list_of_path_inputs_serial(self, points_fc, tmp_path):
+        """A list of pathlib.Path inputs is accepted (M1/L3 parity).
+
+        Args:
+            points_fc: point-collection fixture (written to two files).
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Passing [Path(a), Path(b)] runs both, like the equivalent string paths.
+        """
+        paths = [tmp_path / "a.geojson", tmp_path / "b.geojson"]
+        for p in paths:
+            points_fc.to_file(str(p))
+        pipe = Pipeline([("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})])
+        result = run(pipe, paths, on_error="raise")
+        assert len(result.outputs) == 2, result.failures
+
     def test_materialized_output_preserves_crs(self, raster_ds):
         """A materialized terrain output keeps the source CRS (M1 regression).
 
