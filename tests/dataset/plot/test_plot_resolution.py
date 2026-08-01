@@ -15,6 +15,7 @@ five branches), so we want it covered on every CI run, not only on the
 from __future__ import annotations
 
 import inspect
+import warnings
 from unittest.mock import patch
 
 import numpy as np
@@ -148,6 +149,45 @@ class TestResolvePlotBandPolicy:
             f"got {resolved_band}"
         )
         assert resolved_rgb is None
+
+    @pytest.mark.parametrize("palette_band", [0, 1, 2])
+    def test_paletted_band_not_treated_as_rgb(self, palette_band):
+        """#910: a ``palette_index`` band must not trigger the RGB heuristic.
+
+        Args:
+            palette_band: Which band carries the palette (0, 1, or 2); the
+                others stay ``undefined``.
+
+        Test scenario:
+            A paletted band is rendered through its colour table, not as an
+            RGB channel. A 3-band raster with a palette on one band (others
+            ``undefined``) must resolve to ``(0, None)`` and emit no
+            deprecation warning — not be mis-read as false-colour RGB
+            ``[2, 1, 0]`` with the Sentinel-2 fallback warning.
+        """
+        rng = np.random.default_rng(910)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.band_color = {palette_band: "palette_index"}
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            resolved_band, resolved_rgb = dataset._resolve_plot_band(
+                band=None, rgb=None
+            )
+        deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert resolved_band == 0, (
+            f"Paletted raster must resolve to band 0, got {resolved_band}"
+        )
+        assert resolved_rgb is None, (
+            f"rgb must stay None for a paletted raster, got {resolved_rgb}"
+        )
+        assert not deprecations, (
+            "resolving a paletted raster must not emit the Sentinel-2 RGB "
+            f"deprecation: {[str(w.message) for w in deprecations]}"
+        )
 
     def test_full_rgb_tags_resolves_red_band(self):
         """All three R/G/B tags set → resolved band is red, rgb list filled.

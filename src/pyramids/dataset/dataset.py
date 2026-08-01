@@ -23,6 +23,7 @@ from pyramids import _io
 from pyramids.base._errors import AlignmentError, CRSError
 from pyramids.base._utils import (
     DTYPE_CONVERSION_DF,
+    PALETTE_COLOR_INTERP,
     UNDEFINED_COLOR_INTERP,
     numpy_to_gdal_dtype,
 )
@@ -626,11 +627,14 @@ class Dataset(RasterBase):
         1. If ``band`` is explicitly provided, it is returned as-is (and ``rgb`` passes
            through untouched).
         2. If the dataset has fewer than 3 bands, return ``(0, rgb)``.
-        3. If the dataset has 3+ bands but **no** band has a GDAL ``ColorInterpretation``
-           set (i.e. every band reports ``undefined``), return ``(0, rgb)``. This is the
-           D-1 fix: ``band_count >= 3`` alone is not a sufficient signal that the data
-           is an RGB image — multi-band scalar cubes (e.g. time series stacked into one
-           GeoTIFF) also have ``band_count >= 3`` and must not be misinterpreted as RGB.
+        3. If the dataset has 3+ bands but **no** band carries an RGB-channel
+           ``ColorInterpretation`` (i.e. every band reports ``undefined`` or
+           ``palette_index``), return ``(0, rgb)``. This is the D-1 fix: ``band_count >= 3``
+           alone is not a sufficient signal that the data is an RGB image — multi-band
+           scalar cubes (e.g. time series stacked into one GeoTIFF) also have
+           ``band_count >= 3`` and must not be misinterpreted as RGB. A ``palette_index``
+           band is rendered through its colour table, not as an RGB channel, so it is
+           excluded here too (see #910).
         4. Otherwise, treat the dataset as RGB imagery. If ``rgb`` was supplied, its
            first entry is the red band. If it was not supplied, resolve red/green/blue
            via :meth:`get_band_by_color`; fall back to ``[2, 1, 0]`` (the default
@@ -705,7 +709,13 @@ class Dataset(RasterBase):
             resolved_rgb = rgb
         else:
             band_colors = list(self.band_color.values())
-            has_color_interp = any(c != UNDEFINED_COLOR_INTERP for c in band_colors)
+            # A paletted band (`palette_index`) is rendered through its colour
+            # table, not as an RGB channel, so it must not count as evidence of
+            # RGB imagery any more than `undefined` does -- otherwise a
+            # multi-band raster with a palette on one band is mis-resolved as a
+            # false-colour RGB composite (see #910).
+            non_rgb_interp = {UNDEFINED_COLOR_INTERP, PALETTE_COLOR_INTERP}
+            has_color_interp = any(c not in non_rgb_interp for c in band_colors)
             if not has_color_interp:
                 resolved_band = 0
                 resolved_rgb = rgb

@@ -186,6 +186,12 @@ COLOR_NAMES = [
 # "is this band an RGB channel?" checks (e.g. `Dataset._resolve_plot_band`).
 UNDEFINED_COLOR_INTERP = COLOR_NAMES[0]
 
+# Human-readable name for GDAL's palette interpretation
+# (`gdal.GCI_PaletteIndex` -> `COLOR_NAMES[2]`). A paletted band is rendered
+# through its colour table, so it is *not* an RGB channel; the same
+# "is this band an RGB channel?" checks must exclude it as well.
+PALETTE_COLOR_INTERP = COLOR_NAMES[2]
+
 COLOR_TABLE = DataFrame(
     columns=["id", "gdal_constant", "name"],
     data=list(zip(range(len(COLOR_NAMES)), COLOR_INTERPRETATIONS, COLOR_NAMES)),
