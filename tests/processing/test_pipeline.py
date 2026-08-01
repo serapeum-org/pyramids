@@ -164,3 +164,40 @@ class TestPipeline:
         bad.write_text("just: a-scalar\n", encoding="utf-8")
         with pytest.raises(ValueError, match="'pipeline' key"):
             Pipeline.from_yaml(str(bad))
+
+    def test_eq_non_pipeline_is_false(self):
+        """Comparing a Pipeline to a non-Pipeline is not equal.
+
+        Test scenario:
+            __eq__ returns NotImplemented for a str, so == falls back to False.
+        """
+        assert Pipeline([("slope", {})]) != "not a pipeline", "should not equal a str"
+
+    def test_from_dict_pipeline_not_list(self):
+        """from_dict rejects a 'pipeline' that is not a list.
+
+        Test scenario:
+            {'pipeline': 'nope'} raises ValueError naming the list requirement.
+        """
+        with pytest.raises(ValueError, match="must be a list"):
+            Pipeline.from_dict({"pipeline": "nope"})
+
+    def test_from_dict_step_missing_tool(self):
+        """from_dict rejects a step without a 'tool' key.
+
+        Test scenario:
+            A step mapping lacking 'tool' raises ValueError.
+        """
+        with pytest.raises(ValueError, match="'tool' key"):
+            Pipeline.from_dict({"pipeline": [{"params": {}}]})
+
+    def test_steps_property_returns_copy(self):
+        """steps returns a fresh list that does not alias internal state.
+
+        Test scenario:
+            Mutating the returned list does not change the pipeline's length.
+        """
+        p = Pipeline([("slope", {})])
+        got = p.steps
+        got.append("x")
+        assert len(p) == 1, "mutating the steps copy must not affect the pipeline"
