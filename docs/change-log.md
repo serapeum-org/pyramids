@@ -1,6 +1,62 @@
 ﻿# Change log
 
 
+## 0.47.0 (2026-08-01)
+
+### BREAKING CHANGE
+
+- `Dataset.epsg` and `NetCDF.epsg` return `None` for a
+raster with no CRS, and for a CRS that carries no EPSG authority, where
+both previously returned 4326. `read_part(bbox=)` and `point()` default
+`bbox_crs` / `point_crs` to the raster's own coordinates instead of
+EPSG:4326; pass `bbox_crs=4326` to restore the old reading. Read `.crs`,
+or `crs_spec(ds.epsg, ds.crs)`, where a specification rather than a code
+is needed.
+- DatasetCollection.tail(n) now returns the last
+abs(n) timesteps for a positive n too (previously a positive n
+skipped the first n); the default tail(-n) is unchanged and
+tail(0) returns an empty array.
+- COG_READ_DEFAULTS no longer sets                                                              
+  CPL_VSIL_CURL_ALLOWED_EXTENSIONS. The option made GDAL refuse any URL                                          
+  whose path does not end in .tif or .tiff, which excluded extensionless                                         
+  object keys, presigned S3 links carrying a query string, and most STAC                                         
+  asset hrefs.                                                                                                   
+  BREAKING CHANGE: slope, aspect and hillshade emit the band's sentinel                                          
+  at no-data cells and their immediate neighbours, outside the documented                                        
+  [0, 360) and [0, 255] ranges, because a centred difference straddling a                                        
+  void has no defined derivative. Mask on the no-data value before                                               
+  feeding the result to a colour ramp or a fixed-range cast.                                                     
+  BREAKING CHANGE: focal_apply hands the caller's callable a NaN-blanked                                         
+  window, so a NaN-blind reducer now blanks every window touching a void.                                        
+  Use the np.nan* reducers.                                                                                      
+                                                                                                                 
+  Closes #841, #842, #843, #844, #845, #846, #847                                                                
+  Closes #848, #849, #850, #851, #852, #853, #855                                                                
+  Closes #856, #857, #858, #859, #860, #861, #862
+
+### Feat
+
+- **netcdf**: lazy to_xarray(chunks=) and shared NETCDF: prefix helper(#864)
+- **stac**: fix credential loss, silent VRT drops, and untuned remote reads (#839)
+
+### Fix
+
+- **crs**: stop fabricating EPSG:4326 for rasters that have no CRS (#893)
+- **io**: consolidate resource detection and fix handle, temp-dir, and JSON defects (#868)
+- **dataset**: resolve the engines architecture review findings (#840)
+- **netcdf**: resolve architecture-review findings across core and ugrid (#816)
+- **dataset**: resolve arc-dataset-core access, leak, and perf findings  (#798)
+- **docs**: make the shipped docstring examples collect and run under doctest (#776)
+
+### Refactor
+
+- **feature**: resolve the arc-feature architecture-review findings (#867)
+- **base**: rework handle caching, logging and dtype conversion (#797)
+
+### Perf
+
+- **collection**: harden the datacube for out-of-core use (#866)
+
 ## 0.46.0 (2026-07-14)
 
 ### Feat
