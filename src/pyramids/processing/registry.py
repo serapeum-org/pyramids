@@ -21,6 +21,9 @@ _REGISTRY: dict[str, ToolSpec] = {}
 #: resampling table so the OptionList choices stay in sync with what the ops allow.
 _RESAMPLING_METHODS = tuple(sorted(INTERPOLATION_METHODS))
 
+#: Shared parameter description reused by the band-taking terrain tools.
+_BAND_DESC = "Zero-based band index."
+
 
 def register(spec: ToolSpec) -> ToolSpec:
     """Add ``spec`` to the registry (overwriting any tool of the same name)."""
@@ -76,7 +79,7 @@ register(
         returns="Array",
         description="Terrain slope from an elevation raster.",
         params=(
-            ParamSpec("band", "Integer", 0, True, "Zero-based band index."),
+            ParamSpec("band", "Integer", 0, True, _BAND_DESC),
             ParamSpec(
                 "units",
                 "OptionList",
@@ -95,7 +98,7 @@ register(
         receiver="Dataset",
         returns="Array",
         description="Terrain aspect (compass direction of steepest descent).",
-        params=(ParamSpec("band", "Integer", 0, True, "Zero-based band index."),),
+        params=(ParamSpec("band", "Integer", 0, True, _BAND_DESC),),
     )
 )
 
@@ -108,7 +111,7 @@ register(
         params=(
             ParamSpec("azimuth", "Float", 315.0, True, "Sun azimuth in degrees."),
             ParamSpec("altitude", "Float", 45.0, True, "Sun altitude in degrees."),
-            ParamSpec("band", "Integer", 0, True, "Zero-based band index."),
+            ParamSpec("band", "Integer", 0, True, _BAND_DESC),
         ),
     )
 )
