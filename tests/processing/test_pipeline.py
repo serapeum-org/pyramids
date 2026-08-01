@@ -36,8 +36,9 @@ class TestValidateParams:
             A numpy array for slope's Integer band raises ValueError.
         """
         spec = reg.resolve("slope")
+        bad = np.zeros(3)
         with pytest.raises(ValueError, match="expects Integer"):
-            validate_params(spec, {"band": np.zeros(3)})
+            validate_params(spec, {"band": bad})
 
     def test_missing_required_raises(self):
         """A missing required parameter is reported.
