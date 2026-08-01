@@ -719,7 +719,7 @@ class Bands(_Engine["Dataset"]):
 
     @color_table.setter
     def color_table(self, df: DataFrame):
-        """Get color table.
+        """Set the color table for one or more bands.
 
         Args:
             df (DataFrame):
