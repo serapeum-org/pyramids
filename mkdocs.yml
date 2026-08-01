@@ -153,6 +153,7 @@ nav:
           - Raster algebra & apply: examples/operations/raster-algebra.ipynb
           - Vector geometry toolkit: examples/operations/vector-geometry.ipynb
           - Color tables & band colors: examples/operations/color-tables.ipynb
+          - Geoprocessing pipelines: examples/processing/pipeline.ipynb
       - Dataset:
           - Overview: tutorials/dataset.md
           - Raster basics: tutorials/raster-basics.md
