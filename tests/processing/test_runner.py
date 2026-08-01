@@ -155,6 +155,26 @@ class TestRun:
         result = run(pipe, str(tmp_path / "*.geojson"), on_error="raise")
         assert len(result.outputs) == 2, [type(o) for o in result.outputs]
 
+    def test_datasetcollection_like_input(self):
+        """An object exposing `.datasets` is treated as a batch of Datasets.
+
+        Test scenario:
+            A collection-like stub (duck-typed `.datasets`) runs slope over each
+            member, yielding one materialized Dataset per member.
+        """
+        arr = np.arange(64, dtype="float32").reshape(1, 8, 8)
+        members = [
+            Dataset.create_from_array(arr, geo=(0, 1, 0, 8, 0, -1), epsg=4326),
+            Dataset.create_from_array(arr, geo=(0, 1, 0, 8, 0, -1), epsg=4326),
+        ]
+
+        class _StubCollection:
+            datasets = members
+
+        result = run(Pipeline([("slope", {})]), _StubCollection(), on_error="raise")
+        assert len(result.outputs) == 2, result.failures
+        assert all(isinstance(o, Dataset) for o in result.outputs), result.outputs
+
     def test_empty_glob_raises(self, tmp_path):
         """A glob that matches nothing is an error, not a silent success.
 
