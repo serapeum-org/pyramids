@@ -3017,8 +3017,9 @@ class IO(_Engine["Dataset"]):
         """Recreate overviews for the dataset.
 
         Regenerates the *existing* overviews in place; it never builds new ones — call
-        `create_overviews` for that. When the dataset has no overviews there is nothing
-        to regenerate, so this warns instead of returning silently.
+        `create_overviews` for that. When a band has no overviews there is nothing to
+        regenerate for it, so this warns instead of returning silently — naming the
+        skipped bands when only some of them are empty, and still regenerating the rest.
 
         The warning is emitted in every access mode: having no overviews is independent
         of read-only-ness, and read-only is not itself a blocker here — external `.ovr`
@@ -3041,7 +3042,9 @@ class IO(_Engine["Dataset"]):
 
         Warns:
             UserWarning:
-                The dataset has no overviews, so there is nothing to regenerate.
+                No band has overviews, so there is nothing to regenerate; or only some
+                bands have them, and the empty ones were skipped. Also when the dataset
+                has no bands at all.
 
         See Also:
             - Dataset.create_overviews: Create the dataset overviews.
@@ -3053,19 +3056,33 @@ class IO(_Engine["Dataset"]):
         if resampling_method.upper() not in RESAMPLING_METHODS:
             raise ValueError(f"resampling_method should be one of {RESAMPLING_METHODS}")
         overview_count = self.overview_count
-        if not any(overview_count):
-            # Nothing to regenerate: the loop below would iterate zero times and return
-            # silently, so the caller never learns the call did nothing (#863). Warn in
-            # every access mode -- "has no overviews" is independent of read-only-ness,
-            # and refusing on read-only would misdiagnose the cause (reopening writable
-            # yields this same warning) and would wrongly reject a read-only handle
-            # whose external .ovr sidecar is perfectly regenerable.
+        # Report every band the loop below would skip. `range(0)` regenerates nothing
+        # and says nothing, so without this a band with no overviews is left silently
+        # stale -- the #863 defect, which survives per band whenever the counts are
+        # mixed. Warn in every access mode: "has no overviews" is independent of
+        # read-only-ness, and refusing on read-only would misdiagnose the cause
+        # (reopening writable yields this same warning) and would wrongly reject a
+        # read-only handle whose external .ovr sidecar is perfectly regenerable.
+        bands_without = [i for i, count in enumerate(overview_count) if count == 0]
+        if not overview_count:
+            warnings.warn(
+                "The dataset has no bands, so there are no overviews to regenerate.",
+                stacklevel=2,
+            )
+            return
+        if len(bands_without) == len(overview_count):
             warnings.warn(
                 "The dataset has no overviews to regenerate; call create_overviews() "
                 "first to build them.",
                 stacklevel=2,
             )
             return
+        if bands_without:
+            warnings.warn(
+                f"Bands {bands_without} have no overviews to regenerate and were "
+                "skipped; call create_overviews() first to build them.",
+                stacklevel=2,
+            )
         # Build overviews using nearest neighbor resampling
         # nearest is the resampling method used. Other methods include AVERAGE, GAUSS, etc.
         try:

@@ -119,6 +119,52 @@ class TestRecreateOverviewsContract:
         finally:
             dataset.close()
 
+    def test_mixed_band_counts_warn_naming_the_skipped_bands(self, tmp_path):
+        """Bands without overviews are named instead of being silently skipped.
+
+        Test scenario:
+            A VRT whose band 1 sources a raster carrying an external `.ovr` and whose
+            band 2 sources one without — `overview_count == [1, 0]`. Expected: a warning
+            naming band 1 (0-based) as skipped, since `range(0)` would otherwise
+            regenerate nothing and report nothing, leaving that band silently stale.
+        """
+        driver = gdal.GetDriverByName("GTiff")
+        sources = []
+        for name in ("with_ovr.tif", "without_ovr.tif"):
+            path = str(tmp_path / name)
+            raster = driver.Create(path, 8, 8, 1, gdal.GDT_Float32)
+            raster.GetRasterBand(1).WriteArray(
+                np.arange(64, dtype="float32").reshape(8, 8)
+            )
+            raster = None
+            sources.append(path)
+        with_ovr, without_ovr = sources
+        handle = gdal.Open(with_ovr)
+        handle.BuildOverviews("NEAREST", [2])
+        handle = None
+
+        vrt = tmp_path / "mixed.vrt"
+        vrt.write_text(
+            f'<VRTDataset rasterXSize="8" rasterYSize="8">'
+            f'<VRTRasterBand dataType="Float32" band="1">'
+            f'<SimpleSource><SourceFilename relativeToVRT="0">{with_ovr}</SourceFilename>'
+            f"<SourceBand>1</SourceBand></SimpleSource>"
+            f'<Overview><SourceFilename relativeToVRT="0">{with_ovr}.ovr</SourceFilename>'
+            f"<SourceBand>1</SourceBand></Overview></VRTRasterBand>"
+            f'<VRTRasterBand dataType="Float32" band="2">'
+            f'<SimpleSource><SourceFilename relativeToVRT="0">{without_ovr}</SourceFilename>'
+            f"<SourceBand>1</SourceBand></SimpleSource></VRTRasterBand></VRTDataset>"
+        )
+        dataset = Dataset.read_file(str(vrt), read_only=True)
+        try:
+            assert dataset.overview_count == [1, 0], (
+                f"fixture must produce mixed counts, got {dataset.overview_count}"
+            )
+            with pytest.warns(UserWarning, match=r"Bands \[1\] have no overviews"):
+                dataset.recreate_overviews()
+        finally:
+            dataset.close()
+
     def test_in_memory_dataset_without_overviews_warns(self):
         """An in-memory dataset warns rather than raising, despite read_only access.
 
