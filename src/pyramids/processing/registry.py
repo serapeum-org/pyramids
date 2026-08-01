@@ -68,7 +68,7 @@ register(
     ToolSpec(
         name="slope",
         receiver="Dataset",
-        returns="Dataset",
+        returns="Array",
         description="Terrain slope from an elevation raster.",
         params=(
             ParamSpec("band", "Integer", 0, True, "Zero-based band index."),
@@ -88,7 +88,7 @@ register(
     ToolSpec(
         name="aspect",
         receiver="Dataset",
-        returns="Dataset",
+        returns="Array",
         description="Terrain aspect (compass direction of steepest descent).",
         params=(ParamSpec("band", "Integer", 0, True, "Zero-based band index."),),
     )
@@ -98,7 +98,7 @@ register(
     ToolSpec(
         name="hillshade",
         receiver="Dataset",
-        returns="Dataset",
+        returns="Array",
         description="Shaded-relief raster from an elevation raster.",
         params=(
             ParamSpec("azimuth", "Float", 315.0, True, "Sun azimuth in degrees."),

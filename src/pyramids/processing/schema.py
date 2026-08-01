@@ -36,8 +36,12 @@ _SERIALIZABLE_TYPES = frozenset(
     {"Float", "Integer", "Boolean", "String", "Field", "OptionList", "NewFile"}
 )
 
-#: Valid receiver / return object types a tool can operate on or produce.
+#: Object types a tool can be invoked on (must be a chainable pyramids object).
 RECEIVER_TYPES = frozenset({"Dataset", "FeatureCollection"})
+
+#: Types a tool may return. ``"Array"`` marks a terminal op (e.g. slope) whose
+#: numpy-array output cannot be the receiver of a further step.
+RETURN_TYPES = frozenset({"Dataset", "FeatureCollection", "Array"})
 
 
 @dataclass(frozen=True)
@@ -197,10 +201,10 @@ class ToolSpec:
                 f"tool {self.name!r}: receiver must be one of "
                 f"{sorted(RECEIVER_TYPES)}, got {self.receiver!r}"
             )
-        if self.returns not in RECEIVER_TYPES:
+        if self.returns not in RETURN_TYPES:
             raise ValueError(
                 f"tool {self.name!r}: returns must be one of "
-                f"{sorted(RECEIVER_TYPES)}, got {self.returns!r}"
+                f"{sorted(RETURN_TYPES)}, got {self.returns!r}"
             )
         seen = [p.name for p in self.params]
         if len(seen) != len(set(seen)):

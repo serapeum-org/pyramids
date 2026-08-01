@@ -3,7 +3,12 @@
 import pytest
 
 import pyramids.processing.registry as reg
-from pyramids.processing.schema import RECEIVER_TYPES, ParamSpec, ToolSpec
+from pyramids.processing.schema import (
+    RECEIVER_TYPES,
+    RETURN_TYPES,
+    ParamSpec,
+    ToolSpec,
+)
 
 EXPECTED_ALLOWLIST = {
     "slope",
@@ -59,7 +64,7 @@ class TestRegistry:
     @pytest.mark.parametrize(
         "name, receiver, returns",
         [
-            ("slope", "Dataset", "Dataset"),
+            ("slope", "Dataset", "Array"),
             ("interpolate_to_raster", "FeatureCollection", "Dataset"),
             ("to_h3", "FeatureCollection", "FeatureCollection"),
         ],
@@ -86,7 +91,7 @@ class TestRegistry:
         """
         for name, spec in reg.get_registry().items():
             assert spec.receiver in RECEIVER_TYPES, f"{name} bad receiver {spec.receiver}"
-            assert spec.returns in RECEIVER_TYPES, f"{name} bad returns {spec.returns}"
+            assert spec.returns in RETURN_TYPES, f"{name} bad returns {spec.returns}"
 
     def test_register_and_resolve_roundtrip(self):
         """register adds a tool that resolve can then return.

@@ -16,6 +16,7 @@ from pyramids.processing.registry import (
     resolve,
     tool_names,
 )
+from pyramids.processing.runner import RunResult, run
 from pyramids.processing.schema import (
     PARAM_TYPES,
     ParamSpec,
@@ -27,11 +28,13 @@ __all__ = [
     "PARAM_TYPES",
     "ParamSpec",
     "Pipeline",
+    "RunResult",
     "Step",
     "ToolSpec",
     "get_registry",
     "register",
     "resolve",
+    "run",
     "tool_names",
     "validate_params",
 ]
