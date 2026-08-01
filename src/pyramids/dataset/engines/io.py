@@ -3294,26 +3294,26 @@ class IO(_Engine["Dataset"]):
     ) -> Dataset:
         """Get an overview level as a standalone `Dataset`.
 
-        `get_overview` hands back a raw `gdal.Band`, which carries no geotransform, CRS
-        or no-data value, so an overview cannot be plotted, written, cropped or
-        reprojected without dropping to GDAL. This returns the same pixels as a
-        first-class `Dataset` whose cell size is scaled by the decimation factor.
+        `get_overview` hands back a raw `gdal.Band`, which carries no geotransform and
+        no CRS, so an overview cannot be plotted, written, cropped or reprojected
+        without dropping to GDAL. This returns the same pixels as a first-class
+        `Dataset` whose cell size is scaled by the decimation factor.
 
         A raster GDAL can reopen by name — an on-disk file, a `/vsimem/` raster, any
         `/vsi*` URL — is described lazily through the `OVERVIEW_LEVEL` open option and
         wrapped in a VRT, so no pixels are read and GDAL derives the scaled geotransform
-        itself. Only a nameless `MEM` handle (a `create_from_array` raster with no path,
-        a `NetCDF` variable view) is materialised into an in-memory `Dataset`, with the
-        geotransform scaled here.
+        itself. Only a handle GDAL cannot reopen by name (a `create_from_array` raster
+        with no path, a `NetCDF` variable view) is materialised into an in-memory
+        `Dataset`, with the geotransform scaled here.
 
         The result is a **read-only view** of the parent's pixels: it is detached from
         the parent handle and carries its own GDAL handle, which the caller owns and
         should `close()` — until it is closed it keeps the parent file open, so on
-        Windows the file cannot be deleted. Because the lazy form has no path of its
-        own, `read_array(threadsafe=True)`, `read_array(chunks=...)` and pickling it are
-        unavailable and fail loudly; call `to_file()` first if you need any of those.
-        A `NetCDF` variable view returns a plain `Dataset` — an overview level is an
-        ordinary raster, not a NetCDF container.
+        Windows the file cannot be deleted. Neither form carries a path of its own, so
+        `read_array(threadsafe=True)` and pickling it raise, and `read_array(chunks=...)`
+        returns a graph that raises when it is computed; call `to_file()` first if you
+        need any of those. A `NetCDF` variable view returns a plain `Dataset` — an
+        overview level is an ordinary raster, not a NetCDF container.
 
         Args:
             band (int | None):
@@ -3412,7 +3412,10 @@ class IO(_Engine["Dataset"]):
         overview.scale = [self._ds.scale[index] for index in selection]
         overview.offset = [self._ds.offset[index] for index in selection]
         meta_data = self._ds.meta_data
-        if meta_data:
+        # A NetCDF exposes meta_data as a NetCDFMetadata, not a mapping, and the Dataset
+        # setter iterates .items(). An overview level is a plain raster, so carry only a
+        # real mapping and leave a container's structured attributes behind.
+        if isinstance(meta_data, dict) and meta_data:
             overview.meta_data = meta_data
 
     def _overview_dataset_from_file(
@@ -3473,10 +3476,11 @@ class IO(_Engine["Dataset"]):
     ) -> Dataset:
         """Materialise one overview level of a nameless raster into a new `Dataset`.
 
-        Only a `MEM` handle reaches this path — it has no name for GDAL to reopen, so it
-        cannot be described by a VRT. Reads each selected band's overview directly rather
-        than through `read_overview_array`, whose all-bands branch sizes its buffer from
-        overview 0 and so cannot serve a higher `overview_index`.
+        Only a handle GDAL cannot reopen by name reaches this path — a nameless `MEM`
+        raster, or a NetCDF variable view — so it cannot be described by a VRT. Reads
+        each selected band's overview directly rather than through
+        `read_overview_array`, whose all-bands branch sizes its buffer from overview 0
+        and so cannot serve a higher `overview_index`.
 
         Args:
             selection: The 0-based band indices to read.
