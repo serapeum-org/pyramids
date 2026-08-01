@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Iterator
 
+import yaml
+
 from pyramids.processing.registry import resolve
 from pyramids.processing.schema import validate_params
 
@@ -111,3 +113,41 @@ class Pipeline:
                 )
             steps.append((step["tool"], step.get("params", {})))
         return cls(steps)
+
+    def to_yaml(self, path: str) -> None:
+        """Write the pipeline to a portable, version-controllable YAML file.
+
+        Every step's params are re-validated with ``for_serialization=True`` first,
+        so a pipeline carrying a non-serializable value (array / mask / callable /
+        in-memory object) raises here instead of writing a file that cannot be
+        loaded back.
+
+        Args:
+            path: Destination ``.yaml`` path.
+
+        Raises:
+            ValueError: If any step carries a non-serializable parameter value.
+        """
+        for step in self._steps:
+            validate_params(resolve(step.tool), step.params, for_serialization=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            yaml.safe_dump(self.to_dict(), handle, sort_keys=False)
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "Pipeline":
+        """Read a pipeline from a YAML file written by :meth:`to_yaml`.
+
+        Args:
+            path: Path to a pipeline YAML file.
+
+        Returns:
+            A validated :class:`Pipeline`.
+
+        Raises:
+            ValueError: If the file is not a mapping with a ``"pipeline"`` list, or
+                a step references an unknown tool / invalid params (re-validated via
+                the constructor).
+        """
+        with open(path, encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+        return cls.from_dict(data)
