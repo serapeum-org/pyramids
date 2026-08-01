@@ -3288,6 +3288,166 @@ class IO(_Engine["Dataset"]):
             raise ValueError(f"overview_level should be less than {n_views}")
         return band_obj.GetOverview(overview_index)
 
+    def get_overview_dataset(
+        self, band: int | None = None, overview_index: int = 0
+    ) -> Dataset:
+        """Get an overview level as a standalone `Dataset`.
+
+        `get_overview` hands back a raw `gdal.Band`, which carries no geotransform, CRS
+        or no-data value, so an overview cannot be plotted, written, cropped or
+        reprojected without dropping to GDAL. This returns the same pixels as a
+        first-class `Dataset` whose cell size is scaled by the decimation factor.
+
+        A raster backed by a file is reopened lazily through GDAL's `OVERVIEW_LEVEL`
+        open option, so no pixels are read and GDAL derives the scaled geotransform
+        itself. A raster with no path to reopen — an in-memory `MEM` dataset, a
+        `/vsimem/` raster, or a `NetCDF` variable view — is materialised into a new
+        in-memory `Dataset` instead, with the geotransform scaled here.
+
+        Args:
+            band (int | None):
+                The band to take. `None` (the default) keeps every band, matching
+                `read_overview_array`; an `int` returns a single-band `Dataset`.
+            overview_index (int):
+                Index of the overview level. Defaults to 0, the largest (least
+                decimated) overview.
+
+        Returns:
+            Dataset:
+                The requested overview level, carrying the parent's CRS and no-data
+                value and a cell size scaled by the decimation factor.
+
+        Raises:
+            ValueError:
+                A selected band has no overviews, or `overview_index` is out of range.
+
+        Examples:
+            - Build overviews on a raster, then take level 1 as a `Dataset`:
+              ```python
+              >>> from pyramids.dataset import Dataset
+              >>> dataset = Dataset.read_file("dem.tif", read_only=False)  # doctest: +SKIP
+              >>> dataset.create_overviews()  # doctest: +SKIP
+              >>> overview = dataset.get_overview_dataset(overview_index=1)  # doctest: +SKIP
+              >>> overview.cell_size, overview.epsg  # doctest: +SKIP
+              (0.2, 4326)
+              >>> overview.to_file("dem_ov1.tif")  # doctest: +SKIP
+
+              ```
+        See Also:
+            - Dataset.get_overview: The same level as a raw `gdal.Band`.
+            - Dataset.read_overview_array: The same level as a numpy array.
+            - Dataset.create_overviews: Create the dataset overviews.
+            - Dataset.overview_count: Number of overviews.
+        """
+        # Circular import: `pyramids.dataset.dataset` imports this engine module while it
+        # is still initialising, so `Dataset` is only reachable from inside a call. Same
+        # carve-out as `engines/analysis.py`.
+        from pyramids.dataset.dataset import Dataset as _Dataset
+
+        selection = [band] if band is not None else list(range(self._ds.band_count))
+        for index in selection:
+            # Reuse get_overview's "no overviews" / "index out of range" guards, so this
+            # accessor rejects exactly what its gdal.Band sibling rejects.
+            self.get_overview(index, overview_index)
+        file_name = self._ds.file_name
+        # Mirrors RasterBase._require_writable's rule: a MEM/vsimem/path-less handle has
+        # nothing to reopen, so OVERVIEW_LEVEL cannot reach it.
+        in_memory = (
+            not file_name
+            or file_name.startswith(_VSIMEM_PREFIX)
+            or self._ds.driver_type == "memory"
+        )
+        if in_memory:
+            overview = self._overview_dataset_from_array(
+                _Dataset, selection, band, overview_index
+            )
+        else:
+            overview = self._overview_dataset_from_file(
+                _Dataset, file_name, band, overview_index
+            )
+        return overview
+
+    def _overview_dataset_from_file(
+        self,
+        dataset_cls: type[Dataset],
+        file_name: str,
+        band: int | None,
+        overview_index: int,
+    ) -> Dataset:
+        """Open one overview level of an on-disk raster without reading its pixels.
+
+        GDAL's `OVERVIEW_LEVEL` open option exposes the level as a full dataset and
+        scales the geotransform itself, so nothing has to be recomputed here.
+
+        Args:
+            dataset_cls: The `Dataset` class, passed in to keep the import call-local.
+            file_name: Path or VSI URL of the parent raster.
+            band: A single 0-based band to keep, or `None` for every band.
+            overview_index: Index of the overview level to open.
+
+        Returns:
+            Dataset: The overview level, wrapping a lazily opened GDAL handle.
+        """
+        with self._ds._cloud_config():
+            level = gdal.OpenEx(
+                file_name, open_options=[f"OVERVIEW_LEVEL={overview_index}"]
+            )
+            if band is not None:
+                # A VRT keeps the band subset lazy; MEM would copy the level into RAM,
+                # which on a large raster is exactly what the overview avoids.
+                level = gdal.Translate("", level, format="VRT", bandList=[band + 1])
+        return dataset_cls(level, gdal_env=self._ds.gdal_env)
+
+    def _overview_dataset_from_array(
+        self,
+        dataset_cls: type[Dataset],
+        selection: list[int],
+        band: int | None,
+        overview_index: int,
+    ) -> Dataset:
+        """Materialise one overview level of a path-less raster into a new `Dataset`.
+
+        Reads each selected band's overview directly rather than through
+        `read_overview_array`, whose all-bands branch sizes its buffer from overview 0
+        and so cannot serve a higher `overview_index`.
+
+        Args:
+            dataset_cls: The `Dataset` class, passed in to keep the import call-local.
+            selection: The 0-based band indices to read.
+            band: The single band requested, or `None` when every band was requested.
+            overview_index: Index of the overview level to read.
+
+        Returns:
+            Dataset: An in-memory dataset holding the overview pixels, with the parent's
+            CRS and no-data value and a geotransform scaled by the decimation factor.
+        """
+        planes = [
+            np.asarray(self.get_overview(index, overview_index).ReadAsArray())
+            for index in selection
+        ]
+        arr = planes[0] if band is not None else np.stack(planes, axis=0)
+        rows, columns = planes[0].shape
+        geo = self._ds.geotransform
+        scaled_geo = (
+            geo[0],
+            geo[1] * (self._ds.columns / columns),
+            geo[2],
+            geo[3],
+            geo[4],
+            geo[5] * (self._ds.rows / rows),
+        )
+        no_data_value = (
+            self._ds.no_data_value[band]
+            if band is not None
+            else list(self._ds.no_data_value)
+        )
+        return dataset_cls.create_from_array(
+            arr,
+            geo=scaled_geo,
+            epsg=self._ds.epsg,
+            no_data_value=no_data_value,
+        )
+
     def read_overview_array(
         self, band: int | None = None, overview_index: int = 0
     ) -> np.typing.NDArray:

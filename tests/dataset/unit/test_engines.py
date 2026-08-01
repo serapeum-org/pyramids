@@ -257,6 +257,7 @@ FACADE_METHODS = [
     ("io", "create_overviews"),
     ("io", "recreate_overviews"),
     ("io", "get_overview"),
+    ("io", "get_overview_dataset"),
     ("io", "read_overview_array"),
     ("spatial", "crop"),
     ("spatial", "to_crs"),

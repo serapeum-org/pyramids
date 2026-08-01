@@ -7,12 +7,36 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from pyramids.base._errors import ReadOnlyError
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
+
+
+def _overviewed_raster(tmp_path, name: str = "ovr_src.tif") -> str:
+    """Write a georeferenced 3-band raster and build two overview levels on it.
+
+    Band ``i`` is filled with the constant ``i + 1`` so a caller can tell the bands
+    apart after decimation, and the cell size (0.5) halves per level.
+    """
+    path = str(tmp_path / name)
+    raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 3, gdal.GDT_Float32)
+    raster.SetGeoTransform((10.0, 0.5, 0.0, 80.0, 0.0, -0.5))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    raster.SetProjection(srs.ExportToWkt())
+    for index in range(3):
+        band = raster.GetRasterBand(index + 1)
+        band.SetNoDataValue(-9999.0)
+        band.WriteArray(np.full((64, 64), float(index + 1), dtype="float32"))
+    raster = None
+
+    handle = gdal.Open(path, gdal.GA_Update)
+    handle.BuildOverviews("AVERAGE", [2, 4])
+    handle = None
+    return path
 
 
 def _mixed_overview_vrt(tmp_path) -> str:
@@ -441,6 +465,177 @@ class TestRecreateOverviewsContract:
             assert not user_warnings, (
                 f"happy path should not warn, got {[str(w.message) for w in user_warnings]}"
             )
+        finally:
+            dataset.close()
+
+
+class TestGetOverviewDataset:
+    """`get_overview_dataset` returns an overview level as a first-class Dataset (#784).
+
+    `get_overview` yields a raw `gdal.Band` with no geotransform, CRS or no-data, so an
+    overview could not be plotted, written or reprojected without dropping to GDAL.
+    """
+
+    def test_file_backed_level_scales_the_grid(self, tmp_path):
+        """A file-backed level keeps the CRS and no-data and halves the resolution.
+
+        Test scenario:
+            Level 0 of a 64x64 raster at cell 0.5 — expected: 32x32 at cell 1.0, the
+            same origin, EPSG and no-data, and all three bands carried over.
+        """
+        dataset = Dataset.read_file(_overviewed_raster(tmp_path))
+        try:
+            overview = dataset.get_overview_dataset(overview_index=0)
+            assert (overview.rows, overview.columns) == (32, 32), (
+                f"expected 32x32, got {(overview.rows, overview.columns)}"
+            )
+            assert overview.cell_size == 1.0, f"cell size {overview.cell_size} != 1.0"
+            assert overview.epsg == dataset.epsg, "EPSG should carry over"
+            assert overview.band_count == 3, (
+                f"expected 3 bands, got {overview.band_count}"
+            )
+            assert overview.no_data_value[0] == -9999.0, "no-data should carry over"
+            assert overview.top_left_corner == dataset.top_left_corner, (
+                "the origin must not move when decimating"
+            )
+        finally:
+            dataset.close()
+
+    def test_higher_level_scales_further(self, tmp_path):
+        """Level 1 decimates twice as far as level 0.
+
+        Test scenario:
+            ``overview_index=1`` on the same raster — expected: 16x16 at cell 2.0, so
+            the scaling follows the requested level rather than always level 0.
+        """
+        dataset = Dataset.read_file(_overviewed_raster(tmp_path))
+        try:
+            overview = dataset.get_overview_dataset(overview_index=1)
+            assert (overview.rows, overview.columns) == (16, 16), (
+                f"expected 16x16, got {(overview.rows, overview.columns)}"
+            )
+            assert overview.cell_size == 2.0, f"cell size {overview.cell_size} != 2.0"
+        finally:
+            dataset.close()
+
+    def test_band_selection_returns_that_band(self, tmp_path):
+        """Passing `band` returns a single-band Dataset holding that band's pixels.
+
+        Test scenario:
+            Each band is filled with a distinct constant, so ``band=1`` must come back
+            as one band whose values are 2.0 — proving the subset picks the right band
+            rather than defaulting to band 0.
+        """
+        dataset = Dataset.read_file(_overviewed_raster(tmp_path))
+        try:
+            overview = dataset.get_overview_dataset(band=1, overview_index=0)
+            assert overview.band_count == 1, (
+                f"expected 1 band, got {overview.band_count}"
+            )
+            values = np.asarray(overview.read_array(band=0))
+            assert np.allclose(values, 2.0), (
+                f"expected band 1's constant 2.0, got {values[0, 0]}"
+            )
+        finally:
+            dataset.close()
+
+    def test_file_backed_level_is_not_materialised(self, tmp_path):
+        """A file-backed level is opened lazily rather than copied into memory.
+
+        Test scenario:
+            Inspect the returned dataset's driver — expected: not the MEM driver, i.e.
+            it came through GDAL's ``OVERVIEW_LEVEL`` open option, so a large raster's
+            overview is not read into RAM just to be described.
+        """
+        dataset = Dataset.read_file(_overviewed_raster(tmp_path))
+        try:
+            overview = dataset.get_overview_dataset(overview_index=0)
+            assert overview.driver_type != "memory", (
+                f"file-backed level should stay lazy, got driver {overview.driver_type}"
+            )
+        finally:
+            dataset.close()
+
+    def test_path_less_dataset_falls_back_to_the_array(self):
+        """An in-memory raster has no path to reopen, so its level is materialised.
+
+        Test scenario:
+            A `create_from_array` raster (MEM driver, empty `file_name`) — expected: the
+            level still comes back with the scaled cell size and the right values, via
+            the array fallback rather than ``OVERVIEW_LEVEL``.
+        """
+        arr = np.stack(
+            [np.full((64, 64), float(index + 1), dtype="float32") for index in range(3)]
+        )
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(10.0, 80.0), cell_size=0.5, epsg=4326
+        )
+        try:
+            dataset.create_overviews(overview_levels=[2, 4])
+            overview = dataset.get_overview_dataset(band=1, overview_index=1)
+            assert (overview.rows, overview.columns) == (16, 16), (
+                f"expected 16x16, got {(overview.rows, overview.columns)}"
+            )
+            assert overview.cell_size == 2.0, f"cell size {overview.cell_size} != 2.0"
+            assert overview.epsg == 4326, f"epsg {overview.epsg} != 4326"
+            assert np.allclose(np.asarray(overview.read_array(band=0)), 2.0), (
+                "the fallback must read the requested band, not band 0"
+            )
+        finally:
+            dataset.close()
+
+    def test_written_level_round_trips(self, tmp_path):
+        """The returned Dataset is writable like any other, with the scaled grid.
+
+        Test scenario:
+            ``to_file`` the level and reopen it — expected: the saved raster keeps the
+            decimated shape and scaled cell size, which is the motivating use case
+            (`get_overview` could not do this at all).
+        """
+        dataset = Dataset.read_file(_overviewed_raster(tmp_path))
+        out = str(tmp_path / "level0.tif")
+        try:
+            dataset.get_overview_dataset(overview_index=0).to_file(out)
+        finally:
+            dataset.close()
+        saved = Dataset.read_file(out)
+        try:
+            assert (saved.rows, saved.columns) == (32, 32), (
+                f"expected 32x32 on disk, got {(saved.rows, saved.columns)}"
+            )
+            assert saved.cell_size == 1.0, f"cell size {saved.cell_size} != 1.0"
+        finally:
+            saved.close()
+
+    def test_missing_overviews_raise(self):
+        """A raster with no overviews raises, matching `get_overview`.
+
+        Test scenario:
+            Call the accessor before `create_overviews` — expected: the same
+            `ValueError` its `gdal.Band` sibling raises, not an empty Dataset.
+        """
+        dataset = Dataset.create_from_array(
+            np.zeros((8, 8), dtype="float32"),
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        try:
+            with pytest.raises(ValueError, match="no overviews"):
+                dataset.get_overview_dataset()
+        finally:
+            dataset.close()
+
+    def test_out_of_range_level_raises(self, tmp_path):
+        """An overview_index past the built levels raises, matching `get_overview`.
+
+        Test scenario:
+            Two levels exist; ask for index 9 — expected: `ValueError` naming the bound.
+        """
+        dataset = Dataset.read_file(_overviewed_raster(tmp_path))
+        try:
+            with pytest.raises(ValueError, match="should be less than"):
+                dataset.get_overview_dataset(overview_index=9)
         finally:
             dataset.close()
 
