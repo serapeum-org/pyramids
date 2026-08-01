@@ -173,6 +173,18 @@ class TestPipeline:
         """
         assert Pipeline([("slope", {})]) != "not a pipeline", "should not equal a str"
 
+    def test_to_dict_params_are_copied(self):
+        """Mutating to_dict()'s params does not affect the pipeline (L1).
+
+        Test scenario:
+            Editing the params dict returned by to_dict leaves the pipeline's own
+            step params unchanged.
+        """
+        p = Pipeline([("slope", {"band": 0})])
+        d = p.to_dict()
+        d["pipeline"][0]["params"]["band"] = 99
+        assert p.steps[0].params["band"] == 0, "to_dict must not leak internal params"
+
     def test_from_dict_pipeline_not_list(self):
         """from_dict rejects a 'pipeline' that is not a list.
 

@@ -12,8 +12,11 @@ import numpy as np
 import pytest
 from shapely.geometry import Point
 
+import pyramids.processing.registry as reg
 from pyramids.dataset import Dataset
+from pyramids.feature import FeatureCollection
 from pyramids.processing import Pipeline, run
+from pyramids.processing.schema import ParamSpec, ToolSpec
 
 
 @pytest.fixture(scope="module")
@@ -23,14 +26,23 @@ def points_fc():
     Returns:
         FeatureCollection: EPSG:4326 points suitable for interpolate_to_raster.
     """
-    from pyramids.feature import FeatureCollection
-
     gdf = gpd.GeoDataFrame(
         {"elevation": [1.0, 2.0, 3.0, 4.0, 5.0]},
         geometry=[Point(0, 0), Point(4, 0), Point(0, 4), Point(4, 4), Point(2, 2)],
         crs="EPSG:4326",
     )
     return FeatureCollection(gdf)
+
+
+@pytest.fixture(scope="module")
+def raster_ds():
+    """An 8x8 single-band EPSG:4326 raster for the Dataset-receiver tools.
+
+    Returns:
+        Dataset: a small in-memory float raster.
+    """
+    arr = np.arange(64, dtype="float32").reshape(1, 8, 8)
+    return Dataset.create_from_array(arr, geo=(0, 1, 0, 8, 0, -1), epsg=4326)
 
 
 class TestRun:
@@ -175,6 +187,73 @@ class TestRun:
         assert len(result.outputs) == 2, result.failures
         assert all(isinstance(o, Dataset) for o in result.outputs), result.outputs
 
+    @pytest.mark.parametrize(
+        "tool, params",
+        [("to_crs", {"to_epsg": 3857}), ("resample", {"cell_size": 2.0}), ("hillshade", {})],
+    )
+    def test_dataset_tools_run_through_runner(self, raster_ds, tool, params):
+        """Each Dataset-receiver tool dispatches and returns a Dataset.
+
+        Args:
+            raster_ds: small raster fixture.
+            tool: the tool name.
+            params: its params.
+
+        Test scenario:
+            to_crs/resample/hillshade run end-to-end (catches param-name or
+            method-name drift the metadata tests would miss).
+        """
+        result = run(Pipeline([(tool, params)]), raster_ds, on_error="raise")
+        assert result.ok and isinstance(result.outputs[0], Dataset), result.failures
+
+    def test_to_h3_runs_through_runner(self, points_fc):
+        """to_h3 dispatches on a FeatureCollection and returns one.
+
+        Test scenario:
+            to_h3 tags points and yields a FeatureCollection.
+        """
+        result = run(Pipeline([("to_h3", {"resolution": 5})]), points_fc, on_error="raise")
+        assert result.ok and isinstance(result.outputs[0], FeatureCollection), result.failures
+
+    def test_materialized_output_preserves_crs(self, raster_ds):
+        """A materialized terrain output keeps the source CRS (M1 regression).
+
+        Test scenario:
+            slope on an EPSG:4326 raster yields a Dataset still reporting epsg 4326.
+        """
+        result = run(Pipeline([("slope", {})]), raster_ds, on_error="raise")
+        assert result.outputs[0].epsg == 4326, result.outputs[0].epsg
+
+    def test_same_basename_inputs_do_not_collide(self, points_fc, tmp_path):
+        """Same-basename inputs from different dirs write distinct outputs (M2).
+
+        Args:
+            points_fc: point-collection fixture (written to two dirs).
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Two `pts.geojson` inputs produce two indexed .tif outputs, not one.
+        """
+        (tmp_path / "a").mkdir()
+        (tmp_path / "b").mkdir()
+        p1 = tmp_path / "a" / "pts.geojson"
+        p2 = tmp_path / "b" / "pts.geojson"
+        points_fc.to_file(str(p1))
+        points_fc.to_file(str(p2))
+        out = tmp_path / "out"
+        pipe = Pipeline([("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})])
+        result = run(pipe, [str(p1), str(p2)], out=str(out), on_error="raise")
+        assert result.ok and len(list(out.glob("*.tif"))) == 2, list(out.iterdir())
+
+    def test_empty_list_raises(self):
+        """An empty resolved input set is an error, like an empty glob (L5).
+
+        Test scenario:
+            run(pipe, []) raises ValueError rather than silently doing nothing.
+        """
+        with pytest.raises(ValueError, match="no inputs to process"):
+            run(Pipeline([("slope", {})]), [])
+
     def test_empty_glob_raises(self, tmp_path):
         """A glob that matches nothing is an error, not a silent success.
 
@@ -207,9 +286,6 @@ class TestRun:
             A pipeline using a runtime-registered tool raises up front under
             parallel (workers would not see it), before any process spawns.
         """
-        import pyramids.processing.registry as reg
-        from pyramids.processing.schema import ParamSpec, ToolSpec
-
         reg.register(ToolSpec("__rt_tool__", "Dataset", "Dataset", (ParamSpec("x", "Integer"),)))
         try:
             pipe = Pipeline([("__rt_tool__", {"x": 1})])

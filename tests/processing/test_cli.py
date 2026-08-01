@@ -5,6 +5,7 @@ import pytest
 from shapely.geometry import Point
 
 from pyramids.cli import main
+from pyramids.feature import FeatureCollection
 from pyramids.processing import Pipeline
 
 
@@ -18,8 +19,6 @@ def points_geojson(tmp_path):
     Returns:
         str: Path to the written .geojson.
     """
-    from pyramids.feature import FeatureCollection
-
     gdf = gpd.GeoDataFrame(
         {"elevation": [1.0, 2.0, 3.0, 4.0, 5.0]},
         geometry=[Point(0, 0), Point(4, 0), Point(0, 4), Point(4, 4), Point(2, 2)],

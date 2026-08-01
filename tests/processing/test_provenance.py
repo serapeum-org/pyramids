@@ -3,14 +3,13 @@
 import geopandas as gpd
 from shapely.geometry import Point
 
+from pyramids.feature import FeatureCollection
 from pyramids.processing import Pipeline, run
 from pyramids.processing.provenance import Provenance, StepRecord
 
 
 def _points_fc():
     """Build a small point FeatureCollection for interpolation."""
-    from pyramids.feature import FeatureCollection
-
     gdf = gpd.GeoDataFrame(
         {"elevation": [1.0, 2.0, 3.0, 4.0, 5.0]},
         geometry=[Point(0, 0), Point(4, 0), Point(0, 4), Point(4, 4), Point(2, 2)],
