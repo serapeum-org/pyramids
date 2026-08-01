@@ -11,6 +11,7 @@ import logging
 import math
 import pickle  # nosec B403 - PicklingError only, no load
 import shutil
+import sys
 import tempfile
 import threading
 import warnings
@@ -78,6 +79,31 @@ def _snap_index(value: float, tol: float = _GRID_SNAP_TOL) -> float:
     """Snap a fractional pixel index to the nearest integer when within `tol`, else return it as-is."""
     nearest = round(value)
     return float(nearest) if abs(value - nearest) <= tol else value
+
+
+_PACKAGE_ROOT = str(Path(__file__).resolve().parents[2])
+
+
+def _caller_stacklevel() -> int:
+    """Return the `warnings.warn` stacklevel that blames the first frame outside pyramids.
+
+    An engine method is reachable both directly (`ds.io.method()`) and through the
+    `Dataset` facade (`ds.method()`), which differ by one frame, so a hard-coded
+    `stacklevel` is right for one and wrong for the other — pointing at `dataset.py`,
+    or overshooting into the caller's caller and, at module level, falling back to
+    `<sys>:0` with no file or line. Walking out of the package instead is correct for
+    every entry point, and unlike `warnings.warn(skip_file_prefixes=...)` it does not
+    require Python 3.12.
+
+    Returns:
+        int: The stacklevel to pass to `warnings.warn` from the calling function.
+    """
+    level = 1
+    frame = sys._getframe(1)
+    while frame is not None and frame.f_code.co_filename.startswith(_PACKAGE_ROOT):
+        level += 1
+        frame = frame.f_back
+    return level
 
 
 _THREAD_MANAGER_CREATION_LOCK = threading.Lock()
@@ -3070,49 +3096,104 @@ class IO(_Engine["Dataset"]):
         # (reopening writable yields this same warning) and would wrongly reject a
         # read-only handle whose external .ovr sidecar is perfectly regenerable.
         bands_without = [i for i, count in enumerate(overview_count) if count == 0]
+        stacklevel = _caller_stacklevel()
         if not overview_count:
             warnings.warn(
                 "The dataset has no bands, so there are no overviews to regenerate.",
                 UserWarning,
-                stacklevel=3,
+                stacklevel=stacklevel,
             )
-            return
-        if len(bands_without) == len(overview_count):
+        elif len(bands_without) == len(overview_count):
             warnings.warn(
                 "The dataset has no overviews to regenerate; call create_overviews() "
                 "first to build them.",
                 UserWarning,
-                stacklevel=3,
+                stacklevel=stacklevel,
             )
-            return
-        if bands_without:
-            warnings.warn(
-                f"Bands {bands_without} have no overviews to regenerate and were "
-                "skipped; call create_overviews() first to build them.",
-                UserWarning,
-                stacklevel=3,
+        else:
+            if bands_without:
+                skipped = ", ".join(str(index) for index in bands_without)
+                warnings.warn(
+                    f"Bands {skipped} (0-based) have no overviews to regenerate and "
+                    "were skipped; call create_overviews() first to build them.",
+                    UserWarning,
+                    stacklevel=stacklevel,
+                )
+            self._regenerate_overviews(overview_count, resampling_method)
+
+    def _regenerate_overviews(
+        self, overview_count: list[int], resampling_method: str
+    ) -> None:
+        """Regenerate every existing overview level in place, band by band.
+
+        Split out of :meth:`recreate_overviews` so the empty-count reporting reads as one
+        decision. Each call is bracketed by `gdal.ErrorReset()` so the CPL error number
+        inspected on failure belongs to *this* regeneration and not to something earlier
+        in the process.
+
+        Args:
+            overview_count: Per-band overview counts, snapshotted by the caller.
+            resampling_method: One of `RESAMPLING_METHODS`, already validated.
+
+        Raises:
+            ReadOnlyError: GDAL refused the write because the overview target is
+                read-only (`CPLE_NoWriteAccess`).
+            RuntimeError: Any other GDAL failure, re-raised unchanged with a note naming
+                the band and level it stopped on.
+        """
+        for i in range(self._ds.band_count):
+            band = self._ds._iloc(i)
+            for j in range(overview_count[i]):
+                ovr = self.get_overview(i, j)
+                gdal.ErrorReset()
+                try:
+                    status = gdal.RegenerateOverview(band, ovr, resampling_method)
+                except RuntimeError as err:
+                    err.add_note(
+                        f"Failed regenerating overview {j} of band {i} (0-based); "
+                        "earlier bands may already have been rewritten."
+                    )
+                    if self._is_write_refusal(err):
+                        raise ReadOnlyError(
+                            f"Cannot regenerate overview {j} of band {i}: the overviews "
+                            "are opened read-only. Please read the dataset using "
+                            "read_only=False to recreate overviews."
+                        ) from err
+                    raise
+                # gdal.UseExceptions() is process-global, so a caller that turned it off
+                # (or a driver that fails without pushing a CPL error) would otherwise
+                # slip through as the silent no-op this method exists to remove.
+                if status != gdal.CE_None:
+                    detail = gdal.GetLastErrorMsg() or f"GDAL returned {status}"
+                    raise RuntimeError(
+                        f"Failed regenerating overview {j} of band {i} (0-based): "
+                        f"{detail}"
+                    )
+
+    @staticmethod
+    def _is_write_refusal(err: RuntimeError) -> bool:
+        """Return True if a GDAL regeneration failure is a read-only refusal.
+
+        Classifies on the CPL error number (`CPLE_NoWriteAccess`) rather than the
+        message: GDAL prefixes messages with the dataset path, so a bare "read-only"
+        substring test relabels an unrelated failure on a raster living under, say,
+        `/mnt/read-only-archive/` as an access-mode error. The exact GDAL phrasings are
+        kept only as a fallback for drivers that raise without setting the number —
+        those phrases cannot occur incidentally in a path the way the bare token can.
+        """
+        if gdal.GetLastErrorNo() == gdal.CPLE_NoWriteAccess:
+            refusal = True
+        else:
+            message = str(err).lower()
+            refusal = any(
+                phrase in message
+                for phrase in (
+                    "read-only mode",
+                    "read only dataset",
+                    "read-only dataset",
+                )
             )
-        # Regenerate each existing overview level in place, honouring resampling_method.
-        try:
-            for i in range(self._ds.band_count):
-                band = self._ds._iloc(i)
-                for j in range(overview_count[i]):
-                    ovr = self.get_overview(i, j)
-                    gdal.RegenerateOverview(band, ovr, resampling_method)
-        except RuntimeError as err:
-            # Only a read-only target becomes ReadOnlyError; a disk-full, corrupt
-            # overview, unsupported resampling or network failure is a different
-            # problem and must not be relabelled as an access-mode error. GDAL words
-            # the former "...opened in read-only mode".
-            if (
-                "read-only" not in str(err).lower()
-                and "read only" not in str(err).lower()
-            ):
-                raise
-            raise ReadOnlyError(
-                "The Dataset is opened read-only. Please read the dataset using "
-                "read_only=False to recreate overviews."
-            ) from err
+        return refusal
 
     def get_overview(self, band: int = 0, overview_index: int = 0) -> gdal.Band:
         """Get an overview of a band.
@@ -3176,7 +3257,7 @@ class IO(_Engine["Dataset"]):
               ```
         See Also:
             - Dataset.create_overviews: Create the dataset overviews if they exist.
-            - Dataset.create_overviews: Recreate the dataset overviews if they exist.
+            - Dataset.recreate_overviews: Regenerate the dataset overviews if they exist.
             - Dataset.overview_count: Number of overviews.
             - Dataset.read_overview_array: Read overview values.
             - Dataset.plot: Plot a band.
@@ -3254,7 +3335,7 @@ class IO(_Engine["Dataset"]):
               ```
         See Also:
             - Dataset.create_overviews: Create the dataset overviews.
-            - Dataset.create_overviews: Recreate the dataset overviews if they exist.
+            - Dataset.recreate_overviews: Regenerate the dataset overviews if they exist.
             - Dataset.get_overview: Get an overview of a band.
             - Dataset.overview_count: Number of overviews.
             - Dataset.plot: Plot a band.

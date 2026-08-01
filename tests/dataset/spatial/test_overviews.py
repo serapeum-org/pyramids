@@ -15,6 +15,42 @@ from pyramids.dataset import Dataset
 pytestmark = pytest.mark.core
 
 
+def _mixed_overview_vrt(tmp_path) -> str:
+    """Build a 2-band VRT reporting ``overview_count == [1, 0]``.
+
+    Band 1 sources a raster carrying an external `.ovr` and declares it through a
+    per-band `<Overview>`; band 2 sources a raster without one. Both bands must point at
+    *different* files — sharing one source makes GDAL expose its overviews on both bands
+    and the counts come back `[1, 1]`.
+    """
+    driver = gdal.GetDriverByName("GTiff")
+    sources = []
+    for name in ("with_ovr.tif", "without_ovr.tif"):
+        path = str(tmp_path / name)
+        raster = driver.Create(path, 8, 8, 1, gdal.GDT_Float32)
+        raster.GetRasterBand(1).WriteArray(np.arange(64, dtype="float32").reshape(8, 8))
+        raster = None
+        sources.append(path)
+    with_ovr, without_ovr = sources
+    handle = gdal.Open(with_ovr)
+    handle.BuildOverviews("NEAREST", [2])
+    handle = None
+
+    vrt = tmp_path / "mixed.vrt"
+    vrt.write_text(
+        f'<VRTDataset rasterXSize="8" rasterYSize="8">'
+        f'<VRTRasterBand dataType="Float32" band="1">'
+        f'<SimpleSource><SourceFilename relativeToVRT="0">{with_ovr}</SourceFilename>'
+        f"<SourceBand>1</SourceBand></SimpleSource>"
+        f'<Overview><SourceFilename relativeToVRT="0">{with_ovr}.ovr</SourceFilename>'
+        f"<SourceBand>1</SourceBand></Overview></VRTRasterBand>"
+        f'<VRTRasterBand dataType="Float32" band="2">'
+        f'<SimpleSource><SourceFilename relativeToVRT="0">{without_ovr}</SourceFilename>'
+        f"<SourceBand>1</SourceBand></SimpleSource></VRTRasterBand></VRTDataset>"
+    )
+    return str(vrt)
+
+
 def test_create_overviews(era5_image: gdal.Dataset, clean_overview_after_test):
     dataset = Dataset(era5_image)
     dataset.create_overviews()
@@ -77,7 +113,7 @@ class TestRecreateOverviewsContract:
         dataset = Dataset.read_file(str(work), read_only=False)
         try:
             assert not any(dataset.overview_count), "fixture must start with none"
-            with pytest.warns(UserWarning, match="no overviews to regenerate"):
+            with pytest.warns(UserWarning, match=r"call create_overviews\(\) first"):
                 dataset.recreate_overviews()
         finally:
             dataset.close()
@@ -95,7 +131,7 @@ class TestRecreateOverviewsContract:
         work = shutil.copy(era5_raster_path, tmp_path / "ro_no_ovr.tif")
         dataset = Dataset.read_file(str(work), read_only=True)
         try:
-            with pytest.warns(UserWarning, match="no overviews to regenerate"):
+            with pytest.warns(UserWarning, match=r"call create_overviews\(\) first"):
                 dataset.recreate_overviews()
         finally:
             dataset.close()
@@ -127,8 +163,17 @@ class TestRecreateOverviewsContract:
                 ReadOnlyError,
                 "read_only=False",
             ),
+            (
+                "/mnt/read-only-archive/dem.tif, band 1: No space left on device",
+                RuntimeError,
+                "No space left on device",
+            ),
         ],
-        ids=["unrelated-failure-propagates", "read-only-wording-is-translated"],
+        ids=[
+            "unrelated-failure-propagates",
+            "read-only-wording-is-translated",
+            "read-only-in-the-path-is-not-a-refusal",
+        ],
     )
     def test_gdal_failures_are_classified_by_message(
         self,
@@ -139,15 +184,17 @@ class TestRecreateOverviewsContract:
         expected_error,
         expected_text,
     ):
-        """Only a read-only complaint becomes `ReadOnlyError`; other failures propagate.
+        """Only a genuine write refusal becomes `ReadOnlyError`; other failures propagate.
 
         Test scenario:
             `gdal.RegenerateOverview` is patched to raise a `RuntimeError` while a
-            writable dataset that does have overviews is regenerated. Expected: a
-            disk-full failure surfaces unchanged as `RuntimeError` (the pre-fix code
-            relabelled *every* `RuntimeError` as `ReadOnlyError`, misdiagnosing it),
-            while GDAL's spaced "read only" wording is still translated — the hyphenated
-            wording is exercised for real in
+            writable dataset that does have overviews is regenerated, so no CPL error
+            number is set and the phrase fallback decides. Expected: a disk-full failure
+            surfaces unchanged as `RuntimeError` (the pre-fix code relabelled *every*
+            `RuntimeError`); GDAL's spaced "read only dataset" wording is translated; and
+            a failure whose *path* merely contains "read-only" stays a `RuntimeError`,
+            since GDAL prefixes messages with the dataset path and a bare substring test
+            would misdiagnose it. The real `CPLE_NoWriteAccess` route is exercised in
             ``test_internal_overviews_on_read_only_dataset_raises``.
         """
         work = shutil.copy(era5_raster_path, tmp_path / "gdal_failure.tif")
@@ -166,6 +213,38 @@ class TestRecreateOverviewsContract:
             )
             assert expected_text in str(excinfo.value), (
                 f"expected {expected_text!r} in the message, got: {excinfo.value}"
+            )
+            if expected_error is ReadOnlyError:
+                assert isinstance(excinfo.value.__cause__, RuntimeError), (
+                    "the original GDAL error must stay chained as __cause__"
+                )
+        finally:
+            dataset.close()
+
+    def test_mixed_counts_still_regenerate_the_populated_bands(
+        self, tmp_path, monkeypatch
+    ):
+        """After warning about the empty bands, the populated ones are regenerated.
+
+        Test scenario:
+            Record every `gdal.RegenerateOverview` call on the mixed `[1, 0]` VRT —
+            expected: exactly one call, for band 0's single level, proving the mixed
+            path warns *and* carries on rather than returning early. The recorder also
+            keeps the call off the VRT's read-only `.ovr`, which is why the sibling
+            warning test has to suppress that failure.
+        """
+        dataset = Dataset.read_file(_mixed_overview_vrt(tmp_path), read_only=True)
+        try:
+            calls = []
+            monkeypatch.setattr(
+                gdal,
+                "RegenerateOverview",
+                lambda band, ovr, method: calls.append(method) or gdal.CE_None,
+            )
+            with pytest.warns(UserWarning, match=r"call create_overviews\(\) first"):
+                dataset.recreate_overviews(resampling_method="average")
+            assert calls == ["average"], (
+                f"only band 0's single overview should regenerate, got {calls}"
             )
         finally:
             dataset.close()
@@ -201,39 +280,14 @@ class TestRecreateOverviewsContract:
             read-only; that is beside the point here, so it is suppressed — the warning
             is emitted before the loop either way.
         """
-        driver = gdal.GetDriverByName("GTiff")
-        sources = []
-        for name in ("with_ovr.tif", "without_ovr.tif"):
-            path = str(tmp_path / name)
-            raster = driver.Create(path, 8, 8, 1, gdal.GDT_Float32)
-            raster.GetRasterBand(1).WriteArray(
-                np.arange(64, dtype="float32").reshape(8, 8)
-            )
-            raster = None
-            sources.append(path)
-        with_ovr, without_ovr = sources
-        handle = gdal.Open(with_ovr)
-        handle.BuildOverviews("NEAREST", [2])
-        handle = None
-
-        vrt = tmp_path / "mixed.vrt"
-        vrt.write_text(
-            f'<VRTDataset rasterXSize="8" rasterYSize="8">'
-            f'<VRTRasterBand dataType="Float32" band="1">'
-            f'<SimpleSource><SourceFilename relativeToVRT="0">{with_ovr}</SourceFilename>'
-            f"<SourceBand>1</SourceBand></SimpleSource>"
-            f'<Overview><SourceFilename relativeToVRT="0">{with_ovr}.ovr</SourceFilename>'
-            f"<SourceBand>1</SourceBand></Overview></VRTRasterBand>"
-            f'<VRTRasterBand dataType="Float32" band="2">'
-            f'<SimpleSource><SourceFilename relativeToVRT="0">{without_ovr}</SourceFilename>'
-            f"<SourceBand>1</SourceBand></SimpleSource></VRTRasterBand></VRTDataset>"
-        )
-        dataset = Dataset.read_file(str(vrt), read_only=True)
+        dataset = Dataset.read_file(_mixed_overview_vrt(tmp_path), read_only=True)
         try:
             assert dataset.overview_count == [1, 0], (
                 f"fixture must produce mixed counts, got {dataset.overview_count}"
             )
-            with pytest.warns(UserWarning, match=r"Bands \[1\] have no overviews"):
+            with pytest.warns(
+                UserWarning, match=r"Bands 1 \(0-based\) have no overviews"
+            ):
                 with contextlib.suppress(ReadOnlyError):
                     dataset.recreate_overviews()
         finally:
@@ -254,7 +308,7 @@ class TestRecreateOverviewsContract:
             epsg=4326,
         )
         try:
-            with pytest.warns(UserWarning, match="no overviews to regenerate"):
+            with pytest.warns(UserWarning, match=r"call create_overviews\(\) first"):
                 dataset.recreate_overviews()
         finally:
             dataset.close()

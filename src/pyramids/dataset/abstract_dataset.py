@@ -1512,7 +1512,8 @@ class RasterBase(ABC):
         Warns:
             UserWarning:
                 No band has overviews, so there is nothing to regenerate; or only some
-                bands have them, and the empty ones were skipped.
+                bands have them, and the empty ones were skipped. Also when the dataset
+                has no bands at all.
         """
         pass
 

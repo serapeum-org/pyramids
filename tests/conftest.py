@@ -332,20 +332,21 @@ def era5_image(era5_raster_path: str) -> gdal.Dataset:
 
 @pytest.fixture(scope="session")
 def era5_internal_overviews_path() -> str:
+    """Repo-root-relative path to the ERA5 raster that carries internal overviews."""
     return "tests/data/geotiff/era5_land_monthly_averaged-internal-overviews.tif"
 
 
 @pytest.fixture(scope="function")
 def era5_image_internal_overviews_read_only_false(
     era5_internal_overviews_path: str,
-) -> Dataset:
+) -> gdal.Dataset:
     return gdal.OpenShared(era5_internal_overviews_path, gdal.GA_Update)
 
 
 @pytest.fixture(scope="function")
 def era5_image_internal_overviews_read_only_true(
     era5_internal_overviews_path: str,
-) -> Dataset:
+) -> gdal.Dataset:
     return gdal.OpenShared(era5_internal_overviews_path, gdal.GA_ReadOnly)
 
 
