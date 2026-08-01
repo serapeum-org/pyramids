@@ -1539,9 +1539,9 @@ class RasterBase(ABC):
     def get_overview_dataset(self, band: int | None = None, overview_index: int = 0):
         """Get an overview level as a standalone Dataset.
 
-        The `gdal.Band` from `get_overview` carries no geotransform, CRS or no-data
-        value; this returns the same pixels as a read-only `Dataset` view whose cell
-        size is scaled by the decimation factor. The caller owns the returned handle.
+        The `gdal.Band` from `get_overview` carries no geotransform and no CRS; this
+        returns the same pixels as a read-only `Dataset` view whose cell size is scaled
+        by the decimation factor. The caller owns the returned handle.
 
         Args:
             band (int | None, optional):
