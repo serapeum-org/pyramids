@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+from osgeo import gdal
 from pandas import DataFrame
 
 from pyramids.dataset import Dataset
@@ -106,6 +107,29 @@ class TestColorTable:
         ]
         # test the color_table property
         dataset.color_table = df
+
+    @pytest.mark.plot
+    def test_set_color_table_tags_palette_interpretation(self):
+        rng = np.random.default_rng(1)
+        arr = rng.integers(1, 4, size=(1, 5, 5))
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        assert (
+            dataset.raster.GetRasterBand(1).GetColorInterpretation()
+            == gdal.GCI_Undefined
+        )
+        dataset.color_table = pd.DataFrame(
+            {
+                "band": [1, 1, 1],
+                "values": [1, 2, 3],
+                "color": ["#709959", "#F2EEA2", "#F2CE85"],
+            }
+        )
+        assert (
+            dataset.raster.GetRasterBand(1).GetColorInterpretation()
+            == gdal.GCI_PaletteIndex
+        )
 
 
 class TestColorRelief:

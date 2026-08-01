@@ -857,7 +857,9 @@ class Bands(_Engine["Dataset"]):
                 )
 
             band.SetColorTable(color_table)
-            # band.SetRasterColorInterpretation(gdal.GCI_PaletteIndex)
+            # tag the band as paletted so GDAL and downstream readers treat the
+            # values as palette indices, matching the COG writer (see cog.py).
+            band.SetColorInterpretation(gdal.GCI_PaletteIndex)
 
     def _get_color_table(self, band: int | None = None) -> DataFrame:
         """Get color table.
