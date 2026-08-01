@@ -697,11 +697,17 @@ class Dataset(RasterBase):
               ```
 
             - A ``palette_index`` band is not an RGB channel, so it does not trigger
-              the RGB branch — the raster resolves to a single band (rule 3, #910):
+              the RGB branch — the raster resolves to a single band (rule 3, #910).
+              A fresh dataset is built here so the example is independent of the
+              tags set above:
 
               ```python
-              >>> ds.band_color = {0: 'palette_index'}
-              >>> ds._resolve_plot_band(band=None, rgb=None)
+              >>> paletted = np.random.rand(3, 8, 8).astype(np.float32)
+              >>> ds_pal = Dataset.create_from_array(
+              ...     paletted, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ... )
+              >>> ds_pal.band_color = {0: 'palette_index'}
+              >>> ds_pal._resolve_plot_band(band=None, rgb=None)
               (0, None)
 
               ```
