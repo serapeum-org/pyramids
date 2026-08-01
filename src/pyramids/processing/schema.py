@@ -135,6 +135,9 @@ class ParamSpec:
     def coerce(self, raw: str) -> Any:
         """Coerce a raw CLI string into this parameter's type.
 
+        Public API kept for a future CLI ``--set key=value`` path; not yet wired
+        into a shipped command (the ``run`` subcommand reads typed params from YAML).
+
         Args:
             raw: The string value from the command line.
 
