@@ -21,6 +21,7 @@ from pyramids.feature import FeatureCollection
 from pyramids.processing.pipeline import Pipeline, Step
 from pyramids.processing.provenance import Provenance, StepRecord
 from pyramids.processing.registry import BUILTIN_TOOLS, resolve
+from pyramids.processing.schema import ToolSpec
 
 #: File extensions opened as vector (FeatureCollection) rather than raster.
 _VECTOR_EXTS = frozenset(
@@ -58,11 +59,13 @@ def _resolve_inputs(inputs: Any) -> list[Any]:
     ``DatasetCollection`` (duck-typed via its ``datasets`` attribute so the heavy
     collection import is not pulled into every ``import pyramids.processing``).
     """
+    if isinstance(inputs, os.PathLike):
+        inputs = os.fspath(inputs)
     if isinstance(inputs, (list, tuple)):
         items = list(inputs)
     elif isinstance(inputs, str):
         if any(ch in inputs for ch in "*?["):
-            items = sorted(_glob.glob(inputs))
+            items = sorted(_glob.glob(inputs, recursive=True))
             if not items:
                 raise ValueError(f"no inputs matched glob {inputs!r}")
         else:
@@ -97,20 +100,20 @@ def _open(item: Any) -> Any:
     return obj
 
 
-def _apply(step: Step, obj: Any) -> Any:
+def _apply(step: Step, obj: Any, spec: ToolSpec) -> Any:
     """Apply one pipeline step to ``obj`` and return the result.
 
     Dispatches to ``obj``'s method only when ``obj``'s type matches the tool's
     declared receiver. This is what makes a cross-receiver chain safe: a step whose
     predecessor changed the object type (e.g. ``interpolate_to_raster`` turns a
     ``FeatureCollection`` into a ``Dataset``) is checked against the *new* type, and
-    a step applied to the wrong receiver — including chaining past a terminal
-    array-returning op — raises a clear ``TypeError`` instead of an opaque
-    ``AttributeError``.
+    a step applied to the wrong receiver raises a clear ``TypeError`` instead of an
+    opaque ``AttributeError``.
 
     Args:
         step: The pipeline step to apply.
         obj: The current pipeline object.
+        spec: The step's resolved :class:`ToolSpec` (resolved once by the caller).
 
     Returns:
         The step's output (which may be a different receiver type).
@@ -118,7 +121,6 @@ def _apply(step: Step, obj: Any) -> Any:
     Raises:
         TypeError: If ``obj``'s type does not match the tool's declared receiver.
     """
-    spec = resolve(step.tool)
     actual = _receiver_type(obj)
     if actual != spec.receiver:
         raise TypeError(
@@ -131,7 +133,9 @@ def _apply(step: Step, obj: Any) -> Any:
 
 def _source_label(item: Any) -> str:
     """A provenance-friendly label for an input (path, or ``<Type>`` marker)."""
-    return item if isinstance(item, str) else f"<{type(item).__name__}>"
+    if isinstance(item, (str, os.PathLike)):
+        return os.fspath(item)
+    return f"<{type(item).__name__}>"
 
 
 def _materialize_array(array: "np.ndarray", source: Dataset) -> Dataset:
@@ -146,7 +150,7 @@ def _materialize_array(array: "np.ndarray", source: Dataset) -> Dataset:
     return Dataset.create_from_array(
         data,
         geo=source.geotransform,
-        epsg=source.epsg,
+        epsg=source.epsg or source.crs,
         no_data_value=source.no_data_value[0],
     )
 
@@ -160,24 +164,31 @@ def _run_pipeline_on(pipeline: Pipeline, obj: Any, source: str) -> tuple[Any, Pr
     """
     prov = Provenance(source=source)
     for step in pipeline:
+        spec = resolve(step.tool)
         source_obj = obj
         start = time.perf_counter()
-        obj = _apply(step, obj)
-        if resolve(step.tool).returns == "Array" and isinstance(obj, np.ndarray):
+        obj = _apply(step, obj, spec)
+        if spec.returns == "Array" and isinstance(obj, np.ndarray):
             obj = _materialize_array(obj, source_obj)
         prov.steps.append(StepRecord(step.tool, dict(step.params), time.perf_counter() - start))
     return obj, prov
 
 
 def _write(obj: Any, source: Any, out_dir: str, index: int) -> str:
-    """Write a pipeline output into ``out_dir``, named after its source."""
+    """Write a pipeline output into ``out_dir``, named ``<stem>_<index>``.
+
+    The batch index is always part of the name so same-basename inputs from
+    different directories never collide (and parallel workers never race on one
+    path). A path/``PathLike`` source contributes its basename; an in-memory
+    object uses ``output``.
+    """
     os.makedirs(out_dir, exist_ok=True)
-    if isinstance(source, str):
-        stem = os.path.splitext(os.path.basename(source))[0]
+    if isinstance(source, (str, os.PathLike)):
+        stem = os.path.splitext(os.path.basename(os.fspath(source)))[0]
     else:
-        stem = f"output_{index}"
+        stem = "output"
     suffix = ".geojson" if _receiver_type(obj) == "FeatureCollection" else ".tif"
-    path = os.path.join(out_dir, f"{stem}{suffix}")
+    path = os.path.join(out_dir, f"{stem}_{index}{suffix}")
     obj.to_file(path)
     return path
 
@@ -272,7 +283,8 @@ def run(
         on_error: ``"skip"`` collects ``(source, exception)`` failures and
             continues; ``"raise"`` fails fast on the first error.
         out: Optional output directory; when given, each successful output is
-            written there, named after its source. Required when ``parallel=True``.
+            written there as ``<source-stem>_<index>`` (the batch index keeps
+            same-basename inputs from colliding). Required when ``parallel=True``.
         parallel: When ``True``, run the batch across a process pool. Because GDAL
             handles cannot cross process boundaries, this requires **file-path**
             inputs and an ``out`` directory (outputs are written worker-side and
@@ -293,6 +305,8 @@ def run(
     if on_error not in {"skip", "raise"}:
         raise ValueError(f"on_error must be 'skip' or 'raise', got {on_error!r}")
     items = _resolve_inputs(inputs)
+    if not items:
+        raise ValueError("no inputs to process (the resolved input set is empty)")
     if parallel:
         if out is None:
             raise ValueError(
