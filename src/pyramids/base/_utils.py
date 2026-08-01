@@ -186,11 +186,14 @@ COLOR_NAMES = [
 # "is this band an RGB channel?" checks (e.g. `Dataset._resolve_plot_band`).
 UNDEFINED_COLOR_INTERP = COLOR_NAMES[0]
 
-# Human-readable name for GDAL's palette interpretation
-# (`gdal.GCI_PaletteIndex` -> `COLOR_NAMES[2]`). A paletted band is rendered
-# through its colour table, so it is *not* an RGB channel; the same
-# "is this band an RGB channel?" checks must exclude it as well.
-PALETTE_COLOR_INTERP = COLOR_NAMES[2]
+# The GDAL colour interpretations that mark a band as an RGB channel
+# (`red` / `green` / `blue` -> `COLOR_NAMES[3:6]`). Only these signal that a
+# multi-band raster is RGB imagery. Every other interpretation -- `undefined`,
+# `palette_index`, `gray_index`, alpha, CMYK, HSL, YCbCr -- is single-channel
+# or paletted and must not trigger the RGB plot heuristic (see
+# `Dataset._resolve_plot_band`, issue #910). Kept as an allowlist so a new
+# non-RGB interpretation can never silently re-enable the false-RGB bug.
+RGB_CHANNEL_INTERPS = frozenset(COLOR_NAMES[3:6])
 
 COLOR_TABLE = DataFrame(
     columns=["id", "gdal_constant", "name"],

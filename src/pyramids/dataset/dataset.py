@@ -23,8 +23,7 @@ from pyramids import _io
 from pyramids.base._errors import AlignmentError, CRSError
 from pyramids.base._utils import (
     DTYPE_CONVERSION_DF,
-    PALETTE_COLOR_INTERP,
-    UNDEFINED_COLOR_INTERP,
+    RGB_CHANNEL_INTERPS,
     numpy_to_gdal_dtype,
 )
 from pyramids.base.crs import (
@@ -627,14 +626,13 @@ class Dataset(RasterBase):
         1. If ``band`` is explicitly provided, it is returned as-is (and ``rgb`` passes
            through untouched).
         2. If the dataset has fewer than 3 bands, return ``(0, rgb)``.
-        3. If the dataset has 3+ bands but **no** band carries an RGB-channel
-           ``ColorInterpretation`` (i.e. every band reports ``undefined`` or
-           ``palette_index``), return ``(0, rgb)``. This is the D-1 fix: ``band_count >= 3``
-           alone is not a sufficient signal that the data is an RGB image — multi-band
-           scalar cubes (e.g. time series stacked into one GeoTIFF) also have
-           ``band_count >= 3`` and must not be misinterpreted as RGB. A ``palette_index``
-           band is rendered through its colour table, not as an RGB channel, so it is
-           excluded here too (see #910).
+        3. If the dataset has 3+ bands but **no** band is tagged as an RGB channel
+           (``red``/``green``/``blue``), return ``(0, rgb)``. This is the D-1 fix:
+           ``band_count >= 3`` alone is not a sufficient signal that the data is an RGB
+           image — multi-band scalar cubes (e.g. time series stacked into one GeoTIFF)
+           also have ``band_count >= 3`` and must not be misinterpreted as RGB. Only the
+           three RGB-channel interpretations count; ``palette_index``, ``gray_index`` and
+           the other single-channel tags are rendered as single bands, not RGB (see #910).
         4. Otherwise, treat the dataset as RGB imagery. If ``rgb`` was supplied, its
            first entry is the red band. If it was not supplied, resolve red/green/blue
            via :meth:`get_band_by_color`; fall back to ``[2, 1, 0]`` (the default
@@ -697,6 +695,16 @@ class Dataset(RasterBase):
               (1, [2, 1, 0])
 
               ```
+
+            - A ``palette_index`` band is not an RGB channel, so it does not trigger
+              the RGB branch — the raster resolves to a single band (rule 3, #910):
+
+              ```python
+              >>> ds.band_color = {0: 'palette_index'}
+              >>> ds._resolve_plot_band(band=None, rgb=None)
+              (0, None)
+
+              ```
         """
         if band is not None:
             # Coerce to a plain ``int`` here too (the RGB branch already
@@ -709,14 +717,18 @@ class Dataset(RasterBase):
             resolved_rgb = rgb
         else:
             band_colors = list(self.band_color.values())
-            # A paletted band (`palette_index`) is rendered through its colour
-            # table, not as an RGB channel, so it must not count as evidence of
-            # RGB imagery any more than `undefined` does -- otherwise a
-            # multi-band raster with a palette on one band is mis-resolved as a
-            # false-colour RGB composite (see #910).
-            non_rgb_interp = {UNDEFINED_COLOR_INTERP, PALETTE_COLOR_INTERP}
-            has_color_interp = any(c not in non_rgb_interp for c in band_colors)
-            if not has_color_interp:
+            # Only a true RGB channel (`red`/`green`/`blue`) signals RGB
+            # imagery. `undefined`, `palette_index`, `gray_index`, and the other
+            # single-channel/paletted interpretations do not -- otherwise a
+            # multi-band raster carrying any of them is mis-resolved as a
+            # false-colour RGB composite (see #910). An allowlist keeps a new
+            # non-RGB interpretation from silently re-enabling that bug.
+            has_rgb_interp = any(c in RGB_CHANNEL_INTERPS for c in band_colors)
+            if not has_rgb_interp:
+                # No RGB channels: render a single band. Band 0 is a deliberate
+                # default -- the plot path does not (yet) render a palette
+                # through its colour table, so the band index is not meaningful
+                # for paletted data today.
                 resolved_band = 0
                 resolved_rgb = rgb
             else:
