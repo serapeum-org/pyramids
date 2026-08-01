@@ -1486,6 +1486,10 @@ class RasterBase(ABC):
     def recreate_overviews(self, resampling_method: str = "nearest"):
         """Recreate overviews for the dataset.
 
+        Regenerates the existing overviews in place; it never builds new ones — call
+        `create_overviews` for that. A band with no overviews has nothing to regenerate,
+        so it is reported through a warning rather than skipped silently.
+
         Args:
             resampling_method (str, optional):
                 The resampling method used to create the overviews, by default "nearest".
@@ -1500,6 +1504,11 @@ class RasterBase(ABC):
             ReadOnlyError:
                 If the overviews are internal and the Dataset is opened with a read only.
                 Please read the dataset using read_only=False
+
+        Warns:
+            UserWarning:
+                No band has overviews, so there is nothing to regenerate; or only some
+                bands have them, and the empty ones were skipped.
         """
         pass
 
