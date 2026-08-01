@@ -18,6 +18,7 @@ import warnings
 from collections.abc import Callable, Generator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import FrameType
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -99,7 +100,7 @@ def _caller_stacklevel() -> int:
         int: The stacklevel to pass to `warnings.warn` from the calling function.
     """
     level = 1
-    frame = sys._getframe(1)
+    frame: FrameType | None = sys._getframe(1)
     while frame is not None and frame.f_code.co_filename.startswith(_PACKAGE_ROOT):
         level += 1
         frame = frame.f_back
