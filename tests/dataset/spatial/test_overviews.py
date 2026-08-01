@@ -594,6 +594,73 @@ class TestGetOverviewDataset:
                 overview.close()
             dataset.close()
 
+    def test_lazy_level_refuses_a_chunked_read(self, tmp_path):
+        """A chunked read of the lazy level never hands back full-resolution pixels.
+
+        Test scenario:
+            `chunks=` reopens the dataset by path inside each dask task and the VRT
+            carries no path, making it the third reopen-by-path route beside
+            `threadsafe=` and pickle — expected: the graph is shaped from the level
+            (32x32, not the parent's 64x64) and computing it raises, rather than quietly
+            filling the blocks from the parent raster. The refusal surfaces on compute
+            rather than at the call, unlike its two siblings.
+        """
+        pytest.importorskip("dask")
+        dataset = Dataset.read_file(_overviewed_raster(tmp_path, "chunked.tif"))
+        overview = None
+        try:
+            overview = dataset.get_overview_dataset(band=0, overview_index=0)
+            lazy = overview.read_array(band=0, chunks=16)
+            assert lazy.shape == (32, 32), (
+                f"the graph must be shaped from the level, got {lazy.shape}"
+            )
+            with pytest.raises(RuntimeError):
+                lazy.compute()
+        finally:
+            if overview is not None:
+                overview.close()
+            dataset.close()
+
+    def test_remote_parent_with_credentials_warns(self, tmp_path):
+        """A remote parent carrying cloud credentials warns that the VRT strands them.
+
+        Test scenario:
+            A `/vsimem/` path reads as remote, so attaching a `gdal_env` reproduces the
+            stranded-credentials case without a network — expected: a `UserWarning`
+            naming the credentials, and none at all for a local parent carrying the same
+            env, whose sources GDAL reopens without needing them.
+        """
+        path = "/vsimem/overview_credentials.tif"
+        raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((10.0, 0.5, 0.0, 80.0, 0.0, -0.5))
+        raster.GetRasterBand(1).WriteArray(
+            np.arange(4096, dtype="float32").reshape(64, 64)
+        )
+        raster = None
+        remote = Dataset.read_file(path, read_only=False)
+        local = Dataset.read_file(_overviewed_raster(tmp_path, "credentialed.tif"))
+        remote_level = local_level = None
+        try:
+            remote.create_overviews(overview_levels=[2])
+            remote.attach_gdal_env({"AWS_REQUEST_PAYER": "requester"})
+            with pytest.warns(UserWarning, match="cloud credentials"):
+                remote_level = remote.get_overview_dataset()
+            local.attach_gdal_env({"AWS_REQUEST_PAYER": "requester"})
+            with warnings.catch_warnings(record=True) as recorded:
+                warnings.simplefilter("always")
+                local_level = local.get_overview_dataset()
+            stranded = [w for w in recorded if "cloud credentials" in str(w.message)]
+            assert not stranded, (
+                f"a local parent must not warn about credentials: {stranded}"
+            )
+        finally:
+            for handle in (remote_level, local_level):
+                if handle is not None:
+                    handle.close()
+            remote.close()
+            local.close()
+            gdal.Unlink(path)
+
     def test_vsimem_parent_stays_lazy(self):
         """A /vsimem/ raster reopens under OVERVIEW_LEVEL, so it is not materialised.
 
@@ -725,6 +792,48 @@ class TestGetOverviewDataset:
                 if handle is not None:
                     handle.close()
             dataset.close()
+
+    def test_dataset_metadata_is_carried_but_never_invented(self):
+        """The parent's dataset metadata is copied over, and absence stays absence.
+
+        Test scenario:
+            The materialised path builds the level with `create_from_array`, which
+            starts with an empty metadata dictionary — expected: a parent describing
+            itself with `units`/`source` passes both on, while a parent with no metadata
+            leaves the level's dictionary empty instead of gaining keys of its own.
+        """
+        described = Dataset.create_from_array(
+            np.zeros((32, 32), dtype="float32"),
+            top_left_corner=(0.0, 32.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        described.meta_data = {"units": "K", "source": "reanalysis"}
+        bare = Dataset.create_from_array(
+            np.zeros((32, 32), dtype="float32"),
+            top_left_corner=(0.0, 32.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        described_level = bare_level = None
+        try:
+            described.create_overviews(overview_levels=[2])
+            bare.create_overviews(overview_levels=[2])
+            described_level = described.get_overview_dataset()
+            expected = {"units": "K", "source": "reanalysis"}
+            assert described_level.meta_data == expected, (
+                f"dataset metadata lost: {described_level.meta_data}"
+            )
+            bare_level = bare.get_overview_dataset()
+            assert bare_level.meta_data == {}, (
+                f"a metadata-less parent must not gain any: {bare_level.meta_data}"
+            )
+        finally:
+            for handle in (described_level, bare_level):
+                if handle is not None:
+                    handle.close()
+            described.close()
+            bare.close()
 
     def test_crs_without_an_epsg_code_survives(self):
         """A CRS with no EPSG authority code is not silently cleared.
