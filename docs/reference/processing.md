@@ -15,7 +15,7 @@ The pieces:
 
 ## v1 tool allowlist
 
-v1 ships a curated, real-signature allowlist (see [ADR 0001](../adr/0001-processing-registry-approach.md) for why it
+v1 ships a curated, real-signature allowlist (see [ADR 0007](../adr/0007-processing-registry-approach.md) for why it
 is hand-written rather than introspected). List it with `pyramids tools`:
 
 | tool | receiver → returns |

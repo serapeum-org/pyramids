@@ -1,4 +1,4 @@
-# ADR 0001 — `pyramids.processing` tool-registry approach
+# ADR 0007 — `pyramids.processing` tool-registry approach
 
 **Status:** Accepted · **Date:** 2026-08-01 · **Issue:** #780 (task T1)
 
