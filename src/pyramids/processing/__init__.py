@@ -9,10 +9,20 @@ The public surface grows as the pipeline layer is built (see issue #780); this
 module re-exports the stable pieces as they land.
 """
 
+from pyramids.processing.registry import (
+    register,
+    registry,
+    resolve,
+    tool_names,
+)
 from pyramids.processing.schema import PARAM_TYPES, ParamSpec, ToolSpec
 
 __all__ = [
     "PARAM_TYPES",
     "ParamSpec",
     "ToolSpec",
+    "register",
+    "registry",
+    "resolve",
+    "tool_names",
 ]
