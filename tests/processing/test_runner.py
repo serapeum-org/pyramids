@@ -302,6 +302,28 @@ class TestRun:
         with pytest.raises(ValueError, match="no inputs matched glob"):
             run(pipe, str(tmp_path / "*.tif"))
 
+    @pytest.mark.slow
+    def test_parallel_run_executes_and_returns_paths(self, points_fc, tmp_path):
+        """A real process-pool batch writes outputs and returns their paths (M1).
+
+        Args:
+            points_fc: point-collection fixture (written to two files).
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Two point files run under parallel=True produce two written .tif paths,
+            with one provenance record per input that re-emits its pipeline.
+        """
+        for name in ("a.geojson", "b.geojson"):
+            points_fc.to_file(str(tmp_path / name))
+        out = tmp_path / "out"
+        pipe = Pipeline([("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})])
+        result = run(pipe, str(tmp_path / "*.geojson"), out=str(out), parallel=True, max_workers=2)
+        assert len(result.outputs) == 2, result.failures
+        assert all(isinstance(p, str) and p.endswith(".tif") for p in result.outputs), result.outputs
+        assert len(result.provenance) == 2, result.provenance
+        assert all(pr.to_pipeline() == pipe for pr in result.provenance), result.provenance
+
     def test_parallel_requires_out(self, points_fc):
         """parallel=True without an out directory is rejected.
 
