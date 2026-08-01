@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import glob as _glob
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -134,35 +135,12 @@ def _write(obj: Any, source: Any, out_dir: str, index: int) -> str:
     return path
 
 
-def run(
-    pipeline: Pipeline,
-    inputs: Any,
-    *,
-    on_error: str = "skip",
-    out: str | None = None,
+def _execute_serial(
+    pipeline: Pipeline, items: list[Any], on_error: str, out: str | None
 ) -> RunResult:
-    """Run ``pipeline`` over ``inputs`` and collect the results.
-
-    Args:
-        pipeline: The :class:`Pipeline` to apply to each input.
-        inputs: A single path/object, a glob string, a list/tuple of those, or a
-            ``DatasetCollection``.
-        on_error: ``"skip"`` collects ``(source, exception)`` failures and
-            continues; ``"raise"`` fails fast on the first error.
-        out: Optional output directory; when given, each successful output is
-            written there, named after its source.
-
-    Returns:
-        A :class:`RunResult` with the successful ``outputs`` and any ``failures``.
-
-    Raises:
-        ValueError: If ``on_error`` is not ``"skip"`` or ``"raise"``.
-        Exception: The first per-item error when ``on_error="raise"``.
-    """
-    if on_error not in {"skip", "raise"}:
-        raise ValueError(f"on_error must be 'skip' or 'raise', got {on_error!r}")
+    """Run the pipeline over ``items`` sequentially in this process."""
     result = RunResult()
-    for index, item in enumerate(_resolve_inputs(inputs)):
+    for index, item in enumerate(items):
         try:
             obj = _open(item)
             for step in pipeline:
@@ -174,4 +152,99 @@ def run(
             if on_error == "raise":
                 raise
             result.failures.append((item, exc))
+    return result
+
+
+def _run_one_worker(payload: tuple[dict[str, Any], str, str, int]) -> str:
+    """Worker entry point: open a path, run the pipeline, write, return the path.
+
+    Runs in a separate process; it rebuilds the pipeline from a plain dict and
+    opens the source worker-side so no GDAL handle crosses the process boundary.
+    """
+    pipe_dict, source, out_dir, index = payload
+    pipeline = Pipeline.from_dict(pipe_dict)
+    obj = _open(source)
+    for step in pipeline:
+        obj = _apply(step, obj)
+    return _write(obj, source, out_dir, index)
+
+
+def _execute_parallel(
+    pipeline: Pipeline,
+    items: list[Any],
+    on_error: str,
+    out: str,
+    max_workers: int | None,
+) -> RunResult:
+    """Run the pipeline over ``items`` across a process pool (path-in/path-out)."""
+    non_paths = [item for item in items if not isinstance(item, str)]
+    if non_paths:
+        raise ValueError(
+            "parallel=True requires file-path inputs — GDAL handles cannot cross "
+            "process boundaries, so pass paths/globs, not in-memory objects"
+        )
+    result = RunResult()
+    pipe_dict = pipeline.to_dict()
+    payloads = [(pipe_dict, src, out, i) for i, src in enumerate(items)]
+    with ProcessPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_run_one_worker, payload): payload[1] for payload in payloads}
+        for future in as_completed(futures):
+            source = futures[future]
+            try:
+                result.outputs.append(future.result())
+            except Exception as exc:  # noqa: BLE001 - batch policy collects or re-raises
+                if on_error == "raise":
+                    raise
+                result.failures.append((source, exc))
+    return result
+
+
+def run(
+    pipeline: Pipeline,
+    inputs: Any,
+    *,
+    on_error: str = "skip",
+    out: str | None = None,
+    parallel: bool = False,
+    max_workers: int | None = None,
+) -> RunResult:
+    """Run ``pipeline`` over ``inputs`` and collect the results.
+
+    Args:
+        pipeline: The :class:`Pipeline` to apply to each input.
+        inputs: A single path/object, a glob string, a list/tuple of those, or a
+            ``DatasetCollection``.
+        on_error: ``"skip"`` collects ``(source, exception)`` failures and
+            continues; ``"raise"`` fails fast on the first error.
+        out: Optional output directory; when given, each successful output is
+            written there, named after its source. Required when ``parallel=True``.
+        parallel: When ``True``, run the batch across a process pool. Because GDAL
+            handles cannot cross process boundaries, this requires **file-path**
+            inputs and an ``out`` directory (outputs are written worker-side and
+            ``RunResult.outputs`` holds the written paths, in completion order, not
+            in-memory objects). Only registry tools registered at import (the
+            allowlist) are available in workers.
+        max_workers: Worker-process count for ``parallel=True`` (default: the
+            pool's default, ~CPU count).
+
+    Returns:
+        A :class:`RunResult` with the successful ``outputs`` and any ``failures``.
+
+    Raises:
+        ValueError: If ``on_error`` is not ``"skip"``/``"raise"``, or ``parallel``
+            is set without an ``out`` directory / with non-path inputs.
+        Exception: The first per-item error when ``on_error="raise"``.
+    """
+    if on_error not in {"skip", "raise"}:
+        raise ValueError(f"on_error must be 'skip' or 'raise', got {on_error!r}")
+    items = _resolve_inputs(inputs)
+    if parallel:
+        if out is None:
+            raise ValueError(
+                "parallel=True requires an 'out' directory — outputs are written "
+                "worker-side, not returned as objects"
+            )
+        result = _execute_parallel(pipeline, items, on_error, out, max_workers)
+    else:
+        result = _execute_serial(pipeline, items, on_error, out)
     return result
