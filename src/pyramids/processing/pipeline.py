@@ -8,6 +8,7 @@ from a portable YAML "model" file lives in this module too.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Iterable, Iterator
 
@@ -15,6 +16,14 @@ import yaml
 
 from pyramids.processing.registry import resolve
 from pyramids.processing.schema import validate_params
+
+
+def _yaml_safe_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Copy ``params``, coercing any ``os.PathLike`` value to ``str`` for YAML."""
+    return {
+        key: (os.fspath(value) if isinstance(value, os.PathLike) else value)
+        for key, value in params.items()
+    }
 
 
 @dataclass
@@ -51,7 +60,14 @@ class Pipeline:
                     f"pipeline step {index} must be a (tool, params) pair, got {item!r}"
                 ) from exc
             spec = resolve(tool)
-            params = dict(params) if params else {}
+            if params is None:
+                params = {}
+            elif not isinstance(params, dict):
+                raise ValueError(
+                    f"pipeline step {index}: params must be a mapping, got "
+                    f"{type(params).__name__}"
+                )
+            params = dict(params)
             validate_params(spec, params)
             built.append(Step(tool, params))
         self._steps = built
@@ -85,10 +101,15 @@ class Pipeline:
         return result
 
     def to_dict(self) -> dict[str, Any]:
-        """Return the pipeline as a plain, YAML-ready mapping (params are copied)."""
+        """Return the pipeline as a plain, YAML-ready mapping.
+
+        Each step's ``params`` is copied, and any ``os.PathLike`` value is coerced to
+        a plain string so the mapping is safe to `yaml.safe_dump`.
+        """
         return {
             "pipeline": [
-                {"tool": step.tool, "params": dict(step.params)} for step in self._steps
+                {"tool": step.tool, "params": _yaml_safe_params(step.params)}
+                for step in self._steps
             ]
         }
 
