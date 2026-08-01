@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import glob as _glob
 import os
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
@@ -16,6 +17,7 @@ from typing import Any
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.processing.pipeline import Pipeline, Step
+from pyramids.processing.provenance import Provenance, StepRecord
 from pyramids.processing.registry import resolve
 
 #: File extensions opened as vector (FeatureCollection) rather than raster.
@@ -36,6 +38,7 @@ class RunResult:
 
     outputs: list[Any] = field(default_factory=list)
     failures: list[tuple[Any, Exception]] = field(default_factory=list)
+    provenance: list[Provenance] = field(default_factory=list)
 
     def __len__(self) -> int:
         return len(self.outputs)
@@ -122,6 +125,21 @@ def _apply(step: Step, obj: Any) -> Any:
     return method(**step.params)
 
 
+def _source_label(item: Any) -> str:
+    """A provenance-friendly label for an input (path, or ``<Type>`` marker)."""
+    return item if isinstance(item, str) else f"<{type(item).__name__}>"
+
+
+def _run_pipeline_on(pipeline: Pipeline, obj: Any, source: str) -> tuple[Any, Provenance]:
+    """Apply every step to ``obj``, timing each, and return output + provenance."""
+    prov = Provenance(source=source)
+    for step in pipeline:
+        start = time.perf_counter()
+        obj = _apply(step, obj)
+        prov.steps.append(StepRecord(step.tool, dict(step.params), time.perf_counter() - start))
+    return obj, prov
+
+
 def _write(obj: Any, source: Any, out_dir: str, index: int) -> str:
     """Write a pipeline output into ``out_dir``, named after its source."""
     os.makedirs(out_dir, exist_ok=True)
@@ -143,11 +161,11 @@ def _execute_serial(
     for index, item in enumerate(items):
         try:
             obj = _open(item)
-            for step in pipeline:
-                obj = _apply(step, obj)
+            obj, prov = _run_pipeline_on(pipeline, obj, _source_label(item))
             if out is not None:
                 _write(obj, item, out, index)
             result.outputs.append(obj)
+            result.provenance.append(prov)
         except Exception as exc:  # noqa: BLE001 - batch policy collects or re-raises
             if on_error == "raise":
                 raise
@@ -155,8 +173,8 @@ def _execute_serial(
     return result
 
 
-def _run_one_worker(payload: tuple[dict[str, Any], str, str, int]) -> str:
-    """Worker entry point: open a path, run the pipeline, write, return the path.
+def _run_one_worker(payload: tuple[dict[str, Any], str, str, int]) -> tuple[str, Provenance]:
+    """Worker entry point: open a path, run the pipeline, write; return path + provenance.
 
     Runs in a separate process; it rebuilds the pipeline from a plain dict and
     opens the source worker-side so no GDAL handle crosses the process boundary.
@@ -164,9 +182,8 @@ def _run_one_worker(payload: tuple[dict[str, Any], str, str, int]) -> str:
     pipe_dict, source, out_dir, index = payload
     pipeline = Pipeline.from_dict(pipe_dict)
     obj = _open(source)
-    for step in pipeline:
-        obj = _apply(step, obj)
-    return _write(obj, source, out_dir, index)
+    obj, prov = _run_pipeline_on(pipeline, obj, source)
+    return _write(obj, source, out_dir, index), prov
 
 
 def _execute_parallel(
@@ -191,7 +208,9 @@ def _execute_parallel(
         for future in as_completed(futures):
             source = futures[future]
             try:
-                result.outputs.append(future.result())
+                path, prov = future.result()
+                result.outputs.append(path)
+                result.provenance.append(prov)
             except Exception as exc:  # noqa: BLE001 - batch policy collects or re-raises
                 if on_error == "raise":
                     raise

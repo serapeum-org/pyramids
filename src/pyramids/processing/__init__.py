@@ -10,6 +10,7 @@ module re-exports the stable pieces as they land.
 """
 
 from pyramids.processing.pipeline import Pipeline, Step
+from pyramids.processing.provenance import Provenance, StepRecord
 from pyramids.processing.registry import (
     get_registry,
     register,
@@ -28,8 +29,10 @@ __all__ = [
     "PARAM_TYPES",
     "ParamSpec",
     "Pipeline",
+    "Provenance",
     "RunResult",
     "Step",
+    "StepRecord",
     "ToolSpec",
     "get_registry",
     "register",
