@@ -34,9 +34,14 @@ class RunResult:
     """The outcome of a batch :func:`run`.
 
     Attributes:
-        outputs: The final object produced for each input that succeeded.
+        outputs: The final object produced for each input that succeeded. In serial
+            mode these are in-memory `Dataset`/`FeatureCollection` objects; in
+            `parallel` mode they are the written output **path strings** (GDAL
+            handles cannot cross a process boundary), in completion order.
         failures: ``(source, exception)`` pairs for inputs that failed under the
             ``"skip"`` policy.
+        provenance: One :class:`~pyramids.processing.provenance.Provenance` record
+            per successful input (tool, params, and timing per step).
     """
 
     outputs: list[Any] = field(default_factory=list)
@@ -134,24 +139,34 @@ def _apply(step: Step, obj: Any, spec: ToolSpec) -> Any:
 def _source_label(item: Any) -> str:
     """A provenance-friendly label for an input (path, or ``<Type>`` marker)."""
     if isinstance(item, (str, os.PathLike)):
-        return os.fspath(item)
-    return f"<{type(item).__name__}>"
+        label = os.fspath(item)
+    else:
+        label = f"<{type(item).__name__}>"
+    return label
 
 
-def _materialize_array(array: "np.ndarray", source: Dataset) -> Dataset:
+def _materialize_array(array: "np.ndarray", source: Dataset, band: int = 0) -> Dataset:
     """Wrap a bare array result into a single-band georeferenced ``Dataset``.
 
-    The terrain ops (``slope``/``aspect``/``hillshade``) return a plain numpy array
-    on the *same grid* as the raster they ran on. Re-attaching ``source``'s
-    geotransform/CRS/no-data makes that output writable to disk and chainable into
-    a subsequent ``Dataset`` step.
+    The terrain/focal ops (``slope``/``aspect``/``hillshade``/``focal_*``) return a
+    plain numpy array on the *same grid* as the raster they ran on, carrying the
+    processed band's no-data sentinel. Re-attaching ``source``'s geotransform/CRS and
+    that band's no-data makes the output writable to disk and chainable into a
+    subsequent ``Dataset`` step.
+
+    Args:
+        array: The op's output array (2-D or 3-D).
+        source: The raster the op ran on.
+        band: The band index the op processed (its no-data is carried through).
     """
+    nodata = source.no_data_value
+    no_data_value = nodata[band] if band < len(nodata) else nodata[0]
     data = array if array.ndim == 3 else array[np.newaxis, :, :]
     return Dataset.create_from_array(
         data,
         geo=source.geotransform,
         epsg=source.epsg or source.crs,
-        no_data_value=source.no_data_value[0],
+        no_data_value=no_data_value,
     )
 
 
@@ -169,7 +184,7 @@ def _run_pipeline_on(pipeline: Pipeline, obj: Any, source: str) -> tuple[Any, Pr
         start = time.perf_counter()
         obj = _apply(step, obj, spec)
         if spec.returns == "Array" and isinstance(obj, np.ndarray):
-            obj = _materialize_array(obj, source_obj)
+            obj = _materialize_array(obj, source_obj, step.params.get("band", 0))
         prov.steps.append(StepRecord(step.tool, dict(step.params), time.perf_counter() - start))
     return obj, prov
 
@@ -295,7 +310,9 @@ def run(
             pool's default, ~CPU count).
 
     Returns:
-        A :class:`RunResult` with the successful ``outputs`` and any ``failures``.
+        A :class:`RunResult` with the successful ``outputs`` (objects in serial mode,
+        written paths in ``parallel`` mode), any ``failures``, and per-input
+        ``provenance``.
 
     Raises:
         ValueError: If ``on_error`` is not ``"skip"``/``"raise"``, or ``parallel``
