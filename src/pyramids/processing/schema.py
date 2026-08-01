@@ -1,0 +1,233 @@
+"""Self-describing tool/parameter schema for the processing registry.
+
+A :class:`ToolSpec` describes one pyramids op made addressable by name: which
+object it runs on (``receiver``), what it returns, and its parameters. Each
+:class:`ParamSpec` carries the WhiteboxTools-style tagged ``param_type`` plus the
+metadata the pipeline layer needs — a default, whether it is optional, and
+whether its value can be serialized into a portable pipeline file.
+
+This schema is the single source of truth for CLI help, pipeline validation, and
+serialization-safety (see ADR 0001).
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from typing import Any
+
+#: Tagged parameter-type vocabulary (mirrors the WhiteboxTools manifest types).
+PARAM_TYPES = frozenset(
+    {
+        "Raster",
+        "Vector",
+        "NewFile",
+        "Float",
+        "Integer",
+        "Boolean",
+        "String",
+        "Field",
+        "OptionList",
+    }
+)
+
+#: Param types whose value can be written into a pipeline YAML by value.
+_SERIALIZABLE_TYPES = frozenset(
+    {"Float", "Integer", "Boolean", "String", "Field", "OptionList", "NewFile"}
+)
+
+#: Valid receiver / return object types a tool can operate on or produce.
+RECEIVER_TYPES = frozenset({"Dataset", "FeatureCollection"})
+
+
+@dataclass(frozen=True)
+class ParamSpec:
+    """Describe a single tool parameter.
+
+    Args:
+        name: The keyword-argument name passed to the underlying op.
+        param_type: One of :data:`PARAM_TYPES`.
+        default: Value used when the parameter is omitted (``None`` if none).
+        optional: Whether the parameter may be omitted.
+        description: Human-readable help text.
+        choices: Allowed values for an ``"OptionList"`` parameter.
+        serializable: Override for whether the value can be serialized; when
+            ``None`` it is derived from ``param_type``.
+
+    Raises:
+        ValueError: If ``param_type`` is unknown or ``choices`` is given for a
+            non-``OptionList`` parameter.
+    """
+
+    name: str
+    param_type: str
+    default: Any = None
+    optional: bool = True
+    description: str = ""
+    choices: tuple[str, ...] | None = None
+    serializable: bool | None = None
+
+    def __post_init__(self) -> None:
+        if self.param_type not in PARAM_TYPES:
+            raise ValueError(
+                f"unknown param_type {self.param_type!r} for parameter "
+                f"{self.name!r}; valid: {sorted(PARAM_TYPES)}"
+            )
+        if self.choices is not None and self.param_type != "OptionList":
+            raise ValueError(
+                f"parameter {self.name!r}: choices are only valid for an "
+                f"'OptionList' param_type, not {self.param_type!r}"
+            )
+
+    @property
+    def is_serializable(self) -> bool:
+        """Whether a value for this parameter can be written to a pipeline file."""
+        if self.serializable is not None:
+            result = self.serializable
+        else:
+            result = self.param_type in _SERIALIZABLE_TYPES
+        return result
+
+    def validate(self, value: Any) -> None:
+        """Validate ``value`` against this parameter's type.
+
+        Args:
+            value: The value supplied for the parameter.
+
+        Raises:
+            ValueError: If ``value`` does not match ``param_type`` (this is what
+                rejects a numpy array / mask / callable handed to a scalar param).
+        """
+        pt = self.param_type
+        ok = True
+        if pt == "Float":
+            ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+        elif pt == "Integer":
+            ok = isinstance(value, int) and not isinstance(value, bool)
+        elif pt == "Boolean":
+            ok = isinstance(value, bool)
+        elif pt in {"String", "Field"}:
+            ok = isinstance(value, str)
+        elif pt == "OptionList":
+            ok = isinstance(value, str) and (
+                self.choices is None or value in self.choices
+            )
+        elif pt == "NewFile":
+            ok = isinstance(value, (str, os.PathLike))
+        # Raster/Vector accept an in-memory object or a path — not type-checkable
+        # here, so they are left permissive and flagged non-serializable instead.
+        if not ok:
+            expected = pt if self.choices is None else f"one of {list(self.choices)}"
+            raise ValueError(
+                f"parameter {self.name!r} expects {expected}, got "
+                f"{type(value).__name__} ({value!r})"
+            )
+
+    def coerce(self, raw: str) -> Any:
+        """Coerce a raw CLI string into this parameter's type.
+
+        Args:
+            raw: The string value from the command line.
+
+        Returns:
+            The value converted to the parameter's Python type.
+
+        Raises:
+            ValueError: If ``raw`` cannot be converted (e.g. a non-numeric string
+                for a ``"Float"`` parameter, or a value outside ``choices``).
+        """
+        pt = self.param_type
+        if pt == "Float":
+            result: Any = float(raw)
+        elif pt == "Integer":
+            result = int(raw)
+        elif pt == "Boolean":
+            low = raw.strip().lower()
+            if low in {"1", "true", "yes", "on"}:
+                result = True
+            elif low in {"0", "false", "no", "off"}:
+                result = False
+            else:
+                raise ValueError(f"parameter {self.name!r}: {raw!r} is not a boolean")
+        else:
+            result = raw
+            if pt == "OptionList" and self.choices is not None and raw not in self.choices:
+                raise ValueError(
+                    f"parameter {self.name!r}: {raw!r} not in {list(self.choices)}"
+                )
+        return result
+
+    def help(self) -> str:
+        """Render a one-line CLI/help description of this parameter."""
+        flag = "optional" if self.optional else "required"
+        default = "" if self.default is None else f", default={self.default!r}"
+        choices = "" if self.choices is None else f" {list(self.choices)}"
+        desc = f" — {self.description}" if self.description else ""
+        return f"{self.name} ({self.param_type}{choices}, {flag}{default}){desc}"
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    """Describe one named, addressable pyramids op.
+
+    Args:
+        name: The tool name used in a pipeline and on the CLI.
+        receiver: The object the tool runs on — ``"Dataset"`` or
+            ``"FeatureCollection"``.
+        returns: The object type the tool produces.
+        params: The tool's parameters.
+        description: Human-readable summary.
+        method: The method name on the receiver; defaults to ``name``.
+
+    Raises:
+        ValueError: If ``receiver``/``returns`` are not valid receiver types or a
+            parameter name is duplicated.
+    """
+
+    name: str
+    receiver: str
+    returns: str
+    params: tuple[ParamSpec, ...] = ()
+    description: str = ""
+    method: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.receiver not in RECEIVER_TYPES:
+            raise ValueError(
+                f"tool {self.name!r}: receiver must be one of "
+                f"{sorted(RECEIVER_TYPES)}, got {self.receiver!r}"
+            )
+        if self.returns not in RECEIVER_TYPES:
+            raise ValueError(
+                f"tool {self.name!r}: returns must be one of "
+                f"{sorted(RECEIVER_TYPES)}, got {self.returns!r}"
+            )
+        seen = [p.name for p in self.params]
+        if len(seen) != len(set(seen)):
+            raise ValueError(f"tool {self.name!r}: duplicate parameter names in {seen}")
+
+    @property
+    def method_name(self) -> str:
+        """The receiver method this tool invokes."""
+        return self.method or self.name
+
+    def param(self, name: str) -> ParamSpec | None:
+        """Return the :class:`ParamSpec` named ``name`` (or ``None``)."""
+        found = None
+        for spec in self.params:
+            if spec.name == name:
+                found = spec
+                break
+        return found
+
+    def help(self) -> str:
+        """Render a multi-line help block describing the tool and its params."""
+        lines = [f"{self.name} ({self.receiver} -> {self.returns})"]
+        if self.description:
+            lines.append(f"  {self.description}")
+        if self.params:
+            lines.append("  parameters:")
+            lines.extend(f"    {p.help()}" for p in self.params)
+        else:
+            lines.append("  parameters: (none)")
+        return "\n".join(lines)
