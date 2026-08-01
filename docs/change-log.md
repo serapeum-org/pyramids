@@ -16,22 +16,22 @@ is needed.
 abs(n) timesteps for a positive n too (previously a positive n
 skipped the first n); the default tail(-n) is unchanged and
 tail(0) returns an empty array.
-- COG_READ_DEFAULTS no longer sets                                                              
-  CPL_VSIL_CURL_ALLOWED_EXTENSIONS. The option made GDAL refuse any URL                                          
-  whose path does not end in .tif or .tiff, which excluded extensionless                                         
-  object keys, presigned S3 links carrying a query string, and most STAC                                         
-  asset hrefs.                                                                                                   
-  BREAKING CHANGE: slope, aspect and hillshade emit the band's sentinel                                          
-  at no-data cells and their immediate neighbours, outside the documented                                        
-  [0, 360) and [0, 255] ranges, because a centred difference straddling a                                        
-  void has no defined derivative. Mask on the no-data value before                                               
-  feeding the result to a colour ramp or a fixed-range cast.                                                     
-  BREAKING CHANGE: focal_apply hands the caller's callable a NaN-blanked                                         
-  window, so a NaN-blind reducer now blanks every window touching a void.                                        
-  Use the np.nan* reducers.                                                                                      
-                                                                                                                 
-  Closes #841, #842, #843, #844, #845, #846, #847                                                                
-  Closes #848, #849, #850, #851, #852, #853, #855                                                                
+- COG_READ_DEFAULTS no longer sets  
+  CPL_VSIL_CURL_ALLOWED_EXTENSIONS. The option made GDAL refuse any URL  
+  whose path does not end in .tif or .tiff, which excluded extensionless  
+  object keys, presigned S3 links carrying a query string, and most STAC  
+  asset hrefs.  
+  BREAKING CHANGE: slope, aspect and hillshade emit the band's sentinel  
+  at no-data cells and their immediate neighbours, outside the documented  
+  [0, 360) and [0, 255] ranges, because a centred difference straddling a  
+  void has no defined derivative. Mask on the no-data value before  
+  feeding the result to a colour ramp or a fixed-range cast.  
+  BREAKING CHANGE: focal_apply hands the caller's callable a NaN-blanked  
+  window, so a NaN-blind reducer now blanks every window touching a void.  
+  Use the np.nan* reducers.  
+
+  Closes #841, #842, #843, #844, #845, #846, #847  
+  Closes #848, #849, #850, #851, #852, #853, #855  
   Closes #856, #857, #858, #859, #860, #861, #862
 
 ### Feat
