@@ -3021,12 +3021,14 @@ class IO(_Engine["Dataset"]):
         regenerate for it, so this warns instead of returning silently — naming the
         skipped bands when only some of them are empty, and still regenerating the rest.
 
-        The warning is emitted in every access mode: having no overviews is independent
-        of read-only-ness, and read-only is not itself a blocker here — external `.ovr`
-        overviews live in a separate writable sidecar and regenerate fine through a
-        read-only handle. Internal overviews live inside the raster itself, so GDAL
-        refuses to rewrite them on a read-only handle, which surfaces as
-        `ReadOnlyError`.
+        The warning is emitted in every access mode: "has no overviews" is independent of
+        read-only-ness, so reporting it as a read-only failure would misdiagnose it —
+        reopening the dataset writable yields this same warning. Read-only is not a
+        blocker in itself either: external `.ovr` overviews live in a sidecar that
+        `create_overviews` leaves open for update, so they regenerate through the very
+        read-only handle that built them. GDAL refuses only when the overview target is
+        itself read-only — internal overviews inside a read-only raster, or an external
+        `.ovr` that a later handle reopened read-only — which surfaces as `ReadOnlyError`.
 
         Args:
             resampling_method (str): Resampling method used to recreate overviews. Possible values are
@@ -3037,8 +3039,12 @@ class IO(_Engine["Dataset"]):
             ValueError:
                 If resampling_method is not one of the allowed values above.
             ReadOnlyError:
-                If the overviews are internal and the dataset is opened read-only, so
-                GDAL cannot rewrite them. Read with read_only=False.
+                If GDAL refuses the rewrite because the overviews it targets are opened
+                read-only. Read with read_only=False.
+            RuntimeError:
+                Propagated unchanged when GDAL fails the regeneration for any other
+                reason, so a disk-full, corrupt-overview or transport failure is not
+                relabelled as an access-mode error.
 
         Warns:
             UserWarning:

@@ -1502,8 +1502,12 @@ class RasterBase(ABC):
                 resampling_method should be one of {"NEAREST", "CUBIC", "AVERAGE", "GAUSS", "CUBICSPLINE", "LANCZOS",
                 "MODE", "AVERAGE_MAGPHASE", "RMS", "BILINEAR"}.
             ReadOnlyError:
-                If the overviews are internal and the Dataset is opened with a read only.
-                Please read the dataset using read_only=False
+                If the overviews the call targets are opened read-only, so GDAL refuses to rewrite them —
+                internal overviews inside a read-only dataset, or an external .ovr that a later handle
+                reopened read-only. Please read the dataset using read_only=False
+            RuntimeError:
+                Propagated unchanged when GDAL fails the regeneration for any other reason, so a
+                disk-full, corrupt-overview or transport failure is not relabelled as an access-mode error.
 
         Warns:
             UserWarning:
