@@ -14,11 +14,6 @@ from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
-NO_OVERVIEWS_RASTER = "tests/data/geotiff/era5_land_monthly_averaged.tif"
-INTERNAL_OVERVIEWS_RASTER = (
-    "tests/data/geotiff/era5_land_monthly_averaged-internal-overviews.tif"
-)
-
 
 def test_create_overviews(era5_image: gdal.Dataset, clean_overview_after_test):
     dataset = Dataset(era5_image)
@@ -70,7 +65,7 @@ class TestRecreateOverviewsContract:
     read-only guard only fired incidentally, when GDAL happened to refuse a rewrite.
     """
 
-    def test_no_overviews_on_writable_dataset_warns(self, tmp_path):
+    def test_no_overviews_on_writable_dataset_warns(self, era5_raster_path, tmp_path):
         """A writable dataset with no overviews warns rather than silently no-oping.
 
         Test scenario:
@@ -78,7 +73,7 @@ class TestRecreateOverviewsContract:
             ``recreate_overviews`` — expected: a `UserWarning` pointing at
             ``create_overviews`` instead of a silent return.
         """
-        work = shutil.copy(NO_OVERVIEWS_RASTER, tmp_path / "no_ovr.tif")
+        work = shutil.copy(era5_raster_path, tmp_path / "no_ovr.tif")
         dataset = Dataset.read_file(str(work), read_only=False)
         try:
             assert not any(dataset.overview_count), "fixture must start with none"
@@ -87,7 +82,7 @@ class TestRecreateOverviewsContract:
         finally:
             dataset.close()
 
-    def test_no_overviews_on_read_only_dataset_warns(self, tmp_path):
+    def test_no_overviews_on_read_only_dataset_warns(self, era5_raster_path, tmp_path):
         """A read-only dataset with no overviews warns about the real cause.
 
         Test scenario:
@@ -97,7 +92,7 @@ class TestRecreateOverviewsContract:
             external `.ovr` regenerates fine read-only) and reopening writable would
             only produce this warning anyway.
         """
-        work = shutil.copy(NO_OVERVIEWS_RASTER, tmp_path / "ro_no_ovr.tif")
+        work = shutil.copy(era5_raster_path, tmp_path / "ro_no_ovr.tif")
         dataset = Dataset.read_file(str(work), read_only=True)
         try:
             with pytest.warns(UserWarning, match="no overviews to regenerate"):
@@ -105,14 +100,16 @@ class TestRecreateOverviewsContract:
         finally:
             dataset.close()
 
-    def test_internal_overviews_on_read_only_dataset_raises(self, tmp_path):
+    def test_internal_overviews_on_read_only_dataset_raises(
+        self, era5_internal_overviews_path, tmp_path
+    ):
         """Internal overviews cannot be rewritten through a read-only handle.
 
         Test scenario:
             A raster carrying internal overviews opened read-only — expected:
             `ReadOnlyError` (the pre-existing guarantee, preserved by the fix).
         """
-        work = shutil.copy(INTERNAL_OVERVIEWS_RASTER, tmp_path / "ro_internal.tif")
+        work = shutil.copy(era5_internal_overviews_path, tmp_path / "ro_internal.tif")
         dataset = Dataset.read_file(str(work), read_only=True)
         try:
             assert any(dataset.overview_count), "fixture must carry internal overviews"
@@ -191,7 +188,9 @@ class TestRecreateOverviewsContract:
         finally:
             dataset.close()
 
-    def test_warning_points_at_the_caller_not_the_facade(self, tmp_path):
+    def test_warning_points_at_the_caller_not_the_facade(
+        self, era5_raster_path, tmp_path
+    ):
         """The warning is attributed to the calling line, not `Dataset.recreate_overviews`.
 
         Test scenario:
@@ -200,7 +199,7 @@ class TestRecreateOverviewsContract:
             test file. At `stacklevel=2` it named `dataset.py`, which also collapsed
             every call site in a user loop onto one dedupe key.
         """
-        work = shutil.copy(NO_OVERVIEWS_RASTER, tmp_path / "blame.tif")
+        work = shutil.copy(era5_raster_path, tmp_path / "blame.tif")
         dataset = Dataset.read_file(str(work), read_only=False)
         try:
             with pytest.warns(UserWarning) as recorded:
@@ -211,14 +210,16 @@ class TestRecreateOverviewsContract:
         finally:
             dataset.close()
 
-    def test_existing_overviews_regenerate_without_warning(self, tmp_path):
+    def test_existing_overviews_regenerate_without_warning(
+        self, era5_raster_path, tmp_path
+    ):
         """The happy path stays silent — no warning when every band has overviews.
 
         Test scenario:
             Build overviews on a writable copy, then regenerate them — expected: no
             `UserWarning`, so a future refactor cannot start warning on every call.
         """
-        work = shutil.copy(NO_OVERVIEWS_RASTER, tmp_path / "happy.tif")
+        work = shutil.copy(era5_raster_path, tmp_path / "happy.tif")
         dataset = Dataset.read_file(str(work), read_only=False)
         try:
             dataset.create_overviews(overview_levels=[2])
