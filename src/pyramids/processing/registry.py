@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import Mapping
 
 from pyramids.base._utils import INTERPOLATION_METHODS
+from pyramids.feature.tessellation import QUADTREE_AGG
 from pyramids.processing.schema import ParamSpec, ToolSpec
 
 _REGISTRY: dict[str, ToolSpec] = {}
@@ -20,6 +21,10 @@ _REGISTRY: dict[str, ToolSpec] = {}
 #: Resampling algorithm names accepted by to_crs/resample, sourced from the GDAL
 #: resampling table so the OptionList choices stay in sync with what the ops allow.
 _RESAMPLING_METHODS = tuple(sorted(INTERPOLATION_METHODS))
+
+#: Aggregation names accepted by quadtree(agg=...), sourced from the tessellation
+#: reducer table so the OptionList choices stay in sync with the ops.
+_QUADTREE_AGGS = tuple(sorted(QUADTREE_AGG))
 
 #: Shared parameter description reused by the band-taking terrain tools.
 _BAND_DESC = "Zero-based band index."
@@ -254,7 +259,10 @@ register(
         description="Adaptive quad-tree binning of a point layer into cells.",
         params=(
             ParamSpec("column", "Field", None, True, "Numeric column aggregated per cell."),
-            ParamSpec("agg", "String", "mean", True, "Aggregation function name."),
+            ParamSpec(
+                "agg", "OptionList", "mean", True, "Aggregation function name.",
+                choices=_QUADTREE_AGGS,
+            ),
             ParamSpec("nmax", "Integer", 100, True, "Max points per cell before splitting."),
             ParamSpec("nmin", "Integer", 0, True, "Min points for a cell to be kept."),
         ),
