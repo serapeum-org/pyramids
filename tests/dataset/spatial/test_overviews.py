@@ -148,6 +148,66 @@ def test_get_overview(era5_image: gdal.Dataset, clean_overview_after_test):
         dataset.get_overview(band, 5)
 
 
+class TestCreateOverviewsPathlessGuard:
+    """`create_overviews` refuses a VRT that has nowhere to put a sidecar (#917).
+
+    GDAL names an external `.ovr` after the dataset description. A VRT owns no pixel
+    storage, so its overviews can only go external — and with an empty description GDAL
+    wrote a file called literally `.ovr` into the working directory, attached nothing,
+    and dropped the levels the handle already exposed.
+    """
+
+    def test_pathless_vrt_refuses_instead_of_writing_a_stray_sidecar(
+        self, tmp_path, monkeypatch
+    ):
+        """A path-less VRT raises, keeps its levels, and leaves the CWD alone.
+
+        Test scenario:
+            `get_overview_dataset` returns a VRT-described level with no path — expected:
+            `ValueError` naming the cause, `overview_count` unchanged (it previously went
+            1 -> 0), and no `.ovr` in the working directory.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "guard_src.tif")
+        dataset = Dataset.read_file(source)
+        level = None
+        try:
+            level = dataset.get_overview_dataset(overview_index=0)
+            assert level.driver_type == "vrt", "precondition: the level is a VRT"
+            before = list(level.overview_count)
+            with pytest.raises(ValueError, match="nowhere to go"):
+                level.create_overviews(overview_levels=[2])
+            assert level.overview_count == before, (
+                f"the refusal must not drop the levels, {before} -> {level.overview_count}"
+            )
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            if level is not None:
+                level.close()
+            dataset.close()
+
+    def test_in_memory_dataset_still_builds_overviews(self):
+        """A MEM raster is unaffected: it stores its overviews internally.
+
+        Test scenario:
+            `create_from_array` also has an empty description, so guarding on that alone
+            would break it — expected: the build still succeeds.
+        """
+        dataset = Dataset.create_from_array(
+            np.arange(4096, dtype="float32").reshape(64, 64),
+            top_left_corner=(0.0, 64.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        try:
+            dataset.create_overviews(overview_levels=[2])
+            assert dataset.overview_count == [1], (
+                f"a MEM raster should still build, got {dataset.overview_count}"
+            )
+        finally:
+            dataset.close()
+
+
 class TestReCreateOverviews:
     def test_recreate_overviews_internal(
         self,

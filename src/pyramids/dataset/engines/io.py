@@ -2972,6 +2972,14 @@ class IO(_Engine["Dataset"]):
         Returns:
             None:
                 Creates internal or external overviews depending on the dataset access mode. See Notes.
+        Raises:
+            TypeError:
+                `overview_levels` is not a list.
+            ValueError:
+                `overview_levels` holds a factor that is not a power of two,
+                `resampling_method` is not one of the allowed values, or the dataset is
+                a VRT with no path — a VRT owns no pixel storage, so its overviews can
+                only go to an external sidecar, and there is no path to name one after.
         Notes:
             - External (.ovr file): If the dataset is read with `read_only=True` then the overviews file will be created
               as an external .ovr file in the same directory of the dataset.
@@ -3035,6 +3043,19 @@ class IO(_Engine["Dataset"]):
                 )
         if resampling_method.upper() not in RESAMPLING_METHODS:
             raise ValueError(f"resampling_method should be one of {RESAMPLING_METHODS}")
+        # A VRT owns no pixel storage, so its overviews can only go to an external
+        # sidecar -- and GDAL names that sidecar after the dataset's description. With
+        # an empty one it writes a file called literally ".ovr" into the process's
+        # working directory, attaches nothing, and drops whatever levels the handle was
+        # already exposing. Refuse instead. Drivers that can hold overviews internally
+        # (`MEM`, and the multidim-backed NetCDF variable views) have empty descriptions
+        # too and build fine, so the check is not "no description".
+        if self._ds.driver_type == "vrt" and not self._ds.raster.GetDescription():
+            raise ValueError(
+                "This dataset is a VRT with no path, so overviews have nowhere to go: "
+                "GDAL would write them beside a file that does not exist. Save it first "
+                "with to_file(path) and build the overviews on the saved raster."
+            )
         # Define the overview levels (the reduction factor).
         # e.g., 2 means the overview will be half the resolution of the original dataset.
         # Build overviews using nearest neighbor resampling
@@ -3351,10 +3372,9 @@ class IO(_Engine["Dataset"]):
         Windows the file cannot be deleted. Neither form carries a path of its own, so
         `read_array(threadsafe=True)` and pickling it raise, and `read_array(chunks=...)`
         returns a graph that raises when it is computed; call `to_file()` first if you
-        need any of those. `create_overviews()` on the lazily described form has nowhere
-        to put the external sidecar it needs either, so it drops a stray `.ovr` into the
-        process's working directory — the materialised form builds its levels in RAM and
-        writes nothing. The `read_only` label stops pixel writes; metadata setters still
+        need any of those. `create_overviews()` on the lazily described form raises for the
+        same reason — a VRT has nowhere to put the external sidecar it would need — while
+        the materialised form builds its levels in RAM and works. The `read_only` label stops pixel writes; metadata setters still
         work, since a pathless handle cannot spill a PAM sidecar. A `NetCDF` variable
         view returns a plain `Dataset` — an overview level is an ordinary raster, not a
         NetCDF container — and only a real mapping of dataset metadata is carried, so a
