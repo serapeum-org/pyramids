@@ -857,6 +857,73 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             dataset.close()
 
+    def test_wrap_longitude_on_a_file_backed_source_is_refused(
+        self, tmp_path, monkeypatch
+    ):
+        """The lazy longitude roll is a plain pathless VRT, so it is refused.
+
+        Test scenario:
+            `_wrap_longitude_vrt` builds the roll with `VRT.Create("")`, which produced
+            the stray-sidecar damage before the guard — expected: the refusal, and
+            nothing written to the working directory. The in-memory source returns `MEM`
+            and is covered by the sibling MEM case.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = tmp_path / "global.tif"
+        raster = gdal.GetDriverByName("GTiff").Create(
+            str(source), 64, 32, 1, gdal.GDT_Float32
+        )
+        raster.SetGeoTransform((0.0, 5.625, 0.0, 90.0, 0.0, -5.625))
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        raster.SetProjection(srs.ExportToWkt())
+        raster.GetRasterBand(1).WriteArray(
+            np.arange(64 * 32, dtype="float32").reshape(32, 64)
+        )
+        raster.FlushCache()
+        del raster
+        dataset = Dataset.read_file(str(source))
+        rolled = None
+        try:
+            rolled = dataset.wrap_longitude()
+            assert rolled.driver_type == "vrt", "precondition: the roll is a VRT"
+            assert not rolled.raster.GetDescription(), "precondition: it has no path"
+            with pytest.raises(OverviewTargetError, match="nowhere to go"):
+                rolled.create_overviews(overview_levels=[2])
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            if rolled is not None:
+                rolled.close()
+            dataset.close()
+
+    def test_warped_create_overviews_ignores_the_resampling_method(
+        self, tmp_path, monkeypatch
+    ):
+        """Document that a warped VRT resamples with the warper, not the given method.
+
+        Test scenario:
+            Two fresh warped views of one raster, built with `average` and `nearest` —
+            expected: identical levels, because GDAL uses the warper's own algorithm.
+            The refusal message and `create_overviews`' notes both disclose this; the day
+            GDAL honours the argument, this test fails and the disclosures can go.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "warp_resample.tif")
+        levels = {}
+        for method in ("average", "nearest"):
+            parent = Dataset.read_file(source)
+            view = parent.to_crs(3857)
+            try:
+                view.create_overviews(method, overview_levels=[2])
+                levels[method] = view.read_overview_array(band=0, overview_index=0).copy()
+            finally:
+                view.close()
+                parent.close()
+        assert np.array_equal(levels["average"], levels["nearest"]), (
+            "GDAL now honours resampling_method on a warped VRT — drop the caveat from "
+            "the refusal message and the create_overviews notes"
+        )
+
     def test_recreate_on_a_vrt_inheriting_source_levels_is_not_an_access_error(
         self, tmp_path, monkeypatch
     ):

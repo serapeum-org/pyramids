@@ -3139,6 +3139,9 @@ class IO(_Engine["Dataset"]):
               inside the dataset, which then needs to be saved/flushed to persist them to disk. A *plain* VRT has
               no internal storage, so its levels go to an external sidecar in either access mode; a warped VRT
               holds them in RAM and writes no sidecar at all.
+            - On a **warped** VRT, `resampling_method` has no effect: GDAL resamples those levels with the
+              warper's own algorithm, so `"average"` and `"nearest"` produce identical pixels. Build the levels
+              on a saved raster instead if the method matters.
             - You can check the count per band via the `overview_count` property.
         Examples:
             - Create a Dataset with 4 bands, 10 rows, 10 columns, at the point lon/lat (0, 0):
@@ -3417,8 +3420,10 @@ class IO(_Engine["Dataset"]):
                             f"Cannot regenerate the overviews of band {i}: their pixels "
                             "belong to a VRT, which computes them on read rather than "
                             "storing them, so they cannot be rewritten in place. Rebuild "
-                            "them with create_overviews(), or save the dataset with "
-                            "to_file(path) and regenerate on the saved raster."
+                            "them with create_overviews() -- which on a warped VRT "
+                            "resamples with the warper's own algorithm, ignoring any "
+                            "resampling_method -- or save the dataset with to_file(path) "
+                            "and regenerate on the saved raster."
                         ) from err
                     raise ReadOnlyError(
                         f"Cannot regenerate the overviews of band {i}: the overviews "

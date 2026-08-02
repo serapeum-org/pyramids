@@ -152,7 +152,10 @@ instead of returning normally. That is a new exception, importable as
 `from pyramids.errors import OverviewTargetError`, which subclasses `ValueError`,
 so an existing `except ValueError` around the call keeps catching it — catch the new type to tell "this dataset
 can never work" apart from "these arguments were wrong". `recreate_overviews` raises it for the same shape, where
-it previously reported a misleading `ReadOnlyError` advising a reopen that a handle with no path cannot perform.
+it previously reported a misleading `ReadOnlyError` advising a reopen that a handle with no path cannot perform —
+or, when the VRT exposed **no** levels at all, returned normally with a `UserWarning` saying to call
+`create_overviews()` first. That advice is now refused too, so a pipeline that called `recreate_overviews()`
+defensively across a mix of handles and ignored the warning goes from a silent no-op to a raise.
 A plain VRT owns no pixel storage, so GDAL can only write its overviews to an external `.ovr`
 sidecar named after the dataset description — and when that description is not a path, the sidecar landed as a
 file called literally `.ovr` in the process's working directory, attached to nothing, while the levels the handle
@@ -171,6 +174,9 @@ These calls hand back such a handle, and so start raising:
 - `NetCDF.get_variable(...)` when the classic view comes back in **index space** — an irregularly spaced
   coordinate defeats the geotransform guess, and the view is then wrapped in a plain pathless VRT. A view over a
   regular grid is not VRT-wrapped and is unaffected.
+- `Dataset.wrap_longitude()` on a **file-backed** source, whose lazy roll is a plain pathless VRT. On an
+  in-memory source the roll is a `MEM` raster and is unaffected. This one previously produced the damage above
+  verbatim — a stray `.ovr` and no levels — so the refusal is a fix, not a regression.
 - `Dataset.to_zarr(..., overview_factors=[...])` on an inline-XML VRT, since it builds the pyramid levels through
   `create_overviews`. Without `overview_factors` it is unaffected, and the description-less VRTs above already
   failed earlier in `to_zarr`'s base-array write.
