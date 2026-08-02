@@ -2,9 +2,10 @@
 
 The serial runner, receiver-type dispatch, error policy, output writing, and the
 parallel guardrails are covered deterministically here. Real process-pool
-execution (``parallel=True`` over multiple files) is exercised by manual smoke
-runs — it is kept out of the default suite to avoid per-worker spawn + GDAL
-initialization overhead and Windows ``spawn`` flakiness.
+execution (``parallel=True`` over multiple files) is covered by
+``test_parallel_run_executes_and_returns_paths``, marked ``slow``: it runs in the
+default suite and is deselectable with ``-m "not slow"``. It is the one test whose
+stability depends on OS process spawning + per-worker GDAL init.
 """
 
 import geopandas as gpd
