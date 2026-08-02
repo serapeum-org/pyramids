@@ -60,7 +60,7 @@ and pass nothing to the constructor.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from pyproj import CRS
@@ -75,6 +75,9 @@ from pyramids.base._utils import require_cleopatra
 # :func:`render_array` so monkeypatching the module attribute is
 # honoured at call time.
 from pyramids.basemap import basemap as _basemap_module
+
+if TYPE_CHECKING:
+    from cleopatra.geo import Basemap
 
 # N-6 — Mesh rendering shares this module's "data in, glyph out"
 # contract via :func:`mesh_render`. The function lives next to
@@ -224,7 +227,7 @@ def render_array(
     facet_kwargs: dict[str, Any] | None = None,
     ax: Any | None = None,
     fig: Any | None = None,
-    basemap: bool | str | None = None,
+    basemap: bool | str | dict[str, Any] | Basemap | None = None,
     basemap_epsg: int | None = None,
     **kwargs: Any,
 ):
@@ -567,18 +570,31 @@ def render_array(
     if basemap_epsg is not None:
         cleo.crs = basemap_epsg
 
-    # ``basemap and basemap_epsg is None`` was already rejected at the top
-    # of this function, so when ``basemap`` is truthy ``basemap_epsg`` is set.
+    # Split the ``basemap`` argument by type. cleopatra 0.27 added its own
+    # ``basemap=`` for shaded-relief / feature reference layers, which collides
+    # with pyramids' pre-existing web-tile ``basemap=``, so dispatch on the type:
+    #   - a ``str`` provider name (or ``True``) is a pyramids web-tile basemap
+    #     drawn under the raster -- pyramids owns this via ``add_basemap``;
+    #   - a ``cleopatra.geo.Basemap`` (or an equivalent ``dict``) is cleopatra's
+    #     relief/features reference layer, forwarded to the glyph's own
+    #     ``basemap=`` on the render call.
+    # ``basemap and basemap_epsg is None`` was already rejected at the top of
+    # this function, so when ``basemap`` is truthy ``basemap_epsg`` is set.
+    tile_basemap = isinstance(basemap, str) or basemap is True
     basemap_source = basemap if isinstance(basemap, str) else None
+    forward_cleo_basemap = basemap is not None and not isinstance(
+        basemap, (str, bool)
+    )
+    cleo_basemap_kwarg = {"basemap": basemap} if forward_cleo_basemap else {}
 
     def _apply_basemap(target_ax: Any) -> None:
         # Resolve ``add_basemap`` via the module attribute at call time so
         # test-time ``patch("pyramids.basemap.basemap.add_basemap")`` is
         # honoured (the patch swaps the module attribute, not any
         # pre-bound reference this helper might hold).
-        # Only called when basemap is truthy, and the guard above already
-        # proved basemap_epsg is set in that case; mypy does not track that
-        # implication into this closure.
+        # Only called when a tile basemap is requested, and the guard above
+        # already proved basemap_epsg is set in that case; mypy does not track
+        # that implication into this closure.
         assert basemap_epsg is not None
         _basemap_module.add_basemap(
             target_ax,
@@ -587,12 +603,13 @@ def render_array(
         )
 
     if mode == "plot":
-        # Only render-call-only kwargs reach ``cleo.plot`` — the
-        # constructor already absorbed every option meaningful to
-        # cleopatra's ``default_options`` machinery.
-        cleo.plot(**render_kwargs)
+        # Only render-call-only kwargs reach ``cleo.plot`` — the constructor
+        # already absorbed every option meaningful to cleopatra's
+        # ``default_options`` machinery. A cleopatra relief basemap rides along
+        # on the render call; a pyramids tile basemap is drawn afterwards.
+        cleo.plot(**render_kwargs, **cleo_basemap_kwarg)
         result: Any = cleo
-        if basemap:
+        if tile_basemap:
             _apply_basemap(cleo.ax)
     elif mode == "animate":
         if data_getter is not None:
@@ -600,9 +617,12 @@ def render_array(
                 animation_axis_values,
                 data_getter=data_getter,
                 **animate_kwargs,
+                **cleo_basemap_kwarg,
             )
         else:
-            cleo.animate(animation_axis_values, **animate_kwargs)
+            cleo.animate(
+                animation_axis_values, **animate_kwargs, **cleo_basemap_kwarg
+            )
         result = cleo
     else:
         # Facet path: cleopatra's ``ArrayGlyph.facet`` accepts every
@@ -612,8 +632,18 @@ def render_array(
         # the constructor. The guard at the top of this function already
         # proved facet_kwargs is set for mode == "facet".
         assert facet_kwargs is not None
+        if forward_cleo_basemap:
+            # cleopatra's ``ArrayGlyph.facet`` has no ``basemap=`` param, so a
+            # relief/features reference layer cannot be drawn per panel. Fail
+            # loudly rather than forward an unsupported kwarg.
+            raise ValueError(
+                "A cleopatra `Basemap` reference layer is not supported on the "
+                "faceted plot path. Use a web-tile basemap (basemap='<provider>') "
+                "for per-panel tiles, or plot without faceting for a "
+                "relief/features basemap."
+            )
         result = cleo.facet(**facet_kwargs, **render_kwargs)
-        if basemap:
+        if tile_basemap:
             # Every facet panel renders the same spatial domain (cleopatra
             # reuses the parent extent / curvilinear coords across panels),
             # so each visible panel gets the same tile layer underneath —
