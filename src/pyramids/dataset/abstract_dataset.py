@@ -1474,24 +1474,24 @@ class RasterBase(ABC):
         Returns:
             None:
                 The levels are built on the dataset itself; read the count per band from `overview_count`.
-                - External (.ovr file):
-                    If the dataset is read with `read_only=True` then the overviews' file will be
-                    created in the same directory of the dataset, with the same name of the dataset and .ovr extension.
-                - Internal:
-                    If the dataset is read with `read_only=False` then the overviews will be created internally in the
-                    dataset, and the dataset needs to be saved/flushed to save the new changes to disk.
 
         Raises:
             TypeError:
                 `overview_levels` is not a list.
             ValueError:
                 `overview_levels` holds a factor outside the supported set, `resampling_method` is not one of the
-                allowed values, or the dataset is a VRT whose description is not a path — an empty one, or inline
-                VRT XML. A plain VRT owns no pixel storage, so its overviews can only go to an external sidecar,
-                and there is nothing to name one after; save it with `to_file(path)` and build the levels on the
-                saved raster. A warped VRT is exempt: it holds its overviews in RAM.
+                allowed values, or the dataset is a plain VRT whose description is not a path — an empty one, a
+                blank one, or inline VRT XML. A plain VRT owns no pixel storage, so its overviews can only go to
+                an external sidecar, and there is nothing to name one after; save it with `to_file(path)` and
+                build the levels on the saved raster. A *warped* VRT is exempt: it holds its overviews in RAM.
             RuntimeError:
                 GDAL failed to build the levels.
+
+        Notes:
+            - External (.ovr file): if the dataset is read with `read_only=True` then the overviews' file is
+              created in the same directory as the dataset, with the same name and an `.ovr` extension.
+            - Internal: if the dataset is read with `read_only=False` then the overviews are created inside the
+              dataset, which then needs to be saved/flushed to persist them to disk.
         """
         pass
 

@@ -2967,7 +2967,7 @@ class IO(_Engine["Dataset"]):
 
         Two VRT families are deliberately excluded because they are not affected:
 
-        - a **warped** VRT (`subClass="VRTWarpedDataset"`, produced by `to_crs`,
+        - a *warped* VRT (`subClass="VRTWarpedDataset"`, produced by `to_crs`,
           `warped_view`, `crop(..., touch=False)` and the lazy `georeference` /
           `orthorectify` forms) keeps its overviews in RAM and needs no sidecar;
         - a VRT with a real path — including one under `/vsimem/` — names its sidecar
@@ -3027,8 +3027,8 @@ class IO(_Engine["Dataset"]):
             ValueError:
                 `overview_levels` holds a factor outside the supported set,
                 `resampling_method` is not one of the allowed values, or the dataset is a
-                VRT whose description is not a path — an empty one, or inline VRT XML. A
-                plain VRT owns no pixel storage, so its overviews can only go to an
+                plain VRT whose description is not a path — an empty one, a blank one, or
+                inline VRT XML. A plain VRT owns no pixel storage, so its overviews can only go to an
                 external sidecar, and there is nothing to name one after; save it with
                 `to_file(path)` and build the levels on the saved raster. A *warped* VRT
                 is exempt: it holds its overviews in RAM.
@@ -3089,10 +3089,11 @@ class IO(_Engine["Dataset"]):
         # succeed. Check it first, or a typo'd argument masks the real blocker.
         if self._has_nowhere_for_an_overview_sidecar():
             raise ValueError(
-                "This dataset is a VRT with no path, so overviews have nowhere to go: "
-                "GDAL names the sidecar after the dataset description, and this one is "
-                "not a path, so the levels would be stranded outside the dataset. Save "
-                "it first with to_file(path) and build the overviews on the saved raster."
+                "This dataset is a plain VRT whose description is not a path, so its "
+                "overviews have nowhere to go: GDAL names the sidecar after the "
+                "description, so the levels would be stranded outside the dataset. "
+                f"Description: {self._ds.raster.GetDescription()[:80]!r}. Save it first "
+                "with to_file(path) and build the overviews on the saved raster."
             )
         if overview_levels is None:
             overview_levels = OVERVIEW_LEVELS
@@ -3182,10 +3183,11 @@ class IO(_Engine["Dataset"]):
         # with no path cannot perform.
         if self._has_nowhere_for_an_overview_sidecar():
             raise ValueError(
-                "This dataset is a VRT with no path, so its overviews have nowhere to "
-                "go: GDAL names the sidecar after the dataset description, and this one "
-                "is not a path. Save it first with to_file(path) and regenerate the "
-                "overviews on the saved raster."
+                "This dataset is a plain VRT whose description is not a path, so its "
+                "overviews have nowhere to go: GDAL names the sidecar after the "
+                f"description. Description: {self._ds.raster.GetDescription()[:80]!r}. "
+                "Save it first with to_file(path) and regenerate the overviews on the "
+                "saved raster."
             )
         if resampling_method.upper() not in RESAMPLING_METHODS:
             raise ValueError(f"resampling_method should be one of {RESAMPLING_METHODS}")
