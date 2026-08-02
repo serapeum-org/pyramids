@@ -936,6 +936,83 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             wrapper.close()
 
+    @pytest.mark.parametrize(
+        "description, truncated",
+        [
+            ("", False),
+            ("   ", False),
+            ('<VRTDataset rasterXSize="8" rasterYSize="8">', False),
+            ("<VRTDataset " + "x" * 200 + ">", True),
+        ],
+        ids=["empty", "blank", "short-document", "long-document"],
+    )
+    def test_the_refusal_quotes_the_description_cut_at_80_characters(
+        self, description, truncated
+    ):
+        """The message quotes the description that caused it, cut at 80 characters.
+
+        Test scenario:
+            Drive the shared message builder with each description the guard refuses —
+            expected: the description is quoted verbatim up to 80 characters, so a
+            caller holding several handles can tell which one failed, and a long inline
+            document is cut rather than reproduced in full, burying the advice after it.
+        """
+        handle = MagicMock(spec=gdal.Dataset)
+        handle.GetDescription.return_value = description
+        stub = MagicMock(spec=Dataset, driver_type="vrt", raster=handle)
+        message = IO(stub)._no_sidecar_message("build")
+        assert f"Description: {description[:80]!r}. Save it first" in message, (
+            f"the message must quote {description[:80]!r}, got: {message}"
+        )
+        assert (description in message) is not truncated, (
+            f"a {len(description)}-character description must "
+            f"{'not ' if truncated else ''}appear in full, got: {message}"
+        )
+
+    def test_both_methods_share_one_refusal_message_differing_in_the_verb(
+        self, tmp_path, monkeypatch
+    ):
+        """Both methods refuse in the same words, differing only in the verb.
+
+        Test scenario:
+            An inline-XML VRT is refused by both methods and carries a description long
+            enough to truncate — expected: one shared message quoting its first 80
+            characters, differing only in what the caller is told to redo on the saved
+            raster, so the two cannot drift apart the way the copied literals could.
+        """
+        monkeypatch.chdir(tmp_path)
+        xml = (
+            '<VRTDataset rasterXSize="64" rasterYSize="64">'
+            '<VRTRasterBand dataType="Float32" band="1"/>'
+            "</VRTDataset>"
+        )
+        dataset = Dataset.read_file(xml)
+        try:
+            description = dataset.raster.GetDescription()
+            assert len(description) > 80, (
+                f"precondition: the description outruns the quote, {len(description)}"
+            )
+            with pytest.raises(OverviewTargetError) as build:
+                dataset.create_overviews(overview_levels=[2])
+            with pytest.raises(OverviewTargetError) as regenerate:
+                dataset.recreate_overviews()
+            built, regenerated = str(build.value), str(regenerate.value)
+            assert f"Description: {description[:80]!r}" in built, (
+                f"the refusal must quote the description that caused it, got: {built}"
+            )
+            assert description not in built, (
+                f"the whole document must not be reproduced, got: {built}"
+            )
+            assert "and build the overviews on the saved raster." in built, (
+                f"create_overviews must name its own verb, got: {built}"
+            )
+            swapped = built.replace("and build the", "and regenerate the")
+            assert swapped == regenerated, (
+                f"the two refusals must differ only in the verb:\n{built}\n{regenerated}"
+            )
+        finally:
+            dataset.close()
+
 
 class TestReCreateOverviews:
     def test_recreate_overviews_internal(

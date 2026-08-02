@@ -9,6 +9,7 @@ import logging
 
 import pytest
 
+from pyramids import errors as public_errors
 from pyramids.base._errors import (
     AlignmentError,
     DatasetNotFoundError,
@@ -18,6 +19,7 @@ from pyramids.base._errors import (
     NoDataValueError,
     OptionalPackageDoesNotExist,
     OutOfBoundsError,
+    OverviewTargetError,
     ReadOnlyError,
     _PyramidsError,
 )
@@ -278,4 +280,20 @@ class TestErrorsReExport:
 
         assert getattr(errs, exc_class.__name__, None) is exc_class, (
             f"{exc_class.__name__} must be re-exported from pyramids.errors"
+        )
+
+    def test_overview_target_error_is_re_exported_by_identity(self):
+        """``OverviewTargetError`` is in ``__all__`` and is the private class itself.
+
+        Test scenario:
+            The overview guard raises it and the module docstring tells callers to
+            import exceptions from here — expected: the name is in ``__all__``, so a
+            star-import and the static analysers see it, and it resolves to the very
+            class the engine raises, not a same-named copy an ``except`` would miss.
+        """
+        assert "OverviewTargetError" in public_errors.__all__, (
+            f"OverviewTargetError must be listed in __all__, got {public_errors.__all__}"
+        )
+        assert public_errors.OverviewTargetError is OverviewTargetError, (
+            "the public name must be the class the engine raises, not a copy"
         )
