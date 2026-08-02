@@ -163,7 +163,12 @@ def _materialize_array(array: np.ndarray, source: Dataset, band: int = 0) -> Dat
         band: The band index the op processed (its no-data is carried through).
     """
     nodata = source.no_data_value
-    no_data_value = nodata[band] if band < len(nodata) else nodata[0]
+    if band < len(nodata):
+        no_data_value = nodata[band]
+    else:
+        # A malformed/short per-band no-data list: fall back to band 0's sentinel,
+        # or None when the source declares no no-data at all (avoids an IndexError).
+        no_data_value = nodata[0] if nodata else None
     data = array if array.ndim == 3 else array[np.newaxis, :, :]
     return Dataset.create_from_array(
         data,
