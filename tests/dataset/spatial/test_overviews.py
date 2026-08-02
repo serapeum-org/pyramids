@@ -186,13 +186,14 @@ class TestCreateOverviewsPathlessGuard:
                 level.close()
             dataset.close()
 
-    def test_in_memory_dataset_still_builds_overviews(self):
+    def test_in_memory_dataset_still_builds_overviews(self, tmp_path, monkeypatch):
         """A MEM raster is unaffected: it stores its overviews internally.
 
         Test scenario:
             `create_from_array` also has an empty description, so guarding on that alone
             would break it — expected: the build still succeeds.
         """
+        monkeypatch.chdir(tmp_path)
         dataset = Dataset.create_from_array(
             np.arange(4096, dtype="float32").reshape(64, 64),
             top_left_corner=(0.0, 64.0),
@@ -204,7 +205,94 @@ class TestCreateOverviewsPathlessGuard:
             assert dataset.overview_count == [1], (
                 f"a MEM raster should still build, got {dataset.overview_count}"
             )
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
         finally:
+            dataset.close()
+
+    @pytest.mark.parametrize("method", ["to_crs", "warped_view"])
+    def test_pathless_warped_vrt_still_builds_overviews(
+        self, tmp_path, monkeypatch, method
+    ):
+        """A warped VRT has no path either, but holds its overviews in RAM.
+
+        Test scenario:
+            `to_crs` / `warped_view` return a `subClass="VRTWarpedDataset"` handle with an
+            empty description — expected: the build succeeds, the levels are readable, and
+            nothing is written to the working directory.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, f"warped_src_{method}.tif")
+        dataset = Dataset.read_file(source)
+        view = None
+        try:
+            view = getattr(dataset, method)(3857)
+            assert view.driver_type == "vrt", "precondition: the warped view is a VRT"
+            assert not view.raster.GetDescription(), "precondition: it has no path"
+            view.create_overviews("average", overview_levels=[2])
+            assert all(count > 0 for count in view.overview_count), (
+                f"a warped VRT should still build, got {view.overview_count}"
+            )
+            level = view.read_overview_array(band=0, overview_index=0)
+            assert level.size > 0 and np.isfinite(level).any(), (
+                "the built level must carry readable data"
+            )
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            if view is not None:
+                view.close()
+            dataset.close()
+
+    def test_vrt_with_a_path_still_builds_overviews(self, tmp_path, monkeypatch):
+        """A VRT that has a real path names its sidecar after it and is left alone.
+
+        Test scenario:
+            The guard keys on a missing description, so a saved `.vrt` is the over-fire
+            canary — expected: the build succeeds and writes `<name>.vrt.ovr` beside it.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "vrt_path_src.tif")
+        vrt_path = tmp_path / "with_path.vrt"
+        gdal.Translate(str(vrt_path), str(source), format="VRT").FlushCache()
+        dataset = Dataset.read_file(str(vrt_path))
+        try:
+            dataset.create_overviews(overview_levels=[2])
+            assert dataset.overview_count == [1, 1, 1], (
+                f"a path-ful VRT should still build, got {dataset.overview_count}"
+            )
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            dataset.close()
+
+    def test_raw_build_overviews_strands_the_levels_without_the_guard(
+        self, tmp_path, monkeypatch
+    ):
+        """Pin the #917 damage itself, so the guard is not silently obsoleted.
+
+        Test scenario:
+            Call `BuildOverviews` straight on the GDAL handle, bypassing the guard —
+            expected: the level count collapses to 0 and a file named `.ovr` appears in
+            the working directory. A GDAL release that fixes this fails this test.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "raw_src.tif")
+        dataset = Dataset.read_file(source)
+        level = None
+        try:
+            level = dataset.get_overview_dataset(overview_index=0)
+            before = list(level.overview_count)
+            assert before == [1, 1, 1], (
+                f"precondition: every band exposes one overview, {before}"
+            )
+            level.raster.BuildOverviews("nearest", [2])
+            assert level.overview_count == [0, 0, 0], (
+                "GDAL no longer strands a pathless VRT's levels — the guard may be obsolete"
+            )
+            assert (tmp_path / ".ovr").exists(), (
+                "GDAL no longer writes a stray '.ovr' — the guard may be obsolete"
+            )
+        finally:
+            if level is not None:
+                level.close()
             dataset.close()
 
 

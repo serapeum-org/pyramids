@@ -2955,6 +2955,38 @@ class IO(_Engine["Dataset"]):
             overview_number.append(self._ds._iloc(i).GetOverviewCount())
         return overview_number
 
+    def _has_nowhere_for_an_overview_sidecar(self) -> bool:
+        """Whether this handle is a VRT that cannot store the overviews it would build.
+
+        A VRT owns no pixel storage, so GDAL can only put its overviews in an external
+        `.ovr` sidecar named after the dataset description. When that description is not a
+        usable path the sidecar lands as a file called literally `.ovr` in the process's
+        working directory, attached to nothing, and the levels the handle was already
+        exposing are dropped.
+
+        Two VRT families are deliberately excluded because they are not affected:
+
+        - a **warped** VRT (`subClass="VRTWarpedDataset"`, produced by `to_crs`,
+          `warped_view`, `crop(..., touch=False)` and the lazy `georeference` /
+          `orthorectify` forms) keeps its overviews in RAM and needs no sidecar;
+        - a VRT with a real path — including one under `/vsimem/` — names its sidecar
+          after that path and writes it successfully.
+
+        Returns:
+            bool:
+                True when building overviews on this handle would strand them.
+        """
+        blocked = False
+        if self._ds.driver_type == "vrt":
+            xml = (self._ds.raster.GetMetadata("xml:VRT") or [""])[0]
+            # Only the root element's attribute settles this; a nested source may carry
+            # its own <VRTDataset> tag.
+            root = xml[: xml.find(">") + 1] if ">" in xml else xml
+            if 'subClass="VRTWarpedDataset"' not in root:
+                description = self._ds.raster.GetDescription()
+                blocked = not description
+        return blocked
+
     def create_overviews(
         self,
         resampling_method: str = "nearest",
@@ -3043,14 +3075,7 @@ class IO(_Engine["Dataset"]):
                 )
         if resampling_method.upper() not in RESAMPLING_METHODS:
             raise ValueError(f"resampling_method should be one of {RESAMPLING_METHODS}")
-        # A VRT owns no pixel storage, so its overviews can only go to an external
-        # sidecar -- and GDAL names that sidecar after the dataset's description. With
-        # an empty one it writes a file called literally ".ovr" into the process's
-        # working directory, attaches nothing, and drops whatever levels the handle was
-        # already exposing. Refuse instead. Drivers that can hold overviews internally
-        # (`MEM`, and the multidim-backed NetCDF variable views) have empty descriptions
-        # too and build fine, so the check is not "no description".
-        if self._ds.driver_type == "vrt" and not self._ds.raster.GetDescription():
+        if self._has_nowhere_for_an_overview_sidecar():
             raise ValueError(
                 "This dataset is a VRT with no path, so overviews have nowhere to go: "
                 "GDAL would write them beside a file that does not exist. Save it first "
