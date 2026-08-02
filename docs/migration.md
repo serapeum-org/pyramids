@@ -147,16 +147,25 @@ There is no way to get the old per-level values back: no API rebuilds a deep lev
 more. If your pipeline depends on them, rebuild the levels you need yourself from
 `Dataset.read_array()` and write them out.
 
-**`create_overviews` now refuses a VRT that has no path.** It raises `ValueError` instead of returning normally.
-A VRT owns no pixel storage, so GDAL can only write its overviews to an external `.ovr` sidecar named after the
-dataset description — and when that description is not a path, the sidecar landed as a file called literally
-`.ovr` in the process's working directory, attached to nothing, while the levels the handle was already exposing
-were dropped. The call reported success and silently did neither thing it promised.
+**`create_overviews` now refuses a plain VRT whose description is not a path.** It raises `ValueError` instead of
+returning normally. A plain VRT owns no pixel storage, so GDAL can only write its overviews to an external `.ovr`
+sidecar named after the dataset description — and when that description is not a path, the sidecar landed as a
+file called literally `.ovr` in the process's working directory, attached to nothing, while the levels the handle
+was already exposing were dropped. The call reported success and silently did neither thing it promised.
 
-Two spellings are refused: an empty description (the handle returned by `Dataset.get_overview_dataset(...)`, and
-any `gdal.Translate(..., format="VRT")` / `gdal.BuildVRT` result kept in memory) and an inline VRT XML document
-passed to `Dataset.read_file(...)`, which previously surfaced as a raw GDAL `RuntimeError` naming a file whose
-name was the whole document.
+Three descriptions are refused: an empty one, a blank one, and an inline VRT XML document passed to
+`Dataset.read_file(...)` (which previously surfaced as a raw GDAL `RuntimeError` naming a file whose name was the
+whole document).
+
+These calls hand back such a handle, and so start raising:
+
+- `Dataset.get_overview_dataset(...)` — **only** its lazily described form, taken when the parent can be reopened
+  by name. When the parent cannot be (a `create_from_array` raster, for instance), the method materialises a
+  `MEM` level instead, and that still builds.
+- anything wrapping a `gdal.Translate(..., format="VRT")` or `gdal.BuildVRT("", ...)` result kept in memory.
+- `NetCDF.get_variable(...)` when the classic view comes back in **index space** — an irregularly spaced
+  coordinate defeats the geotransform guess, and the view is then wrapped in a plain pathless VRT. A view over a
+  regular grid is not VRT-wrapped and is unaffected.
 
 Write the view out first and build the overviews on the saved raster:
 
@@ -169,8 +178,7 @@ saved.create_overviews(overview_levels=[2, 4])
 Unaffected, and covered by tests so they stay that way: **warped** VRTs — everything returned by
 `Dataset.to_crs(...)`, `Dataset.warped_view(...)`, `Dataset.crop(..., touch=False)` and the lazy
 `georeference` / `orthorectify` forms — keep their overviews in RAM and need no sidecar; a VRT with a real path
-(including under `/vsimem/`) names its sidecar after that path; and `MEM` rasters and file-backed NetCDF variable
-views were never VRTs to begin with.
+(including under `/vsimem/`) names its sidecar after that path; and `MEM` rasters are not VRTs at all.
 
 **Operations that need a CRS now refuse instead of assuming one.** Each raises `CRSError` naming the operation
 and how to fix it, where previously the missing CRS was silently filled in with WGS 84:

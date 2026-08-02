@@ -15,6 +15,7 @@ from pyramids.base._errors import ReadOnlyError
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
 from pyramids.netcdf import NetCDF
+from pyramids.netcdf.netcdf import Container
 
 pytestmark = pytest.mark.core
 
@@ -246,12 +247,13 @@ class TestCreateOverviewsPathlessGuard:
             dataset.close()
 
     def test_netcdf_variable_view_still_builds_overviews(self, tmp_path, monkeypatch):
-        """A file-backed NetCDF variable view is unaffected: it is not a VRT.
+        """A file-backed NetCDF view over a *regular* grid is not VRT-wrapped, so it builds.
 
         Test scenario:
-            The view also has an empty description, and the guard's comment names it as a
-            must-not-break shape — expected: the build succeeds and the sidecar is named
-            after the container, not dropped in the working directory.
+            A regular grid keeps the classic view out of index space, so no VRT wrapper is
+            installed — expected: the build succeeds and the sidecar is named after the
+            container, not dropped in the working directory. The index-space counterpart
+            is VRT-wrapped and refused; see `test_index_space_netcdf_view_is_refused`.
         """
         monkeypatch.chdir(tmp_path)
         source = tmp_path / "guard_var.nc"
@@ -276,6 +278,43 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             view.close()
             backed.close()
+
+    def test_index_space_netcdf_view_is_refused(self, tmp_path, monkeypatch):
+        """An index-space NetCDF variable view is VRT-wrapped, so it is refused.
+
+        Test scenario:
+            An irregular `lon` defeats the geotransform guess, so the classic view comes
+            back in index space and `_georeference_index_subset` wraps it in a plain
+            pathless VRT — expected: the same refusal as any other pathless VRT, since
+            this shape previously produced the stray-sidecar damage.
+        """
+        monkeypatch.chdir(tmp_path)
+        store = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
+        root = store.GetRootGroup()
+        y_dim = root.CreateDimension("lat", None, None, 4)
+        x_dim = root.CreateDimension("lon", None, None, 5)
+        dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+        lat = root.CreateMDArray("lat", [y_dim], dtype)
+        lat.WriteArray(np.array([1.0, 2.0, 3.0, 4.0], "f4"))
+        lat.SetUnit("degrees_north")
+        lon = root.CreateMDArray("lon", [x_dim], dtype)
+        lon.WriteArray(np.array([1.0, 2.0, 4.0, 8.0, 16.0], "f4"))
+        lon.SetUnit("degrees_east")
+        y_dim.SetIndexingVariable(lat)
+        x_dim.SetIndexingVariable(lon)
+        root.CreateMDArray("v", [y_dim, x_dim], dtype).WriteArray(
+            np.arange(20, dtype="f4").reshape(4, 5)
+        )
+        view = Container(store).get_variable("v")
+        try:
+            assert view.raster.GetDriver().ShortName == "VRT", (
+                "precondition: the index-space view is VRT-wrapped"
+            )
+            with pytest.raises(ValueError, match="nowhere to go"):
+                view.create_overviews(overview_levels=[2])
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            view.close()
 
     def test_inline_xml_vrt_is_refused_too(self, tmp_path, monkeypatch):
         """An inline-XML VRT has no path either, despite a non-empty description.
@@ -413,38 +452,43 @@ class TestCreateOverviewsPathlessGuard:
             dataset.close()
 
     @pytest.mark.parametrize(
-        "metadata, blocked",
+        "metadata",
         [
-            (None, True),
-            ([], True),
-            (['<VRTDataset rasterXSize="8"'], True),
-            (['<VRTDataset subClass="VRTWarpedDataset"'], False),
+            None,
+            [],
+            ['<VRTDataset rasterXSize="8"'],
+            ['<VRTDataset subClass="VRTWarpedDataset"'],
+            ['<?xml version="1.0"?><VRTDataset subClass="VRTWarpedDataset" x="1">'],
         ],
         ids=[
             "domain-absent",
             "domain-empty",
             "unterminated-plain",
             "unterminated-warped",
+            "declaration-prefixed-warped",
         ],
     )
-    def test_unusable_xml_metadata_still_decides_from_the_root(self, metadata, blocked):
-        """An absent or unterminated `xml:VRT` document leaves the root check intact.
+    def test_an_unparseable_xml_document_falls_back_to_refusing(self, metadata):
+        """A root element the predicate cannot read is refused rather than exempted.
 
         Test scenario:
-            GDAL always serialises the document, so these shapes are driven through a
-            stub handle — expected: a missing domain falls back to an empty root and is
-            refused on its empty description, while an unterminated document is read
-            whole, so its own `subClass` still exempts it.
+            GDAL always serialises a well-formed document, so these shapes are driven
+            through a stub handle — expected: refusal whenever the root start tag cannot
+            be isolated, because failing to prove a handle is warped must not let it
+            strand its levels. The declaration-prefixed case is exempted, since anchoring
+            on `<VRTDataset` still finds the root.
         """
         handle = MagicMock(spec=gdal.Dataset)
         handle.GetMetadata.return_value = metadata
         handle.GetDescription.return_value = ""
         stub = MagicMock(spec=Dataset, driver_type="vrt", raster=handle)
         engine = IO(stub)
-        assert engine._has_nowhere_for_an_overview_sidecar() is blocked, (
-            f"expected {blocked} for xml:VRT metadata {metadata!r}"
+        exempt = metadata is not None and any(
+            item.endswith(">") and "VRTWarpedDataset" in item for item in metadata
         )
-        handle.GetMetadata.assert_called_once_with("xml:VRT")
+        assert engine._has_nowhere_for_an_overview_sidecar() is not exempt, (
+            f"expected blocked={not exempt} for xml:VRT metadata {metadata!r}"
+        )
 
     @pytest.mark.parametrize(
         "kwargs",

@@ -2973,10 +2973,13 @@ class IO(_Engine["Dataset"]):
         - a VRT with a real path — including one under `/vsimem/` — names its sidecar
           after that path and writes it successfully.
 
-        Non-VRT handles are never blocked here even when they have no description: `MEM`
-        keeps its levels internally, a file-backed NetCDF variable view names its sidecar
-        after the container, and an in-memory one is refused by GDAL itself with
-        `RuntimeError: No filename associated with array`, which is already actionable.
+        A handle that is not a VRT is never blocked here, whatever its description: `MEM`
+        keeps its levels internally, and a NetCDF variable view over a regular grid names
+        its sidecar after the container when the container is file-backed, or is refused
+        by GDAL itself with `RuntimeError: No filename associated with array` when it is
+        not. A NetCDF variable view is not always a non-VRT handle, though: when the
+        classic view comes back in index space, `_georeference_index_subset` wraps it in a
+        plain pathless VRT, and that shape is blocked here like any other.
 
         Returns:
             bool:
@@ -2984,13 +2987,18 @@ class IO(_Engine["Dataset"]):
         """
         blocked = False
         if self._ds.driver_type == "vrt":
-            xml = (self._ds.raster.GetMetadata("xml:VRT") or [""])[0]
-            # Only the root element's attribute settles this; a nested source may carry
-            # its own <VRTDataset> tag.
-            root = xml[: xml.find(">") + 1] if ">" in xml else xml
-            if 'subClass="VRTWarpedDataset"' not in root:
-                description = self._ds.raster.GetDescription().strip()
-                blocked = not description or description.startswith("<")
+            # Cheap and decisive: a usable path settles it without serialising the
+            # document, which costs milliseconds on a mosaic with many sources.
+            description = self._ds.raster.GetDescription().strip()
+            if not description or description.startswith("<"):
+                xml = (self._ds.raster.GetMetadata("xml:VRT") or [""])[0]
+                # Anchor on the root element: a nested source may carry its own
+                # <VRTDataset> tag, and a leading declaration or comment would otherwise
+                # shift the slice off the root and un-exempt every warped VRT.
+                start = xml.find("<VRTDataset")
+                end = xml.find(">", start)
+                root = xml[start : end + 1] if start != -1 and end != -1 else ""
+                blocked = 'subClass="VRTWarpedDataset"' not in root
         return blocked
 
     def create_overviews(
