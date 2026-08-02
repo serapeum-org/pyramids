@@ -9,8 +9,8 @@ extensible: add a :class:`ToolSpec` and :func:`register` it.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Mapping
 
 from pyramids.base._utils import INTERPOLATION_METHODS
 from pyramids.feature.tessellation import QUADTREE_AGG
@@ -133,10 +133,16 @@ register(
         params=(
             ParamSpec("to_epsg", "Integer", None, False, "Target EPSG code."),
             ParamSpec(
-                "method", "OptionList", None, True, "Resampling method.",
+                "method",
+                "OptionList",
+                None,
+                True,
+                "Resampling method.",
                 choices=_RESAMPLING_METHODS,
             ),
-            ParamSpec("cell_size", "Float", None, True, "Output cell size (CRS units)."),
+            ParamSpec(
+                "cell_size", "Float", None, True, "Output cell size (CRS units)."
+            ),
         ),
     )
 )
@@ -150,7 +156,11 @@ register(
         params=(
             ParamSpec("cell_size", "Float", None, False, "New cell size (CRS units)."),
             ParamSpec(
-                "method", "OptionList", None, True, "Resampling method.",
+                "method",
+                "OptionList",
+                None,
+                True,
+                "Resampling method.",
                 choices=_RESAMPLING_METHODS,
             ),
         ),
@@ -173,10 +183,16 @@ register(
                 "Interpolation method.",
                 choices=("idw",),
             ),
-            ParamSpec("cell_size", "Float", None, True, "Output cell size (CRS units)."),
+            ParamSpec(
+                "cell_size", "Float", None, True, "Output cell size (CRS units)."
+            ),
             ParamSpec("power", "Float", 2.0, True, "IDW distance exponent."),
-            ParamSpec("n_neighbors", "Integer", None, True, "Nearest points per estimate."),
-            ParamSpec("nodata", "Float", -9999.0, True, "No-data value for empty cells."),
+            ParamSpec(
+                "n_neighbors", "Integer", None, True, "Nearest points per estimate."
+            ),
+            ParamSpec(
+                "nodata", "Float", -9999.0, True, "No-data value for empty cells."
+            ),
         ),
     )
 )
@@ -187,7 +203,9 @@ register(
         receiver="FeatureCollection",
         returns="FeatureCollection",
         description="Tag each point with its H3 cell index.",
-        params=(ParamSpec("resolution", "Integer", None, False, "H3 resolution 0-15."),),
+        params=(
+            ParamSpec("resolution", "Integer", None, False, "H3 resolution 0-15."),
+        ),
     )
 )
 
@@ -197,7 +215,9 @@ register(
         receiver="Dataset",
         returns="Dataset",
         description="Fill every domain cell with a constant value.",
-        params=(ParamSpec("value", "Float", None, False, "Value to fill the domain with."),),
+        params=(
+            ParamSpec("value", "Float", None, False, "Value to fill the domain with."),
+        ),
     )
 )
 
@@ -208,9 +228,13 @@ register(
         returns="Dataset",
         description="Remove pixel clumps smaller than a threshold (speckle clean-up).",
         params=(
-            ParamSpec("threshold", "Integer", None, False, "Minimum clump size in pixels."),
+            ParamSpec(
+                "threshold", "Integer", None, False, "Minimum clump size in pixels."
+            ),
             ParamSpec("band", "Integer", 0, True, _BAND_DESC),
-            ParamSpec("connectedness", "Integer", 4, True, "Pixel connectedness (4 or 8)."),
+            ParamSpec(
+                "connectedness", "Integer", 4, True, "Pixel connectedness (4 or 8)."
+            ),
         ),
     )
 )
@@ -247,7 +271,9 @@ register(
         receiver="FeatureCollection",
         returns="FeatureCollection",
         description="Voronoi (Thiessen) tessellation of a point layer.",
-        params=(ParamSpec("values", "Field", None, True, "Column copied onto each cell."),),
+        params=(
+            ParamSpec("values", "Field", None, True, "Column copied onto each cell."),
+        ),
     )
 )
 
@@ -258,12 +284,20 @@ register(
         returns="FeatureCollection",
         description="Adaptive quad-tree binning of a point layer into cells.",
         params=(
-            ParamSpec("column", "Field", None, True, "Numeric column aggregated per cell."),
             ParamSpec(
-                "agg", "OptionList", "mean", True, "Aggregation function name.",
+                "column", "Field", None, True, "Numeric column aggregated per cell."
+            ),
+            ParamSpec(
+                "agg",
+                "OptionList",
+                "mean",
+                True,
+                "Aggregation function name.",
                 choices=_QUADTREE_AGGS,
             ),
-            ParamSpec("nmax", "Integer", 100, True, "Max points per cell before splitting."),
+            ParamSpec(
+                "nmax", "Integer", 100, True, "Max points per cell before splitting."
+            ),
             ParamSpec("nmin", "Integer", 0, True, "Min points for a cell to be kept."),
         ),
     )

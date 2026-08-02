@@ -59,7 +59,9 @@ class TestValidateParams:
         """
         spec = ToolSpec("t", "Dataset", "Dataset", (ParamSpec("mask", "Raster"),))
         validate_params(spec, {"mask": "r.tif"})
-        with pytest.raises(ValueError, match="not\n?.*serializable|not pipeline-serializable"):
+        with pytest.raises(
+            ValueError, match="not\n?.*serializable|not pipeline-serializable"
+        ):
             validate_params(spec, {"mask": "r.tif"}, for_serialization=True)
 
 
@@ -132,7 +134,12 @@ class TestPipeline:
         Test scenario:
             A scalar-param pipeline written to YAML loads back equal.
         """
-        p = Pipeline([("interpolate_to_raster", {"column": "z", "cell_size": 1000.0}), ("slope", {})])
+        p = Pipeline(
+            [
+                ("interpolate_to_raster", {"column": "z", "cell_size": 1000.0}),
+                ("slope", {}),
+            ]
+        )
         path = tmp_path / "pipe.yaml"
         p.to_yaml(str(path))
         assert Pipeline.from_yaml(str(path)) == p, "YAML round-trip should be equal"
@@ -146,7 +153,11 @@ class TestPipeline:
         Test scenario:
             A tool with a Raster param raises on to_yaml and writes no file.
         """
-        reg.register(ToolSpec("__ns_tool__", "Dataset", "Dataset", (ParamSpec("mask", "Raster"),)))
+        reg.register(
+            ToolSpec(
+                "__ns_tool__", "Dataset", "Dataset", (ParamSpec("mask", "Raster"),)
+            )
+        )
         try:
             p = Pipeline([("__ns_tool__", {"mask": "r.tif"})])
             path = tmp_path / "q.yaml"
@@ -219,4 +230,6 @@ class TestPipeline:
         got.append("x")
         got[0].params["band"] = 99
         assert len(p) == 1, "mutating the steps copy must not affect the pipeline"
-        assert p.steps[0].params["band"] == 0, "mutating a step's params must not leak back"
+        assert p.steps[0].params["band"] == 0, (
+            "mutating a step's params must not leak back"
+        )

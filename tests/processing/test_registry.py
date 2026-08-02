@@ -99,7 +99,9 @@ class TestRegistry:
             Iterating the registry, each spec's receiver and returns are in RECEIVER_TYPES.
         """
         for name, spec in reg.get_registry().items():
-            assert spec.receiver in RECEIVER_TYPES, f"{name} bad receiver {spec.receiver}"
+            assert spec.receiver in RECEIVER_TYPES, (
+                f"{name} bad receiver {spec.receiver}"
+            )
             assert spec.returns in RETURN_TYPES, f"{name} bad returns {spec.returns}"
 
     def test_register_and_resolve_roundtrip(self):
@@ -109,13 +111,17 @@ class TestRegistry:
             A throwaway tool registers and resolves; cleaned up afterwards so the
             global registry is left as found.
         """
-        temp = ToolSpec("__tmp_tool__", "Dataset", "Dataset", (ParamSpec("x", "Integer"),))
+        temp = ToolSpec(
+            "__tmp_tool__", "Dataset", "Dataset", (ParamSpec("x", "Integer"),)
+        )
         reg.register(temp)
         try:
             assert reg.resolve("__tmp_tool__") is temp, "registered tool should resolve"
         finally:
             reg._REGISTRY.pop("__tmp_tool__", None)
-        assert "__tmp_tool__" not in reg.tool_names(), "cleanup should remove the temp tool"
+        assert "__tmp_tool__" not in reg.tool_names(), (
+            "cleanup should remove the temp tool"
+        )
 
     def test_interpolate_required_column(self):
         """interpolate_to_raster declares a required 'column' Field parameter.

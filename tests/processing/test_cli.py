@@ -79,11 +79,13 @@ class TestProcessingCli:
             exits 0.
         """
         yaml_path = tmp_path / "pipe.yaml"
-        Pipeline([("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})]).to_yaml(
-            str(yaml_path)
-        )
+        Pipeline(
+            [("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})]
+        ).to_yaml(str(yaml_path))
         out_dir = tmp_path / "out"
-        rc = main(["run", str(yaml_path), "--inputs", points_geojson, "--out", str(out_dir)])
+        rc = main(
+            ["run", str(yaml_path), "--inputs", points_geojson, "--out", str(out_dir)]
+        )
         assert rc == 0, "run should exit 0"
         assert list(out_dir.glob("*.tif")), list(out_dir.iterdir())
 

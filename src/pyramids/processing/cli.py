@@ -26,7 +26,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         parallel=args.parallel,
         max_workers=args.max_workers,
     )
-    print(f"processed {len(result.outputs)} input(s); {len(result.failures)} failure(s)")
+    print(
+        f"processed {len(result.outputs)} input(s); {len(result.failures)} failure(s)"
+    )
     for source, exc in result.failures:
         print(f"  FAILED {source}: {exc}")
     return 0 if result.ok else 1
@@ -61,7 +63,9 @@ def add_processing_commands(sub: argparse._SubParsersAction) -> None:
     """
     run_p = sub.add_parser("run", help="run a pipeline YAML over inputs")
     run_p.add_argument("pipeline", help="pipeline YAML path")
-    run_p.add_argument("--inputs", required=True, help="input path or glob (quote globs)")
+    run_p.add_argument(
+        "--inputs", required=True, help="input path or glob (quote globs)"
+    )
     run_p.add_argument("--out", required=True, help="output directory")
     run_p.add_argument(
         "--on-error",

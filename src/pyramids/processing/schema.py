@@ -163,7 +163,11 @@ class ParamSpec:
                 raise ValueError(f"parameter {self.name!r}: {raw!r} is not a boolean")
         else:
             result = raw
-            if pt == "OptionList" and self.choices is not None and raw not in self.choices:
+            if (
+                pt == "OptionList"
+                and self.choices is not None
+                and raw not in self.choices
+            ):
                 raise ValueError(
                     f"parameter {self.name!r}: {raw!r} not in {list(self.choices)}"
                 )
@@ -269,8 +273,7 @@ def validate_params(
             pspec = known[key]
         except KeyError as exc:
             raise ValueError(
-                f"tool {spec.name!r}: unknown parameter {key!r}; "
-                f"valid: {sorted(known)}"
+                f"tool {spec.name!r}: unknown parameter {key!r}; valid: {sorted(known)}"
             ) from exc
         pspec.validate(value)
         if for_serialization and not pspec.is_serializable:

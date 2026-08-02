@@ -57,7 +57,10 @@ class TestRun:
             one array output with no failures.
         """
         pipe = Pipeline(
-            [("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0}), ("slope", {})]
+            [
+                ("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0}),
+                ("slope", {}),
+            ]
         )
         result = run(pipe, points_fc, on_error="raise")
         assert len(result.outputs) == 1, result.failures
@@ -106,7 +109,10 @@ class TestRun:
             the array-output-not-writable bug).
         """
         pipe = Pipeline(
-            [("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0}), ("slope", {})]
+            [
+                ("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0}),
+                ("slope", {}),
+            ]
         )
         result = run(pipe, points_fc, out=str(tmp_path), on_error="raise")
         assert result.ok, result.failures
@@ -118,7 +124,9 @@ class TestRun:
         Test scenario:
             A nonexistent raster path is collected rather than raised.
         """
-        result = run(Pipeline([("slope", {})]), ["C:/no/such/file.tif"], on_error="skip")
+        result = run(
+            Pipeline([("slope", {})]), ["C:/no/such/file.tif"], on_error="skip"
+        )
         assert len(result.outputs) == 0, result.outputs
         assert len(result.failures) == 1, result.failures
 
@@ -153,7 +161,9 @@ class TestRun:
             interpolate_to_raster with out=dir writes output_0.tif and still
             returns the in-memory Dataset in serial mode.
         """
-        pipe = Pipeline([("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})])
+        pipe = Pipeline(
+            [("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})]
+        )
         result = run(pipe, points_fc, out=str(tmp_path))
         assert isinstance(result.outputs[0], Dataset), type(result.outputs[0])
         assert (tmp_path / "output_0.tif").exists(), list(tmp_path.iterdir())
@@ -170,7 +180,9 @@ class TestRun:
         """
         for name in ("a.geojson", "b.geojson"):
             points_fc.to_file(str(tmp_path / name))
-        pipe = Pipeline([("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})])
+        pipe = Pipeline(
+            [("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})]
+        )
         result = run(pipe, str(tmp_path / "*.geojson"), on_error="raise")
         assert len(result.outputs) == 2, [type(o) for o in result.outputs]
 
@@ -274,7 +286,9 @@ class TestRun:
         paths = [tmp_path / "a.geojson", tmp_path / "b.geojson"]
         for p in paths:
             points_fc.to_file(str(p))
-        pipe = Pipeline([("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})])
+        pipe = Pipeline(
+            [("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})]
+        )
         result = run(pipe, paths, on_error="raise")
         assert len(result.outputs) == 2, result.failures
 
@@ -304,7 +318,9 @@ class TestRun:
         points_fc.to_file(str(p1))
         points_fc.to_file(str(p2))
         out = tmp_path / "out"
-        pipe = Pipeline([("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})])
+        pipe = Pipeline(
+            [("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})]
+        )
         result = run(pipe, [str(p1), str(p2)], out=str(out), on_error="raise")
         assert result.ok, result.failures
         assert len(list(out.glob("*.tif"))) == 2, list(out.iterdir())
@@ -348,12 +364,24 @@ class TestRun:
         for name in ("a.geojson", "b.geojson"):
             points_fc.to_file(str(tmp_path / name))
         out = tmp_path / "out"
-        pipe = Pipeline([("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})])
-        result = run(pipe, str(tmp_path / "*.geojson"), out=str(out), parallel=True, max_workers=2)
+        pipe = Pipeline(
+            [("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0})]
+        )
+        result = run(
+            pipe,
+            str(tmp_path / "*.geojson"),
+            out=str(out),
+            parallel=True,
+            max_workers=2,
+        )
         assert len(result.outputs) == 2, result.failures
-        assert all(isinstance(p, str) and p.endswith(".tif") for p in result.outputs), result.outputs
+        assert all(isinstance(p, str) and p.endswith(".tif") for p in result.outputs), (
+            result.outputs
+        )
         assert len(result.provenance) == 2, result.provenance
-        assert all(pr.to_pipeline() == pipe for pr in result.provenance), result.provenance
+        assert all(pr.to_pipeline() == pipe for pr in result.provenance), (
+            result.provenance
+        )
 
     def test_parallel_requires_out(self, points_fc):
         """parallel=True without an out directory is rejected.
@@ -375,7 +403,9 @@ class TestRun:
             A pipeline using a runtime-registered tool raises up front under
             parallel (workers would not see it), before any process spawns.
         """
-        reg.register(ToolSpec("__rt_tool__", "Dataset", "Dataset", (ParamSpec("x", "Integer"),)))
+        reg.register(
+            ToolSpec("__rt_tool__", "Dataset", "Dataset", (ParamSpec("x", "Integer"),))
+        )
         try:
             pipe = Pipeline([("__rt_tool__", {"x": 1})])
             with pytest.raises(ValueError, match="runtime-registered tools"):

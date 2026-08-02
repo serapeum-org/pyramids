@@ -17,7 +17,9 @@ class TestParamSpec:
         """
         with pytest.raises(ValueError, match="unknown param_type") as exc:
             ParamSpec("x", "Nonsense")
-        assert "Nonsense" in str(exc.value), f"message should name the type: {exc.value}"
+        assert "Nonsense" in str(exc.value), (
+            f"message should name the type: {exc.value}"
+        )
 
     def test_init_choices_on_non_optionlist_raises(self):
         """choices are only valid for an OptionList parameter.
@@ -52,8 +54,12 @@ class TestParamSpec:
         Test scenario:
             Scalar/file types serialize; in-memory Raster/Vector do not.
         """
-        spec = ParamSpec("x", param_type, choices=("a",) if param_type == "OptionList" else None)
-        assert spec.is_serializable is expected, f"{param_type} serializable should be {expected}"
+        spec = ParamSpec(
+            "x", param_type, choices=("a",) if param_type == "OptionList" else None
+        )
+        assert spec.is_serializable is expected, (
+            f"{param_type} serializable should be {expected}"
+        )
 
     def test_is_serializable_override(self):
         """An explicit serializable flag overrides the derived value.
@@ -174,7 +180,9 @@ class TestParamSpec:
             Numeric/boolean/string coercions produce the right Python value.
         """
         result = ParamSpec("x", param_type).coerce(raw)
-        assert result == expected, f"coerce({raw!r}) -> {result!r}, expected {expected!r}"
+        assert result == expected, (
+            f"coerce({raw!r}) -> {result!r}, expected {expected!r}"
+        )
 
     def test_coerce_boolean_invalid_raises(self):
         """coerce rejects an unparseable boolean string.
@@ -202,7 +210,9 @@ class TestParamSpec:
         Test scenario:
             A required Field param's help mentions the name, type, and 'required'.
         """
-        text = ParamSpec("column", "Field", optional=False, description="Numeric column.").help()
+        text = ParamSpec(
+            "column", "Field", optional=False, description="Numeric column."
+        ).help()
         assert "column" in text, text
         assert "Field" in text, text
         assert "required" in text, text
@@ -246,7 +256,10 @@ class TestToolSpec:
             With no explicit method, method_name equals name; with one, it wins.
         """
         assert ToolSpec("slope", "Dataset", "Dataset").method_name == "slope"
-        assert ToolSpec("s", "Dataset", "Dataset", method="do_slope").method_name == "do_slope"
+        assert (
+            ToolSpec("s", "Dataset", "Dataset", method="do_slope").method_name
+            == "do_slope"
+        )
 
     def test_param_lookup(self):
         """param returns the matching ParamSpec or None.

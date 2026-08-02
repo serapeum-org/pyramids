@@ -40,7 +40,9 @@ class TestProvenance:
         prov = Provenance(
             "<x>", [StepRecord("slope", {"band": 0, "units": "degrees"}, 0.0)]
         )
-        assert prov.to_pipeline() == Pipeline([("slope", {"band": 0, "units": "degrees"})])
+        assert prov.to_pipeline() == Pipeline(
+            [("slope", {"band": 0, "units": "degrees"})]
+        )
 
 
 class TestRunProvenance:
@@ -54,14 +56,21 @@ class TestRunProvenance:
             equals the pipeline that was run, and total_seconds is non-negative.
         """
         pipe = Pipeline(
-            [("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0}), ("slope", {})]
+            [
+                ("interpolate_to_raster", {"column": "elevation", "cell_size": 1.0}),
+                ("slope", {}),
+            ]
         )
         result = run(pipe, _points_fc(), on_error="raise")
         assert len(result.provenance) == 1, result.provenance
         prov = result.provenance[0]
-        assert prov.to_pipeline() == pipe, "re-emitted pipeline should equal the original"
+        assert prov.to_pipeline() == pipe, (
+            "re-emitted pipeline should equal the original"
+        )
         assert prov.total_seconds >= 0.0, prov.total_seconds
-        assert [s.tool for s in prov.steps] == ["interpolate_to_raster", "slope"], prov.steps
+        assert [s.tool for s in prov.steps] == ["interpolate_to_raster", "slope"], (
+            prov.steps
+        )
 
     def test_failed_input_records_no_provenance(self):
         """A failed input contributes no provenance entry.

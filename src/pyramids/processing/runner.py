@@ -26,9 +26,7 @@ from pyramids.processing.schema import ToolSpec
 # File extensions opened as vector (FeatureCollection) rather than raster. ``.json``
 # is included because GeoJSON is commonly saved with that extension; a non-geo JSON
 # input will surface a vector-parse error from the reader.
-_VECTOR_EXTS = frozenset(
-    {".geojson", ".json", ".shp", ".gpkg", ".fgb", ".gml", ".kml"}
-)
+_VECTOR_EXTS = frozenset({".geojson", ".json", ".shp", ".gpkg", ".fgb", ".gml", ".kml"})
 
 
 @dataclass
@@ -147,7 +145,7 @@ def _source_label(item: Any) -> str:
     return label
 
 
-def _materialize_array(array: "np.ndarray", source: Dataset, band: int = 0) -> Dataset:
+def _materialize_array(array: np.ndarray, source: Dataset, band: int = 0) -> Dataset:
     """Wrap a bare array result into a single-band georeferenced ``Dataset``.
 
     The terrain/focal ops (``slope``/``aspect``/``hillshade``/``focal_*``) return a
@@ -172,7 +170,9 @@ def _materialize_array(array: "np.ndarray", source: Dataset, band: int = 0) -> D
     )
 
 
-def _run_pipeline_on(pipeline: Pipeline, obj: Any, source: str) -> tuple[Any, Provenance]:
+def _run_pipeline_on(
+    pipeline: Pipeline, obj: Any, source: str
+) -> tuple[Any, Provenance]:
     """Apply every step to ``obj``, timing each, and return output + provenance.
 
     A step whose tool declares ``returns="Array"`` yields a bare numpy array; it is
@@ -187,7 +187,9 @@ def _run_pipeline_on(pipeline: Pipeline, obj: Any, source: str) -> tuple[Any, Pr
         obj = _apply(step, obj, spec)
         if spec.returns == "Array" and isinstance(obj, np.ndarray):
             obj = _materialize_array(obj, source_obj, step.params.get("band", 0))
-        prov.steps.append(StepRecord(step.tool, dict(step.params), time.perf_counter() - start))
+        prov.steps.append(
+            StepRecord(step.tool, dict(step.params), time.perf_counter() - start)
+        )
     return obj, prov
 
 
@@ -230,7 +232,9 @@ def _execute_serial(
     return result
 
 
-def _run_one_worker(payload: tuple[dict[str, Any], str, str, int]) -> tuple[str, Provenance]:
+def _run_one_worker(
+    payload: tuple[dict[str, Any], str, str, int],
+) -> tuple[str, Provenance]:
     """Worker entry point: open a path, run the pipeline, write; return path + provenance.
 
     Runs in a separate process; it rebuilds the pipeline from a plain dict and
@@ -257,7 +261,9 @@ def _execute_parallel(
             "parallel=True requires file-path inputs — GDAL handles cannot cross "
             "process boundaries, so pass paths/globs, not in-memory objects"
         )
-    non_builtin = sorted({step.tool for step in pipeline if step.tool not in BUILTIN_TOOLS})
+    non_builtin = sorted(
+        {step.tool for step in pipeline if step.tool not in BUILTIN_TOOLS}
+    )
     if non_builtin:
         raise ValueError(
             f"parallel=True cannot use runtime-registered tools {non_builtin}; worker "
@@ -267,7 +273,9 @@ def _execute_parallel(
     pipe_dict = pipeline.to_dict()
     payloads = [(pipe_dict, src, out, i) for i, src in enumerate(items)]
     with ProcessPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_run_one_worker, payload): payload[1] for payload in payloads}
+        futures = {
+            pool.submit(_run_one_worker, payload): payload[1] for payload in payloads
+        }
         for future in as_completed(futures):
             source = futures[future]
             try:

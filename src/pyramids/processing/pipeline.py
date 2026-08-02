@@ -9,8 +9,9 @@ from a portable YAML "model" file lives in this module too.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import Any, Iterable, Iterator
+from typing import Any
 
 import yaml
 
@@ -114,7 +115,7 @@ class Pipeline:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Pipeline":
+    def from_dict(cls, data: dict[str, Any]) -> Pipeline:
         """Build a pipeline from a mapping produced by :meth:`to_dict`.
 
         Args:
@@ -133,7 +134,9 @@ class Pipeline:
             )
         raw = data["pipeline"]
         if not isinstance(raw, list):
-            raise ValueError("invalid pipeline data: 'pipeline' must be a list of steps")
+            raise ValueError(
+                "invalid pipeline data: 'pipeline' must be a list of steps"
+            )
         steps: list[tuple[str, dict[str, Any]]] = []
         for index, step in enumerate(raw):
             if not isinstance(step, dict) or "tool" not in step:
@@ -163,7 +166,7 @@ class Pipeline:
             yaml.safe_dump(self.to_dict(), handle, sort_keys=False)
 
     @classmethod
-    def from_yaml(cls, path: str) -> "Pipeline":
+    def from_yaml(cls, path: str) -> Pipeline:
         """Read a pipeline from a YAML file written by :meth:`to_yaml`.
 
         Args:
