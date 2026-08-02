@@ -153,6 +153,7 @@ nav:
           - Raster algebra & apply: examples/operations/raster-algebra.ipynb
           - Vector geometry toolkit: examples/operations/vector-geometry.ipynb
           - Color tables & band colors: examples/operations/color-tables.ipynb
+          - Geoprocessing pipelines: examples/processing/pipeline.ipynb
       - Dataset:
           - Overview: tutorials/dataset.md
           - Raster basics: tutorials/raster-basics.md
@@ -210,6 +211,7 @@ nav:
       - Georeferencing (GCPs & RPCs): reference/dataset/georef.md
       - Merge & stack: reference/dataset/merge.md
     - DatasetCollection: reference/dataset/collection.md
+    - Processing pipelines: reference/processing.md
     - Zarr: reference/zarr.md
     - Feature:
       - Overview: reference/feature/index.md
@@ -279,6 +281,7 @@ nav:
         - ADR-0004 Dependency graphing: adr/0004-dependency-graphing.md
         - ADR-0005 Versioning docs: adr/0005-versioning-docs.md
         - ADR-0006 Docker image: adr/0006-docker-image.md
+        - ADR-0007 Processing registry: adr/0007-processing-registry-approach.md
 
 extra:
   social:

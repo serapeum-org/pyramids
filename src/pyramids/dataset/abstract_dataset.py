@@ -1490,6 +1490,13 @@ class RasterBase(ABC):
         `create_overviews` for that. A band with no overviews has nothing to regenerate,
         so it is reported through a warning rather than skipped silently.
 
+        A band's levels are rebuilt in a single GDAL pass, which cascades: each deeper
+        level is decimated from the level above rather than from the full-resolution
+        band, matching what `create_overviews` does. A level >= 1 therefore holds what a
+        per-level rebuild wrote only where the resampling survives being applied twice --
+        `nearest` always, and `average`/`rms` on a floating-point band with no no-data.
+        See `docs/migration.md`.
+
         Args:
             resampling_method (str, optional):
                 The resampling method used to create the overviews, by default "nearest".
@@ -1508,8 +1515,8 @@ class RasterBase(ABC):
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or transport failure
                 is not relabelled as an access-mode error. GDAL's own error is re-raised carrying a note
-                that names the band and level it stopped on; a failing status that raised nothing is turned
-                into one.
+                that names the band it stopped on — a band's levels regenerate in one call, so no level is
+                named; a failing status that raised nothing is turned into one.
 
         Warns:
             UserWarning:
