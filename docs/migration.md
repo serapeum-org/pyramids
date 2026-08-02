@@ -148,7 +148,8 @@ more. If your pipeline depends on them, rebuild the levels you need yourself fro
 `Dataset.read_array()` and write them out.
 
 **`create_overviews` now refuses a plain VRT whose description is not a path.** It raises `OverviewTargetError`
-instead of returning normally. That is a new exception, importable as `from pyramids.errors import OverviewTargetError`, which subclasses `ValueError`,
+instead of returning normally. That is a new exception, importable as
+`from pyramids.errors import OverviewTargetError`, which subclasses `ValueError`,
 so an existing `except ValueError` around the call keeps catching it — catch the new type to tell "this dataset
 can never work" apart from "these arguments were wrong". `recreate_overviews` raises it for the same shape, where
 it previously reported a misleading `ReadOnlyError` advising a reopen that a handle with no path cannot perform.
@@ -170,11 +171,15 @@ These calls hand back such a handle, and so start raising:
 - `NetCDF.get_variable(...)` when the classic view comes back in **index space** — an irregularly spaced
   coordinate defeats the geotransform guess, and the view is then wrapped in a plain pathless VRT. A view over a
   regular grid is not VRT-wrapped and is unaffected.
+- `Dataset.to_zarr(..., overview_factors=[...])` on an inline-XML VRT, since it builds the pyramid levels through
+  `create_overviews`. Without `overview_factors` it is unaffected, and the description-less VRTs above already
+  failed earlier in `to_zarr`'s base-array write.
 
 Write the view out first and build the overviews on the saved raster:
 
 ```python
 view.to_file("level.tif")
+view.close()  # on Windows an open handle keeps the parent file locked
 saved = Dataset.read_file("level.tif", read_only=False)
 saved.create_overviews(overview_levels=[2, 4])
 ```

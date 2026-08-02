@@ -834,6 +834,28 @@ class TestCreateOverviewsPathlessGuard:
                 view.close()
             dataset.close()
 
+    def test_to_zarr_with_overview_factors_surfaces_the_refusal(
+        self, tmp_path, monkeypatch
+    ):
+        """`to_zarr(overview_factors=...)` builds levels, so the refusal escapes there.
+
+        Test scenario:
+            An inline-XML VRT is the one refused shape whose base array still writes —
+            GDAL reopens it from its own description, where a description-less VRT fails
+            first in the dask read — so `_write_overview_levels` is reached and
+            `create_overviews` refuses. Expected: `OverviewTargetError` out of `to_zarr`.
+        """
+        pytest.importorskip("zarr")
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "zarr_guard_src.tif")
+        xml = gdal.Translate("", str(source), format="VRT").GetMetadata("xml:VRT")[0]
+        dataset = Dataset.read_file(xml)
+        try:
+            with pytest.raises(OverviewTargetError, match="nowhere to go"):
+                dataset.to_zarr(str(tmp_path / "out.zarr"), overview_factors=[2])
+        finally:
+            dataset.close()
+
     def test_read_only_vrt_still_reports_the_access_mode(self, tmp_path, monkeypatch):
         """A genuine access-mode refusal on a VRT still raises `ReadOnlyError`.
 

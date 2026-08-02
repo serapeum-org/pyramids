@@ -80,11 +80,12 @@ class OverviewTargetError(_PyramidsError, ValueError):
     a property of the dataset and needs `to_file(path)` first::
 
         try:
-            dataset.create_overviews(overview_levels=levels)
+            view.create_overviews(overview_levels=levels)
         except OverviewTargetError:
-            dataset.to_file(path)
-            dataset = Dataset.read_file(path, read_only=False)
-            dataset.create_overviews(overview_levels=levels)
+            view.to_file(path)
+            view.close()
+            saved = Dataset.read_file(path, read_only=False)
+            saved.create_overviews(overview_levels=levels)
     """
 
 

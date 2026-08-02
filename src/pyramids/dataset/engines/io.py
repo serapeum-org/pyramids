@@ -3014,9 +3014,14 @@ class IO(_Engine["Dataset"]):
         declaration or comment would otherwise shift the slice off the root and report
         every warped VRT as plain.
 
-        A root element that cannot be isolated answers False, so the exemption has to be
-        proven rather than assumed — mistaking a plain VRT for a warped one would let it
-        strand its levels, which is the failure this predicate exists to prevent.
+        A root element that cannot be isolated answers False — the exemption has to be
+        proven, not assumed. That is fail-safe for `_has_nowhere_for_an_overview_sidecar`,
+        which negates the result: an unreadable root refuses rather than letting a plain
+        VRT strand its levels. It is *not* symmetric for `_regenerate_overviews`, which
+        uses the result directly, so an unserialisable warped VRT falls back to the
+        `ReadOnlyError` that #922 exists to eliminate. GDAL always serialises the document
+        for a real VRT, so neither path is reachable today; weigh both callers before
+        changing this default.
 
         Returns:
             bool:
@@ -3204,7 +3209,9 @@ class IO(_Engine["Dataset"]):
             UserWarning:
                 No band has overviews, so there is nothing to regenerate; or only some
                 bands have them, and the empty ones were skipped. Also when the dataset
-                has no bands at all.
+                has no bands at all. None of these fire on a handle that cannot hold
+                overviews at all — that raises `OverviewTargetError` first, since
+                "call create_overviews() to build them" is advice it would also refuse.
 
         See Also:
             - Dataset.create_overviews: Create the dataset overviews.
@@ -3288,9 +3295,13 @@ class IO(_Engine["Dataset"]):
             resampling_method: One of `RESAMPLING_METHODS`, already validated.
 
         Raises:
+            OverviewTargetError: GDAL refused the write and the handle is a warped VRT,
+                whose levels the warper recomputes onto bands that are never writable.
+                Not fixable by reopening, so it is separated from the access-mode case
+                below. The original error stays chained as `__cause__`.
             ReadOnlyError: GDAL refused the write because the overview target is
-                read-only, as classified by :meth:`_is_write_refusal`. The original
-                error stays chained as `__cause__`.
+                read-only — :meth:`_is_write_refusal` says so *and* the handle is not a
+                warped VRT. The original error stays chained as `__cause__`.
             RuntimeError: Any other GDAL failure — the error GDAL raised, re-raised with
                 a note naming the band it stopped on, or a fresh one carrying
                 `gdal.GetLastErrorMsg()` when `RegenerateOverviews` reports a
