@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.base._errors import OverviewTargetError, ReadOnlyError, _PyramidsError
+from pyramids.errors import OverviewTargetError, PyramidsError, ReadOnlyError
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
 from pyramids.netcdf import NetCDF
@@ -688,7 +688,7 @@ class TestCreateOverviewsPathlessGuard:
         """Both methods raise something a pyramids-wide handler catches.
 
         Test scenario:
-            Raise the refusal from each method and catch it with `except _PyramidsError`
+            Raise the refusal from each method and catch it with `except PyramidsError`
             — expected: caught, and the same instance is a `ValueError`, so neither a
             pyramids-wide handler nor a stdlib one has to be widened for it.
         """
@@ -701,10 +701,10 @@ class TestCreateOverviewsPathlessGuard:
             caught = None
             try:
                 getattr(level, method)()
-            except _PyramidsError as error:
+            except PyramidsError as error:
                 caught = error
             assert isinstance(caught, OverviewTargetError), (
-                f"`except _PyramidsError` must catch {method}'s refusal, got {caught!r}"
+                f"`except PyramidsError` must catch {method}'s refusal, got {caught!r}"
             )
             assert isinstance(caught, ValueError), (
                 "the same instance must stay catchable as a ValueError"

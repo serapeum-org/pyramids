@@ -148,7 +148,7 @@ more. If your pipeline depends on them, rebuild the levels you need yourself fro
 `Dataset.read_array()` and write them out.
 
 **`create_overviews` now refuses a plain VRT whose description is not a path.** It raises `OverviewTargetError`
-instead of returning normally. That is a new exception in `pyramids.base._errors` which subclasses `ValueError`,
+instead of returning normally. That is a new exception, importable as `from pyramids.errors import OverviewTargetError`, which subclasses `ValueError`,
 so an existing `except ValueError` around the call keeps catching it — catch the new type to tell "this dataset
 can never work" apart from "these arguments were wrong". `recreate_overviews` raises it for the same shape, where
 it previously reported a misleading `ReadOnlyError` advising a reopen that a handle with no path cannot perform.
