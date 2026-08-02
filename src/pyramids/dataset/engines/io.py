@@ -3340,11 +3340,14 @@ class IO(_Engine["Dataset"]):
                 overviews = [band.GetOverview(j) for j in range(overview_count[i])]
                 status = gdal.RegenerateOverviews(band, overviews, resampling_method)
             except RuntimeError as err:
-                # Classify FIRST. `_is_write_refusal` reads GDAL's process-global
+                # Classify FIRST. `_is_write_refusal` prefers GDAL's process-global
                 # last-error number, and any GDAL call made in this handler resets it --
-                # `_is_warped_vrt` below serialises `xml:VRT`, which takes it from 8 to 0.
-                # Capturing the verdict here keeps the two checks independent of the
-                # order they are written in.
+                # `_is_warped_vrt` below serialises `xml:VRT`, which takes it from
+                # CPLE_NoWriteAccess to CPLE_None. Today the message fallback would still
+                # catch the read-only refusals GDAL words with "read-only mode", so this
+                # is insurance rather than a live fix: it keeps the classification true
+                # for a driver whose wording the fallback does not know, and keeps the
+                # two checks independent of the order they are written in.
                 write_refused = self._is_write_refusal(err)
                 err.add_note(
                     f"Failed regenerating the overviews of band {i} (0-based); "
@@ -3394,8 +3397,11 @@ class IO(_Engine["Dataset"]):
         **Call this before anything else in the handler.** The primary signal is GDAL's
         process-global last-error number, and *any* GDAL call made after the failure
         resets it — `GetMetadata("xml:VRT")` alone takes it from `CPLE_NoWriteAccess` to
-        `CPLE_None`. Once that happens this falls through to the message fallback and a
-        genuine read-only refusal is downgraded to a bare `RuntimeError`.
+        `CPLE_None`. The call then falls through to the message fallback, which still
+        recognises the phrasings GDAL uses today, so no shape in the suite is currently
+        misclassified by a late call. The fallback is a shorter list than the error
+        number is authoritative, though, so a driver phrasing its refusal differently
+        would be downgraded to a bare `RuntimeError`.
 
         Args:
             err: The error GDAL raised. Only its message is read, and only on the
