@@ -20,6 +20,8 @@ from pyramids.dataset._plot_helpers import render_array as _render_array
 from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
 
 if TYPE_CHECKING:
+    from cleopatra.geo import Basemap
+
     from pyramids.netcdf.netcdf import NetCDF
 
 logger = logging.getLogger(__name__)
@@ -162,7 +164,7 @@ class NetCDFPlot:
         kind: str = "auto",
         animate: bool | str | None = None,
         chunks: Any | None = None,
-        basemap: bool | str | None = None,
+        basemap: bool | str | dict[str, Any] | Basemap | None = None,
         exclude_value: Any | None = None,
         title: str | None = None,
         ax: Any | None = None,
@@ -955,7 +957,7 @@ class NetCDFPlot:
         animate_dim: str,
         analysis_kwargs: dict[str, Any],
         exclude_value: Any | None,
-        basemap: bool | str | None,
+        basemap: bool | str | dict[str, Any] | Basemap | None,
     ) -> Any:
         """Build the lazy ``data_getter`` and dispatch the animation render.
 

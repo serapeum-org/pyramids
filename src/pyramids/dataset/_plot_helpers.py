@@ -279,16 +279,23 @@ def render_array(
             ``mode == "facet"``.
         ax: Optional pre-existing matplotlib Axes.
         fig: Optional pre-existing matplotlib Figure.
-        basemap: ``True`` or a contextily provider string; adds a
-            web-tile basemap underneath the rendered plot. Only used in
-            the ``"plot"`` mode (the animate/facet paths have no single
-            ``Axes`` to attach a basemap to).
+        basemap: Reference layer, dispatched by type. ``True`` or a
+            non-empty contextily provider string adds a pyramids web-tile
+            basemap underneath the rendered plot (tile mode is applied on
+            ``"plot"`` and per-panel on ``"facet"``). A
+            :class:`cleopatra.geo.Basemap` (or an equivalent ``dict``) is
+            cleopatra's relief/features reference layer, forwarded to the
+            glyph's own ``basemap=`` on the ``"plot"``/``"animate"`` render
+            call; it is **not** supported on ``"facet"`` (raises). An empty
+            string is treated as no basemap.
         basemap_epsg: CRS code passed to
-            :func:`pyramids.basemap.basemap.add_basemap`. When
+            :func:`pyramids.basemap.basemap.add_basemap` (and stamped on the
+            glyph so cleopatra's own reference layers default to it). When
             ``basemap`` is truthy and this is ``None`` the helper
             raises :class:`ValueError`.
         **kwargs: Forwarded to the cleopatra entry point selected by
-            ``mode``.
+            ``mode`` (including cleopatra 0.27 render params such as
+            ``colorbar=`` / ``full_bleed=``).
 
     Returns:
         The result object cleopatra returns for that mode — typically a
@@ -299,8 +306,10 @@ def render_array(
     Raises:
         ValueError: If ``mode`` is not one of the accepted values, if a
             required mode-specific argument is missing, if ``basemap`` is
-            truthy and ``basemap_epsg`` is ``None``, or if ``color_scale`` is
-            not a recognised :class:`~cleopatra.styles.ColorScale` value.
+            truthy and ``basemap_epsg`` is ``None``, if a cleopatra
+            ``Basemap`` is passed on the ``"facet"`` path, or if
+            ``color_scale`` is not a recognised
+            :class:`~cleopatra.styles.ColorScale` value.
 
     Examples:
         - Single-slice plot path. Tagged ``+SKIP`` because the call

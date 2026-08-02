@@ -231,6 +231,7 @@ def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.typing.NDA
 
 
 if TYPE_CHECKING:
+    from cleopatra.geo import Basemap
     from geopandas import GeoDataFrame
 
 
@@ -789,7 +790,7 @@ class Dataset(RasterBase):
         overview: bool | None = False,
         overview_index: int | None = 0,
         percentile: int | None = None,
-        basemap: bool | str | None = None,
+        basemap: bool | str | dict[str, Any] | Basemap | None = None,
         rgb_options: dict | None = None,
         **kwargs: Any,
     ):
@@ -841,10 +842,12 @@ class Dataset(RasterBase):
             percentile (int, optional):
                 **Deprecated**; pass via ``rgb_options={"percentile": ...}``.
                 Percentile used when computing colour-scale limits. Default is ``None``.
-            basemap (bool or str, optional):
-                If ``True``, overlay an OpenStreetMap basemap. If a string, use it as the
-                contextily/xyzservices tile-provider name (e.g. ``"CartoDB.Positron"``).
-                Default is ``None``. Requires the ``[viz]`` extra.
+            basemap (bool, str, or Basemap, optional):
+                Reference layer, dispatched by type. ``True`` or a tile-provider string
+                (e.g. ``"CartoDB.Positron"``) overlays a pyramids web-tile basemap. A
+                ``pyramids.plot.Basemap(relief=..., features=...)`` (cleopatra >= 0.27)
+                draws a shaded-relief / coastline layer instead. Default is ``None``.
+                Requires the ``[viz]`` extra.
             rgb_options (dict, optional):
                 Grouped Sentinel-imagery kwargs. Accepted keys:
                 ``"rgb"``, ``"surface_reflectance"``, ``"cutoff"``,

@@ -14,7 +14,7 @@ import threading
 import warnings
 import weakref
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
@@ -69,6 +69,9 @@ from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
 from pyramids.netcdf.utils import _read_attributes, create_time_conversion_func
+
+if TYPE_CHECKING:
+    from cleopatra.geo import Basemap
 
 # Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
 # and `close()` (which snapshots) on the same container from different threads.
@@ -1642,7 +1645,7 @@ class NetCDF(Dataset):
         kind: str = "auto",
         animate: bool | str | None = None,
         chunks: Any | None = None,
-        basemap: bool | str | None = None,
+        basemap: bool | str | dict[str, Any] | Basemap | None = None,
         exclude_value: Any | None = None,
         title: str | None = None,
         ax: Any | None = None,
@@ -1740,9 +1743,11 @@ class NetCDF(Dataset):
                 switches to the dask-backed lazy read and only the
                 rendered slice is materialised. Has no effect on the
                 ``animate=`` path. Defaults to None.
-            basemap (bool or str, optional):
-                If truthy, overlay an OpenStreetMap basemap (or a named
-                contextily tile provider). Defaults to None.
+            basemap (bool, str, or Basemap, optional):
+                Reference layer, dispatched by type. ``True`` or a named contextily
+                tile provider overlays a pyramids web-tile basemap; a
+                ``pyramids.plot.Basemap`` (cleopatra >= 0.27) draws a relief/features
+                layer instead (not supported on the faceted path). Defaults to None.
             exclude_value (Any, optional):
                 Pixel value to mask out before plotting. Defaults to None.
             title (str, optional):
