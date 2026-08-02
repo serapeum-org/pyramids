@@ -3064,6 +3064,37 @@ class IO(_Engine["Dataset"]):
             "and build the overviews on the saved raster with create_overviews()."
         )
 
+    @staticmethod
+    def _overview_target_is_virtual(overviews: list[gdal.Band]) -> bool:
+        """Whether these overview levels are computed rather than stored.
+
+        Asked only after GDAL has refused the write, to tell the two `CPLE_NoWriteAccess`
+        cases apart. A level whose owning dataset is a VRT is one the VRT produces on
+        read — a `VRTWarpedRasterBand`, or a level inherited from the source a plain VRT
+        wraps — so no access mode makes it writable. A level owned by a real raster is
+        stored: the dataset itself for an internal overview, the `.ovr` GTiff for an
+        external one, and both become writable when the handle is.
+
+        An internal overview reports no driver on its owning dataset, which reads as
+        stored — correct, and the conservative direction: mistaking a stored level for a
+        computed one would replace an actionable "reopen writable" with advice to rebuild.
+
+        Args:
+            overviews: The level bands already resolved for one band.
+
+        Returns:
+            bool:
+                True when any level's pixels belong to a VRT.
+        """
+        virtual = False
+        for level in overviews:
+            owner = level.GetDataset()
+            driver = owner.GetDriver() if owner is not None else None
+            if driver is not None and driver.ShortName == "VRT":
+                virtual = True
+                break
+        return virtual
+
     def create_overviews(
         self,
         resampling_method: str = "nearest",
@@ -3225,8 +3256,10 @@ class IO(_Engine["Dataset"]):
             ReadOnlyError:
                 If GDAL refuses the rewrite because the overviews it targets are opened
                 read-only. Read with read_only=False. Raised only where the access mode
-                is genuinely the blocker: GDAL reports an unwritable warped band with the
-                same error number, and that case raises `OverviewTargetError` instead.
+                is genuinely the blocker — where the levels are *stored* and the handle
+                simply cannot write them. GDAL reports a level a VRT computes with the
+                same error number; that case is unfixable by reopening and raises
+                `OverviewTargetError` instead.
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or
                 transport failure is not relabelled as an access-mode error. GDAL's own
@@ -3369,18 +3402,23 @@ class IO(_Engine["Dataset"]):
                     "been rewritten."
                 )
                 if write_refused:
-                    # GDAL reports an unwritable VRTWarpedRasterBand with the same
+                    # GDAL reports every unwritable overview target with the same
                     # CPLE_NoWriteAccess it uses for a read-only dataset, so the number
-                    # alone cannot tell them apart. Only one of the two is fixable by
-                    # reopening: a warped band is never writable, whatever the access
-                    # mode, and a pathless view cannot be reopened at all.
-                    if self._is_warped_vrt():
+                    # alone cannot tell them apart -- and only one of the two is fixable
+                    # by reopening. Ask who owns the level instead: a level owned by a
+                    # VRT is one the VRT computes (a warped band, or an overview
+                    # inherited from the source), and no access mode makes it writable.
+                    # A level owned by a real raster -- the dataset itself for an
+                    # internal overview, or the `.ovr` GTiff for an external one -- is
+                    # writable once the handle is, so that is the genuine access-mode
+                    # case.
+                    if self._overview_target_is_virtual(overviews):
                         raise OverviewTargetError(
-                            f"Cannot regenerate the overviews of band {i}: this is a "
-                            "warped VRT, whose levels are recomputed by the warper and "
-                            "cannot be rewritten in place. Rebuild them with "
-                            "create_overviews(), or save the view with to_file(path) "
-                            "and build them on the saved raster."
+                            f"Cannot regenerate the overviews of band {i}: their pixels "
+                            "belong to a VRT, which computes them on read rather than "
+                            "storing them, so they cannot be rewritten in place. Rebuild "
+                            "them with create_overviews(), or save the dataset with "
+                            "to_file(path) and regenerate on the saved raster."
                         ) from err
                     raise ReadOnlyError(
                         f"Cannot regenerate the overviews of band {i}: the overviews "

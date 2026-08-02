@@ -857,6 +857,67 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             dataset.close()
 
+    def test_recreate_on_a_vrt_inheriting_source_levels_is_not_an_access_error(
+        self, tmp_path, monkeypatch
+    ):
+        """A plain VRT over an overviewed source computes its levels, so reopening cannot help.
+
+        Test scenario:
+            `gdal.Translate(..., format="VRT")` over a raster that already has overviews
+            inherits them as virtual levels owned by the VRT. Opened *writable*, GDAL
+            still refuses the rewrite — the read-only dataset in its message is the
+            source. Expected: `OverviewTargetError`, never advice the caller has already
+            followed.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "inherit_src.tif")
+        vrt_path = tmp_path / "inherit.vrt"
+        gdal.Translate(str(vrt_path), str(source), format="VRT").FlushCache()
+        dataset = Dataset.read_file(str(vrt_path), read_only=False)
+        try:
+            assert dataset._access == "write", "precondition: already opened writable"
+            assert all(count > 0 for count in dataset.overview_count), (
+                f"precondition: the inherited levels are visible, {dataset.overview_count}"
+            )
+            assert not (tmp_path / "inherit.vrt.ovr").exists(), (
+                "precondition: the levels are inherited, not owned by a sidecar"
+            )
+            with pytest.raises(OverviewTargetError, match="belong to a VRT") as excinfo:
+                dataset.recreate_overviews("average")
+            assert not isinstance(excinfo.value, ReadOnlyError), (
+                "the access mode is not the blocker; the handle is already writable"
+            )
+            assert "read_only=False" not in str(excinfo.value), (
+                "advising a reopen the caller has already done is the #922 defect"
+            )
+        finally:
+            dataset.close()
+
+    def test_recreate_on_an_internal_overview_still_reports_the_access_mode(
+        self, tmp_path, monkeypatch
+    ):
+        """A stored level in a read-only raster is the genuine access-mode case.
+
+        Test scenario:
+            An internal overview belongs to the dataset itself, not to a VRT, so
+            reopening writable really is the fix — expected: `ReadOnlyError`, proving the
+            widened discriminator did not swallow the case it must keep.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "internal_ro.tif")
+        dataset = Dataset.read_file(source, read_only=True)
+        try:
+            assert all(count > 0 for count in dataset.overview_count), (
+                f"precondition: the internal levels are visible, {dataset.overview_count}"
+            )
+            with pytest.raises(ReadOnlyError, match="read-only") as excinfo:
+                dataset.recreate_overviews("average")
+            assert not isinstance(excinfo.value, OverviewTargetError), (
+                "a stored level in a read-only handle is fixable by reopening"
+            )
+        finally:
+            dataset.close()
+
     @pytest.mark.parametrize("parent_read_only", [True, False], ids=["ro", "writable"])
     def test_recreate_on_a_warped_view_does_not_blame_the_access_mode(
         self, tmp_path, monkeypatch, parent_read_only
@@ -880,7 +941,7 @@ class TestCreateOverviewsPathlessGuard:
             assert all(count > 0 for count in view.overview_count), (
                 f"precondition: the warped view holds levels, {view.overview_count}"
             )
-            with pytest.raises(OverviewTargetError, match="warped VRT") as excinfo:
+            with pytest.raises(OverviewTargetError, match="belong to a VRT") as excinfo:
                 view.recreate_overviews("average")
             assert not isinstance(excinfo.value, ReadOnlyError), (
                 f"the access mode is not the blocker (parent read_only={parent_read_only})"

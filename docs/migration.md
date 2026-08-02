@@ -192,13 +192,23 @@ Tests cover `warped_view` and `to_crs`; the other three are exempt by the same r
 real path (including under `/vsimem/`) names its sidecar after that path, and `MEM` rasters are not VRTs at all.
 Warped VRTs are **not** exempt from the `recreate_overviews` refusal — see the next entry.
 
-**`recreate_overviews` on a warped VRT now raises `OverviewTargetError` instead of `ReadOnlyError`.** A warped
-VRT's levels are recomputed by the warper onto `VRTWarpedRasterBand`s, which are never writable. GDAL reports
-that with the same `CPLE_NoWriteAccess` it uses for a genuinely read-only dataset, so the old message told
-callers to reopen with `read_only=False` — advice that cannot help (a warped view taken from a *writable* parent
-fails identically) and cannot even be followed (the view has no path to reopen). `create_overviews()` still
-builds a warped view's levels; only in-place regeneration is refused. `ReadOnlyError` is now raised only where
-the access mode is genuinely the blocker.
+**`recreate_overviews` now raises `OverviewTargetError` instead of `ReadOnlyError` when a VRT computes the
+levels.** GDAL reports every unwritable overview target with the same `CPLE_NoWriteAccess` it uses for a
+genuinely read-only dataset, so the old message told callers to reopen with `read_only=False` whenever the write
+was refused. For a level a VRT computes rather than stores, that advice cannot help and often cannot even be
+followed. Two shapes are affected:
+
+- a **warped** VRT — its levels land on `VRTWarpedRasterBand`s, which are never writable. A warped view taken
+  from a *writable* parent fails identically, and a pathless view has no path to reopen. `create_overviews()`
+  still builds a warped view's levels; only in-place regeneration is refused.
+- a **plain VRT that inherits its levels from the source** it wraps — the common
+  `gdal.Translate(..., format="VRT")` or mosaic over an already-overviewed raster. The read-only dataset in
+  GDAL's message is the *source*, which `read_only=False` on the VRT cannot change. Give the VRT its own
+  sidecar with `create_overviews()`, or regenerate on the source raster instead.
+
+The two are told apart by who owns the level: a level owned by a VRT is computed, one owned by a real raster
+(the dataset itself for an internal overview, the `.ovr` GTiff for an external one) is stored. `ReadOnlyError`
+now means only the stored case, where reopening writable genuinely is the fix.
 
 **Operations that need a CRS now refuse instead of assuming one.** Each raises `CRSError` naming the operation
 and how to fix it, where previously the missing CRS was silently filled in with WGS 84:
