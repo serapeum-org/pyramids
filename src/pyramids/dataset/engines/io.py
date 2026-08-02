@@ -2965,10 +2965,11 @@ class IO(_Engine["Dataset"]):
 
         A plain VRT owns no pixel storage, so GDAL can only put its overviews in an
         external `.ovr` sidecar named after the dataset description. Two descriptions are
-        not usable as a path: an empty one, which makes GDAL write a file called literally
-        `.ovr` into the process's working directory attached to nothing while dropping the
-        levels the handle already exposed; and inline VRT XML, which GDAL stores verbatim
-        and then fails trying to create a file named after the whole document.
+        not usable as a path: one that is empty or blank — both strip to the same thing
+        here — which makes GDAL write a file called literally `.ovr` into the process's
+        working directory attached to nothing while dropping the levels the handle already
+        exposed; and inline VRT XML, which GDAL stores verbatim and then fails on, trying
+        to create a file named after the whole document.
 
         Two VRT families are deliberately excluded because they are not affected:
 
@@ -2977,6 +2978,11 @@ class IO(_Engine["Dataset"]):
           `orthorectify` forms) keeps its overviews in RAM and needs no sidecar;
         - a VRT with a real path — including one under `/vsimem/` — names its sidecar
           after that path and writes it successfully.
+
+        The warped exemption is read off the root element of the serialised document, so
+        it has to be proven rather than assumed: a handle that serialises no
+        `<VRTDataset …>` root at all is refused, since nothing then shows it keeps its
+        levels in RAM.
 
         A handle that is not a VRT is never blocked here, whatever its description: `MEM`
         keeps its levels internally, and a NetCDF variable view over a regular grid names
@@ -3450,9 +3456,9 @@ class IO(_Engine["Dataset"]):
         `read_array(threadsafe=True)` and pickling it raise, and `read_array(chunks=...)`
         returns a graph that raises when it is computed; call `to_file()` first if you
         need any of those. `create_overviews()` on the lazily described form raises
-        `ValueError` for the same reason — a plain VRT has nowhere to put the external
-        sidecar it would need — while the materialised form builds its levels in RAM and
-        works. The `read_only` label stops pixel writes; metadata setters still work,
+        `OverviewTargetError` for the same reason — a plain VRT has nowhere to put the
+        external sidecar it would need — while the materialised form builds its levels in
+        RAM and works. The `read_only` label stops pixel writes; metadata setters still work,
         since a pathless handle cannot spill a PAM sidecar. A `NetCDF` variable view
         returns a plain `Dataset` — an overview level is an ordinary raster, not a
         NetCDF container — and only a real mapping of dataset metadata is carried, so a

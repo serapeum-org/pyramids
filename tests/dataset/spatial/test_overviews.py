@@ -182,10 +182,11 @@ _GDAL_STRANDS_PATHLESS_VRT_OVERVIEWS = int(gdal.VersionInfo("VERSION_NUM")) >= 3
 class TestCreateOverviewsPathlessGuard:
     """`create_overviews` refuses a VRT that has nowhere to put a sidecar (#917).
 
-    GDAL names an external `.ovr` after the dataset description. A VRT owns no pixel
+    GDAL names an external `.ovr` after the dataset description. A plain VRT owns no pixel
     storage, so its overviews can only go external — and with an empty description GDAL
     wrote a file called literally `.ovr` into the working directory, attached nothing,
-    and dropped the levels the handle already exposed.
+    and dropped the levels the handle already exposed. A warped VRT is exempt: it keeps
+    its levels in RAM and needs no sidecar.
     """
 
     def test_pathless_vrt_refuses_instead_of_writing_a_stray_sidecar(
@@ -195,8 +196,8 @@ class TestCreateOverviewsPathlessGuard:
 
         Test scenario:
             `get_overview_dataset` returns a VRT-described level with no path — expected:
-            `ValueError` naming the cause, `overview_count` unchanged (it previously went
-            1 -> 0), and no `.ovr` in the working directory.
+            `OverviewTargetError` naming the cause, `overview_count` unchanged (it
+            previously went 1 -> 0), and no `.ovr` in the working directory.
         """
         monkeypatch.chdir(tmp_path)
         source = _overviewed_raster(tmp_path, "guard_src.tif")
@@ -377,7 +378,7 @@ class TestCreateOverviewsPathlessGuard:
         Test scenario:
             A pathless VRT reaching GDAL was refused as a write and diagnosed as
             read-only, advising a reopen that a handle with no path cannot perform —
-            expected: the same actionable `ValueError` `create_overviews` gives.
+            expected: the same actionable `OverviewTargetError` `create_overviews` gives.
         """
         monkeypatch.chdir(tmp_path)
         source = _overviewed_raster(tmp_path, "recreate_guard.tif")
@@ -438,8 +439,8 @@ class TestCreateOverviewsPathlessGuard:
 
         Test scenario:
             GDAL stores the XML document verbatim as the description — expected: the same
-            actionable `ValueError`, not a raw GDAL `RuntimeError` naming a file whose name
-            is the whole document.
+            actionable `OverviewTargetError`, not a raw GDAL `RuntimeError` naming a file
+            whose name is the whole document.
         """
         monkeypatch.chdir(tmp_path)
         xml = (
@@ -631,8 +632,8 @@ class TestCreateOverviewsPathlessGuard:
         Test scenario:
             Call the pathless level with the default levels and with arguments that would
             each raise on their own (`TypeError`, an unsupported factor, an unknown
-            resampling method) — expected: the guard's `ValueError` every time, so a
-            typo'd argument never masks the real blocker.
+            resampling method) — expected: the guard's `OverviewTargetError` every time,
+            so a typo'd argument never masks the real blocker.
         """
         monkeypatch.chdir(tmp_path)
         source = _overviewed_raster(tmp_path, "precedence_src.tif")

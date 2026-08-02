@@ -1523,6 +1523,11 @@ class RasterBase(ABC):
             ValueError:
                 resampling_method should be one of {"NEAREST", "CUBIC", "AVERAGE", "GAUSS", "CUBICSPLINE", "LANCZOS",
                 "MODE", "AVERAGE_MAGPHASE", "RMS", "BILINEAR"}.
+            OverviewTargetError:
+                The dataset is a plain VRT whose description is not a path — an empty one, a blank one, or inline
+                VRT XML. A plain VRT owns no pixel storage, so its overviews can only go to an external sidecar,
+                and there is nothing to name one after; save it with `to_file(path)` and regenerate the levels on
+                the saved raster. A *warped* VRT is exempt: it holds its overviews in RAM. Subclasses `ValueError`.
             ReadOnlyError:
                 If the overviews the call targets are opened read-only, so GDAL refuses to rewrite them —
                 internal overviews inside a read-only dataset, or an external .ovr that a later handle

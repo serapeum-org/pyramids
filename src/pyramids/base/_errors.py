@@ -77,7 +77,8 @@ class OverviewTargetError(_PyramidsError, ValueError):
         try:
             dataset.create_overviews(overview_levels=levels)
         except OverviewTargetError:
-            dataset = Dataset.read_file(dataset.to_file(path), read_only=False)
+            dataset.to_file(path)
+            dataset = Dataset.read_file(path, read_only=False)
             dataset.create_overviews(overview_levels=levels)
     """
 
