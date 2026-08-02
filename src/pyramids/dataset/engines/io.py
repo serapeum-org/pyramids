@@ -3049,6 +3049,17 @@ class IO(_Engine["Dataset"]):
         regenerate for it, so this warns instead of returning silently — naming the
         skipped bands when only some of them are empty, and still regenerating the rest.
 
+        A band's levels are rebuilt in a single GDAL pass, which **cascades**: each
+        deeper level is decimated from the level above rather than from the
+        full-resolution band. That is what `create_overviews` (`BuildOverviews`) already
+        does, so the two now agree. A level ≥ 1 keeps the values a per-level rebuild
+        wrote only where the resampling survives being applied twice: `nearest` always
+        (GDAL does not cascade it), and `average`/`rms` on a floating-point band with no
+        no-data — an integer band picks up per-level rounding of up to 1 DN, and a
+        no-data gap changes the result at any dtype. Every other method differs on
+        ordinary data. No API rebuilds a deep level directly from the source any more;
+        see `docs/migration.md`.
+
         The warning is emitted in every access mode: "has no overviews" is independent of
         read-only-ness, so reporting it as a read-only failure would misdiagnose it —
         reopening the dataset writable yields this same warning. Read-only is not a
@@ -3073,8 +3084,9 @@ class IO(_Engine["Dataset"]):
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or
                 transport failure is not relabelled as an access-mode error. GDAL's own
-                error is re-raised carrying a note that names the band and level it
-                stopped on; a failing status that raised nothing is turned into one.
+                error is re-raised carrying a note that names the band it stopped on — a
+                band's levels regenerate in one call, so no level is named; a failing
+                status that raised nothing is turned into one.
 
         Warns:
             UserWarning:
@@ -3128,13 +3140,24 @@ class IO(_Engine["Dataset"]):
     def _regenerate_overviews(
         self, overview_count: list[int], resampling_method: str
     ) -> None:
-        """Regenerate every existing overview level in place, band by band.
+        """Regenerate every existing overview level in place, one pass per band.
 
         Split out of :meth:`recreate_overviews` so the empty-count reporting reads as one
-        decision. Each call is preceded by `gdal.ErrorReset()` so the CPL error number
-        inspected on failure belongs to *this* regeneration and not to something earlier
-        in the process. Overviews are rewritten in place, so a failure part-way through
-        leaves the earlier bands already regenerated.
+        decision. All of a band's levels go to GDAL in a single
+        `gdal.RegenerateOverviews` call, which reads the full-resolution band **once** for
+        the whole batch; regenerating them one at a time re-read the source per level.
+        GDAL then fills each deeper level by decimating the level above rather than the
+        source — the cascade :meth:`recreate_overviews` documents, and the same one
+        `BuildOverviews` uses, so the two now agree; the per-level loop was the odd one
+        out. For the cascading methods a non-power-of-two chain compounds it, since each
+        step decimates an already-decimated grid; `nearest` is exempt because GDAL never
+        cascades it.
+
+        Each call is preceded by `gdal.ErrorReset()` so the CPL error number inspected on
+        failure belongs to *this* regeneration and not to something earlier in the
+        process. Overviews are rewritten in place, so a failure part-way through leaves
+        the earlier bands already regenerated — and, within the failing band, GDAL may
+        have written some of its levels before giving up.
 
         Args:
             overview_count: Per-band overview counts, snapshotted by the caller.
@@ -3145,38 +3168,52 @@ class IO(_Engine["Dataset"]):
                 read-only, as classified by :meth:`_is_write_refusal`. The original
                 error stays chained as `__cause__`.
             RuntimeError: Any other GDAL failure — the error GDAL raised, re-raised with
-                a note naming the band and level it stopped on, or a fresh one carrying
-                `gdal.GetLastErrorMsg()` when `RegenerateOverview` reports a non-`CE_None`
-                status without raising (exceptions turned off process-wide).
+                a note naming the band it stopped on, or a fresh one carrying
+                `gdal.GetLastErrorMsg()` when `RegenerateOverviews` reports a
+                non-`CE_None` status without raising (exceptions turned off
+                process-wide). Batching costs the level granularity the per-level loop
+                had: a failure names the band, not which of its levels failed.
         """
         for i in range(self._ds.band_count):
+            if overview_count[i] == 0:
+                # Already reported by recreate_overviews, which names the skipped bands.
+                # Passing GDAL an empty list would regenerate nothing and say nothing --
+                # the #863 defect, narrowed to a band.
+                continue
             band = self._ds._iloc(i)
-            for j in range(overview_count[i]):
-                ovr = self.get_overview(i, j)
-                gdal.ErrorReset()
-                try:
-                    status = gdal.RegenerateOverview(band, ovr, resampling_method)
-                except RuntimeError as err:
-                    err.add_note(
-                        f"Failed regenerating overview {j} of band {i} (0-based); "
-                        "earlier bands may already have been rewritten."
-                    )
-                    if self._is_write_refusal(err):
-                        raise ReadOnlyError(
-                            f"Cannot regenerate overview {j} of band {i}: the overviews "
-                            "are opened read-only. Please read the dataset using "
-                            "read_only=False to recreate overviews."
-                        ) from err
-                    raise
-                # gdal.UseExceptions() is process-global, so a caller that turned it off
-                # (or a driver that fails without pushing a CPL error) would otherwise
-                # slip through as the silent no-op this method exists to remove.
-                if status != gdal.CE_None:
-                    detail = gdal.GetLastErrorMsg() or f"GDAL returned {status}"
-                    raise RuntimeError(
-                        f"Failed regenerating overview {j} of band {i} (0-based): "
-                        f"{detail}"
-                    )
+            gdal.ErrorReset()
+            try:
+                # Resolve inside the try so a level that has gone missing since the
+                # caller snapshotted the counts is reported against its band like any
+                # other failure, rather than escaping bare. Taken off the already
+                # resolved band: get_overview would re-resolve it and re-read
+                # GetOverviewCount once per level.
+                # Holding every level's handle at once (the singular loop held one) is
+                # safe: GetOverview registers a child reference on the owning dataset,
+                # so the parent outlives the list.
+                overviews = [band.GetOverview(j) for j in range(overview_count[i])]
+                status = gdal.RegenerateOverviews(band, overviews, resampling_method)
+            except RuntimeError as err:
+                err.add_note(
+                    f"Failed regenerating the overviews of band {i} (0-based); "
+                    "earlier bands, and this band's earlier levels, may already have "
+                    "been rewritten."
+                )
+                if self._is_write_refusal(err):
+                    raise ReadOnlyError(
+                        f"Cannot regenerate the overviews of band {i}: the overviews "
+                        "are opened read-only. Please read the dataset using "
+                        "read_only=False to recreate overviews."
+                    ) from err
+                raise
+            # gdal.UseExceptions() is process-global, so a caller that turned it off
+            # (or a driver that fails without pushing a CPL error) would otherwise
+            # slip through as the silent no-op this method exists to remove.
+            if status != gdal.CE_None:
+                detail = gdal.GetLastErrorMsg() or f"GDAL returned {status}"
+                raise RuntimeError(
+                    f"Failed regenerating the overviews of band {i} (0-based): {detail}"
+                )
 
     @staticmethod
     def _is_write_refusal(err: RuntimeError) -> bool:

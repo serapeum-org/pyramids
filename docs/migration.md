@@ -129,6 +129,24 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**`recreate_overviews` now rebuilds a band's levels in one cascading pass.** Each deeper level is decimated from
+the level above rather than from the full-resolution band, matching what `create_overviews` (`BuildOverviews`)
+has always done — previously `recreate_overviews` rebuilt every level directly from the source. Nothing warns;
+the call still succeeds.
+
+Level 0 is unaffected. A level >= 1 keeps its previous values only where the resampling survives being applied
+twice:
+
+- `nearest` — unchanged everywhere; GDAL does not cascade it.
+- `average`, `rms` — unchanged on a floating-point band with no no-data value. An integer band picks up per-level
+  rounding of up to 1 DN, and a no-data gap changes the result regardless of dtype.
+- `cubic`, `cubicspline`, `bilinear`, `lanczos`, `gauss`, `mode` — changed on ordinary data. `mode` can move by
+  whole classes, because the mode of modes is not the mode.
+
+There is no way to get the old per-level values back: no API rebuilds a deep level directly from the source any
+more. If your pipeline depends on them, rebuild the levels you need yourself from
+`Dataset.read_array()` and write them out.
+
 **Operations that need a CRS now refuse instead of assuming one.** Each raises `CRSError` naming the operation
 and how to fix it, where previously the missing CRS was silently filled in with WGS 84:
 
