@@ -93,15 +93,15 @@ class TestRegistry:
         assert (spec.input_type, spec.output_type) == (input_type, output_type), spec
 
     def test_all_specs_have_valid_types(self):
-        """Every registered spec has valid input/return types.
+        """Every registered spec has valid input_type/output_type.
 
         Test scenario:
-            Iterating the registry, each spec's input and returns are in INPUT_TYPES.
+            Iterating the registry, each spec's input_type is in INPUT_TYPES and output_type in OUTPUT_TYPES.
         """
         for name, spec in reg.catalog().items():
             assert spec.input_type in INPUT_TYPES, f"{name} bad input {spec.input_type}"
             assert spec.output_type in OUTPUT_TYPES, (
-                f"{name} bad returns {spec.output_type}"
+                f"{name} bad output_type {spec.output_type}"
             )
 
     def test_register_and_resolve_roundtrip(self):

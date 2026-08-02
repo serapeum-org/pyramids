@@ -223,7 +223,7 @@ class TestParameter:
 class TestToolMetadata:
     """Tests for the ToolMetadata dataclass."""
 
-    def test_init_invalid_receiver_raises(self):
+    def test_init_invalid_input_type_raises(self):
         """An invalid input type is rejected.
 
         Test scenario:
@@ -232,8 +232,8 @@ class TestToolMetadata:
         with pytest.raises(ValueError, match="input_type must be one of"):
             ToolMetadata("t", "Blah", "Dataset")
 
-    def test_init_invalid_returns_raises(self):
-        """An invalid returns type is rejected.
+    def test_init_invalid_output_type_raises(self):
+        """An invalid output_type is rejected.
 
         Test scenario:
             output_type='Blah' raises ValueError.
@@ -279,7 +279,7 @@ class TestToolMetadata:
         """help renders the header and each parameter.
 
         Test scenario:
-            A tool with one param renders its input->returns header and the param.
+            A tool with one param renders its input_type -> output_type header and the param.
         """
         spec = ToolMetadata(
             "slope", "Dataset", "Dataset", (Parameter("band", "Integer"),), "Slope."

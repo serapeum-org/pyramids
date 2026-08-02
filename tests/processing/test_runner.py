@@ -51,7 +51,7 @@ def raster_ds():
 class TestRun:
     """Tests for run() — serial execution, dispatch, policy, and output."""
 
-    def test_cross_receiver_pipeline(self, points_fc):
+    def test_cross_type_pipeline(self, points_fc):
         """A FeatureCollection->Dataset->Array chain runs end-to-end.
 
         Test scenario:
@@ -69,7 +69,7 @@ class TestRun:
         assert result.ok, result.failures
         assert isinstance(result.outputs[0], Dataset), type(result.outputs[0])
 
-    def test_wrong_receiver_is_collected(self, points_fc):
+    def test_wrong_input_type_is_collected(self, points_fc):
         """A Dataset op applied to a FeatureCollection fails with a clear error.
 
         Test scenario:
