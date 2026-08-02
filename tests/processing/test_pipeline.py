@@ -5,7 +5,7 @@ import pytest
 
 import pyramids.processing.registry as reg
 from pyramids.processing.pipeline import Pipeline, Step
-from pyramids.processing.schema import Parameter, ToolSpec, validate_params
+from pyramids.processing.schema import Parameter, ToolMetadata, validate_params
 
 
 class TestValidateParams:
@@ -57,7 +57,7 @@ class TestValidateParams:
             A Raster param passes normal validation but fails under
             for_serialization=True.
         """
-        spec = ToolSpec("t", "Dataset", "Dataset", (Parameter("mask", "Raster"),))
+        spec = ToolMetadata("t", "Dataset", "Dataset", (Parameter("mask", "Raster"),))
         validate_params(spec, {"mask": "r.tif"})
         with pytest.raises(
             ValueError, match="not\n?.*serializable|not pipeline-serializable"
@@ -154,7 +154,7 @@ class TestPipeline:
             A tool with a Raster param raises on to_yaml and writes no file.
         """
         reg.register(
-            ToolSpec(
+            ToolMetadata(
                 "__ns_tool__", "Dataset", "Dataset", (Parameter("mask", "Raster"),)
             )
         )

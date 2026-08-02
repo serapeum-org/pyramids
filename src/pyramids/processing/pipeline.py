@@ -55,12 +55,12 @@ class Pipeline:
         built: list[Step] = []
         for index, item in enumerate(steps):
             try:
-                tool, params = item
+                name, params = item
             except (TypeError, ValueError) as exc:
                 raise ValueError(
                     f"pipeline step {index} must be a (tool, params) pair, got {item!r}"
                 ) from exc
-            spec = resolve(tool)
+            tool = resolve(name)
             if params is None:
                 params = {}
             elif not isinstance(params, dict):
@@ -69,8 +69,8 @@ class Pipeline:
                     f"{type(params).__name__}"
                 )
             params = dict(params)
-            validate_params(spec, params)
-            built.append(Step(tool, params))
+            validate_params(tool, params)
+            built.append(Step(name, params))
         self._steps = built
 
     @property

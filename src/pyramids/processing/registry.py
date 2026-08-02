@@ -1,10 +1,10 @@
 """The tool registry — pyramids ops made addressable by name.
 
-Per ADR 0007 the registry is populated with **hand-written** :class:`ToolSpec`
+Per ADR 0007 the registry is populated with **hand-written** :class:`ToolMetadata`
 entries for a curated allowlist of real-signature, serialization-safe ops, rather
 than introspected from the (mostly ``(*args, **kwargs)``) public method
 signatures. The allowlist is deliberately small for v1 and is trivially
-extensible: add a :class:`ToolSpec` and :func:`register` it.
+extensible: add a :class:`ToolMetadata` and :func:`register` it.
 """
 
 from __future__ import annotations
@@ -14,9 +14,9 @@ from types import MappingProxyType
 
 from pyramids.base._utils import INTERPOLATION_METHODS
 from pyramids.feature.tessellation import QUADTREE_AGG
-from pyramids.processing.schema import Parameter, ToolSpec
+from pyramids.processing.schema import Parameter, ToolMetadata
 
-_REGISTRY: dict[str, ToolSpec] = {}
+_REGISTRY: dict[str, ToolMetadata] = {}
 
 #: Resampling names for to_crs/resample, kept in sync with the GDAL table.
 _RESAMPLING_METHODS = tuple(sorted(INTERPOLATION_METHODS))
@@ -28,32 +28,32 @@ _BAND_DESC = "Zero-based band index."
 _RADIUS_DESC = "Neighbourhood radius in cells."
 
 
-def register(spec: ToolSpec) -> ToolSpec:
-    """Add ``spec`` to the registry (overwriting any tool of the same name)."""
-    _REGISTRY[spec.name] = spec
-    return spec
+def register(tool: ToolMetadata) -> ToolMetadata:
+    """Add ``tool`` to the registry (overwriting any tool of the same name)."""
+    _REGISTRY[tool.name] = tool
+    return tool
 
 
-def resolve(name: str) -> ToolSpec:
-    """Return the :class:`ToolSpec` registered under ``name``.
+def resolve(name: str) -> ToolMetadata:
+    """Return the :class:`ToolMetadata` registered under ``name``.
 
     Args:
         name: The tool name referenced by a pipeline or the CLI.
 
     Returns:
-        The registered :class:`ToolSpec`.
+        The registered :class:`ToolMetadata`.
 
     Raises:
         ValueError: If no tool is registered under ``name`` (the message lists the
             available tool names).
     """
     try:
-        spec = _REGISTRY[name]
+        tool = _REGISTRY[name]
     except KeyError as exc:
         raise ValueError(
             f"unknown tool {name!r}; registered tools: {tool_names()}"
         ) from exc
-    return spec
+    return tool
 
 
 def tool_names() -> list[str]:
@@ -61,8 +61,8 @@ def tool_names() -> list[str]:
     return sorted(_REGISTRY)
 
 
-def catalog() -> Mapping[str, ToolSpec]:
-    """Return a read-only ``{name: ToolSpec}`` view of the registered tools.
+def catalog() -> Mapping[str, ToolMetadata]:
+    """Return a read-only ``{name: ToolMetadata}`` view of the registered tools.
 
     Named ``catalog`` (not ``registry``) so it does not shadow the
     ``pyramids.processing.registry`` submodule when re-exported at the package root.
@@ -72,8 +72,8 @@ def catalog() -> Mapping[str, ToolSpec]:
 
 # Curated v1 allowlist of real-signature, serialization-safe ops (see ADR 0007);
 # extensible at runtime via register().
-_BUILTIN_SPECS: tuple[ToolSpec, ...] = (
-    ToolSpec(
+_BUILTINS: tuple[ToolMetadata, ...] = (
+    ToolMetadata(
         name="slope",
         receiver="Dataset",
         returns="Array",
@@ -90,14 +90,14 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             ),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="aspect",
         receiver="Dataset",
         returns="Array",
         description="Terrain aspect (compass direction of steepest descent).",
         params=(Parameter("band", "Integer", 0, True, _BAND_DESC),),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="hillshade",
         receiver="Dataset",
         returns="Array",
@@ -108,7 +108,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             Parameter("band", "Integer", 0, True, _BAND_DESC),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="to_crs",
         receiver="Dataset",
         returns="Dataset",
@@ -128,7 +128,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             ),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="resample",
         receiver="Dataset",
         returns="Dataset",
@@ -145,7 +145,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             ),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="interpolate_to_raster",
         receiver="FeatureCollection",
         returns="Dataset",
@@ -172,7 +172,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             ),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="to_h3",
         receiver="FeatureCollection",
         returns="FeatureCollection",
@@ -181,7 +181,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             Parameter("resolution", "Integer", None, False, "H3 resolution 0-15."),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="fill",
         receiver="Dataset",
         returns="Dataset",
@@ -190,7 +190,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             Parameter("value", "Float", None, False, "Value to fill the domain with."),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="sieve",
         receiver="Dataset",
         returns="Dataset",
@@ -205,7 +205,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             ),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="focal_mean",
         receiver="Dataset",
         returns="Array",
@@ -215,7 +215,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             Parameter("band", "Integer", 0, True, _BAND_DESC),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="focal_std",
         receiver="Dataset",
         returns="Array",
@@ -225,7 +225,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             Parameter("band", "Integer", 0, True, _BAND_DESC),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="voronoi",
         receiver="FeatureCollection",
         returns="FeatureCollection",
@@ -234,7 +234,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             Parameter("values", "Field", None, True, "Column copied onto each cell."),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="quadtree",
         receiver="FeatureCollection",
         returns="FeatureCollection",
@@ -257,13 +257,13 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
             Parameter("nmin", "Integer", 0, True, "Min points for a cell to be kept."),
         ),
     ),
-    ToolSpec(
+    ToolMetadata(
         name="with_centroid",
         receiver="FeatureCollection",
         returns="FeatureCollection",
         description="Add centroid x/y columns to each feature.",
     ),
-    ToolSpec(
+    ToolMetadata(
         name="with_coordinates",
         receiver="FeatureCollection",
         returns="FeatureCollection",
@@ -271,8 +271,8 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
     ),
 )
 
-for _spec in _BUILTIN_SPECS:
-    register(_spec)
+for _tool in _BUILTINS:
+    register(_tool)
 
 
 #: Tool names in a freshly-imported registry (available inside a worker process);

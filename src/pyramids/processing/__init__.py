@@ -21,7 +21,7 @@ from pyramids.processing.runner import RunResult, run
 from pyramids.processing.schema import (
     PARAM_TYPES,
     Parameter,
-    ToolSpec,
+    ToolMetadata,
     validate_params,
 )
 
@@ -33,7 +33,7 @@ __all__ = [
     "RunResult",
     "Step",
     "StepRecord",
-    "ToolSpec",
+    "ToolMetadata",
     "catalog",
     "register",
     "resolve",

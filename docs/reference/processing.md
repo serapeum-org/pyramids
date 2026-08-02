@@ -29,7 +29,7 @@ is hand-written rather than introspected). List it with `pyramids tools`:
 single-band, georeferenced `Dataset` (carrying the source raster's geotransform/CRS), so the result is writable to
 disk and can be chained into a further `Dataset` step.
 
-The registry is extensible — register a `ToolSpec` to add a tool.
+The registry is extensible — register a `ToolMetadata` to add a tool.
 
 ## Example (Python)
 
@@ -90,7 +90,7 @@ cannot cross process boundaries).
         show_root_heading: true
         heading_level: 3
 
-::: pyramids.processing.ToolSpec
+::: pyramids.processing.ToolMetadata
     options:
         show_root_heading: true
         heading_level: 3

@@ -1,6 +1,6 @@
 """Self-describing tool/parameter schema for the processing registry.
 
-A :class:`ToolSpec` describes one pyramids op made addressable by name: which
+A :class:`ToolMetadata` describes one pyramids op made addressable by name: which
 object it runs on (``receiver``), what it returns, and its parameters. Each
 :class:`Parameter` carries a tagged ``param_type`` plus the
 metadata the pipeline layer needs — a default, whether it is optional, and
@@ -180,7 +180,7 @@ class Parameter:
 
 
 @dataclass(frozen=True)
-class ToolSpec:
+class ToolMetadata:
     """Describe one named, addressable pyramids op.
 
     Args:
@@ -227,9 +227,9 @@ class ToolSpec:
     def param(self, name: str) -> Parameter | None:
         """Return the :class:`Parameter` named ``name`` (or ``None``)."""
         found = None
-        for spec in self.params:
-            if spec.name == name:
-                found = spec
+        for param in self.params:
+            if param.name == name:
+                found = param
                 break
         return found
 
@@ -247,12 +247,12 @@ class ToolSpec:
 
 
 def validate_params(
-    spec: ToolSpec, params: dict[str, Any], *, for_serialization: bool = False
+    tool: ToolMetadata, params: dict[str, Any], *, for_serialization: bool = False
 ) -> None:
     """Validate a parameter mapping against a tool's schema.
 
     Args:
-        spec: The tool whose schema ``params`` must satisfy.
+        tool: The tool whose schema ``params`` must satisfy.
         params: The supplied ``{name: value}`` mapping.
         for_serialization: When ``True``, additionally reject any value whose
             parameter is not pipeline-serializable (arrays, masks, callables,
@@ -264,22 +264,22 @@ def validate_params(
             non-serializable value is supplied under ``for_serialization``, or a
             required parameter is missing.
     """
-    known = {p.name: p for p in spec.params}
+    known = {p.name: p for p in tool.params}
     for key, value in params.items():
         try:
-            pspec = known[key]
+            param = known[key]
         except KeyError as exc:
             raise ValueError(
-                f"tool {spec.name!r}: unknown parameter {key!r}; valid: {sorted(known)}"
+                f"tool {tool.name!r}: unknown parameter {key!r}; valid: {sorted(known)}"
             ) from exc
-        pspec.validate(value)
-        if for_serialization and not pspec.is_serializable:
+        param.validate(value)
+        if for_serialization and not param.is_serializable:
             raise ValueError(
-                f"tool {spec.name!r}: parameter {key!r} ({pspec.param_type}) is not "
+                f"tool {tool.name!r}: parameter {key!r} ({param.param_type}) is not "
                 "pipeline-serializable and cannot be written to a pipeline file"
             )
-    missing = [p.name for p in spec.params if not p.optional and p.name not in params]
+    missing = [p.name for p in tool.params if not p.optional and p.name not in params]
     if missing:
         raise ValueError(
-            f"tool {spec.name!r}: missing required parameter(s): {missing}"
+            f"tool {tool.name!r}: missing required parameter(s): {missing}"
         )

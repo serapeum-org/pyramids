@@ -37,20 +37,20 @@ def _cmd_run(args: argparse.Namespace) -> int:
 def _cmd_tools(args: argparse.Namespace) -> int:
     """List every registered tool with its receiver/return types."""
     for name in tool_names():
-        spec = resolve(name)
-        print(f"{name:24} {spec.receiver} -> {spec.returns}   {spec.description}")
+        tool = resolve(name)
+        print(f"{name:24} {tool.receiver} -> {tool.returns}   {tool.description}")
     return 0
 
 
 def _cmd_tool(args: argparse.Namespace) -> int:
     """Print one tool's parameter schema (its help block)."""
     try:
-        spec = resolve(args.name)
+        tool = resolve(args.name)
     except ValueError as exc:
         print(f"error: {exc}")
         code = 1
     else:
-        print(spec.help())
+        print(tool.help())
         code = 0
     return code
 

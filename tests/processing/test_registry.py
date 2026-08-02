@@ -7,7 +7,7 @@ from pyramids.processing.schema import (
     RECEIVER_TYPES,
     RETURN_TYPES,
     Parameter,
-    ToolSpec,
+    ToolMetadata,
 )
 
 EXPECTED_ALLOWLIST = {
@@ -41,13 +41,13 @@ class TestRegistry:
         assert set(reg.tool_names()) == EXPECTED_ALLOWLIST, reg.tool_names()
 
     def test_resolve_returns_spec(self):
-        """resolve returns the ToolSpec for a known tool.
+        """resolve returns the ToolMetadata for a known tool.
 
         Test scenario:
-            resolve('slope') is a Dataset->Array ToolSpec named 'slope'.
+            resolve('slope') is a Dataset->Array ToolMetadata named 'slope'.
         """
         spec = reg.resolve("slope")
-        assert isinstance(spec, ToolSpec), spec
+        assert isinstance(spec, ToolMetadata), spec
         assert spec.name == "slope", spec
 
     def test_resolve_unknown_raises_and_lists_tools(self):
@@ -111,7 +111,7 @@ class TestRegistry:
             A throwaway tool registers and resolves; cleaned up afterwards so the
             global registry is left as found.
         """
-        temp = ToolSpec(
+        temp = ToolMetadata(
             "__tmp_tool__", "Dataset", "Dataset", (Parameter("x", "Integer"),)
         )
         reg.register(temp)

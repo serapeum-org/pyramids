@@ -2,7 +2,7 @@
 
 import pytest
 
-from pyramids.processing.schema import Parameter, ToolSpec
+from pyramids.processing.schema import Parameter, ToolMetadata
 
 
 class TestParameter:
@@ -218,8 +218,8 @@ class TestParameter:
         assert "required" in text, text
 
 
-class TestToolSpec:
-    """Tests for the ToolSpec dataclass."""
+class TestToolMetadata:
+    """Tests for the ToolMetadata dataclass."""
 
     def test_init_invalid_receiver_raises(self):
         """An invalid receiver type is rejected.
@@ -228,7 +228,7 @@ class TestToolSpec:
             receiver='Blah' raises ValueError listing valid receiver types.
         """
         with pytest.raises(ValueError, match="receiver must be one of"):
-            ToolSpec("t", "Blah", "Dataset")
+            ToolMetadata("t", "Blah", "Dataset")
 
     def test_init_invalid_returns_raises(self):
         """An invalid returns type is rejected.
@@ -237,7 +237,7 @@ class TestToolSpec:
             returns='Blah' raises ValueError.
         """
         with pytest.raises(ValueError, match="returns must be one of"):
-            ToolSpec("t", "Dataset", "Blah")
+            ToolMetadata("t", "Dataset", "Blah")
 
     def test_init_duplicate_param_names_raises(self):
         """Duplicate parameter names are rejected.
@@ -247,7 +247,7 @@ class TestToolSpec:
         """
         dup = (Parameter("band", "Integer"), Parameter("band", "Integer"))
         with pytest.raises(ValueError, match="duplicate parameter names"):
-            ToolSpec("t", "Dataset", "Dataset", dup)
+            ToolMetadata("t", "Dataset", "Dataset", dup)
 
     def test_method_name_defaults_to_name(self):
         """method_name falls back to the tool name.
@@ -255,9 +255,9 @@ class TestToolSpec:
         Test scenario:
             With no explicit method, method_name equals name; with one, it wins.
         """
-        assert ToolSpec("slope", "Dataset", "Dataset").method_name == "slope"
+        assert ToolMetadata("slope", "Dataset", "Dataset").method_name == "slope"
         assert (
-            ToolSpec("s", "Dataset", "Dataset", method="do_slope").method_name
+            ToolMetadata("s", "Dataset", "Dataset", method="do_slope").method_name
             == "do_slope"
         )
 
@@ -267,7 +267,9 @@ class TestToolSpec:
         Test scenario:
             A known param is found; an unknown one returns None.
         """
-        spec = ToolSpec("slope", "Dataset", "Dataset", (Parameter("band", "Integer"),))
+        spec = ToolMetadata(
+            "slope", "Dataset", "Dataset", (Parameter("band", "Integer"),)
+        )
         assert spec.param("band") is not None, "known param should be found"
         assert spec.param("nope") is None, "unknown param should be None"
 
@@ -277,7 +279,7 @@ class TestToolSpec:
         Test scenario:
             A tool with one param renders its receiver->returns header and the param.
         """
-        spec = ToolSpec(
+        spec = ToolMetadata(
             "slope", "Dataset", "Dataset", (Parameter("band", "Integer"),), "Slope."
         )
         text = spec.help()
@@ -290,4 +292,4 @@ class TestToolSpec:
         Test scenario:
             A parameterless tool's help mentions '(none)'.
         """
-        assert "(none)" in ToolSpec("t", "Dataset", "Dataset").help()
+        assert "(none)" in ToolMetadata("t", "Dataset", "Dataset").help()

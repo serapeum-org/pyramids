@@ -21,7 +21,7 @@ from pyramids.feature import FeatureCollection
 from pyramids.processing.pipeline import Pipeline, Step
 from pyramids.processing.provenance import Provenance, StepRecord
 from pyramids.processing.registry import BUILTIN_TOOLS, resolve
-from pyramids.processing.schema import ToolSpec
+from pyramids.processing.schema import ToolMetadata
 
 # Extensions opened as vector; .json is included for GeoJSON.
 _VECTOR_EXTS = frozenset({".geojson", ".json", ".shp", ".gpkg", ".fgb", ".gml", ".kml"})
@@ -103,7 +103,7 @@ def _open(item: Any) -> Any:
     return obj
 
 
-def _apply(step: Step, obj: Any, spec: ToolSpec) -> Any:
+def _apply(step: Step, obj: Any, tool: ToolMetadata) -> Any:
     """Apply one pipeline step to ``obj`` and return the result.
 
     Dispatches to ``obj``'s method only when ``obj``'s type matches the tool's
@@ -116,7 +116,7 @@ def _apply(step: Step, obj: Any, spec: ToolSpec) -> Any:
     Args:
         step: The pipeline step to apply.
         obj: The current pipeline object.
-        spec: The step's resolved :class:`ToolSpec` (resolved once by the caller).
+        tool: The step's resolved :class:`ToolMetadata` (resolved once by the caller).
 
     Returns:
         The step's output (which may be a different receiver type).
@@ -125,12 +125,12 @@ def _apply(step: Step, obj: Any, spec: ToolSpec) -> Any:
         TypeError: If ``obj``'s type does not match the tool's declared receiver.
     """
     actual = _receiver_type(obj)
-    if actual != spec.receiver:
+    if actual != tool.receiver:
         raise TypeError(
-            f"tool {step.tool!r} expects a {spec.receiver}, but the current "
+            f"tool {step.tool!r} expects a {tool.receiver}, but the current "
             f"pipeline object is a {actual}"
         )
-    method = getattr(obj, spec.method_name)
+    method = getattr(obj, tool.method_name)
     return method(**step.params)
 
 
@@ -179,11 +179,11 @@ def _run_pipeline_on(
     """
     prov = Provenance(source=source)
     for step in pipeline:
-        spec = resolve(step.tool)
+        tool = resolve(step.tool)
         source_obj = obj
         start = time.perf_counter()
-        obj = _apply(step, obj, spec)
-        if spec.returns == "Array" and isinstance(obj, np.ndarray):
+        obj = _apply(step, obj, tool)
+        if tool.returns == "Array" and isinstance(obj, np.ndarray):
             obj = _materialize_array(obj, source_obj, step.params.get("band", 0))
         prov.steps.append(
             StepRecord(step.tool, dict(step.params), time.perf_counter() - start)
