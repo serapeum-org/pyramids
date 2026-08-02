@@ -504,10 +504,11 @@ class TestRun:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            A missing input under parallel raise surfaces the worker exception.
+            A missing input under parallel raise surfaces the worker's
+            FileNotFoundError (not an up-front guard ValueError).
         """
         out = tmp_path / "out"
-        with pytest.raises(Exception):
+        with pytest.raises(FileNotFoundError):
             run(
                 Pipeline([("slope", {})]),
                 [str(tmp_path / "missing.tif")],
