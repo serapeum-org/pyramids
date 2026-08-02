@@ -3149,7 +3149,10 @@ class IO(_Engine["Dataset"]):
 
         Raises:
             ValueError:
-                If resampling_method is not one of the allowed values above.
+                If resampling_method is not one of the allowed values above, or if the
+                dataset is a plain VRT whose description is not a path — there is nothing
+                to name an external sidecar after, so the levels have nowhere to go. Save
+                it with `to_file(path)` and regenerate on the saved raster.
             ReadOnlyError:
                 If GDAL refuses the rewrite because the overviews it targets are opened
                 read-only. Read with read_only=False.
@@ -3173,6 +3176,17 @@ class IO(_Engine["Dataset"]):
             - Dataset.read_overview_array: Read overview values.
             - Dataset.plot: Plot a band.
         """
+        # Same shape check as `create_overviews`, and for the same reason: without it a
+        # pathless VRT reaches GDAL, is refused as a write, and is diagnosed as an
+        # access-mode problem -- advising a reopen with `read_only=False` that a handle
+        # with no path cannot perform.
+        if self._has_nowhere_for_an_overview_sidecar():
+            raise ValueError(
+                "This dataset is a VRT with no path, so its overviews have nowhere to "
+                "go: GDAL names the sidecar after the dataset description, and this one "
+                "is not a path. Save it first with to_file(path) and regenerate the "
+                "overviews on the saved raster."
+            )
         if resampling_method.upper() not in RESAMPLING_METHODS:
             raise ValueError(f"resampling_method should be one of {RESAMPLING_METHODS}")
         overview_count = self.overview_count

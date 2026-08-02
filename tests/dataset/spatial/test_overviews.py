@@ -279,6 +279,33 @@ class TestCreateOverviewsPathlessGuard:
             view.close()
             backed.close()
 
+    def test_recreate_overviews_refuses_with_the_same_diagnosis(
+        self, tmp_path, monkeypatch
+    ):
+        """The sibling method refuses the same shape instead of blaming the access mode.
+
+        Test scenario:
+            A pathless VRT reaching GDAL was refused as a write and diagnosed as
+            read-only, advising a reopen that a handle with no path cannot perform —
+            expected: the same actionable `ValueError` `create_overviews` gives.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "recreate_guard.tif")
+        dataset = Dataset.read_file(source)
+        level = None
+        try:
+            level = dataset.get_overview_dataset(overview_index=0)
+            with pytest.raises(ValueError, match="nowhere to go") as excinfo:
+                level.recreate_overviews()
+            assert not isinstance(excinfo.value, ReadOnlyError), (
+                "the access mode is not the blocker; a pathless handle cannot be reopened"
+            )
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            if level is not None:
+                level.close()
+            dataset.close()
+
     def test_index_space_netcdf_view_is_refused(self, tmp_path, monkeypatch):
         """An index-space NetCDF variable view is VRT-wrapped, so it is refused.
 
