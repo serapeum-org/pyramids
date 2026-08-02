@@ -2994,25 +2994,32 @@ class IO(_Engine["Dataset"]):
         overview_levels: list | None = None,
     ) -> None:
         """Create overviews for the dataset.
+
         Args:
             resampling_method (str):
                 The resampling method used to create the overviews. Possible values are
                 "NEAREST", "CUBIC", "AVERAGE", "GAUSS", "CUBICSPLINE", "LANCZOS", "MODE",
                 "AVERAGE_MAGPHASE", "RMS", "BILINEAR". Defaults to "nearest".
             overview_levels (list, optional):
-                The overview levels. Restricted to typical power-of-two reduction factors. Defaults to [2, 4, 8, 16,
-                32].
+                The overview levels, as reduction factors drawn from the supported set
+                (2, 4, 8 … 2048). Defaults to the full set.
+
         Returns:
             None:
                 Creates internal or external overviews depending on the dataset access mode. See Notes.
+
         Raises:
             TypeError:
                 `overview_levels` is not a list.
             ValueError:
-                `overview_levels` holds a factor that is not a power of two,
+                `overview_levels` holds a factor outside the supported set,
                 `resampling_method` is not one of the allowed values, or the dataset is
                 a VRT with no path — a VRT owns no pixel storage, so its overviews can
                 only go to an external sidecar, and there is no path to name one after.
+                A *warped* VRT is exempt: it holds its overviews in RAM.
+            RuntimeError:
+                GDAL failed to build the levels.
+
         Notes:
             - External (.ovr file): If the dataset is read with `read_only=True` then the overviews file will be created
               as an external .ovr file in the same directory of the dataset.
@@ -3401,8 +3408,9 @@ class IO(_Engine["Dataset"]):
         returns a graph that raises when it is computed; call `to_file()` first if you
         need any of those. `create_overviews()` on the lazily described form raises for the
         same reason — a VRT has nowhere to put the external sidecar it would need — while
-        the materialised form builds its levels in RAM and works. The `read_only` label stops pixel writes; metadata setters still
-        work, since a pathless handle cannot spill a PAM sidecar. A `NetCDF` variable
+        the materialised form builds its levels in RAM and works. The `read_only` label
+        stops pixel writes; metadata setters still work, since a pathless handle cannot
+        spill a PAM sidecar. A `NetCDF` variable
         view returns a plain `Dataset` — an overview level is an ordinary raster, not a
         NetCDF container — and only a real mapping of dataset metadata is carried, so a
         container's structured attributes stay behind. While the materialised form is
