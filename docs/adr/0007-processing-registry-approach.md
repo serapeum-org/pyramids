@@ -24,7 +24,7 @@ introspecting the public method signatures.
 
 **Adopt (a) for v1.** Ship the registry with hand-written `ToolSpec`s over a **curated allowlist** of
 real-signature, serialization-safe ops. This decouples the pipeline work from the 69-facade refactor, ships a working
-v1 sooner, and is exactly what WhiteboxTools does (its JSON manifests are hand-authored per tool).
+v1 sooner, and follows the well-established practice of hand-authoring a per-tool manifest for each registered op.
 
 Record (b)/ARC-121 as the follow-up that later lets the registry **auto-expand** beyond the allowlist by introspecting
 restored signatures — at which point the hand-written specs for those ops can be generated instead of maintained.

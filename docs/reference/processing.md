@@ -2,7 +2,7 @@
 
 `pyramids.processing` turns existing `Dataset` / `FeatureCollection` operations into named, self-describing
 **tools** that can be chained into a serializable **pipeline** and run (batched) over one or many inputs — a
-Whitebox/QGIS-Processing-style workflow layer built on the ops pyramids already owns.
+QGIS-Processing-style workflow layer built on the ops pyramids already owns.
 
 The pieces:
 

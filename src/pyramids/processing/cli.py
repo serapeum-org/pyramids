@@ -1,6 +1,6 @@
 """CLI subcommands for the processing pipeline layer.
 
-Registers three GDAL/Whitebox-style subcommands on the top-level ``pyramids``
+Registers three geoprocessing subcommands on the top-level ``pyramids``
 parser: ``run`` (execute a pipeline YAML over inputs), ``tools`` (list the
 registered tools), and ``tool <name>`` (print a tool's parameter schema). Help
 text is generated from the registry, never hand-written.

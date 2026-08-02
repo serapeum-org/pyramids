@@ -2,7 +2,7 @@
 
 A :class:`ToolSpec` describes one pyramids op made addressable by name: which
 object it runs on (``receiver``), what it returns, and its parameters. Each
-:class:`ParamSpec` carries the WhiteboxTools-style tagged ``param_type`` plus the
+:class:`ParamSpec` carries a tagged ``param_type`` plus the
 metadata the pipeline layer needs — a default, whether it is optional, and
 whether its value can be serialized into a portable pipeline file.
 
@@ -16,7 +16,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-#: Tagged parameter-type vocabulary (mirrors the WhiteboxTools manifest types).
+#: Tagged parameter-type vocabulary (a compact, serializable set of type tags).
 PARAM_TYPES = frozenset(
     {
         "Raster",
