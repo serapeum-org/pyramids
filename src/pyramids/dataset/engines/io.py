@@ -3033,6 +3033,29 @@ class IO(_Engine["Dataset"]):
         root = xml[start : end + 1] if start != -1 and end != -1 else ""
         return 'subClass="VRTWarpedDataset"' in root
 
+    def _no_sidecar_message(self, verb: str) -> str:
+        """Build the `OverviewTargetError` message for a VRT with no usable description.
+
+        Shared by `create_overviews` and `recreate_overviews` so the two cannot drift;
+        they differ only in the verb, and both tests match on "nowhere to go".
+
+        Args:
+            verb: What the caller was asked to do — "build" or "regenerate".
+
+        Returns:
+            str:
+                The message, quoting the offending description so a caller holding
+                several handles can tell which call failed.
+        """
+        description = self._ds.raster.GetDescription()[:80]
+        return (
+            "This dataset is a plain VRT whose description is not a path, so its "
+            "overviews have nowhere to go: GDAL names the sidecar after the "
+            f"description, so the levels would be stranded outside the dataset. "
+            f"Description: {description!r}. Save it first with to_file(path) and "
+            f"{verb} the overviews on the saved raster."
+        )
+
     def create_overviews(
         self,
         resampling_method: str = "nearest",
@@ -3123,13 +3146,7 @@ class IO(_Engine["Dataset"]):
         # This one is about the dataset, not the call, so no argument can make it
         # succeed. Check it first, or a typo'd argument masks the real blocker.
         if self._has_nowhere_for_an_overview_sidecar():
-            raise OverviewTargetError(
-                "This dataset is a plain VRT whose description is not a path, so its "
-                "overviews have nowhere to go: GDAL names the sidecar after the "
-                "description, so the levels would be stranded outside the dataset. "
-                f"Description: {self._ds.raster.GetDescription()[:80]!r}. Save it first "
-                "with to_file(path) and build the overviews on the saved raster."
-            )
+            raise OverviewTargetError(self._no_sidecar_message("build"))
         if overview_levels is None:
             overview_levels = OVERVIEW_LEVELS
         else:
@@ -3225,13 +3242,7 @@ class IO(_Engine["Dataset"]):
         # access-mode problem -- advising a reopen with `read_only=False` that a handle
         # with no path cannot perform.
         if self._has_nowhere_for_an_overview_sidecar():
-            raise OverviewTargetError(
-                "This dataset is a plain VRT whose description is not a path, so its "
-                "overviews have nowhere to go: GDAL names the sidecar after the "
-                f"description. Description: {self._ds.raster.GetDescription()[:80]!r}. "
-                "Save it first with to_file(path) and regenerate the overviews on the "
-                "saved raster."
-            )
+            raise OverviewTargetError(self._no_sidecar_message("regenerate"))
         if resampling_method.upper() not in RESAMPLING_METHODS:
             raise ValueError(f"resampling_method should be one of {RESAMPLING_METHODS}")
         overview_count = self.overview_count

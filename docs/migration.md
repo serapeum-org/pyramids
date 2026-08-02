@@ -158,9 +158,9 @@ sidecar named after the dataset description — and when that description is not
 file called literally `.ovr` in the process's working directory, attached to nothing, while the levels the handle
 was already exposing were dropped. The call reported success and silently did neither thing it promised.
 
-Three descriptions are refused: an empty one, a blank one, and an inline VRT XML document passed to
-`Dataset.read_file(...)` (which previously surfaced as a raw GDAL `RuntimeError` naming a file whose name was the
-whole document).
+Three descriptions are refused: an empty one, a blank one, and any that begins with `<` once stripped — in
+practice an inline VRT XML document passed to `Dataset.read_file(...)`, which previously surfaced as a raw GDAL
+`RuntimeError` naming a file whose name was the whole document. No real path starts with `<`.
 
 These calls hand back such a handle, and so start raising:
 

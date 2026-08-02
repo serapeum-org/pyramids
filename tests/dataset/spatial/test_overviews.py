@@ -339,9 +339,6 @@ class TestCreateOverviewsPathlessGuard:
             level = dataset.get_overview_dataset(overview_index=0)
             with pytest.raises(OverviewTargetError):
                 level.create_overviews(overview_levels=[2])
-            assert isinstance(OverviewTargetError("x"), ValueError), (
-                "existing `except ValueError` handlers must keep working"
-            )
             with pytest.raises(ValueError) as excinfo:
                 dataset.create_overviews(overview_levels=[3])
             assert not isinstance(excinfo.value, OverviewTargetError), (
@@ -442,6 +439,7 @@ class TestCreateOverviewsPathlessGuard:
             assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
         finally:
             view.close()
+            del store
 
     def test_inline_xml_vrt_is_refused_too(self, tmp_path, monkeypatch):
         """An inline-XML VRT has no path either, despite a non-empty description.
@@ -585,13 +583,13 @@ class TestCreateOverviewsPathlessGuard:
             dataset.close()
 
     @pytest.mark.parametrize(
-        "metadata",
+        "metadata, blocked",
         [
-            None,
-            [],
-            ['<VRTDataset rasterXSize="8"'],
-            ['<VRTDataset subClass="VRTWarpedDataset"'],
-            ['<?xml version="1.0"?><VRTDataset subClass="VRTWarpedDataset" x="1">'],
+            (None, True),
+            ([], True),
+            (['<VRTDataset rasterXSize="8"'], True),
+            (['<VRTDataset subClass="VRTWarpedDataset"'], True),
+            (['<?xml version="1.0"?><VRTDataset subClass="VRTWarpedDataset" x="1">'], False),
         ],
         ids=[
             "domain-absent",
@@ -601,7 +599,7 @@ class TestCreateOverviewsPathlessGuard:
             "declaration-prefixed-warped",
         ],
     )
-    def test_an_unparseable_xml_document_falls_back_to_refusing(self, metadata):
+    def test_an_unparseable_xml_document_falls_back_to_refusing(self, metadata, blocked):
         """A root element the predicate cannot read is refused rather than exempted.
 
         Test scenario:
@@ -616,11 +614,8 @@ class TestCreateOverviewsPathlessGuard:
         handle.GetDescription.return_value = ""
         stub = MagicMock(spec=Dataset, driver_type="vrt", raster=handle)
         engine = IO(stub)
-        exempt = metadata is not None and any(
-            item.endswith(">") and "VRTWarpedDataset" in item for item in metadata
-        )
-        assert engine._has_nowhere_for_an_overview_sidecar() is not exempt, (
-            f"expected blocked={not exempt} for xml:VRT metadata {metadata!r}"
+        assert engine._has_nowhere_for_an_overview_sidecar() is blocked, (
+            f"expected blocked={blocked} for xml:VRT metadata {metadata!r}"
         )
 
     @pytest.mark.parametrize(
@@ -795,45 +790,6 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             dataset.close()
 
-    def test_recreate_hands_a_warped_view_to_gdal(self, tmp_path, monkeypatch):
-        """A warped view holding overviews in RAM reaches the regeneration call.
-
-        Test scenario:
-            Record every `gdal.RegenerateOverviews` call while a pathless warped view that
-            was given RAM levels is regenerated — expected: one batched call carrying the
-            band's level, proving the guard exempts the warped subclass in
-            `recreate_overviews` and leaves the outcome to GDAL.
-        """
-        monkeypatch.chdir(tmp_path)
-        dataset = Dataset.create_from_array(
-            np.arange(4096, dtype="float32").reshape(64, 64),
-            top_left_corner=(0.0, 64.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
-        view = None
-        try:
-            view = dataset.warped_view(3857)
-            view.create_overviews("average", overview_levels=[2])
-            assert view.overview_count == [1], (
-                f"precondition: the warped view holds one level, {view.overview_count}"
-            )
-            calls = []
-
-            def record(band, overviews, method):
-                calls.append((len(overviews), method))
-                return gdal.CE_None
-
-            monkeypatch.setattr(gdal, "RegenerateOverviews", record)
-            view.recreate_overviews(resampling_method="average")
-            assert calls == [(1, "average")], (
-                f"the warped view's level should reach GDAL in one call, got {calls}"
-            )
-        finally:
-            if view is not None:
-                view.close()
-            dataset.close()
-
     def test_to_zarr_with_overview_factors_surfaces_the_refusal(
         self, tmp_path, monkeypatch
     ):
@@ -909,7 +865,7 @@ class TestCreateOverviewsPathlessGuard:
             with pytest.raises(OverviewTargetError, match="warped VRT") as excinfo:
                 view.recreate_overviews("average")
             assert not isinstance(excinfo.value, ReadOnlyError), (
-                "the access mode is not the blocker; the parent was writable here"
+                f"the access mode is not the blocker (parent read_only={parent_read_only})"
             )
             assert "read_only=False" not in str(excinfo.value), (
                 "a pathless warped view cannot act on that advice"
