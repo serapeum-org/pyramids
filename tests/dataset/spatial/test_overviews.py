@@ -186,6 +186,28 @@ _GDAL_STRANDS_PATHLESS_VRT_OVERVIEWS = int(gdal.VersionInfo("VERSION_NUM")) >= 3
 _GDAL_WRITES_EXTERNAL_NETCDF_OVR = int(gdal.VersionInfo("VERSION_NUM")) >= 3130000
 
 
+@pytest.fixture
+def pathless_level(tmp_path, monkeypatch):
+    """Yield `(level, parent)` for a path-less VRT level, with the CWD isolated.
+
+    The shape most of the guard tests need: `get_overview_dataset` describes the level
+    lazily as a VRT with an empty description, which is exactly what the refusal targets.
+    The parent comes with it because several tests need a handle the guard does *not*
+    refuse, to contrast against.
+    """
+    monkeypatch.chdir(tmp_path)
+    source = _overviewed_raster(tmp_path, "pathless_level_src.tif")
+    dataset = Dataset.read_file(source)
+    level = None
+    try:
+        level = dataset.get_overview_dataset(overview_index=0)
+        yield level, dataset
+    finally:
+        if level is not None:
+            level.close()
+        dataset.close()
+
+
 class TestCreateOverviewsPathlessGuard:
     """`create_overviews` refuses a VRT that has nowhere to put a sidecar (#917).
 
@@ -319,9 +341,7 @@ class TestCreateOverviewsPathlessGuard:
             view.close()
             backed.close()
 
-    def test_the_refusal_is_distinguishable_from_an_argument_error(
-        self, tmp_path, monkeypatch
-    ):
+    def test_the_refusal_is_distinguishable_from_an_argument_error(self, pathless_level):
         """The refusal is its own type, but is still caught as a `ValueError`.
 
         Test scenario:
@@ -330,23 +350,14 @@ class TestCreateOverviewsPathlessGuard:
             bare `ValueError` for a bad level, and the former still caught by a handler
             written for the latter.
         """
-        monkeypatch.chdir(tmp_path)
-        source = _overviewed_raster(tmp_path, "distinct_src.tif")
-        dataset = Dataset.read_file(source)
-        level = None
-        try:
-            level = dataset.get_overview_dataset(overview_index=0)
-            with pytest.raises(OverviewTargetError):
-                level.create_overviews(overview_levels=[2])
-            with pytest.raises(ValueError) as excinfo:
-                dataset.create_overviews(overview_levels=[3])
-            assert not isinstance(excinfo.value, OverviewTargetError), (
-                "a bad level is an argument error, not an unusable target"
-            )
-        finally:
-            if level is not None:
-                level.close()
-            dataset.close()
+        level, parent = pathless_level
+        with pytest.raises(OverviewTargetError):
+            level.create_overviews(overview_levels=[2])
+        with pytest.raises(ValueError) as excinfo:
+            parent.create_overviews(overview_levels=[3])
+        assert not isinstance(excinfo.value, OverviewTargetError), (
+            "a bad level is an argument error, not an unusable target"
+        )
 
     def test_vsimem_vrt_still_builds_overviews(self, tmp_path, monkeypatch):
         """A `/vsimem/` VRT has a real path, so it names its sidecar after it.
@@ -376,7 +387,7 @@ class TestCreateOverviewsPathlessGuard:
             gdal.Unlink(vsi_path)
 
     def test_recreate_overviews_refuses_with_the_same_diagnosis(
-        self, tmp_path, monkeypatch
+        self, pathless_level, tmp_path
     ):
         """The sibling method refuses the same shape instead of blaming the access mode.
 
@@ -385,22 +396,13 @@ class TestCreateOverviewsPathlessGuard:
             read-only, advising a reopen that a handle with no path cannot perform —
             expected: the same actionable `OverviewTargetError` `create_overviews` gives.
         """
-        monkeypatch.chdir(tmp_path)
-        source = _overviewed_raster(tmp_path, "recreate_guard.tif")
-        dataset = Dataset.read_file(source)
-        level = None
-        try:
-            level = dataset.get_overview_dataset(overview_index=0)
-            with pytest.raises(OverviewTargetError, match="nowhere to go") as excinfo:
-                level.recreate_overviews()
-            assert not isinstance(excinfo.value, ReadOnlyError), (
-                "the access mode is not the blocker; a pathless handle cannot be reopened"
-            )
-            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
-        finally:
-            if level is not None:
-                level.close()
-            dataset.close()
+        level, _ = pathless_level
+        with pytest.raises(OverviewTargetError, match="nowhere to go") as excinfo:
+            level.recreate_overviews()
+        assert not isinstance(excinfo.value, ReadOnlyError), (
+            "the access mode is not the blocker; a pathless handle cannot be reopened"
+        )
+        assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
 
     def test_index_space_netcdf_view_is_refused(self, tmp_path, monkeypatch):
         """An index-space NetCDF variable view is VRT-wrapped, so it is refused.
@@ -631,7 +633,7 @@ class TestCreateOverviewsPathlessGuard:
         ids=["defaults", "non-list-levels", "unsupported-levels", "unknown-method"],
     )
     def test_the_refusal_precedes_argument_validation(
-        self, tmp_path, monkeypatch, kwargs
+        self, pathless_level, tmp_path, kwargs
     ):
         """The dataset is the blocker, so no argument spelling reports something else.
 
@@ -641,19 +643,10 @@ class TestCreateOverviewsPathlessGuard:
             resampling method) — expected: the guard's `OverviewTargetError` every time,
             so a typo'd argument never masks the real blocker.
         """
-        monkeypatch.chdir(tmp_path)
-        source = _overviewed_raster(tmp_path, "precedence_src.tif")
-        dataset = Dataset.read_file(source)
-        level = None
-        try:
-            level = dataset.get_overview_dataset(overview_index=0)
-            with pytest.raises(OverviewTargetError, match="nowhere to go"):
-                level.create_overviews(**kwargs)
-            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
-        finally:
-            if level is not None:
-                level.close()
-            dataset.close()
+        level, _ = pathless_level
+        with pytest.raises(OverviewTargetError, match="nowhere to go"):
+            level.create_overviews(**kwargs)
+        assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
 
     @pytest.mark.parametrize(
         "driver_type, description",
@@ -712,7 +705,7 @@ class TestCreateOverviewsPathlessGuard:
             dataset.close()
 
     def test_recreate_refuses_before_the_resampling_method_is_validated(
-        self, tmp_path, monkeypatch
+        self, pathless_level, tmp_path
     ):
         """An unknown resampling method does not mask the unusable target either.
 
@@ -721,19 +714,10 @@ class TestCreateOverviewsPathlessGuard:
             — expected: the guard's refusal, matching the ordering its sibling
             `create_overviews` already pins.
         """
-        monkeypatch.chdir(tmp_path)
-        source = _overviewed_raster(tmp_path, "recreate_order_src.tif")
-        dataset = Dataset.read_file(source)
-        level = None
-        try:
-            level = dataset.get_overview_dataset(overview_index=0)
-            with pytest.raises(OverviewTargetError, match="nowhere to go"):
-                level.recreate_overviews(resampling_method="NOPE")
-            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
-        finally:
-            if level is not None:
-                level.close()
-            dataset.close()
+        level, _ = pathless_level
+        with pytest.raises(OverviewTargetError, match="nowhere to go"):
+            level.recreate_overviews(resampling_method="NOPE")
+        assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
 
     def test_recreate_argument_error_on_a_usable_target_stays_an_argument_error(
         self, tmp_path, monkeypatch
