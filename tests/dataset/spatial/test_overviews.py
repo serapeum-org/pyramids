@@ -812,14 +812,43 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             dataset.close()
 
-    def test_read_only_vrt_still_reports_the_access_mode(self, tmp_path, monkeypatch):
-        """A genuine access-mode refusal on a VRT still raises `ReadOnlyError`.
+    def test_a_refusal_gdals_wording_does_not_cover_is_still_classified(
+        self, tmp_path, monkeypatch
+    ):
+        """The classification must be taken before any GDAL call resets the error number.
 
         Test scenario:
-            The warped branch calls into GDAL, which resets the CPL error number the
-            classifier reads — so classifying after it would downgrade this to a bare
-            `RuntimeError`. A path-ful VRT with a sidecar, reopened read-only, is the
-            shape that catches that: a VRT, not warped, and genuinely read-only.
+            `_is_write_refusal` prefers `CPLE_NoWriteAccess` and falls back to a short
+            list of message phrases. Drive a refusal whose wording is on neither list —
+            the shape a future driver could produce — so only the error number can
+            classify it, and any GDAL call made before the check would erase that.
+            Expected: `ReadOnlyError`, not the bare `RuntimeError` a late check gives.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "unknown_wording_src.tif")
+        dataset = Dataset.read_file(source, read_only=False)
+
+        def refuse(band, overviews, method):
+            with gdal.ExceptionMgr(useExceptions=False):
+                gdal.Error(gdal.CE_Failure, gdal.CPLE_NoWriteAccess, "driver said no")
+            raise RuntimeError("driver said no")
+
+        monkeypatch.setattr(gdal, "RegenerateOverviews", refuse)
+        try:
+            with pytest.raises(ReadOnlyError, match="read-only"):
+                dataset.recreate_overviews("average")
+        finally:
+            dataset.close()
+
+    def test_read_only_vrt_still_reports_the_access_mode(self, tmp_path, monkeypatch):
+        """A genuine access-mode refusal on a VRT raises `ReadOnlyError`.
+
+        Test scenario:
+            The VRT path had no coverage — the only access-mode guard used a GTiff — and
+            a VRT reaches the warped branch's neighbourhood. Expected: `ReadOnlyError`.
+            This shape survives a late classification on its own, because GDAL words it
+            "read-only mode", which the message fallback knows; the sibling test above
+            is the one that pins the ordering.
         """
         monkeypatch.chdir(tmp_path)
         source = _overviewed_raster(tmp_path, "ro_vrt_src.tif")
