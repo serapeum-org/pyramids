@@ -2959,10 +2959,11 @@ class IO(_Engine["Dataset"]):
         """Whether this handle is a VRT that cannot store the overviews it would build.
 
         A VRT owns no pixel storage, so GDAL can only put its overviews in an external
-        `.ovr` sidecar named after the dataset description. When that description is not a
-        usable path the sidecar lands as a file called literally `.ovr` in the process's
-        working directory, attached to nothing, and the levels the handle was already
-        exposing are dropped.
+        `.ovr` sidecar named after the dataset description. Two descriptions are not usable
+        as a path: an empty one, which makes GDAL write a file called literally `.ovr` into
+        the process's working directory attached to nothing while dropping the levels the
+        handle already exposed; and inline VRT XML, which GDAL stores verbatim and would
+        then try to create a file named after the whole document.
 
         Two VRT families are deliberately excluded because they are not affected:
 
@@ -2983,8 +2984,8 @@ class IO(_Engine["Dataset"]):
             # its own <VRTDataset> tag.
             root = xml[: xml.find(">") + 1] if ">" in xml else xml
             if 'subClass="VRTWarpedDataset"' not in root:
-                description = self._ds.raster.GetDescription()
-                blocked = not description
+                description = self._ds.raster.GetDescription().strip()
+                blocked = not description or description.startswith("<")
         return blocked
 
     def create_overviews(
@@ -3078,8 +3079,9 @@ class IO(_Engine["Dataset"]):
         if self._has_nowhere_for_an_overview_sidecar():
             raise ValueError(
                 "This dataset is a VRT with no path, so overviews have nowhere to go: "
-                "GDAL would write them beside a file that does not exist. Save it first "
-                "with to_file(path) and build the overviews on the saved raster."
+                "GDAL names the sidecar after the dataset description, and this one is "
+                "not a path, so the levels would be stranded outside the dataset. Save "
+                "it first with to_file(path) and build the overviews on the saved raster."
             )
         # Define the overview levels (the reduction factor).
         # e.g., 2 means the overview will be half the resolution of the original dataset.

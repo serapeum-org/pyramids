@@ -242,6 +242,30 @@ class TestCreateOverviewsPathlessGuard:
                 view.close()
             dataset.close()
 
+    def test_inline_xml_vrt_is_refused_too(self, tmp_path, monkeypatch):
+        """An inline-XML VRT has no path either, despite a non-empty description.
+
+        Test scenario:
+            GDAL stores the XML document verbatim as the description — expected: the same
+            actionable `ValueError`, not a raw GDAL `RuntimeError` naming a file whose name
+            is the whole document.
+        """
+        monkeypatch.chdir(tmp_path)
+        xml = (
+            '<VRTDataset rasterXSize="64" rasterYSize="64">'
+            '<VRTRasterBand dataType="Float32" band="1"/>'
+            "</VRTDataset>"
+        )
+        dataset = Dataset.read_file(xml)
+        try:
+            assert dataset.raster.GetDescription().startswith("<"), (
+                "precondition: the description is the XML document"
+            )
+            with pytest.raises(ValueError, match="nowhere to go"):
+                dataset.create_overviews(overview_levels=[2])
+        finally:
+            dataset.close()
+
     def test_vrt_with_a_path_still_builds_overviews(self, tmp_path, monkeypatch):
         """A VRT that has a real path names its sidecar after it and is left alone.
 
