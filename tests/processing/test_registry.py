@@ -30,7 +30,7 @@ EXPECTED_ALLOWLIST = {
 
 
 class TestRegistry:
-    """Tests for the tool registry surface (register/resolve/tool_names/registry)."""
+    """Tests for the tool registry surface (register/resolve/tool_names/catalog)."""
 
     def test_allowlist_names(self):
         """The curated v1 allowlist is exactly the expected set of tools.
@@ -61,7 +61,7 @@ class TestRegistry:
         assert "slope" in str(exc.value), f"error should list tools: {exc.value}"
 
     def test_registry_view_is_readonly(self):
-        """registry() returns a read-only mapping.
+        """catalog() returns a read-only mapping.
 
         Test scenario:
             Assigning into the returned mapping raises TypeError.
