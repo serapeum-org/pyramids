@@ -2,10 +2,12 @@
 
 The serial runner, receiver-type dispatch, error policy, output writing, and the
 parallel guardrails are covered deterministically here. Real process-pool
-execution (``parallel=True`` over multiple files) is covered by
-``test_parallel_run_executes_and_returns_paths``, marked ``slow``: it runs in the
-default suite and is deselectable with ``-m "not slow"``. It is the one test whose
-stability depends on OS process spawning + per-worker GDAL init.
+execution (``parallel=True`` over multiple files) is covered by the ``slow``-marked
+tests (``test_parallel_run_executes_and_returns_paths``,
+``test_parallel_skip_collects_failure_in_input_order``, and
+``test_parallel_raise_propagates``): they run in the default suite and are
+deselectable with ``-m "not slow"``. These are the tests whose stability depends on
+OS process spawning + per-worker GDAL init.
 """
 
 import geopandas as gpd
