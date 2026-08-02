@@ -318,7 +318,9 @@ def run(
             continues; ``"raise"`` fails fast on the first error.
         out: Optional output directory; when given, each successful output is
             written there as ``<source-stem>_<index>`` (the batch index keeps
-            same-basename inputs from colliding). Required when ``parallel=True``.
+            same-basename inputs from colliding). Existing files at those paths are
+            overwritten — re-running a batch into the same directory replaces prior
+            outputs. Required when ``parallel=True``.
         parallel: When ``True``, run the batch across a process pool. Because GDAL
             handles cannot cross process boundaries, this requires **file-path**
             inputs and an ``out`` directory (outputs are written worker-side and

@@ -64,7 +64,8 @@ pyramids run elevation_slope.yaml \
 ```
 
 `run` writes each output into `--out` as `<source-stem>_<index>` (the batch index keeps same-basename inputs from
-colliding); `--on-error skip` (default) collects failures and continues, `--on-error raise` fails fast, and
+colliding); existing files in `--out` are overwritten, so re-running a batch into the same directory replaces the
+prior outputs. `--on-error skip` (default) collects failures and continues, `--on-error raise` fails fast, and
 `--parallel` (with `--max-workers`) fans the batch across a process pool (file-path inputs only — GDAL handles
 cannot cross process boundaries).
 
