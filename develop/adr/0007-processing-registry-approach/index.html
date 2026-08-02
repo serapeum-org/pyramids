@@ -62,7 +62,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6156,7 +6156,7 @@
 <p><strong>Status:</strong> Accepted · <strong>Date:</strong> 2026-08-01 · <strong>Issue:</strong> #780 (task T1)</p>
 <h2 id="context"><a class="toclink" href="#context">Context</a><a class="headerlink" href="#context" title="Permanent link">#</a></h2>
 <p>The declarative pipeline layer (#780) needs a <strong>tool registry</strong>: existing pyramids ops made addressable by name, each
-with a parameter schema and a receiver type (<code>Dataset</code> vs <code>FeatureCollection</code>), so a serialized pipeline can reference
+with a parameter schema and an input type (<code>Dataset</code> vs <code>FeatureCollection</code>), so a serialized pipeline can reference
 <code>"slope"</code> or <code>"interpolate_to_raster"</code> and the runner dispatches to the right object.</p>
 <p>The blocker: most <code>Dataset</code> ops are exposed as bare <code>(*args, **kwargs)</code> facades that delegate to collaborator engines
 (69 of 104 public <code>Dataset</code> callables as of <code>main</code> 0.47.0). <code>inspect.signature(Dataset.crop)</code> returns
@@ -6164,7 +6164,7 @@ with a parameter schema and a receiver type (<code>Dataset</code> vs <code>Featu
 introspecting the public method signatures.</p>
 <h2 id="options"><a class="toclink" href="#options">Options</a><a class="headerlink" href="#options" title="Permanent link">#</a></h2>
 <ul>
-<li><strong>(a) Hand-written <code>ToolMetadata</code> schemas for a curated allowlist.</strong> Each registered tool declares its params
+<li><strong>(a) Hand-written <code>ToolMetadata</code> schemas for a curated allowlist.</strong> Each registered tool declares its parameters
   explicitly (<code>Parameter</code>), independent of whether the underlying method has a real signature.</li>
 <li><strong>(b) Restore real signatures to the 69 facades first</strong> (architecture-review ARC-121), then auto-introspect the
   registry from signatures.</li>
@@ -6181,7 +6181,7 @@ restored signatures — at which point the hand-written specs for those ops can 
   parameters are non-serializable (e.g. <code>crop(mask=&lt;FeatureCollection&gt;)</code>, <code>apply(func=...)</code>) are excluded until the
   serialization model or ARC-121 lands.</li>
 <li>The <code>Parameter</code>/<code>ToolMetadata</code> schema is the single source of truth for CLI help, pipeline validation, and
-  serialization-safety — so it must carry <code>serializable</code> and <code>receiver</code>/<code>returns</code> metadata that a bare signature would
+  serialization-safety — so it must carry <code>serializable</code> and <code>input_type</code>/<code>output_type</code> metadata that a bare signature would
   not provide anyway. This makes (a) the right long-term shape even after ARC-121.</li>
 </ul>
 

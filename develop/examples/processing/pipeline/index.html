@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -1856,10 +1856,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#quickstart-a-cross-receiver-pipeline" class="md-nav__link">
+  <a href="#quickstart-a-cross-type-pipeline" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Quickstart — a cross-receiver pipeline
+        Quickstart — a cross-type pipeline
       
     </span>
   </a>
@@ -6166,10 +6166,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#quickstart-a-cross-receiver-pipeline" class="md-nav__link">
+  <a href="#quickstart-a-cross-type-pipeline" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Quickstart — a cross-receiver pipeline
+        Quickstart — a cross-type pipeline
       
     </span>
   </a>
@@ -7018,7 +7018,7 @@ reusable, serializable <strong>pipeline</strong> of pyramids operations and run 
 <p>By the end you will be able to:</p>
 <ul>
 <li>discover the available <strong>tools</strong> and read their parameter schemas;</li>
-<li>build a <strong><code>Pipeline</code></strong> — an ordered chain of <code>(tool, params)</code> steps — and run it with <strong><code>run</code></strong>;</li>
+<li>build a <strong><code>Pipeline</code></strong> — an ordered chain of <code>(tool, parameters)</code> steps — and run it with <strong><code>run</code></strong>;</li>
 <li>chain across object types (a <code>FeatureCollection</code> step whose output feeds a <code>Dataset</code> step);</li>
 <li>save a pipeline to a portable <strong>YAML</strong> file and load it back;</li>
 <li>run a pipeline <strong>batched</strong> over a folder of rasters with an error policy;</li>
@@ -7111,7 +7111,7 @@ DATA = Path("../../../examples/data")</div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="the-tool-registry">The tool registry<a class="anchor-link" href="#the-tool-registry">¶</a></h2><p>A pipeline can only reference <strong>registered tools</strong>: existing pyramids ops made addressable by name, each with a
-parameter schema and a <em>receiver type</em> (does it run on a <code>Dataset</code> or a <code>FeatureCollection</code>?) and a <em>return type</em>.
+parameter schema and a <em>input type</em> (does it run on a <code>Dataset</code> or a <code>FeatureCollection</code>?) and an <em>output type</em>.
 Call <code>catalog()</code> to get that catalogue.</p>
 </div>
 </div>
@@ -7176,7 +7176,7 @@ registry["slope"]  # a single entry (one ToolMetadata)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[2]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>ToolMetadata(name='slope', receiver='Dataset', returns='Array', params=(Parameter(name='band', param_type='Integer', default=0, optional=True, description='Zero-based band index.', choices=None, serializable=None), Parameter(name='units', param_type='OptionList', default='degrees', optional=True, description='Slope units.', choices=('degrees', 'radians'), serializable=None)), description='Terrain slope from an elevation raster.', method=None)</pre>
+<pre>ToolMetadata(name='slope', input_type='Dataset', output_type='Array', parameters=(Parameter(name='band', parameter_type='Integer', default=0, optional=True, description='Zero-based band index.', choices=None, serializable=None), Parameter(name='units', parameter_type='OptionList', default='degrees', optional=True, description='Slope units.', choices=('degrees', 'radians'), serializable=None)), description='Terrain slope from an elevation raster.', method=None)</pre>
 </div>
 </div>
 </div>
@@ -7205,7 +7205,7 @@ mapping itself cannot be mutated (assigning into it raises). Rendered as a reada
 <p><strong>This cell — the registry as a table:</strong></p>
 <ul>
 <li>Build a <code>pandas</code> table with one row per tool.</li>
-<li>For each tool pull its <code>receiver</code> (the object it runs on), <code>returns</code> (what it produces), parameter
+<li>For each tool pull its <code>input</code> (the object it runs on), <code>output</code> (what it produces), parameter
 names, and description.</li>
 <li>Sort by tool name and display it as an at-a-glance catalogue.</li>
 </ul>
@@ -7235,9 +7235,9 @@ names, and description.</li>
     <span class="p">[</span>
         <span class="p">{</span>
             <span class="s2">"tool"</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
-            <span class="s2">"receiver"</span><span class="p">:</span> <span class="n">tool</span><span class="o">.</span><span class="n">receiver</span><span class="p">,</span>
-            <span class="s2">"returns"</span><span class="p">:</span> <span class="n">tool</span><span class="o">.</span><span class="n">returns</span><span class="p">,</span>
-            <span class="s2">"params"</span><span class="p">:</span> <span class="s2">", "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">tool</span><span class="o">.</span><span class="n">params</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">"-"</span><span class="p">,</span>
+            <span class="s2">"input"</span><span class="p">:</span> <span class="n">tool</span><span class="o">.</span><span class="n">input_type</span><span class="p">,</span>
+            <span class="s2">"output"</span><span class="p">:</span> <span class="n">tool</span><span class="o">.</span><span class="n">output_type</span><span class="p">,</span>
+            <span class="s2">"parameters"</span><span class="p">:</span> <span class="s2">", "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">tool</span><span class="o">.</span><span class="n">parameters</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">"-"</span><span class="p">,</span>
             <span class="s2">"description"</span><span class="p">:</span> <span class="n">tool</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
         <span class="p">}</span>
         <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">tool</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">registry</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
@@ -7249,9 +7249,9 @@ names, and description.</li>
     [
         {
             "tool": name,
-            "receiver": tool.receiver,
-            "returns": tool.returns,
-            "params": ", ".join(p.name for p in tool.params) or "-",
+            "input": tool.input_type,
+            "output": tool.output_type,
+            "parameters": ", ".join(p.name for p in tool.parameters) or "-",
             "description": tool.description,
         }
         for name, tool in sorted(registry.items())
@@ -7288,9 +7288,9 @@ registry_table</div>
 <tr style="text-align: right;">
 <th></th>
 <th>tool</th>
-<th>receiver</th>
-<th>returns</th>
-<th>params</th>
+<th>input</th>
+<th>output</th>
+<th>parameters</th>
 <th>description</th>
 </tr>
 </thead>
@@ -7430,7 +7430,7 @@ registry_table</div>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Two things to notice: tools are split by <strong>receiver</strong> (raster <code>Dataset</code> ops vs vector <code>FeatureCollection</code>
+<p>Two things to notice: tools are split by <strong>input type</strong> (raster <code>Dataset</code> ops vs vector <code>FeatureCollection</code>
 ops), and a few return <strong><code>Array</code></strong> — those are the terrain ops (<code>slope</code>/<code>aspect</code>/<code>hillshade</code>/<code>focal_*</code>) whose
 numpy output the runner re-wraps into a georeferenced single-band <code>Dataset</code>, so they stay writable and chainable.</p>
 </div>
@@ -7443,7 +7443,7 @@ numpy output the runner re-wraps into a georeferenced single-band <code>Dataset<
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="quickstart-a-cross-receiver-pipeline">Quickstart — a cross-receiver pipeline<a class="anchor-link" href="#quickstart-a-cross-receiver-pipeline">¶</a></h2><p>The headline capability: a pipeline can change object type mid-chain. Here <code>interpolate_to_raster</code> runs on a
+<h2 id="quickstart-a-cross-type-pipeline">Quickstart — a cross-type pipeline<a class="anchor-link" href="#quickstart-a-cross-type-pipeline">¶</a></h2><p>The headline capability: a pipeline can change object type mid-chain. Here <code>interpolate_to_raster</code> runs on a
 <strong><code>FeatureCollection</code></strong> of points and returns a <strong><code>Dataset</code></strong>, and the next step, <code>slope</code>, runs on that raster —
 the runner dispatches each step to the right object automatically.</p>
 <p>We use the Coello rain-gauge points. This sample carries no measured attribute, so we grid the northing (<code>y</code>)
@@ -7520,7 +7520,7 @@ gauges.plot(column="y", markersize=80, legend=True)</div>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>We define the pipeline as a plain list of <code>(tool, params)</code> steps. It is validated <strong>at construction</strong> — an
+<p>We define the pipeline as a plain list of <code>(tool, parameters)</code> steps. It is validated <strong>at construction</strong> — an
 unknown tool or a bad parameter fails right here, not halfway through a long run.</p>
 </div>
 </div>
@@ -7534,7 +7534,7 @@ unknown tool or a bad parameter fails right here, not halfway through a long run
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p><strong>This cell — define the pipeline (nothing runs yet):</strong></p>
 <ul>
-<li>Build a two-step <code>Pipeline</code> as a list of <code>(tool, params)</code> steps:<ul>
+<li>Build a two-step <code>Pipeline</code> as a list of <code>(tool, parameters)</code> steps:<ul>
 <li><code>interpolate_to_raster</code> — grid the scattered gauge points into a continuous raster (the <code>y</code> column,
 2000 m cells).</li>
 <li><code>slope</code> — compute the slope of that raster.</li>
@@ -7661,7 +7661,7 @@ slope_raster.plot(title="Slope of the interpolated gauge surface")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5ab79a6cf0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fe964caacf0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7681,7 +7681,7 @@ slope_raster.plot(title="Slope of the interpolated gauge surface")</div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p>The gauge points became a continuous IDW surface, and <code>slope</code> turned that into a slope raster — one linear
-chain, two receiver types, no manual glue. <code>result.outputs</code> holds the final object per input; <code>result.failures</code>
+chain, two input types, no manual glue. <code>result.outputs</code> holds the final object per input; <code>result.failures</code>
 would hold <code>(input, error)</code> pairs under the default skip policy (none here).</p>
 </div>
 </div>
@@ -7747,7 +7747,7 @@ dem.plot(title="Rhine DEM (filled)")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5ab77b8910&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fe95c9cca50&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7837,7 +7837,7 @@ hillshaded.plot(title="Hillshade of the smoothed DEM", cmap="gray")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5ab7627b10&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fe95c847c50&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7883,7 +7883,7 @@ serialization-safe (scalar) parameters are allowed — <code>to_yaml</code> refu
 <p><strong>This cell — serialize the pipeline:</strong></p>
 <ul>
 <li>Save the <code>terrain</code> pipeline to a portable YAML "model" file with <code>to_yaml</code>.</li>
-<li>Print the YAML so you can see the serialized <code>(tool, params)</code> steps.</li>
+<li>Print the YAML so you can see the serialized <code>(tool, parameters)</code> steps.</li>
 </ul>
 </div>
 </div>
@@ -7927,10 +7927,10 @@ print(yaml_path.read_text())</div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>pipeline:
 - tool: focal_mean
-  params:
+  parameters:
     radius: 1
 - tool: hillshade
-  params:
+  parameters:
     azimuth: 315.0
     altitude: 45.0
 
@@ -8190,7 +8190,7 @@ len(batch.outputs), len(batch.failures)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5ab7725cd0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fe95c941ba0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -8209,7 +8209,7 @@ len(batch.outputs), len(batch.failures)</div>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="vector-tools">Vector tools<a class="anchor-link" href="#vector-tools">¶</a></h2><p>The vector receiver has its own tools. <code>voronoi</code> builds Thiessen polygons around the gauge points; <code>quadtree</code>
+<h2 id="vector-tools">Vector tools<a class="anchor-link" href="#vector-tools">¶</a></h2><p>The vector input type has its own tools. <code>voronoi</code> builds Thiessen polygons around the gauge points; <code>quadtree</code>
 adaptively bins them. Both take a <code>FeatureCollection</code> and return one.</p>
 </div>
 </div>
@@ -8295,7 +8295,7 @@ areal coverage.</p>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="provenance">Provenance<a class="anchor-link" href="#provenance">¶</a></h2><p>Every run records, per step, the tool, its params, and the wall-clock time — and can re-emit the exact pipeline
+<h2 id="provenance">Provenance<a class="anchor-link" href="#provenance">¶</a></h2><p>Every run records, per step, the tool, its parameters, and the wall-clock time — and can re-emit the exact pipeline
 that produced an output (reproducibility).</p>
 </div>
 </div>
@@ -8310,7 +8310,7 @@ that produced an output (reproducibility).</p>
 <p><strong>This cell — read the provenance:</strong></p>
 <ul>
 <li>Take the provenance record from the earlier quickstart run.</li>
-<li>Show each step's tool, params, and wall-clock time as a table.</li>
+<li>Show each step's tool, parameters, and wall-clock time as a table.</li>
 </ul>
 </div>
 </div>
@@ -8337,7 +8337,7 @@ that produced an output (reproducibility).</p>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">prov</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">provenance</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
     <span class="p">[</span>
-        <span class="p">{</span><span class="s2">"tool"</span><span class="p">:</span> <span class="n">s</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="s2">"params"</span><span class="p">:</span> <span class="n">s</span><span class="o">.</span><span class="n">params</span><span class="p">,</span> <span class="s2">"seconds"</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">seconds</span><span class="p">,</span> <span class="mi">4</span><span class="p">)}</span>
+        <span class="p">{</span><span class="s2">"tool"</span><span class="p">:</span> <span class="n">s</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="s2">"parameters"</span><span class="p">:</span> <span class="n">s</span><span class="o">.</span><span class="n">parameters</span><span class="p">,</span> <span class="s2">"seconds"</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">seconds</span><span class="p">,</span> <span class="mi">4</span><span class="p">)}</span>
         <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">prov</span><span class="o">.</span><span class="n">steps</span>
     <span class="p">]</span>
 <span class="p">)</span>
@@ -8345,7 +8345,7 @@ that produced an output (reproducibility).</p>
 <div class="clipboard-copy-txt" id="cell-15">prov = result.provenance[0]
 pd.DataFrame(
     [
-        {"tool": s.tool, "params": s.params, "seconds": round(s.seconds, 4)}
+        {"tool": s.tool, "parameters": s.parameters, "seconds": round(s.seconds, 4)}
         for s in prov.steps
     ]
 )</div>
@@ -8379,7 +8379,7 @@ pd.DataFrame(
 <tr style="text-align: right;">
 <th></th>
 <th>tool</th>
-<th>params</th>
+<th>parameters</th>
 <th>seconds</th>
 </tr>
 </thead>
@@ -8388,13 +8388,13 @@ pd.DataFrame(
 <th>0</th>
 <td>interpolate_to_raster</td>
 <td>{'column': 'y', 'cell_size': 2000.0}</td>
-<td>0.0115</td>
+<td>0.0145</td>
 </tr>
 <tr>
 <th>1</th>
 <td>slope</td>
 <td>{}</td>
-<td>0.0011</td>
+<td>0.0013</td>
 </tr>
 </tbody>
 </table>
@@ -8514,7 +8514,7 @@ captures the recipe that produced the output.</li>
 <h2 id="takeaway">Takeaway<a class="anchor-link" href="#takeaway">¶</a></h2><p>You built and ran declarative pipelines over real data:</p>
 <ul>
 <li><strong>tools</strong> are named, self-describing ops (<code>catalog</code> / <code>tool_names</code>);</li>
-<li>a <strong><code>Pipeline</code></strong> is a validated <code>(tool, params)</code> chain that can cross receiver types (points → raster → slope);</li>
+<li>a <strong><code>Pipeline</code></strong> is a validated <code>(tool, parameters)</code> chain that can cross input types (points → raster → slope);</li>
 <li><strong><code>run</code></strong> executes it over one input, a collection, or a glob, with a skip/raise error policy;</li>
 <li>pipelines <strong>serialize</strong> to YAML and back, and every run carries <strong>provenance</strong> you can replay.</li>
 </ul>

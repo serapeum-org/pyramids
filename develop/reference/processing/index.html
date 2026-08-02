@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6824,11 +6824,11 @@
 QGIS-Processing-style workflow layer built on the ops pyramids already owns.</p>
 <p>The pieces:</p>
 <ul>
-<li>a <strong>registry</strong> of named tools, each with a parameter schema and a receiver type (<code>Dataset</code> vs
+<li>a <strong>registry</strong> of named tools, each with a parameter schema and an input type (<code>Dataset</code> vs
   <code>FeatureCollection</code>);</li>
-<li>a <strong><code>Pipeline</code></strong> — an ordered chain of <code>(tool, params)</code> steps, serializable to a portable YAML "model" file;</li>
+<li>a <strong><code>Pipeline</code></strong> — an ordered chain of <code>(tool, parameters)</code> steps, serializable to a portable YAML "model" file;</li>
 <li>a batch <strong><code>run</code></strong> with an error policy and optional process-pool parallelism;</li>
-<li>a <strong>provenance</strong> record per run (tool, params, timing) that can re-emit the exact pipeline that produced an
+<li>a <strong>provenance</strong> record per run (tool, parameters, timing) that can re-emit the exact pipeline that produced an
   output.</li>
 </ul>
 <h2 id="v1-tool-allowlist"><a class="toclink" href="#v1-tool-allowlist">v1 tool allowlist</a><a class="headerlink" href="#v1-tool-allowlist" title="Permanent link">#</a></h2>
@@ -6838,7 +6838,7 @@ is hand-written rather than introspected). List it with <code>pyramids tools</co
 <thead>
 <tr>
 <th>tool</th>
-<th>receiver → returns</th>
+<th>input → output</th>
 </tr>
 </thead>
 <tbody>
@@ -6865,9 +6865,9 @@ single-band, georeferenced <code>Dataset</code> (carrying the source raster's ge
 disk and can be chained into a further <code>Dataset</code> step.</p>
 <p>The registry is extensible — register a <code>ToolMetadata</code> to add a tool.</p>
 <h2 id="example-python"><a class="toclink" href="#example-python">Example (Python)</a><a class="headerlink" href="#example-python" title="Permanent link">#</a></h2>
-<p>A cross-receiver pipeline: interpolate scattered points onto a raster, then compute its slope. <code>interpolate_to_raster</code>
+<p>A cross-type pipeline: interpolate scattered points onto a raster, then compute its slope. <code>interpolate_to_raster</code>
 is a <code>FeatureCollection</code> op that returns a <code>Dataset</code>, and <code>slope</code> runs on that <code>Dataset</code> — the runner dispatches each
-step to the correct receiver automatically.</p>
+step to the correct input type automatically.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.processing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span><span class="p">,</span> <span class="n">run</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
@@ -6935,7 +6935,7 @@ cannot cross process boundaries).</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>An iterable of <code>(tool, params)</code> pairs.</p>
+                <p>An iterable of <code>(tool, parameters)</code> pairs.</p>
               </div>
             </td>
             <td>
@@ -6961,7 +6961,7 @@ cannot cross process boundaries).</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If any step names an unknown tool or supplies params that fail
+                <p>If any step names an unknown tool or supplies parameters that fail
 the tool's schema (validation happens here, at construction).</p>
               </div>
             </td>
@@ -7121,14 +7121,19 @@ the tool's schema (validation happens here, at construction).</p>
 <span class="normal"><a href="#__codelineno-0-183">183</a></span>
 <span class="normal"><a href="#__codelineno-0-184">184</a></span>
 <span class="normal"><a href="#__codelineno-0-185">185</a></span>
-<span class="normal"><a href="#__codelineno-0-186">186</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="k">class</span><span class="w"> </span><span class="nc">Pipeline</span><span class="p">:</span>
+<span class="normal"><a href="#__codelineno-0-186">186</a></span>
+<span class="normal"><a href="#__codelineno-0-187">187</a></span>
+<span class="normal"><a href="#__codelineno-0-188">188</a></span>
+<span class="normal"><a href="#__codelineno-0-189">189</a></span>
+<span class="normal"><a href="#__codelineno-0-190">190</a></span>
+<span class="normal"><a href="#__codelineno-0-191">191</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="k">class</span><span class="w"> </span><span class="nc">Pipeline</span><span class="p">:</span>
 <a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;An ordered, validated chain of geoprocessing steps.</span>
 <a id="__codelineno-0-45" name="__codelineno-0-45"></a>
 <a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">        steps: An iterable of ``(tool, params)`` pairs.</span>
+<a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">        steps: An iterable of ``(tool, parameters)`` pairs.</span>
 <a id="__codelineno-0-48" name="__codelineno-0-48"></a>
 <a id="__codelineno-0-49" name="__codelineno-0-49"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-50" name="__codelineno-0-50"></a><span class="sd">        ValueError: If any step names an unknown tool or supplies params that fail</span>
+<a id="__codelineno-0-50" name="__codelineno-0-50"></a><span class="sd">        ValueError: If any step names an unknown tool or supplies parameters that fail</span>
 <a id="__codelineno-0-51" name="__codelineno-0-51"></a><span class="sd">            the tool&#39;s schema (validation happens here, at construction).</span>
 <a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="sd">    &quot;&quot;&quot;</span>
 <a id="__codelineno-0-53" name="__codelineno-0-53"></a>
@@ -7136,32 +7141,32 @@ the tool's schema (validation happens here, at construction).</p>
 <a id="__codelineno-0-55" name="__codelineno-0-55"></a>        <span class="n">built</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
 <a id="__codelineno-0-56" name="__codelineno-0-56"></a>        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">steps</span><span class="p">):</span>
 <a id="__codelineno-0-57" name="__codelineno-0-57"></a>            <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-58" name="__codelineno-0-58"></a>                <span class="n">name</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">item</span>
+<a id="__codelineno-0-58" name="__codelineno-0-58"></a>                <span class="n">name</span><span class="p">,</span> <span class="n">parameters</span> <span class="o">=</span> <span class="n">item</span>
 <a id="__codelineno-0-59" name="__codelineno-0-59"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
 <a id="__codelineno-0-60" name="__codelineno-0-60"></a>                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-61" name="__codelineno-0-61"></a>                    <span class="sa">f</span><span class="s2">&quot;pipeline step </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2"> must be a (tool, params) pair, got </span><span class="si">{</span><span class="n">item</span><span class="si">!r}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-61" name="__codelineno-0-61"></a>                    <span class="sa">f</span><span class="s2">&quot;pipeline step </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2"> must be a (tool, parameters) pair, got </span><span class="si">{</span><span class="n">item</span><span class="si">!r}</span><span class="s2">&quot;</span>
 <a id="__codelineno-0-62" name="__codelineno-0-62"></a>                <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
 <a id="__codelineno-0-63" name="__codelineno-0-63"></a>            <span class="n">tool</span> <span class="o">=</span> <span class="n">resolve</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
-<a id="__codelineno-0-64" name="__codelineno-0-64"></a>            <span class="k">if</span> <span class="n">params</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-65" name="__codelineno-0-65"></a>                <span class="n">params</span> <span class="o">=</span> <span class="p">{}</span>
-<a id="__codelineno-0-66" name="__codelineno-0-66"></a>            <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+<a id="__codelineno-0-64" name="__codelineno-0-64"></a>            <span class="k">if</span> <span class="n">parameters</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-65" name="__codelineno-0-65"></a>                <span class="n">parameters</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-0-66" name="__codelineno-0-66"></a>            <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">parameters</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
 <a id="__codelineno-0-67" name="__codelineno-0-67"></a>                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-68" name="__codelineno-0-68"></a>                    <span class="sa">f</span><span class="s2">&quot;pipeline step </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">: params must be a mapping, got &quot;</span>
-<a id="__codelineno-0-69" name="__codelineno-0-69"></a>                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">params</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-68" name="__codelineno-0-68"></a>                    <span class="sa">f</span><span class="s2">&quot;pipeline step </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">: parameters must be a mapping, got &quot;</span>
+<a id="__codelineno-0-69" name="__codelineno-0-69"></a>                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">parameters</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
 <a id="__codelineno-0-70" name="__codelineno-0-70"></a>                <span class="p">)</span>
-<a id="__codelineno-0-71" name="__codelineno-0-71"></a>            <span class="n">params</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>
-<a id="__codelineno-0-72" name="__codelineno-0-72"></a>            <span class="n">validate_params</span><span class="p">(</span><span class="n">tool</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
-<a id="__codelineno-0-73" name="__codelineno-0-73"></a>            <span class="n">built</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Step</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">params</span><span class="p">))</span>
+<a id="__codelineno-0-71" name="__codelineno-0-71"></a>            <span class="n">parameters</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">parameters</span><span class="p">)</span>
+<a id="__codelineno-0-72" name="__codelineno-0-72"></a>            <span class="n">validate_parameters</span><span class="p">(</span><span class="n">tool</span><span class="p">,</span> <span class="n">parameters</span><span class="p">)</span>
+<a id="__codelineno-0-73" name="__codelineno-0-73"></a>            <span class="n">built</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Step</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">parameters</span><span class="p">))</span>
 <a id="__codelineno-0-74" name="__codelineno-0-74"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span> <span class="o">=</span> <span class="n">built</span>
 <a id="__codelineno-0-75" name="__codelineno-0-75"></a>
 <a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="nd">@property</span>
 <a id="__codelineno-0-77" name="__codelineno-0-77"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">steps</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">]:</span>
 <a id="__codelineno-0-78" name="__codelineno-0-78"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;An independent copy of the pipeline&#39;s steps.</span>
 <a id="__codelineno-0-79" name="__codelineno-0-79"></a>
-<a id="__codelineno-0-80" name="__codelineno-0-80"></a><span class="sd">        Returns fresh :class:`Step` objects with copied ``params`` dicts, so</span>
-<a id="__codelineno-0-81" name="__codelineno-0-81"></a><span class="sd">        mutating the returned steps (or their params) never affects the pipeline.</span>
+<a id="__codelineno-0-80" name="__codelineno-0-80"></a><span class="sd">        Returns fresh :class:`Step` objects with copied ``parameters`` dicts, so</span>
+<a id="__codelineno-0-81" name="__codelineno-0-81"></a><span class="sd">        mutating the returned steps (or their parameters) never affects the pipeline.</span>
 <a id="__codelineno-0-82" name="__codelineno-0-82"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-83" name="__codelineno-0-83"></a>        <span class="k">return</span> <span class="p">[</span><span class="n">Step</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">params</span><span class="p">))</span> <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span><span class="p">]</span>
+<a id="__codelineno-0-83" name="__codelineno-0-83"></a>        <span class="k">return</span> <span class="p">[</span><span class="n">Step</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">parameters</span><span class="p">))</span> <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span><span class="p">]</span>
 <a id="__codelineno-0-84" name="__codelineno-0-84"></a>
 <a id="__codelineno-0-85" name="__codelineno-0-85"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">Step</span><span class="p">]:</span>
 <a id="__codelineno-0-86" name="__codelineno-0-86"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Iterate over independent copies of the steps (see :attr:`steps`).&quot;&quot;&quot;</span>
@@ -7171,100 +7176,105 @@ the tool's schema (validation happens here, at construction).</p>
 <a id="__codelineno-0-90" name="__codelineno-0-90"></a>        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_steps</span><span class="p">)</span>
 <a id="__codelineno-0-91" name="__codelineno-0-91"></a>
 <a id="__codelineno-0-92" name="__codelineno-0-92"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-93" name="__codelineno-0-93"></a>        <span class="n">inner</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">s</span><span class="o">.</span><span class="n">tool</span><span class="si">!r}</span><span class="s2">, </span><span class="si">{</span><span class="n">s</span><span class="o">.</span><span class="n">params</span><span class="si">!r}</span><span class="s2">)&quot;</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span><span class="p">)</span>
+<a id="__codelineno-0-93" name="__codelineno-0-93"></a>        <span class="n">inner</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">s</span><span class="o">.</span><span class="n">tool</span><span class="si">!r}</span><span class="s2">, </span><span class="si">{</span><span class="n">s</span><span class="o">.</span><span class="n">parameters</span><span class="si">!r}</span><span class="s2">)&quot;</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span><span class="p">)</span>
 <a id="__codelineno-0-94" name="__codelineno-0-94"></a>        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Pipeline([</span><span class="si">{</span><span class="n">inner</span><span class="si">}</span><span class="s2">])&quot;</span>
 <a id="__codelineno-0-95" name="__codelineno-0-95"></a>
 <a id="__codelineno-0-96" name="__codelineno-0-96"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__eq__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <a id="__codelineno-0-97" name="__codelineno-0-97"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">other</span><span class="p">,</span> <span class="n">Pipeline</span><span class="p">):</span>
 <a id="__codelineno-0-98" name="__codelineno-0-98"></a>            <span class="n">result</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">NotImplemented</span>
 <a id="__codelineno-0-99" name="__codelineno-0-99"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-100" name="__codelineno-0-100"></a>            <span class="n">mine</span> <span class="o">=</span> <span class="p">[(</span><span class="n">s</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">params</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span><span class="p">]</span>
-<a id="__codelineno-0-101" name="__codelineno-0-101"></a>            <span class="n">theirs</span> <span class="o">=</span> <span class="p">[(</span><span class="n">s</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">params</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">other</span><span class="o">.</span><span class="n">_steps</span><span class="p">]</span>
+<a id="__codelineno-0-100" name="__codelineno-0-100"></a>            <span class="n">mine</span> <span class="o">=</span> <span class="p">[(</span><span class="n">s</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">parameters</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span><span class="p">]</span>
+<a id="__codelineno-0-101" name="__codelineno-0-101"></a>            <span class="n">theirs</span> <span class="o">=</span> <span class="p">[(</span><span class="n">s</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">parameters</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">other</span><span class="o">.</span><span class="n">_steps</span><span class="p">]</span>
 <a id="__codelineno-0-102" name="__codelineno-0-102"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">mine</span> <span class="o">==</span> <span class="n">theirs</span>
 <a id="__codelineno-0-103" name="__codelineno-0-103"></a>        <span class="k">return</span> <span class="n">result</span>
 <a id="__codelineno-0-104" name="__codelineno-0-104"></a>
 <a id="__codelineno-0-105" name="__codelineno-0-105"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the pipeline as a plain, YAML-ready mapping.</span>
 <a id="__codelineno-0-107" name="__codelineno-0-107"></a>
-<a id="__codelineno-0-108" name="__codelineno-0-108"></a><span class="sd">        Each step&#39;s ``params`` is copied, and any ``os.PathLike`` value is coerced to</span>
+<a id="__codelineno-0-108" name="__codelineno-0-108"></a><span class="sd">        Each step&#39;s ``parameters`` is copied, and any ``os.PathLike`` value is coerced to</span>
 <a id="__codelineno-0-109" name="__codelineno-0-109"></a><span class="sd">        a plain string so the mapping is safe to `yaml.safe_dump`.</span>
 <a id="__codelineno-0-110" name="__codelineno-0-110"></a><span class="sd">        &quot;&quot;&quot;</span>
 <a id="__codelineno-0-111" name="__codelineno-0-111"></a>        <span class="k">return</span> <span class="p">{</span>
 <a id="__codelineno-0-112" name="__codelineno-0-112"></a>            <span class="s2">&quot;pipeline&quot;</span><span class="p">:</span> <span class="p">[</span>
-<a id="__codelineno-0-113" name="__codelineno-0-113"></a>                <span class="p">{</span><span class="s2">&quot;tool&quot;</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="s2">&quot;params&quot;</span><span class="p">:</span> <span class="n">_yaml_safe_params</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">params</span><span class="p">)}</span>
-<a id="__codelineno-0-114" name="__codelineno-0-114"></a>                <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span>
-<a id="__codelineno-0-115" name="__codelineno-0-115"></a>            <span class="p">]</span>
-<a id="__codelineno-0-116" name="__codelineno-0-116"></a>        <span class="p">}</span>
-<a id="__codelineno-0-117" name="__codelineno-0-117"></a>
-<a id="__codelineno-0-118" name="__codelineno-0-118"></a>    <span class="nd">@classmethod</span>
-<a id="__codelineno-0-119" name="__codelineno-0-119"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">from_dict</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Pipeline</span><span class="p">:</span>
-<a id="__codelineno-0-120" name="__codelineno-0-120"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a pipeline from a mapping produced by :meth:`to_dict`.</span>
-<a id="__codelineno-0-121" name="__codelineno-0-121"></a>
-<a id="__codelineno-0-122" name="__codelineno-0-122"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-123" name="__codelineno-0-123"></a><span class="sd">            data: A mapping with a ``&quot;pipeline&quot;`` list of ``{&quot;tool&quot;, &quot;params&quot;}``.</span>
+<a id="__codelineno-0-113" name="__codelineno-0-113"></a>                <span class="p">{</span>
+<a id="__codelineno-0-114" name="__codelineno-0-114"></a>                    <span class="s2">&quot;tool&quot;</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span>
+<a id="__codelineno-0-115" name="__codelineno-0-115"></a>                    <span class="s2">&quot;parameters&quot;</span><span class="p">:</span> <span class="n">_yaml_safe_parameters</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">parameters</span><span class="p">),</span>
+<a id="__codelineno-0-116" name="__codelineno-0-116"></a>                <span class="p">}</span>
+<a id="__codelineno-0-117" name="__codelineno-0-117"></a>                <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span>
+<a id="__codelineno-0-118" name="__codelineno-0-118"></a>            <span class="p">]</span>
+<a id="__codelineno-0-119" name="__codelineno-0-119"></a>        <span class="p">}</span>
+<a id="__codelineno-0-120" name="__codelineno-0-120"></a>
+<a id="__codelineno-0-121" name="__codelineno-0-121"></a>    <span class="nd">@classmethod</span>
+<a id="__codelineno-0-122" name="__codelineno-0-122"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">from_dict</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Pipeline</span><span class="p">:</span>
+<a id="__codelineno-0-123" name="__codelineno-0-123"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a pipeline from a mapping produced by :meth:`to_dict`.</span>
 <a id="__codelineno-0-124" name="__codelineno-0-124"></a>
-<a id="__codelineno-0-125" name="__codelineno-0-125"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-126" name="__codelineno-0-126"></a><span class="sd">            A validated :class:`Pipeline`.</span>
+<a id="__codelineno-0-125" name="__codelineno-0-125"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-126" name="__codelineno-0-126"></a><span class="sd">            data: A mapping with a ``&quot;pipeline&quot;`` list of ``{&quot;tool&quot;, &quot;parameters&quot;}``.</span>
 <a id="__codelineno-0-127" name="__codelineno-0-127"></a>
-<a id="__codelineno-0-128" name="__codelineno-0-128"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-129" name="__codelineno-0-129"></a><span class="sd">            ValueError: If ``data`` is not a mapping with a ``&quot;pipeline&quot;`` list, or</span>
-<a id="__codelineno-0-130" name="__codelineno-0-130"></a><span class="sd">                a step is malformed (re-validated through the constructor).</span>
-<a id="__codelineno-0-131" name="__codelineno-0-131"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-132" name="__codelineno-0-132"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;pipeline&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
-<a id="__codelineno-0-133" name="__codelineno-0-133"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-134" name="__codelineno-0-134"></a>                <span class="s2">&quot;invalid pipeline data: expected a mapping with a &#39;pipeline&#39; key&quot;</span>
-<a id="__codelineno-0-135" name="__codelineno-0-135"></a>            <span class="p">)</span>
-<a id="__codelineno-0-136" name="__codelineno-0-136"></a>        <span class="n">raw</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;pipeline&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-137" name="__codelineno-0-137"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
-<a id="__codelineno-0-138" name="__codelineno-0-138"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-139" name="__codelineno-0-139"></a>                <span class="s2">&quot;invalid pipeline data: &#39;pipeline&#39; must be a list of steps&quot;</span>
-<a id="__codelineno-0-140" name="__codelineno-0-140"></a>            <span class="p">)</span>
-<a id="__codelineno-0-141" name="__codelineno-0-141"></a>        <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-142" name="__codelineno-0-142"></a>        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">raw</span><span class="p">):</span>
-<a id="__codelineno-0-143" name="__codelineno-0-143"></a>            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">step</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;tool&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">step</span><span class="p">:</span>
-<a id="__codelineno-0-144" name="__codelineno-0-144"></a>                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-145" name="__codelineno-0-145"></a>                    <span class="sa">f</span><span class="s2">&quot;invalid pipeline step </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">: expected a mapping with a &#39;tool&#39; key&quot;</span>
-<a id="__codelineno-0-146" name="__codelineno-0-146"></a>                <span class="p">)</span>
-<a id="__codelineno-0-147" name="__codelineno-0-147"></a>            <span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">step</span><span class="p">[</span><span class="s2">&quot;tool&quot;</span><span class="p">],</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;params&quot;</span><span class="p">,</span> <span class="p">{})))</span>
-<a id="__codelineno-0-148" name="__codelineno-0-148"></a>        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span>
-<a id="__codelineno-0-149" name="__codelineno-0-149"></a>
-<a id="__codelineno-0-150" name="__codelineno-0-150"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_yaml</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-151" name="__codelineno-0-151"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Write the pipeline to a portable, version-controllable YAML file.</span>
+<a id="__codelineno-0-128" name="__codelineno-0-128"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-129" name="__codelineno-0-129"></a><span class="sd">            A validated :class:`Pipeline`.</span>
+<a id="__codelineno-0-130" name="__codelineno-0-130"></a>
+<a id="__codelineno-0-131" name="__codelineno-0-131"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-132" name="__codelineno-0-132"></a><span class="sd">            ValueError: If ``data`` is not a mapping with a ``&quot;pipeline&quot;`` list, or</span>
+<a id="__codelineno-0-133" name="__codelineno-0-133"></a><span class="sd">                a step is malformed (re-validated through the constructor).</span>
+<a id="__codelineno-0-134" name="__codelineno-0-134"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-135" name="__codelineno-0-135"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;pipeline&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+<a id="__codelineno-0-136" name="__codelineno-0-136"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-137" name="__codelineno-0-137"></a>                <span class="s2">&quot;invalid pipeline data: expected a mapping with a &#39;pipeline&#39; key&quot;</span>
+<a id="__codelineno-0-138" name="__codelineno-0-138"></a>            <span class="p">)</span>
+<a id="__codelineno-0-139" name="__codelineno-0-139"></a>        <span class="n">raw</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;pipeline&quot;</span><span class="p">]</span>
+<a id="__codelineno-0-140" name="__codelineno-0-140"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+<a id="__codelineno-0-141" name="__codelineno-0-141"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-142" name="__codelineno-0-142"></a>                <span class="s2">&quot;invalid pipeline data: &#39;pipeline&#39; must be a list of steps&quot;</span>
+<a id="__codelineno-0-143" name="__codelineno-0-143"></a>            <span class="p">)</span>
+<a id="__codelineno-0-144" name="__codelineno-0-144"></a>        <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-145" name="__codelineno-0-145"></a>        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">raw</span><span class="p">):</span>
+<a id="__codelineno-0-146" name="__codelineno-0-146"></a>            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">step</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;tool&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">step</span><span class="p">:</span>
+<a id="__codelineno-0-147" name="__codelineno-0-147"></a>                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-148" name="__codelineno-0-148"></a>                    <span class="sa">f</span><span class="s2">&quot;invalid pipeline step </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">: expected a mapping with a &#39;tool&#39; key&quot;</span>
+<a id="__codelineno-0-149" name="__codelineno-0-149"></a>                <span class="p">)</span>
+<a id="__codelineno-0-150" name="__codelineno-0-150"></a>            <span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">step</span><span class="p">[</span><span class="s2">&quot;tool&quot;</span><span class="p">],</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;parameters&quot;</span><span class="p">,</span> <span class="p">{})))</span>
+<a id="__codelineno-0-151" name="__codelineno-0-151"></a>        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span>
 <a id="__codelineno-0-152" name="__codelineno-0-152"></a>
-<a id="__codelineno-0-153" name="__codelineno-0-153"></a><span class="sd">        Every step&#39;s params are re-validated with ``for_serialization=True`` first,</span>
-<a id="__codelineno-0-154" name="__codelineno-0-154"></a><span class="sd">        so a pipeline carrying a non-serializable value (array / mask / callable /</span>
-<a id="__codelineno-0-155" name="__codelineno-0-155"></a><span class="sd">        in-memory object) raises here instead of writing a file that cannot be</span>
-<a id="__codelineno-0-156" name="__codelineno-0-156"></a><span class="sd">        loaded back.</span>
-<a id="__codelineno-0-157" name="__codelineno-0-157"></a>
-<a id="__codelineno-0-158" name="__codelineno-0-158"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="sd">            path: Destination ``.yaml`` path.</span>
+<a id="__codelineno-0-153" name="__codelineno-0-153"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_yaml</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-154" name="__codelineno-0-154"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Write the pipeline to a portable, version-controllable YAML file.</span>
+<a id="__codelineno-0-155" name="__codelineno-0-155"></a>
+<a id="__codelineno-0-156" name="__codelineno-0-156"></a><span class="sd">        Every step&#39;s parameters are re-validated with ``for_serialization=True`` first,</span>
+<a id="__codelineno-0-157" name="__codelineno-0-157"></a><span class="sd">        so a pipeline carrying a non-serializable value (array / mask / callable /</span>
+<a id="__codelineno-0-158" name="__codelineno-0-158"></a><span class="sd">        in-memory object) raises here instead of writing a file that cannot be</span>
+<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="sd">        loaded back.</span>
 <a id="__codelineno-0-160" name="__codelineno-0-160"></a>
-<a id="__codelineno-0-161" name="__codelineno-0-161"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-162" name="__codelineno-0-162"></a><span class="sd">            ValueError: If any step carries a non-serializable parameter value.</span>
-<a id="__codelineno-0-163" name="__codelineno-0-163"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-164" name="__codelineno-0-164"></a>        <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span><span class="p">:</span>
-<a id="__codelineno-0-165" name="__codelineno-0-165"></a>            <span class="n">validate_params</span><span class="p">(</span><span class="n">resolve</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">tool</span><span class="p">),</span> <span class="n">step</span><span class="o">.</span><span class="n">params</span><span class="p">,</span> <span class="n">for_serialization</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-166" name="__codelineno-0-166"></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
-<a id="__codelineno-0-167" name="__codelineno-0-167"></a>            <span class="n">yaml</span><span class="o">.</span><span class="n">safe_dump</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">to_dict</span><span class="p">(),</span> <span class="n">handle</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<a id="__codelineno-0-168" name="__codelineno-0-168"></a>
-<a id="__codelineno-0-169" name="__codelineno-0-169"></a>    <span class="nd">@classmethod</span>
-<a id="__codelineno-0-170" name="__codelineno-0-170"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">from_yaml</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Pipeline</span><span class="p">:</span>
-<a id="__codelineno-0-171" name="__codelineno-0-171"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Read a pipeline from a YAML file written by :meth:`to_yaml`.</span>
-<a id="__codelineno-0-172" name="__codelineno-0-172"></a>
-<a id="__codelineno-0-173" name="__codelineno-0-173"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-174" name="__codelineno-0-174"></a><span class="sd">            path: Path to a pipeline YAML file.</span>
-<a id="__codelineno-0-175" name="__codelineno-0-175"></a>
-<a id="__codelineno-0-176" name="__codelineno-0-176"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-177" name="__codelineno-0-177"></a><span class="sd">            A validated :class:`Pipeline`.</span>
-<a id="__codelineno-0-178" name="__codelineno-0-178"></a>
-<a id="__codelineno-0-179" name="__codelineno-0-179"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-180" name="__codelineno-0-180"></a><span class="sd">            ValueError: If the file is not a mapping with a ``&quot;pipeline&quot;`` list, or</span>
-<a id="__codelineno-0-181" name="__codelineno-0-181"></a><span class="sd">                a step references an unknown tool / invalid params (re-validated via</span>
-<a id="__codelineno-0-182" name="__codelineno-0-182"></a><span class="sd">                the constructor).</span>
-<a id="__codelineno-0-183" name="__codelineno-0-183"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-184" name="__codelineno-0-184"></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
-<a id="__codelineno-0-185" name="__codelineno-0-185"></a>            <span class="n">data</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
-<a id="__codelineno-0-186" name="__codelineno-0-186"></a>        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+<a id="__codelineno-0-161" name="__codelineno-0-161"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-162" name="__codelineno-0-162"></a><span class="sd">            path: Destination ``.yaml`` path.</span>
+<a id="__codelineno-0-163" name="__codelineno-0-163"></a>
+<a id="__codelineno-0-164" name="__codelineno-0-164"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-165" name="__codelineno-0-165"></a><span class="sd">            ValueError: If any step carries a non-serializable parameter value.</span>
+<a id="__codelineno-0-166" name="__codelineno-0-166"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-167" name="__codelineno-0-167"></a>        <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span><span class="p">:</span>
+<a id="__codelineno-0-168" name="__codelineno-0-168"></a>            <span class="n">validate_parameters</span><span class="p">(</span>
+<a id="__codelineno-0-169" name="__codelineno-0-169"></a>                <span class="n">resolve</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">tool</span><span class="p">),</span> <span class="n">step</span><span class="o">.</span><span class="n">parameters</span><span class="p">,</span> <span class="n">for_serialization</span><span class="o">=</span><span class="kc">True</span>
+<a id="__codelineno-0-170" name="__codelineno-0-170"></a>            <span class="p">)</span>
+<a id="__codelineno-0-171" name="__codelineno-0-171"></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
+<a id="__codelineno-0-172" name="__codelineno-0-172"></a>            <span class="n">yaml</span><span class="o">.</span><span class="n">safe_dump</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">to_dict</span><span class="p">(),</span> <span class="n">handle</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-0-173" name="__codelineno-0-173"></a>
+<a id="__codelineno-0-174" name="__codelineno-0-174"></a>    <span class="nd">@classmethod</span>
+<a id="__codelineno-0-175" name="__codelineno-0-175"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">from_yaml</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Pipeline</span><span class="p">:</span>
+<a id="__codelineno-0-176" name="__codelineno-0-176"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Read a pipeline from a YAML file written by :meth:`to_yaml`.</span>
+<a id="__codelineno-0-177" name="__codelineno-0-177"></a>
+<a id="__codelineno-0-178" name="__codelineno-0-178"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-179" name="__codelineno-0-179"></a><span class="sd">            path: Path to a pipeline YAML file.</span>
+<a id="__codelineno-0-180" name="__codelineno-0-180"></a>
+<a id="__codelineno-0-181" name="__codelineno-0-181"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-182" name="__codelineno-0-182"></a><span class="sd">            A validated :class:`Pipeline`.</span>
+<a id="__codelineno-0-183" name="__codelineno-0-183"></a>
+<a id="__codelineno-0-184" name="__codelineno-0-184"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-185" name="__codelineno-0-185"></a><span class="sd">            ValueError: If the file is not a mapping with a ``&quot;pipeline&quot;`` list, or</span>
+<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="sd">                a step references an unknown tool / invalid parameters (re-validated via</span>
+<a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="sd">                the constructor).</span>
+<a id="__codelineno-0-188" name="__codelineno-0-188"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-189" name="__codelineno-0-189"></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
+<a id="__codelineno-0-190" name="__codelineno-0-190"></a>            <span class="n">data</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+<a id="__codelineno-0-191" name="__codelineno-0-191"></a>        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -7295,8 +7305,8 @@ the tool's schema (validation happens here, at construction).</p>
     <div class="doc doc-contents ">
 
         <p>An independent copy of the pipeline's steps.</p>
-<p>Returns fresh :class:<code>Step</code> objects with copied <code>params</code> dicts, so
-mutating the returned steps (or their params) never affects the pipeline.</p>
+<p>Returns fresh :class:<code>Step</code> objects with copied <code>parameters</code> dicts, so
+mutating the returned steps (or their parameters) never affects the pipeline.</p>
 
     </div>
 
@@ -7370,7 +7380,7 @@ mutating the returned steps (or their params) never affects the pipeline.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A mapping with a <code>"pipeline"</code> list of <code>{"tool", "params"}</code>.</p>
+                <p>A mapping with a <code>"pipeline"</code> list of <code>{"tool", "parameters"}</code>.</p>
               </div>
             </td>
             <td>
@@ -7430,10 +7440,7 @@ a step is malformed (re-validated through the constructor).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/processing/pipeline.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-118">118</a></span>
-<span class="normal"><a href="#__codelineno-0-119">119</a></span>
-<span class="normal"><a href="#__codelineno-0-120">120</a></span>
-<span class="normal"><a href="#__codelineno-0-121">121</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-121">121</a></span>
 <span class="normal"><a href="#__codelineno-0-122">122</a></span>
 <span class="normal"><a href="#__codelineno-0-123">123</a></span>
 <span class="normal"><a href="#__codelineno-0-124">124</a></span>
@@ -7460,37 +7467,40 @@ a step is malformed (re-validated through the constructor).</p>
 <span class="normal"><a href="#__codelineno-0-145">145</a></span>
 <span class="normal"><a href="#__codelineno-0-146">146</a></span>
 <span class="normal"><a href="#__codelineno-0-147">147</a></span>
-<span class="normal"><a href="#__codelineno-0-148">148</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-118" name="__codelineno-0-118"></a><span class="nd">@classmethod</span>
-<a id="__codelineno-0-119" name="__codelineno-0-119"></a><span class="k">def</span><span class="w"> </span><span class="nf">from_dict</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Pipeline</span><span class="p">:</span>
-<a id="__codelineno-0-120" name="__codelineno-0-120"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build a pipeline from a mapping produced by :meth:`to_dict`.</span>
-<a id="__codelineno-0-121" name="__codelineno-0-121"></a>
-<a id="__codelineno-0-122" name="__codelineno-0-122"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-123" name="__codelineno-0-123"></a><span class="sd">        data: A mapping with a ``&quot;pipeline&quot;`` list of ``{&quot;tool&quot;, &quot;params&quot;}``.</span>
+<span class="normal"><a href="#__codelineno-0-148">148</a></span>
+<span class="normal"><a href="#__codelineno-0-149">149</a></span>
+<span class="normal"><a href="#__codelineno-0-150">150</a></span>
+<span class="normal"><a href="#__codelineno-0-151">151</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-121" name="__codelineno-0-121"></a><span class="nd">@classmethod</span>
+<a id="__codelineno-0-122" name="__codelineno-0-122"></a><span class="k">def</span><span class="w"> </span><span class="nf">from_dict</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Pipeline</span><span class="p">:</span>
+<a id="__codelineno-0-123" name="__codelineno-0-123"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build a pipeline from a mapping produced by :meth:`to_dict`.</span>
 <a id="__codelineno-0-124" name="__codelineno-0-124"></a>
-<a id="__codelineno-0-125" name="__codelineno-0-125"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-126" name="__codelineno-0-126"></a><span class="sd">        A validated :class:`Pipeline`.</span>
+<a id="__codelineno-0-125" name="__codelineno-0-125"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-126" name="__codelineno-0-126"></a><span class="sd">        data: A mapping with a ``&quot;pipeline&quot;`` list of ``{&quot;tool&quot;, &quot;parameters&quot;}``.</span>
 <a id="__codelineno-0-127" name="__codelineno-0-127"></a>
-<a id="__codelineno-0-128" name="__codelineno-0-128"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-129" name="__codelineno-0-129"></a><span class="sd">        ValueError: If ``data`` is not a mapping with a ``&quot;pipeline&quot;`` list, or</span>
-<a id="__codelineno-0-130" name="__codelineno-0-130"></a><span class="sd">            a step is malformed (re-validated through the constructor).</span>
-<a id="__codelineno-0-131" name="__codelineno-0-131"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-132" name="__codelineno-0-132"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;pipeline&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
-<a id="__codelineno-0-133" name="__codelineno-0-133"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-134" name="__codelineno-0-134"></a>            <span class="s2">&quot;invalid pipeline data: expected a mapping with a &#39;pipeline&#39; key&quot;</span>
-<a id="__codelineno-0-135" name="__codelineno-0-135"></a>        <span class="p">)</span>
-<a id="__codelineno-0-136" name="__codelineno-0-136"></a>    <span class="n">raw</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;pipeline&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-137" name="__codelineno-0-137"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
-<a id="__codelineno-0-138" name="__codelineno-0-138"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-139" name="__codelineno-0-139"></a>            <span class="s2">&quot;invalid pipeline data: &#39;pipeline&#39; must be a list of steps&quot;</span>
-<a id="__codelineno-0-140" name="__codelineno-0-140"></a>        <span class="p">)</span>
-<a id="__codelineno-0-141" name="__codelineno-0-141"></a>    <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-142" name="__codelineno-0-142"></a>    <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">raw</span><span class="p">):</span>
-<a id="__codelineno-0-143" name="__codelineno-0-143"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">step</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;tool&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">step</span><span class="p">:</span>
-<a id="__codelineno-0-144" name="__codelineno-0-144"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-145" name="__codelineno-0-145"></a>                <span class="sa">f</span><span class="s2">&quot;invalid pipeline step </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">: expected a mapping with a &#39;tool&#39; key&quot;</span>
-<a id="__codelineno-0-146" name="__codelineno-0-146"></a>            <span class="p">)</span>
-<a id="__codelineno-0-147" name="__codelineno-0-147"></a>        <span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">step</span><span class="p">[</span><span class="s2">&quot;tool&quot;</span><span class="p">],</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;params&quot;</span><span class="p">,</span> <span class="p">{})))</span>
-<a id="__codelineno-0-148" name="__codelineno-0-148"></a>    <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span>
+<a id="__codelineno-0-128" name="__codelineno-0-128"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-129" name="__codelineno-0-129"></a><span class="sd">        A validated :class:`Pipeline`.</span>
+<a id="__codelineno-0-130" name="__codelineno-0-130"></a>
+<a id="__codelineno-0-131" name="__codelineno-0-131"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-132" name="__codelineno-0-132"></a><span class="sd">        ValueError: If ``data`` is not a mapping with a ``&quot;pipeline&quot;`` list, or</span>
+<a id="__codelineno-0-133" name="__codelineno-0-133"></a><span class="sd">            a step is malformed (re-validated through the constructor).</span>
+<a id="__codelineno-0-134" name="__codelineno-0-134"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-135" name="__codelineno-0-135"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;pipeline&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+<a id="__codelineno-0-136" name="__codelineno-0-136"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-137" name="__codelineno-0-137"></a>            <span class="s2">&quot;invalid pipeline data: expected a mapping with a &#39;pipeline&#39; key&quot;</span>
+<a id="__codelineno-0-138" name="__codelineno-0-138"></a>        <span class="p">)</span>
+<a id="__codelineno-0-139" name="__codelineno-0-139"></a>    <span class="n">raw</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;pipeline&quot;</span><span class="p">]</span>
+<a id="__codelineno-0-140" name="__codelineno-0-140"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+<a id="__codelineno-0-141" name="__codelineno-0-141"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-142" name="__codelineno-0-142"></a>            <span class="s2">&quot;invalid pipeline data: &#39;pipeline&#39; must be a list of steps&quot;</span>
+<a id="__codelineno-0-143" name="__codelineno-0-143"></a>        <span class="p">)</span>
+<a id="__codelineno-0-144" name="__codelineno-0-144"></a>    <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-145" name="__codelineno-0-145"></a>    <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">raw</span><span class="p">):</span>
+<a id="__codelineno-0-146" name="__codelineno-0-146"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">step</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;tool&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">step</span><span class="p">:</span>
+<a id="__codelineno-0-147" name="__codelineno-0-147"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-148" name="__codelineno-0-148"></a>                <span class="sa">f</span><span class="s2">&quot;invalid pipeline step </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">: expected a mapping with a &#39;tool&#39; key&quot;</span>
+<a id="__codelineno-0-149" name="__codelineno-0-149"></a>            <span class="p">)</span>
+<a id="__codelineno-0-150" name="__codelineno-0-150"></a>        <span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">step</span><span class="p">[</span><span class="s2">&quot;tool&quot;</span><span class="p">],</span> <span class="n">step</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;parameters&quot;</span><span class="p">,</span> <span class="p">{})))</span>
+<a id="__codelineno-0-151" name="__codelineno-0-151"></a>    <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7585,7 +7595,7 @@ a step is malformed (re-validated through the constructor).</p>
             <td>
               <div class="doc-md-description">
                 <p>If the file is not a mapping with a <code>"pipeline"</code> list, or
-a step references an unknown tool / invalid params (re-validated via
+a step references an unknown tool / invalid parameters (re-validated via
 the constructor).</p>
               </div>
             </td>
@@ -7596,12 +7606,7 @@ the constructor).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/processing/pipeline.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-169">169</a></span>
-<span class="normal"><a href="#__codelineno-0-170">170</a></span>
-<span class="normal"><a href="#__codelineno-0-171">171</a></span>
-<span class="normal"><a href="#__codelineno-0-172">172</a></span>
-<span class="normal"><a href="#__codelineno-0-173">173</a></span>
-<span class="normal"><a href="#__codelineno-0-174">174</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-174">174</a></span>
 <span class="normal"><a href="#__codelineno-0-175">175</a></span>
 <span class="normal"><a href="#__codelineno-0-176">176</a></span>
 <span class="normal"><a href="#__codelineno-0-177">177</a></span>
@@ -7613,24 +7618,29 @@ the constructor).</p>
 <span class="normal"><a href="#__codelineno-0-183">183</a></span>
 <span class="normal"><a href="#__codelineno-0-184">184</a></span>
 <span class="normal"><a href="#__codelineno-0-185">185</a></span>
-<span class="normal"><a href="#__codelineno-0-186">186</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-169" name="__codelineno-0-169"></a><span class="nd">@classmethod</span>
-<a id="__codelineno-0-170" name="__codelineno-0-170"></a><span class="k">def</span><span class="w"> </span><span class="nf">from_yaml</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Pipeline</span><span class="p">:</span>
-<a id="__codelineno-0-171" name="__codelineno-0-171"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Read a pipeline from a YAML file written by :meth:`to_yaml`.</span>
-<a id="__codelineno-0-172" name="__codelineno-0-172"></a>
-<a id="__codelineno-0-173" name="__codelineno-0-173"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-174" name="__codelineno-0-174"></a><span class="sd">        path: Path to a pipeline YAML file.</span>
-<a id="__codelineno-0-175" name="__codelineno-0-175"></a>
-<a id="__codelineno-0-176" name="__codelineno-0-176"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-177" name="__codelineno-0-177"></a><span class="sd">        A validated :class:`Pipeline`.</span>
-<a id="__codelineno-0-178" name="__codelineno-0-178"></a>
-<a id="__codelineno-0-179" name="__codelineno-0-179"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-180" name="__codelineno-0-180"></a><span class="sd">        ValueError: If the file is not a mapping with a ``&quot;pipeline&quot;`` list, or</span>
-<a id="__codelineno-0-181" name="__codelineno-0-181"></a><span class="sd">            a step references an unknown tool / invalid params (re-validated via</span>
-<a id="__codelineno-0-182" name="__codelineno-0-182"></a><span class="sd">            the constructor).</span>
-<a id="__codelineno-0-183" name="__codelineno-0-183"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-184" name="__codelineno-0-184"></a>    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
-<a id="__codelineno-0-185" name="__codelineno-0-185"></a>        <span class="n">data</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
-<a id="__codelineno-0-186" name="__codelineno-0-186"></a>    <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-186">186</a></span>
+<span class="normal"><a href="#__codelineno-0-187">187</a></span>
+<span class="normal"><a href="#__codelineno-0-188">188</a></span>
+<span class="normal"><a href="#__codelineno-0-189">189</a></span>
+<span class="normal"><a href="#__codelineno-0-190">190</a></span>
+<span class="normal"><a href="#__codelineno-0-191">191</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-174" name="__codelineno-0-174"></a><span class="nd">@classmethod</span>
+<a id="__codelineno-0-175" name="__codelineno-0-175"></a><span class="k">def</span><span class="w"> </span><span class="nf">from_yaml</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Pipeline</span><span class="p">:</span>
+<a id="__codelineno-0-176" name="__codelineno-0-176"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Read a pipeline from a YAML file written by :meth:`to_yaml`.</span>
+<a id="__codelineno-0-177" name="__codelineno-0-177"></a>
+<a id="__codelineno-0-178" name="__codelineno-0-178"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-179" name="__codelineno-0-179"></a><span class="sd">        path: Path to a pipeline YAML file.</span>
+<a id="__codelineno-0-180" name="__codelineno-0-180"></a>
+<a id="__codelineno-0-181" name="__codelineno-0-181"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-182" name="__codelineno-0-182"></a><span class="sd">        A validated :class:`Pipeline`.</span>
+<a id="__codelineno-0-183" name="__codelineno-0-183"></a>
+<a id="__codelineno-0-184" name="__codelineno-0-184"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-185" name="__codelineno-0-185"></a><span class="sd">        ValueError: If the file is not a mapping with a ``&quot;pipeline&quot;`` list, or</span>
+<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="sd">            a step references an unknown tool / invalid parameters (re-validated via</span>
+<a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="sd">            the constructor).</span>
+<a id="__codelineno-0-188" name="__codelineno-0-188"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-189" name="__codelineno-0-189"></a>    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
+<a id="__codelineno-0-190" name="__codelineno-0-190"></a>        <span class="n">data</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+<a id="__codelineno-0-191" name="__codelineno-0-191"></a>    <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7649,7 +7659,7 @@ the constructor).</p>
     <div class="doc doc-contents ">
 
         <p>Return the pipeline as a plain, YAML-ready mapping.</p>
-<p>Each step's <code>params</code> is copied, and any <code>os.PathLike</code> value is coerced to
+<p>Each step's <code>parameters</code> is copied, and any <code>os.PathLike</code> value is coerced to
 a plain string so the mapping is safe to <code>yaml.safe_dump</code>.</p>
 
 
@@ -7666,18 +7676,24 @@ a plain string so the mapping is safe to <code>yaml.safe_dump</code>.</p>
 <span class="normal"><a href="#__codelineno-0-113">113</a></span>
 <span class="normal"><a href="#__codelineno-0-114">114</a></span>
 <span class="normal"><a href="#__codelineno-0-115">115</a></span>
-<span class="normal"><a href="#__codelineno-0-116">116</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-105" name="__codelineno-0-105"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="normal"><a href="#__codelineno-0-116">116</a></span>
+<span class="normal"><a href="#__codelineno-0-117">117</a></span>
+<span class="normal"><a href="#__codelineno-0-118">118</a></span>
+<span class="normal"><a href="#__codelineno-0-119">119</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-105" name="__codelineno-0-105"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the pipeline as a plain, YAML-ready mapping.</span>
 <a id="__codelineno-0-107" name="__codelineno-0-107"></a>
-<a id="__codelineno-0-108" name="__codelineno-0-108"></a><span class="sd">    Each step&#39;s ``params`` is copied, and any ``os.PathLike`` value is coerced to</span>
+<a id="__codelineno-0-108" name="__codelineno-0-108"></a><span class="sd">    Each step&#39;s ``parameters`` is copied, and any ``os.PathLike`` value is coerced to</span>
 <a id="__codelineno-0-109" name="__codelineno-0-109"></a><span class="sd">    a plain string so the mapping is safe to `yaml.safe_dump`.</span>
 <a id="__codelineno-0-110" name="__codelineno-0-110"></a><span class="sd">    &quot;&quot;&quot;</span>
 <a id="__codelineno-0-111" name="__codelineno-0-111"></a>    <span class="k">return</span> <span class="p">{</span>
 <a id="__codelineno-0-112" name="__codelineno-0-112"></a>        <span class="s2">&quot;pipeline&quot;</span><span class="p">:</span> <span class="p">[</span>
-<a id="__codelineno-0-113" name="__codelineno-0-113"></a>            <span class="p">{</span><span class="s2">&quot;tool&quot;</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="s2">&quot;params&quot;</span><span class="p">:</span> <span class="n">_yaml_safe_params</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">params</span><span class="p">)}</span>
-<a id="__codelineno-0-114" name="__codelineno-0-114"></a>            <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span>
-<a id="__codelineno-0-115" name="__codelineno-0-115"></a>        <span class="p">]</span>
-<a id="__codelineno-0-116" name="__codelineno-0-116"></a>    <span class="p">}</span>
+<a id="__codelineno-0-113" name="__codelineno-0-113"></a>            <span class="p">{</span>
+<a id="__codelineno-0-114" name="__codelineno-0-114"></a>                <span class="s2">&quot;tool&quot;</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span>
+<a id="__codelineno-0-115" name="__codelineno-0-115"></a>                <span class="s2">&quot;parameters&quot;</span><span class="p">:</span> <span class="n">_yaml_safe_parameters</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">parameters</span><span class="p">),</span>
+<a id="__codelineno-0-116" name="__codelineno-0-116"></a>            <span class="p">}</span>
+<a id="__codelineno-0-117" name="__codelineno-0-117"></a>            <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span>
+<a id="__codelineno-0-118" name="__codelineno-0-118"></a>        <span class="p">]</span>
+<a id="__codelineno-0-119" name="__codelineno-0-119"></a>    <span class="p">}</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7696,7 +7712,7 @@ a plain string so the mapping is safe to <code>yaml.safe_dump</code>.</p>
     <div class="doc doc-contents ">
 
         <p>Write the pipeline to a portable, version-controllable YAML file.</p>
-<p>Every step's params are re-validated with <code>for_serialization=True</code> first,
+<p>Every step's parameters are re-validated with <code>for_serialization=True</code> first,
 so a pipeline carrying a non-serializable value (array / mask / callable /
 in-memory object) raises here instead of writing a file that cannot be
 loaded back.</p>
@@ -7758,10 +7774,7 @@ loaded back.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/processing/pipeline.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-150">150</a></span>
-<span class="normal"><a href="#__codelineno-0-151">151</a></span>
-<span class="normal"><a href="#__codelineno-0-152">152</a></span>
-<span class="normal"><a href="#__codelineno-0-153">153</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-153">153</a></span>
 <span class="normal"><a href="#__codelineno-0-154">154</a></span>
 <span class="normal"><a href="#__codelineno-0-155">155</a></span>
 <span class="normal"><a href="#__codelineno-0-156">156</a></span>
@@ -7775,24 +7788,31 @@ loaded back.</p>
 <span class="normal"><a href="#__codelineno-0-164">164</a></span>
 <span class="normal"><a href="#__codelineno-0-165">165</a></span>
 <span class="normal"><a href="#__codelineno-0-166">166</a></span>
-<span class="normal"><a href="#__codelineno-0-167">167</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-150" name="__codelineno-0-150"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_yaml</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-151" name="__codelineno-0-151"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Write the pipeline to a portable, version-controllable YAML file.</span>
-<a id="__codelineno-0-152" name="__codelineno-0-152"></a>
-<a id="__codelineno-0-153" name="__codelineno-0-153"></a><span class="sd">    Every step&#39;s params are re-validated with ``for_serialization=True`` first,</span>
-<a id="__codelineno-0-154" name="__codelineno-0-154"></a><span class="sd">    so a pipeline carrying a non-serializable value (array / mask / callable /</span>
-<a id="__codelineno-0-155" name="__codelineno-0-155"></a><span class="sd">    in-memory object) raises here instead of writing a file that cannot be</span>
-<a id="__codelineno-0-156" name="__codelineno-0-156"></a><span class="sd">    loaded back.</span>
-<a id="__codelineno-0-157" name="__codelineno-0-157"></a>
-<a id="__codelineno-0-158" name="__codelineno-0-158"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="sd">        path: Destination ``.yaml`` path.</span>
+<span class="normal"><a href="#__codelineno-0-167">167</a></span>
+<span class="normal"><a href="#__codelineno-0-168">168</a></span>
+<span class="normal"><a href="#__codelineno-0-169">169</a></span>
+<span class="normal"><a href="#__codelineno-0-170">170</a></span>
+<span class="normal"><a href="#__codelineno-0-171">171</a></span>
+<span class="normal"><a href="#__codelineno-0-172">172</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-153" name="__codelineno-0-153"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_yaml</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-154" name="__codelineno-0-154"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Write the pipeline to a portable, version-controllable YAML file.</span>
+<a id="__codelineno-0-155" name="__codelineno-0-155"></a>
+<a id="__codelineno-0-156" name="__codelineno-0-156"></a><span class="sd">    Every step&#39;s parameters are re-validated with ``for_serialization=True`` first,</span>
+<a id="__codelineno-0-157" name="__codelineno-0-157"></a><span class="sd">    so a pipeline carrying a non-serializable value (array / mask / callable /</span>
+<a id="__codelineno-0-158" name="__codelineno-0-158"></a><span class="sd">    in-memory object) raises here instead of writing a file that cannot be</span>
+<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="sd">    loaded back.</span>
 <a id="__codelineno-0-160" name="__codelineno-0-160"></a>
-<a id="__codelineno-0-161" name="__codelineno-0-161"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-162" name="__codelineno-0-162"></a><span class="sd">        ValueError: If any step carries a non-serializable parameter value.</span>
-<a id="__codelineno-0-163" name="__codelineno-0-163"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-164" name="__codelineno-0-164"></a>    <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span><span class="p">:</span>
-<a id="__codelineno-0-165" name="__codelineno-0-165"></a>        <span class="n">validate_params</span><span class="p">(</span><span class="n">resolve</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">tool</span><span class="p">),</span> <span class="n">step</span><span class="o">.</span><span class="n">params</span><span class="p">,</span> <span class="n">for_serialization</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-166" name="__codelineno-0-166"></a>    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
-<a id="__codelineno-0-167" name="__codelineno-0-167"></a>        <span class="n">yaml</span><span class="o">.</span><span class="n">safe_dump</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">to_dict</span><span class="p">(),</span> <span class="n">handle</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-0-161" name="__codelineno-0-161"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-162" name="__codelineno-0-162"></a><span class="sd">        path: Destination ``.yaml`` path.</span>
+<a id="__codelineno-0-163" name="__codelineno-0-163"></a>
+<a id="__codelineno-0-164" name="__codelineno-0-164"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-165" name="__codelineno-0-165"></a><span class="sd">        ValueError: If any step carries a non-serializable parameter value.</span>
+<a id="__codelineno-0-166" name="__codelineno-0-166"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-167" name="__codelineno-0-167"></a>    <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_steps</span><span class="p">:</span>
+<a id="__codelineno-0-168" name="__codelineno-0-168"></a>        <span class="n">validate_parameters</span><span class="p">(</span>
+<a id="__codelineno-0-169" name="__codelineno-0-169"></a>            <span class="n">resolve</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">tool</span><span class="p">),</span> <span class="n">step</span><span class="o">.</span><span class="n">parameters</span><span class="p">,</span> <span class="n">for_serialization</span><span class="o">=</span><span class="kc">True</span>
+<a id="__codelineno-0-170" name="__codelineno-0-170"></a>        <span class="p">)</span>
+<a id="__codelineno-0-171" name="__codelineno-0-171"></a>    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
+<a id="__codelineno-0-172" name="__codelineno-0-172"></a>        <span class="n">yaml</span><span class="o">.</span><span class="n">safe_dump</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">to_dict</span><span class="p">(),</span> <span class="n">handle</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8246,7 +8266,7 @@ objects; in <code>parallel</code> mode they are the written output <strong>path 
             <td>
               <div class="doc-md-description">
                 <p>One :class:<code>~pyramids.processing.provenance.Provenance</code> record
-per successful input (tool, params, and timing per step).</p>
+per successful input (tool, parameters, and timing per step).</p>
               </div>
             </td>
           </tr>
@@ -8300,7 +8320,7 @@ per successful input (tool, params, and timing per step).</p>
 <a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="sd">        failures: ``(source, exception)`` pairs for inputs that failed under the</span>
 <a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">            ``&quot;skip&quot;`` policy.</span>
 <a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="sd">        provenance: One :class:`~pyramids.processing.provenance.Provenance` record</span>
-<a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">            per successful input (tool, params, and timing per step).</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">            per successful input (tool, parameters, and timing per step).</span>
 <a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">    &quot;&quot;&quot;</span>
 <a id="__codelineno-0-48" name="__codelineno-0-48"></a>
 <a id="__codelineno-0-49" name="__codelineno-0-49"></a>    <span class="n">outputs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
@@ -8505,7 +8525,7 @@ in-memory object).</p>
 <a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">            A :class:`Pipeline` equal to the one that was run (so it round-trips</span>
 <a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">            through ``to_yaml``/``from_yaml`` and reproduces the result).</span>
 <a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-57" name="__codelineno-0-57"></a>        <span class="k">return</span> <span class="n">Pipeline</span><span class="p">([(</span><span class="n">record</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="n">record</span><span class="o">.</span><span class="n">params</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">])</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57"></a>        <span class="k">return</span> <span class="n">Pipeline</span><span class="p">([(</span><span class="n">record</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="n">record</span><span class="o">.</span><span class="n">parameters</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">])</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -8607,7 +8627,7 @@ in-memory object).</p>
 <a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">        A :class:`Pipeline` equal to the one that was run (so it round-trips</span>
 <a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">        through ``to_yaml``/``from_yaml`` and reproduces the result).</span>
 <a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-57" name="__codelineno-0-57"></a>    <span class="k">return</span> <span class="n">Pipeline</span><span class="p">([(</span><span class="n">record</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="n">record</span><span class="o">.</span><span class="n">params</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">])</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57"></a>    <span class="k">return</span> <span class="n">Pipeline</span><span class="p">([(</span><span class="n">record</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="n">record</span><span class="o">.</span><span class="n">parameters</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">])</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8673,7 +8693,7 @@ in-memory object).</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>receiver</code>
+                <code>input_type</code>
             </td>
             <td>
                   <code><span title="str">str</span></code>
@@ -8690,7 +8710,7 @@ in-memory object).</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>returns</code>
+                <code>output_type</code>
             </td>
             <td>
                   <code><span title="str">str</span></code>
@@ -8706,7 +8726,7 @@ in-memory object).</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>params</code>
+                <code>parameters</code>
             </td>
             <td>
                   <code><span title="tuple">tuple</span>[<a class="autorefs autorefs-internal" title="&lt;code&gt;pyramids.processing.Parameter&lt;/code&gt;
@@ -8750,7 +8770,7 @@ in-memory object).</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>The method name on the receiver; defaults to <code>name</code>.</p>
+                <p>The method name on the input object; defaults to <code>name</code>.</p>
               </div>
             </td>
             <td>
@@ -8776,7 +8796,7 @@ in-memory object).</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If <code>receiver</code>/<code>returns</code> are not valid receiver types or a
+                <p>If <code>input_type</code>/<code>output_type</code> are not valid object types or a
 parameter name is duplicated.</p>
               </div>
             </td>
@@ -8863,62 +8883,62 @@ parameter name is duplicated.</p>
 <a id="__codelineno-0-186" name="__codelineno-0-186"></a>
 <a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-188" name="__codelineno-0-188"></a><span class="sd">        name: The tool name used in a pipeline and on the CLI.</span>
-<a id="__codelineno-0-189" name="__codelineno-0-189"></a><span class="sd">        receiver: The object the tool runs on — ``&quot;Dataset&quot;`` or</span>
+<a id="__codelineno-0-189" name="__codelineno-0-189"></a><span class="sd">        input_type: The object the tool runs on — ``&quot;Dataset&quot;`` or</span>
 <a id="__codelineno-0-190" name="__codelineno-0-190"></a><span class="sd">            ``&quot;FeatureCollection&quot;``.</span>
-<a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="sd">        returns: The object type the tool produces.</span>
-<a id="__codelineno-0-192" name="__codelineno-0-192"></a><span class="sd">        params: The tool&#39;s parameters.</span>
+<a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="sd">        output_type: The object type the tool produces.</span>
+<a id="__codelineno-0-192" name="__codelineno-0-192"></a><span class="sd">        parameters: The tool&#39;s parameters.</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a><span class="sd">        description: Human-readable summary.</span>
-<a id="__codelineno-0-194" name="__codelineno-0-194"></a><span class="sd">        method: The method name on the receiver; defaults to ``name``.</span>
+<a id="__codelineno-0-194" name="__codelineno-0-194"></a><span class="sd">        method: The method name on the input object; defaults to ``name``.</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="sd">        ValueError: If ``receiver``/``returns`` are not valid receiver types or a</span>
+<a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="sd">        ValueError: If ``input_type``/``output_type`` are not valid object types or a</span>
 <a id="__codelineno-0-198" name="__codelineno-0-198"></a><span class="sd">            parameter name is duplicated.</span>
 <a id="__codelineno-0-199" name="__codelineno-0-199"></a><span class="sd">    &quot;&quot;&quot;</span>
 <a id="__codelineno-0-200" name="__codelineno-0-200"></a>
 <a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="n">receiver</span><span class="p">:</span> <span class="nb">str</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="n">returns</span><span class="p">:</span> <span class="nb">str</span>
-<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="n">params</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Parameter</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="n">input_type</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="n">output_type</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="n">parameters</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Parameter</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
 <a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
 <a id="__codelineno-0-206" name="__codelineno-0-206"></a>    <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <a id="__codelineno-0-207" name="__codelineno-0-207"></a>
 <a id="__codelineno-0-208" name="__codelineno-0-208"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-209" name="__codelineno-0-209"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">receiver</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">RECEIVER_TYPES</span><span class="p">:</span>
+<a id="__codelineno-0-209" name="__codelineno-0-209"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">INPUT_TYPES</span><span class="p">:</span>
 <a id="__codelineno-0-210" name="__codelineno-0-210"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-211" name="__codelineno-0-211"></a>                <span class="sa">f</span><span class="s2">&quot;tool </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2">: receiver must be one of &quot;</span>
-<a id="__codelineno-0-212" name="__codelineno-0-212"></a>                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">RECEIVER_TYPES</span><span class="p">)</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">receiver</span><span class="si">!r}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-211" name="__codelineno-0-211"></a>                <span class="sa">f</span><span class="s2">&quot;tool </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2">: input_type must be one of &quot;</span>
+<a id="__codelineno-0-212" name="__codelineno-0-212"></a>                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">INPUT_TYPES</span><span class="p">)</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">input_type</span><span class="si">!r}</span><span class="s2">&quot;</span>
 <a id="__codelineno-0-213" name="__codelineno-0-213"></a>            <span class="p">)</span>
-<a id="__codelineno-0-214" name="__codelineno-0-214"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">returns</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">RETURN_TYPES</span><span class="p">:</span>
+<a id="__codelineno-0-214" name="__codelineno-0-214"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">OUTPUT_TYPES</span><span class="p">:</span>
 <a id="__codelineno-0-215" name="__codelineno-0-215"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-216" name="__codelineno-0-216"></a>                <span class="sa">f</span><span class="s2">&quot;tool </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2">: returns must be one of &quot;</span>
-<a id="__codelineno-0-217" name="__codelineno-0-217"></a>                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">RETURN_TYPES</span><span class="p">)</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">returns</span><span class="si">!r}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-216" name="__codelineno-0-216"></a>                <span class="sa">f</span><span class="s2">&quot;tool </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2">: output_type must be one of &quot;</span>
+<a id="__codelineno-0-217" name="__codelineno-0-217"></a>                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">OUTPUT_TYPES</span><span class="p">)</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">output_type</span><span class="si">!r}</span><span class="s2">&quot;</span>
 <a id="__codelineno-0-218" name="__codelineno-0-218"></a>            <span class="p">)</span>
-<a id="__codelineno-0-219" name="__codelineno-0-219"></a>        <span class="n">seen</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">]</span>
+<a id="__codelineno-0-219" name="__codelineno-0-219"></a>        <span class="n">seen</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">]</span>
 <a id="__codelineno-0-220" name="__codelineno-0-220"></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">seen</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">seen</span><span class="p">)):</span>
 <a id="__codelineno-0-221" name="__codelineno-0-221"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;tool </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2">: duplicate parameter names in </span><span class="si">{</span><span class="n">seen</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 <a id="__codelineno-0-222" name="__codelineno-0-222"></a>
 <a id="__codelineno-0-223" name="__codelineno-0-223"></a>    <span class="nd">@property</span>
 <a id="__codelineno-0-224" name="__codelineno-0-224"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">method_name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;The receiver method this tool invokes.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;The method this tool invokes on its input object.&quot;&quot;&quot;</span>
 <a id="__codelineno-0-226" name="__codelineno-0-226"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">method</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span>
 <a id="__codelineno-0-227" name="__codelineno-0-227"></a>
 <a id="__codelineno-0-228" name="__codelineno-0-228"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">param</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Parameter</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the :class:`Parameter` named ``name`` (or ``None``).&quot;&quot;&quot;</span>
 <a id="__codelineno-0-230" name="__codelineno-0-230"></a>        <span class="n">found</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-231" name="__codelineno-0-231"></a>        <span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">:</span>
+<a id="__codelineno-0-231" name="__codelineno-0-231"></a>        <span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">:</span>
 <a id="__codelineno-0-232" name="__codelineno-0-232"></a>            <span class="k">if</span> <span class="n">param</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
 <a id="__codelineno-0-233" name="__codelineno-0-233"></a>                <span class="n">found</span> <span class="o">=</span> <span class="n">param</span>
 <a id="__codelineno-0-234" name="__codelineno-0-234"></a>                <span class="k">break</span>
 <a id="__codelineno-0-235" name="__codelineno-0-235"></a>        <span class="k">return</span> <span class="n">found</span>
 <a id="__codelineno-0-236" name="__codelineno-0-236"></a>
 <a id="__codelineno-0-237" name="__codelineno-0-237"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">help</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Render a multi-line help block describing the tool and its params.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-239" name="__codelineno-0-239"></a>        <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">receiver</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">returns</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">]</span>
+<a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Render a multi-line help block describing the tool and its parameters.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-239" name="__codelineno-0-239"></a>        <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">input_type</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">output_type</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">]</span>
 <a id="__codelineno-0-240" name="__codelineno-0-240"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">description</span><span class="p">:</span>
 <a id="__codelineno-0-241" name="__codelineno-0-241"></a>            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">description</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-242" name="__codelineno-0-242"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">:</span>
+<a id="__codelineno-0-242" name="__codelineno-0-242"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">:</span>
 <a id="__codelineno-0-243" name="__codelineno-0-243"></a>            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;  parameters:&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-244" name="__codelineno-0-244"></a>            <span class="n">lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">help</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">)</span>
+<a id="__codelineno-0-244" name="__codelineno-0-244"></a>            <span class="n">lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">help</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">)</span>
 <a id="__codelineno-0-245" name="__codelineno-0-245"></a>        <span class="k">else</span><span class="p">:</span>
 <a id="__codelineno-0-246" name="__codelineno-0-246"></a>            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;  parameters: (none)&quot;</span><span class="p">)</span>
 <a id="__codelineno-0-247" name="__codelineno-0-247"></a>        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
@@ -8951,7 +8971,7 @@ parameter name is duplicated.</p>
 
     <div class="doc doc-contents ">
 
-        <p>The receiver method this tool invokes.</p>
+        <p>The method this tool invokes on its input object.</p>
 
     </div>
 
@@ -8971,7 +8991,7 @@ parameter name is duplicated.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Render a multi-line help block describing the tool and its params.</p>
+        <p>Render a multi-line help block describing the tool and its parameters.</p>
 
 
             <details class="mkdocstrings-source">
@@ -8987,13 +9007,13 @@ parameter name is duplicated.</p>
 <span class="normal"><a href="#__codelineno-0-245">245</a></span>
 <span class="normal"><a href="#__codelineno-0-246">246</a></span>
 <span class="normal"><a href="#__codelineno-0-247">247</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-237" name="__codelineno-0-237"></a><span class="k">def</span><span class="w"> </span><span class="nf">help</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Render a multi-line help block describing the tool and its params.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-239" name="__codelineno-0-239"></a>    <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">receiver</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">returns</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">]</span>
+<a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Render a multi-line help block describing the tool and its parameters.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-239" name="__codelineno-0-239"></a>    <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">input_type</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">output_type</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">]</span>
 <a id="__codelineno-0-240" name="__codelineno-0-240"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">description</span><span class="p">:</span>
 <a id="__codelineno-0-241" name="__codelineno-0-241"></a>        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">description</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-242" name="__codelineno-0-242"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">:</span>
+<a id="__codelineno-0-242" name="__codelineno-0-242"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">:</span>
 <a id="__codelineno-0-243" name="__codelineno-0-243"></a>        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;  parameters:&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-244" name="__codelineno-0-244"></a>        <span class="n">lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">help</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">)</span>
+<a id="__codelineno-0-244" name="__codelineno-0-244"></a>        <span class="n">lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">help</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">)</span>
 <a id="__codelineno-0-245" name="__codelineno-0-245"></a>    <span class="k">else</span><span class="p">:</span>
 <a id="__codelineno-0-246" name="__codelineno-0-246"></a>        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;  parameters: (none)&quot;</span><span class="p">)</span>
 <a id="__codelineno-0-247" name="__codelineno-0-247"></a>    <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
@@ -9029,7 +9049,7 @@ parameter name is duplicated.</p>
 <span class="normal"><a href="#__codelineno-0-235">235</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-228" name="__codelineno-0-228"></a><span class="k">def</span><span class="w"> </span><span class="nf">param</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Parameter</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the :class:`Parameter` named ``name`` (or ``None``).&quot;&quot;&quot;</span>
 <a id="__codelineno-0-230" name="__codelineno-0-230"></a>    <span class="n">found</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-231" name="__codelineno-0-231"></a>    <span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">:</span>
+<a id="__codelineno-0-231" name="__codelineno-0-231"></a>    <span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">:</span>
 <a id="__codelineno-0-232" name="__codelineno-0-232"></a>        <span class="k">if</span> <span class="n">param</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
 <a id="__codelineno-0-233" name="__codelineno-0-233"></a>            <span class="n">found</span> <span class="o">=</span> <span class="n">param</span>
 <a id="__codelineno-0-234" name="__codelineno-0-234"></a>            <span class="k">break</span>
@@ -9099,14 +9119,14 @@ parameter name is duplicated.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>param_type</code>
+                <code>parameter_type</code>
             </td>
             <td>
                   <code><span title="str">str</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>One of :data:<code>PARAM_TYPES</code>.</p>
+                <p>One of :data:<code>PARAMETER_TYPES</code>.</p>
               </div>
             </td>
             <td>
@@ -9123,7 +9143,7 @@ parameter name is duplicated.</p>
             <td>
               <div class="doc-md-description">
                 <p>Display-only default shown in <code>help</code>. The runner passes only the
-params a step supplies, so this value is never itself applied — the
+parameters a step supplies, so this value is never itself applied — the
 <em>runtime</em> default is always whatever the underlying method uses. Set it
 to <strong>mirror</strong> that method's real default so <code>help</code> advertises the true
 value (e.g. <code>"nearest neighbor"</code> for a resampling <code>method</code>); leave it
@@ -9192,7 +9212,7 @@ value (e.g. <code>"nearest neighbor"</code> for a resampling <code>method</code>
             <td>
               <div class="doc-md-description">
                 <p>Override for whether the value can be serialized; when
-<code>None</code> it is derived from <code>param_type</code>.</p>
+<code>None</code> it is derived from <code>parameter_type</code>.</p>
               </div>
             </td>
             <td>
@@ -9218,7 +9238,7 @@ value (e.g. <code>"nearest neighbor"</code> for a resampling <code>method</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If <code>param_type</code> is unknown or <code>choices</code> is given for a
+                <p>If <code>parameter_type</code> is unknown or <code>choices</code> is given for a
 non-<code>OptionList</code> parameter.</p>
               </div>
             </td>
@@ -9375,9 +9395,9 @@ non-<code>OptionList</code> parameter.</p>
 <a id="__codelineno-0-49" name="__codelineno-0-49"></a>
 <a id="__codelineno-0-50" name="__codelineno-0-50"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-51" name="__codelineno-0-51"></a><span class="sd">        name: The keyword-argument name passed to the underlying op.</span>
-<a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="sd">        param_type: One of :data:`PARAM_TYPES`.</span>
+<a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="sd">        parameter_type: One of :data:`PARAMETER_TYPES`.</span>
 <a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="sd">        default: Display-only default shown in ``help``. The runner passes only the</span>
-<a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">            params a step supplies, so this value is never itself applied — the</span>
+<a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">            parameters a step supplies, so this value is never itself applied — the</span>
 <a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">            *runtime* default is always whatever the underlying method uses. Set it</span>
 <a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">            to **mirror** that method&#39;s real default so ``help`` advertises the true</span>
 <a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">            value (e.g. ``&quot;nearest neighbor&quot;`` for a resampling ``method``); leave it</span>
@@ -9386,15 +9406,15 @@ non-<code>OptionList</code> parameter.</p>
 <a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">        description: Human-readable help text.</span>
 <a id="__codelineno-0-61" name="__codelineno-0-61"></a><span class="sd">        choices: Allowed values for an ``&quot;OptionList&quot;`` parameter.</span>
 <a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">        serializable: Override for whether the value can be serialized; when</span>
-<a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">            ``None`` it is derived from ``param_type``.</span>
+<a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">            ``None`` it is derived from ``parameter_type``.</span>
 <a id="__codelineno-0-64" name="__codelineno-0-64"></a>
 <a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">        ValueError: If ``param_type`` is unknown or ``choices`` is given for a</span>
+<a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">        ValueError: If ``parameter_type`` is unknown or ``choices`` is given for a</span>
 <a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">            non-``OptionList`` parameter.</span>
 <a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">    &quot;&quot;&quot;</span>
 <a id="__codelineno-0-69" name="__codelineno-0-69"></a>
 <a id="__codelineno-0-70" name="__codelineno-0-70"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
-<a id="__codelineno-0-71" name="__codelineno-0-71"></a>    <span class="n">param_type</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-0-71" name="__codelineno-0-71"></a>    <span class="n">parameter_type</span><span class="p">:</span> <span class="nb">str</span>
 <a id="__codelineno-0-72" name="__codelineno-0-72"></a>    <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>
 <a id="__codelineno-0-73" name="__codelineno-0-73"></a>    <span class="n">optional</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 <a id="__codelineno-0-74" name="__codelineno-0-74"></a>    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
@@ -9402,15 +9422,15 @@ non-<code>OptionList</code> parameter.</p>
 <a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="n">serializable</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <a id="__codelineno-0-77" name="__codelineno-0-77"></a>
 <a id="__codelineno-0-78" name="__codelineno-0-78"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-79" name="__codelineno-0-79"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">param_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">PARAM_TYPES</span><span class="p">:</span>
+<a id="__codelineno-0-79" name="__codelineno-0-79"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">PARAMETER_TYPES</span><span class="p">:</span>
 <a id="__codelineno-0-80" name="__codelineno-0-80"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-81" name="__codelineno-0-81"></a>                <span class="sa">f</span><span class="s2">&quot;unknown param_type </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">param_type</span><span class="si">!r}</span><span class="s2"> for parameter &quot;</span>
-<a id="__codelineno-0-82" name="__codelineno-0-82"></a>                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2">; valid: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">PARAM_TYPES</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-81" name="__codelineno-0-81"></a>                <span class="sa">f</span><span class="s2">&quot;unknown parameter_type </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">parameter_type</span><span class="si">!r}</span><span class="s2"> for parameter &quot;</span>
+<a id="__codelineno-0-82" name="__codelineno-0-82"></a>                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2">; valid: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">PARAMETER_TYPES</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
 <a id="__codelineno-0-83" name="__codelineno-0-83"></a>            <span class="p">)</span>
-<a id="__codelineno-0-84" name="__codelineno-0-84"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">choices</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">param_type</span> <span class="o">!=</span> <span class="s2">&quot;OptionList&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-84" name="__codelineno-0-84"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">choices</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_type</span> <span class="o">!=</span> <span class="s2">&quot;OptionList&quot;</span><span class="p">:</span>
 <a id="__codelineno-0-85" name="__codelineno-0-85"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
 <a id="__codelineno-0-86" name="__codelineno-0-86"></a>                <span class="sa">f</span><span class="s2">&quot;parameter </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2">: choices are only valid for an &quot;</span>
-<a id="__codelineno-0-87" name="__codelineno-0-87"></a>                <span class="sa">f</span><span class="s2">&quot;&#39;OptionList&#39; param_type, not </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">param_type</span><span class="si">!r}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-87" name="__codelineno-0-87"></a>                <span class="sa">f</span><span class="s2">&quot;&#39;OptionList&#39; parameter_type, not </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">parameter_type</span><span class="si">!r}</span><span class="s2">&quot;</span>
 <a id="__codelineno-0-88" name="__codelineno-0-88"></a>            <span class="p">)</span>
 <a id="__codelineno-0-89" name="__codelineno-0-89"></a>
 <a id="__codelineno-0-90" name="__codelineno-0-90"></a>    <span class="nd">@property</span>
@@ -9419,7 +9439,7 @@ non-<code>OptionList</code> parameter.</p>
 <a id="__codelineno-0-93" name="__codelineno-0-93"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">serializable</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-94" name="__codelineno-0-94"></a>            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">serializable</span>
 <a id="__codelineno-0-95" name="__codelineno-0-95"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-96" name="__codelineno-0-96"></a>            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">param_type</span> <span class="ow">in</span> <span class="n">_SERIALIZABLE_TYPES</span>
+<a id="__codelineno-0-96" name="__codelineno-0-96"></a>            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_type</span> <span class="ow">in</span> <span class="n">_SERIALIZABLE_TYPES</span>
 <a id="__codelineno-0-97" name="__codelineno-0-97"></a>        <span class="k">return</span> <span class="n">result</span>
 <a id="__codelineno-0-98" name="__codelineno-0-98"></a>
 <a id="__codelineno-0-99" name="__codelineno-0-99"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">validate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -9429,10 +9449,10 @@ non-<code>OptionList</code> parameter.</p>
 <a id="__codelineno-0-103" name="__codelineno-0-103"></a><span class="sd">            value: The value supplied for the parameter.</span>
 <a id="__codelineno-0-104" name="__codelineno-0-104"></a>
 <a id="__codelineno-0-105" name="__codelineno-0-105"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="sd">            ValueError: If ``value`` does not match ``param_type`` (this is what</span>
+<a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="sd">            ValueError: If ``value`` does not match ``parameter_type`` (this is what</span>
 <a id="__codelineno-0-107" name="__codelineno-0-107"></a><span class="sd">                rejects a numpy array / mask / callable handed to a scalar param).</span>
 <a id="__codelineno-0-108" name="__codelineno-0-108"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-109" name="__codelineno-0-109"></a>        <span class="n">pt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">param_type</span>
+<a id="__codelineno-0-109" name="__codelineno-0-109"></a>        <span class="n">pt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_type</span>
 <a id="__codelineno-0-110" name="__codelineno-0-110"></a>        <span class="n">ok</span> <span class="o">=</span> <span class="kc">True</span>
 <a id="__codelineno-0-111" name="__codelineno-0-111"></a>        <span class="k">if</span> <span class="n">pt</span> <span class="o">==</span> <span class="s2">&quot;Float&quot;</span><span class="p">:</span>
 <a id="__codelineno-0-112" name="__codelineno-0-112"></a>            <span class="n">ok</span> <span class="o">=</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">))</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span>
@@ -9460,7 +9480,7 @@ non-<code>OptionList</code> parameter.</p>
 <a id="__codelineno-0-134" name="__codelineno-0-134"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Coerce a raw CLI string into this parameter&#39;s type.</span>
 <a id="__codelineno-0-135" name="__codelineno-0-135"></a>
 <a id="__codelineno-0-136" name="__codelineno-0-136"></a><span class="sd">        Public API kept for a future CLI ``--set key=value`` path; not yet wired</span>
-<a id="__codelineno-0-137" name="__codelineno-0-137"></a><span class="sd">        into a shipped command (the ``run`` subcommand reads typed params from YAML).</span>
+<a id="__codelineno-0-137" name="__codelineno-0-137"></a><span class="sd">        into a shipped command (the ``run`` subcommand reads typed parameters from YAML).</span>
 <a id="__codelineno-0-138" name="__codelineno-0-138"></a>
 <a id="__codelineno-0-139" name="__codelineno-0-139"></a><span class="sd">        Args:</span>
 <a id="__codelineno-0-140" name="__codelineno-0-140"></a><span class="sd">            raw: The string value from the command line.</span>
@@ -9472,7 +9492,7 @@ non-<code>OptionList</code> parameter.</p>
 <a id="__codelineno-0-146" name="__codelineno-0-146"></a><span class="sd">            ValueError: If ``raw`` cannot be converted (e.g. a non-numeric string</span>
 <a id="__codelineno-0-147" name="__codelineno-0-147"></a><span class="sd">                for a ``&quot;Float&quot;`` parameter, or a value outside ``choices``).</span>
 <a id="__codelineno-0-148" name="__codelineno-0-148"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-149" name="__codelineno-0-149"></a>        <span class="n">pt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">param_type</span>
+<a id="__codelineno-0-149" name="__codelineno-0-149"></a>        <span class="n">pt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_type</span>
 <a id="__codelineno-0-150" name="__codelineno-0-150"></a>        <span class="k">if</span> <span class="n">pt</span> <span class="o">==</span> <span class="s2">&quot;Float&quot;</span><span class="p">:</span>
 <a id="__codelineno-0-151" name="__codelineno-0-151"></a>            <span class="n">result</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
 <a id="__codelineno-0-152" name="__codelineno-0-152"></a>        <span class="k">elif</span> <span class="n">pt</span> <span class="o">==</span> <span class="s2">&quot;Integer&quot;</span><span class="p">:</span>
@@ -9503,7 +9523,7 @@ non-<code>OptionList</code> parameter.</p>
 <a id="__codelineno-0-177" name="__codelineno-0-177"></a>        <span class="n">default</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">default</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;, default=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">default</span><span class="si">!r}</span><span class="s2">&quot;</span>
 <a id="__codelineno-0-178" name="__codelineno-0-178"></a>        <span class="n">choices</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">choices</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot; </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">choices</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
 <a id="__codelineno-0-179" name="__codelineno-0-179"></a>        <span class="n">desc</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot; — </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">description</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">description</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
-<a id="__codelineno-0-180" name="__codelineno-0-180"></a>        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">param_type</span><span class="si">}{</span><span class="n">choices</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">flag</span><span class="si">}{</span><span class="n">default</span><span class="si">}</span><span class="s2">)</span><span class="si">{</span><span class="n">desc</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-180" name="__codelineno-0-180"></a>        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">parameter_type</span><span class="si">}{</span><span class="n">choices</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">flag</span><span class="si">}{</span><span class="n">default</span><span class="si">}</span><span class="s2">)</span><span class="si">{</span><span class="n">desc</span><span class="si">}</span><span class="s2">&quot;</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -9555,7 +9575,7 @@ non-<code>OptionList</code> parameter.</p>
 
         <p>Coerce a raw CLI string into this parameter's type.</p>
 <p>Public API kept for a future CLI <code>--set key=value</code> path; not yet wired
-into a shipped command (the <code>run</code> subcommand reads typed params from YAML).</p>
+into a shipped command (the <code>run</code> subcommand reads typed parameters from YAML).</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -9681,7 +9701,7 @@ for a <code>"Float"</code> parameter, or a value outside <code>choices</code>).<
 <a id="__codelineno-0-134" name="__codelineno-0-134"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Coerce a raw CLI string into this parameter&#39;s type.</span>
 <a id="__codelineno-0-135" name="__codelineno-0-135"></a>
 <a id="__codelineno-0-136" name="__codelineno-0-136"></a><span class="sd">    Public API kept for a future CLI ``--set key=value`` path; not yet wired</span>
-<a id="__codelineno-0-137" name="__codelineno-0-137"></a><span class="sd">    into a shipped command (the ``run`` subcommand reads typed params from YAML).</span>
+<a id="__codelineno-0-137" name="__codelineno-0-137"></a><span class="sd">    into a shipped command (the ``run`` subcommand reads typed parameters from YAML).</span>
 <a id="__codelineno-0-138" name="__codelineno-0-138"></a>
 <a id="__codelineno-0-139" name="__codelineno-0-139"></a><span class="sd">    Args:</span>
 <a id="__codelineno-0-140" name="__codelineno-0-140"></a><span class="sd">        raw: The string value from the command line.</span>
@@ -9693,7 +9713,7 @@ for a <code>"Float"</code> parameter, or a value outside <code>choices</code>).<
 <a id="__codelineno-0-146" name="__codelineno-0-146"></a><span class="sd">        ValueError: If ``raw`` cannot be converted (e.g. a non-numeric string</span>
 <a id="__codelineno-0-147" name="__codelineno-0-147"></a><span class="sd">            for a ``&quot;Float&quot;`` parameter, or a value outside ``choices``).</span>
 <a id="__codelineno-0-148" name="__codelineno-0-148"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-149" name="__codelineno-0-149"></a>    <span class="n">pt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">param_type</span>
+<a id="__codelineno-0-149" name="__codelineno-0-149"></a>    <span class="n">pt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_type</span>
 <a id="__codelineno-0-150" name="__codelineno-0-150"></a>    <span class="k">if</span> <span class="n">pt</span> <span class="o">==</span> <span class="s2">&quot;Float&quot;</span><span class="p">:</span>
 <a id="__codelineno-0-151" name="__codelineno-0-151"></a>        <span class="n">result</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
 <a id="__codelineno-0-152" name="__codelineno-0-152"></a>    <span class="k">elif</span> <span class="n">pt</span> <span class="o">==</span> <span class="s2">&quot;Integer&quot;</span><span class="p">:</span>
@@ -9751,7 +9771,7 @@ for a <code>"Float"</code> parameter, or a value outside <code>choices</code>).<
 <a id="__codelineno-0-177" name="__codelineno-0-177"></a>    <span class="n">default</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">default</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;, default=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">default</span><span class="si">!r}</span><span class="s2">&quot;</span>
 <a id="__codelineno-0-178" name="__codelineno-0-178"></a>    <span class="n">choices</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">choices</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot; </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">choices</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
 <a id="__codelineno-0-179" name="__codelineno-0-179"></a>    <span class="n">desc</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot; — </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">description</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">description</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
-<a id="__codelineno-0-180" name="__codelineno-0-180"></a>    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">param_type</span><span class="si">}{</span><span class="n">choices</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">flag</span><span class="si">}{</span><span class="n">default</span><span class="si">}</span><span class="s2">)</span><span class="si">{</span><span class="n">desc</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-180" name="__codelineno-0-180"></a>    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">parameter_type</span><span class="si">}{</span><span class="n">choices</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">flag</span><span class="si">}{</span><span class="n">default</span><span class="si">}</span><span class="s2">)</span><span class="si">{</span><span class="n">desc</span><span class="si">}</span><span class="s2">&quot;</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -9818,7 +9838,7 @@ for a <code>"Float"</code> parameter, or a value outside <code>choices</code>).<
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If <code>value</code> does not match <code>param_type</code> (this is what
+                <p>If <code>value</code> does not match <code>parameter_type</code> (this is what
 rejects a numpy array / mask / callable handed to a scalar param).</p>
               </div>
             </td>
@@ -9868,10 +9888,10 @@ rejects a numpy array / mask / callable handed to a scalar param).</p>
 <a id="__codelineno-0-103" name="__codelineno-0-103"></a><span class="sd">        value: The value supplied for the parameter.</span>
 <a id="__codelineno-0-104" name="__codelineno-0-104"></a>
 <a id="__codelineno-0-105" name="__codelineno-0-105"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="sd">        ValueError: If ``value`` does not match ``param_type`` (this is what</span>
+<a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="sd">        ValueError: If ``value`` does not match ``parameter_type`` (this is what</span>
 <a id="__codelineno-0-107" name="__codelineno-0-107"></a><span class="sd">            rejects a numpy array / mask / callable handed to a scalar param).</span>
 <a id="__codelineno-0-108" name="__codelineno-0-108"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-109" name="__codelineno-0-109"></a>    <span class="n">pt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">param_type</span>
+<a id="__codelineno-0-109" name="__codelineno-0-109"></a>    <span class="n">pt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameter_type</span>
 <a id="__codelineno-0-110" name="__codelineno-0-110"></a>    <span class="n">ok</span> <span class="o">=</span> <span class="kc">True</span>
 <a id="__codelineno-0-111" name="__codelineno-0-111"></a>    <span class="k">if</span> <span class="n">pt</span> <span class="o">==</span> <span class="s2">&quot;Float&quot;</span><span class="p">:</span>
 <a id="__codelineno-0-112" name="__codelineno-0-112"></a>        <span class="n">ok</span> <span class="o">=</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">))</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span>
