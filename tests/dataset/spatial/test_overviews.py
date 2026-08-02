@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.base._errors import OverviewTargetError, ReadOnlyError
+from pyramids.base._errors import OverviewTargetError, ReadOnlyError, _PyramidsError
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
 from pyramids.netcdf import NetCDF
@@ -41,6 +41,26 @@ def _overviewed_raster(tmp_path, name: str = "ovr_src.tif") -> str:
     handle = gdal.Open(path, gdal.GA_Update)
     handle.BuildOverviews("AVERAGE", [2, 4])
     handle = None
+    return path
+
+
+def _plain_raster(tmp_path, name: str) -> str:
+    """Write a georeferenced 2-band raster that carries no overviews at all.
+
+    Complements :func:`_overviewed_raster` for the cases that must start from an empty
+    overview count — a VRT over an overviewed source inherits the source's levels, which
+    hides both the "nothing to regenerate" warning and a sidecar of the VRT's own.
+    """
+    path = str(tmp_path / name)
+    raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 2, gdal.GDT_Float32)
+    raster.SetGeoTransform((10.0, 0.5, 0.0, 80.0, 0.0, -0.5))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    raster.SetProjection(srs.ExportToWkt())
+    for index in range(2):
+        band = raster.GetRasterBand(index + 1)
+        band.WriteArray(np.full((64, 64), float(index + 1), dtype="float32"))
+    raster = None
     return path
 
 
@@ -627,6 +647,240 @@ class TestCreateOverviewsPathlessGuard:
             if level is not None:
                 level.close()
             dataset.close()
+
+    @pytest.mark.parametrize(
+        "driver_type, description",
+        [("vrt", "mosaic.vrt"), ("gtiff", "")],
+        ids=["path-ful-vrt", "not-a-vrt"],
+    )
+    def test_a_decidable_handle_never_serialises_the_document(
+        self, driver_type, description
+    ):
+        """A handle the description alone settles is decided without reading `xml:VRT`.
+
+        Test scenario:
+            Drive the predicate through a stub that records its calls — expected: no
+            `GetMetadata` at all, because serialising a mosaic with many sources costs
+            milliseconds and neither a VRT with a real path nor a non-VRT can be blocked.
+        """
+        handle = MagicMock(spec=gdal.Dataset)
+        handle.GetDescription.return_value = description
+        stub = MagicMock(spec=Dataset, driver_type=driver_type, raster=handle)
+        assert IO(stub)._has_nowhere_for_an_overview_sidecar() is False, (
+            f"a {driver_type} handle described as {description!r} must not be blocked"
+        )
+        handle.GetMetadata.assert_not_called()
+
+    @pytest.mark.parametrize("method", ["create_overviews", "recreate_overviews"])
+    def test_the_refusal_is_catchable_as_a_pyramids_error(
+        self, tmp_path, monkeypatch, method
+    ):
+        """Both methods raise something a pyramids-wide handler catches.
+
+        Test scenario:
+            Raise the refusal from each method and catch it with `except _PyramidsError`
+            — expected: caught, and the same instance is a `ValueError`, so neither a
+            pyramids-wide handler nor a stdlib one has to be widened for it.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, f"pyramids_error_{method}.tif")
+        dataset = Dataset.read_file(source)
+        level = None
+        try:
+            level = dataset.get_overview_dataset(overview_index=0)
+            caught = None
+            try:
+                getattr(level, method)()
+            except _PyramidsError as error:
+                caught = error
+            assert isinstance(caught, OverviewTargetError), (
+                f"`except _PyramidsError` must catch {method}'s refusal, got {caught!r}"
+            )
+            assert isinstance(caught, ValueError), (
+                "the same instance must stay catchable as a ValueError"
+            )
+        finally:
+            if level is not None:
+                level.close()
+            dataset.close()
+
+    def test_recreate_refuses_before_the_resampling_method_is_validated(
+        self, tmp_path, monkeypatch
+    ):
+        """An unknown resampling method does not mask the unusable target either.
+
+        Test scenario:
+            Call the pathless level with a resampling method that would raise on its own
+            — expected: the guard's refusal, matching the ordering its sibling
+            `create_overviews` already pins.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "recreate_order_src.tif")
+        dataset = Dataset.read_file(source)
+        level = None
+        try:
+            level = dataset.get_overview_dataset(overview_index=0)
+            with pytest.raises(OverviewTargetError, match="nowhere to go"):
+                level.recreate_overviews(resampling_method="NOPE")
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            if level is not None:
+                level.close()
+            dataset.close()
+
+    def test_recreate_argument_error_on_a_usable_target_stays_an_argument_error(
+        self, tmp_path, monkeypatch
+    ):
+        """A bad method on an ordinary raster is still a plain argument error.
+
+        Test scenario:
+            The same unknown resampling method on the on-disk source — expected: a bare
+            `ValueError`, so the new refusal cannot start swallowing the argument check
+            for datasets that are perfectly able to hold overviews.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "recreate_arg_src.tif")
+        dataset = Dataset.read_file(source)
+        try:
+            with pytest.raises(ValueError, match="resampling_method") as excinfo:
+                dataset.recreate_overviews(resampling_method="NOPE")
+            assert not isinstance(excinfo.value, OverviewTargetError), (
+                "a bad method is worth retrying with a different one, not an "
+                "unusable target"
+            )
+        finally:
+            dataset.close()
+
+    def test_recreate_still_regenerates_a_path_ful_vrt(self, tmp_path, monkeypatch):
+        """A saved `.vrt` regenerates the sidecar it owns, untouched by the refusal.
+
+        Test scenario:
+            Build a `.vrt` over a source with no overviews of its own, give it levels, and
+            regenerate them — expected: a silent, successful pass that keeps the counts
+            and the `<name>.vrt.ovr` sidecar, which is the over-fire canary for the
+            `recreate_overviews` half of the guard.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _plain_raster(tmp_path, "recreate_vrt_src.tif")
+        vrt_path = tmp_path / "recreate_with_path.vrt"
+        gdal.Translate(str(vrt_path), source, format="VRT").FlushCache()
+        dataset = Dataset.read_file(str(vrt_path))
+        try:
+            dataset.create_overviews(overview_levels=[2])
+            assert dataset.overview_count == [1, 1], (
+                f"precondition: the VRT owns one level per band, {dataset.overview_count}"
+            )
+            with warnings.catch_warnings(record=True) as recorded:
+                warnings.simplefilter("always")
+                dataset.recreate_overviews(resampling_method="average")
+            assert not [w for w in recorded if issubclass(w.category, UserWarning)], (
+                f"the path-ful VRT should regenerate silently, got {recorded}"
+            )
+            assert dataset.overview_count == [1, 1], (
+                f"regeneration must keep the levels, got {dataset.overview_count}"
+            )
+            assert (tmp_path / "recreate_with_path.vrt.ovr").exists(), (
+                "the sidecar the VRT regenerated through must survive"
+            )
+        finally:
+            dataset.close()
+
+    def test_recreate_hands_a_warped_view_to_gdal(self, tmp_path, monkeypatch):
+        """A warped view holding overviews in RAM reaches the regeneration call.
+
+        Test scenario:
+            Record every `gdal.RegenerateOverviews` call while a pathless warped view that
+            was given RAM levels is regenerated — expected: one batched call carrying the
+            band's level, proving the guard exempts the warped subclass in
+            `recreate_overviews` and leaves the outcome to GDAL.
+        """
+        monkeypatch.chdir(tmp_path)
+        dataset = Dataset.create_from_array(
+            np.arange(4096, dtype="float32").reshape(64, 64),
+            top_left_corner=(0.0, 64.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        view = None
+        try:
+            view = dataset.warped_view(3857)
+            view.create_overviews("average", overview_levels=[2])
+            assert view.overview_count == [1], (
+                f"precondition: the warped view holds one level, {view.overview_count}"
+            )
+            calls = []
+
+            def record(band, overviews, method):
+                calls.append((len(overviews), method))
+                return gdal.CE_None
+
+            monkeypatch.setattr(gdal, "RegenerateOverviews", record)
+            view.recreate_overviews(resampling_method="average")
+            assert calls == [(1, "average")], (
+                f"the warped view's level should reach GDAL in one call, got {calls}"
+            )
+        finally:
+            if view is not None:
+                view.close()
+            dataset.close()
+
+    def test_recreate_still_warns_for_a_warped_view_without_overviews(
+        self, tmp_path, monkeypatch
+    ):
+        """The refusal does not pre-empt the no-overviews warning on an exempt shape.
+
+        Test scenario:
+            A pathless warped view that was never given levels — expected: the
+            "call create_overviews() first" warning it emitted before the guard existed,
+            since a warped view can act on that advice and build them in RAM.
+        """
+        monkeypatch.chdir(tmp_path)
+        dataset = Dataset.create_from_array(
+            np.arange(4096, dtype="float32").reshape(64, 64),
+            top_left_corner=(0.0, 64.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        view = None
+        try:
+            view = dataset.warped_view(3857)
+            assert view.overview_count == [0], (
+                f"precondition: the view has no levels, {view.overview_count}"
+            )
+            with pytest.warns(UserWarning, match=r"call create_overviews\(\) first"):
+                view.recreate_overviews()
+        finally:
+            if view is not None:
+                view.close()
+            dataset.close()
+
+    def test_recreate_refuses_a_pathless_vrt_rather_than_advising_create_overviews(
+        self, tmp_path, monkeypatch
+    ):
+        """A plain pathless VRT with no levels is refused instead of warned at.
+
+        Test scenario:
+            The empty-count warning tells the caller to run `create_overviews()`, which
+            refuses this very shape — expected: the refusal instead, and no `UserWarning`,
+            so the caller is not sent round a loop that cannot terminate.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _plain_raster(tmp_path, "pathless_empty_src.tif")
+        wrapper = Dataset(gdal.BuildVRT("", [source]))
+        try:
+            assert wrapper.overview_count == [0, 0], (
+                f"precondition: nothing to regenerate, {wrapper.overview_count}"
+            )
+            with warnings.catch_warnings(record=True) as recorded:
+                warnings.simplefilter("always")
+                with pytest.raises(OverviewTargetError, match="nowhere to go"):
+                    wrapper.recreate_overviews()
+            assert not [w for w in recorded if issubclass(w.category, UserWarning)], (
+                f"the dead advice must not be emitted, got {[str(w.message) for w in recorded]}"
+            )
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            wrapper.close()
 
 
 class TestReCreateOverviews:
