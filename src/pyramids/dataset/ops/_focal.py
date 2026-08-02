@@ -32,7 +32,7 @@ zero import cost. Dask is imported only when `chunks` is given.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from scipy import ndimage
@@ -40,6 +40,8 @@ from scipy import ndimage
 from pyramids.base._domain import is_no_data
 
 if TYPE_CHECKING:
+    import dask.array as da
+
     from pyramids.dataset import Dataset
 
 
@@ -99,7 +101,7 @@ def _apply_eager_or_lazy(
     band: int,
     dtype: Any,
     depth: int | None = None,
-) -> Any:
+) -> np.ndarray | da.Array:
     """Run `func` on the band eagerly or wrap with `dask.map_overlap`.
 
     `func` must accept a 2-D numpy array and return a 2-D numpy
@@ -178,7 +180,7 @@ def _apply_eager_or_lazy(
             trim=True,
             dtype=dtype,
         )
-    return result
+    return cast("np.ndarray | da.Array", result)
 
 
 def focal_mean(
@@ -187,7 +189,7 @@ def focal_mean(
     *,
     chunks: Any = None,
     band: int = 0,
-) -> Any:
+) -> np.ndarray | da.Array:
     """Uniform box mean over a `(2*radius+1)`-side window.
 
     Args:
@@ -241,7 +243,7 @@ def focal_std(
     *,
     chunks: Any = None,
     band: int = 0,
-) -> Any:
+) -> np.ndarray | da.Array:
     """Standard deviation over a `(2*radius+1)`-side window.
 
     uses the two-pass formulation `sqrt(mean((x - local_mean)²))`
@@ -311,7 +313,7 @@ def focal_apply(
     *,
     chunks: Any = None,
     band: int = 0,
-) -> Any:
+) -> np.ndarray | da.Array:
     """Apply a user-supplied aggregation over a `(2*radius+1)` window.
 
     `func` receives a flat 1-D array of window values and returns
@@ -396,7 +398,7 @@ def slope(
     chunks: Any = None,
     band: int = 0,
     units: str = "degrees",
-) -> Any:
+) -> np.ndarray | da.Array:
     """Slope of a DEM in degrees (default) or radians.
 
     Computed via :func:`numpy.gradient` centered differences.
@@ -447,7 +449,7 @@ def aspect(
     *,
     chunks: Any = None,
     band: int = 0,
-) -> Any:
+) -> np.ndarray | da.Array:
     """Aspect (degrees clockwise from north) of a DEM.
 
     Args:
@@ -498,7 +500,7 @@ def hillshade(
     altitude: float = 45.0,
     chunks: Any = None,
     band: int = 0,
-) -> Any:
+) -> np.ndarray | da.Array:
     """Shaded-relief map in 0..255 given sun azimuth + altitude (degrees).
 
     Args:

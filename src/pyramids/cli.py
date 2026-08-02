@@ -23,6 +23,10 @@ standard-library :mod:`argparse` (no extra dependency):
 - `pyramids shapes SRC DST [--geometry polygon|point]` — vectorize a raster
 - `pyramids rasterize SRC DST (--cell-size S | --like RASTER) [--column C]` —
   burn a vector into a raster
+- `pyramids run PIPELINE.yaml --inputs GLOB --out DIR` — run a processing
+  pipeline (batched) over inputs
+- `pyramids tools` — list the registered processing tools
+- `pyramids tool NAME` — print a processing tool's parameter schema
 
 Every command maps 1:1 onto an existing library call — no business logic lives
 here. Expected user errors (missing file, bad CRS, unknown driver) exit
@@ -56,6 +60,7 @@ from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS
 from pyramids.dataset.cog import PROFILES, cog_info, validate
 from pyramids.dataset.merge import merge_rasters
 from pyramids.feature import FeatureCollection
+from pyramids.processing.cli import add_processing_commands
 
 
 def _json_safe(value: float | None) -> float | None:
@@ -782,9 +787,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     Returns:
         argparse.ArgumentParser: The configured parser with the `cog`
-        command group (`create` / `validate` / `info`) and the
-        single-shot raster commands (`info`, `bounds`, `clip`, `warp`,
-        `merge`, `overview`, `sample`, `convert`).
+        command group (`create` / `validate` / `info`), the single-shot raster
+        commands (`info`, `bounds`, `clip`, `warp`, `merge`, `overview`,
+        `sample`, `convert`, …), and the processing-pipeline commands
+        (`run`, `tools`, `tool`).
     """
     parser = argparse.ArgumentParser(
         prog="pyramids", description="pyramids GIS toolkit"
@@ -1009,6 +1015,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     rasterize.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     rasterize.set_defaults(func=_cmd_rasterize)
+
+    add_processing_commands(sub)
 
     return parser
 

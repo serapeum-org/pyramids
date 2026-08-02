@@ -231,6 +231,7 @@ def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.typing.NDA
 
 
 if TYPE_CHECKING:
+    import dask.array as da
     from geopandas import GeoDataFrame
 
 
@@ -412,23 +413,31 @@ class Dataset(RasterBase):
             if collab is not None:
                 collab._ds = self_proxy
 
-    def focal_mean(self, radius: int = 1, *, chunks=None, band: int = 0):
+    def focal_mean(
+        self, radius: int = 1, *, chunks=None, band: int = 0
+    ) -> np.ndarray | da.Array:
         """Thin forwarder to :func:`pyramids.dataset.ops._focal.focal_mean`."""
         return focal_mean(self, radius=radius, chunks=chunks, band=band)
 
-    def focal_std(self, radius: int = 1, *, chunks=None, band: int = 0):
+    def focal_std(
+        self, radius: int = 1, *, chunks=None, band: int = 0
+    ) -> np.ndarray | da.Array:
         """Thin forwarder to :func:`pyramids.dataset.ops._focal.focal_std`."""
         return focal_std(self, radius=radius, chunks=chunks, band=band)
 
-    def focal_apply(self, func, radius: int = 1, *, chunks=None, band: int = 0):
+    def focal_apply(
+        self, func, radius: int = 1, *, chunks=None, band: int = 0
+    ) -> np.ndarray | da.Array:
         """Thin forwarder to :func:`pyramids.dataset.ops._focal.focal_apply`."""
         return focal_apply(self, func, radius=radius, chunks=chunks, band=band)
 
-    def slope(self, *, chunks=None, band: int = 0, units: str = "degrees"):
+    def slope(
+        self, *, chunks=None, band: int = 0, units: str = "degrees"
+    ) -> np.ndarray | da.Array:
         """Thin forwarder to :func:`pyramids.dataset.ops._focal.slope`."""
         return slope(self, chunks=chunks, band=band, units=units)
 
-    def aspect(self, *, chunks=None, band: int = 0):
+    def aspect(self, *, chunks=None, band: int = 0) -> np.ndarray | da.Array:
         """Thin forwarder to :func:`pyramids.dataset.ops._focal.aspect`."""
         return aspect(self, chunks=chunks, band=band)
 
@@ -439,7 +448,7 @@ class Dataset(RasterBase):
         altitude: float = 45.0,
         chunks=None,
         band: int = 0,
-    ):
+    ) -> np.ndarray | da.Array:
         """Thin forwarder to :func:`pyramids.dataset.ops._focal.hillshade`."""
         return hillshade(
             self,
