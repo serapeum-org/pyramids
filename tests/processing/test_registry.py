@@ -93,12 +93,12 @@ class TestRegistry:
         ],
     )
     def test_input_and_output_type_metadata(self, name, input_type, output_type):
-        """Each tool declares the right input and return types.
+        """Each tool declares the right input and output types.
 
         Args:
             name: Tool name.
             input_type: Expected input type.
-            output_type: Expected return type.
+            output_type: Expected output type.
 
         Test scenario:
             The cross-input op (interpolate_to_raster) is FeatureCollection->Dataset.
