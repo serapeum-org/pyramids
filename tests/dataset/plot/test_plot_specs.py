@@ -60,6 +60,8 @@ class TestPlotSpecReExports:
         class _OldCleopatraModule:
             """Stands in for a cleopatra too old to carry the spec."""
 
-        with patch("pyramids.plot.require_optional", return_value=_OldCleopatraModule()):
+        with patch(
+            "pyramids.plot.require_optional", return_value=_OldCleopatraModule()
+        ):
             with pytest.raises(OptionalPackageDoesNotExist, match="0.27"):
                 plot_specs.ColorBar

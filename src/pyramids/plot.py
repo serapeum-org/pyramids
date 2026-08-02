@@ -33,8 +33,14 @@ from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import require_optional
 
 if TYPE_CHECKING:  # names for static type checkers / IDEs; resolved lazily at runtime
-    from cleopatra.array_glyph import ColorBar, FrameLabel, PointOverlay
-    from cleopatra.geo import Basemap, Feature
+    # Re-exported for typing only (runtime resolution is via ``__getattr__``), so
+    # ruff's unused-import rule is silenced rather than deleting the typing intent.
+    from cleopatra.array_glyph import (  # noqa: F401
+        ColorBar,
+        FrameLabel,
+        PointOverlay,
+    )
+    from cleopatra.geo import Basemap, Feature  # noqa: F401
 
 _CLEO_EXPORTS: dict[str, tuple[str, str]] = {
     "ColorBar": ("cleopatra.array_glyph", "ColorBar"),
