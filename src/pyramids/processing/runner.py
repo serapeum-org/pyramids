@@ -335,7 +335,9 @@ def run(
             inputs and an ``out`` directory (outputs are written worker-side and
             ``RunResult.outputs`` holds the written paths, in input order — same as
             serial mode — not in-memory objects). Only registry tools registered at
-            import (the allowlist) are available in workers.
+            import (the allowlist) are available in workers. Note that under
+            ``on_error="raise"`` the surfaced error is the first worker to *complete*,
+            which need not be the first input's (serial raises the first input's error).
         max_workers: Worker-process count for ``parallel=True`` — ignored in serial
             mode (default: the pool's default, ~CPU count).
 
