@@ -3070,6 +3070,15 @@ class IO(_Engine["Dataset"]):
             - Dataset.read_overview_array: Read overview values
             - Dataset.plot: Plot a band
         """
+        # This one is about the dataset, not the call, so no argument can make it
+        # succeed. Check it first, or a typo'd argument masks the real blocker.
+        if self._has_nowhere_for_an_overview_sidecar():
+            raise ValueError(
+                "This dataset is a VRT with no path, so overviews have nowhere to go: "
+                "GDAL names the sidecar after the dataset description, and this one is "
+                "not a path, so the levels would be stranded outside the dataset. Save "
+                "it first with to_file(path) and build the overviews on the saved raster."
+            )
         if overview_levels is None:
             overview_levels = OVERVIEW_LEVELS
         else:
@@ -3083,13 +3092,6 @@ class IO(_Engine["Dataset"]):
                 )
         if resampling_method.upper() not in RESAMPLING_METHODS:
             raise ValueError(f"resampling_method should be one of {RESAMPLING_METHODS}")
-        if self._has_nowhere_for_an_overview_sidecar():
-            raise ValueError(
-                "This dataset is a VRT with no path, so overviews have nowhere to go: "
-                "GDAL names the sidecar after the dataset description, and this one is "
-                "not a path, so the levels would be stranded outside the dataset. Save "
-                "it first with to_file(path) and build the overviews on the saved raster."
-            )
         # Define the overview levels (the reduction factor).
         # e.g., 2 means the overview will be half the resolution of the original dataset.
         # Build overviews using nearest neighbor resampling
