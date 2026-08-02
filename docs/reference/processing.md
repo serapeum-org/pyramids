@@ -111,6 +111,11 @@ cannot cross process boundaries).
         show_root_heading: true
         heading_level: 3
 
+::: pyramids.processing.catalog
+    options:
+        show_root_heading: true
+        heading_level: 3
+
 ::: pyramids.processing.register
     options:
         show_root_heading: true
