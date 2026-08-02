@@ -7041,6 +7041,23 @@ example data, and enable inline plotting. Everything else in the notebook is abo
 </div>
 </div>
 </div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-0">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — setup:</strong></p>
+<ul>
+<li>Render plots inline in the notebook (<code>%matplotlib inline</code>).</li>
+<li>Import <code>pandas</code> (for the summary tables) and the pyramids types we use: <code>Dataset</code>,
+<code>FeatureCollection</code>, and from <code>pyramids.processing</code> the <code>Pipeline</code>, <code>catalog</code>, and <code>run</code> entry points.</li>
+<li>Point <code>DATA</code> at the example-data folder (path is relative to this notebook).</li>
+</ul>
+</div>
+</div>
+</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
 <div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=cbd2efa8">
 <div class="jp-Cell-inputWrapper" tabindex="0">
@@ -7096,6 +7113,22 @@ DATA = Path("../../../examples/data")</div>
 <h2 id="the-tool-registry">The tool registry<a class="anchor-link" href="#the-tool-registry">¶</a></h2><p>A pipeline can only reference <strong>registered tools</strong>: existing pyramids ops made addressable by name, each with a
 parameter schema and a <em>receiver type</em> (does it run on a <code>Dataset</code> or a <code>FeatureCollection</code>?) and a <em>return type</em>.
 Call <code>catalog()</code> to get that catalogue.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-1">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — look at the registry:</strong></p>
+<ul>
+<li>Call <code>catalog()</code> to get the read-only <code>{name: ToolMetadata}</code> mapping of available tools.</li>
+<li>Print its type and tool count, plus the tool names.</li>
+<li>Show one entry (<code>registry["slope"]</code>) so you can see what a single <code>ToolMetadata</code> looks like.</li>
+</ul>
 </div>
 </div>
 </div>
@@ -7162,6 +7195,23 @@ mapping itself cannot be mutated (assigning into it raises). Rendered as a reada
 </div>
 </div>
 </div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-2">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — the registry as a table:</strong></p>
+<ul>
+<li>Build a <code>pandas</code> table with one row per tool.</li>
+<li>For each tool pull its <code>receiver</code> (the object it runs on), <code>returns</code> (what it produces), parameter
+names, and description.</li>
+<li>Sort by tool name and display it as an at-a-glance catalogue.</li>
+</ul>
+</div>
+</div>
+</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=b611a170">
 <div class="jp-Cell-inputWrapper" tabindex="0">
@@ -7185,12 +7235,12 @@ mapping itself cannot be mutated (assigning into it raises). Rendered as a reada
     <span class="p">[</span>
         <span class="p">{</span>
             <span class="s2">"tool"</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
-            <span class="s2">"receiver"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">receiver</span><span class="p">,</span>
-            <span class="s2">"returns"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">returns</span><span class="p">,</span>
-            <span class="s2">"params"</span><span class="p">:</span> <span class="s2">", "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">spec</span><span class="o">.</span><span class="n">params</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">"-"</span><span class="p">,</span>
-            <span class="s2">"description"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+            <span class="s2">"receiver"</span><span class="p">:</span> <span class="n">tool</span><span class="o">.</span><span class="n">receiver</span><span class="p">,</span>
+            <span class="s2">"returns"</span><span class="p">:</span> <span class="n">tool</span><span class="o">.</span><span class="n">returns</span><span class="p">,</span>
+            <span class="s2">"params"</span><span class="p">:</span> <span class="s2">", "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">tool</span><span class="o">.</span><span class="n">params</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">"-"</span><span class="p">,</span>
+            <span class="s2">"description"</span><span class="p">:</span> <span class="n">tool</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
         <span class="p">}</span>
-        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">spec</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">registry</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">tool</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">registry</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
     <span class="p">]</span>
 <span class="p">)</span>
 <span class="n">registry_table</span>
@@ -7199,12 +7249,12 @@ mapping itself cannot be mutated (assigning into it raises). Rendered as a reada
     [
         {
             "tool": name,
-            "receiver": spec.receiver,
-            "returns": spec.returns,
-            "params": ", ".join(p.name for p in spec.params) or "-",
-            "description": spec.description,
+            "receiver": tool.receiver,
+            "returns": tool.returns,
+            "params": ", ".join(p.name for p in tool.params) or "-",
+            "description": tool.description,
         }
-        for name, spec in sorted(registry.items())
+        for name, tool in sorted(registry.items())
     ]
 )
 registry_table</div>
@@ -7401,6 +7451,21 @@ purely to get a continuous surface to work with; in practice you would grid rain
 </div>
 </div>
 </div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-3">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — load the input points:</strong></p>
+<ul>
+<li>Read the sample gauge points (a GeoJSON) into a <code>FeatureCollection</code>.</li>
+<li>Plot them, colored by the <code>y</code> value we will interpolate next.</li>
+</ul>
+</div>
+</div>
+</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=28aa5c97">
 <div class="jp-Cell-inputWrapper" tabindex="0">
@@ -7457,6 +7522,26 @@ gauges.plot(column="y", markersize=80, legend=True)</div>
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p>We define the pipeline as a plain list of <code>(tool, params)</code> steps. It is validated <strong>at construction</strong> — an
 unknown tool or a bad parameter fails right here, not halfway through a long run.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-4">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — define the pipeline (nothing runs yet):</strong></p>
+<ul>
+<li>Build a two-step <code>Pipeline</code> as a list of <code>(tool, params)</code> steps:<ul>
+<li><code>interpolate_to_raster</code> — grid the scattered gauge points into a continuous raster (the <code>y</code> column,
+2000 m cells).</li>
+<li><code>slope</code> — compute the slope of that raster.</li>
+</ul>
+</li>
+<li>Display the pipeline object — it is just the recipe; execution happens in the next cell.</li>
+</ul>
 </div>
 </div>
 </div>
@@ -7523,6 +7608,22 @@ its array is materialized back into a georeferenced <code>Dataset</code> — so 
 </div>
 </div>
 </div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-5">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — run it:</strong></p>
+<ul>
+<li>Execute the pipeline over the gauges with <code>run(...)</code>, which returns a <code>RunResult</code>.</li>
+<li>Take the first output (<code>result.outputs[0]</code>) — the slope raster.</li>
+<li>Plot it.</li>
+</ul>
+</div>
+</div>
+</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d7604af6">
 <div class="jp-Cell-inputWrapper" tabindex="0">
@@ -7560,7 +7661,7 @@ slope_raster.plot(title="Slope of the interpolated gauge surface")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f1b4a1b2cf0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5ab79a6cf0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7593,6 +7694,21 @@ would hold <code>(input, error)</code> pairs under the default skip policy (none
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="a-raster-pipeline-on-a-real-dem">A raster pipeline on a real DEM<a class="anchor-link" href="#a-raster-pipeline-on-a-real-dem">¶</a></h2><p>Now a <code>Dataset</code>-only chain on a real elevation model (the Rhine 5 km DEM). First, load and look at the DEM.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-6">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — load a real DEM:</strong></p>
+<ul>
+<li>Read the filled Rhine DEM into a <code>Dataset</code>.</li>
+<li>Plot it as the starting raster for the terrain pipeline.</li>
+</ul>
 </div>
 </div>
 </div>
@@ -7631,7 +7747,7 @@ dem.plot(title="Rhine DEM (filled)")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f1b49fc0910&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5ab77b8910&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7652,6 +7768,25 @@ dem.plot(title="Rhine DEM (filled)")</div>
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p>A two-step terrain pipeline: smooth the DEM with a 3x3 mean (<code>focal_mean</code>), then compute <code>hillshade</code>. Each
 step is one idea; the chain reads top to bottom.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-7">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — a raster terrain pipeline:</strong></p>
+<ul>
+<li>Build a two-step <code>Pipeline</code>:<ul>
+<li><code>focal_mean</code> (radius 1) — smooth the DEM with a 3×3 moving average.</li>
+<li><code>hillshade</code> — compute shaded relief (sun at azimuth 315°, altitude 45°).</li>
+</ul>
+</li>
+<li>Run it on the DEM and plot the hillshade in grayscale.</li>
+</ul>
 </div>
 </div>
 </div>
@@ -7702,7 +7837,7 @@ hillshaded.plot(title="Hillshade of the smoothed DEM", cmap="gray")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f1b49e33b10&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5ab7627b10&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7735,6 +7870,21 @@ that is the point of describing the workflow as <em>data</em> rather than hand-w
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="serialize-a-pipeline-the-portable-model">Serialize a pipeline (the portable "model")<a class="anchor-link" href="#serialize-a-pipeline-the-portable-model">¶</a></h2><p><code>to_yaml</code> writes the pipeline to a small, version-controllable file; <code>from_yaml</code> loads it back. Only
 serialization-safe (scalar) parameters are allowed — <code>to_yaml</code> refuses to write anything it could not load back.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-8">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — serialize the pipeline:</strong></p>
+<ul>
+<li>Save the <code>terrain</code> pipeline to a portable YAML "model" file with <code>to_yaml</code>.</li>
+<li>Print the YAML so you can see the serialized <code>(tool, params)</code> steps.</li>
+</ul>
 </div>
 </div>
 </div>
@@ -7801,6 +7951,21 @@ print(yaml_path.read_text())</div>
 </div>
 </div>
 </div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-9">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — load it back:</strong></p>
+<ul>
+<li>Reconstruct the pipeline from the YAML file with <code>from_yaml</code> (re-validated against the registry).</li>
+<li>Confirm the reloaded pipeline equals the original — it round-trips exactly.</li>
+</ul>
+</div>
+</div>
+</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=de2cfbfd">
 <div class="jp-Cell-inputWrapper" tabindex="0">
@@ -7854,6 +8019,20 @@ clean.</p>
 </div>
 </div>
 </div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-10">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — cleanup:</strong></p>
+<ul>
+<li>Delete the scratch <code>terrain.yaml</code> file (demo housekeeping only).</li>
+</ul>
+</div>
+</div>
+</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
 <div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=0ea8ccad">
 <div class="jp-Cell-inputWrapper" tabindex="0">
@@ -7891,6 +8070,22 @@ clean.</p>
 <h2 id="batch-over-many-inputs">Batch over many inputs<a class="anchor-link" href="#batch-over-many-inputs">¶</a></h2><p><code>run</code> accepts a single object, a <code>DatasetCollection</code>, or a <strong>glob</strong> of files. Here we smooth every raster in a
 folder in one call. The <code>on_error</code> policy is <code>"skip"</code> by default — failures are collected in <code>result.failures</code>
 and the batch keeps going; use <code>"raise"</code> to fail fast.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-11">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — batch over many rasters:</strong></p>
+<ul>
+<li>Define a one-step smoothing pipeline (<code>focal_mean</code>, radius 2).</li>
+<li>Run it as a <strong>batch</strong> over a folder of rasters (a <code>*.tif</code> glob).</li>
+<li>Report how many outputs succeeded and how many failed.</li>
+</ul>
 </div>
 </div>
 </div>
@@ -7948,6 +8143,20 @@ len(batch.outputs), len(batch.failures)</div>
 </div>
 </div>
 </div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-12">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — inspect a batch result:</strong></p>
+<ul>
+<li>Plot the first smoothed tile from the batch.</li>
+</ul>
+</div>
+</div>
+</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=904c1cae">
 <div class="jp-Cell-inputWrapper" tabindex="0">
@@ -7981,7 +8190,7 @@ len(batch.outputs), len(batch.failures)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f1b49f2dcd0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5ab7725cd0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -8002,6 +8211,21 @@ len(batch.outputs), len(batch.failures)</div>
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="vector-tools">Vector tools<a class="anchor-link" href="#vector-tools">¶</a></h2><p>The vector receiver has its own tools. <code>voronoi</code> builds Thiessen polygons around the gauge points; <code>quadtree</code>
 adaptively bins them. Both take a <code>FeatureCollection</code> and return one.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-13">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — a vector tool:</strong></p>
+<ul>
+<li>Run a one-step <code>voronoi</code> pipeline on the gauge points to build Thiessen polygons.</li>
+<li>Plot the polygons (outlines only).</li>
+</ul>
 </div>
 </div>
 </div>
@@ -8073,6 +8297,21 @@ areal coverage.</p>
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="provenance">Provenance<a class="anchor-link" href="#provenance">¶</a></h2><p>Every run records, per step, the tool, its params, and the wall-clock time — and can re-emit the exact pipeline
 that produced an output (reproducibility).</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-14">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — read the provenance:</strong></p>
+<ul>
+<li>Take the provenance record from the earlier quickstart run.</li>
+<li>Show each step's tool, params, and wall-clock time as a table.</li>
+</ul>
 </div>
 </div>
 </div>
@@ -8149,13 +8388,13 @@ pd.DataFrame(
 <th>0</th>
 <td>interpolate_to_raster</td>
 <td>{'column': 'y', 'cell_size': 2000.0}</td>
-<td>0.0143</td>
+<td>0.0115</td>
 </tr>
 <tr>
 <th>1</th>
 <td>slope</td>
 <td>{}</td>
-<td>0.0013</td>
+<td>0.0011</td>
 </tr>
 </tbody>
 </table>
@@ -8174,6 +8413,21 @@ pd.DataFrame(
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p><code>prov.to_pipeline()</code> returns a <code>Pipeline</code> equal to the one we ran, so a result's recipe can be replayed or
 saved:</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=expl-15">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><strong>This cell — provenance round-trips to a pipeline:</strong></p>
+<ul>
+<li>Rebuild a <code>Pipeline</code> from the provenance and confirm it equals the one we ran — the record faithfully
+captures the recipe that produced the output.</li>
+</ul>
 </div>
 </div>
 </div>
