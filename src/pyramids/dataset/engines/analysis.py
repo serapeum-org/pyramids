@@ -29,6 +29,7 @@ from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
     from cleopatra.array_glyph import ArrayGlyph
+    from cleopatra.geo import Basemap
 
     from pyramids.dataset.dataset import Dataset
 
@@ -1946,7 +1947,7 @@ class Analysis(_Engine["Dataset"]):
         overview: bool | None = False,
         overview_index: int | None = 0,
         percentile: int | None = None,
-        basemap: bool | str | None = None,
+        basemap: bool | str | dict[str, Any] | Basemap | None = None,
         **kwargs: Any,
     ) -> ArrayGlyph:
         """Plot the values/overviews of a given band.
@@ -2028,8 +2029,8 @@ class Analysis(_Engine["Dataset"]):
                 | `num_size`                  | int, optional       | Size of numbers plotted on top of each cell. Default is `8`. |
                 | `background_color_threshold`| float or int, optional | Threshold for deciding text color over cells: if value > threshold -> black text; else white text. If `None`, max value / 2 is used. Default is `None`. |
                 | `add_colorbar`              | bool, optional      | Whether to draw the colour bar. Default is `True`. When `False`, no colorbar is created and the returned glyph's `cbar` is `None`. |
-                | `colorbar`                  | bool \\| ColorBar, optional | cleopatra >= 0.27 colour-bar spec. Pass a `pyramids.plot.ColorBar(location=..., inside=..., label_color=..., tick_color=...)` to place/style the bar, `False` to hide it, or `None` for the default. |
-                | `full_bleed`                | bool \\| str, optional | cleopatra >= 0.27 chrome-free layout — drop the axes/margins so the array fills the figure. Default is `False`. |
+                | `colorbar`                  | bool \\| ColorBar, optional | cleopatra >= 0.27 colour-bar spec (`pyramids.plot.ColorBar`); `False` hides it, `None` uses the default. |
+                | `full_bleed`                | bool \\| str, optional | cleopatra >= 0.27 chrome-free layout: drop axes/margins so the array fills the figure. Default `False`. |
         Returns:
             ArrayGlyph:
                 A cleopatra ``ArrayGlyph`` wrapping the rendered figure. The underlying matplotlib
