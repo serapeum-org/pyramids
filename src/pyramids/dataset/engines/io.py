@@ -3073,8 +3073,9 @@ class IO(_Engine["Dataset"]):
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or
                 transport failure is not relabelled as an access-mode error. GDAL's own
-                error is re-raised carrying a note that names the band and level it
-                stopped on; a failing status that raised nothing is turned into one.
+                error is re-raised carrying a note that names the band it stopped on — a
+                band's levels regenerate in one call, so no level is named; a failing
+                status that raised nothing is turned into one.
 
         Warns:
             UserWarning:
@@ -3132,12 +3133,15 @@ class IO(_Engine["Dataset"]):
 
         Split out of :meth:`recreate_overviews` so the empty-count reporting reads as one
         decision. All of a band's levels go to GDAL in a single
-        `gdal.RegenerateOverviews` call, which reads the full-resolution band **once**
-        and fills every level from that pass; regenerating them one at a time re-read the
-        source per level. Each call is preceded by `gdal.ErrorReset()` so the CPL error
-        number inspected on failure belongs to *this* regeneration and not to something
-        earlier in the process. Overviews are rewritten in place, so a failure part-way
-        through leaves the earlier bands already regenerated.
+        `gdal.RegenerateOverviews` call, which reads the full-resolution band **once** for
+        the whole batch; regenerating them one at a time re-read the source per level.
+        GDAL then fills each deeper level by decimating the level above rather than the
+        source, so wherever those two disagree — a no-data gap, or a kernel wider than the
+        decimation window such as `cubic` — a deep level ends up holding different values
+        than the per-level loop wrote. Each call is preceded by `gdal.ErrorReset()` so the
+        CPL error number inspected on failure belongs to *this* regeneration and not to
+        something earlier in the process. Overviews are rewritten in place, so a failure
+        part-way through leaves the earlier bands already regenerated.
 
         Args:
             overview_count: Per-band overview counts, snapshotted by the caller.

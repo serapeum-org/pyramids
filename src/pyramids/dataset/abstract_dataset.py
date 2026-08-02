@@ -1508,8 +1508,8 @@ class RasterBase(ABC):
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or transport failure
                 is not relabelled as an access-mode error. GDAL's own error is re-raised carrying a note
-                that names the band and level it stopped on; a failing status that raised nothing is turned
-                into one.
+                that names the band it stopped on — a band's levels regenerate in one call, so no level is
+                named; a failing status that raised nothing is turned into one.
 
         Warns:
             UserWarning:
