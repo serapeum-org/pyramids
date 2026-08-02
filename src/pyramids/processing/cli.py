@@ -26,9 +26,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         parallel=args.parallel,
         max_workers=args.max_workers,
     )
-    print(
-        f"processed {len(result.outputs)} input(s); {len(result.failures)} failure(s)"
-    )
+    print(f"{len(result.outputs)} succeeded, {len(result.failures)} failed")
     for source, exc in result.failures:
         print(f"  FAILED {source}: {exc}")
     return 0 if result.ok else 1
