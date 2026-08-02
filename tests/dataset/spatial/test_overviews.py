@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.base._errors import ReadOnlyError
+from pyramids.base._errors import OverviewTargetError, ReadOnlyError
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
 from pyramids.netcdf import NetCDF
@@ -186,7 +186,7 @@ class TestCreateOverviewsPathlessGuard:
             level = dataset.get_overview_dataset(overview_index=0)
             assert level.driver_type == "vrt", "precondition: the level is a VRT"
             before = list(level.overview_count)
-            with pytest.raises(ValueError, match="nowhere to go"):
+            with pytest.raises(OverviewTargetError, match="nowhere to go"):
                 level.create_overviews(overview_levels=[2])
             assert level.overview_count == before, (
                 f"the refusal must not drop the levels, {before} -> {level.overview_count}"
@@ -290,6 +290,38 @@ class TestCreateOverviewsPathlessGuard:
             view.close()
             backed.close()
 
+    def test_the_refusal_is_distinguishable_from_an_argument_error(
+        self, tmp_path, monkeypatch
+    ):
+        """The refusal is its own type, but is still caught as a `ValueError`.
+
+        Test scenario:
+            An argument error is worth retrying with different arguments; this one is a
+            property of the dataset — expected: `OverviewTargetError` for the dataset, a
+            bare `ValueError` for a bad level, and the former still caught by a handler
+            written for the latter.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "distinct_src.tif")
+        dataset = Dataset.read_file(source)
+        level = None
+        try:
+            level = dataset.get_overview_dataset(overview_index=0)
+            with pytest.raises(OverviewTargetError):
+                level.create_overviews(overview_levels=[2])
+            assert isinstance(OverviewTargetError("x"), ValueError), (
+                "existing `except ValueError` handlers must keep working"
+            )
+            with pytest.raises(ValueError) as excinfo:
+                dataset.create_overviews(overview_levels=[3])
+            assert not isinstance(excinfo.value, OverviewTargetError), (
+                "a bad level is an argument error, not an unusable target"
+            )
+        finally:
+            if level is not None:
+                level.close()
+            dataset.close()
+
     def test_vsimem_vrt_still_builds_overviews(self, tmp_path, monkeypatch):
         """A `/vsimem/` VRT has a real path, so it names its sidecar after it.
 
@@ -333,7 +365,7 @@ class TestCreateOverviewsPathlessGuard:
         level = None
         try:
             level = dataset.get_overview_dataset(overview_index=0)
-            with pytest.raises(ValueError, match="nowhere to go") as excinfo:
+            with pytest.raises(OverviewTargetError, match="nowhere to go") as excinfo:
                 level.recreate_overviews()
             assert not isinstance(excinfo.value, ReadOnlyError), (
                 "the access mode is not the blocker; a pathless handle cannot be reopened"
@@ -375,7 +407,7 @@ class TestCreateOverviewsPathlessGuard:
             assert view.raster.GetDriver().ShortName == "VRT", (
                 "precondition: the index-space view is VRT-wrapped"
             )
-            with pytest.raises(ValueError, match="nowhere to go"):
+            with pytest.raises(OverviewTargetError, match="nowhere to go"):
                 view.create_overviews(overview_levels=[2])
             assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
         finally:
@@ -400,7 +432,7 @@ class TestCreateOverviewsPathlessGuard:
             assert dataset.raster.GetDescription().startswith("<"), (
                 "precondition: the description is the XML document"
             )
-            with pytest.raises(ValueError, match="nowhere to go"):
+            with pytest.raises(OverviewTargetError, match="nowhere to go"):
                 dataset.create_overviews(overview_levels=[2])
         finally:
             dataset.close()
@@ -488,7 +520,7 @@ class TestCreateOverviewsPathlessGuard:
             assert 'subClass="VRTWarpedDataset"' in xml, (
                 "precondition: the warped source is serialised inside the document"
             )
-            with pytest.raises(ValueError, match="nowhere to go"):
+            with pytest.raises(OverviewTargetError, match="nowhere to go"):
                 wrapper.create_overviews(overview_levels=[2])
             assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
         finally:
@@ -514,7 +546,7 @@ class TestCreateOverviewsPathlessGuard:
             assert level.raster.GetDescription() == "   ", (
                 "precondition: the description holds blanks, not a path"
             )
-            with pytest.raises(ValueError, match="nowhere to go"):
+            with pytest.raises(OverviewTargetError, match="nowhere to go"):
                 level.create_overviews(overview_levels=[2])
             assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
         finally:
@@ -588,7 +620,7 @@ class TestCreateOverviewsPathlessGuard:
         level = None
         try:
             level = dataset.get_overview_dataset(overview_index=0)
-            with pytest.raises(ValueError, match="nowhere to go"):
+            with pytest.raises(OverviewTargetError, match="nowhere to go"):
                 level.create_overviews(**kwargs)
             assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
         finally:

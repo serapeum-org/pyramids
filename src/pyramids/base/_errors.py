@@ -61,6 +61,27 @@ class OutOfBoundsError(_PyramidsError):
     """Out-of-bounds error."""
 
 
+class OverviewTargetError(_PyramidsError, ValueError):
+    """The dataset has nowhere to store the overviews it was asked to build.
+
+    Raised by `Dataset.create_overviews` and `Dataset.recreate_overviews` when the handle
+    is a plain VRT whose description is not a path. A plain VRT owns no pixel storage, so
+    GDAL can only write the levels to an external `.ovr` sidecar named after that
+    description — with nothing usable to name it after, the levels would be stranded.
+
+    Subclasses `ValueError`, which both methods already raise for bad arguments, so
+    existing `except ValueError` handlers keep working. Catch this instead to tell the two
+    apart: a bad argument is worth retrying with different arguments, whereas this one is
+    a property of the dataset and needs `to_file(path)` first::
+
+        try:
+            dataset.create_overviews(overview_levels=levels)
+        except OverviewTargetError:
+            dataset = Dataset.read_file(dataset.to_file(path), read_only=False)
+            dataset.create_overviews(overview_levels=levels)
+    """
+
+
 class FeatureError(_PyramidsError):
     """Base class for errors raised from :mod:`pyramids.feature`.
 

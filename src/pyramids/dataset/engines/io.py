@@ -31,7 +31,12 @@ from pyproj import CRS
 
 from pyramids._io import new_vsimem_path, read_vsi_bytes
 from pyramids.base._domain import is_no_data
-from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
+from pyramids.base._errors import (
+    FailedToSaveError,
+    OutOfBoundsError,
+    OverviewTargetError,
+    ReadOnlyError,
+)
 from pyramids.base._file_manager import (
     CachingFileManager,
     ThreadLocalFileManager,
@@ -3025,13 +3030,16 @@ class IO(_Engine["Dataset"]):
             TypeError:
                 `overview_levels` is not a list.
             ValueError:
-                `overview_levels` holds a factor outside the supported set,
-                `resampling_method` is not one of the allowed values, or the dataset is a
-                plain VRT whose description is not a path — an empty one, a blank one, or
-                inline VRT XML. A plain VRT owns no pixel storage, so its overviews can only go to an
-                external sidecar, and there is nothing to name one after; save it with
-                `to_file(path)` and build the levels on the saved raster. A *warped* VRT
-                is exempt: it holds its overviews in RAM.
+                `overview_levels` holds a factor outside the supported set, or
+                `resampling_method` is not one of the allowed values.
+            OverviewTargetError:
+                The dataset is a plain VRT whose description is not a path — an empty one,
+                a blank one, or inline VRT XML. A plain VRT owns no pixel storage, so its
+                overviews can only go to an external sidecar, and there is nothing to name
+                one after; save it with `to_file(path)` and build the levels on the saved
+                raster. A *warped* VRT is exempt: it holds its overviews in RAM.
+                Subclasses `ValueError`, so a handler for the argument errors above still
+                catches it.
             RuntimeError:
                 GDAL failed to build the levels.
 
@@ -3088,7 +3096,7 @@ class IO(_Engine["Dataset"]):
         # This one is about the dataset, not the call, so no argument can make it
         # succeed. Check it first, or a typo'd argument masks the real blocker.
         if self._has_nowhere_for_an_overview_sidecar():
-            raise ValueError(
+            raise OverviewTargetError(
                 "This dataset is a plain VRT whose description is not a path, so its "
                 "overviews have nowhere to go: GDAL names the sidecar after the "
                 "description, so the levels would be stranded outside the dataset. "
@@ -3150,10 +3158,12 @@ class IO(_Engine["Dataset"]):
 
         Raises:
             ValueError:
-                If resampling_method is not one of the allowed values above, or if the
-                dataset is a plain VRT whose description is not a path — there is nothing
-                to name an external sidecar after, so the levels have nowhere to go. Save
-                it with `to_file(path)` and regenerate on the saved raster.
+                If resampling_method is not one of the allowed values above.
+            OverviewTargetError:
+                If the dataset is a plain VRT whose description is not a path — there is
+                nothing to name an external sidecar after, so the levels have nowhere to
+                go. Save it with `to_file(path)` and regenerate on the saved raster.
+                Subclasses `ValueError`.
             ReadOnlyError:
                 If GDAL refuses the rewrite because the overviews it targets are opened
                 read-only. Read with read_only=False.
@@ -3182,7 +3192,7 @@ class IO(_Engine["Dataset"]):
         # access-mode problem -- advising a reopen with `read_only=False` that a handle
         # with no path cannot perform.
         if self._has_nowhere_for_an_overview_sidecar():
-            raise ValueError(
+            raise OverviewTargetError(
                 "This dataset is a plain VRT whose description is not a path, so its "
                 "overviews have nowhere to go: GDAL names the sidecar after the "
                 f"description. Description: {self._ds.raster.GetDescription()[:80]!r}. "

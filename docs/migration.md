@@ -147,8 +147,12 @@ There is no way to get the old per-level values back: no API rebuilds a deep lev
 more. If your pipeline depends on them, rebuild the levels you need yourself from
 `Dataset.read_array()` and write them out.
 
-**`create_overviews` now refuses a plain VRT whose description is not a path.** It raises `ValueError` instead of
-returning normally. A plain VRT owns no pixel storage, so GDAL can only write its overviews to an external `.ovr`
+**`create_overviews` now refuses a plain VRT whose description is not a path.** It raises `OverviewTargetError`
+instead of returning normally. That is a new exception in `pyramids.base._errors` which subclasses `ValueError`,
+so an existing `except ValueError` around the call keeps catching it — catch the new type to tell "this dataset
+can never work" apart from "these arguments were wrong". `recreate_overviews` raises it for the same shape, where
+it previously reported a misleading `ReadOnlyError` advising a reopen that a handle with no path cannot perform.
+A plain VRT owns no pixel storage, so GDAL can only write its overviews to an external `.ovr`
 sidecar named after the dataset description — and when that description is not a path, the sidecar landed as a
 file called literally `.ovr` in the process's working directory, attached to nothing, while the levels the handle
 was already exposing were dropped. The call reported success and silently did neither thing it promised.

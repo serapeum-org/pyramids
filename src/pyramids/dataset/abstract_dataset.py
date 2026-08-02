@@ -1479,11 +1479,13 @@ class RasterBase(ABC):
             TypeError:
                 `overview_levels` is not a list.
             ValueError:
-                `overview_levels` holds a factor outside the supported set, `resampling_method` is not one of the
-                allowed values, or the dataset is a plain VRT whose description is not a path — an empty one, a
-                blank one, or inline VRT XML. A plain VRT owns no pixel storage, so its overviews can only go to
-                an external sidecar, and there is nothing to name one after; save it with `to_file(path)` and
-                build the levels on the saved raster. A *warped* VRT is exempt: it holds its overviews in RAM.
+                `overview_levels` holds a factor outside the supported set, or `resampling_method` is not one of
+                the allowed values.
+            OverviewTargetError:
+                The dataset is a plain VRT whose description is not a path — an empty one, a blank one, or inline
+                VRT XML. A plain VRT owns no pixel storage, so its overviews can only go to an external sidecar,
+                and there is nothing to name one after; save it with `to_file(path)` and build the levels on the
+                saved raster. A *warped* VRT is exempt: it holds its overviews in RAM. Subclasses `ValueError`.
             RuntimeError:
                 GDAL failed to build the levels.
 
