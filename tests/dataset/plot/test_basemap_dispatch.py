@@ -95,12 +95,13 @@ class TestBasemapDispatch:
     def test_cleopatra_basemap_on_facet_raises(self):
         """A `Basemap` on the faceted path raises a clear error (facet has none)."""
         stack = np.random.default_rng(1).random((3, 6, 6)).astype("float32")
+        basemap = Basemap(relief=False)
         with pytest.raises(ValueError, match="faceted plot path"):
             render_array(
                 arr=stack,
                 mode="facet",
                 facet_kwargs={"col": "time", "col_coords": [0, 1, 2]},
-                basemap=Basemap(relief=False),
+                basemap=basemap,
                 basemap_epsg=4326,
                 extent=[0.0, 0.0, 1.0, 1.0],
             )

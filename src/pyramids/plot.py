@@ -42,12 +42,15 @@ if TYPE_CHECKING:  # names for static type checkers / IDEs; resolved lazily at r
     )
     from cleopatra.geo import Basemap, Feature  # noqa: F401
 
+_ARRAY_GLYPH = "cleopatra.array_glyph"
+_GEO = "cleopatra.geo"
+
 _CLEO_EXPORTS: dict[str, tuple[str, str]] = {
-    "ColorBar": ("cleopatra.array_glyph", "ColorBar"),
-    "FrameLabel": ("cleopatra.array_glyph", "FrameLabel"),
-    "PointOverlay": ("cleopatra.array_glyph", "PointOverlay"),
-    "Basemap": ("cleopatra.geo", "Basemap"),
-    "Feature": ("cleopatra.geo", "Feature"),
+    "ColorBar": (_ARRAY_GLYPH, "ColorBar"),
+    "FrameLabel": (_ARRAY_GLYPH, "FrameLabel"),
+    "PointOverlay": (_ARRAY_GLYPH, "PointOverlay"),
+    "Basemap": (_GEO, "Basemap"),
+    "Feature": (_GEO, "Feature"),
 }
 
 __all__ = sorted(_CLEO_EXPORTS)
