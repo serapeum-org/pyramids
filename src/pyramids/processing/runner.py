@@ -51,6 +51,7 @@ class RunResult:
     provenance: list[Provenance] = field(default_factory=list)
 
     def __len__(self) -> int:
+        """The number of successful outputs (failures are counted separately)."""
         return len(self.outputs)
 
     @property
