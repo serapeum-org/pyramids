@@ -296,7 +296,9 @@ def run(
     Args:
         pipeline: The :class:`Pipeline` to apply to each input.
         inputs: A single path/object, a glob string, a list/tuple of those, or a
-            ``DatasetCollection``.
+            ``DatasetCollection``. A string containing glob metacharacters
+            (``*``/``?``/``[``) is expanded as a glob — to open a literal path that
+            contains those characters, pass it inside a list.
         on_error: ``"skip"`` collects ``(source, exception)`` failures and
             continues; ``"raise"`` fails fast on the first error.
         out: Optional output directory; when given, each successful output is
@@ -335,6 +337,7 @@ def run(
     if not items:
         raise ValueError("no inputs to process (the resolved input set is empty)")
     if parallel:
+        assert out is not None  # guarded above; narrows str | None -> str for typing
         result = _execute_parallel(pipeline, items, on_error, out, max_workers)
     else:
         result = _execute_serial(pipeline, items, on_error, out)
