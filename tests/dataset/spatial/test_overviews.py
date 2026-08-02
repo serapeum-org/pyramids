@@ -306,7 +306,7 @@ class TestRecreateOverviewsContract:
             `gdal.UseExceptions()` is process-global, so a caller that turned it off
             leaves `RegenerateOverviews` *returning* `CE_Failure` instead of raising.
             Patch it to do exactly that on a writable dataset that does have overviews
-            — expected: a `RuntimeError` naming the band and level, since the
+            — expected: a `RuntimeError` naming the band, since the
             try/except alone would let this through as the silent no-op the method
             exists to remove.
         """
@@ -335,7 +335,7 @@ class TestRecreateOverviewsContract:
 
         Test scenario:
             An unrelated `RuntimeError` is raised from `gdal.RegenerateOverviews` and
-            re-raised unchanged — expected: `__notes__` names the band and level and
+            re-raised unchanged — expected: `__notes__` names the band and warns that
             says earlier bands may already have been rewritten, because the loop
             rewrites in place and leaves the dataset half-regenerated.
         """
@@ -611,6 +611,9 @@ class TestRecreateOverviewsBatching:
             overviews respectively. Every other fixture gives both bands the same count,
             so indexing the snapshot by the wrong band survives them unnoticed.
         """
+        # The <Overview> entries below alias the full-resolution band: this test
+        # monkeypatches RegenerateOverviews, so nothing ever reads their pixels -- only
+        # the per-band *count* the engine snapshots matters here.
         sources = []
         for name, levels in (("two.tif", [2, 4]), ("one.tif", [2])):
             path = str(tmp_path / name)
@@ -663,6 +666,67 @@ class TestRecreateOverviewsBatching:
         finally:
             dataset.close()
 
+    def test_read_only_refusal_on_a_multi_level_batch(self, tmp_path):
+        """A read-only refusal is still classified when the batch carries many levels.
+
+        Test scenario:
+            The unmocked read-only path is otherwise only exercised on a single-level
+            fixture, so nothing showed that the wider single call still yields a
+            `CPLE_NoWriteAccess` GDAL can be asked about — expected: `ReadOnlyError`
+            naming the band, with the original chained.
+        """
+        values = np.arange(4096, dtype="float32").reshape(64, 64)
+        path = _raster_with_overviews(tmp_path, "ro_batch.tif", [values], [2, 4, 8])
+        dataset = Dataset.read_file(path, read_only=True)
+        try:
+            assert dataset.overview_count == [3], (
+                f"fixture must carry three levels, got {dataset.overview_count}"
+            )
+            with pytest.raises(ReadOnlyError, match="overviews of band 0") as excinfo:
+                dataset.recreate_overviews(resampling_method="average")
+            assert isinstance(excinfo.value.__cause__, RuntimeError), (
+                "the original GDAL error must stay chained"
+            )
+        finally:
+            dataset.close()
+
+    def test_create_overviews_cascades_the_same_way(self, tmp_path):
+        """`create_overviews` produces the same deep level, which is what makes the
+        cascade defensible.
+
+        Test scenario:
+            Build the levels from scratch and regenerate them on a copy of the same
+            raster — expected: identical level 1. The justification for accepting the
+            behaviour change is that `BuildOverviews` already cascades, so
+            `recreate_overviews` now agrees with how the levels were built; nothing
+            asserted that, leaving the argument resting on prose.
+        """
+        values = np.arange(64, dtype="float32").reshape(8, 8)
+        values[0, 0] = -9999.0
+        built = _raster_with_overviews(
+            tmp_path, "built.tif", [values], [2, 4], no_data_value=-9999.0
+        )
+        regenerated = _raster_with_overviews(
+            tmp_path, "regenerated.tif", [values], [2, 4], no_data_value=-9999.0
+        )
+
+        dataset = Dataset.read_file(regenerated, read_only=False)
+        try:
+            dataset.recreate_overviews(resampling_method="average")
+            after = np.asarray(dataset.get_overview(0, 1).ReadAsArray())
+        finally:
+            dataset.close()
+        reference = Dataset.read_file(built)
+        try:
+            expected = np.asarray(reference.get_overview(0, 1).ReadAsArray())
+        finally:
+            reference.close()
+        np.testing.assert_allclose(
+            after,
+            expected,
+            err_msg="regenerating must land where create_overviews already builds",
+        )
+
     def test_a_deep_level_holds_the_cascaded_values(self, tmp_path):
         """A deeper level is decimated from the level above, not from the source.
 
@@ -675,17 +739,15 @@ class TestRecreateOverviewsBatching:
             it also makes recreate_overviews agree with how create_overviews built the
             levels in the first place.
         """
-        path = str(tmp_path / "cascade.tif")
-        raster = gdal.GetDriverByName("GTiff").Create(path, 8, 8, 1, gdal.GDT_Float32)
-        band = raster.GetRasterBand(1)
-        band.SetNoDataValue(-9999.0)
         values = np.arange(64, dtype="float32").reshape(8, 8)
         values[0, 0] = -9999.0
-        band.WriteArray(values)
-        raster = None
-        handle = gdal.Open(path, gdal.GA_Update)
-        handle.BuildOverviews("AVERAGE", [2, 4])
-        handle = None
+        path = _raster_with_overviews(
+            tmp_path,
+            "cascade.tif",
+            [values],
+            [2, 4],
+            no_data_value=-9999.0,
+        )
 
         dataset = Dataset.read_file(path, read_only=False)
         try:
