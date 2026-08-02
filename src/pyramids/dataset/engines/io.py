@@ -3318,12 +3318,18 @@ class IO(_Engine["Dataset"]):
                 overviews = [band.GetOverview(j) for j in range(overview_count[i])]
                 status = gdal.RegenerateOverviews(band, overviews, resampling_method)
             except RuntimeError as err:
+                # Classify FIRST. `_is_write_refusal` reads GDAL's process-global
+                # last-error number, and any GDAL call made in this handler resets it --
+                # `_is_warped_vrt` below serialises `xml:VRT`, which takes it from 8 to 0.
+                # Capturing the verdict here keeps the two checks independent of the
+                # order they are written in.
+                write_refused = self._is_write_refusal(err)
                 err.add_note(
                     f"Failed regenerating the overviews of band {i} (0-based); "
                     "earlier bands, and this band's earlier levels, may already have "
                     "been rewritten."
                 )
-                if self._is_write_refusal(err):
+                if write_refused:
                     # GDAL reports an unwritable VRTWarpedRasterBand with the same
                     # CPLE_NoWriteAccess it uses for a read-only dataset, so the number
                     # alone cannot tell them apart. Only one of the two is fixable by
@@ -3363,11 +3369,17 @@ class IO(_Engine["Dataset"]):
         kept only as a fallback for drivers that raise without setting the number —
         those phrases cannot occur incidentally in a path the way the bare token can.
 
+        **Call this before anything else in the handler.** The primary signal is GDAL's
+        process-global last-error number, and *any* GDAL call made after the failure
+        resets it — `GetMetadata("xml:VRT")` alone takes it from `CPLE_NoWriteAccess` to
+        `CPLE_None`. Once that happens this falls through to the message fallback and a
+        genuine read-only refusal is downgraded to a bare `RuntimeError`.
+
         Args:
             err: The error GDAL raised. Only its message is read, and only on the
                 fallback path; the primary signal is GDAL's process-global last-error
                 number, which the caller keeps meaningful by resetting it before each
-                regeneration.
+                regeneration and by classifying before calling back into GDAL.
 
         Returns:
             bool: True when the failure is GDAL refusing to write the overview target.

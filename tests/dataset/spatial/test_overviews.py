@@ -834,6 +834,33 @@ class TestCreateOverviewsPathlessGuard:
                 view.close()
             dataset.close()
 
+    def test_read_only_vrt_still_reports_the_access_mode(self, tmp_path, monkeypatch):
+        """A genuine access-mode refusal on a VRT still raises `ReadOnlyError`.
+
+        Test scenario:
+            The warped branch calls into GDAL, which resets the CPL error number the
+            classifier reads — so classifying after it would downgrade this to a bare
+            `RuntimeError`. A path-ful VRT with a sidecar, reopened read-only, is the
+            shape that catches that: a VRT, not warped, and genuinely read-only.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "ro_vrt_src.tif")
+        vrt_path = tmp_path / "ro_guard.vrt"
+        gdal.Translate(str(vrt_path), str(source), format="VRT").FlushCache()
+        writable = Dataset.read_file(str(vrt_path), read_only=False)
+        writable.create_overviews("average", overview_levels=[2])
+        writable.close()
+        dataset = Dataset.read_file(str(vrt_path), read_only=True)
+        try:
+            assert dataset.driver_type == "vrt", "precondition: the handle is a VRT"
+            assert all(count > 0 for count in dataset.overview_count), (
+                f"precondition: the sidecar levels are visible, {dataset.overview_count}"
+            )
+            with pytest.raises(ReadOnlyError, match="read-only"):
+                dataset.recreate_overviews("average")
+        finally:
+            dataset.close()
+
     @pytest.mark.parametrize("parent_read_only", [True, False], ids=["ro", "writable"])
     def test_recreate_on_a_warped_view_does_not_blame_the_access_mode(
         self, tmp_path, monkeypatch, parent_read_only
