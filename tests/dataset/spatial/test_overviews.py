@@ -40,6 +40,48 @@ def _overviewed_raster(tmp_path, name: str = "ovr_src.tif") -> str:
     return path
 
 
+def _raster_with_overviews(
+    tmp_path,
+    name: str,
+    bands: list[np.ndarray],
+    levels: list[int],
+    resampling: str = "AVERAGE",
+) -> str:
+    """Write a georeferenced raster holding ``bands`` and build ``levels`` overviews on it.
+
+    Complements :func:`_overviewed_raster` for the cases that need the band values, the
+    number of levels or the resampling method picked per test rather than fixed.
+    """
+    path = str(tmp_path / name)
+    rows, columns = bands[0].shape
+    raster = gdal.GetDriverByName("GTiff").Create(
+        path, columns, rows, len(bands), gdal.GDT_Float32
+    )
+    raster.SetGeoTransform((10.0, 0.5, 0.0, 80.0, 0.0, -0.5))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    raster.SetProjection(srs.ExportToWkt())
+    for index, values in enumerate(bands):
+        raster.GetRasterBand(index + 1).WriteArray(values)
+    raster = None
+
+    handle = gdal.Open(path, gdal.GA_Update)
+    handle.BuildOverviews(resampling, levels)
+    handle = None
+    return path
+
+
+def _block_mean(values: np.ndarray, factor: int) -> np.ndarray:
+    """Average ``values`` over non-overlapping ``factor`` by ``factor`` blocks."""
+    rows, columns = values.shape
+    averaged = (
+        values.astype("float64")
+        .reshape(rows // factor, factor, columns // factor, factor)
+        .mean(axis=(1, 3))
+    )
+    return averaged
+
+
 def _mixed_overview_vrt(tmp_path) -> str:
     """Build a 2-band VRT reporting ``overview_count == [1, 0]``.
 
@@ -468,6 +510,126 @@ class TestRecreateOverviewsContract:
             user_warnings = [w for w in recorded if issubclass(w.category, UserWarning)]
             assert not user_warnings, (
                 f"happy path should not warn, got {[str(w.message) for w in user_warnings]}"
+            )
+        finally:
+            dataset.close()
+
+
+class TestRecreateOverviewsBatching:
+    """A band's levels are regenerated in one GDAL pass, not one pass per level (#783).
+
+    `gdal.RegenerateOverviews` reads the full-resolution band once and fills every level
+    from that single pass; the singular call it replaced re-read the source per level.
+    """
+
+    def test_a_bands_levels_go_out_in_a_single_call(self, tmp_path, monkeypatch):
+        """Three bands carrying three levels produce three calls of three overviews each.
+
+        Test scenario:
+            Record every `gdal.RegenerateOverviews` call on a 3-band raster with levels
+            `[2, 4, 8]` — expected: one call per band, in band order, each handed all
+            three of that band's overviews. The per-level loop this replaced would make
+            nine one-overview calls, and batching every band together would make one.
+            Bands are told apart by their constant fill (band `i` holds `i + 1`), so a
+            call landing on the wrong band is caught as well.
+        """
+        constants = [np.full((64, 64), i + 1, dtype="float32") for i in range(3)]
+        path = _raster_with_overviews(tmp_path, "batched.tif", constants, [2, 4, 8])
+        dataset = Dataset.read_file(path, read_only=False)
+        try:
+            calls = []
+
+            def record(band, overviews, method):
+                fill = int(band.ReadAsArray(0, 0, 1, 1).item())
+                calls.append((fill, len(overviews), method))
+                return gdal.CE_None
+
+            monkeypatch.setattr(gdal, "RegenerateOverviews", record)
+            dataset.recreate_overviews(resampling_method="average")
+            expected = [(1, 3, "average"), (2, 3, "average"), (3, 3, "average")]
+            assert calls == expected, (
+                f"each band's three levels should go out in one call per band, got {calls}"
+            )
+        finally:
+            dataset.close()
+
+    def test_every_level_is_rewritten_from_its_own_band(self, tmp_path):
+        """Batched regeneration fills each level with that band's own averaged values.
+
+        Test scenario:
+            Build the levels with NEAREST over three different random grids, then
+            regenerate with AVERAGE — expected: levels 0 and 1 of every band become the
+            2x2 and 4x4 block means of *that* band's grid, which the nearest-neighbour
+            picks they started from are not. A batch that filled only the first level, or
+            crossed one band's source into another's overviews, would satisfy the
+            call-shape assertions above but not these values.
+        """
+        rng = np.random.default_rng(1337)
+        grids = [rng.random((64, 64)).astype("float32") for _ in range(3)]
+        path = _raster_with_overviews(tmp_path, "values.tif", grids, [2, 4], "NEAREST")
+        dataset = Dataset.read_file(path, read_only=False)
+        try:
+            before = dataset.read_overview_array(band=0, overview_index=0)
+            assert not np.allclose(before, _block_mean(grids[0], 2)), (
+                "the NEAREST-built level must start out different from the average, "
+                "otherwise regenerating it would prove nothing"
+            )
+            dataset.recreate_overviews(resampling_method="average")
+            for index, grid in enumerate(grids):
+                for level, factor in enumerate((2, 4)):
+                    actual = dataset.read_overview_array(
+                        band=index, overview_index=level
+                    )
+                    np.testing.assert_allclose(
+                        actual,
+                        _block_mean(grid, factor),
+                        rtol=1e-5,
+                        atol=1e-6,
+                        err_msg=(
+                            f"level {level} of band {index} should hold the "
+                            f"{factor}x{factor} block means of that band"
+                        ),
+                    )
+        finally:
+            dataset.close()
+
+    def test_deeper_levels_cascade_from_the_level_above(self, tmp_path):
+        """A deeper level is decimated from the level above, not from the source.
+
+        Test scenario:
+            `gdal.RegenerateOverviews` cascades: level 1 is built from level 0, whereas
+            the per-level call it replaced built every level from the full-resolution
+            band. On a raster carrying a no-data gap the two disagree — expected: level
+            1 matches the mean of level 0's cells, not the mean of the source window it
+            covers. This is the behaviour change #783 trades for the single read pass;
+            it also makes recreate_overviews agree with how create_overviews built the
+            levels in the first place.
+        """
+        path = str(tmp_path / "cascade.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 8, 8, 1, gdal.GDT_Float32)
+        band = raster.GetRasterBand(1)
+        band.SetNoDataValue(-9999.0)
+        values = np.arange(64, dtype="float32").reshape(8, 8)
+        values[0, 0] = -9999.0
+        band.WriteArray(values)
+        raster = None
+        handle = gdal.Open(path, gdal.GA_Update)
+        handle.BuildOverviews("AVERAGE", [2, 4])
+        handle = None
+
+        dataset = Dataset.read_file(path, read_only=False)
+        try:
+            dataset.recreate_overviews(resampling_method="average")
+            level_0 = np.asarray(dataset.get_overview(0, 0).ReadAsArray())
+            level_1 = np.asarray(dataset.get_overview(0, 1).ReadAsArray())
+            cascaded = float(level_0[:2, :2].mean())
+            assert float(level_1.ravel()[0]) == pytest.approx(cascaded, rel=1e-6), (
+                f"level 1 should decimate level 0 ({cascaded}), got {level_1.ravel()[0]}"
+            )
+            from_source = float(values[:4, :4][values[:4, :4] != -9999.0].mean())
+            assert float(level_1.ravel()[0]) != pytest.approx(from_source, rel=1e-6), (
+                "level 1 must no longer be computed from the source window; the "
+                "fixture's no-data gap is what makes the two differ"
             )
         finally:
             dataset.close()
