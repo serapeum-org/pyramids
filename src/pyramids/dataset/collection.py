@@ -2649,6 +2649,7 @@ class DatasetCollection:
                 percentile=percentile,
                 mode="animate",
                 animation_axis_values=axis_values,
+                basemap_epsg=self.base.epsg,
                 **kwargs,
             )
         data = np.stack([ds.read_array(band=band) for ds in self.datasets], axis=0)
@@ -2669,6 +2670,7 @@ class DatasetCollection:
             exclude_value=exclude_value,
             mode="animate",
             animation_axis_values=axis_values,
+            basemap_epsg=self.base.epsg,
             **kwargs,
         )
 
