@@ -1493,8 +1493,9 @@ class RasterBase(ABC):
             - External (.ovr file): if the dataset is read with `read_only=True` then the overviews' file is
               created in the same directory as the dataset, with the same name and an `.ovr` extension.
             - Internal: for a format that supports internal overviews, reading with `read_only=False` puts them
-              inside the dataset, which then needs to be saved/flushed to persist them to disk. A VRT has no
-              internal storage, so its levels go to an external sidecar in either access mode.
+              inside the dataset, which then needs to be saved/flushed to persist them to disk. A *plain* VRT has
+              no internal storage, so its levels go to an external sidecar in either access mode; a warped VRT
+              holds them in RAM and writes no sidecar at all.
         """
         pass
 
@@ -1548,8 +1549,10 @@ class RasterBase(ABC):
             UserWarning:
                 No band has overviews, so there is nothing to regenerate; or only some
                 bands have them, and the empty ones were skipped. Also when the dataset
-                has no bands at all. None of these fire on a handle that cannot hold
-                overviews at all — that raises `OverviewTargetError` first.
+                has no bands at all. None of these fire on a *plain* pathless VRT — that raises
+                `OverviewTargetError` first, since "call create_overviews() to build them" is advice it would
+                also refuse. A warped VRT with no levels still warps and still warns; its refusal only comes
+                from the regeneration attempt itself.
         """
         pass
 

@@ -36,6 +36,7 @@ ALL_ERRORS = [
     OptionalPackageDoesNotExist,
     FailedToSaveError,
     OutOfBoundsError,
+    OverviewTargetError,
 ]
 
 
@@ -86,7 +87,7 @@ class TestPyramidsErrorBase:
 
 
 class TestExceptionHierarchy:
-    """Tests for all 9 concrete exception classes."""
+    """Tests for all 10 concrete exception classes."""
 
     @pytest.mark.parametrize("exc_class", ALL_ERRORS, ids=lambda c: c.__name__)
     def test_str_returns_message(self, exc_class):

@@ -14,8 +14,7 @@ from osgeo import gdal, osr
 from pyramids.errors import OverviewTargetError, PyramidsError, ReadOnlyError
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
-from pyramids.netcdf import NetCDF
-from pyramids.netcdf.netcdf import Container
+from pyramids.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -589,7 +588,10 @@ class TestCreateOverviewsPathlessGuard:
             ([], True),
             (['<VRTDataset rasterXSize="8"'], True),
             (['<VRTDataset subClass="VRTWarpedDataset"'], True),
-            (['<?xml version="1.0"?><VRTDataset subClass="VRTWarpedDataset" x="1">'], False),
+            (
+                ['<?xml version="1.0"?><VRTDataset subClass="VRTWarpedDataset" x="1">'],
+                False,
+            ),
         ],
         ids=[
             "domain-absent",
@@ -798,7 +800,7 @@ class TestCreateOverviewsPathlessGuard:
         Test scenario:
             An inline-XML VRT is the one refused shape whose base array still writes —
             GDAL reopens it from its own description, where a description-less VRT fails
-            first in the dask read — so `_write_overview_levels` is reached and
+            first in `to_zarr`'s base-array write — so `_write_overview_levels` is reached and
             `create_overviews` refuses. Expected: `OverviewTargetError` out of `to_zarr`.
         """
         pytest.importorskip("zarr")
@@ -855,8 +857,10 @@ class TestCreateOverviewsPathlessGuard:
         vrt_path = tmp_path / "ro_guard.vrt"
         gdal.Translate(str(vrt_path), str(source), format="VRT").FlushCache()
         writable = Dataset.read_file(str(vrt_path), read_only=False)
-        writable.create_overviews("average", overview_levels=[2])
-        writable.close()
+        try:
+            writable.create_overviews("average", overview_levels=[2])
+        finally:
+            writable.close()
         dataset = Dataset.read_file(str(vrt_path), read_only=True)
         try:
             assert dataset.driver_type == "vrt", "precondition: the handle is a VRT"

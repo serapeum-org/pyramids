@@ -184,10 +184,12 @@ saved = Dataset.read_file("level.tif", read_only=False)
 saved.create_overviews(overview_levels=[2, 4])
 ```
 
-Unaffected **by the `create_overviews` refusal**, and covered by tests so they stay that way: **warped** VRTs —
-everything returned by `Dataset.to_crs(...)`, `Dataset.warped_view(...)`, `Dataset.crop(..., touch=False)` and
-the lazy `georeference` / `orthorectify` forms — keep their overviews in RAM and need no sidecar; a VRT with a
-real path (including under `/vsimem/`) names its sidecar after that path; and `MEM` rasters are not VRTs at all.
+Unaffected **by the `create_overviews` refusal**: **warped** VRTs keep their overviews in RAM and need no
+sidecar. These produce one — `Dataset.warped_view(...)`, `Dataset.to_crs(...)` in its warping form,
+`Dataset.crop(..., touch=False)`, and the lazy `georeference` / `orthorectify` forms. (`to_crs(...,
+maintain_alignment=True)` is a different path: it returns a `MEM` dataset, which is exempt for its own reason.)
+Tests cover `warped_view` and `to_crs`; the other three are exempt by the same root-element check. A VRT with a
+real path (including under `/vsimem/`) names its sidecar after that path, and `MEM` rasters are not VRTs at all.
 Warped VRTs are **not** exempt from the `recreate_overviews` refusal — see the next entry.
 
 **`recreate_overviews` on a warped VRT now raises `OverviewTargetError` instead of `ReadOnlyError`.** A warped

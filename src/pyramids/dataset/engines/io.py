@@ -2973,9 +2973,11 @@ class IO(_Engine["Dataset"]):
 
         Two VRT families are deliberately excluded because they are not affected:
 
-        - a *warped* VRT (`subClass="VRTWarpedDataset"`, produced by `to_crs`,
-          `warped_view`, `crop(..., touch=False)` and the lazy `georeference` /
-          `orthorectify` forms) keeps its overviews in RAM and needs no sidecar;
+        - a *warped* VRT (`subClass="VRTWarpedDataset"`, produced by `warped_view`, the
+          warping form of `to_crs`, `crop(..., touch=False)` and the lazy `georeference`
+          / `orthorectify` forms) keeps its overviews in RAM and needs no sidecar.
+          `to_crs(..., maintain_alignment=True)` takes a different path and returns a
+          `MEM` dataset, which is exempt as a non-VRT rather than as a warped one;
         - a VRT with a real path — including one under `/vsimem/` — names its sidecar
           after that path and writes it successfully.
 
@@ -3013,6 +3015,10 @@ class IO(_Engine["Dataset"]):
         `>`: a nested source may carry its own `<VRTDataset>` tag, and a leading XML
         declaration or comment would otherwise shift the slice off the root and report
         every warped VRT as plain.
+
+        The slice ends at the first `>` after `<VRTDataset`, which is the root start tag's
+        own terminator: GDAL's serialiser escapes `>` inside attribute values, and the
+        only root attributes it writes are the raster dimensions and `subClass`.
 
         A root element that cannot be isolated answers False — the exemption has to be
         proven, not assumed. That is fail-safe for `_has_nowhere_for_an_overview_sidecar`,
@@ -3099,8 +3105,9 @@ class IO(_Engine["Dataset"]):
             - External (.ovr file): if the dataset is read with `read_only=True` then the overviews file is created
               as an external .ovr file in the same directory as the dataset.
             - Internal: for a format that supports internal overviews, reading with `read_only=False` puts them
-              inside the dataset, which then needs to be saved/flushed to persist them to disk. A VRT has no
-              internal storage, so its levels go to an external sidecar in either access mode.
+              inside the dataset, which then needs to be saved/flushed to persist them to disk. A *plain* VRT has
+              no internal storage, so its levels go to an external sidecar in either access mode; a warped VRT
+              holds them in RAM and writes no sidecar at all.
             - You can check the count per band via the `overview_count` property.
         Examples:
             - Create a Dataset with 4 bands, 10 rows, 10 columns, at the point lon/lat (0, 0):

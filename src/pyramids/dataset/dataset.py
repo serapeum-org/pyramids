@@ -1684,7 +1684,7 @@ class Dataset(RasterBase):
                 are built through `create_overviews`, which refuses that shape. In
                 practice only an inline-XML VRT reaches this: GDAL can reopen it from
                 its own description, so the base array writes first, whereas a
-                description-less VRT fails earlier in the base read. Save the dataset
+                description-less VRT fails earlier in `to_zarr`'s base-array write. Save the dataset
                 with `to_file(path)` and write the Zarr from the saved raster.
         """
         resolved_chunks = chunks if chunks is not None else "auto"
