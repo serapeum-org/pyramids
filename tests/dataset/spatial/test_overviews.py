@@ -46,11 +46,13 @@ def _raster_with_overviews(
     bands: list[np.ndarray],
     levels: list[int],
     resampling: str = "AVERAGE",
+    no_data_value: float | None = None,
 ) -> str:
     """Write a georeferenced raster holding ``bands`` and build ``levels`` overviews on it.
 
     Complements :func:`_overviewed_raster` for the cases that need the band values, the
-    number of levels or the resampling method picked per test rather than fixed.
+    number of levels, the resampling method or a declared no-data value picked per test
+    rather than fixed.
     """
     path = str(tmp_path / name)
     rows, columns = bands[0].shape
@@ -62,7 +64,10 @@ def _raster_with_overviews(
     srs.ImportFromEPSG(4326)
     raster.SetProjection(srs.ExportToWkt())
     for index, values in enumerate(bands):
-        raster.GetRasterBand(index + 1).WriteArray(values)
+        band = raster.GetRasterBand(index + 1)
+        if no_data_value is not None:
+            band.SetNoDataValue(no_data_value)
+        band.WriteArray(values)
     raster = None
 
     handle = gdal.Open(path, gdal.GA_Update)
@@ -72,7 +77,11 @@ def _raster_with_overviews(
 
 
 def _block_mean(values: np.ndarray, factor: int) -> np.ndarray:
-    """Average ``values`` over non-overlapping ``factor`` by ``factor`` blocks."""
+    """Average ``values`` over non-overlapping ``factor`` by ``factor`` blocks.
+
+    Both dimensions of ``values`` must divide by ``factor``; the reshape below silently
+    misaligns the blocks otherwise, so callers pick power-of-two shapes.
+    """
     rows, columns = values.shape
     averaged = (
         values.astype("float64")
@@ -593,7 +602,68 @@ class TestRecreateOverviewsBatching:
         finally:
             dataset.close()
 
-    def test_deeper_levels_cascade_from_the_level_above(self, tmp_path):
+    def test_each_band_is_batched_with_its_own_level_count(self, tmp_path, monkeypatch):
+        """A band with fewer levels than its neighbour is batched with its own count.
+
+        Test scenario:
+            Two bands whose non-zero level counts differ — band 0 carries two levels and
+            band 1 one, via a per-band `<Overview>` VRT — expected: calls of 2 and 1
+            overviews respectively. Every other fixture gives both bands the same count,
+            so indexing the snapshot by the wrong band survives them unnoticed.
+        """
+        sources = []
+        for name, levels in (("two.tif", [2, 4]), ("one.tif", [2])):
+            path = str(tmp_path / name)
+            raster = gdal.GetDriverByName("GTiff").Create(
+                path, 16, 16, 1, gdal.GDT_Float32
+            )
+            raster.GetRasterBand(1).WriteArray(
+                np.arange(256, dtype="float32").reshape(16, 16)
+            )
+            raster = None
+            handle = gdal.Open(path, gdal.GA_Update)
+            handle.BuildOverviews("AVERAGE", levels)
+            handle = None
+            sources.append(path)
+
+        vrt = tmp_path / "uneven.vrt"
+        vrt.write_text(
+            f'<VRTDataset rasterXSize="16" rasterYSize="16">'
+            + "".join(
+                f'<VRTRasterBand dataType="Float32" band="{position + 1}">'
+                f'<SimpleSource><SourceFilename relativeToVRT="0">{source}'
+                f"</SourceFilename><SourceBand>1</SourceBand></SimpleSource>"
+                + "".join(
+                    f'<Overview><SourceFilename relativeToVRT="0">{source}'
+                    f"</SourceFilename><SourceBand>1</SourceBand></Overview>"
+                    for _ in range(count)
+                )
+                + "</VRTRasterBand>"
+                for position, (source, count) in enumerate(zip(sources, (2, 1)))
+            )
+            + "</VRTDataset>"
+        )
+        dataset = Dataset.read_file(str(vrt), read_only=True)
+        try:
+            assert dataset.overview_count == [2, 1], (
+                f"fixture must give the bands different counts, got {dataset.overview_count}"
+            )
+            batches = []
+            monkeypatch.setattr(
+                gdal,
+                "RegenerateOverviews",
+                lambda band, overviews, method: (
+                    batches.append(len(overviews)) or gdal.CE_None
+                ),
+            )
+            dataset.recreate_overviews(resampling_method="average")
+            assert batches == [2, 1], (
+                f"each band must be batched with its own level count, got {batches}"
+            )
+        finally:
+            dataset.close()
+
+    def test_a_deep_level_holds_the_cascaded_values(self, tmp_path):
         """A deeper level is decimated from the level above, not from the source.
 
         Test scenario:
