@@ -507,15 +507,11 @@ class TestRun:
             A missing input under parallel raise surfaces the worker's
             FileNotFoundError (not an up-front guard ValueError).
         """
-        out = tmp_path / "out"
+        pipe = Pipeline([("slope", {})])
+        inputs = [str(tmp_path / "missing.tif")]
+        out = str(tmp_path / "out")
         with pytest.raises(FileNotFoundError):
-            run(
-                Pipeline([("slope", {})]),
-                [str(tmp_path / "missing.tif")],
-                parallel=True,
-                out=str(out),
-                on_error="raise",
-            )
+            run(pipe, inputs, parallel=True, out=out, on_error="raise")
 
     def test_parallel_rejects_non_path_inputs(self, points_fc, tmp_path):
         """parallel=True with an in-memory object input is rejected.
