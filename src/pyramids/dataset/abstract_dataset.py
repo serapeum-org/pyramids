@@ -1468,17 +1468,30 @@ class RasterBase(ABC):
                     "NEAREST", "CUBIC", "AVERAGE", "GAUSS", "CUBICSPLINE", "LANCZOS", "MODE",
                     "AVERAGE_MAGPHASE", "RMS", "BILINEAR".
             overview_levels (list, optional):
-                The overview levels, restricted to the typical power-of-two reduction factors. Default [2, 4, 8, 16, 32].
+                The overview levels, as reduction factors restricted to the powers of two from 2 to 2048.
+                Defaults to the full set.
 
         Returns:
-            Tuple[str, list]:
-                Information about whether overviews are internal or external, and the overview_count list per band.
+            None:
+                The levels are built on the dataset itself; read the count per band from `overview_count`.
                 - External (.ovr file):
                     If the dataset is read with `read_only=True` then the overviews' file will be
                     created in the same directory of the dataset, with the same name of the dataset and .ovr extension.
                 - Internal:
                     If the dataset is read with `read_only=False` then the overviews will be created internally in the
                     dataset, and the dataset needs to be saved/flushed to save the new changes to disk.
+
+        Raises:
+            TypeError:
+                `overview_levels` is not a list.
+            ValueError:
+                `overview_levels` holds a factor outside the supported set, `resampling_method` is not one of the
+                allowed values, or the dataset is a VRT whose description is not a path — an empty one, or inline
+                VRT XML. A plain VRT owns no pixel storage, so its overviews can only go to an external sidecar,
+                and there is nothing to name one after; save it with `to_file(path)` and build the levels on the
+                saved raster. A warped VRT is exempt: it holds its overviews in RAM.
+            RuntimeError:
+                GDAL failed to build the levels.
         """
         pass
 

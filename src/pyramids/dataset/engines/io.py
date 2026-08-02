@@ -2958,12 +2958,12 @@ class IO(_Engine["Dataset"]):
     def _has_nowhere_for_an_overview_sidecar(self) -> bool:
         """Whether this handle is a VRT that cannot store the overviews it would build.
 
-        A VRT owns no pixel storage, so GDAL can only put its overviews in an external
-        `.ovr` sidecar named after the dataset description. Two descriptions are not usable
-        as a path: an empty one, which makes GDAL write a file called literally `.ovr` into
-        the process's working directory attached to nothing while dropping the levels the
-        handle already exposed; and inline VRT XML, which GDAL stores verbatim and would
-        then try to create a file named after the whole document.
+        A plain VRT owns no pixel storage, so GDAL can only put its overviews in an
+        external `.ovr` sidecar named after the dataset description. Two descriptions are
+        not usable as a path: an empty one, which makes GDAL write a file called literally
+        `.ovr` into the process's working directory attached to nothing while dropping the
+        levels the handle already exposed; and inline VRT XML, which GDAL stores verbatim
+        and then fails trying to create a file named after the whole document.
 
         Two VRT families are deliberately excluded because they are not affected:
 
@@ -2980,7 +2980,7 @@ class IO(_Engine["Dataset"]):
 
         Returns:
             bool:
-                True when building overviews on this handle would strand them.
+                True when this handle is a VRT whose overviews have nowhere to go.
         """
         blocked = False
         if self._ds.driver_type == "vrt":
@@ -3018,10 +3018,12 @@ class IO(_Engine["Dataset"]):
                 `overview_levels` is not a list.
             ValueError:
                 `overview_levels` holds a factor outside the supported set,
-                `resampling_method` is not one of the allowed values, or the dataset is
-                a VRT with no path — a VRT owns no pixel storage, so its overviews can
-                only go to an external sidecar, and there is no path to name one after.
-                A *warped* VRT is exempt: it holds its overviews in RAM.
+                `resampling_method` is not one of the allowed values, or the dataset is a
+                VRT whose description is not a path — an empty one, or inline VRT XML. A
+                plain VRT owns no pixel storage, so its overviews can only go to an
+                external sidecar, and there is nothing to name one after; save it with
+                `to_file(path)` and build the levels on the saved raster. A *warped* VRT
+                is exempt: it holds its overviews in RAM.
             RuntimeError:
                 GDAL failed to build the levels.
 
@@ -3413,12 +3415,12 @@ class IO(_Engine["Dataset"]):
         Windows the file cannot be deleted. Neither form carries a path of its own, so
         `read_array(threadsafe=True)` and pickling it raise, and `read_array(chunks=...)`
         returns a graph that raises when it is computed; call `to_file()` first if you
-        need any of those. `create_overviews()` on the lazily described form raises for the
-        same reason — a VRT has nowhere to put the external sidecar it would need — while
-        the materialised form builds its levels in RAM and works. The `read_only` label
-        stops pixel writes; metadata setters still work, since a pathless handle cannot
-        spill a PAM sidecar. A `NetCDF` variable
-        view returns a plain `Dataset` — an overview level is an ordinary raster, not a
+        need any of those. `create_overviews()` on the lazily described form raises
+        `ValueError` for the same reason — a plain VRT has nowhere to put the external
+        sidecar it would need — while the materialised form builds its levels in RAM and
+        works. The `read_only` label stops pixel writes; metadata setters still work,
+        since a pathless handle cannot spill a PAM sidecar. A `NetCDF` variable view
+        returns a plain `Dataset` — an overview level is an ordinary raster, not a
         NetCDF container — and only a real mapping of dataset metadata is carried, so a
         container's structured attributes stay behind. While the materialised form is
         being built it holds the level's pixels three times over: the per-band reads,
