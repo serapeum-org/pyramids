@@ -278,3 +278,16 @@ for _tool in _BUILTINS:
 #: Tool names in a freshly-imported registry (available inside a worker process);
 #: tools added later via register() are rejected by the parallel runner.
 BUILTIN_TOOLS = frozenset(_REGISTRY)
+
+_BUILTINS_BY_NAME = {t.name: t for t in _BUILTINS}
+
+
+def _is_builtin_overridden(name: str) -> bool:
+    """Return whether ``name`` is a builtin whose spec was replaced via register().
+
+    Worker processes re-import the registry fresh and always resolve the original
+    builtin, so a builtin overridden in the parent process is silently ignored under
+    parallel execution — the runner rejects such a pipeline up front.
+    """
+    original = _BUILTINS_BY_NAME.get(name)
+    return original is not None and _REGISTRY.get(name) is not original

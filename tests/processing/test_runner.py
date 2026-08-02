@@ -415,6 +415,26 @@ class TestRun:
         finally:
             reg._REGISTRY.pop("__rt_tool__", None)
 
+    def test_parallel_rejects_overridden_builtin(self, tmp_path):
+        """parallel=True rejects a builtin whose spec was overridden in-process.
+
+        Args:
+            tmp_path: a valid out directory.
+
+        Test scenario:
+            Overriding a builtin via register() then running parallel raises up
+            front, because workers re-import the registry and resolve the original
+            builtin (the override would be silently ignored).
+        """
+        original = reg.resolve("slope")
+        reg.register(ToolMetadata("slope", "Dataset", "Array", ()))
+        try:
+            pipe = Pipeline([("slope", {})])
+            with pytest.raises(ValueError, match="overridden builtin"):
+                run(pipe, ["a.tif"], parallel=True, out=str(tmp_path))
+        finally:
+            reg.register(original)
+
     def test_parallel_rejects_non_path_inputs(self, points_fc, tmp_path):
         """parallel=True with an in-memory object input is rejected.
 

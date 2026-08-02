@@ -20,7 +20,11 @@ from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.processing.pipeline import Pipeline, Step
 from pyramids.processing.provenance import Provenance, StepRecord
-from pyramids.processing.registry import BUILTIN_TOOLS, resolve
+from pyramids.processing.registry import (
+    BUILTIN_TOOLS,
+    _is_builtin_overridden,
+    resolve,
+)
 from pyramids.processing.schema import ToolMetadata
 
 # Extensions opened as vector; .json is included for GeoJSON.
@@ -267,14 +271,18 @@ def _execute_parallel(
             f"parallel=True cannot use runtime-registered tools {non_builtin}; worker "
             "processes only see the import-time allowlist. Run these serially."
         )
+    overridden = sorted({s.tool for s in pipeline if _is_builtin_overridden(s.tool)})
+    if overridden:
+        raise ValueError(
+            f"parallel=True cannot use overridden builtin tools {overridden}; worker "
+            "processes resolve the original builtin, not your override. Run serially."
+        )
     pipe_dict = pipeline.to_dict()
     payloads = [(pipe_dict, src, out, i) for i, src in enumerate(items)]
     successes: dict[int, tuple[str, Provenance]] = {}
     failures: dict[int, tuple[Any, Exception]] = {}
     with ProcessPoolExecutor(max_workers=max_workers) as pool:
-        futures = {
-            pool.submit(_run_one_worker, p): (p[3], p[1]) for p in payloads
-        }
+        futures = {pool.submit(_run_one_worker, p): (p[3], p[1]) for p in payloads}
         for future in as_completed(futures):
             index, source = futures[future]
             try:
