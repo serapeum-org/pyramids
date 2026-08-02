@@ -6610,6 +6610,13 @@ whole document).</p>
 <code>Dataset.to_crs(...)</code>, <code>Dataset.warped_view(...)</code>, <code>Dataset.crop(..., touch=False)</code> and the lazy
 <code>georeference</code> / <code>orthorectify</code> forms — keep their overviews in RAM and need no sidecar; a VRT with a real path
 (including under <code>/vsimem/</code>) names its sidecar after that path; and <code>MEM</code> rasters are not VRTs at all.</p>
+<p><strong><code>recreate_overviews</code> on a warped VRT now raises <code>OverviewTargetError</code> instead of <code>ReadOnlyError</code>.</strong> A warped
+VRT's levels are recomputed by the warper onto <code>VRTWarpedRasterBand</code>s, which are never writable. GDAL reports
+that with the same <code>CPLE_NoWriteAccess</code> it uses for a genuinely read-only dataset, so the old message told
+callers to reopen with <code>read_only=False</code> — advice that cannot help (a warped view taken from a <em>writable</em> parent
+fails identically) and cannot even be followed (the view has no path to reopen). <code>create_overviews()</code> still
+builds a warped view's levels; only in-place regeneration is refused. <code>ReadOnlyError</code> is now raised only where
+the access mode is genuinely the blocker.</p>
 <p><strong>Operations that need a CRS now refuse instead of assuming one.</strong> Each raises <code>CRSError</code> naming the operation
 and how to fix it, where previously the missing CRS was silently filled in with WGS 84:</p>
 <ul>
