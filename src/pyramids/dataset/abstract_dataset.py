@@ -1527,7 +1527,8 @@ class RasterBase(ABC):
             OverviewTargetError:
                 The dataset cannot hold regenerated levels, for either of two reasons. It is a plain VRT whose
                 description is not a path — an empty one, a blank one, or inline VRT XML — so there is nothing to
-                name an external sidecar after; save it with `to_file(path)` and regenerate on the saved raster.
+                name an external sidecar after; save it with `to_file(path)` and build the levels there with
+                `create_overviews()` (`to_file` does not carry overviews, so there is nothing to regenerate).
                 Or it is a *warped* VRT, whose levels the warper recomputes onto bands that are never writable,
                 so they cannot be rewritten in place; rebuild them with `create_overviews()`. Unlike
                 `create_overviews`, a warped VRT is **not** exempt here. Subclasses `ValueError`.

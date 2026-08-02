@@ -955,30 +955,31 @@ class TestCreateOverviewsPathlessGuard:
             Drive the shared message builder with each description the guard refuses —
             expected: the description is quoted verbatim up to 80 characters, so a
             caller holding several handles can tell which one failed, and a long inline
-            document is cut rather than reproduced in full, burying the advice after it.
+            document is cut, with an ellipsis marking it, rather than reproduced in full.
         """
         handle = MagicMock(spec=gdal.Dataset)
         handle.GetDescription.return_value = description
         stub = MagicMock(spec=Dataset, driver_type="vrt", raster=handle)
-        message = IO(stub)._no_sidecar_message("build")
-        assert f"Description: {description[:80]!r}. Save it first" in message, (
-            f"the message must quote {description[:80]!r}, got: {message}"
+        message = IO(stub)._no_sidecar_message()
+        marker = "..." if truncated else ""
+        assert f"Description: {description[:80]!r}{marker}. Save it first" in message, (
+            f"the message must quote {description[:80]!r}{marker}, got: {message}"
         )
-        assert (description in message) is not truncated, (
-            f"a {len(description)}-character description must "
-            f"{'not ' if truncated else ''}appear in full, got: {message}"
-        )
+        if description:
+            assert (description in message) is not truncated, (
+                f"a {len(description)}-character description must "
+                f"{'not ' if truncated else ''}appear in full, got: {message}"
+            )
 
-    def test_both_methods_share_one_refusal_message_differing_in_the_verb(
-        self, tmp_path, monkeypatch
-    ):
-        """Both methods refuse in the same words, differing only in the verb.
+    def test_both_methods_share_one_refusal_message(self, tmp_path, monkeypatch):
+        """Both methods refuse in exactly the same words.
 
         Test scenario:
             An inline-XML VRT is refused by both methods and carries a description long
             enough to truncate — expected: one shared message quoting its first 80
-            characters, differing only in what the caller is told to redo on the saved
-            raster, so the two cannot drift apart the way the copied literals could.
+            characters, so the two cannot drift apart the way the copied literals
+            could. The recovery clause names `create_overviews` for both, because
+            `to_file` drops overviews and regenerating on the saved raster would no-op.
         """
         monkeypatch.chdir(tmp_path)
         xml = (
@@ -1003,12 +1004,14 @@ class TestCreateOverviewsPathlessGuard:
             assert description not in built, (
                 f"the whole document must not be reproduced, got: {built}"
             )
-            assert "and build the overviews on the saved raster." in built, (
-                f"create_overviews must name its own verb, got: {built}"
+            assert "create_overviews()" in built, (
+                f"the recovery must name create_overviews, not regenerate, got: {built}"
             )
-            swapped = built.replace("and build the", "and regenerate the")
-            assert swapped == regenerated, (
-                f"the two refusals must differ only in the verb:\n{built}\n{regenerated}"
+            assert "regenerate" not in built, (
+                f"to_file drops overviews, so regenerating would no-op, got: {built}"
+            )
+            assert built == regenerated, (
+                f"the two refusals must be identical: {built} vs {regenerated}"
             )
         finally:
             dataset.close()
