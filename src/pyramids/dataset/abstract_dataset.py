@@ -1551,8 +1551,8 @@ class RasterBase(ABC):
                 bands have them, and the empty ones were skipped. Also when the dataset
                 has no bands at all. None of these fire on a *plain* pathless VRT — that raises
                 `OverviewTargetError` first, since "call create_overviews() to build them" is advice it would
-                also refuse. A warped VRT with no levels still warps and still warns; its refusal only comes
-                from the regeneration attempt itself.
+                also refuse. A warped VRT is exempt from that guard, so an empty one still warns; its refusal
+                comes only from the regeneration attempt itself.
         """
         pass
 

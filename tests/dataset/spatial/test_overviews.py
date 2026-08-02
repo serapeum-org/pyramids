@@ -805,10 +805,11 @@ class TestCreateOverviewsPathlessGuard:
 
         Test scenario:
             `_is_write_refusal` prefers `CPLE_NoWriteAccess` and falls back to a short
-            list of message phrases. Drive a refusal whose wording is on neither list —
-            the shape a future driver could produce — so only the error number can
-            classify it, and any GDAL call made before the check would erase that.
-            Expected: `ReadOnlyError`, not the bare `RuntimeError` a late check gives.
+            list of message phrases. Drive a refusal that sets the number but whose
+            wording matches none of those phrases — the shape a future driver could
+            produce — so only the number can classify it, and any GDAL call made between
+            the failure and the check would erase it. Expected: `ReadOnlyError`, not the
+            bare `RuntimeError` a late check gives.
         """
         monkeypatch.chdir(tmp_path)
         source = _overviewed_raster(tmp_path, "unknown_wording_src.tif")
@@ -959,9 +960,18 @@ class TestCreateOverviewsPathlessGuard:
             ("", False),
             ("   ", False),
             ('<VRTDataset rasterXSize="8" rasterYSize="8">', False),
+            ("<" + "x" * 79, False),
+            ("<" + "x" * 80, True),
             ("<VRTDataset " + "x" * 200 + ">", True),
         ],
-        ids=["empty", "blank", "short-document", "long-document"],
+        ids=[
+            "empty",
+            "blank",
+            "short-document",
+            "exactly-80",
+            "one-over-80",
+            "long-document",
+        ],
     )
     def test_the_refusal_quotes_the_description_cut_at_80_characters(
         self, description, truncated
@@ -971,8 +981,10 @@ class TestCreateOverviewsPathlessGuard:
         Test scenario:
             Drive the shared message builder with each description the guard refuses —
             expected: the description is quoted verbatim up to 80 characters, so a
-            caller holding several handles can tell which one failed, and a long inline
-            document is cut, with an ellipsis marking it, rather than reproduced in full.
+            caller holding several handles can tell which one failed, and a longer
+            one is cut with an ellipsis marking it. The 80/81-character pair pins the
+            boundary itself: one that exactly fits is quoted whole and unmarked, so
+            the marker cannot start announcing a cut that never happened.
         """
         handle = MagicMock(spec=gdal.Dataset)
         handle.GetDescription.return_value = description

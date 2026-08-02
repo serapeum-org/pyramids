@@ -3238,9 +3238,11 @@ class IO(_Engine["Dataset"]):
             UserWarning:
                 No band has overviews, so there is nothing to regenerate; or only some
                 bands have them, and the empty ones were skipped. Also when the dataset
-                has no bands at all. None of these fire on a handle that cannot hold
-                overviews at all — that raises `OverviewTargetError` first, since
-                "call create_overviews() to build them" is advice it would also refuse.
+                has no bands at all. None of these fire on a *plain* pathless VRT — that
+                raises `OverviewTargetError` first, since "call create_overviews() to
+                build them" is advice it would also refuse. A warped VRT is exempt from
+                that guard, so an empty one still warns; its refusal comes only from the
+                regeneration attempt itself.
 
         See Also:
             - Dataset.create_overviews: Create the dataset overviews.

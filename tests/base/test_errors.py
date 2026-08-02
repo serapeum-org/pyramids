@@ -87,7 +87,7 @@ class TestPyramidsErrorBase:
 
 
 class TestExceptionHierarchy:
-    """Tests for all 10 concrete exception classes."""
+    """Tests for the concrete exception classes listed in `ALL_ERRORS`."""
 
     @pytest.mark.parametrize("exc_class", ALL_ERRORS, ids=lambda c: c.__name__)
     def test_str_returns_message(self, exc_class):
@@ -246,9 +246,7 @@ class TestErrorsReExport:
             works, so the public name must resolve to the underlying
             :class:`_PyramidsError` base class.
         """
-        import pyramids.errors as errs
-
-        assert errs.PyramidsError is _PyramidsError, (
+        assert public_errors.PyramidsError is _PyramidsError, (
             "pyramids.errors.PyramidsError must alias the private base"
         )
 
@@ -259,9 +257,9 @@ class TestErrorsReExport:
             A star-import (or static analyser) must not see dangling
             names. Every listed name must be an attribute on the module.
         """
-        import pyramids.errors as errs
-
-        missing = [n for n in errs.__all__ if not hasattr(errs, n)]
+        missing = [
+            name for name in public_errors.__all__ if not hasattr(public_errors, name)
+        ]
         assert not missing, f"Names in __all__ with no attribute: {missing}"
 
     @pytest.mark.parametrize("exc_class", ALL_ERRORS, ids=lambda c: c.__name__)
@@ -277,9 +275,7 @@ class TestErrorsReExport:
             accessible via :mod:`pyramids.errors` by its unqualified
             class name. This is the promise of the public re-export.
         """
-        import pyramids.errors as errs
-
-        assert getattr(errs, exc_class.__name__, None) is exc_class, (
+        assert getattr(public_errors, exc_class.__name__, None) is exc_class, (
             f"{exc_class.__name__} must be re-exported from pyramids.errors"
         )
 
