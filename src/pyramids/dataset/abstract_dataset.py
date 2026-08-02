@@ -1490,6 +1490,12 @@ class RasterBase(ABC):
         `create_overviews` for that. A band with no overviews has nothing to regenerate,
         so it is reported through a warning rather than skipped silently.
 
+        A band's levels are rebuilt in a single GDAL pass, which cascades: each deeper
+        level is decimated from the level above rather than from the full-resolution
+        band, matching what `create_overviews` does. A level >= 1 therefore holds what a
+        per-level rebuild wrote only where the resampling is idempotent under composition
+        (`nearest` always, `average` and `rms` while no no-data is present).
+
         Args:
             resampling_method (str, optional):
                 The resampling method used to create the overviews, by default "nearest".

@@ -3049,6 +3049,14 @@ class IO(_Engine["Dataset"]):
         regenerate for it, so this warns instead of returning silently — naming the
         skipped bands when only some of them are empty, and still regenerating the rest.
 
+        A band's levels are rebuilt in a single GDAL pass, which **cascades**: each
+        deeper level is decimated from the level above rather than from the
+        full-resolution band. That is what `create_overviews` already does, so the two
+        now agree — but it means a level ≥ 1 matches a per-level rebuild only where the
+        resampling is idempotent under composition (`nearest` always, `average` and `rms`
+        while no no-data is present). With any other method, or across a no-data gap, the
+        values differ. Use `create_overviews` if you need the levels rebuilt from scratch.
+
         The warning is emitted in every access mode: "has no overviews" is independent of
         read-only-ness, so reporting it as a read-only failure would misdiagnose it —
         reopening the dataset writable yields this same warning. Read-only is not a
@@ -3136,12 +3144,20 @@ class IO(_Engine["Dataset"]):
         `gdal.RegenerateOverviews` call, which reads the full-resolution band **once** for
         the whole batch; regenerating them one at a time re-read the source per level.
         GDAL then fills each deeper level by decimating the level above rather than the
-        source, so wherever those two disagree — a no-data gap, or a kernel wider than the
-        decimation window such as `cubic` — a deep level ends up holding different values
-        than the per-level loop wrote. Each call is preceded by `gdal.ErrorReset()` so the
-        CPL error number inspected on failure belongs to *this* regeneration and not to
-        something earlier in the process. Overviews are rewritten in place, so a failure
-        part-way through leaves the earlier bands already regenerated.
+        source, so a level ≥ 1 holds what the per-level loop wrote only where the
+        resampling is idempotent under composition — `nearest` always, `average` and
+        `rms` while no no-data is present. Every other method diverges on ordinary data:
+        measured at level 1 on a clean 16x16, `cubic` by 0.006, `bilinear` by 0.012,
+        `gauss` by 0.086, and `mode` by 2 whole classes, because the mode of modes is not
+        the mode. This is the same cascade `create_overviews` (`BuildOverviews`) already
+        uses, so the two now agree; the per-level loop was the odd one out. Non-power-of-
+        two chains compound it, since each step decimates an already-decimated grid.
+
+        Each call is preceded by `gdal.ErrorReset()` so the CPL error number inspected on
+        failure belongs to *this* regeneration and not to something earlier in the
+        process. Overviews are rewritten in place, so a failure part-way through leaves
+        the earlier bands already regenerated — and, within the failing band, GDAL may
+        have written some of its levels before giving up.
 
         Args:
             overview_count: Per-band overview counts, snapshotted by the caller.
@@ -3165,7 +3181,10 @@ class IO(_Engine["Dataset"]):
                 # the #863 defect, narrowed to a band.
                 continue
             band = self._ds._iloc(i)
-            overviews = [self.get_overview(i, j) for j in range(overview_count[i])]
+            # Take the levels off the band that is already resolved: get_overview would
+            # re-resolve it and re-read GetOverviewCount once per level, and the caller
+            # has already validated the count it snapshotted.
+            overviews = [band.GetOverview(j) for j in range(overview_count[i])]
             gdal.ErrorReset()
             try:
                 status = gdal.RegenerateOverviews(band, overviews, resampling_method)
