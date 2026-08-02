@@ -184,6 +184,14 @@ Unaffected, and covered by tests so they stay that way: **warped** VRTs — ever
 `georeference` / `orthorectify` forms — keep their overviews in RAM and need no sidecar; a VRT with a real path
 (including under `/vsimem/`) names its sidecar after that path; and `MEM` rasters are not VRTs at all.
 
+**`recreate_overviews` on a warped VRT now raises `OverviewTargetError` instead of `ReadOnlyError`.** A warped
+VRT's levels are recomputed by the warper onto `VRTWarpedRasterBand`s, which are never writable. GDAL reports
+that with the same `CPLE_NoWriteAccess` it uses for a genuinely read-only dataset, so the old message told
+callers to reopen with `read_only=False` — advice that cannot help (a warped view taken from a *writable* parent
+fails identically) and cannot even be followed (the view has no path to reopen). `create_overviews()` still
+builds a warped view's levels; only in-place regeneration is refused. `ReadOnlyError` is now raised only where
+the access mode is genuinely the blocker.
+
 **Operations that need a CRS now refuse instead of assuming one.** Each raises `CRSError` naming the operation
 and how to fix it, where previously the missing CRS was silently filled in with WGS 84:
 

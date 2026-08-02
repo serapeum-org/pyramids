@@ -3002,15 +3002,31 @@ class IO(_Engine["Dataset"]):
             # document, which costs milliseconds on a mosaic with many sources.
             description = self._ds.raster.GetDescription().strip()
             if not description or description.startswith("<"):
-                xml = (self._ds.raster.GetMetadata("xml:VRT") or [""])[0]
-                # Anchor on the root element: a nested source may carry its own
-                # <VRTDataset> tag, and a leading declaration or comment would otherwise
-                # shift the slice off the root and un-exempt every warped VRT.
-                start = xml.find("<VRTDataset")
-                end = xml.find(">", start)
-                root = xml[start : end + 1] if start != -1 and end != -1 else ""
-                blocked = 'subClass="VRTWarpedDataset"' not in root
+                blocked = not self._is_warped_vrt()
         return blocked
+
+    def _is_warped_vrt(self) -> bool:
+        """Whether this handle is a warped VRT, whose levels live in RAM.
+
+        Decided from the `subClass` attribute on the **root** element of the serialised
+        `xml:VRT` document. The slice is anchored on `<VRTDataset` rather than on the first
+        `>`: a nested source may carry its own `<VRTDataset>` tag, and a leading XML
+        declaration or comment would otherwise shift the slice off the root and report
+        every warped VRT as plain.
+
+        A root element that cannot be isolated answers False, so the exemption has to be
+        proven rather than assumed — mistaking a plain VRT for a warped one would let it
+        strand its levels, which is the failure this predicate exists to prevent.
+
+        Returns:
+            bool:
+                True when the root element declares `subClass="VRTWarpedDataset"`.
+        """
+        xml = (self._ds.raster.GetMetadata("xml:VRT") or [""])[0]
+        start = xml.find("<VRTDataset")
+        end = xml.find(">", start)
+        root = xml[start : end + 1] if start != -1 and end != -1 else ""
+        return 'subClass="VRTWarpedDataset"' in root
 
     def create_overviews(
         self,
@@ -3168,11 +3184,15 @@ class IO(_Engine["Dataset"]):
             OverviewTargetError:
                 If the dataset is a plain VRT whose description is not a path — there is
                 nothing to name an external sidecar after, so the levels have nowhere to
-                go. Save it with `to_file(path)` and regenerate on the saved raster.
-                Subclasses `ValueError`.
+                go — or a *warped* VRT, whose levels the warper recomputes onto bands
+                that are never writable, so they cannot be rewritten in place. Save it
+                with `to_file(path)` and regenerate on the saved raster, or rebuild a
+                warped view's levels with `create_overviews()`. Subclasses `ValueError`.
             ReadOnlyError:
                 If GDAL refuses the rewrite because the overviews it targets are opened
-                read-only. Read with read_only=False.
+                read-only. Read with read_only=False. Raised only where the access mode
+                is genuinely the blocker: GDAL reports an unwritable warped band with the
+                same error number, and that case raises `OverviewTargetError` instead.
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or
                 transport failure is not relabelled as an access-mode error. GDAL's own
@@ -3304,6 +3324,19 @@ class IO(_Engine["Dataset"]):
                     "been rewritten."
                 )
                 if self._is_write_refusal(err):
+                    # GDAL reports an unwritable VRTWarpedRasterBand with the same
+                    # CPLE_NoWriteAccess it uses for a read-only dataset, so the number
+                    # alone cannot tell them apart. Only one of the two is fixable by
+                    # reopening: a warped band is never writable, whatever the access
+                    # mode, and a pathless view cannot be reopened at all.
+                    if self._is_warped_vrt():
+                        raise OverviewTargetError(
+                            f"Cannot regenerate the overviews of band {i}: this is a "
+                            "warped VRT, whose levels are recomputed by the warper and "
+                            "cannot be rewritten in place. Rebuild them with "
+                            "create_overviews(), or save the view with to_file(path) "
+                            "and regenerate on the saved raster."
+                        ) from err
                     raise ReadOnlyError(
                         f"Cannot regenerate the overviews of band {i}: the overviews "
                         "are opened read-only. Please read the dataset using "

@@ -825,6 +825,45 @@ class TestCreateOverviewsPathlessGuard:
                 view.close()
             dataset.close()
 
+    @pytest.mark.parametrize("parent_read_only", [True, False], ids=["ro", "writable"])
+    def test_recreate_on_a_warped_view_does_not_blame_the_access_mode(
+        self, tmp_path, monkeypatch, parent_read_only
+    ):
+        """A warped band is never writable, so the access mode is not the blocker.
+
+        Test scenario:
+            GDAL reports an unwritable `VRTWarpedRasterBand` with the same
+            `CPLE_NoWriteAccess` it uses for a read-only dataset — expected:
+            `OverviewTargetError` naming the warp, never a `ReadOnlyError` telling the
+            caller to reopen. The writable-parent case proves the point: reopening has
+            already been done and it changes nothing.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, f"warp_recreate_{parent_read_only}.tif")
+        dataset = Dataset.read_file(source, read_only=parent_read_only)
+        view = None
+        try:
+            view = dataset.to_crs(3857)
+            view.create_overviews("average", overview_levels=[2])
+            assert all(count > 0 for count in view.overview_count), (
+                f"precondition: the warped view holds levels, {view.overview_count}"
+            )
+            with pytest.raises(OverviewTargetError, match="warped VRT") as excinfo:
+                view.recreate_overviews("average")
+            assert not isinstance(excinfo.value, ReadOnlyError), (
+                "the access mode is not the blocker; the parent was writable here"
+            )
+            assert "read_only=False" not in str(excinfo.value), (
+                "a pathless warped view cannot act on that advice"
+            )
+            assert isinstance(excinfo.value.__cause__, RuntimeError), (
+                "GDAL's own error must stay chained"
+            )
+        finally:
+            if view is not None:
+                view.close()
+            dataset.close()
+
     def test_recreate_still_warns_for_a_warped_view_without_overviews(
         self, tmp_path, monkeypatch
     ):
