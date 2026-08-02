@@ -32,10 +32,10 @@ class RunResult:
     """The outcome of a batch :func:`run`.
 
     Attributes:
-        outputs: The final object produced for each input that succeeded. In serial
-            mode these are in-memory `Dataset`/`FeatureCollection` objects; in
-            `parallel` mode they are the written output **path strings** (GDAL
-            handles cannot cross a process boundary), in completion order.
+        outputs: The final object produced for each input that succeeded, in input
+            order. In serial mode these are in-memory `Dataset`/`FeatureCollection`
+            objects; in `parallel` mode they are the written output **path strings**
+            (GDAL handles cannot cross a process boundary).
         failures: ``(source, exception)`` pairs for inputs that failed under the
             ``"skip"`` policy.
         provenance: One :class:`~pyramids.processing.provenance.Provenance` record
@@ -267,24 +267,33 @@ def _execute_parallel(
             f"parallel=True cannot use runtime-registered tools {non_builtin}; worker "
             "processes only see the import-time allowlist. Run these serially."
         )
-    result = RunResult()
     pipe_dict = pipeline.to_dict()
     payloads = [(pipe_dict, src, out, i) for i, src in enumerate(items)]
+    successes: dict[int, tuple[str, Provenance]] = {}
+    failures: dict[int, tuple[Any, Exception]] = {}
     with ProcessPoolExecutor(max_workers=max_workers) as pool:
         futures = {
-            pool.submit(_run_one_worker, payload): payload[1] for payload in payloads
+            pool.submit(_run_one_worker, p): (p[3], p[1]) for p in payloads
         }
         for future in as_completed(futures):
-            source = futures[future]
+            index, source = futures[future]
             try:
-                path, prov = future.result()
-                result.outputs.append(path)
-                result.provenance.append(prov)
+                successes[index] = future.result()
             except Exception as exc:  # noqa: BLE001 - batch policy collects or re-raises
                 if on_error == "raise":
                     pool.shutdown(cancel_futures=True)  # fail fast: drop pending work
                     raise
-                result.failures.append((source, exc))
+                failures[index] = (source, exc)
+    # Reassemble in input order so outputs/provenance align with the inputs exactly
+    # as they do in serial mode (futures complete out of order).
+    result = RunResult()
+    for index in range(len(items)):
+        if index in successes:
+            path, prov = successes[index]
+            result.outputs.append(path)
+            result.provenance.append(prov)
+        elif index in failures:
+            result.failures.append(failures[index])
     return result
 
 
@@ -313,9 +322,9 @@ def run(
         parallel: When ``True``, run the batch across a process pool. Because GDAL
             handles cannot cross process boundaries, this requires **file-path**
             inputs and an ``out`` directory (outputs are written worker-side and
-            ``RunResult.outputs`` holds the written paths, in completion order, not
-            in-memory objects). Only registry tools registered at import (the
-            allowlist) are available in workers.
+            ``RunResult.outputs`` holds the written paths, in input order — same as
+            serial mode — not in-memory objects). Only registry tools registered at
+            import (the allowlist) are available in workers.
         max_workers: Worker-process count for ``parallel=True`` — ignored in serial
             mode (default: the pool's default, ~CPU count).
 
