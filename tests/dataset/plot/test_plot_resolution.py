@@ -15,11 +15,13 @@ five branches), so we want it covered on every CI run, not only on the
 from __future__ import annotations
 
 import inspect
+import warnings
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
+from pyramids.base._utils import RGB_CHANNEL_INTERPS
 from pyramids.dataset import Dataset
 from pyramids.dataset.abstract_dataset import RasterBase
 from pyramids.netcdf.netcdf import NetCDF
@@ -149,6 +151,180 @@ class TestResolvePlotBandPolicy:
         )
         assert resolved_rgb is None
 
+    @pytest.mark.parametrize("palette_band", [0, 1, 2])
+    def test_paletted_band_not_treated_as_rgb(self, palette_band):
+        """#910: a ``palette_index`` band must not trigger the RGB heuristic.
+
+        Args:
+            palette_band: Which band carries the palette (0, 1, or 2); the
+                others stay ``undefined``.
+
+        Test scenario:
+            A paletted band is rendered through its colour table, not as an
+            RGB channel. A 3-band raster with a palette on one band (others
+            ``undefined``) must resolve to ``(0, None)`` and emit no
+            deprecation warning — not be mis-read as false-colour RGB
+            ``[2, 1, 0]`` with the Sentinel-2 fallback warning.
+
+            Note: ``resolved_band == 0`` is a deliberate placeholder even when
+            the palette sits on band 1 or 2 — the plot path does not yet render
+            a palette through its colour table (see #910), so no specific band
+            is more meaningful today. Revisit this assertion when paletted
+            rendering lands.
+        """
+        rng = np.random.default_rng(910)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.band_color = {palette_band: "palette_index"}
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            resolved_band, resolved_rgb = dataset._resolve_plot_band(
+                band=None, rgb=None
+            )
+        deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert resolved_band == 0, (
+            f"Paletted raster must resolve to band 0, got {resolved_band}"
+        )
+        assert resolved_rgb is None, (
+            f"rgb must stay None for a paletted raster, got {resolved_rgb}"
+        )
+        assert not deprecations, (
+            "resolving a paletted raster must not emit the Sentinel-2 RGB "
+            f"deprecation: {[str(w.message) for w in deprecations]}"
+        )
+
+    @pytest.mark.parametrize(
+        "interp", ["gray_index", "alpha", "hue", "cyan", "YCbCr_YBand"]
+    )
+    def test_non_rgb_interpretation_not_treated_as_rgb(self, interp):
+        """A non-RGB colour interpretation must not trigger the RGB heuristic.
+
+        Args:
+            interp: A single-channel / non-RGB GDAL interpretation name.
+
+        Test scenario:
+            The RGB heuristic is an allowlist of ``red``/``green``/``blue``, so
+            any other interpretation (``gray_index``, ``alpha``, ``hue``,
+            ``cyan``, ``YCbCr_*`` …) on a 3-band raster must resolve to
+            ``(0, None)`` with no Sentinel-2 deprecation — closing the whole
+            non-RGB class, not only ``palette_index`` (see #910).
+        """
+        rng = np.random.default_rng(911)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.band_color = {0: interp}
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            resolved_band, resolved_rgb = dataset._resolve_plot_band(
+                band=None, rgb=None
+            )
+        deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert (resolved_band, resolved_rgb) == (0, None), (
+            f"{interp!r} must resolve to (0, None), got {(resolved_band, resolved_rgb)}"
+        )
+        assert not deprecations, (
+            f"{interp!r} must not emit the Sentinel-2 RGB deprecation: "
+            f"{[str(w.message) for w in deprecations]}"
+        )
+
+    def test_rgb_channels_win_over_a_palette_band(self):
+        """Real ``red``/``green``/``blue`` tags still resolve RGB despite a palette.
+
+        Test scenario:
+            A 4-band raster tagged ``red``/``green``/``blue`` on bands 0-2 and
+            ``palette_index`` on band 3 is genuine RGB imagery. The allowlist
+            still fires on the RGB channels, so it resolves to ``(0, [0, 1, 2])``
+            with no deprecation — the stray palette band does not suppress it.
+        """
+        rng = np.random.default_rng(912)
+        arr = rng.random((4, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.band_color = {0: "red", 1: "green", 2: "blue", 3: "palette_index"}
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            resolved_band, resolved_rgb = dataset._resolve_plot_band(
+                band=None, rgb=None
+            )
+        deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert resolved_band == 0, f"Red is band 0, got {resolved_band}"
+        assert resolved_rgb == [0, 1, 2], (
+            f"RGB tags must resolve to [0, 1, 2], got {resolved_rgb}"
+        )
+        assert not deprecations, (
+            "a full RGB tag set must not emit the Sentinel-2 fallback deprecation: "
+            f"{[str(w.message) for w in deprecations]}"
+        )
+
+    def test_explicit_rgb_on_non_rgb_tagged_raster_keys_band_on_rgb0(self):
+        """Explicit ``rgb`` sets the resolved band to ``rgb[0]`` even off the RGB branch.
+
+        Test scenario:
+            A 3-band raster tagged only ``gray_index`` takes the non-RGB
+            branch, but the user still passed ``rgb=[2, 1, 0]``. The resolved
+            band must be ``rgb[0] == 2`` (not the band-0 default), so the
+            downstream ``exclude_value`` nodata mask keys off the same band the
+            RGB render uses rather than band 0.
+        """
+        rng = np.random.default_rng(913)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.band_color = {0: "gray_index"}
+
+        resolved_band, resolved_rgb = dataset._resolve_plot_band(
+            band=None, rgb=[2, 1, 0]
+        )
+        assert resolved_band == 2, (
+            f"Explicit rgb[0]=2 must set the resolved band, got {resolved_band}"
+        )
+        assert resolved_rgb == [2, 1, 0]
+
+    def test_palette_beside_partial_rgb_still_falls_back_to_sentinel(self):
+        """A stray palette band does not change the partial-RGB fallback.
+
+        Test scenario:
+            A 3-band raster tagged ``red``/``green`` with a ``palette_index``
+            on the third band still enters the RGB branch (red/green fire the
+            allowlist); ``blue`` is absent, so it falls back to ``[2, 1, 0]``
+            and picks band 2, emitting the Sentinel-2 deprecation — the palette
+            band must not suppress or alter that behaviour.
+        """
+        rng = np.random.default_rng(914)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.band_color = {0: "red", 1: "green", 2: "palette_index"}
+
+        with pytest.warns(DeprecationWarning, match=r"Sentinel-2"):
+            resolved_band, resolved_rgb = dataset._resolve_plot_band(
+                band=None, rgb=None
+            )
+        assert resolved_band == 2, f"Fallback band must be 2, got {resolved_band}"
+        assert resolved_rgb == [2, 1, 0]
+
+    def test_rgb_channel_interps_are_exactly_red_green_blue(self):
+        """The RGB allowlist is exactly ``{red, green, blue}`` (reorder guard).
+
+        Test scenario:
+            ``RGB_CHANNEL_INTERPS`` is built from a positional slice of
+            ``COLOR_NAMES``; pin its contents so a reordering of that list
+            cannot silently widen or narrow the RGB heuristic.
+        """
+        assert RGB_CHANNEL_INTERPS == frozenset({"red", "green", "blue"}), (
+            f"RGB allowlist drifted: {RGB_CHANNEL_INTERPS}"
+        )
+
     def test_full_rgb_tags_resolves_red_band(self):
         """All three R/G/B tags set → resolved band is red, rgb list filled.
 
@@ -220,7 +396,7 @@ class TestResolvePlotBandPolicy:
         """Red+green tagged, blue undefined → fallback ``rgb=[2, 1, 0]``.
 
         Test scenario:
-            ``has_color_interp`` is True (red and green tagged) but
+            ``has_rgb_interp`` is True (red and green tagged) but
             ``get_band_by_color('blue') is None`` because no band has
             the blue tag. The resolver falls back to the Sentinel-2
             default ``[2, 1, 0]`` and picks band 2 as the rendered band.

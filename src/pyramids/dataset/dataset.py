@@ -23,7 +23,7 @@ from pyramids import _io
 from pyramids.base._errors import AlignmentError, CRSError
 from pyramids.base._utils import (
     DTYPE_CONVERSION_DF,
-    UNDEFINED_COLOR_INTERP,
+    RGB_CHANNEL_INTERPS,
     numpy_to_gdal_dtype,
 )
 from pyramids.base.crs import (
@@ -626,11 +626,13 @@ class Dataset(RasterBase):
         1. If ``band`` is explicitly provided, it is returned as-is (and ``rgb`` passes
            through untouched).
         2. If the dataset has fewer than 3 bands, return ``(0, rgb)``.
-        3. If the dataset has 3+ bands but **no** band has a GDAL ``ColorInterpretation``
-           set (i.e. every band reports ``undefined``), return ``(0, rgb)``. This is the
-           D-1 fix: ``band_count >= 3`` alone is not a sufficient signal that the data
-           is an RGB image — multi-band scalar cubes (e.g. time series stacked into one
-           GeoTIFF) also have ``band_count >= 3`` and must not be misinterpreted as RGB.
+        3. If the dataset has 3+ bands but **no** band is tagged as an RGB channel
+           (``red``/``green``/``blue``), return ``(0, rgb)``. This is the D-1 fix:
+           ``band_count >= 3`` alone is not a sufficient signal that the data is an RGB
+           image — multi-band scalar cubes (e.g. time series stacked into one GeoTIFF)
+           also have ``band_count >= 3`` and must not be misinterpreted as RGB. Only the
+           three RGB-channel interpretations count; ``palette_index``, ``gray_index`` and
+           the other single-channel tags are rendered as single bands, not RGB (see #910).
         4. Otherwise, treat the dataset as RGB imagery. If ``rgb`` was supplied, its
            first entry is the red band. If it was not supplied, resolve red/green/blue
            via :meth:`get_band_by_color`; fall back to ``[2, 1, 0]`` (the default
@@ -693,6 +695,22 @@ class Dataset(RasterBase):
               (1, [2, 1, 0])
 
               ```
+
+            - A ``palette_index`` band is not an RGB channel, so it does not trigger
+              the RGB branch — the raster resolves to a single band (rule 3, #910).
+              A fresh dataset is built here so the example is independent of the
+              tags set above:
+
+              ```python
+              >>> paletted = np.random.rand(3, 8, 8).astype(np.float32)
+              >>> ds_pal = Dataset.create_from_array(
+              ...     paletted, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ... )
+              >>> ds_pal.band_color = {0: 'palette_index'}
+              >>> ds_pal._resolve_plot_band(band=None, rgb=None)
+              (0, None)
+
+              ```
         """
         if band is not None:
             # Coerce to a plain ``int`` here too (the RGB branch already
@@ -704,38 +722,62 @@ class Dataset(RasterBase):
             resolved_band = 0
             resolved_rgb = rgb
         else:
-            band_colors = list(self.band_color.values())
-            has_color_interp = any(c != UNDEFINED_COLOR_INTERP for c in band_colors)
-            if not has_color_interp:
-                resolved_band = 0
-                resolved_rgb = rgb
-            else:
-                if rgb is None:
-                    candidate: list[int | None] = [
-                        self.get_band_by_color("red"),
-                        self.get_band_by_color("green"),
-                        self.get_band_by_color("blue"),
-                    ]
-                    if None in candidate:
-                        warnings.warn(
-                            "The implicit Sentinel-2 RGB band order [2, 1, 0] used "
-                            "when colour-interpretation is absent is deprecated and "
-                            "will be removed: it is a remote-sensing sensor "
-                            "assumption, not a generic raster default. Pass an "
-                            "explicit rgb=[...] (e.g. via rgb_options) instead.",
-                            DeprecationWarning,
-                            stacklevel=3,
-                        )
-                        resolved_rgb = [2, 1, 0]
-                    else:
-                        # None NOT in candidate here, so every element is a
-                        # plain int -- mypy does not narrow list contents from
-                        # an `in` check.
-                        resolved_rgb = [int(v) for v in cast("list[int]", candidate)]
-                else:
-                    resolved_rgb = rgb
-                resolved_band = int(resolved_rgb[0])
+            resolved_band, resolved_rgb = self._resolve_multiband_plot(rgb)
         return resolved_band, resolved_rgb
+
+    def _resolve_multiband_plot(
+        self, rgb: list[int] | None
+    ) -> tuple[int, list[int] | None]:
+        """Resolve ``(band, rgb)`` for a raster with ``band_count >= 3``.
+
+        Only a true RGB channel (``red``/``green``/``blue``) marks the raster as
+        RGB imagery; ``undefined``, ``palette_index``, ``gray_index`` and the
+        other single-channel/paletted interpretations do not -- otherwise a
+        multi-band raster carrying any of them is mis-resolved as a false-colour
+        RGB composite (see #910). A non-RGB raster renders a single band: band 0
+        by default, or ``rgb[0]`` when an explicit ``rgb`` is supplied, so the
+        downstream ``exclude_value`` nodata mask keys off the same band the RGB
+        render uses.
+        """
+        band_colors = list(self.band_color.values())
+        has_rgb_interp = any(c in RGB_CHANNEL_INTERPS for c in band_colors)
+        if not has_rgb_interp:
+            resolved_rgb = rgb
+            resolved_band = int(rgb[0]) if rgb is not None else 0
+        else:
+            resolved_rgb = rgb if rgb is not None else self._infer_rgb_band_order()
+            resolved_band = int(resolved_rgb[0])
+        return resolved_band, resolved_rgb
+
+    def _infer_rgb_band_order(self) -> list[int]:
+        """Infer the ``[r, g, b]`` band-index order from the bands' colour tags.
+
+        Resolves red/green/blue via :meth:`get_band_by_color`; falls back to the
+        Sentinel-2 default ``[2, 1, 0]`` (emitting a :class:`DeprecationWarning`)
+        when any channel cannot be identified from the tags.
+        """
+        candidate: list[int | None] = [
+            self.get_band_by_color("red"),
+            self.get_band_by_color("green"),
+            self.get_band_by_color("blue"),
+        ]
+        if None in candidate:
+            warnings.warn(
+                "The implicit Sentinel-2 RGB band order [2, 1, 0] used "
+                "when colour-interpretation is absent is deprecated and "
+                "will be removed: it is a remote-sensing sensor "
+                "assumption, not a generic raster default. Pass an "
+                "explicit rgb=[...] (e.g. via rgb_options) instead.",
+                DeprecationWarning,
+                stacklevel=5,
+            )
+            resolved_rgb = [2, 1, 0]
+        else:
+            # None NOT in candidate here, so every element is a
+            # plain int -- mypy does not narrow list contents from
+            # an `in` check.
+            resolved_rgb = [int(v) for v in cast("list[int]", candidate)]
+        return resolved_rgb
 
     def plot(
         self,
@@ -758,10 +800,12 @@ class Dataset(RasterBase):
         forwards the call to the generic rendering engine.
 
         When ``band`` is ``None`` and the dataset looks like an RGB image — i.e. it has
-        at least 3 bands **and** at least one band has a GDAL ``ColorInterpretation`` set —
-        the red band is auto-selected (either from ``rgb[0]`` or by resolving the colour
-        tags). Otherwise the facade defaults to band ``0``. See
-        :meth:`Analysis.plot` for the full kwargs surface.
+        at least 3 bands **and** at least one band is tagged as an RGB channel
+        (``red``/``green``/``blue``) — the red band is auto-selected (either from
+        ``rgb[0]`` or by resolving the colour tags). A ``palette_index``, ``gray_index``
+        or other non-RGB interpretation does **not** count as RGB imagery. Otherwise the
+        facade defaults to band ``0``. See :meth:`Analysis.plot` for the full kwargs
+        surface.
 
         The four satellite-imagery kwargs ``rgb``, ``surface_reflectance``, ``cutoff``,
         and ``percentile`` may be grouped under a single ``rgb_options=`` dict
