@@ -8,7 +8,7 @@ from pyramids.processing.pipeline import Pipeline, Step
 from pyramids.processing.schema import Parameter, ToolMetadata, validate_parameters
 
 
-class TestValidateParams:
+class TestValidateParameters:
     """Tests for schema.validate_parameters."""
 
     def test_valid_params_pass(self):
