@@ -210,10 +210,15 @@ class TestRun:
         "tool, params",
         [
             ("to_crs", {"to_epsg": 3857}),
+            ("to_crs", {"to_epsg": 3857, "method": "bilinear", "cell_size": 200000.0}),
             ("resample", {"cell_size": 2.0}),
+            ("resample", {"cell_size": 2.0, "method": "average"}),
+            ("slope", {"band": 0, "units": "radians"}),
             ("hillshade", {}),
+            ("hillshade", {"azimuth": 300.0, "altitude": 30.0, "band": 0}),
             ("fill", {"value": 1.0}),
             ("sieve", {"threshold": 2}),
+            ("sieve", {"threshold": 2, "band": 0, "connectedness": 8}),
             ("focal_mean", {"radius": 1}),
             ("focal_std", {"radius": 1}),
         ],
@@ -239,7 +244,9 @@ class TestRun:
         [
             ("to_h3", {"resolution": 5}),
             ("voronoi", {}),
+            ("voronoi", {"values": "elevation"}),
             ("quadtree", {"column": "elevation", "nmax": 3}),
+            ("quadtree", {"column": "elevation", "agg": "max", "nmax": 3, "nmin": 0}),
             ("with_centroid", {}),
             ("with_coordinates", {}),
         ],
@@ -259,6 +266,31 @@ class TestRun:
         result = run(Pipeline([(tool, params)]), points_fc, on_error="raise")
         assert result.ok, result.failures
         assert isinstance(result.outputs[0], FeatureCollection), result.outputs
+
+    def test_interpolate_secondary_params_run(self, points_fc):
+        """interpolate_to_raster accepts its optional IDW params end-to-end.
+
+        Test scenario:
+            power/n_neighbors/nodata pass through to the op by name and yield a
+            Dataset, guarding the FC->Dataset tool against param-name drift.
+        """
+        pipe = Pipeline(
+            [
+                (
+                    "interpolate_to_raster",
+                    {
+                        "column": "elevation",
+                        "method": "idw",
+                        "cell_size": 1.0,
+                        "power": 3.0,
+                        "n_neighbors": 3,
+                        "nodata": -1.0,
+                    },
+                )
+            ]
+        )
+        result = run(pipe, points_fc, on_error="raise")
+        assert isinstance(result.outputs[0], Dataset), result.outputs
 
     def test_materialized_output_uses_processed_band_nodata(self):
         """A band>0 terrain op carries that band's no-data into the output (L2).
@@ -434,6 +466,53 @@ class TestRun:
                 run(pipe, ["a.tif"], parallel=True, out=str(tmp_path))
         finally:
             reg.register(original)
+
+    @pytest.mark.slow
+    def test_parallel_skip_collects_failure_in_input_order(self, raster_ds, tmp_path):
+        """parallel skip collects a bad input's failure, aligned to input order.
+
+        Args:
+            raster_ds: raster fixture written to a real file.
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            A good raster then a missing path under parallel skip: one written output
+            and one collected failure, with the failure carrying the second source.
+        """
+        good = tmp_path / "good.tif"
+        raster_ds.to_file(str(good))
+        bad = tmp_path / "missing.tif"
+        out = tmp_path / "out"
+        result = run(
+            Pipeline([("slope", {})]),
+            [str(good), str(bad)],
+            parallel=True,
+            out=str(out),
+            on_error="skip",
+        )
+        assert len(result.outputs) == 1, result.outputs
+        assert len(result.failures) == 1, result.failures
+        assert result.failures[0][0] == str(bad), result.failures
+
+    @pytest.mark.slow
+    def test_parallel_raise_propagates(self, tmp_path):
+        """parallel raise re-raises the first worker error instead of collecting it.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            A missing input under parallel raise surfaces the worker exception.
+        """
+        out = tmp_path / "out"
+        with pytest.raises(Exception):
+            run(
+                Pipeline([("slope", {})]),
+                [str(tmp_path / "missing.tif")],
+                parallel=True,
+                out=str(out),
+                on_error="raise",
+            )
 
     def test_parallel_rejects_non_path_inputs(self, points_fc, tmp_path):
         """parallel=True with an in-memory object input is rejected.
