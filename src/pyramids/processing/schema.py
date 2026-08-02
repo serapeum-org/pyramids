@@ -50,11 +50,12 @@ class Parameter:
     Args:
         name: The keyword-argument name passed to the underlying op.
         param_type: One of :data:`PARAM_TYPES`.
-        default: Display-only default shown in ``help`` — the runner passes only
-            the params a step supplies, so the *runtime* default is whatever the
-            underlying method uses. Set this only to mirror that method default
-            (leave ``None`` when the default lives in the method), so ``help``
-            never advertises a value the runner will not apply.
+        default: Display-only default shown in ``help``. The runner passes only the
+            params a step supplies, so this value is never itself applied — the
+            *runtime* default is always whatever the underlying method uses. Set it
+            to **mirror** that method's real default so ``help`` advertises the true
+            value (e.g. ``"nearest neighbor"`` for a resampling ``method``); leave it
+            ``None`` only when the method's default is dynamic or unknown.
         optional: Whether the parameter may be omitted.
         description: Human-readable help text.
         choices: Allowed values for an ``"OptionList"`` parameter.

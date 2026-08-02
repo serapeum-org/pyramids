@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from pyramids.base._utils import INTERPOLATION_METHODS
+from pyramids.base._utils import DEFAULT_RESAMPLING, INTERPOLATION_METHODS
 from pyramids.feature.tessellation import QUADTREE_AGG
 from pyramids.processing.schema import Parameter, ToolMetadata
 
@@ -118,7 +118,7 @@ _BUILTINS: tuple[ToolMetadata, ...] = (
             Parameter(
                 "method",
                 "OptionList",
-                None,
+                DEFAULT_RESAMPLING,
                 True,
                 "Resampling method.",
                 choices=_RESAMPLING_METHODS,
@@ -138,7 +138,7 @@ _BUILTINS: tuple[ToolMetadata, ...] = (
             Parameter(
                 "method",
                 "OptionList",
-                None,
+                DEFAULT_RESAMPLING,
                 True,
                 "Resampling method.",
                 choices=_RESAMPLING_METHODS,
