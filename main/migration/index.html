@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6563,6 +6563,22 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 </table>
 <h2 id="dataset"><a class="toclink" href="#dataset">dataset</a><a class="headerlink" href="#dataset" title="Permanent link">#</a></h2>
 <h3 id="unreleased_1"><a class="toclink" href="#unreleased_1">unreleased</a><a class="headerlink" href="#unreleased_1" title="Permanent link">#</a></h3>
+<p><strong><code>recreate_overviews</code> now rebuilds a band's levels in one cascading pass.</strong> Each deeper level is decimated from
+the level above rather than from the full-resolution band, matching what <code>create_overviews</code> (<code>BuildOverviews</code>)
+has always done — previously <code>recreate_overviews</code> rebuilt every level directly from the source. Nothing warns;
+the call still succeeds.</p>
+<p>Level 0 is unaffected. A level &gt;= 1 keeps its previous values only where the resampling survives being applied
+twice:</p>
+<ul>
+<li><code>nearest</code> — unchanged everywhere; GDAL does not cascade it.</li>
+<li><code>average</code>, <code>rms</code> — unchanged on a floating-point band with no no-data value. An integer band picks up per-level
+  rounding of up to 1 DN, and a no-data gap changes the result regardless of dtype.</li>
+<li><code>cubic</code>, <code>cubicspline</code>, <code>bilinear</code>, <code>lanczos</code>, <code>gauss</code>, <code>mode</code> — changed on ordinary data. <code>mode</code> can move by
+  whole classes, because the mode of modes is not the mode.</li>
+</ul>
+<p>There is no way to get the old per-level values back: no API rebuilds a deep level directly from the source any
+more. If your pipeline depends on them, rebuild the levels you need yourself from
+<code>Dataset.read_array()</code> and write them out.</p>
 <p><strong>Operations that need a CRS now refuse instead of assuming one.</strong> Each raises <code>CRSError</code> naming the operation
 and how to fix it, where previously the missing CRS was silently filled in with WGS 84:</p>
 <ul>
