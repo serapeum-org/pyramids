@@ -62,7 +62,7 @@ class OutOfBoundsError(_PyramidsError):
 
 
 class OverviewTargetError(_PyramidsError, ValueError):
-    """The dataset has nowhere to store the overviews it was asked to build.
+    """The dataset cannot hold the overview levels the call was asked to write.
 
     Raised by `Dataset.create_overviews` and `Dataset.recreate_overviews` for two handles
     that cannot hold the levels, neither of them fixable by changing the call:

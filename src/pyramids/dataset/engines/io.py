@@ -3051,7 +3051,7 @@ class IO(_Engine["Dataset"]):
         return (
             "This dataset is a plain VRT whose description is not a path, so its "
             "overviews have nowhere to go: GDAL names the sidecar after the "
-            f"description, so the levels would be stranded outside the dataset. "
+            "description, so the levels would be stranded outside the dataset. "
             f"Description: {description!r}. Save it first with to_file(path) and "
             f"{verb} the overviews on the saved raster."
         )
@@ -3094,10 +3094,11 @@ class IO(_Engine["Dataset"]):
                 GDAL failed to build the levels.
 
         Notes:
-            - External (.ovr file): If the dataset is read with `read_only=True` then the overviews file will be created
-              as an external .ovr file in the same directory of the dataset.
-            - Internal: If the dataset is read with `read_only=False` then the overviews will be created internally in
-              the dataset, and the dataset needs to be saved/flushed to persist the changes to disk.
+            - External (.ovr file): if the dataset is read with `read_only=True` then the overviews file is created
+              as an external .ovr file in the same directory as the dataset.
+            - Internal: for a format that supports internal overviews, reading with `read_only=False` puts them
+              inside the dataset, which then needs to be saved/flushed to persist them to disk. A VRT has no
+              internal storage, so its levels go to an external sidecar in either access mode.
             - You can check the count per band via the `overview_count` property.
         Examples:
             - Create a Dataset with 4 bands, 10 rows, 10 columns, at the point lon/lat (0, 0):
@@ -3397,11 +3398,13 @@ class IO(_Engine["Dataset"]):
         **Call this before anything else in the handler.** The primary signal is GDAL's
         process-global last-error number, and *any* GDAL call made after the failure
         resets it — `GetMetadata("xml:VRT")` alone takes it from `CPLE_NoWriteAccess` to
-        `CPLE_None`. The call then falls through to the message fallback, which still
-        recognises the phrasings GDAL uses today, so no shape in the suite is currently
-        misclassified by a late call. The fallback is a shorter list than the error
-        number is authoritative, though, so a driver phrasing its refusal differently
-        would be downgraded to a bare `RuntimeError`.
+        `CPLE_None`. A late call is then left with the message fallback alone, and that
+        list is shorter than the error number is authoritative. It knows the "read-only
+        mode" wording GDAL gives an access-mode refusal, so that one would still be
+        classified correctly; it does not know the "attempt to write to a
+        VRTWarpedRasterBand" wording of an unwritable warped band, which would be
+        downgraded to a bare `RuntimeError` and lose the `OverviewTargetError`
+        :meth:`_regenerate_overviews` raises for it.
 
         Args:
             err: The error GDAL raised. Only its message is read, and only on the
