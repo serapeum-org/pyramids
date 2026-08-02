@@ -427,6 +427,19 @@ class TestRun:
         with pytest.raises(ValueError, match="requires an 'out' directory"):
             run(pipe, ["a.tif"], parallel=True, out=None)
 
+    def test_parallel_rejects_bad_max_workers(self, tmp_path):
+        """parallel=True with max_workers < 1 is rejected up front.
+
+        Args:
+            tmp_path: a valid out directory.
+
+        Test scenario:
+            max_workers=0 raises ValueError before any process spawns.
+        """
+        pipe = Pipeline([("slope", {})])
+        with pytest.raises(ValueError, match="max_workers must be"):
+            run(pipe, ["a.tif"], parallel=True, out=str(tmp_path), max_workers=0)
+
     def test_parallel_rejects_runtime_registered_tool(self, tmp_path):
         """parallel=True rejects a tool not in the import-time allowlist.
 

@@ -206,6 +206,20 @@ class TestParameter:
         with pytest.raises(ValueError, match="not in"):
             spec.coerce("percent")
 
+    @pytest.mark.parametrize("parameter_type", ["Float", "Integer"])
+    def test_coerce_numeric_invalid_raises(self, parameter_type):
+        """coerce raises on a non-numeric string for Float/Integer.
+
+        Args:
+            parameter_type: the numeric parameter type under test.
+
+        Test scenario:
+            "abc" cannot be parsed by float()/int() and raises ValueError.
+        """
+        spec = Parameter("x", parameter_type)
+        with pytest.raises(ValueError):
+            spec.coerce("abc")
+
     def test_help_contains_name_type_and_flag(self):
         """help renders name, type, optionality, default, and description.
 

@@ -70,6 +70,20 @@ class TestRegistry:
         with pytest.raises(TypeError):
             view["x"] = None  # type: ignore[index]
 
+    def test_catalog_is_live_view(self):
+        """catalog() is a live view — a later register() shows up in it.
+
+        Test scenario:
+            A tool registered after catalog() was called appears in the earlier
+            view (it proxies the registry, not a snapshot).
+        """
+        view = reg.catalog()
+        reg.register(ToolMetadata("__live__", "Dataset", "Dataset"))
+        try:
+            assert "__live__" in view, "catalog() should reflect later registrations"
+        finally:
+            reg._REGISTRY.pop("__live__", None)
+
     @pytest.mark.parametrize(
         "name, input_type, output_type",
         [
