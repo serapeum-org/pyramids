@@ -83,7 +83,8 @@ class Pipeline:
         return [Step(step.tool, dict(step.params)) for step in self._steps]
 
     def __iter__(self) -> Iterator[Step]:
-        return iter(self._steps)
+        """Iterate over independent copies of the steps (see :attr:`steps`)."""
+        return iter(self.steps)
 
     def __len__(self) -> int:
         return len(self._steps)
