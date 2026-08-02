@@ -9,7 +9,9 @@ import pytest
 import pyramids.plot as plot_specs
 from pyramids.base._errors import OptionalPackageDoesNotExist
 
-pytest.importorskip("cleopatra.array_glyph", reason="cleopatra not installed")
+# No module-scope cleopatra import: most tests here exercise the lazy re-export
+# without cleopatra (and so run in the extras-free core job); only the
+# resolve-to-cleopatra test needs it, gated with a function-body importorskip.
 
 
 class TestPlotSpecReExports:
@@ -33,6 +35,7 @@ class TestPlotSpecReExports:
     )
     def test_spec_resolves_to_cleopatra_class(self, name, module_name, attribute):
         """Each name resolves to the identical cleopatra class object."""
+        pytest.importorskip(module_name, reason="cleopatra not installed")
         module = importlib.import_module(module_name)
         assert getattr(plot_specs, name) is getattr(module, attribute)
 

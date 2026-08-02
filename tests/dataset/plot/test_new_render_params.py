@@ -14,7 +14,11 @@ pytestmark = pytest.mark.plot
 
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 _cleo_config.Config.set_matplotlib_backend("agg")
-from cleopatra.array_glyph import ArrayGlyph, ColorBar  # noqa: E402
+_cleo_array = pytest.importorskip(
+    "cleopatra.array_glyph", reason="cleopatra not installed"
+)
+ArrayGlyph = _cleo_array.ArrayGlyph
+ColorBar = _cleo_array.ColorBar
 
 
 @pytest.fixture(autouse=True)
