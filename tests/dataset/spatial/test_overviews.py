@@ -152,6 +152,13 @@ def test_get_overview(era5_image: gdal.Dataset, clean_overview_after_test):
         dataset.get_overview(band, 5)
 
 
+# The exact stranding -- levels dropped, a file named `.ovr` left in the working directory
+# -- was measured on GDAL 3.13.1. The win_arm64 wheel ships 3.12.4 (the vcpkg port ceiling),
+# so the assertions that pin GDAL's own misbehaviour are gated the way #892 gated the
+# equivalent NetCDF sidecar assertions. The guard itself is not gated; only this canary.
+_GDAL_STRANDS_PATHLESS_VRT_OVERVIEWS = int(gdal.VersionInfo("VERSION_NUM")) >= 3130000
+
+
 class TestCreateOverviewsPathlessGuard:
     """`create_overviews` refuses a VRT that has nowhere to put a sidecar (#917).
 
@@ -274,10 +281,41 @@ class TestCreateOverviewsPathlessGuard:
             assert all(count > 0 for count in view.overview_count), (
                 f"a NetCDF variable view should still build, got {view.overview_count}"
             )
+            sidecars = sorted(p.name for p in tmp_path.glob("*.ovr"))
+            assert sidecars == ["guard_var.nc.0.ovr"], (
+                f"the sidecar must be named after the container, found {sidecars}"
+            )
             assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
         finally:
             view.close()
             backed.close()
+
+    def test_vsimem_vrt_still_builds_overviews(self, tmp_path, monkeypatch):
+        """A `/vsimem/` VRT has a real path, so it names its sidecar after it.
+
+        Test scenario:
+            The guard's docstring and the migration entry both single this out as
+            unaffected — expected: the build succeeds and writes the sidecar in the
+            virtual filesystem, not into the working directory.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "vsimem_src.tif")
+        vsi_path = "/vsimem/guard_vsimem.vrt"
+        gdal.Translate(vsi_path, str(source), format="VRT").FlushCache()
+        dataset = Dataset.read_file(vsi_path)
+        try:
+            dataset.create_overviews(overview_levels=[2])
+            assert all(count > 0 for count in dataset.overview_count), (
+                f"a /vsimem/ VRT should still build, got {dataset.overview_count}"
+            )
+            assert gdal.VSIStatL(f"{vsi_path}.ovr") is not None, (
+                "the sidecar must land in /vsimem/ beside the VRT"
+            )
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            dataset.close()
+            gdal.Unlink(f"{vsi_path}.ovr")
+            gdal.Unlink(vsi_path)
 
     def test_recreate_overviews_refuses_with_the_same_diagnosis(
         self, tmp_path, monkeypatch
@@ -381,6 +419,9 @@ class TestCreateOverviewsPathlessGuard:
         dataset = Dataset.read_file(str(vrt_path))
         try:
             dataset.create_overviews(overview_levels=[2])
+            assert (tmp_path / "with_path.vrt.ovr").exists(), (
+                "the sidecar must be named after the VRT, which is the point of the case"
+            )
             assert dataset.overview_count == [1, 1, 1], (
                 f"a path-ful VRT should still build, got {dataset.overview_count}"
             )
@@ -396,8 +437,11 @@ class TestCreateOverviewsPathlessGuard:
         Test scenario:
             Call `BuildOverviews` straight on the GDAL handle, bypassing the guard —
             expected: the level count collapses to 0 and a file named `.ovr` appears in
-            the working directory. A GDAL release that fixes this fails this test.
+            the working directory. A GDAL release that fixes this fails this test, which
+            is the intended signal that the guard can go.
         """
+        if not _GDAL_STRANDS_PATHLESS_VRT_OVERVIEWS:
+            pytest.skip("the stranding behaviour was measured on GDAL >= 3.13")
         monkeypatch.chdir(tmp_path)
         source = _overviewed_raster(tmp_path, "raw_src.tif")
         dataset = Dataset.read_file(source)
