@@ -29,6 +29,7 @@ Available specs:
 
 from typing import TYPE_CHECKING, Any
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import require_optional
 
 if TYPE_CHECKING:  # names for static type checkers / IDEs; resolved lazily at runtime
@@ -52,13 +53,23 @@ _VIZ_HINT = (
 
 
 def __getattr__(name: str) -> Any:
-    """Resolve a cleopatra plot spec lazily, or raise the [viz] install hint."""
+    """Resolve a cleopatra plot spec lazily, or raise the [viz]/upgrade hint."""
     target = _CLEO_EXPORTS.get(name)
     if target is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     module_name, attribute = target
     module = require_optional(module_name, _VIZ_HINT, return_module=True)
-    return getattr(module, attribute)
+    try:
+        spec = getattr(module, attribute)
+    except AttributeError as exc:
+        # cleopatra is importable but too old to carry this spec — surface the
+        # branded upgrade hint instead of a bare AttributeError.
+        raise OptionalPackageDoesNotExist(
+            f"cleopatra is installed but too old to provide `{attribute}`. The "
+            "pyramids plotting specs require cleopatra >= 0.27; upgrade with: "
+            "pip install -U 'pyramids-gis[viz]'."
+        ) from exc
+    return spec
 
 
 def __dir__() -> list[str]:

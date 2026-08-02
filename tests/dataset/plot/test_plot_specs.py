@@ -53,3 +53,13 @@ class TestPlotSpecReExports:
         with patch("builtins.__import__", side_effect=_no_cleopatra):
             with pytest.raises(OptionalPackageDoesNotExist, match="viz"):
                 plot_specs.ColorBar
+
+    def test_too_old_cleopatra_raises_upgrade_hint(self):
+        """An importable-but-old cleopatra lacking a spec raises the upgrade hint."""
+
+        class _OldCleopatraModule:
+            """Stands in for a cleopatra too old to carry the spec."""
+
+        with patch("pyramids.plot.require_optional", return_value=_OldCleopatraModule()):
+            with pytest.raises(OptionalPackageDoesNotExist, match="0.27"):
+                plot_specs.ColorBar
