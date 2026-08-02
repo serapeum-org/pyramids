@@ -79,8 +79,9 @@ def get_registry() -> Mapping[str, ToolSpec]:
 # Curated v1 allowlist (real signatures, serialization-safe params) — ~15 ops per
 # the #780 DoD. Ops whose only useful params are non-serializable (masks, second
 # rasters, callables) are excluded; the registry is extensible (see ADR 0007).
-
-register(
+# Declared as data and registered in one loop below; the choices that reference
+# _RESAMPLING_METHODS/_QUADTREE_AGGS stay bound to the live source tables.
+_BUILTIN_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="slope",
         receiver="Dataset",
@@ -97,20 +98,14 @@ register(
                 choices=("degrees", "radians"),
             ),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="aspect",
         receiver="Dataset",
         returns="Array",
         description="Terrain aspect (compass direction of steepest descent).",
         params=(ParamSpec("band", "Integer", 0, True, _BAND_DESC),),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="hillshade",
         receiver="Dataset",
@@ -121,10 +116,7 @@ register(
             ParamSpec("altitude", "Float", 45.0, True, "Sun altitude in degrees."),
             ParamSpec("band", "Integer", 0, True, _BAND_DESC),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="to_crs",
         receiver="Dataset",
@@ -144,10 +136,7 @@ register(
                 "cell_size", "Float", None, True, "Output cell size (CRS units)."
             ),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="resample",
         receiver="Dataset",
@@ -164,10 +153,7 @@ register(
                 choices=_RESAMPLING_METHODS,
             ),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="interpolate_to_raster",
         receiver="FeatureCollection",
@@ -194,10 +180,7 @@ register(
                 "nodata", "Float", -9999.0, True, "No-data value for empty cells."
             ),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="to_h3",
         receiver="FeatureCollection",
@@ -206,10 +189,7 @@ register(
         params=(
             ParamSpec("resolution", "Integer", None, False, "H3 resolution 0-15."),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="fill",
         receiver="Dataset",
@@ -218,10 +198,7 @@ register(
         params=(
             ParamSpec("value", "Float", None, False, "Value to fill the domain with."),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="sieve",
         receiver="Dataset",
@@ -236,10 +213,7 @@ register(
                 "connectedness", "Integer", 4, True, "Pixel connectedness (4 or 8)."
             ),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="focal_mean",
         receiver="Dataset",
@@ -249,10 +223,7 @@ register(
             ParamSpec("radius", "Integer", 1, True, _RADIUS_DESC),
             ParamSpec("band", "Integer", 0, True, _BAND_DESC),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="focal_std",
         receiver="Dataset",
@@ -262,10 +233,7 @@ register(
             ParamSpec("radius", "Integer", 1, True, _RADIUS_DESC),
             ParamSpec("band", "Integer", 0, True, _BAND_DESC),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="voronoi",
         receiver="FeatureCollection",
@@ -274,10 +242,7 @@ register(
         params=(
             ParamSpec("values", "Field", None, True, "Column copied onto each cell."),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="quadtree",
         receiver="FeatureCollection",
@@ -300,26 +265,23 @@ register(
             ),
             ParamSpec("nmin", "Integer", 0, True, "Min points for a cell to be kept."),
         ),
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="with_centroid",
         receiver="FeatureCollection",
         returns="FeatureCollection",
         description="Add centroid x/y columns to each feature.",
-    )
-)
-
-register(
+    ),
     ToolSpec(
         name="with_coordinates",
         receiver="FeatureCollection",
         returns="FeatureCollection",
         description="Add per-vertex x/y coordinate columns.",
-    )
+    ),
 )
+
+for _spec in _BUILTIN_SPECS:
+    register(_spec)
 
 
 #: Tool names present in a freshly-imported registry — i.e. available inside a
