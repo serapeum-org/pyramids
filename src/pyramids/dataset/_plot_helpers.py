@@ -571,10 +571,9 @@ def render_array(
     # Stamp the data CRS onto the glyph so its reference-layer helpers
     # (``glyph.add_features`` / ``glyph.add_tiles``) default to it without the
     # caller restating ``crs=`` on every call — see issue #630. ``basemap_epsg``
-    # is the dataset's EPSG; the plot callers that carry curvilinear coords
-    # (``Analysis.plot``, ``NetCDF.plot``) always pass it, while the
-    # ``DatasetCollection.plot`` animate paths do not (they carry no coords, so
-    # it is moot there); ``None`` leaves cleopatra's own default.
+    # is the dataset's EPSG; the raster / NetCDF / collection plot callers all
+    # pass it (``Analysis.plot``, ``NetCDF.plot``, ``DatasetCollection.plot``);
+    # ``None`` leaves cleopatra's own default.
     # Relies on the ``GeoMixin.crs`` default added in cleopatra >= 0.20.0.
     if basemap_epsg is not None:
         cleo.crs = basemap_epsg
@@ -593,11 +592,12 @@ def render_array(
     # An empty string is treated as "no basemap" so it stays consistent with the
     # falsy top guard (``if basemap ...``) rather than reaching ``_apply_basemap``
     # with no source / no CRS.
+    # Use truthiness throughout so falsy inputs (None, False, "", {}) all mean
+    # "no basemap" and agree with the top guard -- an empty dict must not be
+    # forwarded to cleopatra without a CRS any more than an empty string is tiled.
     tile_basemap = (isinstance(basemap, str) and basemap != "") or basemap is True
     basemap_source = basemap if tile_basemap and isinstance(basemap, str) else None
-    forward_cleo_basemap = basemap is not None and not isinstance(
-        basemap, (str, bool)
-    )
+    forward_cleo_basemap = bool(basemap) and not isinstance(basemap, (str, bool))
     cleo_basemap_kwarg = {"basemap": basemap} if forward_cleo_basemap else {}
 
     def _apply_basemap(target_ax: Any) -> None:
@@ -633,9 +633,7 @@ def render_array(
                 **cleo_basemap_kwarg,
             )
         else:
-            cleo.animate(
-                animation_axis_values, **animate_kwargs, **cleo_basemap_kwarg
-            )
+            cleo.animate(animation_axis_values, **animate_kwargs, **cleo_basemap_kwarg)
         result = cleo
     else:
         # Facet path: cleopatra's ``ArrayGlyph.facet`` accepts every

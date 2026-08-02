@@ -83,6 +83,15 @@ class TestBasemapDispatch:
         assert not mock_add.called
         assert glyph is not None
 
+    def test_empty_dict_basemap_draws_nothing(self):
+        """An empty dict is falsy, so it is neither tiled nor forwarded."""
+        captured, spy = self._spy_on("plot")
+        with patch.object(ArrayGlyph, "plot", spy):
+            with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+                self._dataset().plot(band=0, basemap={})
+        assert "basemap" not in captured
+        assert not mock_add.called
+
     def test_cleopatra_basemap_on_facet_raises(self):
         """A `Basemap` on the faceted path raises a clear error (facet has none)."""
         stack = np.random.default_rng(1).random((3, 6, 6)).astype("float32")
