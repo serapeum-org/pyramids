@@ -1493,8 +1493,9 @@ class RasterBase(ABC):
         A band's levels are rebuilt in a single GDAL pass, which cascades: each deeper
         level is decimated from the level above rather than from the full-resolution
         band, matching what `create_overviews` does. A level >= 1 therefore holds what a
-        per-level rebuild wrote only where the resampling is idempotent under composition
-        (`nearest` always, `average` and `rms` while no no-data is present).
+        per-level rebuild wrote only where the resampling survives being applied twice --
+        `nearest` always, and `average`/`rms` on a floating-point band with no no-data.
+        See `docs/migration.md`.
 
         Args:
             resampling_method (str, optional):

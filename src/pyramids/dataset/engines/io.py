@@ -3051,11 +3051,14 @@ class IO(_Engine["Dataset"]):
 
         A band's levels are rebuilt in a single GDAL pass, which **cascades**: each
         deeper level is decimated from the level above rather than from the
-        full-resolution band. That is what `create_overviews` already does, so the two
-        now agree — but it means a level ≥ 1 matches a per-level rebuild only where the
-        resampling is idempotent under composition (`nearest` always, `average` and `rms`
-        while no no-data is present). With any other method, or across a no-data gap, the
-        values differ. Use `create_overviews` if you need the levels rebuilt from scratch.
+        full-resolution band. That is what `create_overviews` (`BuildOverviews`) already
+        does, so the two now agree. A level ≥ 1 keeps the values a per-level rebuild
+        wrote only where the resampling survives being applied twice: `nearest` always
+        (GDAL does not cascade it), and `average`/`rms` on a floating-point band with no
+        no-data — an integer band picks up per-level rounding of up to 1 DN, and a
+        no-data gap changes the result at any dtype. Every other method differs on
+        ordinary data. No API rebuilds a deep level directly from the source any more;
+        see `docs/migration.md`.
 
         The warning is emitted in every access mode: "has no overviews" is independent of
         read-only-ness, so reporting it as a read-only failure would misdiagnose it —
@@ -3144,14 +3147,11 @@ class IO(_Engine["Dataset"]):
         `gdal.RegenerateOverviews` call, which reads the full-resolution band **once** for
         the whole batch; regenerating them one at a time re-read the source per level.
         GDAL then fills each deeper level by decimating the level above rather than the
-        source, so a level ≥ 1 holds what the per-level loop wrote only where the
-        resampling is idempotent under composition — `nearest` always, `average` and
-        `rms` while no no-data is present. Every other method diverges on ordinary data:
-        measured at level 1 on a clean 16x16, `cubic` by 0.006, `bilinear` by 0.012,
-        `gauss` by 0.086, and `mode` by 2 whole classes, because the mode of modes is not
-        the mode. This is the same cascade `create_overviews` (`BuildOverviews`) already
-        uses, so the two now agree; the per-level loop was the odd one out. Non-power-of-
-        two chains compound it, since each step decimates an already-decimated grid.
+        source — the cascade :meth:`recreate_overviews` documents, and the same one
+        `BuildOverviews` uses, so the two now agree; the per-level loop was the odd one
+        out. For the cascading methods a non-power-of-two chain compounds it, since each
+        step decimates an already-decimated grid; `nearest` is exempt because GDAL never
+        cascades it.
 
         Each call is preceded by `gdal.ErrorReset()` so the CPL error number inspected on
         failure belongs to *this* regeneration and not to something earlier in the
@@ -3181,17 +3181,23 @@ class IO(_Engine["Dataset"]):
                 # the #863 defect, narrowed to a band.
                 continue
             band = self._ds._iloc(i)
-            # Take the levels off the band that is already resolved: get_overview would
-            # re-resolve it and re-read GetOverviewCount once per level, and the caller
-            # has already validated the count it snapshotted.
-            overviews = [band.GetOverview(j) for j in range(overview_count[i])]
             gdal.ErrorReset()
             try:
+                # Resolve inside the try so a level that has gone missing since the
+                # caller snapshotted the counts is reported against its band like any
+                # other failure, rather than escaping bare. Taken off the already
+                # resolved band: get_overview would re-resolve it and re-read
+                # GetOverviewCount once per level.
+                # Holding every level's handle at once (the singular loop held one) is
+                # safe: GetOverview registers a child reference on the owning dataset,
+                # so the parent outlives the list.
+                overviews = [band.GetOverview(j) for j in range(overview_count[i])]
                 status = gdal.RegenerateOverviews(band, overviews, resampling_method)
             except RuntimeError as err:
                 err.add_note(
                     f"Failed regenerating the overviews of band {i} (0-based); "
-                    "earlier bands may already have been rewritten."
+                    "earlier bands, and this band's earlier levels, may already have "
+                    "been rewritten."
                 )
                 if self._is_write_refusal(err):
                     raise ReadOnlyError(
