@@ -55,6 +55,16 @@ class TestBasemapDispatch:
         assert not mock_add.called, "a Basemap must not go through the tile path"
         assert glyph is not None
 
+    def test_dict_basemap_is_forwarded_not_tiled(self):
+        """A dict (the equivalent of a Basemap spec) also forwards, not tiled."""
+        captured, spy = self._spy_on("plot")
+        basemap = {"relief": False}
+        with patch.object(ArrayGlyph, "plot", spy):
+            with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+                self._dataset().plot(band=0, basemap=basemap)
+        assert captured.get("basemap") == basemap
+        assert not mock_add.called
+
     def test_no_basemap_draws_no_tiles(self):
         """Omitting `basemap` draws no tile layer."""
         with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
