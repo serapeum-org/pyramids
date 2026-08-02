@@ -1524,14 +1524,18 @@ class RasterBase(ABC):
                 resampling_method should be one of {"NEAREST", "CUBIC", "AVERAGE", "GAUSS", "CUBICSPLINE", "LANCZOS",
                 "MODE", "AVERAGE_MAGPHASE", "RMS", "BILINEAR"}.
             OverviewTargetError:
-                The dataset is a plain VRT whose description is not a path — an empty one, a blank one, or inline
-                VRT XML. A plain VRT owns no pixel storage, so its overviews can only go to an external sidecar,
-                and there is nothing to name one after; save it with `to_file(path)` and regenerate the levels on
-                the saved raster. A *warped* VRT is exempt: it holds its overviews in RAM. Subclasses `ValueError`.
+                The dataset cannot hold regenerated levels, for either of two reasons. It is a plain VRT whose
+                description is not a path — an empty one, a blank one, or inline VRT XML — so there is nothing to
+                name an external sidecar after; save it with `to_file(path)` and regenerate on the saved raster.
+                Or it is a *warped* VRT, whose levels the warper recomputes onto bands that are never writable,
+                so they cannot be rewritten in place; rebuild them with `create_overviews()`. Unlike
+                `create_overviews`, a warped VRT is **not** exempt here. Subclasses `ValueError`.
             ReadOnlyError:
                 If the overviews the call targets are opened read-only, so GDAL refuses to rewrite them —
                 internal overviews inside a read-only dataset, or an external .ovr that a later handle
-                reopened read-only. Please read the dataset using read_only=False
+                reopened read-only. Please read the dataset using read_only=False. Raised only where the access
+                mode is genuinely the blocker: GDAL reports an unwritable warped band with the same error
+                number, and that case raises `OverviewTargetError` instead.
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or transport failure
                 is not relabelled as an access-mode error. GDAL's own error is re-raised carrying a note

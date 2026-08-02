@@ -179,10 +179,11 @@ saved = Dataset.read_file("level.tif", read_only=False)
 saved.create_overviews(overview_levels=[2, 4])
 ```
 
-Unaffected, and covered by tests so they stay that way: **warped** VRTs — everything returned by
-`Dataset.to_crs(...)`, `Dataset.warped_view(...)`, `Dataset.crop(..., touch=False)` and the lazy
-`georeference` / `orthorectify` forms — keep their overviews in RAM and need no sidecar; a VRT with a real path
-(including under `/vsimem/`) names its sidecar after that path; and `MEM` rasters are not VRTs at all.
+Unaffected **by the `create_overviews` refusal**, and covered by tests so they stay that way: **warped** VRTs —
+everything returned by `Dataset.to_crs(...)`, `Dataset.warped_view(...)`, `Dataset.crop(..., touch=False)` and
+the lazy `georeference` / `orthorectify` forms — keep their overviews in RAM and need no sidecar; a VRT with a
+real path (including under `/vsimem/`) names its sidecar after that path; and `MEM` rasters are not VRTs at all.
+Warped VRTs are **not** exempt from the `recreate_overviews` refusal — see the next entry.
 
 **`recreate_overviews` on a warped VRT now raises `OverviewTargetError` instead of `ReadOnlyError`.** A warped
 VRT's levels are recomputed by the warper onto `VRTWarpedRasterBand`s, which are never writable. GDAL reports
