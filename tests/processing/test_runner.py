@@ -17,7 +17,7 @@ import pyramids.processing.registry as reg
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.processing import Pipeline, run
-from pyramids.processing.schema import ParamSpec, ToolSpec
+from pyramids.processing.schema import Parameter, ToolSpec
 
 
 @pytest.fixture(scope="module")
@@ -404,7 +404,7 @@ class TestRun:
             parallel (workers would not see it), before any process spawns.
         """
         reg.register(
-            ToolSpec("__rt_tool__", "Dataset", "Dataset", (ParamSpec("x", "Integer"),))
+            ToolSpec("__rt_tool__", "Dataset", "Dataset", (Parameter("x", "Integer"),))
         )
         try:
             pipe = Pipeline([("__rt_tool__", {"x": 1})])

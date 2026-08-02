@@ -12,7 +12,7 @@ module re-exports the stable pieces as they land.
 from pyramids.processing.pipeline import Pipeline, Step
 from pyramids.processing.provenance import Provenance, StepRecord
 from pyramids.processing.registry import (
-    get_registry,
+    catalog,
     register,
     resolve,
     tool_names,
@@ -20,21 +20,21 @@ from pyramids.processing.registry import (
 from pyramids.processing.runner import RunResult, run
 from pyramids.processing.schema import (
     PARAM_TYPES,
-    ParamSpec,
+    Parameter,
     ToolSpec,
     validate_params,
 )
 
 __all__ = [
     "PARAM_TYPES",
-    "ParamSpec",
+    "Parameter",
     "Pipeline",
     "Provenance",
     "RunResult",
     "Step",
     "StepRecord",
     "ToolSpec",
-    "get_registry",
+    "catalog",
     "register",
     "resolve",
     "run",

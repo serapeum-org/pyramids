@@ -2,7 +2,7 @@
 
 A :class:`ToolSpec` describes one pyramids op made addressable by name: which
 object it runs on (``receiver``), what it returns, and its parameters. Each
-:class:`ParamSpec` carries a tagged ``param_type`` plus the
+:class:`Parameter` carries a tagged ``param_type`` plus the
 metadata the pipeline layer needs — a default, whether it is optional, and
 whether its value can be serialized into a portable pipeline file.
 
@@ -16,7 +16,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-#: Parameter-type tags a ParamSpec can declare.
+#: Type tags a Parameter may declare.
 PARAM_TYPES = frozenset(
     {
         "Raster",
@@ -44,7 +44,7 @@ RETURN_TYPES = frozenset({"Dataset", "FeatureCollection", "Array"})
 
 
 @dataclass(frozen=True)
-class ParamSpec:
+class Parameter:
     """Describe a single tool parameter.
 
     Args:
@@ -200,7 +200,7 @@ class ToolSpec:
     name: str
     receiver: str
     returns: str
-    params: tuple[ParamSpec, ...] = ()
+    params: tuple[Parameter, ...] = ()
     description: str = ""
     method: str | None = None
 
@@ -224,8 +224,8 @@ class ToolSpec:
         """The receiver method this tool invokes."""
         return self.method or self.name
 
-    def param(self, name: str) -> ParamSpec | None:
-        """Return the :class:`ParamSpec` named ``name`` (or ``None``)."""
+    def param(self, name: str) -> Parameter | None:
+        """Return the :class:`Parameter` named ``name`` (or ``None``)."""
         found = None
         for spec in self.params:
             if spec.name == name:

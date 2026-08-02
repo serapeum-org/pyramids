@@ -14,7 +14,7 @@ from types import MappingProxyType
 
 from pyramids.base._utils import INTERPOLATION_METHODS
 from pyramids.feature.tessellation import QUADTREE_AGG
-from pyramids.processing.schema import ParamSpec, ToolSpec
+from pyramids.processing.schema import Parameter, ToolSpec
 
 _REGISTRY: dict[str, ToolSpec] = {}
 
@@ -61,12 +61,11 @@ def tool_names() -> list[str]:
     return sorted(_REGISTRY)
 
 
-def get_registry() -> Mapping[str, ToolSpec]:
-    """Return a read-only view of the registry.
+def catalog() -> Mapping[str, ToolSpec]:
+    """Return a read-only ``{name: ToolSpec}`` view of the registered tools.
 
-    Named ``get_registry`` rather than ``registry`` so it does not shadow the
-    ``pyramids.processing.registry`` submodule when re-exported at the package
-    root.
+    Named ``catalog`` (not ``registry``) so it does not shadow the
+    ``pyramids.processing.registry`` submodule when re-exported at the package root.
     """
     return MappingProxyType(_REGISTRY)
 
@@ -80,8 +79,8 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="Array",
         description="Terrain slope from an elevation raster.",
         params=(
-            ParamSpec("band", "Integer", 0, True, _BAND_DESC),
-            ParamSpec(
+            Parameter("band", "Integer", 0, True, _BAND_DESC),
+            Parameter(
                 "units",
                 "OptionList",
                 "degrees",
@@ -96,7 +95,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         receiver="Dataset",
         returns="Array",
         description="Terrain aspect (compass direction of steepest descent).",
-        params=(ParamSpec("band", "Integer", 0, True, _BAND_DESC),),
+        params=(Parameter("band", "Integer", 0, True, _BAND_DESC),),
     ),
     ToolSpec(
         name="hillshade",
@@ -104,9 +103,9 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="Array",
         description="Shaded-relief raster from an elevation raster.",
         params=(
-            ParamSpec("azimuth", "Float", 315.0, True, "Sun azimuth in degrees."),
-            ParamSpec("altitude", "Float", 45.0, True, "Sun altitude in degrees."),
-            ParamSpec("band", "Integer", 0, True, _BAND_DESC),
+            Parameter("azimuth", "Float", 315.0, True, "Sun azimuth in degrees."),
+            Parameter("altitude", "Float", 45.0, True, "Sun altitude in degrees."),
+            Parameter("band", "Integer", 0, True, _BAND_DESC),
         ),
     ),
     ToolSpec(
@@ -115,8 +114,8 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="Dataset",
         description="Reproject a raster to a target EPSG.",
         params=(
-            ParamSpec("to_epsg", "Integer", None, False, "Target EPSG code."),
-            ParamSpec(
+            Parameter("to_epsg", "Integer", None, False, "Target EPSG code."),
+            Parameter(
                 "method",
                 "OptionList",
                 None,
@@ -124,7 +123,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
                 "Resampling method.",
                 choices=_RESAMPLING_METHODS,
             ),
-            ParamSpec(
+            Parameter(
                 "cell_size", "Float", None, True, "Output cell size (CRS units)."
             ),
         ),
@@ -135,8 +134,8 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="Dataset",
         description="Resample a raster to a new cell size.",
         params=(
-            ParamSpec("cell_size", "Float", None, False, "New cell size (CRS units)."),
-            ParamSpec(
+            Parameter("cell_size", "Float", None, False, "New cell size (CRS units)."),
+            Parameter(
                 "method",
                 "OptionList",
                 None,
@@ -152,8 +151,8 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="Dataset",
         description="Interpolate a point column onto a continuous raster surface.",
         params=(
-            ParamSpec("column", "Field", None, False, "Numeric column to interpolate."),
-            ParamSpec(
+            Parameter("column", "Field", None, False, "Numeric column to interpolate."),
+            Parameter(
                 "method",
                 "OptionList",
                 "idw",
@@ -161,14 +160,14 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
                 "Interpolation method.",
                 choices=("idw",),
             ),
-            ParamSpec(
+            Parameter(
                 "cell_size", "Float", None, True, "Output cell size (CRS units)."
             ),
-            ParamSpec("power", "Float", 2.0, True, "IDW distance exponent."),
-            ParamSpec(
+            Parameter("power", "Float", 2.0, True, "IDW distance exponent."),
+            Parameter(
                 "n_neighbors", "Integer", None, True, "Nearest points per estimate."
             ),
-            ParamSpec(
+            Parameter(
                 "nodata", "Float", -9999.0, True, "No-data value for empty cells."
             ),
         ),
@@ -179,7 +178,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="FeatureCollection",
         description="Tag each point with its H3 cell index.",
         params=(
-            ParamSpec("resolution", "Integer", None, False, "H3 resolution 0-15."),
+            Parameter("resolution", "Integer", None, False, "H3 resolution 0-15."),
         ),
     ),
     ToolSpec(
@@ -188,7 +187,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="Dataset",
         description="Fill every domain cell with a constant value.",
         params=(
-            ParamSpec("value", "Float", None, False, "Value to fill the domain with."),
+            Parameter("value", "Float", None, False, "Value to fill the domain with."),
         ),
     ),
     ToolSpec(
@@ -197,11 +196,11 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="Dataset",
         description="Remove pixel clumps smaller than a threshold (speckle clean-up).",
         params=(
-            ParamSpec(
+            Parameter(
                 "threshold", "Integer", None, False, "Minimum clump size in pixels."
             ),
-            ParamSpec("band", "Integer", 0, True, _BAND_DESC),
-            ParamSpec(
+            Parameter("band", "Integer", 0, True, _BAND_DESC),
+            Parameter(
                 "connectedness", "Integer", 4, True, "Pixel connectedness (4 or 8)."
             ),
         ),
@@ -212,8 +211,8 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="Array",
         description="Mean of each cell's neighbourhood (smoothing filter).",
         params=(
-            ParamSpec("radius", "Integer", 1, True, _RADIUS_DESC),
-            ParamSpec("band", "Integer", 0, True, _BAND_DESC),
+            Parameter("radius", "Integer", 1, True, _RADIUS_DESC),
+            Parameter("band", "Integer", 0, True, _BAND_DESC),
         ),
     ),
     ToolSpec(
@@ -222,8 +221,8 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="Array",
         description="Standard deviation of each cell's neighbourhood.",
         params=(
-            ParamSpec("radius", "Integer", 1, True, _RADIUS_DESC),
-            ParamSpec("band", "Integer", 0, True, _BAND_DESC),
+            Parameter("radius", "Integer", 1, True, _RADIUS_DESC),
+            Parameter("band", "Integer", 0, True, _BAND_DESC),
         ),
     ),
     ToolSpec(
@@ -232,7 +231,7 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="FeatureCollection",
         description="Voronoi (Thiessen) tessellation of a point layer.",
         params=(
-            ParamSpec("values", "Field", None, True, "Column copied onto each cell."),
+            Parameter("values", "Field", None, True, "Column copied onto each cell."),
         ),
     ),
     ToolSpec(
@@ -241,10 +240,10 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
         returns="FeatureCollection",
         description="Adaptive quad-tree binning of a point layer into cells.",
         params=(
-            ParamSpec(
+            Parameter(
                 "column", "Field", None, True, "Numeric column aggregated per cell."
             ),
-            ParamSpec(
+            Parameter(
                 "agg",
                 "OptionList",
                 "mean",
@@ -252,10 +251,10 @@ _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
                 "Aggregation function name.",
                 choices=_QUADTREE_AGGS,
             ),
-            ParamSpec(
+            Parameter(
                 "nmax", "Integer", 100, True, "Max points per cell before splitting."
             ),
-            ParamSpec("nmin", "Integer", 0, True, "Min points for a cell to be kept."),
+            Parameter("nmin", "Integer", 0, True, "Min points for a cell to be kept."),
         ),
     ),
     ToolSpec(

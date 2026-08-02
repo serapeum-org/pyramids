@@ -5,7 +5,7 @@ import pytest
 
 import pyramids.processing.registry as reg
 from pyramids.processing.pipeline import Pipeline, Step
-from pyramids.processing.schema import ParamSpec, ToolSpec, validate_params
+from pyramids.processing.schema import Parameter, ToolSpec, validate_params
 
 
 class TestValidateParams:
@@ -57,7 +57,7 @@ class TestValidateParams:
             A Raster param passes normal validation but fails under
             for_serialization=True.
         """
-        spec = ToolSpec("t", "Dataset", "Dataset", (ParamSpec("mask", "Raster"),))
+        spec = ToolSpec("t", "Dataset", "Dataset", (Parameter("mask", "Raster"),))
         validate_params(spec, {"mask": "r.tif"})
         with pytest.raises(
             ValueError, match="not\n?.*serializable|not pipeline-serializable"
@@ -155,7 +155,7 @@ class TestPipeline:
         """
         reg.register(
             ToolSpec(
-                "__ns_tool__", "Dataset", "Dataset", (ParamSpec("mask", "Raster"),)
+                "__ns_tool__", "Dataset", "Dataset", (Parameter("mask", "Raster"),)
             )
         )
         try:

@@ -95,7 +95,7 @@ cannot cross process boundaries).
         show_root_heading: true
         heading_level: 3
 
-::: pyramids.processing.ParamSpec
+::: pyramids.processing.Parameter
     options:
         show_root_heading: true
         heading_level: 3

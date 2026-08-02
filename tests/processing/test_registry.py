@@ -6,7 +6,7 @@ import pyramids.processing.registry as reg
 from pyramids.processing.schema import (
     RECEIVER_TYPES,
     RETURN_TYPES,
-    ParamSpec,
+    Parameter,
     ToolSpec,
 )
 
@@ -66,7 +66,7 @@ class TestRegistry:
         Test scenario:
             Assigning into the returned mapping raises TypeError.
         """
-        view = reg.get_registry()
+        view = reg.catalog()
         with pytest.raises(TypeError):
             view["x"] = None  # type: ignore[index]
 
@@ -98,7 +98,7 @@ class TestRegistry:
         Test scenario:
             Iterating the registry, each spec's receiver and returns are in RECEIVER_TYPES.
         """
-        for name, spec in reg.get_registry().items():
+        for name, spec in reg.catalog().items():
             assert spec.receiver in RECEIVER_TYPES, (
                 f"{name} bad receiver {spec.receiver}"
             )
@@ -112,7 +112,7 @@ class TestRegistry:
             global registry is left as found.
         """
         temp = ToolSpec(
-            "__tmp_tool__", "Dataset", "Dataset", (ParamSpec("x", "Integer"),)
+            "__tmp_tool__", "Dataset", "Dataset", (Parameter("x", "Integer"),)
         )
         reg.register(temp)
         try:
