@@ -7087,7 +7087,7 @@ DATA = Path("../../../examples/data")</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5f5ef75e">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=31bc39ec">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7095,12 +7095,12 @@ DATA = Path("../../../examples/data")</div>
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="the-tool-registry">The tool registry<a class="anchor-link" href="#the-tool-registry">¶</a></h2><p>A pipeline can only reference <strong>registered tools</strong>: existing pyramids ops made addressable by name, each with a
 parameter schema and a <em>receiver type</em> (does it run on a <code>Dataset</code> or a <code>FeatureCollection</code>?) and a <em>return type</em>.
-<code>get_registry()</code> returns that catalogue — here it is as a table.</p>
+Call <code>get_registry()</code> to get that catalogue.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=87c1a2a3">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=362df11f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7109,6 +7109,69 @@ parameter schema and a <em>receiver type</em> (does it run on a <code>Dataset</c
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-2">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">registry</span> <span class="o">=</span> <span class="n">get_registry</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">registry</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> with </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">registry</span><span class="p">)</span><span class="si">}</span><span class="s2"> tools:"</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">registry</span><span class="p">))</span>
+<span class="n">registry</span><span class="p">[</span><span class="s2">"slope"</span><span class="p">]</span>  <span class="c1"># a single entry (one ToolSpec)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-2">registry = get_registry()
+print(f"{type(registry).__name__} with {len(registry)} tools:", list(registry))
+registry["slope"]  # a single entry (one ToolSpec)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>mappingproxy with 15 tools: ['slope', 'aspect', 'hillshade', 'to_crs', 'resample', 'interpolate_to_raster', 'to_h3', 'fill', 'sieve', 'focal_mean', 'focal_std', 'voronoi', 'quadtree', 'with_centroid', 'with_coordinates']
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[2]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>ToolSpec(name='slope', receiver='Dataset', returns='Array', params=(ParamSpec(name='band', param_type='Integer', default=0, optional=True, description='Zero-based band index.', choices=None, serializable=None), ParamSpec(name='units', param_type='OptionList', default='degrees', optional=True, description='Slope units.', choices=('degrees', 'radians'), serializable=None)), description='Terrain slope from an elevation raster.', method=None)</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=e6600f65">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><code>get_registry()</code> returns a <strong>read-only</strong> <code>mappingproxy</code> keyed by tool name, with a <code>ToolSpec</code> value for each —
+as the <code>slope</code> entry above shows. It is a <em>live</em> view: a tool you <code>register()</code> later appears here too, but the
+mapping itself cannot be mutated (assigning into it raises). Rendered as a readable table:</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=b611a170">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-3">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7127,12 +7190,12 @@ parameter schema and a <em>receiver type</em> (does it run on a <code>Dataset</c
             <span class="s2">"params"</span><span class="p">:</span> <span class="s2">", "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">spec</span><span class="o">.</span><span class="n">params</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">"-"</span><span class="p">,</span>
             <span class="s2">"description"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
         <span class="p">}</span>
-        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">spec</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">get_registry</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">spec</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">registry</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
     <span class="p">]</span>
 <span class="p">)</span>
 <span class="n">registry_table</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-2">registry_table = pd.DataFrame(
+<div class="clipboard-copy-txt" id="cell-3">registry_table = pd.DataFrame(
     [
         {
             "tool": name,
@@ -7141,7 +7204,7 @@ parameter schema and a <em>receiver type</em> (does it run on a <code>Dataset</c
             "params": ", ".join(p.name for p in spec.params) or "-",
             "description": spec.description,
         }
-        for name, spec in sorted(get_registry().items())
+        for name, spec in sorted(registry.items())
     ]
 )
 registry_table</div>
@@ -7154,7 +7217,7 @@ registry_table</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[2]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <div>
 <style scoped="">
@@ -7344,10 +7407,10 @@ purely to get a continuous surface to work with; in practice you would grid rain
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-3">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-4">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7360,7 +7423,7 @@ purely to get a continuous surface to work with; in practice you would grid rain
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">gauges</span> <span class="o">=</span> <span class="n">FeatureCollection</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">DATA</span> <span class="o">/</span> <span class="s2">"coello-gauges.geojson"</span><span class="p">))</span>
 <span class="n">gauges</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">column</span><span class="o">=</span><span class="s2">"y"</span><span class="p">,</span> <span class="n">markersize</span><span class="o">=</span><span class="mi">80</span><span class="p">,</span> <span class="n">legend</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">gauges = FeatureCollection.read_file(str(DATA / "coello-gauges.geojson"))
+<div class="clipboard-copy-txt" id="cell-4">gauges = FeatureCollection.read_file(str(DATA / "coello-gauges.geojson"))
 gauges.plot(column="y", markersize=80, legend=True)</div>
 </div>
 </div>
@@ -7371,7 +7434,7 @@ gauges.plot(column="y", markersize=80, legend=True)</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>&lt;Axes: &gt;</pre>
 </div>
@@ -7403,10 +7466,10 @@ unknown tool or a bad parameter fails right here, not halfway through a long run
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-4">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-5">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7424,7 +7487,7 @@ unknown tool or a bad parameter fails right here, not halfway through a long run
 <span class="p">)</span>
 <span class="n">quickstart</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4">quickstart = Pipeline(
+<div class="clipboard-copy-txt" id="cell-5">quickstart = Pipeline(
     [
         ("interpolate_to_raster", {"column": "y", "cell_size": 2000.0}),
         ("slope", {}),
@@ -7440,7 +7503,7 @@ quickstart</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>Pipeline([('interpolate_to_raster', {'column': 'y', 'cell_size': 2000.0}), ('slope', {})])</pre>
 </div>
@@ -7466,10 +7529,10 @@ its array is materialized back into a georeferenced <code>Dataset</code> — so 
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-5">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-6">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7483,7 +7546,7 @@ its array is materialized back into a georeferenced <code>Dataset</code> — so 
 <span class="n">slope_raster</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 <span class="n">slope_raster</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">"Slope of the interpolated gauge surface"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5">result = run(quickstart, gauges)
+<div class="clipboard-copy-txt" id="cell-6">result = run(quickstart, gauges)
 slope_raster = result.outputs[0]
 slope_raster.plot(title="Slope of the interpolated gauge surface")</div>
 </div>
@@ -7495,9 +7558,9 @@ slope_raster.plot(title="Slope of the interpolated gauge surface")</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5f9b966e40&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fd0950f6e40&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7539,10 +7602,10 @@ would hold <code>(input, error)</code> pairs under the default skip policy (none
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-6">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-7">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7555,7 +7618,7 @@ would hold <code>(input, error)</code> pairs under the default skip policy (none
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">dem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">DATA</span> <span class="o">/</span> <span class="s2">"dem"</span> <span class="o">/</span> <span class="s2">"DEM5km_Rhine_burned_fill.tif"</span><span class="p">))</span>
 <span class="n">dem</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">"Rhine DEM (filled)"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">dem = Dataset.read_file(str(DATA / "dem" / "DEM5km_Rhine_burned_fill.tif"))
+<div class="clipboard-copy-txt" id="cell-7">dem = Dataset.read_file(str(DATA / "dem" / "DEM5km_Rhine_burned_fill.tif"))
 dem.plot(title="Rhine DEM (filled)")</div>
 </div>
 </div>
@@ -7566,9 +7629,9 @@ dem.plot(title="Rhine DEM (filled)")</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5f9b50c7d0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fd08cef47d0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7598,10 +7661,10 @@ step is one idea; the chain reads top to bottom.</p>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-7">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-8">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7620,7 +7683,7 @@ step is one idea; the chain reads top to bottom.</p>
 <span class="n">hillshaded</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">terrain</span><span class="p">,</span> <span class="n">dem</span><span class="p">)</span><span class="o">.</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 <span class="n">hillshaded</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">"Hillshade of the smoothed DEM"</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s2">"gray"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">terrain = Pipeline(
+<div class="clipboard-copy-txt" id="cell-8">terrain = Pipeline(
     [
         ("focal_mean", {"radius": 1}),
         ("hillshade", {"azimuth": 315.0, "altitude": 45.0}),
@@ -7637,9 +7700,9 @@ hillshaded.plot(title="Hillshade of the smoothed DEM", cmap="gray")</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5f9b57f750&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fd08cd63750&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7681,10 +7744,10 @@ serialization-safe (scalar) parameters are allowed — <code>to_yaml</code> refu
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-8">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-9">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7698,7 +7761,7 @@ serialization-safe (scalar) parameters are allowed — <code>to_yaml</code> refu
 <span class="n">terrain</span><span class="o">.</span><span class="n">to_yaml</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">yaml_path</span><span class="p">))</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">yaml_path</span><span class="o">.</span><span class="n">read_text</span><span class="p">())</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-8">yaml_path = Path("terrain.yaml")
+<div class="clipboard-copy-txt" id="cell-9">yaml_path = Path("terrain.yaml")
 terrain.to_yaml(str(yaml_path))
 print(yaml_path.read_text())</div>
 </div>
@@ -7744,10 +7807,10 @@ print(yaml_path.read_text())</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-9">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-10">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7760,7 +7823,7 @@ print(yaml_path.read_text())</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">reloaded</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="o">.</span><span class="n">from_yaml</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">yaml_path</span><span class="p">))</span>
 <span class="n">reloaded</span> <span class="o">==</span> <span class="n">terrain</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">reloaded = Pipeline.from_yaml(str(yaml_path))
+<div class="clipboard-copy-txt" id="cell-10">reloaded = Pipeline.from_yaml(str(yaml_path))
 reloaded == terrain</div>
 </div>
 </div>
@@ -7771,7 +7834,7 @@ reloaded == terrain</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[10]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>True</pre>
 </div>
@@ -7797,10 +7860,10 @@ clean.</p>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-10">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-11">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7812,7 +7875,7 @@ clean.</p>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">yaml_path</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">missing_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-10">yaml_path.unlink(missing_ok=True)</div>
+<div class="clipboard-copy-txt" id="cell-11">yaml_path.unlink(missing_ok=True)</div>
 </div>
 </div>
 </div>
@@ -7837,10 +7900,10 @@ and the batch keeps going; use <code>"raise"</code> to fail fast.</p>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [12]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-11">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-12">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7854,7 +7917,7 @@ and the batch keeps going; use <code>"raise"</code> to fail fast.</p>
 <span class="n">batch</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">smooth</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">DATA</span> <span class="o">/</span> <span class="s2">"crop_aligned_folder"</span> <span class="o">/</span> <span class="s2">"*.tif"</span><span class="p">))</span>
 <span class="nb">len</span><span class="p">(</span><span class="n">batch</span><span class="o">.</span><span class="n">outputs</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">batch</span><span class="o">.</span><span class="n">failures</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-11">smooth = Pipeline([("focal_mean", {"radius": 2})])
+<div class="clipboard-copy-txt" id="cell-12">smooth = Pipeline([("focal_mean", {"radius": 2})])
 batch = run(smooth, str(DATA / "crop_aligned_folder" / "*.tif"))
 len(batch.outputs), len(batch.failures)</div>
 </div>
@@ -7866,7 +7929,7 @@ len(batch.outputs), len(batch.failures)</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[11]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>(6, 0)</pre>
 </div>
@@ -7891,10 +7954,10 @@ len(batch.outputs), len(batch.failures)</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [12]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [13]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-12">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-13">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7906,7 +7969,7 @@ len(batch.outputs), len(batch.failures)</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">batch</span><span class="o">.</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">"Smoothed (focal_mean, radius=2) — first tile"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-12">batch.outputs[0].plot(title="Smoothed (focal_mean, radius=2) — first tile")</div>
+<div class="clipboard-copy-txt" id="cell-13">batch.outputs[0].plot(title="Smoothed (focal_mean, radius=2) — first tile")</div>
 </div>
 </div>
 </div>
@@ -7916,9 +7979,9 @@ len(batch.outputs), len(batch.failures)</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5f9b8ede00&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fd08ce61e00&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7948,10 +8011,10 @@ adaptively bins them. Both take a <code>FeatureCollection</code> and return one.
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [13]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [14]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-13">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-14">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -7964,7 +8027,7 @@ adaptively bins them. Both take a <code>FeatureCollection</code> and return one.
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">cells</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">Pipeline</span><span class="p">([(</span><span class="s2">"voronoi"</span><span class="p">,</span> <span class="p">{})]),</span> <span class="n">gauges</span><span class="p">)</span><span class="o">.</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 <span class="n">cells</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">edgecolor</span><span class="o">=</span><span class="s2">"black"</span><span class="p">,</span> <span class="n">facecolor</span><span class="o">=</span><span class="s2">"none"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-13">cells = run(Pipeline([("voronoi", {})]), gauges).outputs[0]
+<div class="clipboard-copy-txt" id="cell-14">cells = run(Pipeline([("voronoi", {})]), gauges).outputs[0]
 cells.plot(edgecolor="black", facecolor="none")</div>
 </div>
 </div>
@@ -7975,7 +8038,7 @@ cells.plot(edgecolor="black", facecolor="none")</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[14]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>&lt;Axes: &gt;</pre>
 </div>
@@ -8019,10 +8082,10 @@ that produced an output (reproducibility).</p>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [14]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [15]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-14">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-15">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -8040,7 +8103,7 @@ that produced an output (reproducibility).</p>
     <span class="p">]</span>
 <span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-14">prov = result.provenance[0]
+<div class="clipboard-copy-txt" id="cell-15">prov = result.provenance[0]
 pd.DataFrame(
     [
         {"tool": s.tool, "params": s.params, "seconds": round(s.seconds, 4)}
@@ -8056,7 +8119,7 @@ pd.DataFrame(
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[14]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[15]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <div>
 <style scoped="">
@@ -8086,13 +8149,13 @@ pd.DataFrame(
 <th>0</th>
 <td>interpolate_to_raster</td>
 <td>{'column': 'y', 'cell_size': 2000.0}</td>
-<td>0.0113</td>
+<td>0.0138</td>
 </tr>
 <tr>
 <th>1</th>
 <td>slope</td>
 <td>{}</td>
-<td>0.0010</td>
+<td>0.0013</td>
 </tr>
 </tbody>
 </table>
@@ -8120,10 +8183,10 @@ saved:</p>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [15]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [16]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-15">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-16">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -8135,7 +8198,7 @@ saved:</p>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">prov</span><span class="o">.</span><span class="n">to_pipeline</span><span class="p">()</span> <span class="o">==</span> <span class="n">quickstart</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-15">prov.to_pipeline() == quickstart</div>
+<div class="clipboard-copy-txt" id="cell-16">prov.to_pipeline() == quickstart</div>
 </div>
 </div>
 </div>
@@ -8145,7 +8208,7 @@ saved:</p>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[15]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[16]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>True</pre>
 </div>
