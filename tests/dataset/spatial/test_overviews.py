@@ -12,6 +12,7 @@ from osgeo import gdal, osr
 
 from pyramids.base._errors import ReadOnlyError
 from pyramids.dataset import Dataset
+from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -241,6 +242,38 @@ class TestCreateOverviewsPathlessGuard:
             if view is not None:
                 view.close()
             dataset.close()
+
+    def test_netcdf_variable_view_still_builds_overviews(self, tmp_path, monkeypatch):
+        """A file-backed NetCDF variable view is unaffected: it is not a VRT.
+
+        Test scenario:
+            The view also has an empty description, and the guard's comment names it as a
+            must-not-break shape — expected: the build succeeds and the sidecar is named
+            after the container, not dropped in the working directory.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = tmp_path / "guard_var.nc"
+        container = NetCDF.create_from_array(
+            arr=np.random.default_rng(11).random((16, 16)).astype(np.float64),
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            epsg=4326,
+            no_data_value=-9999.0,
+            variable_name="elevation",
+        )
+        container.to_file(str(source))
+        container.close()
+        backed = NetCDF.read_file(str(source))
+        view = backed.get_variable("elevation")
+        try:
+            assert not view.raster.GetDescription(), "precondition: the view has no path"
+            view.create_overviews(overview_levels=[2])
+            assert all(count > 0 for count in view.overview_count), (
+                f"a NetCDF variable view should still build, got {view.overview_count}"
+            )
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            view.close()
+            backed.close()
 
     def test_inline_xml_vrt_is_refused_too(self, tmp_path, monkeypatch):
         """An inline-XML VRT has no path either, despite a non-empty description.

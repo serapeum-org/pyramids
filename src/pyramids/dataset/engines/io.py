@@ -2973,6 +2973,11 @@ class IO(_Engine["Dataset"]):
         - a VRT with a real path — including one under `/vsimem/` — names its sidecar
           after that path and writes it successfully.
 
+        Non-VRT handles are never blocked here even when they have no description: `MEM`
+        keeps its levels internally, a file-backed NetCDF variable view names its sidecar
+        after the container, and an in-memory one is refused by GDAL itself with
+        `RuntimeError: No filename associated with array`, which is already actionable.
+
         Returns:
             bool:
                 True when building overviews on this handle would strand them.
