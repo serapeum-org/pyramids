@@ -35,10 +35,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_tools(args: argparse.Namespace) -> int:
-    """List every registered tool with its receiver/return types."""
+    """List every registered tool with its input/output types."""
     for name in tool_names():
         tool = resolve(name)
-        print(f"{name:24} {tool.receiver} -> {tool.returns}   {tool.description}")
+        print(f"{name:24} {tool.input_type} -> {tool.output_type}   {tool.description}")
     return 0
 
 

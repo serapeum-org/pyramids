@@ -1,8 +1,8 @@
 """Self-describing tool/parameter schema for the processing registry.
 
 A :class:`ToolMetadata` describes one pyramids op made addressable by name: which
-object it runs on (``receiver``), what it returns, and its parameters. Each
-:class:`Parameter` carries a tagged ``param_type`` plus the
+object it runs on (``input_type``), what it produces (``output_type``), and its
+parameters. Each :class:`Parameter` carries a tagged ``parameter_type`` plus the
 metadata the pipeline layer needs — a default, whether it is optional, and
 whether its value can be serialized into a portable pipeline file.
 
@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 #: Type tags a Parameter may declare.
-PARAM_TYPES = frozenset(
+PARAMETER_TYPES = frozenset(
     {
         "Raster",
         "Vector",
@@ -37,10 +37,10 @@ _SERIALIZABLE_TYPES = frozenset(
 )
 
 #: Object types a tool can be invoked on.
-RECEIVER_TYPES = frozenset({"Dataset", "FeatureCollection"})
+INPUT_TYPES = frozenset({"Dataset", "FeatureCollection"})
 
 #: Types a tool may return; "Array" ops are numpy arrays the runner wraps into a Dataset.
-RETURN_TYPES = frozenset({"Dataset", "FeatureCollection", "Array"})
+OUTPUT_TYPES = frozenset({"Dataset", "FeatureCollection", "Array"})
 
 
 @dataclass(frozen=True)
@@ -49,9 +49,9 @@ class Parameter:
 
     Args:
         name: The keyword-argument name passed to the underlying op.
-        param_type: One of :data:`PARAM_TYPES`.
+        parameter_type: One of :data:`PARAMETER_TYPES`.
         default: Display-only default shown in ``help``. The runner passes only the
-            params a step supplies, so this value is never itself applied — the
+            parameters a step supplies, so this value is never itself applied — the
             *runtime* default is always whatever the underlying method uses. Set it
             to **mirror** that method's real default so ``help`` advertises the true
             value (e.g. ``"nearest neighbor"`` for a resampling ``method``); leave it
@@ -60,15 +60,15 @@ class Parameter:
         description: Human-readable help text.
         choices: Allowed values for an ``"OptionList"`` parameter.
         serializable: Override for whether the value can be serialized; when
-            ``None`` it is derived from ``param_type``.
+            ``None`` it is derived from ``parameter_type``.
 
     Raises:
-        ValueError: If ``param_type`` is unknown or ``choices`` is given for a
+        ValueError: If ``parameter_type`` is unknown or ``choices`` is given for a
             non-``OptionList`` parameter.
     """
 
     name: str
-    param_type: str
+    parameter_type: str
     default: Any = None
     optional: bool = True
     description: str = ""
@@ -76,15 +76,15 @@ class Parameter:
     serializable: bool | None = None
 
     def __post_init__(self) -> None:
-        if self.param_type not in PARAM_TYPES:
+        if self.parameter_type not in PARAMETER_TYPES:
             raise ValueError(
-                f"unknown param_type {self.param_type!r} for parameter "
-                f"{self.name!r}; valid: {sorted(PARAM_TYPES)}"
+                f"unknown parameter_type {self.parameter_type!r} for parameter "
+                f"{self.name!r}; valid: {sorted(PARAMETER_TYPES)}"
             )
-        if self.choices is not None and self.param_type != "OptionList":
+        if self.choices is not None and self.parameter_type != "OptionList":
             raise ValueError(
                 f"parameter {self.name!r}: choices are only valid for an "
-                f"'OptionList' param_type, not {self.param_type!r}"
+                f"'OptionList' parameter_type, not {self.parameter_type!r}"
             )
 
     @property
@@ -93,7 +93,7 @@ class Parameter:
         if self.serializable is not None:
             result = self.serializable
         else:
-            result = self.param_type in _SERIALIZABLE_TYPES
+            result = self.parameter_type in _SERIALIZABLE_TYPES
         return result
 
     def validate(self, value: Any) -> None:
@@ -103,10 +103,10 @@ class Parameter:
             value: The value supplied for the parameter.
 
         Raises:
-            ValueError: If ``value`` does not match ``param_type`` (this is what
+            ValueError: If ``value`` does not match ``parameter_type`` (this is what
                 rejects a numpy array / mask / callable handed to a scalar param).
         """
-        pt = self.param_type
+        pt = self.parameter_type
         ok = True
         if pt == "Float":
             ok = isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -134,7 +134,7 @@ class Parameter:
         """Coerce a raw CLI string into this parameter's type.
 
         Public API kept for a future CLI ``--set key=value`` path; not yet wired
-        into a shipped command (the ``run`` subcommand reads typed params from YAML).
+        into a shipped command (the ``run`` subcommand reads typed parameters from YAML).
 
         Args:
             raw: The string value from the command line.
@@ -146,7 +146,7 @@ class Parameter:
             ValueError: If ``raw`` cannot be converted (e.g. a non-numeric string
                 for a ``"Float"`` parameter, or a value outside ``choices``).
         """
-        pt = self.param_type
+        pt = self.parameter_type
         if pt == "Float":
             result: Any = float(raw)
         elif pt == "Integer":
@@ -177,7 +177,7 @@ class Parameter:
         default = "" if self.default is None else f", default={self.default!r}"
         choices = "" if self.choices is None else f" {list(self.choices)}"
         desc = f" — {self.description}" if self.description else ""
-        return f"{self.name} ({self.param_type}{choices}, {flag}{default}){desc}"
+        return f"{self.name} ({self.parameter_type}{choices}, {flag}{default}){desc}"
 
 
 @dataclass(frozen=True)
@@ -186,75 +186,75 @@ class ToolMetadata:
 
     Args:
         name: The tool name used in a pipeline and on the CLI.
-        receiver: The object the tool runs on — ``"Dataset"`` or
+        input_type: The object the tool runs on — ``"Dataset"`` or
             ``"FeatureCollection"``.
-        returns: The object type the tool produces.
-        params: The tool's parameters.
+        output_type: The object type the tool produces.
+        parameters: The tool's parameters.
         description: Human-readable summary.
-        method: The method name on the receiver; defaults to ``name``.
+        method: The method name on the input object; defaults to ``name``.
 
     Raises:
-        ValueError: If ``receiver``/``returns`` are not valid receiver types or a
+        ValueError: If ``input_type``/``output_type`` are not valid object types or a
             parameter name is duplicated.
     """
 
     name: str
-    receiver: str
-    returns: str
-    params: tuple[Parameter, ...] = ()
+    input_type: str
+    output_type: str
+    parameters: tuple[Parameter, ...] = ()
     description: str = ""
     method: str | None = None
 
     def __post_init__(self) -> None:
-        if self.receiver not in RECEIVER_TYPES:
+        if self.input_type not in INPUT_TYPES:
             raise ValueError(
-                f"tool {self.name!r}: receiver must be one of "
-                f"{sorted(RECEIVER_TYPES)}, got {self.receiver!r}"
+                f"tool {self.name!r}: input_type must be one of "
+                f"{sorted(INPUT_TYPES)}, got {self.input_type!r}"
             )
-        if self.returns not in RETURN_TYPES:
+        if self.output_type not in OUTPUT_TYPES:
             raise ValueError(
-                f"tool {self.name!r}: returns must be one of "
-                f"{sorted(RETURN_TYPES)}, got {self.returns!r}"
+                f"tool {self.name!r}: output_type must be one of "
+                f"{sorted(OUTPUT_TYPES)}, got {self.output_type!r}"
             )
-        seen = [p.name for p in self.params]
+        seen = [p.name for p in self.parameters]
         if len(seen) != len(set(seen)):
             raise ValueError(f"tool {self.name!r}: duplicate parameter names in {seen}")
 
     @property
     def method_name(self) -> str:
-        """The receiver method this tool invokes."""
+        """The method this tool invokes on its input object."""
         return self.method or self.name
 
     def param(self, name: str) -> Parameter | None:
         """Return the :class:`Parameter` named ``name`` (or ``None``)."""
         found = None
-        for param in self.params:
+        for param in self.parameters:
             if param.name == name:
                 found = param
                 break
         return found
 
     def help(self) -> str:
-        """Render a multi-line help block describing the tool and its params."""
-        lines = [f"{self.name} ({self.receiver} -> {self.returns})"]
+        """Render a multi-line help block describing the tool and its parameters."""
+        lines = [f"{self.name} ({self.input_type} -> {self.output_type})"]
         if self.description:
             lines.append(f"  {self.description}")
-        if self.params:
+        if self.parameters:
             lines.append("  parameters:")
-            lines.extend(f"    {p.help()}" for p in self.params)
+            lines.extend(f"    {p.help()}" for p in self.parameters)
         else:
             lines.append("  parameters: (none)")
         return "\n".join(lines)
 
 
-def validate_params(
-    tool: ToolMetadata, params: dict[str, Any], *, for_serialization: bool = False
+def validate_parameters(
+    tool: ToolMetadata, parameters: dict[str, Any], *, for_serialization: bool = False
 ) -> None:
     """Validate a parameter mapping against a tool's schema.
 
     Args:
-        tool: The tool whose schema ``params`` must satisfy.
-        params: The supplied ``{name: value}`` mapping.
+        tool: The tool whose schema ``parameters`` must satisfy.
+        parameters: The supplied ``{name: value}`` mapping.
         for_serialization: When ``True``, additionally reject any value whose
             parameter is not pipeline-serializable (arrays, masks, callables,
             in-memory ``Raster``/``Vector`` objects) so ``to_yaml`` never writes a
@@ -265,8 +265,8 @@ def validate_params(
             non-serializable value is supplied under ``for_serialization``, or a
             required parameter is missing.
     """
-    known = {p.name: p for p in tool.params}
-    for key, value in params.items():
+    known = {p.name: p for p in tool.parameters}
+    for key, value in parameters.items():
         try:
             param = known[key]
         except KeyError as exc:
@@ -276,10 +276,12 @@ def validate_params(
         param.validate(value)
         if for_serialization and not param.is_serializable:
             raise ValueError(
-                f"tool {tool.name!r}: parameter {key!r} ({param.param_type}) is not "
+                f"tool {tool.name!r}: parameter {key!r} ({param.parameter_type}) is not "
                 "pipeline-serializable and cannot be written to a pipeline file"
             )
-    missing = [p.name for p in tool.params if not p.optional and p.name not in params]
+    missing = [
+        p.name for p in tool.parameters if not p.optional and p.name not in parameters
+    ]
     if missing:
         raise ValueError(
             f"tool {tool.name!r}: missing required parameter(s): {missing}"

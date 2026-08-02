@@ -1,23 +1,23 @@
-"""Unit tests for :mod:`pyramids.processing.pipeline` and validate_params."""
+"""Unit tests for :mod:`pyramids.processing.pipeline` and validate_parameters."""
 
 import numpy as np
 import pytest
 
 import pyramids.processing.registry as reg
 from pyramids.processing.pipeline import Pipeline, Step
-from pyramids.processing.schema import Parameter, ToolMetadata, validate_params
+from pyramids.processing.schema import Parameter, ToolMetadata, validate_parameters
 
 
 class TestValidateParams:
-    """Tests for schema.validate_params."""
+    """Tests for schema.validate_parameters."""
 
     def test_valid_params_pass(self):
-        """Well-formed params for a known tool validate cleanly.
+        """Well-formed parameters for a known tool validate cleanly.
 
         Test scenario:
             slope with a valid band + units raises nothing.
         """
-        validate_params(reg.resolve("slope"), {"band": 1, "units": "radians"})
+        validate_parameters(reg.resolve("slope"), {"band": 1, "units": "radians"})
 
     def test_unknown_param_raises(self):
         """An unknown parameter name is rejected.
@@ -27,7 +27,7 @@ class TestValidateParams:
         """
         spec = reg.resolve("slope")
         with pytest.raises(ValueError, match="unknown parameter"):
-            validate_params(spec, {"nope": 1})
+            validate_parameters(spec, {"nope": 1})
 
     def test_type_mismatch_rejects_array_value(self):
         """A non-serializable value handed to a scalar param is rejected.
@@ -38,7 +38,7 @@ class TestValidateParams:
         spec = reg.resolve("slope")
         bad = np.zeros(3)
         with pytest.raises(ValueError, match="expects Integer"):
-            validate_params(spec, {"band": bad})
+            validate_parameters(spec, {"band": bad})
 
     def test_missing_required_raises(self):
         """A missing required parameter is reported.
@@ -48,7 +48,7 @@ class TestValidateParams:
         """
         spec = reg.resolve("interpolate_to_raster")
         with pytest.raises(ValueError, match="missing required parameter"):
-            validate_params(spec, {})
+            validate_parameters(spec, {})
 
     def test_for_serialization_rejects_nonserializable_param(self):
         """for_serialization flags a non-serializable declared param.
@@ -58,11 +58,11 @@ class TestValidateParams:
             for_serialization=True.
         """
         spec = ToolMetadata("t", "Dataset", "Dataset", (Parameter("mask", "Raster"),))
-        validate_params(spec, {"mask": "r.tif"})
+        validate_parameters(spec, {"mask": "r.tif"})
         with pytest.raises(
             ValueError, match="not\n?.*serializable|not pipeline-serializable"
         ):
-            validate_params(spec, {"mask": "r.tif"}, for_serialization=True)
+            validate_parameters(spec, {"mask": "r.tif"}, for_serialization=True)
 
 
 class TestPipeline:
@@ -72,7 +72,7 @@ class TestPipeline:
         """A valid chain constructs and iterates as Steps.
 
         Test scenario:
-            A two-step chain has len 2 and yields Step objects with tool+params.
+            A two-step chain has len 2 and yields Step objects with tool+parameters.
         """
         p = Pipeline([("interpolate_to_raster", {"column": "z"}), ("slope", {})])
         assert len(p) == 2, f"expected 2 steps, got {len(p)}"
@@ -99,12 +99,12 @@ class TestPipeline:
             Pipeline([("slope", {"band": 1.5})])
 
     def test_malformed_step_raises(self):
-        """A step that is not a (tool, params) pair is rejected.
+        """A step that is not a (tool, parameters) pair is rejected.
 
         Test scenario:
             A bare string step raises a clear ValueError.
         """
-        with pytest.raises(ValueError, match="must be a .tool, params. pair"):
+        with pytest.raises(ValueError, match="must be a .tool, parameters. pair"):
             Pipeline(["slope"])  # type: ignore[list-item]
 
     def test_to_dict_from_dict_roundtrip(self):
@@ -190,16 +190,18 @@ class TestPipeline:
         assert Pipeline([("slope", {})]) != "not a pipeline", "should not equal a str"
 
     def test_to_dict_params_are_copied(self):
-        """Mutating to_dict()'s params does not affect the pipeline (L1).
+        """Mutating to_dict()'s parameters does not affect the pipeline (L1).
 
         Test scenario:
-            Editing the params dict returned by to_dict leaves the pipeline's own
-            step params unchanged.
+            Editing the parameters dict returned by to_dict leaves the pipeline's own
+            step parameters unchanged.
         """
         p = Pipeline([("slope", {"band": 0})])
         d = p.to_dict()
-        d["pipeline"][0]["params"]["band"] = 99
-        assert p.steps[0].params["band"] == 0, "to_dict must not leak internal params"
+        d["pipeline"][0]["parameters"]["band"] = 99
+        assert p.steps[0].parameters["band"] == 0, (
+            "to_dict must not leak internal parameters"
+        )
 
     def test_from_dict_pipeline_not_list(self):
         """from_dict rejects a 'pipeline' that is not a list.
@@ -217,7 +219,7 @@ class TestPipeline:
             A step mapping lacking 'tool' raises ValueError.
         """
         with pytest.raises(ValueError, match="'tool' key"):
-            Pipeline.from_dict({"pipeline": [{"params": {}}]})
+            Pipeline.from_dict({"pipeline": [{"parameters": {}}]})
 
     def test_steps_property_returns_copy(self):
         """steps returns a fresh list that does not alias internal state.
@@ -228,8 +230,8 @@ class TestPipeline:
         p = Pipeline([("slope", {"band": 0})])
         got = p.steps
         got.append("x")
-        got[0].params["band"] = 99
+        got[0].parameters["band"] = 99
         assert len(p) == 1, "mutating the steps copy must not affect the pipeline"
-        assert p.steps[0].params["band"] == 0, (
-            "mutating a step's params must not leak back"
+        assert p.steps[0].parameters["band"] == 0, (
+            "mutating a step's parameters must not leak back"
         )

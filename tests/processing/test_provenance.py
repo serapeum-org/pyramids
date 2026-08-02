@@ -34,7 +34,7 @@ class TestProvenance:
         """to_pipeline re-emits a pipeline equal to the recorded steps.
 
         Test scenario:
-            A provenance built from (tool, params) records re-emits an equal
+            A provenance built from (tool, parameters) records re-emits an equal
             Pipeline.
         """
         prov = Provenance(
@@ -52,7 +52,7 @@ class TestRunProvenance:
         """run() records provenance whose re-emit equals the original pipeline.
 
         Test scenario:
-            After running a cross-receiver pipeline, provenance[0].to_pipeline()
+            After running a cross-input pipeline, provenance[0].to_pipeline()
             equals the pipeline that was run, and total_seconds is non-negative.
         """
         pipe = Pipeline(
@@ -76,7 +76,7 @@ class TestRunProvenance:
         """A failed input contributes no provenance entry.
 
         Test scenario:
-            A wrong-receiver run under skip yields one failure and zero provenance.
+            A wrong-input run under skip yields one failure and zero provenance.
         """
         result = run(Pipeline([("slope", {})]), _points_fc(), on_error="skip")
         assert len(result.provenance) == 0, result.provenance

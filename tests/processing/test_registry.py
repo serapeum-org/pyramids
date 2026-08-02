@@ -4,8 +4,8 @@ import pytest
 
 import pyramids.processing.registry as reg
 from pyramids.processing.schema import (
-    RECEIVER_TYPES,
-    RETURN_TYPES,
+    INPUT_TYPES,
+    OUTPUT_TYPES,
     Parameter,
     ToolMetadata,
 )
@@ -71,38 +71,38 @@ class TestRegistry:
             view["x"] = None  # type: ignore[index]
 
     @pytest.mark.parametrize(
-        "name, receiver, returns",
+        "name, input_type, output_type",
         [
             ("slope", "Dataset", "Array"),
             ("interpolate_to_raster", "FeatureCollection", "Dataset"),
             ("to_h3", "FeatureCollection", "FeatureCollection"),
         ],
     )
-    def test_receiver_and_returns_metadata(self, name, receiver, returns):
-        """Each tool declares the right receiver and return types.
+    def test_input_and_output_type_metadata(self, name, input_type, output_type):
+        """Each tool declares the right input and return types.
 
         Args:
             name: Tool name.
-            receiver: Expected receiver type.
-            returns: Expected return type.
+            input_type: Expected input type.
+            output_type: Expected return type.
 
         Test scenario:
-            The cross-receiver op (interpolate_to_raster) is FeatureCollection->Dataset.
+            The cross-input op (interpolate_to_raster) is FeatureCollection->Dataset.
         """
         spec = reg.resolve(name)
-        assert (spec.receiver, spec.returns) == (receiver, returns), spec
+        assert (spec.input_type, spec.output_type) == (input_type, output_type), spec
 
     def test_all_specs_have_valid_types(self):
-        """Every registered spec has valid receiver/return types.
+        """Every registered spec has valid input/return types.
 
         Test scenario:
-            Iterating the registry, each spec's receiver and returns are in RECEIVER_TYPES.
+            Iterating the registry, each spec's input and returns are in INPUT_TYPES.
         """
         for name, spec in reg.catalog().items():
-            assert spec.receiver in RECEIVER_TYPES, (
-                f"{name} bad receiver {spec.receiver}"
+            assert spec.input_type in INPUT_TYPES, f"{name} bad input {spec.input_type}"
+            assert spec.output_type in OUTPUT_TYPES, (
+                f"{name} bad returns {spec.output_type}"
             )
-            assert spec.returns in RETURN_TYPES, f"{name} bad returns {spec.returns}"
 
     def test_register_and_resolve_roundtrip(self):
         """register adds a tool that resolve can then return.
@@ -131,5 +131,5 @@ class TestRegistry:
         """
         column = reg.resolve("interpolate_to_raster").param("column")
         assert column is not None, "column param should exist"
-        assert column.param_type == "Field", column
+        assert column.parameter_type == "Field", column
         assert not column.optional, column

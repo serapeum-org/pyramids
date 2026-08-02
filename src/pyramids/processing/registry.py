@@ -75,10 +75,10 @@ def catalog() -> Mapping[str, ToolMetadata]:
 _BUILTINS: tuple[ToolMetadata, ...] = (
     ToolMetadata(
         name="slope",
-        receiver="Dataset",
-        returns="Array",
+        input_type="Dataset",
+        output_type="Array",
         description="Terrain slope from an elevation raster.",
-        params=(
+        parameters=(
             Parameter("band", "Integer", 0, True, _BAND_DESC),
             Parameter(
                 "units",
@@ -92,17 +92,17 @@ _BUILTINS: tuple[ToolMetadata, ...] = (
     ),
     ToolMetadata(
         name="aspect",
-        receiver="Dataset",
-        returns="Array",
+        input_type="Dataset",
+        output_type="Array",
         description="Terrain aspect (compass direction of steepest descent).",
-        params=(Parameter("band", "Integer", 0, True, _BAND_DESC),),
+        parameters=(Parameter("band", "Integer", 0, True, _BAND_DESC),),
     ),
     ToolMetadata(
         name="hillshade",
-        receiver="Dataset",
-        returns="Array",
+        input_type="Dataset",
+        output_type="Array",
         description="Shaded-relief raster from an elevation raster.",
-        params=(
+        parameters=(
             Parameter("azimuth", "Float", 315.0, True, "Sun azimuth in degrees."),
             Parameter("altitude", "Float", 45.0, True, "Sun altitude in degrees."),
             Parameter("band", "Integer", 0, True, _BAND_DESC),
@@ -110,10 +110,10 @@ _BUILTINS: tuple[ToolMetadata, ...] = (
     ),
     ToolMetadata(
         name="to_crs",
-        receiver="Dataset",
-        returns="Dataset",
+        input_type="Dataset",
+        output_type="Dataset",
         description="Reproject a raster to a target EPSG.",
-        params=(
+        parameters=(
             Parameter("to_epsg", "Integer", None, False, "Target EPSG code."),
             Parameter(
                 "method",
@@ -130,10 +130,10 @@ _BUILTINS: tuple[ToolMetadata, ...] = (
     ),
     ToolMetadata(
         name="resample",
-        receiver="Dataset",
-        returns="Dataset",
+        input_type="Dataset",
+        output_type="Dataset",
         description="Resample a raster to a new cell size.",
-        params=(
+        parameters=(
             Parameter("cell_size", "Float", None, False, "New cell size (CRS units)."),
             Parameter(
                 "method",
@@ -147,10 +147,10 @@ _BUILTINS: tuple[ToolMetadata, ...] = (
     ),
     ToolMetadata(
         name="interpolate_to_raster",
-        receiver="FeatureCollection",
-        returns="Dataset",
+        input_type="FeatureCollection",
+        output_type="Dataset",
         description="Interpolate a point column onto a continuous raster surface.",
-        params=(
+        parameters=(
             Parameter("column", "Field", None, False, "Numeric column to interpolate."),
             Parameter(
                 "method",
@@ -174,28 +174,28 @@ _BUILTINS: tuple[ToolMetadata, ...] = (
     ),
     ToolMetadata(
         name="to_h3",
-        receiver="FeatureCollection",
-        returns="FeatureCollection",
+        input_type="FeatureCollection",
+        output_type="FeatureCollection",
         description="Tag each point with its H3 cell index.",
-        params=(
+        parameters=(
             Parameter("resolution", "Integer", None, False, "H3 resolution 0-15."),
         ),
     ),
     ToolMetadata(
         name="fill",
-        receiver="Dataset",
-        returns="Dataset",
+        input_type="Dataset",
+        output_type="Dataset",
         description="Fill every domain cell with a constant value.",
-        params=(
+        parameters=(
             Parameter("value", "Float", None, False, "Value to fill the domain with."),
         ),
     ),
     ToolMetadata(
         name="sieve",
-        receiver="Dataset",
-        returns="Dataset",
+        input_type="Dataset",
+        output_type="Dataset",
         description="Remove pixel clumps smaller than a threshold (speckle clean-up).",
-        params=(
+        parameters=(
             Parameter(
                 "threshold", "Integer", None, False, "Minimum clump size in pixels."
             ),
@@ -207,39 +207,39 @@ _BUILTINS: tuple[ToolMetadata, ...] = (
     ),
     ToolMetadata(
         name="focal_mean",
-        receiver="Dataset",
-        returns="Array",
+        input_type="Dataset",
+        output_type="Array",
         description="Mean of each cell's neighbourhood (smoothing filter).",
-        params=(
+        parameters=(
             Parameter("radius", "Integer", 1, True, _RADIUS_DESC),
             Parameter("band", "Integer", 0, True, _BAND_DESC),
         ),
     ),
     ToolMetadata(
         name="focal_std",
-        receiver="Dataset",
-        returns="Array",
+        input_type="Dataset",
+        output_type="Array",
         description="Standard deviation of each cell's neighbourhood.",
-        params=(
+        parameters=(
             Parameter("radius", "Integer", 1, True, _RADIUS_DESC),
             Parameter("band", "Integer", 0, True, _BAND_DESC),
         ),
     ),
     ToolMetadata(
         name="voronoi",
-        receiver="FeatureCollection",
-        returns="FeatureCollection",
+        input_type="FeatureCollection",
+        output_type="FeatureCollection",
         description="Voronoi (Thiessen) tessellation of a point layer.",
-        params=(
+        parameters=(
             Parameter("values", "Field", None, True, "Column copied onto each cell."),
         ),
     ),
     ToolMetadata(
         name="quadtree",
-        receiver="FeatureCollection",
-        returns="FeatureCollection",
+        input_type="FeatureCollection",
+        output_type="FeatureCollection",
         description="Adaptive quad-tree binning of a point layer into cells.",
-        params=(
+        parameters=(
             Parameter(
                 "column", "Field", None, True, "Numeric column aggregated per cell."
             ),
@@ -259,14 +259,14 @@ _BUILTINS: tuple[ToolMetadata, ...] = (
     ),
     ToolMetadata(
         name="with_centroid",
-        receiver="FeatureCollection",
-        returns="FeatureCollection",
+        input_type="FeatureCollection",
+        output_type="FeatureCollection",
         description="Add centroid x/y columns to each feature.",
     ),
     ToolMetadata(
         name="with_coordinates",
-        receiver="FeatureCollection",
-        returns="FeatureCollection",
+        input_type="FeatureCollection",
+        output_type="FeatureCollection",
         description="Add per-vertex x/y coordinate columns.",
     ),
 )

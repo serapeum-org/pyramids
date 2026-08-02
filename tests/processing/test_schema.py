@@ -8,14 +8,14 @@ from pyramids.processing.schema import Parameter, ToolMetadata
 class TestParameter:
     """Tests for the Parameter dataclass."""
 
-    def test_init_invalid_param_type_raises(self):
-        """An unknown param_type is rejected at construction.
+    def test_init_invalid_parameter_type_raises(self):
+        """An unknown parameter_type is rejected at construction.
 
         Test scenario:
-            Building a Parameter with a type outside PARAM_TYPES raises ValueError
+            Building a Parameter with a type outside PARAMETER_TYPES raises ValueError
             naming the offending type.
         """
-        with pytest.raises(ValueError, match="unknown param_type") as exc:
+        with pytest.raises(ValueError, match="unknown parameter_type") as exc:
             Parameter("x", "Nonsense")
         assert "Nonsense" in str(exc.value), (
             f"message should name the type: {exc.value}"
@@ -31,7 +31,7 @@ class TestParameter:
             Parameter("x", "String", choices=("a", "b"))
 
     @pytest.mark.parametrize(
-        "param_type, expected",
+        "parameter_type, expected",
         [
             ("Float", True),
             ("Integer", True),
@@ -44,21 +44,23 @@ class TestParameter:
             ("Vector", False),
         ],
     )
-    def test_is_serializable_derived(self, param_type, expected):
-        """is_serializable is derived from param_type when not overridden.
+    def test_is_serializable_derived(self, parameter_type, expected):
+        """is_serializable is derived from parameter_type when not overridden.
 
         Args:
-            param_type: The tagged parameter type.
+            parameter_type: The tagged parameter type.
             expected: Whether a value of that type is serializable.
 
         Test scenario:
             Scalar/file types serialize; in-memory Raster/Vector do not.
         """
         spec = Parameter(
-            "x", param_type, choices=("a",) if param_type == "OptionList" else None
+            "x",
+            parameter_type,
+            choices=("a",) if parameter_type == "OptionList" else None,
         )
         assert spec.is_serializable is expected, (
-            f"{param_type} serializable should be {expected}"
+            f"{parameter_type} serializable should be {expected}"
         )
 
     def test_is_serializable_override(self):
@@ -119,17 +121,17 @@ class TestParameter:
         with pytest.raises(ValueError):
             spec.validate(1)
 
-    @pytest.mark.parametrize("param_type", ["String", "Field"])
-    def test_validate_string_like(self, param_type):
+    @pytest.mark.parametrize("parameter_type", ["String", "Field"])
+    def test_validate_string_like(self, parameter_type):
         """String and Field accept str and reject non-str.
 
         Args:
-            param_type: String or Field.
+            parameter_type: String or Field.
 
         Test scenario:
             "elevation" passes; 3 fails.
         """
-        spec = Parameter("x", param_type)
+        spec = Parameter("x", parameter_type)
         spec.validate("elevation")
         with pytest.raises(ValueError):
             spec.validate(3)
@@ -159,7 +161,7 @@ class TestParameter:
         spec.validate(tmp_path / "out.tif")
 
     @pytest.mark.parametrize(
-        "param_type, raw, expected",
+        "parameter_type, raw, expected",
         [
             ("Float", "2.5", 2.5),
             ("Integer", "3", 3),
@@ -168,18 +170,18 @@ class TestParameter:
             ("String", "hello", "hello"),
         ],
     )
-    def test_coerce_valid(self, param_type, raw, expected):
+    def test_coerce_valid(self, parameter_type, raw, expected):
         """coerce converts a CLI string to the parameter's type.
 
         Args:
-            param_type: The tagged type.
+            parameter_type: The tagged type.
             raw: The raw CLI string.
             expected: The coerced value.
 
         Test scenario:
             Numeric/boolean/string coercions produce the right Python value.
         """
-        result = Parameter("x", param_type).coerce(raw)
+        result = Parameter("x", parameter_type).coerce(raw)
         assert result == expected, (
             f"coerce({raw!r}) -> {result!r}, expected {expected!r}"
         )
@@ -222,28 +224,28 @@ class TestToolMetadata:
     """Tests for the ToolMetadata dataclass."""
 
     def test_init_invalid_receiver_raises(self):
-        """An invalid receiver type is rejected.
+        """An invalid input type is rejected.
 
         Test scenario:
-            receiver='Blah' raises ValueError listing valid receiver types.
+            input_type='Blah' raises ValueError listing valid input types.
         """
-        with pytest.raises(ValueError, match="receiver must be one of"):
+        with pytest.raises(ValueError, match="input_type must be one of"):
             ToolMetadata("t", "Blah", "Dataset")
 
     def test_init_invalid_returns_raises(self):
         """An invalid returns type is rejected.
 
         Test scenario:
-            returns='Blah' raises ValueError.
+            output_type='Blah' raises ValueError.
         """
-        with pytest.raises(ValueError, match="returns must be one of"):
+        with pytest.raises(ValueError, match="output_type must be one of"):
             ToolMetadata("t", "Dataset", "Blah")
 
     def test_init_duplicate_param_names_raises(self):
         """Duplicate parameter names are rejected.
 
         Test scenario:
-            Two params both named 'band' raise ValueError.
+            Two parameters both named 'band' raise ValueError.
         """
         dup = (Parameter("band", "Integer"), Parameter("band", "Integer"))
         with pytest.raises(ValueError, match="duplicate parameter names"):
@@ -277,7 +279,7 @@ class TestToolMetadata:
         """help renders the header and each parameter.
 
         Test scenario:
-            A tool with one param renders its receiver->returns header and the param.
+            A tool with one param renders its input->returns header and the param.
         """
         spec = ToolMetadata(
             "slope", "Dataset", "Dataset", (Parameter("band", "Integer"),), "Slope."

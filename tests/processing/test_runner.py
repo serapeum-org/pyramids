@@ -1,6 +1,6 @@
 """Unit tests for :mod:`pyramids.processing.runner`.
 
-The serial runner, receiver-type dispatch, error policy, output writing, and the
+The serial runner, input-type dispatch, error policy, output writing, and the
 parallel guardrails are covered deterministically here. Real process-pool
 execution (``parallel=True`` over multiple files) is covered by the ``slow``-marked
 tests (``test_parallel_run_executes_and_returns_paths``,
@@ -39,7 +39,7 @@ def points_fc():
 
 @pytest.fixture(scope="module")
 def raster_ds():
-    """An 8x8 single-band EPSG:4326 raster for the Dataset-receiver tools.
+    """An 8x8 single-band EPSG:4326 raster for the Dataset-input tools.
 
     Returns:
         Dataset: a small in-memory float raster.
@@ -209,7 +209,7 @@ class TestRun:
         assert all(isinstance(o, Dataset) for o in result.outputs), result.outputs
 
     @pytest.mark.parametrize(
-        "tool, params",
+        "tool, parameters",
         [
             ("to_crs", {"to_epsg": 3857}),
             ("to_crs", {"to_epsg": 3857, "method": "bilinear", "cell_size": 200000.0}),
@@ -225,24 +225,24 @@ class TestRun:
             ("focal_std", {"radius": 1}),
         ],
     )
-    def test_dataset_tools_run_through_runner(self, raster_ds, tool, params):
-        """Each Dataset-receiver tool dispatches and returns a Dataset.
+    def test_dataset_tools_run_through_runner(self, raster_ds, tool, parameters):
+        """Each Dataset-input tool dispatches and returns a Dataset.
 
         Args:
             raster_ds: small raster fixture.
             tool: the tool name.
-            params: its params.
+            parameters: its parameters.
 
         Test scenario:
             Every Dataset tool runs end-to-end (catches param/method-name drift the
             metadata tests would miss); array ops materialize back to a Dataset.
         """
-        result = run(Pipeline([(tool, params)]), raster_ds, on_error="raise")
+        result = run(Pipeline([(tool, parameters)]), raster_ds, on_error="raise")
         assert result.ok, result.failures
         assert isinstance(result.outputs[0], Dataset), result.outputs
 
     @pytest.mark.parametrize(
-        "tool, params",
+        "tool, parameters",
         [
             ("to_h3", {"resolution": 5}),
             ("voronoi", {}),
@@ -253,24 +253,24 @@ class TestRun:
             ("with_coordinates", {}),
         ],
     )
-    def test_feature_tools_run_through_runner(self, points_fc, tool, params):
-        """Each FeatureCollection-receiver tool dispatches and returns one.
+    def test_feature_tools_run_through_runner(self, points_fc, tool, parameters):
+        """Each FeatureCollection-input tool dispatches and returns one.
 
         Args:
             points_fc: point-collection fixture.
             tool: the tool name.
-            params: its params.
+            parameters: its parameters.
 
         Test scenario:
             Every FeatureCollection tool runs end-to-end and yields a
             FeatureCollection.
         """
-        result = run(Pipeline([(tool, params)]), points_fc, on_error="raise")
+        result = run(Pipeline([(tool, parameters)]), points_fc, on_error="raise")
         assert result.ok, result.failures
         assert isinstance(result.outputs[0], FeatureCollection), result.outputs
 
     def test_interpolate_secondary_params_run(self, points_fc):
-        """interpolate_to_raster accepts its optional IDW params end-to-end.
+        """interpolate_to_raster accepts its optional IDW parameters end-to-end.
 
         Test scenario:
             power/n_neighbors/nodata pass through to the op by name and yield a

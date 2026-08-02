@@ -19,14 +19,14 @@ from pyramids.processing.registry import (
 )
 from pyramids.processing.runner import RunResult, run
 from pyramids.processing.schema import (
-    PARAM_TYPES,
+    PARAMETER_TYPES,
     Parameter,
     ToolMetadata,
-    validate_params,
+    validate_parameters,
 )
 
 __all__ = [
-    "PARAM_TYPES",
+    "PARAMETER_TYPES",
     "Parameter",
     "Pipeline",
     "Provenance",
@@ -39,5 +39,5 @@ __all__ = [
     "resolve",
     "run",
     "tool_names",
-    "validate_params",
+    "validate_parameters",
 ]

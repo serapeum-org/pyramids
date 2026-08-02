@@ -48,7 +48,7 @@ class TestProcessingCli:
         """`pyramids tool slope` prints the tool's parameter schema.
 
         Test scenario:
-            Output includes the receiver header and the 'band' param; exit 0.
+            Output includes the input header and the 'band' param; exit 0.
         """
         rc = main(["tool", "slope"])
         out = capsys.readouterr().out

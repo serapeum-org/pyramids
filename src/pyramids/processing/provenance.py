@@ -1,7 +1,7 @@
 """Per-run provenance — what produced each output, for reproducibility.
 
 Each successful input in a :func:`~pyramids.processing.runner.run` collects a
-:class:`Provenance` record: the source, and per step the tool, params, and wall
+:class:`Provenance` record: the source, and per step the tool, parameters, and wall
 time. :meth:`Provenance.to_pipeline` re-emits the exact :class:`Pipeline` that
 produced the output, so a result can be reproduced or its recipe serialized.
 """
@@ -16,16 +16,16 @@ from pyramids.processing.pipeline import Pipeline
 
 @dataclass
 class StepRecord:
-    """One executed step's tool, params, and wall-clock duration.
+    """One executed step's tool, parameters, and wall-clock duration.
 
     Attributes:
         tool: The tool name that ran.
-        params: The parameter mapping it was called with.
+        parameters: The parameter mapping it was called with.
         seconds: Wall-clock duration of the step, in seconds.
     """
 
     tool: str
-    params: dict[str, Any]
+    parameters: dict[str, Any]
     seconds: float
 
 
@@ -54,4 +54,4 @@ class Provenance:
             A :class:`Pipeline` equal to the one that was run (so it round-trips
             through ``to_yaml``/``from_yaml`` and reproduces the result).
         """
-        return Pipeline([(record.tool, record.params) for record in self.steps])
+        return Pipeline([(record.tool, record.parameters) for record in self.steps])

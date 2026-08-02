@@ -43,7 +43,7 @@ class RunResult:
         failures: ``(source, exception)`` pairs for inputs that failed under the
             ``"skip"`` policy.
         provenance: One :class:`~pyramids.processing.provenance.Provenance` record
-            per successful input (tool, params, and timing per step).
+            per successful input (tool, parameters, and timing per step).
     """
 
     outputs: list[Any] = field(default_factory=list)
@@ -84,7 +84,7 @@ def _resolve_inputs(inputs: Any) -> list[Any]:
     return items
 
 
-def _receiver_type(obj: Any) -> str:
+def _object_type(obj: Any) -> str:
     """Return ``"Dataset"``/``"FeatureCollection"`` for ``obj`` (else its type name)."""
     if isinstance(obj, FeatureCollection):
         name = "FeatureCollection"
@@ -112,10 +112,10 @@ def _apply(step: Step, obj: Any, tool: ToolMetadata) -> Any:
     """Apply one pipeline step to ``obj`` and return the result.
 
     Dispatches to ``obj``'s method only when ``obj``'s type matches the tool's
-    declared receiver. This is what makes a cross-receiver chain safe: a step whose
+    declared ``input_type``. This is what makes a cross-type chain safe: a step whose
     predecessor changed the object type (e.g. ``interpolate_to_raster`` turns a
     ``FeatureCollection`` into a ``Dataset``) is checked against the *new* type, and
-    a step applied to the wrong receiver raises a clear ``TypeError`` instead of an
+    a step applied to the wrong input type raises a clear ``TypeError`` instead of an
     opaque ``AttributeError``.
 
     Args:
@@ -124,19 +124,19 @@ def _apply(step: Step, obj: Any, tool: ToolMetadata) -> Any:
         tool: The step's resolved :class:`ToolMetadata` (resolved once by the caller).
 
     Returns:
-        The step's output (which may be a different receiver type).
+        The step's output (which may be a different object type).
 
     Raises:
-        TypeError: If ``obj``'s type does not match the tool's declared receiver.
+        TypeError: If ``obj``'s type does not match the tool's declared ``input_type``.
     """
-    actual = _receiver_type(obj)
-    if actual != tool.receiver:
+    actual = _object_type(obj)
+    if actual != tool.input_type:
         raise TypeError(
-            f"tool {step.tool!r} expects a {tool.receiver}, but the current "
+            f"tool {step.tool!r} expects a {tool.input_type}, but the current "
             f"pipeline object is a {actual}"
         )
     method = getattr(obj, tool.method_name)
-    return method(**step.params)
+    return method(**step.parameters)
 
 
 def _source_label(item: Any) -> str:
@@ -178,7 +178,7 @@ def _run_pipeline_on(
 ) -> tuple[Any, Provenance]:
     """Apply every step to ``obj``, timing each, and return output + provenance.
 
-    A step whose tool declares ``returns="Array"`` yields a bare numpy array; it is
+    A step whose tool declares ``output_type="Array"`` yields a bare numpy array; it is
     materialized back into a georeferenced :class:`~pyramids.dataset.Dataset` using
     the array's source raster, so terminal terrain ops are writable and chainable.
     """
@@ -188,10 +188,10 @@ def _run_pipeline_on(
         source_obj = obj
         start = time.perf_counter()
         obj = _apply(step, obj, tool)
-        if tool.returns == "Array" and isinstance(obj, np.ndarray):
-            obj = _materialize_array(obj, source_obj, step.params.get("band", 0))
+        if tool.output_type == "Array" and isinstance(obj, np.ndarray):
+            obj = _materialize_array(obj, source_obj, step.parameters.get("band", 0))
         prov.steps.append(
-            StepRecord(step.tool, dict(step.params), time.perf_counter() - start)
+            StepRecord(step.tool, dict(step.parameters), time.perf_counter() - start)
         )
     return obj, prov
 
@@ -209,7 +209,7 @@ def _write(obj: Any, source: Any, out_dir: str, index: int) -> str:
         stem = os.path.splitext(os.path.basename(os.fspath(source)))[0]
     else:
         stem = "output"
-    suffix = ".geojson" if _receiver_type(obj) == "FeatureCollection" else ".tif"
+    suffix = ".geojson" if _object_type(obj) == "FeatureCollection" else ".tif"
     path = os.path.join(out_dir, f"{stem}_{index}{suffix}")
     obj.to_file(path)
     return path

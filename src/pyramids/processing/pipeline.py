@@ -1,8 +1,8 @@
 """The :class:`Pipeline` — an ordered, validated chain of tool steps.
 
-A pipeline is a list of ``(tool, params)`` steps where step *N*'s output feeds
+A pipeline is a list of ``(tool, parameters)`` steps where step *N*'s output feeds
 step *N+1*. Steps are validated against the registry **at construction** (unknown
-tool or schema-invalid params fail immediately, not mid-run). Serialization to and
+tool or schema-invalid parameters fail immediately, not mid-run). Serialization to and
 from a portable YAML "model" file lives in this module too.
 """
 
@@ -16,14 +16,14 @@ from typing import Any
 import yaml
 
 from pyramids.processing.registry import resolve
-from pyramids.processing.schema import validate_params
+from pyramids.processing.schema import validate_parameters
 
 
-def _yaml_safe_params(params: dict[str, Any]) -> dict[str, Any]:
-    """Copy ``params``, coercing any ``os.PathLike`` value to ``str`` for YAML."""
+def _yaml_safe_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    """Copy ``parameters``, coercing any ``os.PathLike`` value to ``str`` for YAML."""
     return {
         key: (os.fspath(value) if isinstance(value, os.PathLike) else value)
-        for key, value in params.items()
+        for key, value in parameters.items()
     }
 
 
@@ -33,21 +33,21 @@ class Step:
 
     Attributes:
         tool: The registered tool name.
-        params: The ``{name: value}`` mapping passed to the tool.
+        parameters: The ``{name: value}`` mapping passed to the tool.
     """
 
     tool: str
-    params: dict[str, Any]
+    parameters: dict[str, Any]
 
 
 class Pipeline:
     """An ordered, validated chain of geoprocessing steps.
 
     Args:
-        steps: An iterable of ``(tool, params)`` pairs.
+        steps: An iterable of ``(tool, parameters)`` pairs.
 
     Raises:
-        ValueError: If any step names an unknown tool or supplies params that fail
+        ValueError: If any step names an unknown tool or supplies parameters that fail
             the tool's schema (validation happens here, at construction).
     """
 
@@ -55,32 +55,32 @@ class Pipeline:
         built: list[Step] = []
         for index, item in enumerate(steps):
             try:
-                name, params = item
+                name, parameters = item
             except (TypeError, ValueError) as exc:
                 raise ValueError(
-                    f"pipeline step {index} must be a (tool, params) pair, got {item!r}"
+                    f"pipeline step {index} must be a (tool, parameters) pair, got {item!r}"
                 ) from exc
             tool = resolve(name)
-            if params is None:
-                params = {}
-            elif not isinstance(params, dict):
+            if parameters is None:
+                parameters = {}
+            elif not isinstance(parameters, dict):
                 raise ValueError(
-                    f"pipeline step {index}: params must be a mapping, got "
-                    f"{type(params).__name__}"
+                    f"pipeline step {index}: parameters must be a mapping, got "
+                    f"{type(parameters).__name__}"
                 )
-            params = dict(params)
-            validate_params(tool, params)
-            built.append(Step(name, params))
+            parameters = dict(parameters)
+            validate_parameters(tool, parameters)
+            built.append(Step(name, parameters))
         self._steps = built
 
     @property
     def steps(self) -> list[Step]:
         """An independent copy of the pipeline's steps.
 
-        Returns fresh :class:`Step` objects with copied ``params`` dicts, so
-        mutating the returned steps (or their params) never affects the pipeline.
+        Returns fresh :class:`Step` objects with copied ``parameters`` dicts, so
+        mutating the returned steps (or their parameters) never affects the pipeline.
         """
-        return [Step(step.tool, dict(step.params)) for step in self._steps]
+        return [Step(step.tool, dict(step.parameters)) for step in self._steps]
 
     def __iter__(self) -> Iterator[Step]:
         """Iterate over independent copies of the steps (see :attr:`steps`)."""
@@ -90,27 +90,30 @@ class Pipeline:
         return len(self._steps)
 
     def __repr__(self) -> str:
-        inner = ", ".join(f"({s.tool!r}, {s.params!r})" for s in self._steps)
+        inner = ", ".join(f"({s.tool!r}, {s.parameters!r})" for s in self._steps)
         return f"Pipeline([{inner}])"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Pipeline):
             result: bool = NotImplemented
         else:
-            mine = [(s.tool, s.params) for s in self._steps]
-            theirs = [(s.tool, s.params) for s in other._steps]
+            mine = [(s.tool, s.parameters) for s in self._steps]
+            theirs = [(s.tool, s.parameters) for s in other._steps]
             result = mine == theirs
         return result
 
     def to_dict(self) -> dict[str, Any]:
         """Return the pipeline as a plain, YAML-ready mapping.
 
-        Each step's ``params`` is copied, and any ``os.PathLike`` value is coerced to
+        Each step's ``parameters`` is copied, and any ``os.PathLike`` value is coerced to
         a plain string so the mapping is safe to `yaml.safe_dump`.
         """
         return {
             "pipeline": [
-                {"tool": step.tool, "params": _yaml_safe_params(step.params)}
+                {
+                    "tool": step.tool,
+                    "parameters": _yaml_safe_parameters(step.parameters),
+                }
                 for step in self._steps
             ]
         }
@@ -120,7 +123,7 @@ class Pipeline:
         """Build a pipeline from a mapping produced by :meth:`to_dict`.
 
         Args:
-            data: A mapping with a ``"pipeline"`` list of ``{"tool", "params"}``.
+            data: A mapping with a ``"pipeline"`` list of ``{"tool", "parameters"}``.
 
         Returns:
             A validated :class:`Pipeline`.
@@ -144,13 +147,13 @@ class Pipeline:
                 raise ValueError(
                     f"invalid pipeline step {index}: expected a mapping with a 'tool' key"
                 )
-            steps.append((step["tool"], step.get("params", {})))
+            steps.append((step["tool"], step.get("parameters", {})))
         return cls(steps)
 
     def to_yaml(self, path: str) -> None:
         """Write the pipeline to a portable, version-controllable YAML file.
 
-        Every step's params are re-validated with ``for_serialization=True`` first,
+        Every step's parameters are re-validated with ``for_serialization=True`` first,
         so a pipeline carrying a non-serializable value (array / mask / callable /
         in-memory object) raises here instead of writing a file that cannot be
         loaded back.
@@ -162,7 +165,9 @@ class Pipeline:
             ValueError: If any step carries a non-serializable parameter value.
         """
         for step in self._steps:
-            validate_params(resolve(step.tool), step.params, for_serialization=True)
+            validate_parameters(
+                resolve(step.tool), step.parameters, for_serialization=True
+            )
         with open(path, "w", encoding="utf-8") as handle:
             yaml.safe_dump(self.to_dict(), handle, sort_keys=False)
 
@@ -178,7 +183,7 @@ class Pipeline:
 
         Raises:
             ValueError: If the file is not a mapping with a ``"pipeline"`` list, or
-                a step references an unknown tool / invalid params (re-validated via
+                a step references an unknown tool / invalid parameters (re-validated via
                 the constructor).
         """
         with open(path, encoding="utf-8") as handle:

@@ -6,11 +6,11 @@ QGIS-Processing-style workflow layer built on the ops pyramids already owns.
 
 The pieces:
 
-- a **registry** of named tools, each with a parameter schema and a receiver type (`Dataset` vs
+- a **registry** of named tools, each with a parameter schema and an input type (`Dataset` vs
   `FeatureCollection`);
-- a **`Pipeline`** — an ordered chain of `(tool, params)` steps, serializable to a portable YAML "model" file;
+- a **`Pipeline`** — an ordered chain of `(tool, parameters)` steps, serializable to a portable YAML "model" file;
 - a batch **`run`** with an error policy and optional process-pool parallelism;
-- a **provenance** record per run (tool, params, timing) that can re-emit the exact pipeline that produced an
+- a **provenance** record per run (tool, parameters, timing) that can re-emit the exact pipeline that produced an
   output.
 
 ## v1 tool allowlist
@@ -18,8 +18,8 @@ The pieces:
 v1 ships a curated, real-signature allowlist (see [ADR 0007](../adr/0007-processing-registry-approach.md) for why it
 is hand-written rather than introspected). List it with `pyramids tools`:
 
-| tool | receiver → returns |
-|------|--------------------|
+| tool | input → output |
+|------|----------------|
 | `slope`, `aspect`, `hillshade`, `focal_mean`, `focal_std` | `Dataset` → `Array`\* |
 | `to_crs`, `resample`, `fill`, `sieve` | `Dataset` → `Dataset` |
 | `interpolate_to_raster` | `FeatureCollection` → `Dataset` |
@@ -33,9 +33,9 @@ The registry is extensible — register a `ToolMetadata` to add a tool.
 
 ## Example (Python)
 
-A cross-receiver pipeline: interpolate scattered points onto a raster, then compute its slope. `interpolate_to_raster`
+A cross-type pipeline: interpolate scattered points onto a raster, then compute its slope. `interpolate_to_raster`
 is a `FeatureCollection` op that returns a `Dataset`, and `slope` runs on that `Dataset` — the runner dispatches each
-step to the correct receiver automatically.
+step to the correct input type automatically.
 
 ```python
 from pyramids.feature import FeatureCollection
