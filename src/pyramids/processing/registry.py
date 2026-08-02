@@ -18,18 +18,13 @@ from pyramids.processing.schema import ParamSpec, ToolSpec
 
 _REGISTRY: dict[str, ToolSpec] = {}
 
-#: Resampling algorithm names accepted by to_crs/resample, sourced from the GDAL
-#: resampling table so the OptionList choices stay in sync with what the ops allow.
+#: Resampling names for to_crs/resample, kept in sync with the GDAL table.
 _RESAMPLING_METHODS = tuple(sorted(INTERPOLATION_METHODS))
 
-#: Aggregation names accepted by quadtree(agg=...), sourced from the tessellation
-#: reducer table so the OptionList choices stay in sync with the ops.
+#: Aggregation names for quadtree(agg=...), kept in sync with the tessellation reducers.
 _QUADTREE_AGGS = tuple(sorted(QUADTREE_AGG))
 
-#: Shared parameter description reused by the band-taking terrain tools.
 _BAND_DESC = "Zero-based band index."
-
-#: Shared parameter description reused by the focal (neighbourhood) tools.
 _RADIUS_DESC = "Neighbourhood radius in cells."
 
 
@@ -76,11 +71,8 @@ def get_registry() -> Mapping[str, ToolSpec]:
     return MappingProxyType(_REGISTRY)
 
 
-# Curated v1 allowlist (real signatures, serialization-safe params) — ~15 ops per
-# the #780 DoD. Ops whose only useful params are non-serializable (masks, second
-# rasters, callables) are excluded; the registry is extensible (see ADR 0007).
-# Declared as data and registered in one loop below; the choices that reference
-# _RESAMPLING_METHODS/_QUADTREE_AGGS stay bound to the live source tables.
+# Curated v1 allowlist of real-signature, serialization-safe ops (see ADR 0007);
+# extensible at runtime via register().
 _BUILTIN_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="slope",
@@ -284,7 +276,6 @@ for _spec in _BUILTIN_SPECS:
     register(_spec)
 
 
-#: Tool names present in a freshly-imported registry — i.e. available inside a
-#: worker process. Tools added later via register() are absent from workers, so
-#: the parallel runner rejects a pipeline that uses them (see runner).
+#: Tool names in a freshly-imported registry (available inside a worker process);
+#: tools added later via register() are rejected by the parallel runner.
 BUILTIN_TOOLS = frozenset(_REGISTRY)

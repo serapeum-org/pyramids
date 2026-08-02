@@ -16,7 +16,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-#: Tagged parameter-type vocabulary (a compact, serializable set of type tags).
+#: Parameter-type tags a ParamSpec can declare.
 PARAM_TYPES = frozenset(
     {
         "Raster",
@@ -36,12 +36,10 @@ _SERIALIZABLE_TYPES = frozenset(
     {"Float", "Integer", "Boolean", "String", "Field", "OptionList", "NewFile"}
 )
 
-#: Object types a tool can be invoked on (must be a chainable pyramids object).
+#: Object types a tool can be invoked on.
 RECEIVER_TYPES = frozenset({"Dataset", "FeatureCollection"})
 
-#: Types a tool may return. ``"Array"`` marks an op that natively returns a numpy
-#: array (e.g. slope); the runner materializes it into a single-band, georeferenced
-#: Dataset so the result stays writable and chainable.
+#: Types a tool may return; "Array" ops are numpy arrays the runner wraps into a Dataset.
 RETURN_TYPES = frozenset({"Dataset", "FeatureCollection", "Array"})
 
 
@@ -123,8 +121,7 @@ class ParamSpec:
             )
         elif pt == "NewFile":
             ok = isinstance(value, (str, os.PathLike))
-        # Raster/Vector accept an in-memory object or a path — not type-checkable
-        # here, so they are left permissive and flagged non-serializable instead.
+        # Raster/Vector accept an object or a path; left permissive, flagged non-serializable.
         if not ok:
             expected = pt if self.choices is None else f"one of {list(self.choices)}"
             raise ValueError(

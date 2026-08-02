@@ -23,9 +23,7 @@ from pyramids.processing.provenance import Provenance, StepRecord
 from pyramids.processing.registry import BUILTIN_TOOLS, resolve
 from pyramids.processing.schema import ToolSpec
 
-# File extensions opened as vector (FeatureCollection) rather than raster. ``.json``
-# is included because GeoJSON is commonly saved with that extension; a non-geo JSON
-# input will surface a vector-parse error from the reader.
+# Extensions opened as vector; .json is included for GeoJSON.
 _VECTOR_EXTS = frozenset({".geojson", ".json", ".shp", ".gpkg", ".fgb", ".gml", ".kml"})
 
 
