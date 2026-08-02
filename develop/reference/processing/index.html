@@ -7896,7 +7896,9 @@ handles cannot cross process boundaries, this requires <strong>file-path</strong
 inputs and an <code>out</code> directory (outputs are written worker-side and
 <code>RunResult.outputs</code> holds the written paths, in input order — same as
 serial mode — not in-memory objects). Only registry tools registered at
-import (the allowlist) are available in workers.</p>
+import (the allowlist) are available in workers. Note that under
+<code>on_error="raise"</code> the surfaced error is the first worker to <em>complete</em>,
+which need not be the first input's (serial raises the first input's error).</p>
               </div>
             </td>
             <td>
@@ -8079,7 +8081,9 @@ is set without an <code>out</code> directory / with non-path inputs.</p>
 <span class="normal"><a href="#__codelineno-0-367">367</a></span>
 <span class="normal"><a href="#__codelineno-0-368">368</a></span>
 <span class="normal"><a href="#__codelineno-0-369">369</a></span>
-<span class="normal"><a href="#__codelineno-0-370">370</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-309" name="__codelineno-0-309"></a><span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-370">370</a></span>
+<span class="normal"><a href="#__codelineno-0-371">371</a></span>
+<span class="normal"><a href="#__codelineno-0-372">372</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-309" name="__codelineno-0-309"></a><span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span>
 <a id="__codelineno-0-310" name="__codelineno-0-310"></a>    <span class="n">pipeline</span><span class="p">:</span> <span class="n">Pipeline</span><span class="p">,</span>
 <a id="__codelineno-0-311" name="__codelineno-0-311"></a>    <span class="n">inputs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
 <a id="__codelineno-0-312" name="__codelineno-0-312"></a>    <span class="o">*</span><span class="p">,</span>
@@ -8108,39 +8112,41 @@ is set without an <code>out</code> directory / with non-path inputs.</p>
 <a id="__codelineno-0-335" name="__codelineno-0-335"></a><span class="sd">            inputs and an ``out`` directory (outputs are written worker-side and</span>
 <a id="__codelineno-0-336" name="__codelineno-0-336"></a><span class="sd">            ``RunResult.outputs`` holds the written paths, in input order — same as</span>
 <a id="__codelineno-0-337" name="__codelineno-0-337"></a><span class="sd">            serial mode — not in-memory objects). Only registry tools registered at</span>
-<a id="__codelineno-0-338" name="__codelineno-0-338"></a><span class="sd">            import (the allowlist) are available in workers.</span>
-<a id="__codelineno-0-339" name="__codelineno-0-339"></a><span class="sd">        max_workers: Worker-process count for ``parallel=True`` — ignored in serial</span>
-<a id="__codelineno-0-340" name="__codelineno-0-340"></a><span class="sd">            mode (default: the pool&#39;s default, ~CPU count).</span>
-<a id="__codelineno-0-341" name="__codelineno-0-341"></a>
-<a id="__codelineno-0-342" name="__codelineno-0-342"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-343" name="__codelineno-0-343"></a><span class="sd">        A :class:`RunResult` with the successful ``outputs`` (objects in serial mode,</span>
-<a id="__codelineno-0-344" name="__codelineno-0-344"></a><span class="sd">        written paths in ``parallel`` mode), any ``failures``, and per-input</span>
-<a id="__codelineno-0-345" name="__codelineno-0-345"></a><span class="sd">        ``provenance``.</span>
-<a id="__codelineno-0-346" name="__codelineno-0-346"></a>
-<a id="__codelineno-0-347" name="__codelineno-0-347"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-348" name="__codelineno-0-348"></a><span class="sd">        ValueError: If ``on_error`` is not ``&quot;skip&quot;``/``&quot;raise&quot;``, or ``parallel``</span>
-<a id="__codelineno-0-349" name="__codelineno-0-349"></a><span class="sd">            is set without an ``out`` directory / with non-path inputs.</span>
-<a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">        Exception: The first per-item error when ``on_error=&quot;raise&quot;``.</span>
-<a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-352" name="__codelineno-0-352"></a>    <span class="k">if</span> <span class="n">on_error</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="s2">&quot;raise&quot;</span><span class="p">}:</span>
-<a id="__codelineno-0-353" name="__codelineno-0-353"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;on_error must be &#39;skip&#39; or &#39;raise&#39;, got </span><span class="si">{</span><span class="n">on_error</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-354" name="__codelineno-0-354"></a>    <span class="k">if</span> <span class="n">parallel</span><span class="p">:</span>
-<a id="__codelineno-0-355" name="__codelineno-0-355"></a>        <span class="k">if</span> <span class="n">out</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-356" name="__codelineno-0-356"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-357" name="__codelineno-0-357"></a>                <span class="s2">&quot;parallel=True requires an &#39;out&#39; directory — outputs are written &quot;</span>
-<a id="__codelineno-0-358" name="__codelineno-0-358"></a>                <span class="s2">&quot;worker-side, not returned as objects&quot;</span>
-<a id="__codelineno-0-359" name="__codelineno-0-359"></a>            <span class="p">)</span>
-<a id="__codelineno-0-360" name="__codelineno-0-360"></a>        <span class="k">if</span> <span class="n">max_workers</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">max_workers</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
-<a id="__codelineno-0-361" name="__codelineno-0-361"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;max_workers must be &gt;= 1, got </span><span class="si">{</span><span class="n">max_workers</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-362" name="__codelineno-0-362"></a>    <span class="n">items</span> <span class="o">=</span> <span class="n">_resolve_inputs</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span>
-<a id="__codelineno-0-363" name="__codelineno-0-363"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">items</span><span class="p">:</span>
-<a id="__codelineno-0-364" name="__codelineno-0-364"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;no inputs to process (the resolved input set is empty)&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-365" name="__codelineno-0-365"></a>    <span class="k">if</span> <span class="n">parallel</span><span class="p">:</span>
-<a id="__codelineno-0-366" name="__codelineno-0-366"></a>        <span class="k">assert</span> <span class="n">out</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>  <span class="c1"># guarded above; narrows str | None -&gt; str for typing</span>
-<a id="__codelineno-0-367" name="__codelineno-0-367"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">_execute_parallel</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">items</span><span class="p">,</span> <span class="n">on_error</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">max_workers</span><span class="p">)</span>
-<a id="__codelineno-0-368" name="__codelineno-0-368"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-369" name="__codelineno-0-369"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">_execute_serial</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">items</span><span class="p">,</span> <span class="n">on_error</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
-<a id="__codelineno-0-370" name="__codelineno-0-370"></a>    <span class="k">return</span> <span class="n">result</span>
+<a id="__codelineno-0-338" name="__codelineno-0-338"></a><span class="sd">            import (the allowlist) are available in workers. Note that under</span>
+<a id="__codelineno-0-339" name="__codelineno-0-339"></a><span class="sd">            ``on_error=&quot;raise&quot;`` the surfaced error is the first worker to *complete*,</span>
+<a id="__codelineno-0-340" name="__codelineno-0-340"></a><span class="sd">            which need not be the first input&#39;s (serial raises the first input&#39;s error).</span>
+<a id="__codelineno-0-341" name="__codelineno-0-341"></a><span class="sd">        max_workers: Worker-process count for ``parallel=True`` — ignored in serial</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a><span class="sd">            mode (default: the pool&#39;s default, ~CPU count).</span>
+<a id="__codelineno-0-343" name="__codelineno-0-343"></a>
+<a id="__codelineno-0-344" name="__codelineno-0-344"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-345" name="__codelineno-0-345"></a><span class="sd">        A :class:`RunResult` with the successful ``outputs`` (objects in serial mode,</span>
+<a id="__codelineno-0-346" name="__codelineno-0-346"></a><span class="sd">        written paths in ``parallel`` mode), any ``failures``, and per-input</span>
+<a id="__codelineno-0-347" name="__codelineno-0-347"></a><span class="sd">        ``provenance``.</span>
+<a id="__codelineno-0-348" name="__codelineno-0-348"></a>
+<a id="__codelineno-0-349" name="__codelineno-0-349"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">        ValueError: If ``on_error`` is not ``&quot;skip&quot;``/``&quot;raise&quot;``, or ``parallel``</span>
+<a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="sd">            is set without an ``out`` directory / with non-path inputs.</span>
+<a id="__codelineno-0-352" name="__codelineno-0-352"></a><span class="sd">        Exception: The first per-item error when ``on_error=&quot;raise&quot;``.</span>
+<a id="__codelineno-0-353" name="__codelineno-0-353"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-354" name="__codelineno-0-354"></a>    <span class="k">if</span> <span class="n">on_error</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="s2">&quot;raise&quot;</span><span class="p">}:</span>
+<a id="__codelineno-0-355" name="__codelineno-0-355"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;on_error must be &#39;skip&#39; or &#39;raise&#39;, got </span><span class="si">{</span><span class="n">on_error</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-356" name="__codelineno-0-356"></a>    <span class="k">if</span> <span class="n">parallel</span><span class="p">:</span>
+<a id="__codelineno-0-357" name="__codelineno-0-357"></a>        <span class="k">if</span> <span class="n">out</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-358" name="__codelineno-0-358"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-359" name="__codelineno-0-359"></a>                <span class="s2">&quot;parallel=True requires an &#39;out&#39; directory — outputs are written &quot;</span>
+<a id="__codelineno-0-360" name="__codelineno-0-360"></a>                <span class="s2">&quot;worker-side, not returned as objects&quot;</span>
+<a id="__codelineno-0-361" name="__codelineno-0-361"></a>            <span class="p">)</span>
+<a id="__codelineno-0-362" name="__codelineno-0-362"></a>        <span class="k">if</span> <span class="n">max_workers</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">max_workers</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+<a id="__codelineno-0-363" name="__codelineno-0-363"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;max_workers must be &gt;= 1, got </span><span class="si">{</span><span class="n">max_workers</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-364" name="__codelineno-0-364"></a>    <span class="n">items</span> <span class="o">=</span> <span class="n">_resolve_inputs</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span>
+<a id="__codelineno-0-365" name="__codelineno-0-365"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">items</span><span class="p">:</span>
+<a id="__codelineno-0-366" name="__codelineno-0-366"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;no inputs to process (the resolved input set is empty)&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-367" name="__codelineno-0-367"></a>    <span class="k">if</span> <span class="n">parallel</span><span class="p">:</span>
+<a id="__codelineno-0-368" name="__codelineno-0-368"></a>        <span class="k">assert</span> <span class="n">out</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>  <span class="c1"># guarded above; narrows str | None -&gt; str for typing</span>
+<a id="__codelineno-0-369" name="__codelineno-0-369"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">_execute_parallel</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">items</span><span class="p">,</span> <span class="n">on_error</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">max_workers</span><span class="p">)</span>
+<a id="__codelineno-0-370" name="__codelineno-0-370"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-371" name="__codelineno-0-371"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">_execute_serial</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">items</span><span class="p">,</span> <span class="n">on_error</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
+<a id="__codelineno-0-372" name="__codelineno-0-372"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
