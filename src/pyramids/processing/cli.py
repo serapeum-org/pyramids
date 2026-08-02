@@ -43,16 +43,14 @@ def _cmd_tools(args: argparse.Namespace) -> int:
 
 
 def _cmd_tool(args: argparse.Namespace) -> int:
-    """Print one tool's parameter schema (its help block)."""
-    try:
-        tool = resolve(args.name)
-    except ValueError as exc:
-        print(f"error: {exc}")
-        code = 1
-    else:
-        print(tool.help())
-        code = 0
-    return code
+    """Print one tool's parameter schema (its help block).
+
+    An unknown name raises ``ValueError`` from ``resolve``; it propagates to
+    ``main`` which reports it on stderr and exits non-zero, like every other
+    subcommand.
+    """
+    print(resolve(args.name).help())
+    return 0
 
 
 def add_processing_commands(sub: argparse._SubParsersAction) -> None:

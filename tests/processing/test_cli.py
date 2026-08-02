@@ -60,12 +60,12 @@ class TestProcessingCli:
         """`pyramids tool <unknown>` reports an error and exits non-zero.
 
         Test scenario:
-            An unknown tool name prints 'unknown tool' and returns 1.
+            An unknown tool name prints 'unknown tool' to stderr and returns 1.
         """
         rc = main(["tool", "nope"])
-        out = capsys.readouterr().out
-        assert rc == 1, out
-        assert "unknown tool" in out, out
+        err = capsys.readouterr().err
+        assert rc == 1, err
+        assert "unknown tool" in err, err
 
     def test_run_end_to_end_writes_output(self, points_geojson, tmp_path):
         """`pyramids run` executes a pipeline YAML and writes an output.
