@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7754,7 +7754,9 @@ loaded back.</p>
             <td>
               <div class="doc-md-description">
                 <p>A single path/object, a glob string, a list/tuple of those, or a
-<code>DatasetCollection</code>.</p>
+<code>DatasetCollection</code>. A string containing glob metacharacters
+(<code>*</code>/<code>?</code>/<code>[</code>) is expanded as a glob — to open a literal path that
+contains those characters, pass it inside a list.</p>
               </div>
             </td>
             <td>
@@ -7826,8 +7828,8 @@ allowlist) are available in workers.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Worker-process count for <code>parallel=True</code> (default: the
-pool's default, ~CPU count).</p>
+                <p>Worker-process count for <code>parallel=True</code> — ignored in serial
+mode (default: the pool's default, ~CPU count).</p>
               </div>
             </td>
             <td>
@@ -7932,9 +7934,7 @@ is set without an <code>out</code> directory / with non-path inputs.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/processing/runner.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-283">283</a></span>
-<span class="normal"><a href="#__codelineno-0-284">284</a></span>
-<span class="normal"><a href="#__codelineno-0-285">285</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-285">285</a></span>
 <span class="normal"><a href="#__codelineno-0-286">286</a></span>
 <span class="normal"><a href="#__codelineno-0-287">287</a></span>
 <span class="normal"><a href="#__codelineno-0-288">288</a></span>
@@ -7988,63 +7988,71 @@ is set without an <code>out</code> directory / with non-path inputs.</p>
 <span class="normal"><a href="#__codelineno-0-336">336</a></span>
 <span class="normal"><a href="#__codelineno-0-337">337</a></span>
 <span class="normal"><a href="#__codelineno-0-338">338</a></span>
-<span class="normal"><a href="#__codelineno-0-339">339</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-283" name="__codelineno-0-283"></a><span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span>
-<a id="__codelineno-0-284" name="__codelineno-0-284"></a>    <span class="n">pipeline</span><span class="p">:</span> <span class="n">Pipeline</span><span class="p">,</span>
-<a id="__codelineno-0-285" name="__codelineno-0-285"></a>    <span class="n">inputs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-<a id="__codelineno-0-286" name="__codelineno-0-286"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-287" name="__codelineno-0-287"></a>    <span class="n">on_error</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;skip&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-288" name="__codelineno-0-288"></a>    <span class="n">out</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-289" name="__codelineno-0-289"></a>    <span class="n">parallel</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-290" name="__codelineno-0-290"></a>    <span class="n">max_workers</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-291" name="__codelineno-0-291"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RunResult</span><span class="p">:</span>
-<a id="__codelineno-0-292" name="__codelineno-0-292"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run ``pipeline`` over ``inputs`` and collect the results.</span>
-<a id="__codelineno-0-293" name="__codelineno-0-293"></a>
-<a id="__codelineno-0-294" name="__codelineno-0-294"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-295" name="__codelineno-0-295"></a><span class="sd">        pipeline: The :class:`Pipeline` to apply to each input.</span>
-<a id="__codelineno-0-296" name="__codelineno-0-296"></a><span class="sd">        inputs: A single path/object, a glob string, a list/tuple of those, or a</span>
-<a id="__codelineno-0-297" name="__codelineno-0-297"></a><span class="sd">            ``DatasetCollection``.</span>
-<a id="__codelineno-0-298" name="__codelineno-0-298"></a><span class="sd">        on_error: ``&quot;skip&quot;`` collects ``(source, exception)`` failures and</span>
-<a id="__codelineno-0-299" name="__codelineno-0-299"></a><span class="sd">            continues; ``&quot;raise&quot;`` fails fast on the first error.</span>
-<a id="__codelineno-0-300" name="__codelineno-0-300"></a><span class="sd">        out: Optional output directory; when given, each successful output is</span>
-<a id="__codelineno-0-301" name="__codelineno-0-301"></a><span class="sd">            written there as ``&lt;source-stem&gt;_&lt;index&gt;`` (the batch index keeps</span>
-<a id="__codelineno-0-302" name="__codelineno-0-302"></a><span class="sd">            same-basename inputs from colliding). Required when ``parallel=True``.</span>
-<a id="__codelineno-0-303" name="__codelineno-0-303"></a><span class="sd">        parallel: When ``True``, run the batch across a process pool. Because GDAL</span>
-<a id="__codelineno-0-304" name="__codelineno-0-304"></a><span class="sd">            handles cannot cross process boundaries, this requires **file-path**</span>
-<a id="__codelineno-0-305" name="__codelineno-0-305"></a><span class="sd">            inputs and an ``out`` directory (outputs are written worker-side and</span>
-<a id="__codelineno-0-306" name="__codelineno-0-306"></a><span class="sd">            ``RunResult.outputs`` holds the written paths, in completion order, not</span>
-<a id="__codelineno-0-307" name="__codelineno-0-307"></a><span class="sd">            in-memory objects). Only registry tools registered at import (the</span>
-<a id="__codelineno-0-308" name="__codelineno-0-308"></a><span class="sd">            allowlist) are available in workers.</span>
-<a id="__codelineno-0-309" name="__codelineno-0-309"></a><span class="sd">        max_workers: Worker-process count for ``parallel=True`` (default: the</span>
-<a id="__codelineno-0-310" name="__codelineno-0-310"></a><span class="sd">            pool&#39;s default, ~CPU count).</span>
-<a id="__codelineno-0-311" name="__codelineno-0-311"></a>
-<a id="__codelineno-0-312" name="__codelineno-0-312"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-313" name="__codelineno-0-313"></a><span class="sd">        A :class:`RunResult` with the successful ``outputs`` (objects in serial mode,</span>
-<a id="__codelineno-0-314" name="__codelineno-0-314"></a><span class="sd">        written paths in ``parallel`` mode), any ``failures``, and per-input</span>
-<a id="__codelineno-0-315" name="__codelineno-0-315"></a><span class="sd">        ``provenance``.</span>
-<a id="__codelineno-0-316" name="__codelineno-0-316"></a>
-<a id="__codelineno-0-317" name="__codelineno-0-317"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-318" name="__codelineno-0-318"></a><span class="sd">        ValueError: If ``on_error`` is not ``&quot;skip&quot;``/``&quot;raise&quot;``, or ``parallel``</span>
-<a id="__codelineno-0-319" name="__codelineno-0-319"></a><span class="sd">            is set without an ``out`` directory / with non-path inputs.</span>
-<a id="__codelineno-0-320" name="__codelineno-0-320"></a><span class="sd">        Exception: The first per-item error when ``on_error=&quot;raise&quot;``.</span>
-<a id="__codelineno-0-321" name="__codelineno-0-321"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-322" name="__codelineno-0-322"></a>    <span class="k">if</span> <span class="n">on_error</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="s2">&quot;raise&quot;</span><span class="p">}:</span>
-<a id="__codelineno-0-323" name="__codelineno-0-323"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;on_error must be &#39;skip&#39; or &#39;raise&#39;, got </span><span class="si">{</span><span class="n">on_error</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-324" name="__codelineno-0-324"></a>    <span class="k">if</span> <span class="n">parallel</span><span class="p">:</span>
-<a id="__codelineno-0-325" name="__codelineno-0-325"></a>        <span class="k">if</span> <span class="n">out</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-326" name="__codelineno-0-326"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-327" name="__codelineno-0-327"></a>                <span class="s2">&quot;parallel=True requires an &#39;out&#39; directory — outputs are written &quot;</span>
-<a id="__codelineno-0-328" name="__codelineno-0-328"></a>                <span class="s2">&quot;worker-side, not returned as objects&quot;</span>
-<a id="__codelineno-0-329" name="__codelineno-0-329"></a>            <span class="p">)</span>
-<a id="__codelineno-0-330" name="__codelineno-0-330"></a>        <span class="k">if</span> <span class="n">max_workers</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">max_workers</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
-<a id="__codelineno-0-331" name="__codelineno-0-331"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;max_workers must be &gt;= 1, got </span><span class="si">{</span><span class="n">max_workers</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-332" name="__codelineno-0-332"></a>    <span class="n">items</span> <span class="o">=</span> <span class="n">_resolve_inputs</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span>
-<a id="__codelineno-0-333" name="__codelineno-0-333"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">items</span><span class="p">:</span>
-<a id="__codelineno-0-334" name="__codelineno-0-334"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;no inputs to process (the resolved input set is empty)&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-335" name="__codelineno-0-335"></a>    <span class="k">if</span> <span class="n">parallel</span><span class="p">:</span>
-<a id="__codelineno-0-336" name="__codelineno-0-336"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">_execute_parallel</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">items</span><span class="p">,</span> <span class="n">on_error</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">max_workers</span><span class="p">)</span>
-<a id="__codelineno-0-337" name="__codelineno-0-337"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-338" name="__codelineno-0-338"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">_execute_serial</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">items</span><span class="p">,</span> <span class="n">on_error</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
-<a id="__codelineno-0-339" name="__codelineno-0-339"></a>    <span class="k">return</span> <span class="n">result</span>
+<span class="normal"><a href="#__codelineno-0-339">339</a></span>
+<span class="normal"><a href="#__codelineno-0-340">340</a></span>
+<span class="normal"><a href="#__codelineno-0-341">341</a></span>
+<span class="normal"><a href="#__codelineno-0-342">342</a></span>
+<span class="normal"><a href="#__codelineno-0-343">343</a></span>
+<span class="normal"><a href="#__codelineno-0-344">344</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-285" name="__codelineno-0-285"></a><span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span>
+<a id="__codelineno-0-286" name="__codelineno-0-286"></a>    <span class="n">pipeline</span><span class="p">:</span> <span class="n">Pipeline</span><span class="p">,</span>
+<a id="__codelineno-0-287" name="__codelineno-0-287"></a>    <span class="n">inputs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<a id="__codelineno-0-288" name="__codelineno-0-288"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-289" name="__codelineno-0-289"></a>    <span class="n">on_error</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;skip&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-290" name="__codelineno-0-290"></a>    <span class="n">out</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-291" name="__codelineno-0-291"></a>    <span class="n">parallel</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-292" name="__codelineno-0-292"></a>    <span class="n">max_workers</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-293" name="__codelineno-0-293"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RunResult</span><span class="p">:</span>
+<a id="__codelineno-0-294" name="__codelineno-0-294"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run ``pipeline`` over ``inputs`` and collect the results.</span>
+<a id="__codelineno-0-295" name="__codelineno-0-295"></a>
+<a id="__codelineno-0-296" name="__codelineno-0-296"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-297" name="__codelineno-0-297"></a><span class="sd">        pipeline: The :class:`Pipeline` to apply to each input.</span>
+<a id="__codelineno-0-298" name="__codelineno-0-298"></a><span class="sd">        inputs: A single path/object, a glob string, a list/tuple of those, or a</span>
+<a id="__codelineno-0-299" name="__codelineno-0-299"></a><span class="sd">            ``DatasetCollection``. A string containing glob metacharacters</span>
+<a id="__codelineno-0-300" name="__codelineno-0-300"></a><span class="sd">            (``*``/``?``/``[``) is expanded as a glob — to open a literal path that</span>
+<a id="__codelineno-0-301" name="__codelineno-0-301"></a><span class="sd">            contains those characters, pass it inside a list.</span>
+<a id="__codelineno-0-302" name="__codelineno-0-302"></a><span class="sd">        on_error: ``&quot;skip&quot;`` collects ``(source, exception)`` failures and</span>
+<a id="__codelineno-0-303" name="__codelineno-0-303"></a><span class="sd">            continues; ``&quot;raise&quot;`` fails fast on the first error.</span>
+<a id="__codelineno-0-304" name="__codelineno-0-304"></a><span class="sd">        out: Optional output directory; when given, each successful output is</span>
+<a id="__codelineno-0-305" name="__codelineno-0-305"></a><span class="sd">            written there as ``&lt;source-stem&gt;_&lt;index&gt;`` (the batch index keeps</span>
+<a id="__codelineno-0-306" name="__codelineno-0-306"></a><span class="sd">            same-basename inputs from colliding). Required when ``parallel=True``.</span>
+<a id="__codelineno-0-307" name="__codelineno-0-307"></a><span class="sd">        parallel: When ``True``, run the batch across a process pool. Because GDAL</span>
+<a id="__codelineno-0-308" name="__codelineno-0-308"></a><span class="sd">            handles cannot cross process boundaries, this requires **file-path**</span>
+<a id="__codelineno-0-309" name="__codelineno-0-309"></a><span class="sd">            inputs and an ``out`` directory (outputs are written worker-side and</span>
+<a id="__codelineno-0-310" name="__codelineno-0-310"></a><span class="sd">            ``RunResult.outputs`` holds the written paths, in completion order, not</span>
+<a id="__codelineno-0-311" name="__codelineno-0-311"></a><span class="sd">            in-memory objects). Only registry tools registered at import (the</span>
+<a id="__codelineno-0-312" name="__codelineno-0-312"></a><span class="sd">            allowlist) are available in workers.</span>
+<a id="__codelineno-0-313" name="__codelineno-0-313"></a><span class="sd">        max_workers: Worker-process count for ``parallel=True`` — ignored in serial</span>
+<a id="__codelineno-0-314" name="__codelineno-0-314"></a><span class="sd">            mode (default: the pool&#39;s default, ~CPU count).</span>
+<a id="__codelineno-0-315" name="__codelineno-0-315"></a>
+<a id="__codelineno-0-316" name="__codelineno-0-316"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-317" name="__codelineno-0-317"></a><span class="sd">        A :class:`RunResult` with the successful ``outputs`` (objects in serial mode,</span>
+<a id="__codelineno-0-318" name="__codelineno-0-318"></a><span class="sd">        written paths in ``parallel`` mode), any ``failures``, and per-input</span>
+<a id="__codelineno-0-319" name="__codelineno-0-319"></a><span class="sd">        ``provenance``.</span>
+<a id="__codelineno-0-320" name="__codelineno-0-320"></a>
+<a id="__codelineno-0-321" name="__codelineno-0-321"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-322" name="__codelineno-0-322"></a><span class="sd">        ValueError: If ``on_error`` is not ``&quot;skip&quot;``/``&quot;raise&quot;``, or ``parallel``</span>
+<a id="__codelineno-0-323" name="__codelineno-0-323"></a><span class="sd">            is set without an ``out`` directory / with non-path inputs.</span>
+<a id="__codelineno-0-324" name="__codelineno-0-324"></a><span class="sd">        Exception: The first per-item error when ``on_error=&quot;raise&quot;``.</span>
+<a id="__codelineno-0-325" name="__codelineno-0-325"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-326" name="__codelineno-0-326"></a>    <span class="k">if</span> <span class="n">on_error</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="s2">&quot;raise&quot;</span><span class="p">}:</span>
+<a id="__codelineno-0-327" name="__codelineno-0-327"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;on_error must be &#39;skip&#39; or &#39;raise&#39;, got </span><span class="si">{</span><span class="n">on_error</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-328" name="__codelineno-0-328"></a>    <span class="k">if</span> <span class="n">parallel</span><span class="p">:</span>
+<a id="__codelineno-0-329" name="__codelineno-0-329"></a>        <span class="k">if</span> <span class="n">out</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-330" name="__codelineno-0-330"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-331" name="__codelineno-0-331"></a>                <span class="s2">&quot;parallel=True requires an &#39;out&#39; directory — outputs are written &quot;</span>
+<a id="__codelineno-0-332" name="__codelineno-0-332"></a>                <span class="s2">&quot;worker-side, not returned as objects&quot;</span>
+<a id="__codelineno-0-333" name="__codelineno-0-333"></a>            <span class="p">)</span>
+<a id="__codelineno-0-334" name="__codelineno-0-334"></a>        <span class="k">if</span> <span class="n">max_workers</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">max_workers</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+<a id="__codelineno-0-335" name="__codelineno-0-335"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;max_workers must be &gt;= 1, got </span><span class="si">{</span><span class="n">max_workers</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-336" name="__codelineno-0-336"></a>    <span class="n">items</span> <span class="o">=</span> <span class="n">_resolve_inputs</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span>
+<a id="__codelineno-0-337" name="__codelineno-0-337"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">items</span><span class="p">:</span>
+<a id="__codelineno-0-338" name="__codelineno-0-338"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;no inputs to process (the resolved input set is empty)&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-339" name="__codelineno-0-339"></a>    <span class="k">if</span> <span class="n">parallel</span><span class="p">:</span>
+<a id="__codelineno-0-340" name="__codelineno-0-340"></a>        <span class="k">assert</span> <span class="n">out</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>  <span class="c1"># guarded above; narrows str | None -&gt; str for typing</span>
+<a id="__codelineno-0-341" name="__codelineno-0-341"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">_execute_parallel</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">items</span><span class="p">,</span> <span class="n">on_error</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">max_workers</span><span class="p">)</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-343" name="__codelineno-0-343"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">_execute_serial</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">items</span><span class="p">,</span> <span class="n">on_error</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
+<a id="__codelineno-0-344" name="__codelineno-0-344"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8138,9 +8146,7 @@ per successful input (tool, params, and timing per step).</p>
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>src/pyramids/processing/runner.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-32">32</a></span>
-<span class="normal"><a href="#__codelineno-0-33">33</a></span>
-<span class="normal"><a href="#__codelineno-0-34">34</a></span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-34">34</a></span>
 <span class="normal"><a href="#__codelineno-0-35">35</a></span>
 <span class="normal"><a href="#__codelineno-0-36">36</a></span>
 <span class="normal"><a href="#__codelineno-0-37">37</a></span>
@@ -8163,32 +8169,34 @@ per successful input (tool, params, and timing per step).</p>
 <span class="normal"><a href="#__codelineno-0-54">54</a></span>
 <span class="normal"><a href="#__codelineno-0-55">55</a></span>
 <span class="normal"><a href="#__codelineno-0-56">56</a></span>
-<span class="normal"><a href="#__codelineno-0-57">57</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-32" name="__codelineno-0-32"></a><span class="nd">@dataclass</span>
-<a id="__codelineno-0-33" name="__codelineno-0-33"></a><span class="k">class</span><span class="w"> </span><span class="nc">RunResult</span><span class="p">:</span>
-<a id="__codelineno-0-34" name="__codelineno-0-34"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;The outcome of a batch :func:`run`.</span>
-<a id="__codelineno-0-35" name="__codelineno-0-35"></a>
-<a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="sd">    Attributes:</span>
-<a id="__codelineno-0-37" name="__codelineno-0-37"></a><span class="sd">        outputs: The final object produced for each input that succeeded. In serial</span>
-<a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="sd">            mode these are in-memory `Dataset`/`FeatureCollection` objects; in</span>
-<a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="sd">            `parallel` mode they are the written output **path strings** (GDAL</span>
-<a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="sd">            handles cannot cross a process boundary), in completion order.</span>
-<a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">        failures: ``(source, exception)`` pairs for inputs that failed under the</span>
-<a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">            ``&quot;skip&quot;`` policy.</span>
-<a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="sd">        provenance: One :class:`~pyramids.processing.provenance.Provenance` record</span>
-<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">            per successful input (tool, params, and timing per step).</span>
-<a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-46" name="__codelineno-0-46"></a>
-<a id="__codelineno-0-47" name="__codelineno-0-47"></a>    <span class="n">outputs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-<a id="__codelineno-0-48" name="__codelineno-0-48"></a>    <span class="n">failures</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-<a id="__codelineno-0-49" name="__codelineno-0-49"></a>    <span class="n">provenance</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Provenance</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-<a id="__codelineno-0-50" name="__codelineno-0-50"></a>
-<a id="__codelineno-0-51" name="__codelineno-0-51"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-52" name="__codelineno-0-52"></a>        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outputs</span><span class="p">)</span>
-<a id="__codelineno-0-53" name="__codelineno-0-53"></a>
-<a id="__codelineno-0-54" name="__codelineno-0-54"></a>    <span class="nd">@property</span>
-<a id="__codelineno-0-55" name="__codelineno-0-55"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">ok</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether every input succeeded (no collected failures).&quot;&quot;&quot;</span>
-<a id="__codelineno-0-57" name="__codelineno-0-57"></a>        <span class="k">return</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">failures</span>
+<span class="normal"><a href="#__codelineno-0-57">57</a></span>
+<span class="normal"><a href="#__codelineno-0-58">58</a></span>
+<span class="normal"><a href="#__codelineno-0-59">59</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-34" name="__codelineno-0-34"></a><span class="nd">@dataclass</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="k">class</span><span class="w"> </span><span class="nc">RunResult</span><span class="p">:</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;The outcome of a batch :func:`run`.</span>
+<a id="__codelineno-0-37" name="__codelineno-0-37"></a>
+<a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="sd">    Attributes:</span>
+<a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="sd">        outputs: The final object produced for each input that succeeded. In serial</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="sd">            mode these are in-memory `Dataset`/`FeatureCollection` objects; in</span>
+<a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">            `parallel` mode they are the written output **path strings** (GDAL</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">            handles cannot cross a process boundary), in completion order.</span>
+<a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="sd">        failures: ``(source, exception)`` pairs for inputs that failed under the</span>
+<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">            ``&quot;skip&quot;`` policy.</span>
+<a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="sd">        provenance: One :class:`~pyramids.processing.provenance.Provenance` record</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">            per successful input (tool, params, and timing per step).</span>
+<a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-48" name="__codelineno-0-48"></a>
+<a id="__codelineno-0-49" name="__codelineno-0-49"></a>    <span class="n">outputs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+<a id="__codelineno-0-50" name="__codelineno-0-50"></a>    <span class="n">failures</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+<a id="__codelineno-0-51" name="__codelineno-0-51"></a>    <span class="n">provenance</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Provenance</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+<a id="__codelineno-0-52" name="__codelineno-0-52"></a>
+<a id="__codelineno-0-53" name="__codelineno-0-53"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<a id="__codelineno-0-54" name="__codelineno-0-54"></a>        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outputs</span><span class="p">)</span>
+<a id="__codelineno-0-55" name="__codelineno-0-55"></a>
+<a id="__codelineno-0-56" name="__codelineno-0-56"></a>    <span class="nd">@property</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">ok</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<a id="__codelineno-0-58" name="__codelineno-0-58"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether every input succeeded (no collected failures).&quot;&quot;&quot;</span>
+<a id="__codelineno-0-59" name="__codelineno-0-59"></a>        <span class="k">return</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">failures</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
