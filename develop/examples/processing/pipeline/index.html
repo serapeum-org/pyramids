@@ -7067,7 +7067,7 @@ example data, and enable inline plotting. Everything else in the notebook is abo
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.processing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span><span class="p">,</span> <span class="n">run</span><span class="p">,</span> <span class="n">get_registry</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.processing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span><span class="p">,</span> <span class="n">get_registry</span><span class="p">,</span> <span class="n">run</span>
 
 <span class="n">DATA</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"../../../examples/data"</span><span class="p">)</span>
 </pre></div>
@@ -7078,7 +7078,7 @@ import pandas as pd
 
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
-from pyramids.processing import Pipeline, run, get_registry
+from pyramids.processing import Pipeline, get_registry, run
 
 DATA = Path("../../../examples/data")</div>
 </div>
@@ -7120,9 +7120,13 @@ parameter schema and a <em>receiver type</em> (does it run on a <code>Dataset</c
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">registry_table</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
     <span class="p">[</span>
-        <span class="p">{</span><span class="s2">"tool"</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span> <span class="s2">"receiver"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">receiver</span><span class="p">,</span> <span class="s2">"returns"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">returns</span><span class="p">,</span>
-         <span class="s2">"params"</span><span class="p">:</span> <span class="s2">", "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">spec</span><span class="o">.</span><span class="n">params</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">"-"</span><span class="p">,</span>
-         <span class="s2">"description"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">description</span><span class="p">}</span>
+        <span class="p">{</span>
+            <span class="s2">"tool"</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
+            <span class="s2">"receiver"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">receiver</span><span class="p">,</span>
+            <span class="s2">"returns"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">returns</span><span class="p">,</span>
+            <span class="s2">"params"</span><span class="p">:</span> <span class="s2">", "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">spec</span><span class="o">.</span><span class="n">params</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">"-"</span><span class="p">,</span>
+            <span class="s2">"description"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+        <span class="p">}</span>
         <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">spec</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">get_registry</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
     <span class="p">]</span>
 <span class="p">)</span>
@@ -7130,9 +7134,13 @@ parameter schema and a <em>receiver type</em> (does it run on a <code>Dataset</c
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2">registry_table = pd.DataFrame(
     [
-        {"tool": name, "receiver": spec.receiver, "returns": spec.returns,
-         "params": ", ".join(p.name for p in spec.params) or "-",
-         "description": spec.description}
+        {
+            "tool": name,
+            "receiver": spec.receiver,
+            "returns": spec.returns,
+            "params": ", ".join(p.name for p in spec.params) or "-",
+            "description": spec.description,
+        }
         for name, spec in sorted(get_registry().items())
     ]
 )
@@ -7408,16 +7416,20 @@ unknown tool or a bad parameter fails right here, not halfway through a long run
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">quickstart</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">([</span>
-    <span class="p">(</span><span class="s2">"interpolate_to_raster"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"column"</span><span class="p">:</span> <span class="s2">"y"</span><span class="p">,</span> <span class="s2">"cell_size"</span><span class="p">:</span> <span class="mf">2000.0</span><span class="p">}),</span>
-    <span class="p">(</span><span class="s2">"slope"</span><span class="p">,</span> <span class="p">{}),</span>
-<span class="p">])</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">quickstart</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="p">(</span><span class="s2">"interpolate_to_raster"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"column"</span><span class="p">:</span> <span class="s2">"y"</span><span class="p">,</span> <span class="s2">"cell_size"</span><span class="p">:</span> <span class="mf">2000.0</span><span class="p">}),</span>
+        <span class="p">(</span><span class="s2">"slope"</span><span class="p">,</span> <span class="p">{}),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
 <span class="n">quickstart</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4">quickstart = Pipeline([
-    ("interpolate_to_raster", {"column": "y", "cell_size": 2000.0}),
-    ("slope", {}),
-])
+<div class="clipboard-copy-txt" id="cell-4">quickstart = Pipeline(
+    [
+        ("interpolate_to_raster", {"column": "y", "cell_size": 2000.0}),
+        ("slope", {}),
+    ]
+)
 quickstart</div>
 </div>
 </div>
@@ -7485,7 +7497,7 @@ slope_raster.plot(title="Slope of the interpolated gauge surface")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7ff64cb96e40&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fb8e8af2e40&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7556,7 +7568,7 @@ dem.plot(title="Rhine DEM (filled)")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7ff64c9ac690&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fb8e08c07d0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7599,17 +7611,21 @@ step is one idea; the chain reads top to bottom.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">terrain</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">([</span>
-    <span class="p">(</span><span class="s2">"focal_mean"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"radius"</span><span class="p">:</span> <span class="mi">1</span><span class="p">}),</span>
-    <span class="p">(</span><span class="s2">"hillshade"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"azimuth"</span><span class="p">:</span> <span class="mf">315.0</span><span class="p">,</span> <span class="s2">"altitude"</span><span class="p">:</span> <span class="mf">45.0</span><span class="p">}),</span>
-<span class="p">])</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">terrain</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="p">(</span><span class="s2">"focal_mean"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"radius"</span><span class="p">:</span> <span class="mi">1</span><span class="p">}),</span>
+        <span class="p">(</span><span class="s2">"hillshade"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"azimuth"</span><span class="p">:</span> <span class="mf">315.0</span><span class="p">,</span> <span class="s2">"altitude"</span><span class="p">:</span> <span class="mf">45.0</span><span class="p">}),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
 <span class="n">hillshaded</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">terrain</span><span class="p">,</span> <span class="n">dem</span><span class="p">)</span><span class="o">.</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 <span class="n">hillshaded</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">"Hillshade of the smoothed DEM"</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s2">"gray"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">terrain = Pipeline([
-    ("focal_mean", {"radius": 1}),
-    ("hillshade", {"azimuth": 315.0, "altitude": 45.0}),
-])
+<div class="clipboard-copy-txt" id="cell-7">terrain = Pipeline(
+    [
+        ("focal_mean", {"radius": 1}),
+        ("hillshade", {"azimuth": 315.0, "altitude": 45.0}),
+    ]
+)
 hillshaded = run(terrain, dem).outputs[0]
 hillshaded.plot(title="Hillshade of the smoothed DEM", cmap="gray")</div>
 </div>
@@ -7623,7 +7639,7 @@ hillshaded.plot(title="Hillshade of the smoothed DEM", cmap="gray")</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7ff64c81f750&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fb8e0733750&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7902,7 +7918,7 @@ len(batch.outputs), len(batch.failures)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7ff64c91de00&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fb8e082de00&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -8017,10 +8033,20 @@ that produced an output (reproducibility).</p>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">prov</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">provenance</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-<span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">([{</span><span class="s2">"tool"</span><span class="p">:</span> <span class="n">s</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="s2">"params"</span><span class="p">:</span> <span class="n">s</span><span class="o">.</span><span class="n">params</span><span class="p">,</span> <span class="s2">"seconds"</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">seconds</span><span class="p">,</span> <span class="mi">4</span><span class="p">)}</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">prov</span><span class="o">.</span><span class="n">steps</span><span class="p">])</span>
+<span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="p">{</span><span class="s2">"tool"</span><span class="p">:</span> <span class="n">s</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="s2">"params"</span><span class="p">:</span> <span class="n">s</span><span class="o">.</span><span class="n">params</span><span class="p">,</span> <span class="s2">"seconds"</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">seconds</span><span class="p">,</span> <span class="mi">4</span><span class="p">)}</span>
+        <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">prov</span><span class="o">.</span><span class="n">steps</span>
+    <span class="p">]</span>
+<span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-14">prov = result.provenance[0]
-pd.DataFrame([{"tool": s.tool, "params": s.params, "seconds": round(s.seconds, 4)} for s in prov.steps])</div>
+pd.DataFrame(
+    [
+        {"tool": s.tool, "params": s.params, "seconds": round(s.seconds, 4)}
+        for s in prov.steps
+    ]
+)</div>
 </div>
 </div>
 </div>
@@ -8060,7 +8086,7 @@ pd.DataFrame([{"tool": s.tool, "params": s.params, "seconds": round(s.seconds, 4
 <th>0</th>
 <td>interpolate_to_raster</td>
 <td>{'column': 'y', 'cell_size': 2000.0}</td>
-<td>0.0136</td>
+<td>0.0139</td>
 </tr>
 <tr>
 <th>1</th>
