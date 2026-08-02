@@ -5,6 +5,7 @@ import pickle
 import shutil
 import warnings
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -12,6 +13,7 @@ from osgeo import gdal, osr
 
 from pyramids.base._errors import ReadOnlyError
 from pyramids.dataset import Dataset
+from pyramids.dataset.engines.io import IO
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -347,6 +349,133 @@ class TestCreateOverviewsPathlessGuard:
             assert (tmp_path / ".ovr").exists(), (
                 "GDAL no longer writes a stray '.ovr' — the guard may be obsolete"
             )
+        finally:
+            if level is not None:
+                level.close()
+            dataset.close()
+
+    def test_plain_vrt_wrapping_a_warped_vrt_is_refused(self, tmp_path, monkeypatch):
+        """Only the root element's `subClass` exempts a VRT, never a nested source's.
+
+        Test scenario:
+            `BuildVRT` over a warped view serialises the warp inline, so
+            `subClass="VRTWarpedDataset"` appears in the document but not on the root —
+            expected: still refused, because the wrapper itself is a plain VRT with no
+            pixel storage and no path. Matching the whole document instead of the root
+            would let this one through.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "nested_warp_src.tif")
+        dataset = Dataset.read_file(source)
+        warped = dataset.to_crs(3857)
+        wrapper = Dataset(gdal.BuildVRT("", [warped.raster]))
+        try:
+            xml = wrapper.raster.GetMetadata("xml:VRT")[0]
+            root = xml[: xml.find(">") + 1]
+            assert 'subClass="VRTWarpedDataset"' not in root, (
+                f"precondition: the wrapper's own root is a plain VRT, got {root}"
+            )
+            assert 'subClass="VRTWarpedDataset"' in xml, (
+                "precondition: the warped source is serialised inside the document"
+            )
+            with pytest.raises(ValueError, match="nowhere to go"):
+                wrapper.create_overviews(overview_levels=[2])
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            wrapper.close()
+            warped.close()
+            dataset.close()
+
+    def test_whitespace_only_description_is_refused(self, tmp_path, monkeypatch):
+        """A description made of blanks is not a path either, so it is refused too.
+
+        Test scenario:
+            Set the pathless level's description to spaces — expected: the same refusal,
+            because the guard strips before deciding; an unstripped check would read the
+            blanks as a usable path and let GDAL strand the levels.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "blank_desc_src.tif")
+        dataset = Dataset.read_file(source)
+        level = None
+        try:
+            level = dataset.get_overview_dataset(overview_index=0)
+            level.raster.SetDescription("   ")
+            assert level.raster.GetDescription() == "   ", (
+                "precondition: the description holds blanks, not a path"
+            )
+            with pytest.raises(ValueError, match="nowhere to go"):
+                level.create_overviews(overview_levels=[2])
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
+        finally:
+            if level is not None:
+                level.close()
+            dataset.close()
+
+    @pytest.mark.parametrize(
+        "metadata, blocked",
+        [
+            (None, True),
+            ([], True),
+            (['<VRTDataset rasterXSize="8"'], True),
+            (['<VRTDataset subClass="VRTWarpedDataset"'], False),
+        ],
+        ids=[
+            "domain-absent",
+            "domain-empty",
+            "unterminated-plain",
+            "unterminated-warped",
+        ],
+    )
+    def test_unusable_xml_metadata_still_decides_from_the_root(self, metadata, blocked):
+        """An absent or unterminated `xml:VRT` document leaves the root check intact.
+
+        Test scenario:
+            GDAL always serialises the document, so these shapes are driven through a
+            stub handle — expected: a missing domain falls back to an empty root and is
+            refused on its empty description, while an unterminated document is read
+            whole, so its own `subClass` still exempts it.
+        """
+        handle = MagicMock(spec=gdal.Dataset)
+        handle.GetMetadata.return_value = metadata
+        handle.GetDescription.return_value = ""
+        stub = MagicMock(spec=Dataset, driver_type="vrt", raster=handle)
+        engine = IO(stub)
+        assert engine._has_nowhere_for_an_overview_sidecar() is blocked, (
+            f"expected {blocked} for xml:VRT metadata {metadata!r}"
+        )
+        handle.GetMetadata.assert_called_once_with("xml:VRT")
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {},
+            {"overview_levels": 4},
+            {"overview_levels": [3, 5]},
+            {"resampling_method": "NOPE"},
+        ],
+        ids=["defaults", "non-list-levels", "unsupported-levels", "unknown-method"],
+    )
+    def test_the_refusal_precedes_argument_validation(
+        self, tmp_path, monkeypatch, kwargs
+    ):
+        """The dataset is the blocker, so no argument spelling reports something else.
+
+        Test scenario:
+            Call the pathless level with the default levels and with arguments that would
+            each raise on their own (`TypeError`, an unsupported factor, an unknown
+            resampling method) — expected: the guard's `ValueError` every time, so a
+            typo'd argument never masks the real blocker.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "precedence_src.tif")
+        dataset = Dataset.read_file(source)
+        level = None
+        try:
+            level = dataset.get_overview_dataset(overview_index=0)
+            with pytest.raises(ValueError, match="nowhere to go"):
+                level.create_overviews(**kwargs)
+            assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
         finally:
             if level is not None:
                 level.close()
