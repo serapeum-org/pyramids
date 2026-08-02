@@ -212,7 +212,7 @@ class TestRecreateOverviewsContract:
         """Only a genuine write refusal becomes `ReadOnlyError`; other failures propagate.
 
         Test scenario:
-            `gdal.RegenerateOverview` is patched to raise a `RuntimeError` while a
+            `gdal.RegenerateOverviews` is patched to raise a `RuntimeError` while a
             writable dataset that does have overviews is regenerated, so no CPL error
             number is set and the phrase fallback decides. Expected: a disk-full failure
             surfaces unchanged as `RuntimeError` (the pre-fix code relabelled *every*
@@ -230,7 +230,7 @@ class TestRecreateOverviewsContract:
             def raise_runtime_error(*args, **kwargs):
                 raise RuntimeError(gdal_message)
 
-            monkeypatch.setattr(gdal, "RegenerateOverview", raise_runtime_error)
+            monkeypatch.setattr(gdal, "RegenerateOverviews", raise_runtime_error)
             with pytest.raises(expected_error) as excinfo:
                 dataset.recreate_overviews()
             assert type(excinfo.value) is expected_error, (
@@ -253,7 +253,7 @@ class TestRecreateOverviewsContract:
 
         Test scenario:
             `gdal.UseExceptions()` is process-global, so a caller that turned it off
-            leaves `RegenerateOverview` *returning* `CE_Failure` instead of raising.
+            leaves `RegenerateOverviews` *returning* `CE_Failure` instead of raising.
             Patch it to do exactly that on a writable dataset that does have overviews
             — expected: a `RuntimeError` naming the band and level, since the
             try/except alone would let this through as the silent no-op the method
@@ -264,15 +264,15 @@ class TestRecreateOverviewsContract:
         try:
             dataset.create_overviews(overview_levels=[2])
             monkeypatch.setattr(
-                gdal, "RegenerateOverview", lambda *args, **kwargs: gdal.CE_Failure
+                gdal, "RegenerateOverviews", lambda *args, **kwargs: gdal.CE_Failure
             )
             with pytest.raises(RuntimeError) as excinfo:
                 dataset.recreate_overviews()
             assert type(excinfo.value) is RuntimeError, (
                 f"a failing status must not be relabelled, got {type(excinfo.value).__name__}"
             )
-            assert "overview 0 of band 0" in str(excinfo.value), (
-                f"the error must name the band and level, got: {excinfo.value}"
+            assert "overviews of band 0" in str(excinfo.value), (
+                f"the error must name the band, got: {excinfo.value}"
             )
         finally:
             dataset.close()
@@ -283,7 +283,7 @@ class TestRecreateOverviewsContract:
         """A propagated GDAL failure carries a note saying where regeneration stopped.
 
         Test scenario:
-            An unrelated `RuntimeError` is raised from `gdal.RegenerateOverview` and
+            An unrelated `RuntimeError` is raised from `gdal.RegenerateOverviews` and
             re-raised unchanged — expected: `__notes__` names the band and level and
             says earlier bands may already have been rewritten, because the loop
             rewrites in place and leaves the dataset half-regenerated.
@@ -296,12 +296,12 @@ class TestRecreateOverviewsContract:
             def raise_runtime_error(*args, **kwargs):
                 raise RuntimeError("Failed to write overview block: disk full")
 
-            monkeypatch.setattr(gdal, "RegenerateOverview", raise_runtime_error)
+            monkeypatch.setattr(gdal, "RegenerateOverviews", raise_runtime_error)
             with pytest.raises(RuntimeError) as excinfo:
                 dataset.recreate_overviews()
             notes = getattr(excinfo.value, "__notes__", [])
-            assert any("overview 0 of band 0" in note for note in notes), (
-                f"the note must name the band and level, got {notes}"
+            assert any("overviews of band 0" in note for note in notes), (
+                f"the note must name the band, got {notes}"
             )
             assert any("already have been rewritten" in note for note in notes), (
                 f"the note must flag the partial rewrite, got {notes}"
@@ -315,24 +315,27 @@ class TestRecreateOverviewsContract:
         """After warning about the empty bands, the populated ones are regenerated.
 
         Test scenario:
-            Record every `gdal.RegenerateOverview` call on the mixed `[1, 0]` VRT —
-            expected: exactly one call, for band 0's single level, proving the mixed
-            path warns *and* carries on rather than returning early. The recorder also
-            keeps the call off the VRT's read-only `.ovr`, which is why the sibling
+            Record every `gdal.RegenerateOverviews` call on the mixed `[1, 0]` VRT —
+            expected: exactly one call, carrying band 0's levels as a batch, proving the
+            mixed path warns *and* carries on rather than returning early, and that the
+            empty band is skipped instead of being handed an empty list. The recorder
+            also keeps the call off the VRT's read-only `.ovr`, which is why the sibling
             warning test has to suppress that failure.
         """
         dataset = Dataset.read_file(_mixed_overview_vrt(tmp_path), read_only=True)
         try:
             calls = []
-            monkeypatch.setattr(
-                gdal,
-                "RegenerateOverview",
-                lambda band, ovr, method: calls.append(method) or gdal.CE_None,
-            )
+
+            def record(band, overviews, method):
+                calls.append((len(overviews), method))
+                return gdal.CE_None
+
+            monkeypatch.setattr(gdal, "RegenerateOverviews", record)
             with pytest.warns(UserWarning, match=r"call create_overviews\(\) first"):
                 dataset.recreate_overviews(resampling_method="average")
-            assert calls == ["average"], (
-                f"only band 0's single overview should regenerate, got {calls}"
+            assert calls == [(1, "average")], (
+                "band 0's levels should regenerate in one batched call and the empty "
+                f"band be skipped, got {calls}"
             )
         finally:
             dataset.close()
