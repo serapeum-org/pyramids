@@ -93,10 +93,6 @@
          <lastmod>2026-08-02</lastmod>
     </url>
     <url>
-         <loc>https://serapeum-org.github.io/pyramids/develop/adr/0007-processing-registry-approach/</loc>
-         <lastmod>2026-08-02</lastmod>
-    </url>
-    <url>
          <loc>https://serapeum-org.github.io/pyramids/develop/examples/</loc>
          <lastmod>2026-08-02</lastmod>
     </url>
@@ -321,10 +317,6 @@
          <lastmod>2026-08-02</lastmod>
     </url>
     <url>
-         <loc>https://serapeum-org.github.io/pyramids/develop/examples/processing/pipeline/</loc>
-         <lastmod>2026-08-02</lastmod>
-    </url>
-    <url>
          <loc>https://serapeum-org.github.io/pyramids/develop/examples/stac/stac-cloud-earth-search/</loc>
          <lastmod>2026-08-02</lastmod>
     </url>
@@ -402,10 +394,6 @@
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/develop/reference/config/</loc>
-         <lastmod>2026-08-02</lastmod>
-    </url>
-    <url>
-         <loc>https://serapeum-org.github.io/pyramids/develop/reference/processing/</loc>
          <lastmod>2026-08-02</lastmod>
     </url>
     <url>
