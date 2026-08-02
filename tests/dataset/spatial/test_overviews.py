@@ -178,6 +178,14 @@ def test_get_overview(era5_image: gdal.Dataset, clean_overview_after_test):
 # equivalent NetCDF sidecar assertions. The guard itself is not gated; only this canary.
 _GDAL_STRANDS_PATHLESS_VRT_OVERVIEWS = int(gdal.VersionInfo("VERSION_NUM")) >= 3130000
 
+# Same ceiling, different capability: on 3.12.4 `create_overviews()` on a read-only NetCDF
+# variable view builds queryable levels but writes no external `<container>.0.ovr` sidecar.
+# Only the sidecar *file* assertion is version-gated -- the level count and the "no stray
+# `.ovr`" check are platform-independent and are what prove the guard does not over-fire,
+# so they stay ungated. See tests/netcdf/samples/test_inherited_ops.py, which #892 had to
+# gate for exactly this.
+_GDAL_WRITES_EXTERNAL_NETCDF_OVR = int(gdal.VersionInfo("VERSION_NUM")) >= 3130000
+
 
 class TestCreateOverviewsPathlessGuard:
     """`create_overviews` refuses a VRT that has nowhere to put a sidecar (#917).
@@ -302,10 +310,11 @@ class TestCreateOverviewsPathlessGuard:
             assert all(count > 0 for count in view.overview_count), (
                 f"a NetCDF variable view should still build, got {view.overview_count}"
             )
-            sidecars = sorted(p.name for p in tmp_path.glob("*.ovr"))
-            assert sidecars == ["guard_var.nc.0.ovr"], (
-                f"the sidecar must be named after the container, found {sidecars}"
-            )
+            if _GDAL_WRITES_EXTERNAL_NETCDF_OVR:
+                sidecars = sorted(p.name for p in tmp_path.glob("*.ovr"))
+                assert sidecars == ["guard_var.nc.0.ovr"], (
+                    f"the sidecar must be named after the container, found {sidecars}"
+                )
             assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
         finally:
             view.close()
