@@ -17,6 +17,7 @@ pytestmark = pytest.mark.plot
 
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 _cleo_config.Config.set_matplotlib_backend("agg")
+from cleopatra.array_glyph import ArrayGlyph  # noqa: E402
 from cleopatra.geo import Basemap  # noqa: E402
 
 
@@ -60,6 +61,18 @@ class TestBasemapDispatch:
             self._dataset().plot(band=0)
         assert not mock_add.called
 
+    def test_empty_string_basemap_draws_nothing(self):
+        """An empty-string `basemap` is treated as no basemap (like None/False).
+
+        It is a falsy string, so it must not reach the tile path (which would
+        otherwise leak an AssertionError with no CRS, or draw a default tile
+        provider) — it behaves the same as omitting the argument.
+        """
+        with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+            glyph = self._dataset().plot(band=0, basemap="")
+        assert not mock_add.called
+        assert glyph is not None
+
     def test_cleopatra_basemap_on_facet_raises(self):
         """A `Basemap` on the faceted path raises a clear error (facet has none)."""
         stack = np.random.default_rng(1).random((3, 6, 6)).astype("float32")
@@ -72,3 +85,59 @@ class TestBasemapDispatch:
                 basemap_epsg=4326,
                 extent=[0.0, 0.0, 1.0, 1.0],
             )
+
+    @staticmethod
+    def _spy_on(method_name):
+        """Wrap an ArrayGlyph method to record the kwargs it was called with."""
+        captured: dict = {}
+        original = getattr(ArrayGlyph, method_name)
+
+        def spy(self, *args, **kwargs):
+            captured.update(kwargs)
+            return original(self, *args, **kwargs)
+
+        return captured, spy
+
+    def test_basemap_reaches_the_plot_render_call(self):
+        """A Basemap is forwarded to `cleo.plot(basemap=...)`, not just skipped."""
+        captured, spy = self._spy_on("plot")
+        basemap = Basemap(relief=False)
+        with patch.object(ArrayGlyph, "plot", spy):
+            self._dataset().plot(band=0, basemap=basemap)
+        assert captured.get("basemap") is basemap
+
+    def test_basemap_reaches_the_animate_render_call(self):
+        """A Basemap on the animate path forwards to `cleo.animate(basemap=...)`."""
+        captured, spy = self._spy_on("animate")
+        basemap = Basemap(relief=False)
+        stack = np.random.default_rng(2).random((3, 6, 6)).astype("float32")
+        with patch.object(ArrayGlyph, "animate", spy):
+            with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+                render_array(
+                    arr=stack,
+                    mode="animate",
+                    animation_axis_values=[0, 1, 2],
+                    basemap=basemap,
+                    basemap_epsg=4326,
+                    extent=[0.0, 0.0, 1.0, 1.0],
+                )
+        assert captured.get("basemap") is basemap
+        assert not mock_add.called
+
+    def test_basemap_reaches_the_rgb_animate_render_call(self):
+        """A Basemap survives the RGB-animate compositor and reaches animate."""
+        captured, spy = self._spy_on("animate")
+        basemap = Basemap(relief=False)
+        # (time, bands, rows, cols) so the RGB compositor path runs first.
+        stack = np.random.default_rng(3).random((3, 3, 6, 6)).astype("float32")
+        with patch.object(ArrayGlyph, "animate", spy):
+            render_array(
+                arr=stack,
+                mode="animate",
+                animation_axis_values=[0, 1, 2],
+                rgb=[0, 1, 2],
+                basemap=basemap,
+                basemap_epsg=4326,
+                extent=[0.0, 0.0, 1.0, 1.0],
+            )
+        assert captured.get("basemap") is basemap

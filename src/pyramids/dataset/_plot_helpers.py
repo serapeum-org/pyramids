@@ -580,8 +580,12 @@ def render_array(
     #     ``basemap=`` on the render call.
     # ``basemap and basemap_epsg is None`` was already rejected at the top of
     # this function, so when ``basemap`` is truthy ``basemap_epsg`` is set.
-    tile_basemap = isinstance(basemap, str) or basemap is True
-    basemap_source = basemap if isinstance(basemap, str) else None
+    # A non-empty provider string, or ``True``, is a pyramids web-tile basemap.
+    # An empty string is treated as "no basemap" so it stays consistent with the
+    # falsy top guard (``if basemap ...``) rather than reaching ``_apply_basemap``
+    # with no source / no CRS.
+    tile_basemap = (isinstance(basemap, str) and basemap != "") or basemap is True
+    basemap_source = basemap if tile_basemap and isinstance(basemap, str) else None
     forward_cleo_basemap = basemap is not None and not isinstance(
         basemap, (str, bool)
     )
