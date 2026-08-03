@@ -365,6 +365,85 @@ class TestToFile:
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def test_to_file_does_not_mutate_source_handles(
+        self, cube_with_values: DatasetCollection
+    ):
+        """Per-timestep handles stay path-less MEM datasets after a save.
+
+        ``cube_with_values`` is ``datasets=``-backed by in-memory MEM datasets
+        (``file_name == ""``). ``to_file`` streams them with ``reopen=False``, so
+        none of them are repointed at the written files.
+        """
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            cube_with_values.to_file(tmp_dir / "stack")
+            for i in range(3):
+                assert cube_with_values.iloc(i).file_name == "", (
+                    f"timestep {i} handle was repointed to a file after save"
+                )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_to_file_accepts_path_object_directory(
+        self, cube_with_values: DatasetCollection
+    ):
+        """A ``pathlib.Path`` directory is accepted (not only ``str``).
+
+        Test scenario:
+            Passing a ``Path`` directory writes ``0.tif``..``2.tif`` just like a
+            string path — exercising the ``isinstance(path, (str, Path))`` branch.
+        """
+        tmp_dir = Path(tempfile.mkdtemp())
+        out_dir = tmp_dir / "as_path"
+        try:
+            cube_with_values.to_file(out_dir)
+            assert sorted(p.name for p in out_dir.iterdir()) == [
+                "0.tif",
+                "1.tif",
+                "2.tif",
+            ]
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_to_file_list_paths_creates_missing_parent(
+        self, cube_with_values: DatasetCollection
+    ):
+        """A list of paths whose parent dir does not exist yet is created.
+
+        Test scenario:
+            Exercises the ``else`` branch that ``mkdir(parents=True)`` the parent
+            of the first path when it is missing.
+        """
+        tmp_dir = Path(tempfile.mkdtemp())
+        missing_parent = tmp_dir / "not_yet" / "here"
+        paths = [missing_parent / f"t{i}.tif" for i in range(3)]
+        try:
+            assert not missing_parent.exists(), "precondition: parent is absent"
+            cube_with_values.to_file(paths)
+            for p in paths:
+                assert p.exists(), f"expected file at {p}"
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_to_file_single_timestep(self, base_dataset: Dataset):
+        """A one-timestep collection writes exactly one file with the base pixels.
+
+        Test scenario:
+            ``create_cube(base, 1)`` written to a directory yields a single
+            ``0.tif`` whose pixels equal the base template.
+        """
+        cube = DatasetCollection.create_cube(base_dataset, dataset_length=1)
+        tmp_dir = Path(tempfile.mkdtemp())
+        out_dir = tmp_dir / "single"
+        try:
+            cube.to_file(out_dir)
+            files = sorted(p.name for p in out_dir.iterdir())
+            assert files == ["0.tif"], f"expected a single 0.tif, got {files}"
+            written = Dataset.read_file(str(out_dir / "0.tif")).read_array()
+            np.testing.assert_allclose(written, base_dataset.read_array())
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 class TestIloc:
     """Tests for iloc method."""
