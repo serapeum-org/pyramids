@@ -2034,6 +2034,23 @@ class IO(_Engine["Dataset"]):
               'my-dataset.tif'
 
               ```
+
+            - Write without repointing the source (``reopen=False``) — the
+              source stays the in-memory dataset it was:
+
+              ```python
+              >>> import os, tempfile
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> mem = Dataset.create_from_array(
+              ...     np.ones((4, 4), dtype="float32"), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+              ... )
+              >>> out = os.path.join(tempfile.mkdtemp(), "kept.tif")
+              >>> mem.to_file(out, reopen=False)
+              >>> mem.file_name
+              ''
+
+              ```
         """
         if compute:
             _io_module._write_to_file_sync(

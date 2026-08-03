@@ -2678,20 +2678,33 @@ class DatasetCollection:
         driver: str = "geotiff",
         band: int = 0,
     ):
-        """Save to geotiff format.
+        """Write every timestep of the collection to disk, one file per step.
 
-            saveRaster saves a raster to a path
+        Each timestep is streamed straight to its output file via
+        :meth:`Dataset.to_file`, whose GDAL ``CreateCopy`` reads the source
+        block-by-block, so a whole slice is never held in memory. The
+        collection's own per-timestep handles are left untouched — saving is a
+        side-effect-free export, not an in-place mutation.
 
         Args:
-            path (str | list[str]):
-                a path includng the name of the raster and extention.
+            path (str | Path | list[str | Path]):
+                A single directory — the timesteps are written as ``0.<ext>`` …
+                ``<N-1>.<ext>`` and the directory is created if missing — or an
+                explicit list of one path per timestep.
             driver (str):
-                driver = "geotiff".
+                Output driver as a catalog key (e.g. ``"geotiff"`` (default) or
+                ``"ascii"``); sets the extension when ``path`` is a directory.
             band (int):
-                band index, needed only in case of ascii drivers. Default is 1.
+                Band index to write; used only by single-band drivers such as
+                ``"ascii"`` and ignored by GeoTIFF (which writes every band).
+                Default is 0.
+
+        Raises:
+            ValueError: ``path`` is a list whose length differs from
+                :attr:`time_length`.
 
         Examples:
-            - Save to a file:
+            - Save to a directory — one file per timestep:
 
               ```python
               >>> import os, tempfile
@@ -2707,6 +2720,28 @@ class DatasetCollection:
               ['0.tif', '1.tif', '2.tif']
 
               ```
+            - Save to explicit per-timestep paths and read one slice back:
+
+              ```python
+              >>> import os, tempfile
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, DatasetCollection
+              >>> src = Dataset.create_from_array(
+              ...     np.full((4, 4), 7.0, dtype="float32"), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+              ... )
+              >>> collection = DatasetCollection.create_cube(src, 2)
+              >>> out_dir = tempfile.mkdtemp()
+              >>> paths = [os.path.join(out_dir, f"slice_{i}.tif") for i in range(2)]
+              >>> collection.to_file(paths)
+              >>> arr = Dataset.read_file(paths[0]).read_array()
+              >>> float(arr.max())
+              7.0
+
+              ```
+
+        See Also:
+            DatasetCollection.to_cog_stack: Write each timestep as a Cloud
+            Optimized GeoTIFF.
         """
         ext = CATALOG.get_extension(driver)
 
