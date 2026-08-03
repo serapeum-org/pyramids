@@ -595,10 +595,20 @@ class TestIsRemoteUrl:
         """Every supported object-store / web scheme is classified remote."""
         assert _is_remote_url(f"{scheme}://host/store") is True
 
-    @pytest.mark.parametrize("scheme", ["ftp", "sftp", "file", "mailto"])
+    @pytest.mark.parametrize("scheme", ["ftp", "sftp", "mailto"])
     def test_unknown_schemes_are_not_remote(self, scheme: str):
         """A scheme outside the known set is not classified remote."""
         assert _is_remote_url(f"{scheme}://host/store") is False
+
+    def test_file_uris_are_claimed_because_they_need_rewriting(self):
+        """`file://` is known and local, but GDAL cannot open the URI form.
+
+        It sat in the unknown-scheme group above, which conflated "is it remote?"
+        with "does it need rewriting?" — the second is what this predicate
+        answers, and `file://` must be stripped to a plain path before GDAL sees
+        it (#918).
+        """
+        assert _is_remote_url("file:///data/store.zarr") is True
 
     @pytest.mark.parametrize(
         "source",

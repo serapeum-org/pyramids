@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from pyramids.base.remote import _DODS_SCHEME, URL_SCHEMES
+from pyramids.base.remote import _DODS_SCHEME, URL_SCHEMES, _to_vsi
 from pyramids.netcdf.labeled import _is_remote_url
 
 pytestmark = pytest.mark.core
@@ -74,13 +74,25 @@ class TestSchemeRewriteRecognition:
         """
         assert not _is_remote_url(source), f"{source} needs no rewrite"
 
-    def test_an_unhandled_scheme_is_not_claimed(self):
-        """`gcs://` has no GDAL handler, so claiming it would hand GDAL a raw URI.
+    def test_the_gcs_alias_is_functional(self):
+        """`gcs://` is claimed here because it is now actually rewritten.
 
         Test scenario:
-            It was kept as an alias on the claim that GDAL accepts it; `_to_vsi`
-            returns it unchanged, so the alias was never functional.
+            It used to be claimed on the false premise that GDAL accepts it, so
+            the raw URI reached GDAL and failed. It is a real, fsspec-registered
+            alias for Google Cloud Storage, so the fix was to map it to
+            `/vsigs/` rather than to stop claiming it.
         """
-        assert not _is_remote_url("gcs://bucket/store.zarr"), (
-            "gcs:// is not rewritten by _to_vsi, so it must not be claimed here"
+        assert _is_remote_url("gcs://bucket/store.zarr"), "gcs:// is handled"
+        assert _to_vsi("gcs://bucket/store.zarr") == "/vsigs/bucket/store.zarr"
+
+    @pytest.mark.parametrize("scheme", ["ftp", "sftp", "mailto"])
+    def test_a_genuinely_unhandled_scheme_is_not_claimed(self, scheme: str):
+        """A scheme no handler covers is left for the caller to fail on.
+
+        Args:
+            scheme: A URL scheme pyramids does not rewrite.
+        """
+        assert not _is_remote_url(f"{scheme}://host/store.zarr"), (
+            f"{scheme}:// is not rewritten, so it must not be claimed"
         )
