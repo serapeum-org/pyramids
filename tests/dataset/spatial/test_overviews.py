@@ -874,12 +874,14 @@ class TestCreateOverviewsPathlessGuard:
             list of message phrases. Drive a refusal that sets the number but whose
             wording matches none of those phrases — the shape a future driver could
             produce — so only the number can classify it, and any GDAL call made between
-            the failure and the check would erase it. Expected: `ReadOnlyError`, not the
-            bare `RuntimeError` a late check gives.
+            the failure and the check would erase it. Read-only, so the classification
+            lands on `ReadOnlyError` rather than the writable-handle branch, keeping this
+            about the ordering. Expected: `ReadOnlyError`, not the bare `RuntimeError` a
+            late check gives.
         """
         monkeypatch.chdir(tmp_path)
         source = _overviewed_raster(tmp_path, "unknown_wording_src.tif")
-        dataset = Dataset.read_file(source, read_only=False)
+        dataset = Dataset.read_file(source, read_only=True)
 
         def refuse(band, overviews, method):
             with gdal.ExceptionMgr(useExceptions=False):
@@ -1058,15 +1060,15 @@ class TestCreateOverviewsPathlessGuard:
 
         Test scenario:
             One VRT whose band 0 keeps its level in an external `.ovr` GTiff while band 1
-            takes its level from the VRT itself. GDAL refuses band 0 first, and that band
-            is stored — expected: `ReadOnlyError` naming band 0, because reopening the
-            sidecar writable really is its fix. A classifier that scanned the whole
+            takes its level from the VRT itself, opened read-only so a reopen is still
+            worth suggesting. GDAL refuses band 0 first, and that band is stored —
+            expected: `ReadOnlyError` naming band 0. A classifier that scanned the whole
             dataset would find band 1's VRT-owned level and hand band 0 the unactionable
             "rebuild them" advice instead.
         """
         monkeypatch.chdir(tmp_path)
         vrt_path = _mixed_ownership_vrt(tmp_path)
-        dataset = Dataset.read_file(vrt_path, read_only=False)
+        dataset = Dataset.read_file(vrt_path, read_only=True)
         try:
             assert dataset.overview_count == [1, 1], (
                 f"precondition: both bands carry a level, {dataset.overview_count}"
@@ -1081,6 +1083,35 @@ class TestCreateOverviewsPathlessGuard:
                 dataset.recreate_overviews("average")
             assert not isinstance(excinfo.value, OverviewTargetError), (
                 "band 0's own level is stored, so its sibling must not decide for it"
+            )
+        finally:
+            dataset.close()
+
+    def test_a_writable_handle_is_never_told_to_reopen(self, tmp_path, monkeypatch):
+        """Ownership cannot prove the access mode is the blocker; the handle can disprove it.
+
+        Test scenario:
+            A VRT serving an explicit `<Overview>` owns a real, on-disk-writable `.ovr`,
+            so it classifies as stored — yet GDAL opens VRT sources read-only and refuses
+            however the parent was opened. Opened writable, the caller has already done
+            the only thing `ReadOnlyError` would suggest — expected: `OverviewTargetError`
+            and no mention of `read_only=False`.
+        """
+        monkeypatch.chdir(tmp_path)
+        vrt_path = _mixed_ownership_vrt(tmp_path)
+        dataset = Dataset.read_file(vrt_path, read_only=False)
+        try:
+            assert dataset._access == "write", "precondition: already open for writing"
+            assert _level_owner_driver(dataset._iloc(0)) == "GTiff", (
+                "precondition: band 0's level classifies as stored"
+            )
+            with pytest.raises(OverviewTargetError, match="already open for writing") as excinfo:
+                dataset.recreate_overviews("average")
+            assert not isinstance(excinfo.value, ReadOnlyError), (
+                "a writable handle cannot be fixed by reopening it writable"
+            )
+            assert "read_only=False" not in str(excinfo.value), (
+                "advising the caller's own last move is the #922 defect"
             )
         finally:
             dataset.close()
@@ -1530,8 +1561,8 @@ class TestRecreateOverviewsContract:
             ("Failed to write overview block: disk full", RuntimeError, "disk full"),
             (
                 "Attempt to write to a read only dataset",
-                ReadOnlyError,
-                "read_only=False",
+                OverviewTargetError,
+                "already open for writing",
             ),
             (
                 "/mnt/read-only-archive/dem.tif, band 1: No space left on device",
@@ -1541,7 +1572,7 @@ class TestRecreateOverviewsContract:
         ],
         ids=[
             "unrelated-failure-propagates",
-            "read-only-wording-is-translated",
+            "read-only-wording-on-a-writable-handle-is-not-an-access-error",
             "read-only-in-the-path-is-not-a-refusal",
         ],
     )
@@ -1584,7 +1615,7 @@ class TestRecreateOverviewsContract:
             assert expected_text in str(excinfo.value), (
                 f"expected {expected_text!r} in the message, got: {excinfo.value}"
             )
-            if expected_error is ReadOnlyError:
+            if expected_error is not RuntimeError:
                 assert isinstance(excinfo.value.__cause__, RuntimeError), (
                     "the original GDAL error must stay chained as __cause__"
                 )

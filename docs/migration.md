@@ -215,8 +215,13 @@ followed. Two shapes are affected:
   either. Give the VRT its own sidecar with `create_overviews()`, or regenerate on the source raster instead.
 
 The two are told apart by who owns the level: a level owned by a VRT is computed, one owned by a real raster
-(the dataset itself for an internal overview, the `.ovr` GTiff for an external one) is stored. `ReadOnlyError`
-now means only the stored case, where reopening writable genuinely is the fix.
+(the dataset itself for an internal overview, the `.ovr` GTiff for an external one) is stored.
+
+`ReadOnlyError` is now raised only when a reopen is still worth trying — a stored level on a handle that is
+itself open read-only. It is **not** a promise that reopening will succeed: a VRT serving an explicit
+`<Overview>` owns a real, on-disk-writable `.ovr`, yet GDAL opens VRT sources read-only and refuses however the
+parent was opened. What has changed is that a dataset **already open for writing** never gets told to reopen —
+that shape now raises `OverviewTargetError` too, since the access mode demonstrably is not the blocker.
 
 **Operations that need a CRS now refuse instead of assuming one.** Each raises `CRSError` naming the operation
 and how to fix it, where previously the missing CRS was silently filled in with WGS 84:

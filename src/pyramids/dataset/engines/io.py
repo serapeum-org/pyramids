@@ -3429,8 +3429,7 @@ class IO(_Engine["Dataset"]):
                     # inherited from the source), and no access mode makes it writable.
                     # A level owned by a real raster -- the dataset itself for an
                     # internal overview, or the `.ovr` GTiff for an external one -- is
-                    # writable once the handle is, so that is the genuine access-mode
-                    # case.
+                    # usually writable once the handle is.
                     if self._overview_target_is_virtual(overviews):
                         raise OverviewTargetError(
                             f"Cannot regenerate the overviews of band {i}: their pixels "
@@ -3440,6 +3439,22 @@ class IO(_Engine["Dataset"]):
                             "resamples with the warper's own algorithm, ignoring any "
                             "resampling_method -- or save the dataset with to_file(path) "
                             "and regenerate on the saved raster."
+                        ) from err
+                    # "Usually", because ownership alone cannot prove the access mode is
+                    # the blocker: a VRT serving an explicit <Overview> owns a real,
+                    # on-disk-writable `.ovr`, yet GDAL opens VRT sources read-only, so it
+                    # refuses however the parent was opened. Advising a reopen is only
+                    # honest while one is still available -- on a handle already open for
+                    # writing the advice is provably the caller's own last move, which is
+                    # the misdiagnosis this classification exists to remove.
+                    if self._ds._access != "read_only":
+                        raise OverviewTargetError(
+                            f"Cannot regenerate the overviews of band {i}: GDAL refused "
+                            "the write although this dataset is already open for writing, "
+                            "so the access mode is not the blocker -- the levels are "
+                            "reached through a source GDAL opens read-only. Regenerate "
+                            "them on the raster that owns them, or rebuild this "
+                            "dataset's own with create_overviews()."
                         ) from err
                     raise ReadOnlyError(
                         f"Cannot regenerate the overviews of band {i}: the overviews "
