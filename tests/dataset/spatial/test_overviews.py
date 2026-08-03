@@ -398,7 +398,9 @@ class TestCreateOverviewsPathlessGuard:
         backed = NetCDF.read_file(str(source))
         view = backed.get_variable("elevation")
         try:
-            assert not view.raster.GetDescription(), "precondition: the view has no path"
+            assert not view.raster.GetDescription(), (
+                "precondition: the view has no path"
+            )
             view.create_overviews(overview_levels=[2])
             assert all(count > 0 for count in view.overview_count), (
                 f"a NetCDF variable view should still build, got {view.overview_count}"
@@ -413,7 +415,9 @@ class TestCreateOverviewsPathlessGuard:
             view.close()
             backed.close()
 
-    def test_the_refusal_is_distinguishable_from_an_argument_error(self, pathless_level):
+    def test_the_refusal_is_distinguishable_from_an_argument_error(
+        self, pathless_level
+    ):
         """The refusal is its own type, but is still caught as a `ValueError`.
 
         Test scenario:
@@ -677,7 +681,9 @@ class TestCreateOverviewsPathlessGuard:
             "declaration-prefixed-warped",
         ],
     )
-    def test_an_unparseable_xml_document_falls_back_to_refusing(self, metadata, blocked):
+    def test_an_unparseable_xml_document_falls_back_to_refusing(
+        self, metadata, blocked
+    ):
         """A root element the predicate cannot read is refused rather than exempted.
 
         Test scenario:
@@ -1108,7 +1114,9 @@ class TestCreateOverviewsPathlessGuard:
             view = parent.to_crs(3857)
             try:
                 view.create_overviews(method, overview_levels=[2])
-                levels[method] = view.read_overview_array(band=0, overview_index=0).copy()
+                levels[method] = view.read_overview_array(
+                    band=0, overview_index=0
+                ).copy()
             finally:
                 view.close()
                 parent.close()
@@ -1230,7 +1238,9 @@ class TestCreateOverviewsPathlessGuard:
             assert _level_owner_driver(dataset._iloc(0)) == "GTiff", (
                 "precondition: band 0's level classifies as stored"
             )
-            with pytest.raises(OverviewTargetError, match="already open for writing") as excinfo:
+            with pytest.raises(
+                OverviewTargetError, match="already open for writing"
+            ) as excinfo:
                 dataset.recreate_overviews("average")
             assert not isinstance(excinfo.value, ReadOnlyError), (
                 "a writable handle cannot be fixed by reopening it writable"
@@ -1447,7 +1457,10 @@ class TestCreateOverviewsPathlessGuard:
         stub = MagicMock(spec=Dataset, driver_type="vrt", raster=handle)
         message = IO(stub)._no_sidecar_message()
         marker = "..." if truncated else ""
-        assert f"Description: {description[:_DESCRIPTION_EXCERPT]!r}{marker}. Save it first" in message, (
+        assert (
+            f"Description: {description[:_DESCRIPTION_EXCERPT]!r}{marker}. Save it first"
+            in message
+        ), (
             f"the message must quote {description[:_DESCRIPTION_EXCERPT]!r}{marker}, got: {message}"
         )
         if description:
@@ -1506,9 +1519,9 @@ class TestCreateOverviewsPathlessGuard:
             assert regenerated.endswith(recovery), (
                 f"the regenerate refusal must carry the same clause: {regenerated}"
             )
-            assert f"Description: {description[:_DESCRIPTION_EXCERPT]!r}" in regenerated, (
-                f"both refusals must quote the description, got: {regenerated}"
-            )
+            assert (
+                f"Description: {description[:_DESCRIPTION_EXCERPT]!r}" in regenerated
+            ), f"both refusals must quote the description, got: {regenerated}"
             assert built != regenerated, (
                 "the diagnoses must differ: building has nowhere to put a sidecar, while "
                 "regenerating is blocked by the VRT computing the levels it exposes"

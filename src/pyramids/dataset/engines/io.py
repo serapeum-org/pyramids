@@ -3082,7 +3082,7 @@ class IO(_Engine["Dataset"]):
                 which call failed.
         """
         full = self._ds.raster.GetDescription()
-        description = full[: _DESCRIPTION_EXCERPT]
+        description = full[:_DESCRIPTION_EXCERPT]
         ellipsis = "..." if len(full) > _DESCRIPTION_EXCERPT else ""
         if regenerating:
             diagnosis = (
