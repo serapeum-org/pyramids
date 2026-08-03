@@ -204,6 +204,15 @@ def _level_owner_driver(band: gdal.Band, index: int = 0) -> str | None:
     return None if driver is None else driver.ShortName
 
 
+def _refuse_to_resolve(self, *args) -> gdal.Band:
+    """Stand in for `gdal.Band.GetOverview` and raise GDAL's write refusal instead.
+
+    Fails *before* a single level is resolved, so the classification that follows has no
+    levels of this band to look at — the shape the level list's pre-binding exists for.
+    """
+    raise RuntimeError("Attempt to write to a read only dataset")
+
+
 def test_create_overviews(era5_image: gdal.Dataset, clean_overview_after_test):
     dataset = Dataset(era5_image)
     dataset.create_overviews()
@@ -864,6 +873,92 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             dataset.close()
 
+    def test_to_zarr_refuses_the_target_before_writing_anything(
+        self, tmp_path, monkeypatch
+    ):
+        """The refusal is taken pre-flight, so no half-written store is left behind.
+
+        Test scenario:
+            The same inline-XML VRT, whose base array `to_zarr` used to commit before
+            `_write_overview_levels` refused — expected: `OverviewTargetError` carrying
+            the *building* diagnosis, since `to_zarr` builds the levels rather than
+            rewriting them, and no store on disk at all. A store written without its
+            `multiscales` looks complete to the next reader.
+        """
+        pytest.importorskip("zarr")
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "zarr_preflight_src.tif")
+        xml = gdal.Translate("", str(source), format="VRT").GetMetadata("xml:VRT")[0]
+        store = tmp_path / "preflight.zarr"
+        dataset = Dataset.read_file(xml)
+        try:
+            with pytest.raises(OverviewTargetError, match="nowhere to go") as excinfo:
+                dataset.to_zarr(str(store), overview_factors=[2])
+            assert "stores no pixels of its own" in str(excinfo.value), (
+                f"to_zarr builds levels, so it must carry the building diagnosis, got: {excinfo.value}"
+            )
+            assert not store.exists(), (
+                "the refusal must leave no store behind, found "
+                f"{sorted(p.name for p in store.iterdir())}"
+            )
+        finally:
+            dataset.close()
+
+    def test_to_zarr_reports_the_compute_argument_before_the_unusable_target(
+        self, tmp_path, monkeypatch
+    ):
+        """`compute=False` is rejected first, ahead of the target the caller cannot fix.
+
+        Test scenario:
+            A call wrong in both ways — a refused target *and* `overview_factors` with
+            `compute=False` — expected: the plain `ValueError` naming `compute`, not the
+            `OverviewTargetError`, and still no store, since both guards run before any
+            write. This is the opposite order from `recreate_overviews`, which reports
+            the unusable target ahead of its own argument check.
+        """
+        pytest.importorskip("zarr")
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "zarr_ordering_src.tif")
+        xml = gdal.Translate("", str(source), format="VRT").GetMetadata("xml:VRT")[0]
+        store = tmp_path / "ordering.zarr"
+        dataset = Dataset.read_file(xml)
+        try:
+            with pytest.raises(ValueError, match="compute=True") as excinfo:
+                dataset.to_zarr(str(store), overview_factors=[2], compute=False)
+            assert not isinstance(excinfo.value, OverviewTargetError), (
+                "the argument the caller can change is reported first, got "
+                f"{type(excinfo.value).__name__}"
+            )
+            assert not store.exists(), "neither guard may leave a store behind"
+        finally:
+            dataset.close()
+
+    def test_to_zarr_still_writes_a_pyramid_for_a_vrt_with_a_path(
+        self, tmp_path, monkeypatch
+    ):
+        """The pre-flight refuses unusable targets, not the VRT driver.
+
+        Test scenario:
+            A saved `.vrt` names its sidecar after its own path, so it can hold the
+            levels `to_zarr` builds — expected: the store carries `data` and `data_2`,
+            the over-fire canary for a pre-flight that refused every VRT outright.
+        """
+        zarr = pytest.importorskip("zarr")
+        monkeypatch.chdir(tmp_path)
+        source = _plain_raster(tmp_path, "zarr_vrt_src.tif")
+        vrt_path = tmp_path / "zarr_usable.vrt"
+        gdal.Translate(str(vrt_path), source, format="VRT").FlushCache()
+        store = tmp_path / "usable.zarr"
+        dataset = Dataset.read_file(str(vrt_path))
+        try:
+            dataset.to_zarr(str(store), overview_factors=[2])
+            keys = set(zarr.open_group(str(store), mode="r").array_keys())
+            assert {"data", "data_2"} <= keys, (
+                f"a path-ful VRT can hold its levels, so the pyramid must be written, got {keys}"
+            )
+        finally:
+            dataset.close()
+
     def test_a_refusal_gdals_wording_does_not_cover_is_still_classified(
         self, tmp_path, monkeypatch
     ):
@@ -1150,6 +1245,43 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             dataset.close()
 
+    @pytest.mark.parametrize(
+        "read_only, expected",
+        [(True, ReadOnlyError), (False, OverviewTargetError)],
+        ids=["read-only-handle", "writable-handle"],
+    )
+    def test_a_band_whose_levels_will_not_resolve_is_still_classified(
+        self, tmp_path, monkeypatch, read_only, expected
+    ):
+        """Resolving the levels can fail too, and the verdict must rest on *this* band.
+
+        Test scenario:
+            `GetOverview` refuses on band 0 before a single level comes back, so the
+            classification runs with nothing resolved — expected: the same verdict a
+            refused write earns on that handle, naming band 0 and chaining GDAL's error.
+            The empty list reads as stored, which is the conservative direction. Bound at
+            the assignment instead of before the `try`, the name would be unbound on band
+            0 and the handler would die classifying, losing GDAL's error entirely.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, f"unresolved_{read_only}.tif")
+        dataset = Dataset.read_file(source, read_only=read_only)
+        monkeypatch.setattr(gdal.Band, "GetOverview", _refuse_to_resolve)
+        try:
+            with pytest.raises(expected) as excinfo:
+                dataset.recreate_overviews("average")
+            assert type(excinfo.value) is expected, (
+                f"expected exactly {expected.__name__}, got {type(excinfo.value).__name__}"
+            )
+            assert "band 0" in str(excinfo.value), (
+                f"the failing band must be named, got: {excinfo.value}"
+            )
+            assert isinstance(excinfo.value.__cause__, RuntimeError), (
+                "the error raised while resolving the levels must stay chained as __cause__"
+            )
+        finally:
+            dataset.close()
+
     def test_the_write_refusal_is_classified_without_serialising_the_document(
         self, tmp_path, monkeypatch
     ):
@@ -1387,6 +1519,39 @@ class TestCreateOverviewsPathlessGuard:
             )
         finally:
             dataset.close()
+
+    def test_a_short_description_is_quoted_whole_in_both_diagnoses(self):
+        """The excerpt and its ellipsis are shared, so a short description survives intact.
+
+        Test scenario:
+            `_no_sidecar_message` on a description well inside the excerpt, asked both
+            ways — the shape the public API cannot produce, since the only refused
+            description long enough to reach that test is a whole inline VRT document.
+            Expected: both messages quote it in full with no ellipsis, both end with the
+            one recovery clause, and only the building one blames the description while
+            only the regenerating one blames ownership.
+        """
+        handle = MagicMock()
+        handle.GetDescription.return_value = "short.vrt"
+        engine = IO(MagicMock(spec=Dataset, driver_type="vrt", raster=handle))
+        built = engine._no_sidecar_message()
+        regenerated = engine._no_sidecar_message(regenerating=True)
+        for message in (built, regenerated):
+            assert "Description: 'short.vrt'. Save it first" in message, (
+                f"a description inside the excerpt must be quoted whole, got: {message}"
+            )
+            assert message.endswith("create_overviews()."), (
+                f"the recovery clause is shared by both diagnoses, got: {message}"
+            )
+        assert "GDAL names the external sidecar after the description" in built, (
+            f"building is blocked by having nowhere to put a sidecar, got: {built}"
+        )
+        assert "computes them rather than storing them" in regenerated, (
+            f"regenerating is blocked by the VRT owning the levels, got: {regenerated}"
+        )
+        assert "stores no pixels of its own" not in regenerated, (
+            f"the two diagnoses must not drift back into one, got: {regenerated}"
+        )
 
 
 @pytest.fixture
