@@ -21,7 +21,8 @@ a spec without it raises
 
 Available specs:
 
-- ``ColorBar`` — colour-bar placement and appearance, passed as ``colorbar=``.
+- ``ColorBar`` — the complete colour-bar spec (caption ``label`` / ``length`` /
+  orientation / placement / appearance), passed as ``colorbar=``.
 - ``FrameLabel`` — per-frame animation label, passed as ``frame_label=``.
 - ``PointOverlay`` — styled point overlay, passed as ``points=``.
 - ``Basemap`` / ``Feature`` — shaded-relief / coastline reference layers, passed
