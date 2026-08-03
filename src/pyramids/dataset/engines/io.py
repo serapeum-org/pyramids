@@ -1997,18 +1997,19 @@ class IO(_Engine["Dataset"]):
                 no-op — supplied to future-proof the signature for when
                 we add per-tile parallel writes.
             reopen (bool, keyword-only):
-                `True` (default) reopens the freshly written file and
-                swaps this dataset's handle to point at it — so after
-                `ds.to_file(path)`, `ds` represents the on-disk output
-                (`ds.file_name`, access mode, and subsequent reads all
-                reflect the written file). `False` writes the file and
-                returns without that in-place swap, leaving `ds`
-                unmutated — matching the non-mutating `to_cog`. Use it
-                when writing a *borrowed* handle you must not disturb,
-                e.g. streaming each timestep of a
-                :class:`~pyramids.dataset.DatasetCollection` to disk
-                without repointing the collection's cached handles.
-                Ignored for the ASCII driver, which never reopens.
+                Applies only to the plain ``CreateCopy`` path (a GeoTIFF or
+                other single-file raster driver). `True` (default) reopens the
+                freshly written file and swaps this dataset's handle to point at
+                it — so after `ds.to_file(path)`, `ds` represents the on-disk
+                output (`ds.file_name`, access mode, and subsequent reads all
+                reflect the written file). `False` writes the file and returns
+                without that in-place swap, leaving `ds` unmutated — matching
+                the non-mutating `to_cog`. Use it when writing a *borrowed*
+                handle you must not disturb, e.g. streaming each timestep of a
+                :class:`~pyramids.dataset.DatasetCollection` to disk without
+                repointing the collection's cached handles. Ignored for the
+                ASCII and ``driver="COG"`` paths, which never reopen (both
+                write without swapping the source regardless of this flag).
 
         Examples:
             - Create a Dataset with 4 bands, 5 rows, 5 columns, at the point lon/lat (0, 0):
