@@ -367,9 +367,8 @@ class TestCreateOverviewsPathlessGuard:
                 f"a warped VRT should still build, got {view.overview_count}"
             )
             level = view.read_overview_array(band=0, overview_index=0)
-            assert level.size > 0 and np.isfinite(level).any(), (
-                "the built level must carry readable data"
-            )
+            assert level.size > 0, "the built level must carry pixels"
+            assert np.isfinite(level).any(), "the built level must carry readable data"
             assert not (tmp_path / ".ovr").exists(), "a stray '.ovr' was written"
         finally:
             if view is not None:
@@ -1501,8 +1500,11 @@ class TestCreateOverviewsPathlessGuard:
                 "Save it first with to_file(path) and build the overviews on the saved "
                 "raster with create_overviews()."
             )
-            assert built.endswith(recovery) and regenerated.endswith(recovery), (
-                f"both refusals must share the recovery clause: {built} vs {regenerated}"
+            assert built.endswith(recovery), (
+                f"the build refusal must carry the shared recovery clause: {built}"
+            )
+            assert regenerated.endswith(recovery), (
+                f"the regenerate refusal must carry the same clause: {regenerated}"
             )
             assert f"Description: {description[:_DESCRIPTION_EXCERPT]!r}" in regenerated, (
                 f"both refusals must quote the description, got: {regenerated}"
