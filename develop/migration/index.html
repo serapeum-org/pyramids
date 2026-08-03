@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6524,7 +6524,12 @@ Azure Blob <em>File System</em> driver, which is Gen2.</p>
   now get the right one, with directory semantics.</li>
 <li>If you used <code>abfs://</code> against a <strong>flat Blob</strong> account, switch to <code>az://</code>, which is unchanged and still names
   Blob. Credentials are the same <code>AZURE_STORAGE_*</code> family either way.</li>
-<li><code>abfss://</code> and <code>adls://</code> are new spellings of the Gen2 scheme, if you prefer to be explicit.</li>
+<li><code>abfss://</code> is accepted too, if you prefer to be explicit about TLS. There is no <code>adls://</code> scheme: the
+  registered Azure Data Lake name is <code>adl://</code> (Gen1), which GDAL does not handle.</li>
+<li>The canonical <code>abfss://&lt;filesystem&gt;@&lt;account&gt;.dfs.core.windows.net/&lt;path&gt;</code> form is understood, but GDAL
+  takes the storage account from configuration rather than from the URL. If the URL names an account,
+  <code>AZURE_STORAGE_ACCOUNT</code> must be set to match it — a mismatch, or naming an account with none configured,
+  raises instead of silently reading a different account.</li>
 </ul>
 <p><strong><code>/vsiadls/</code> is now recognised as a remote, network-backed path.</strong> Previously <code>is_remote()</code> and
 <code>is_network_backed()</code> both returned <code>False</code> for a Gen2 path, so it was classified as a local file — opening still
