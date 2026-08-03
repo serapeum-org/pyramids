@@ -895,6 +895,40 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             dataset.close()
 
+    def test_a_warped_refusal_is_classified_without_the_error_number(
+        self, tmp_path, monkeypatch
+    ):
+        """The wording alone must classify a warped refusal, because the number is racy.
+
+        Test scenario:
+            Raise the warped band's real wording while GDAL's last-error number is `0` —
+            the state measured intermittently on the genuine call, which made the verdict
+            depend on which run it was. Expected: `OverviewTargetError` from the phrase
+            fallback, not the bare `RuntimeError` the number alone would leave.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "racy_errno_src.tif")
+        dataset = Dataset.read_file(source)
+        view = None
+        try:
+            view = dataset.to_crs(3857)
+            view.create_overviews("average", overview_levels=[2])
+
+            def refuse(band, overviews, method):
+                gdal.ErrorReset()
+                raise RuntimeError(
+                    "GDALRasterBand::RasterIO(): attempt to write to a "
+                    "VRTWarpedRasterBand."
+                )
+
+            monkeypatch.setattr(gdal, "RegenerateOverviews", refuse)
+            with pytest.raises(OverviewTargetError, match="belong to a VRT"):
+                view.recreate_overviews("average")
+        finally:
+            if view is not None:
+                view.close()
+            dataset.close()
+
     def test_read_only_vrt_still_reports_the_access_mode(self, tmp_path, monkeypatch):
         """A genuine access-mode refusal on a VRT raises `ReadOnlyError`.
 
@@ -1303,6 +1337,7 @@ class TestCreateOverviewsPathlessGuard:
             characters, so the two cannot drift apart the way the copied literals
             could. The recovery clause names `create_overviews` for both, because
             `to_file` drops overviews and regenerating on the saved raster would no-op.
+            The diagnoses deliberately differ: only the recovery is shared.
         """
         monkeypatch.chdir(tmp_path)
         xml = (
@@ -1333,8 +1368,22 @@ class TestCreateOverviewsPathlessGuard:
             assert "regenerate" not in built, (
                 f"to_file drops overviews, so regenerating would no-op, got: {built}"
             )
-            assert built == regenerated, (
-                f"the two refusals must be identical: {built} vs {regenerated}"
+            recovery = (
+                "Save it first with to_file(path) and build the overviews on the saved "
+                "raster with create_overviews()."
+            )
+            assert built.endswith(recovery) and regenerated.endswith(recovery), (
+                f"both refusals must share the recovery clause: {built} vs {regenerated}"
+            )
+            assert f"Description: {description[:80]!r}" in regenerated, (
+                f"both refusals must quote the description, got: {regenerated}"
+            )
+            assert built != regenerated, (
+                "the diagnoses must differ: building has nowhere to put a sidecar, while "
+                "regenerating is blocked by the VRT computing the levels it exposes"
+            )
+            assert "computes them rather than storing them" in regenerated, (
+                f"the regenerate diagnosis must name ownership, got: {regenerated}"
             )
         finally:
             dataset.close()

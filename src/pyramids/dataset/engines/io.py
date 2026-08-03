@@ -3045,12 +3045,17 @@ class IO(_Engine["Dataset"]):
     def _no_sidecar_message(self) -> str:
         """Build the `OverviewTargetError` message for a VRT with no usable description.
 
-        Shared by `create_overviews` and `recreate_overviews` so the two cannot drift, so
-        the diagnosis names the condition rather than either caller's verb: the handle
-        stores no pixels and has no name to hang a sidecar on, which blocks building the
-        levels and rewriting them alike. The recovery clause names `create_overviews` for
-        both, whichever was called: `to_file` does not carry overviews into the output, so
-        the saved raster has none and regenerating on it would only warn and no-op.
+        Shared by `create_overviews` and `recreate_overviews` so the recovery clause
+        cannot drift; it names `create_overviews` for both, whichever was called, because
+        `to_file` does not carry overviews into the output, so the saved raster has none
+        and regenerating on it would only warn and no-op.
+
+        The diagnosis is not shared, because the two callers are blocked for different
+        reasons. Building has nowhere to *put* a new sidecar. Regenerating is blocked by
+        ownership, not by the missing path — a plain VRT computes whatever levels it
+        exposes, and the path-ful equivalent is refused too — so claiming the description
+        is what stops it would misattribute the cause in the very direction this
+        classification exists to correct.
 
         Returns:
             str:
@@ -3061,12 +3066,15 @@ class IO(_Engine["Dataset"]):
         full = self._ds.raster.GetDescription()
         description = full[: _DESCRIPTION_EXCERPT]
         ellipsis = "..." if len(full) > _DESCRIPTION_EXCERPT else ""
-        return (
+        diagnosis = (
             "This dataset is a plain VRT whose description is not a path, so its "
-            "overviews have nowhere to go: a plain VRT stores no pixels of its own, and "
-            "GDAL names the external sidecar after the description, so there is nothing "
-            f"to write the levels to. Description: {description!r}{ellipsis}. Save it "
-            "first with to_file(path) and build the overviews on the saved raster with "
+            "overviews have nowhere to go: a plain VRT stores no pixels of its own, "
+            "and GDAL names the external sidecar after the description, so there is "
+            "nothing to write the levels to."
+        )
+        return (
+            f"{diagnosis} Description: {description!r}{ellipsis}. Save it first with "
+            "to_file(path) and build the overviews on the saved raster with "
             "create_overviews()."
         )
 
@@ -3304,7 +3312,8 @@ class IO(_Engine["Dataset"]):
         # Same shape check as `create_overviews`, and for the same reason: without it a
         # pathless VRT reaches GDAL, is refused as a write, and is diagnosed as an
         # access-mode problem -- advising a reopen with `read_only=False` that a handle
-        # with no path cannot perform.
+        # with no path cannot perform. The diagnosis differs, though: what blocks
+        # regeneration is that a plain VRT computes its levels, not that it lacks a path.
         if self._has_nowhere_for_an_overview_sidecar():
             raise OverviewTargetError(self._no_sidecar_message())
         if resampling_method.upper() not in RESAMPLING_METHODS:
@@ -3393,12 +3402,15 @@ class IO(_Engine["Dataset"]):
                 # the #863 defect, narrowed to a band.
                 continue
             band = self._ds._iloc(i)
+            # Bound before the try because the handler classifies on it: left to the
+            # assignment below it would still hold the *previous* band's levels if this
+            # band's resolution failed, and would be unbound entirely on band 0.
+            overviews: list[gdal.Band] = []
             gdal.ErrorReset()
             try:
-                # Resolve inside the try so a level that has gone missing since the
-                # caller snapshotted the counts is reported against its band like any
-                # other failure, rather than escaping bare. Taken off the already
-                # resolved band: get_overview would re-resolve it and re-read
+                # Resolved inside the try so any failure here is reported against its
+                # band like the regeneration's own, rather than escaping bare. Taken off
+                # the already resolved band: get_overview would re-resolve it and re-read
                 # GetOverviewCount once per level.
                 # Holding every level's handle at once (the singular loop held one) is
                 # safe: GetOverview registers a child reference on the owning dataset,
@@ -3406,14 +3418,12 @@ class IO(_Engine["Dataset"]):
                 overviews = [band.GetOverview(j) for j in range(overview_count[i])]
                 status = gdal.RegenerateOverviews(band, overviews, resampling_method)
             except RuntimeError as err:
-                # Classify FIRST. `_is_write_refusal` prefers GDAL's process-global
+                # Classify FIRST: `_is_write_refusal` reads GDAL's process-global
                 # last-error number, and any GDAL call made in this handler resets it --
                 # `_overview_target_is_virtual` below asks each level for its dataset,
                 # and that alone takes the number from CPLE_NoWriteAccess to CPLE_None.
-                # Classifying afterwards would leave only the message fallback, which
-                # knows the "read-only mode" wording GDAL gives an access-mode refusal
-                # but not the "attempt to write to a VRTWarpedRasterBand" wording, so a
-                # warped VRT would lose its OverviewTargetError.
+                # The number is not dependable even here, so the phrase list carries the
+                # write refusals too; see `_is_write_refusal`.
                 write_refused = self._is_write_refusal(err)
                 err.add_note(
                     f"Failed regenerating the overviews of band {i} (0-based); "
@@ -3482,17 +3492,19 @@ class IO(_Engine["Dataset"]):
         kept only as a fallback for drivers that raise without setting the number —
         those phrases cannot occur incidentally in a path the way the bare token can.
 
-        **Call this before anything else in the handler.** The primary signal is GDAL's
-        process-global last-error number, and *any* GDAL call made after the failure
-        resets it — asking a level band for its owning dataset, which
-        :meth:`_overview_target_is_virtual` does, is already enough to take it from
-        `CPLE_NoWriteAccess` to `CPLE_None`. A late call is then left with the message
-        fallback alone, and that list is shorter than the error number is authoritative.
-        It knows the "read-only mode" wording GDAL gives an access-mode refusal, so that
-        one would still be classified correctly; it does not know the "attempt to write to
-        a VRTWarpedRasterBand" wording of an unwritable warped band, which would be
-        downgraded to a bare `RuntimeError` and lose the `OverviewTargetError`
-        :meth:`_regenerate_overviews` raises for it.
+        **Call this before anything else in the handler**, so the number is still the one
+        this regeneration set: *any* GDAL call made after the failure resets it — asking a
+        level band for its owning dataset, which :meth:`_overview_target_is_virtual` does,
+        already takes it from `CPLE_NoWriteAccess` to `CPLE_None`.
+
+        Calling early is necessary but not sufficient, which is why the phrase list covers
+        the write refusals rather than only exotic drivers. The number is not reliably
+        intact even at the top of the handler: raising a warped band's refusal was measured
+        answering `CPLE_NoWriteAccess` on one run and `CPLE_None` on the next, from the
+        same call on the same data, so a classification resting on the number alone was
+        intermittently wrong. The message is deterministic where the number is not, and
+        these phrasings cannot occur incidentally in a path the way a bare "read-only"
+        token can.
 
         Args:
             err: The error GDAL raised. Only its message is read, and only on the
@@ -3513,6 +3525,7 @@ class IO(_Engine["Dataset"]):
                     "read-only mode",
                     "read only dataset",
                     "read-only dataset",
+                    "write to a vrtwarpedrasterband",
                 )
             )
         return refusal
