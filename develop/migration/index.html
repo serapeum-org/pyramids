@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -5602,6 +5602,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#0470" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.47.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#0461" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5640,6 +5651,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#0480" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.48.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#0470_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.47.0
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -5658,10 +5691,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#unreleased_2" class="md-nav__link">
+  <a href="#0470_2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        unreleased
+        0.47.0
       
     </span>
   </a>
@@ -6283,6 +6316,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#0470" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.47.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#0461" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6321,6 +6365,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#0480" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.48.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#0470_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.47.0
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -6339,10 +6405,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#unreleased_2" class="md-nav__link">
+  <a href="#0470_2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        unreleased
+        0.47.0
       
     </span>
   </a>
@@ -6547,6 +6613,7 @@ prefix is no longer needed, and a hand-built <code>/vsizip//vsioss/...</code> st
 <code>AZURE_NO_SIGN_REQUEST</code> identically (verified: with it set both handlers skip the instance-metadata credential
 lookup). <code>CloudConfig</code> gains an <code>azure_no_sign_request=True</code> flag so anonymous Azure reads have the same knob the
 S3 side already had.</p>
+<h3 id="0470"><a class="toclink" href="#0470">0.47.0</a><a class="headerlink" href="#0470" title="Permanent link">#</a></h3>
 <p><strong><code>Dataset.epsg</code> no longer reports EPSG:4326 for a raster that has no CRS.</strong> It previously substituted WGS 84
 whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that
 claim propagated into <code>to_file</code>, <code>to_crs</code>, <code>bounds</code> and alignment checks. It now returns <code>None</code>, matching GDAL,
@@ -6678,22 +6745,6 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 </table>
 <h2 id="dataset"><a class="toclink" href="#dataset">dataset</a><a class="headerlink" href="#dataset" title="Permanent link">#</a></h2>
 <h3 id="unreleased_1"><a class="toclink" href="#unreleased_1">unreleased</a><a class="headerlink" href="#unreleased_1" title="Permanent link">#</a></h3>
-<p><strong><code>recreate_overviews</code> now rebuilds a band's levels in one cascading pass.</strong> Each deeper level is decimated from
-the level above rather than from the full-resolution band, matching what <code>create_overviews</code> (<code>BuildOverviews</code>)
-has always done — previously <code>recreate_overviews</code> rebuilt every level directly from the source. Nothing warns;
-the call still succeeds.</p>
-<p>Level 0 is unaffected. A level &gt;= 1 keeps its previous values only where the resampling survives being applied
-twice:</p>
-<ul>
-<li><code>nearest</code> — unchanged everywhere; GDAL does not cascade it.</li>
-<li><code>average</code>, <code>rms</code> — unchanged on a floating-point band with no no-data value. An integer band picks up per-level
-  rounding of up to 1 DN, and a no-data gap changes the result regardless of dtype.</li>
-<li><code>cubic</code>, <code>cubicspline</code>, <code>bilinear</code>, <code>lanczos</code>, <code>gauss</code>, <code>mode</code> — changed on ordinary data. <code>mode</code> can move by
-  whole classes, because the mode of modes is not the mode.</li>
-</ul>
-<p>There is no way to get the old per-level values back: no API rebuilds a deep level directly from the source any
-more. If your pipeline depends on them, rebuild the levels you need yourself from
-<code>Dataset.read_array()</code> and write them out.</p>
 <p><strong><code>create_overviews</code> now refuses a plain VRT whose description is not a path.</strong> It raises <code>OverviewTargetError</code>
 instead of returning normally. That is a new exception, importable as
 <code>from pyramids.errors import OverviewTargetError</code>, which subclasses <code>ValueError</code>,
@@ -6764,6 +6815,24 @@ itself open read-only. It is <strong>not</strong> a promise that reopening will 
 <code>&lt;Overview&gt;</code> owns a real, on-disk-writable <code>.ovr</code>, yet GDAL opens VRT sources read-only and refuses however the
 parent was opened. What has changed is that a dataset <strong>already open for writing</strong> never gets told to reopen —
 that shape now raises <code>OverviewTargetError</code> too, since the access mode demonstrably is not the blocker.</p>
+<h3 id="0480"><a class="toclink" href="#0480">0.48.0</a><a class="headerlink" href="#0480" title="Permanent link">#</a></h3>
+<p><strong><code>recreate_overviews</code> now rebuilds a band's levels in one cascading pass.</strong> Each deeper level is decimated from
+the level above rather than from the full-resolution band, matching what <code>create_overviews</code> (<code>BuildOverviews</code>)
+has always done — previously <code>recreate_overviews</code> rebuilt every level directly from the source. Nothing warns;
+the call still succeeds.</p>
+<p>Level 0 is unaffected. A level &gt;= 1 keeps its previous values only where the resampling survives being applied
+twice:</p>
+<ul>
+<li><code>nearest</code> — unchanged everywhere; GDAL does not cascade it.</li>
+<li><code>average</code>, <code>rms</code> — unchanged on a floating-point band with no no-data value. An integer band picks up per-level
+  rounding of up to 1 DN, and a no-data gap changes the result regardless of dtype.</li>
+<li><code>cubic</code>, <code>cubicspline</code>, <code>bilinear</code>, <code>lanczos</code>, <code>gauss</code>, <code>mode</code> — changed on ordinary data. <code>mode</code> can move by
+  whole classes, because the mode of modes is not the mode.</li>
+</ul>
+<p>There is no way to get the old per-level values back: no API rebuilds a deep level directly from the source any
+more. If your pipeline depends on them, rebuild the levels you need yourself from
+<code>Dataset.read_array()</code> and write them out.</p>
+<h3 id="0470_1"><a class="toclink" href="#0470_1">0.47.0</a><a class="headerlink" href="#0470_1" title="Permanent link">#</a></h3>
 <p><strong>Operations that need a CRS now refuse instead of assuming one.</strong> Each raises <code>CRSError</code> naming the operation
 and how to fix it, where previously the missing CRS was silently filled in with WGS 84:</p>
 <ul>
@@ -6795,7 +6864,7 @@ unqualified call reads.</p>
 Passing an explicit <code>bbox_crs</code> / <code>point_crs</code> against a raster that has none raises <code>CRSError</code>, rather than being
 ignored: there is no frame to transform into.</p>
 <h2 id="cli"><a class="toclink" href="#cli">cli</a><a class="headerlink" href="#cli" title="Permanent link">#</a></h2>
-<h3 id="unreleased_2"><a class="toclink" href="#unreleased_2">unreleased</a><a class="headerlink" href="#unreleased_2" title="Permanent link">#</a></h3>
+<h3 id="0470_2"><a class="toclink" href="#0470_2">0.47.0</a><a class="headerlink" href="#0470_2" title="Permanent link">#</a></h3>
 <p><strong><code>pyramids calc</code> refuses a first input with no CRS.</strong> The result cannot be georeferenced and pyramids will not
 stamp a default; set a CRS on the input first. <code>pyramids georeference</code> is unaffected — its GCPs and <code>--gcp-crs</code>
 replace the georeference wholesale.</p>
