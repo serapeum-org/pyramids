@@ -66,5 +66,5 @@ class TestPlotSpecReExports:
         with patch(
             "pyramids.plot.require_optional", return_value=_OldCleopatraModule()
         ):
-            with pytest.raises(OptionalPackageDoesNotExist, match="0.27"):
+            with pytest.raises(OptionalPackageDoesNotExist, match="0.28"):
                 plot_specs.ColorBar
