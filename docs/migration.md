@@ -192,9 +192,10 @@ saved.create_overviews(overview_levels=[2, 4])
 
 Unaffected **by the `create_overviews` refusal**: **warped** VRTs keep their overviews in RAM and need no
 sidecar. These produce one — `Dataset.warped_view(...)`, `Dataset.to_crs(...)` in its warping form,
-`Dataset.crop(..., touch=False)`, and the lazy `georeference` / `orthorectify` forms. (`to_crs(...,
-maintain_alignment=True)` is a different path: it returns a `MEM` dataset, which is exempt for its own reason.)
-Tests cover `warped_view` and `to_crs`; the other three are exempt by the same root-element check. A VRT with a
+`Dataset.crop(mask, touch=False)` with a **vector** mask, and the lazy `georeference` / `orthorectify` forms.
+(`to_crs(..., maintain_alignment=True)` and `crop` with a *raster* mask are different paths: both return a `MEM`
+dataset, exempt as a non-VRT rather than as a warped one.)
+Tests cover `warped_view` and `to_crs`; the others are exempt by the same root-element check. A VRT with a
 real path (including under `/vsimem/`) names its sidecar after that path, and `MEM` rasters are not VRTs at all.
 Warped VRTs are **not** exempt from the `recreate_overviews` refusal — see the next entry.
 

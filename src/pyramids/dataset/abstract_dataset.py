@@ -1458,7 +1458,7 @@ class RasterBase(ABC):
     @abstractmethod
     def create_overviews(
         self, resampling_method: str = "nearest", overview_levels: list | None = None
-    ):
+    ) -> None:
         """Create overviews for the dataset.
 
         Args:
@@ -1482,6 +1482,8 @@ class RasterBase(ABC):
                 `overview_levels` holds a factor outside the supported set, or `resampling_method` is not one of
                 the allowed values.
             OverviewTargetError:
+                Checked *before* the arguments, since no argument value can make this dataset work, so a call
+                that is wrong in both ways reports this rather than the `TypeError` / `ValueError` above.
                 The dataset is a plain VRT whose description is not a path — an empty one, a blank one, or inline
                 VRT XML. A plain VRT owns no pixel storage, so its overviews can only go to an external sidecar,
                 and there is nothing to name one after; save it with `to_file(path)` and build the levels on the
@@ -1500,7 +1502,7 @@ class RasterBase(ABC):
         pass
 
     @abstractmethod
-    def recreate_overviews(self, resampling_method: str = "nearest"):
+    def recreate_overviews(self, resampling_method: str = "nearest") -> None:
         """Recreate overviews for the dataset.
 
         Regenerates the existing overviews in place; it never builds new ones — call

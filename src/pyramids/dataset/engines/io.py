@@ -72,6 +72,9 @@ from pyramids.dataset.engines._validate import (
 )
 
 _VSIMEM_PREFIX = "/vsimem/"
+# How much of an offending VRT description the refusal quotes back. An inline-XML
+# description is a whole document, so it is cut rather than dumped into the message.
+_DESCRIPTION_EXCERPT = 80
 
 _GRID_SNAP_TOL = 1e-9
 """Fractional-pixel tolerance for snapping a bbox edge onto an exact cell boundary.
@@ -2974,10 +2977,11 @@ class IO(_Engine["Dataset"]):
         Two VRT families are deliberately excluded because they are not affected:
 
         - a *warped* VRT (`subClass="VRTWarpedDataset"`, produced by `warped_view`, the
-          warping form of `to_crs`, `crop(..., touch=False)` and the lazy `georeference`
-          / `orthorectify` forms) keeps its overviews in RAM and needs no sidecar.
-          `to_crs(..., maintain_alignment=True)` takes a different path and returns a
-          `MEM` dataset, which is exempt as a non-VRT rather than as a warped one;
+          warping form of `to_crs`, `crop(mask, touch=False)` with a vector mask, and the
+          lazy `georeference` / `orthorectify` forms) keeps its overviews in RAM and needs
+          no sidecar. `to_crs(..., maintain_alignment=True)` and `crop` with a raster mask
+          take different paths and return a `MEM` dataset, exempt as a non-VRT rather than
+          as a warped one;
         - a VRT with a real path — including one under `/vsimem/` — names its sidecar
           after that path and writes it successfully.
 
@@ -3021,13 +3025,12 @@ class IO(_Engine["Dataset"]):
         only root attributes it writes are the raster dimensions and `subClass`.
 
         A root element that cannot be isolated answers False — the exemption has to be
-        proven, not assumed. That is fail-safe for `_has_nowhere_for_an_overview_sidecar`,
-        which negates the result: an unreadable root refuses rather than letting a plain
-        VRT strand its levels. It is *not* symmetric for `_regenerate_overviews`, which
-        uses the result directly, so an unserialisable warped VRT falls back to the
-        `ReadOnlyError` that #922 exists to eliminate. GDAL always serialises the document
-        for a real VRT, so neither path is reachable today; weigh both callers before
-        changing this default.
+        proven, not assumed. The sole caller,
+        `_has_nowhere_for_an_overview_sidecar`, negates the result, so that default is
+        fail-safe there: an unreadable root refuses rather than letting a plain VRT strand
+        its levels. GDAL always serialises the document for a real VRT, so the fallback is
+        not reachable today. Weigh the direction again before adding a caller that uses
+        the result *un*-negated, where the same default would silently mean "not warped".
 
         Returns:
             bool:
@@ -3042,10 +3045,12 @@ class IO(_Engine["Dataset"]):
     def _no_sidecar_message(self) -> str:
         """Build the `OverviewTargetError` message for a VRT with no usable description.
 
-        Shared by `create_overviews` and `recreate_overviews` so the two cannot drift.
-        The recovery clause names `create_overviews` for both, whichever was called:
-        `to_file` does not carry overviews into the output, so the saved raster has none
-        and regenerating on it would only warn and no-op.
+        Shared by `create_overviews` and `recreate_overviews` so the two cannot drift, so
+        the diagnosis names the condition rather than either caller's verb: the handle
+        stores no pixels and has no name to hang a sidecar on, which blocks building the
+        levels and rewriting them alike. The recovery clause names `create_overviews` for
+        both, whichever was called: `to_file` does not carry overviews into the output, so
+        the saved raster has none and regenerating on it would only warn and no-op.
 
         Returns:
             str:
@@ -3054,14 +3059,15 @@ class IO(_Engine["Dataset"]):
                 which call failed.
         """
         full = self._ds.raster.GetDescription()
-        description = full[:80]
-        ellipsis = "..." if len(full) > 80 else ""
+        description = full[: _DESCRIPTION_EXCERPT]
+        ellipsis = "..." if len(full) > _DESCRIPTION_EXCERPT else ""
         return (
             "This dataset is a plain VRT whose description is not a path, so its "
-            "overviews have nowhere to go: GDAL names the sidecar after the "
-            "description, so the levels would be stranded outside the dataset. "
-            f"Description: {description!r}{ellipsis}. Save it first with to_file(path) "
-            "and build the overviews on the saved raster with create_overviews()."
+            "overviews have nowhere to go: a plain VRT stores no pixels of its own, and "
+            "GDAL names the external sidecar after the description, so there is nothing "
+            f"to write the levels to. Description: {description!r}{ellipsis}. Save it "
+            "first with to_file(path) and build the overviews on the saved raster with "
+            "create_overviews()."
         )
 
     @staticmethod
@@ -3122,6 +3128,9 @@ class IO(_Engine["Dataset"]):
                 `overview_levels` holds a factor outside the supported set, or
                 `resampling_method` is not one of the allowed values.
             OverviewTargetError:
+                Checked *before* the arguments, since no argument value can make this
+                dataset work — so a call that is wrong in both ways reports this, not the
+                `TypeError` / `ValueError` above.
                 The dataset is a plain VRT whose description is not a path — an empty one,
                 a blank one, or inline VRT XML. A plain VRT owns no pixel storage, so its
                 overviews can only go to an external sidecar, and there is nothing to name

@@ -11,9 +11,9 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.errors import OverviewTargetError, PyramidsError, ReadOnlyError
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
+from pyramids.errors import OverviewTargetError, PyramidsError, ReadOnlyError
 from pyramids.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
@@ -490,6 +490,10 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             dataset.close()
 
+    @pytest.mark.skipif(
+        not _GDAL_STRANDS_PATHLESS_VRT_OVERVIEWS,
+        reason="the stranding behaviour was measured on GDAL >= 3.13",
+    )
     def test_raw_build_overviews_strands_the_levels_without_the_guard(
         self, tmp_path, monkeypatch
     ):
@@ -501,8 +505,6 @@ class TestCreateOverviewsPathlessGuard:
             the working directory. A GDAL release that fixes this fails this test, which
             is the intended signal that the guard can go.
         """
-        if not _GDAL_STRANDS_PATHLESS_VRT_OVERVIEWS:
-            pytest.skip("the stranding behaviour was measured on GDAL >= 3.13")
         monkeypatch.chdir(tmp_path)
         source = _overviewed_raster(tmp_path, "raw_src.tif")
         dataset = Dataset.read_file(source)
