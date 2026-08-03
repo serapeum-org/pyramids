@@ -2777,7 +2777,13 @@ class DatasetCollection:
             # extra full copies — flattened the output through create_from_array (band-0
             # nodata only, no color table / per-band nodata / RAT); CreateCopy preserves
             # them. Mirrors the sibling to_cog_stack.
-            self.iloc(i).to_file(path[i], band=band, driver=driver, reopen=False)
+            #
+            # No driver= is passed: the per-timestep write infers it from path[i]'s
+            # extension, exactly as before this rewrite. The directory branch already
+            # builds path[i] with `driver`'s extension, so `driver` is still honored there;
+            # an explicit path list keeps its old per-path extension semantics (e.g. a
+            # list of .asc paths writes ASCII even though the default driver is geotiff).
+            self.iloc(i).to_file(path[i], band=band, reopen=False)
 
     def to_cog_stack(
         self,

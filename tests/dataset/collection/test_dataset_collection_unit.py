@@ -444,6 +444,30 @@ class TestToFile:
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def test_to_file_list_infers_driver_from_path_extension(
+        self, base_dataset: Dataset
+    ):
+        """An explicit path list honors each path's extension, not the default driver.
+
+        ``to_file`` passes no ``driver`` to the per-timestep write, so a list of
+        ``.asc`` paths writes ASCII grids even though the collection's default
+        driver is ``geotiff`` — the pre-streaming extension-inference contract.
+        Guards against silently writing GeoTIFF bytes into ``.asc``-named files.
+        """
+        cube = DatasetCollection.create_cube(base_dataset, dataset_length=2)
+        tmp_dir = Path(tempfile.mkdtemp())
+        paths = [tmp_dir / f"grid_{i}.asc" for i in range(2)]
+        try:
+            cube.to_file(paths)
+            for p in paths:
+                assert p.exists(), f"expected an output at {p}"
+                magic = p.read_bytes()[:2]
+                assert magic not in (b"II", b"MM"), (
+                    f"{p} was written as a TIFF, not ASCII (driver override leaked)"
+                )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 class TestIloc:
     """Tests for iloc method."""
