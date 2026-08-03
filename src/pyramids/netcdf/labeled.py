@@ -29,7 +29,13 @@ import pandas as pd
 from osgeo import gdal
 
 from pyramids.base._utils import import_pyarrow
-from pyramids.base.remote import CloudConfig, _to_vsi, resolve_s3_region
+from pyramids.base.remote import (
+    _DODS_SCHEME,
+    URL_SCHEMES,
+    CloudConfig,
+    _to_vsi,
+    resolve_s3_region,
+)
 from pyramids.netcdf.utils import decode_cf_time, encode_cf_time
 
 # Soft guard: realising a store this large into a DataFrame loads it all into
@@ -44,9 +50,16 @@ _PARQUET_INSTALL_HINT = (
     "  - conda: conda install -c conda-forge pyarrow"
 )
 
-# Remote object-store / http URL schemes (the part before "://"). A store opened
-# from one of these is read through GDAL's /vsi* virtual filesystem.
-_REMOTE_SCHEMES = ("s3", "gs", "gcs", "az", "abfs", "http", "https")
+# URL schemes whose paths must go through `_to_vsi` before GDAL sees them.
+# Derived from the rewriter's own table rather than repeated, so a handler added
+# there (ADLS Gen2, #918) cannot be understood by `Dataset` and not here.
+#
+# `_DODS_SCHEME` is included because it lives outside `URL_SCHEMES` (it rewrites
+# to a `NETCDF:` connection string, not a `/vsi*` prefix) yet still needs the
+# rewrite. `file` is included too: it names a *local* path but GDAL cannot open
+# the `file://` form, so it must be stripped — "remote" and "needs rewriting"
+# are different questions and this list answers the second.
+_REWRITABLE_SCHEMES = tuple(sorted({*URL_SCHEMES, _DODS_SCHEME}))
 
 
 def _get_attr(obj: Any, name: str) -> Any:
@@ -103,9 +116,14 @@ def _contiguous_runs(sorted_idx: np.typing.NDArray) -> list[tuple[int, int]]:
 
 
 def _is_remote_url(source: str) -> bool:
-    """True for a remote object-store / http URL (not a local filesystem path)."""
+    """True when `source` is a URL GDAL needs rewritten before it can open it.
+
+    Named for the common case, but the question it answers is "does this need
+    `_to_vsi`?" — `file://` is local and still needs rewriting, because GDAL
+    rejects the URI form.
+    """
     scheme = source.split("://", 1)[0].lower() if "://" in source else ""
-    return scheme in _REMOTE_SCHEMES
+    return scheme in _REWRITABLE_SCHEMES
 
 
 # Recognised store engines. ``"zarr"`` selects the Zarr path; the NetCDF / HDF5 family

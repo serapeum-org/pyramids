@@ -3378,7 +3378,7 @@ class NetCDF(Dataset):
         """Open a NetCDF file from a path, URL, or archive member.
 
         Plain local paths, ``/vsi*`` paths, and URL schemes
-        (``http(s)://``, ``s3://``, ``gs://``, ``az://`` / ``abfs://``,
+        (``http(s)://``, ``s3://``, ``gs://``, ``az://``, ``abfs://`` / ``abfss://``,
         ``file://``) are all accepted — URLs are transparently rewritten
         to GDAL's virtual filesystem. Compressed archives (``.zip`` /
         ``.tar`` / ``.tar.gz`` / ``.gz``) are detected from the

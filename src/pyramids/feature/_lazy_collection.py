@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING, Any, cast
 import dask_geopandas
 import geopandas
 
+from pyramids.base.remote import to_fsspec_url
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -604,7 +606,9 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
                 "Delayed."
             )
         kwargs["compute"] = True
-        super().to_parquet(path, *args, **kwargs)
+        # dask_geopandas writes through fsspec, which resolves the scheme itself
+        # and does not register every spelling GDAL accepts (#918).
+        super().to_parquet(to_fsspec_url(str(path)), *args, **kwargs)
 
     def __repr__(self) -> str:
         """Pyramids-branded repr; avoids the generic Dask DataFrame one."""
