@@ -2682,9 +2682,13 @@ class DatasetCollection:
 
         Each timestep is streamed straight to its output file via
         :meth:`Dataset.to_file`, whose GDAL ``CreateCopy`` reads the source
-        block-by-block, so a whole slice is never held in memory. The
-        collection's own per-timestep handles are left untouched — saving is a
-        side-effect-free export, not an in-place mutation.
+        block-by-block, so a whole GeoTIFF or MEM slice is never held in memory
+        and its per-timestep handle is not repointed at the output. (The one
+        exception: a NetCDF variable-subset slice is materialized in place by
+        the write path before the copy — a full in-memory read GDAL requires to
+        window a multidim view — so such a handle is mutated. Today's
+        collections yield GeoTIFF/MEM handles, so this does not arise in
+        practice.)
 
         Args:
             path (str | Path | list[str | Path]):
@@ -2764,9 +2768,11 @@ class DatasetCollection:
             # Stream each timestep straight to disk: Dataset.to_file writes via GDAL
             # CreateCopy, which reads the source block-by-block, so a whole slice is
             # never held in RAM (peak memory ~one block, not a full scene). reopen=False
-            # keeps the borrowed handle from iloc(i) unmutated — the read_array() +
-            # in-memory copy this loop used to make were pure overhead feeding a writer
-            # that already streams. Mirrors the sibling to_cog_stack.
+            # keeps the borrowed handle from iloc(i) unmutated. This also drops the old
+            # read_array() + _mem_dataset_from_array() round-trip, which — besides the two
+            # extra full copies — flattened the output through create_from_array (band-0
+            # nodata only, no color table / per-band nodata / RAT); CreateCopy preserves
+            # them. Mirrors the sibling to_cog_stack.
             self.iloc(i).to_file(path[i], band=band, driver=driver, reopen=False)
 
     def to_cog_stack(
