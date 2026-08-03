@@ -326,6 +326,45 @@ class TestToFile:
         with pytest.raises(ValueError, match="does not equal"):
             cube_with_values.to_file(["a.tif", "b.tif"])
 
+    def test_to_file_writes_correct_per_timestep_data(
+        self, cube_with_values: DatasetCollection
+    ):
+        """Each written file must hold its own timestep's pixels, not the base template.
+
+        Guards the streaming rewrite: to_file now hands each ``iloc(i)`` handle
+        straight to ``Dataset.to_file`` (GDAL CreateCopy) instead of the old
+        read_array + in-memory copy. The per-slice values must survive intact.
+        """
+        expected = np.arange(3 * 5 * 6, dtype=np.float64).reshape(3, 5, 6)
+        tmp_dir = Path(tempfile.mkdtemp())
+        out_dir = tmp_dir / "stack"
+        try:
+            cube_with_values.to_file(out_dir)
+            for i in range(3):
+                written = Dataset.read_file(str(out_dir / f"{i}.tif"))
+                np.testing.assert_allclose(written.read_array(), expected[i])
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_to_file_preserves_collection_data(
+        self, cube_with_values: DatasetCollection
+    ):
+        """Saving must not mutate the collection's in-memory per-timestep data.
+
+        ``cube_with_values`` is ``datasets=``-backed (``_files is None``), so the
+        old trailing ``self._datasets = None`` collapsed every slice to the base
+        template on the next read. A save is a pure side-effect-free export now:
+        the collection still yields its original per-slice values afterwards.
+        """
+        expected = np.arange(3 * 5 * 6, dtype=np.float64).reshape(3, 5, 6)
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            cube_with_values.to_file(tmp_dir / "stack")
+            for i in range(3):
+                np.testing.assert_allclose(cube_with_values[i], expected[i])
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 class TestIloc:
     """Tests for iloc method."""

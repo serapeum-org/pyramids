@@ -2726,11 +2726,13 @@ class DatasetCollection:
                 parent.mkdir(parents=True, exist_ok=True)
 
         for i in range(self.time_length):
-            src = self.iloc(i)
-            transient = self._mem_dataset_from_array(src.read_array(), source=src)
-            transient.to_file(path[i], band=band)
-            transient.close()
-        self._datasets = None
+            # Stream each timestep straight to disk: Dataset.to_file writes via GDAL
+            # CreateCopy, which reads the source block-by-block, so a whole slice is
+            # never held in RAM (peak memory ~one block, not a full scene). reopen=False
+            # keeps the borrowed handle from iloc(i) unmutated — the read_array() +
+            # in-memory copy this loop used to make were pure overhead feeding a writer
+            # that already streams. Mirrors the sibling to_cog_stack.
+            self.iloc(i).to_file(path[i], band=band, driver=driver, reopen=False)
 
     def to_cog_stack(
         self,

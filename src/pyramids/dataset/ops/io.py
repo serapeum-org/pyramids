@@ -163,6 +163,8 @@ def _write_to_file_sync(
     tile_length: int | None,
     creation_options: list[str] | None,
     driver: str | None,
+    *,
+    reopen: bool = True,
 ) -> None:
     """Synchronous write-to-file body, extracted for use with `dask.delayed`.
 
@@ -181,6 +183,10 @@ def _write_to_file_sync(
         creation_options: Extra GDAL creation options.
         driver: Explicit GDAL driver name (`"COG"` delegates to
             :meth:`pyramids.dataset.engines.COG.to_cog`).
+        reopen: When True (default), reopen the written file and swap it
+            into `ds` in place (see :meth:`IO.to_file`). When False, write
+            and return without mutating `ds`. Only affects the CreateCopy
+            path — the ASCII driver never reopens.
     """
     if driver == "COG":
         _write_cog(ds, path, band, tile_length, creation_options)
@@ -199,11 +205,19 @@ def _write_to_file_sync(
         xmin, ymin, _, _ = ds.bbox
         _io.to_ascii(arr, ds.cell_size, xmin, ymin, no_data_value, path)
     else:
+        # CreateCopy does tiled reads of the source; a NetCDF multidim view can't be
+        # window-read by GDAL >= 3.13, so materialise it first (no-op for an ordinary
+        # raster or a MEM dataset). Matches the guard to_bytes / the COG writer already
+        # apply, and preserves the safety the old DatasetCollection.to_file got for free
+        # from its now-removed read_array() round-trip.
+        ds._materialize_md_view()
         options = _build_creation_options(
             driver_name, tile_length, creation_options, ds
         )
         save_error = f"Failed to save the {driver_name} raster to the path: {path}"
-        _create_copy_and_reopen(ds, path, driver_name, options, save_error)
+        _create_copy_and_reopen(
+            ds, path, driver_name, options, save_error, reopen=reopen
+        )
 
 
 def _write_cog(
@@ -300,13 +314,21 @@ def _create_copy_and_reopen(
     driver_name: str,
     options: list[str],
     save_error: str,
+    *,
+    reopen: bool = True,
 ) -> None:
-    """CreateCopy the raster, then reopen the finished file for the in-place swap.
+    """CreateCopy the raster, then (optionally) reopen it for the in-place swap.
 
     Closing the ``CreateCopy`` handle before reopening finalises a compressed
     GeoTIFF on disk, so a second handle does not read back all-nodata (#570).
     Write-once drivers that cannot reopen for update fall back to a read-only
     handle (with the access mode labelled to match).
+
+    ``reopen=False`` writes and finalises the file (the ``FlushCache`` +
+    ``dst = None`` still close the handle so a compressed GeoTIFF is complete on
+    disk) but skips the reopen and :meth:`Dataset._update_inplace`, leaving
+    ``ds`` unmutated — used when writing a borrowed handle that must survive the
+    call intact (e.g. streaming each timestep of a ``DatasetCollection``).
 
     Raises:
         FailedToSaveError: The copy failed, the file cannot be reopened, or a
@@ -320,6 +342,8 @@ def _create_copy_and_reopen(
         if dst is None:
             raise FailedToSaveError(save_error)
         dst = None
+        if not reopen:
+            return
         reopened = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_UPDATE)
         access = "write"
         if reopened is None:

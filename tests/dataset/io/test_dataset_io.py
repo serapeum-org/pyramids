@@ -29,6 +29,40 @@ class TestSave:
         src = None
         save_raster_path.unlink()
 
+    def test_to_file_reopen_false_leaves_source_unmutated(self, tmp_path: Path):
+        """reopen=False writes the file but must not swap the source handle in place.
+
+        The default reopen=True repoints the source at the on-disk output (see
+        test_save_rasters). reopen=False is the non-mutating opt-out that
+        DatasetCollection.to_file relies on to stream borrowed per-timestep
+        handles without disturbing the collection's cached datasets.
+        """
+        arr = np.arange(20, dtype="float32").reshape(4, 5)
+        source = Dataset.create_from_array(
+            arr, top_left_corner=(0, 4), cell_size=1.0, epsg=4326
+        )
+        assert source.file_name == ""  # a MEM dataset is path-less
+
+        out = tmp_path / "unmutated.tif"
+        source.to_file(out, reopen=False)
+
+        # The source is untouched — still the MEM dataset, not the written file.
+        assert source.file_name == ""
+        # ...yet the file is written and holds the correct pixels.
+        assert out.exists()
+        reloaded = Dataset.read_file(str(out))
+        np.testing.assert_allclose(reloaded.read_array(), arr)
+
+    def test_to_file_reopen_true_swaps_source_in_place(self, tmp_path: Path):
+        """reopen=True (the default) repoints the source at the freshly written file."""
+        arr = np.arange(20, dtype="float32").reshape(4, 5)
+        source = Dataset.create_from_array(
+            arr, top_left_corner=(0, 4), cell_size=1.0, epsg=4326
+        )
+        out = tmp_path / "swapped.tif"
+        source.to_file(out)
+        assert Path(source.file_name) == out
+
     def test_save_ascii(
         self,
         src: gdal.Dataset,
