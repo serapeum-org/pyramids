@@ -11,7 +11,14 @@ from osgeo import gdal
 
 from pyramids import _io
 from pyramids.base.remote import (
+    _BUCKET_URL_SCHEMES,
+    _CLOUD_VSI_PREFIXES,
+    _NETWORK_VSI_PREFIXES,
+    _OBJECT_STORE_VSI_PREFIXES,
+    _VSI_PREFIXES,
+    URL_SCHEMES,
     CloudConfig,
+    _chain_archive_vsi,
     _to_vsi,
     is_network_backed,
     is_remote,
@@ -88,8 +95,27 @@ class TestToVsi:
     def test_az(self):
         assert _to_vsi("az://container/blob.tif") == "/vsiaz/container/blob.tif"
 
-    def test_abfs_maps_to_vsiaz(self):
-        assert _to_vsi("abfs://container/blob.tif") == "/vsiaz/container/blob.tif"
+    def test_abfs_maps_to_vsiadls(self):
+        """`abfs://` is the Gen2 scheme, so it routes to the Gen2 handler.
+
+        It mapped to `/vsiaz/` (Blob) until #918. `abfs` is the Azure Blob
+        *File System* driver, which is Data Lake Gen2 everywhere else in the
+        Azure and Hadoop ecosystems; a flat Blob account is reached with
+        `az://`.
+        """
+        assert _to_vsi("abfs://container/blob.tif") == "/vsiadls/container/blob.tif"
+
+    def test_abfss_maps_to_vsiadls(self):
+        """The TLS spelling of the Gen2 scheme resolves the same way."""
+        assert _to_vsi("abfss://container/blob.tif") == "/vsiadls/container/blob.tif"
+
+    def test_adls_maps_to_vsiadls(self):
+        """`adls://` names the Gen2 handler explicitly."""
+        assert _to_vsi("adls://container/blob.tif") == "/vsiadls/container/blob.tif"
+
+    def test_az_still_maps_to_blob(self):
+        """`az://` keeps naming Blob, so the two Azure handlers stay reachable."""
+        assert _to_vsi("az://container/blob.tif") == "/vsiaz/container/blob.tif"
 
     def test_https_simple(self):
         assert _to_vsi("https://foo.com/x.tif") == "/vsicurl/https://foo.com/x.tif"
@@ -774,3 +800,115 @@ class TestRedactCredentials:
         assert is_remote("/vsicurl?empty_dir=yes&url=https%3A%2F%2Fh%2Fa.tif"), (
             "the query form must be recognised as remote"
         )
+
+
+class TestHandlerTableInvariant:
+    """Tests for the relationship between the four handler tables (#918).
+
+    The tables answer different questions and are not copies of one list, so
+    the thing worth pinning is how they relate: `cloud` subset of `network`
+    subset of `vsi`, and no purely local handler in the network set.
+    """
+
+    def test_network_is_a_subset_of_vsi(self):
+        """Every network handler is recognised as a VSI path at all."""
+        missing = set(_NETWORK_VSI_PREFIXES) - set(_VSI_PREFIXES)
+        assert not missing, f"network handlers absent from _VSI_PREFIXES: {missing}"
+
+    def test_cloud_is_a_subset_of_network(self):
+        """Archive chaining is only offered for handlers that touch the network."""
+        missing = set(_CLOUD_VSI_PREFIXES) - set(_NETWORK_VSI_PREFIXES)
+        assert not missing, f"chaining handlers that are not network-backed: {missing}"
+
+    @pytest.mark.parametrize(
+        "prefix", ["/vsimem/", "/vsizip/", "/vsitar/", "/vsigzip/"]
+    )
+    def test_local_handlers_are_not_network_backed(self, prefix: str):
+        """An in-memory or archive handler reads no network.
+
+        Args:
+            prefix: A purely local VSI prefix.
+        """
+        assert prefix in _VSI_PREFIXES, f"{prefix} should be a known VSI prefix"
+        assert prefix not in _NETWORK_VSI_PREFIXES, f"{prefix} is not network-backed"
+
+    def test_every_bucket_scheme_maps_to_an_object_store(self):
+        """A URL scheme in the bucket form must name a `<bucket>/<key>` handler.
+
+        Guards the derivation in `_to_vsi`: a scheme added to `URL_SCHEMES`
+        whose prefix is not an object store would silently fall through to
+        "unrecognised" instead of being rewritten.
+        """
+        for scheme in _BUCKET_URL_SCHEMES:
+            assert URL_SCHEMES[scheme] in _OBJECT_STORE_VSI_PREFIXES, scheme
+
+
+class TestAdlsHandler:
+    """Tests for the ADLS Gen2 handler recognised in #918."""
+
+    ADLS_PATH = "/vsiadls/container/x.tif"
+
+    def test_is_remote(self):
+        """A Gen2 path is remote, where it used to read as a local file."""
+        assert is_remote(self.ADLS_PATH), "an ADLS path must be recognised as remote"
+
+    def test_is_network_backed(self):
+        """It is network-backed too, so credential reasoning applies."""
+        assert is_network_backed(self.ADLS_PATH), "an ADLS path is network-backed"
+
+    def test_chains_an_archive(self):
+        """A zipped raster on Gen2 is rewritten the way the S3 equivalent is."""
+        chained = _chain_archive_vsi("/vsiadls/c/a.zip/x.tif")
+        assert chained == "/vsizip//vsiadls/c/a.zip/x.tif", chained
+
+
+class TestNetworkHandlersChainArchives:
+    """Tests that every network handler may chain an archive (#918).
+
+    `_CLOUD_VSI_PREFIXES` used to be s3/gs/az/curl only, so a zipped raster on
+    Alibaba OSS, OpenStack Swift or HDFS was never rewritten.
+    """
+
+    @pytest.mark.parametrize(
+        ("path", "expected"),
+        [
+            ("/vsioss/c/a.zip/x.tif", "/vsizip//vsioss/c/a.zip/x.tif"),
+            ("/vsiswift/c/a.zip/x.tif", "/vsizip//vsiswift/c/a.zip/x.tif"),
+            (
+                "/vsihdfs/hdfs://nn:8020/d/a.zip/x.tif",
+                "/vsizip//vsihdfs/hdfs://nn:8020/d/a.zip/x.tif",
+            ),
+            (
+                "/vsiwebhdfs/http://h:50070/webhdfs/v1/a.tar/x.tif",
+                "/vsitar//vsiwebhdfs/http://h:50070/webhdfs/v1/a.tar/x.tif",
+            ),
+        ],
+    )
+    def test_chains(self, path: str, expected: str):
+        """Each network handler gets the archive prefix it needs.
+
+        Args:
+            path: A VSI path pointing inside an archive.
+            expected: The chained form GDAL needs to read the inner file.
+        """
+        assert _chain_archive_vsi(path) == expected
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/vsihdfs/hdfs://data.gz/x.tif",
+            "/vsiwebhdfs/http://data.zip/webhdfs/v1/x.tif",
+        ],
+    )
+    def test_a_hostname_that_looks_like_an_archive_does_not_chain(self, path: str):
+        """The URL-embedding handlers strip the hostname before searching.
+
+        Args:
+            path: A path whose *hostname* ends in an archive extension.
+
+        Test scenario:
+            `/vsihdfs/` and `/vsiwebhdfs/` embed a full URL after the prefix, so
+            scanning the raw remainder would let a host named `data.gz` trigger
+            chaining — the same trap `/vsicurl/` already guarded against.
+        """
+        assert _chain_archive_vsi(path) == path, "a hostname must not trigger chaining"
