@@ -4,7 +4,7 @@ Two concerns live in this module:
 
 1. :func:`_to_vsi` and :func:`is_remote` — transparently rewrite
    user-facing URLs (`s3://`, `gs://`, `az://`, `abfs://`, `abfss://`,
-   `adls://`, `http`, `https`, `file`) into GDAL's virtual filesystem
+   `http`, `https`, `file`) into GDAL's virtual filesystem
    syntax (`/vsis3/`, `/vsigs/`, `/vsiaz/`, `/vsiadls/`, `/vsicurl/`).
    Called from :func:`pyramids._io._parse_path` so every file-open
    path in the package benefits without explicit wiring.
@@ -24,10 +24,10 @@ Two concerns live in this module:
      credential reasoning.
    * :data:`_CLOUD_VSI_PREFIXES` — "may this chain an archive?" Anything
      fetched over the network can hold a zip or tar worth reading into,
-     so this is the network set minus the two `/vsicurl` variants that
-     carry options in the path itself (`/vsicurl?`,
-     `/vsicurl_streaming/`): their query strings are not path structure,
-     so an archive marker found there cannot be trusted.
+     so this is the network set minus the variants whose remainder is an
+     option list or a stream rather than path structure (`/vsicurl?` and
+     the `_streaming` twins): an archive marker found there cannot be
+     trusted.
    * :data:`URL_SCHEMES` — "can a user name this with a URL?" Only the
      handlers with an established scheme; a handler may be readable
      through its `/vsi*` form without appearing here.
@@ -186,24 +186,25 @@ _STREAMING_VSI_PREFIXES: tuple[str, ...] = (
 )
 
 
-_VSI_PREFIXES: tuple[str, ...] = (
-    _VSIS3,
-    _VSIGS,
-    _VSIAZ,
-    _VSIADLS,
-    _VSICURL,
-    # GDAL's query-string form, `/vsicurl?[option=value&]*url=<encoded>`, which
-    # carries per-source options (headers, retry, empty_dir) in the path itself.
-    # It has no trailing slash, so the `/vsicurl/` entry above does not match it.
-    "/vsicurl?",
-    "/vsimem/",
-    _VSIZIP,
-    _VSIGZIP,
-    _VSITAR,
-    "/vsihdfs/",
-    "/vsiwebhdfs/",
-    *_OBJECT_STORE_VSI_PREFIXES,
-    *_STREAMING_VSI_PREFIXES,
+# Deduplicated while preserving order: the object-store, URL-embedding and
+# streaming groups already name most of these, and repeating one made
+# `_VSI_PREFIXES` -- and every table derived from it -- carry it twice.
+_VSI_PREFIXES: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        (
+            *_OBJECT_STORE_VSI_PREFIXES,
+            *_URL_EMBEDDING_VSI_PREFIXES,
+            *_STREAMING_VSI_PREFIXES,
+            # GDAL's query-string form, `/vsicurl?[option=value&]*url=<encoded>`,
+            # carrying per-source options in the path itself. It has no trailing
+            # slash, so the `/vsicurl/` entry does not match it.
+            "/vsicurl?",
+            "/vsimem/",
+            _VSIZIP,
+            _VSIGZIP,
+            _VSITAR,
+        )
+    )
 )
 
 
@@ -218,7 +219,7 @@ def is_remote(path: str) -> bool:
         path: A string path or URL.
 
     Returns:
-        `True` for `s3://`, `gs://`, `az://`, `abfs://`, `abfss://`, `adls://`,
+        `True` for `s3://`, `gs://`, `gcs://`, `az://`, `abfs://`, `abfss://`,
         `http(s)://`, `file://`, and any `/vsi*` path. `False`
         for local POSIX or Windows paths (including drive-letter form)
         and for compressed-archive paths that don't start with `/vsi`.
@@ -269,7 +270,8 @@ def is_remote(path: str) -> bool:
 # Everything in _VSI_PREFIXES except the handlers that read no network: the
 # archives and the in-memory filesystem. Derived rather than repeated, so a new
 # handler cannot be remote but not network-backed by omission (#918).
-_LOCAL_VSI_PREFIXES: tuple[str, ...] = ("/vsimem/", _VSIZIP, _VSIGZIP, _VSITAR)
+_ARCHIVE_VSI_PREFIXES: tuple[str, ...] = (_VSIZIP, _VSIGZIP, _VSITAR)
+_LOCAL_VSI_PREFIXES: tuple[str, ...] = ("/vsimem/", *_ARCHIVE_VSI_PREFIXES)
 
 _NETWORK_VSI_PREFIXES: tuple[str, ...] = tuple(
     prefix for prefix in _VSI_PREFIXES if prefix not in _LOCAL_VSI_PREFIXES
@@ -290,7 +292,7 @@ def is_network_backed(path: str) -> bool:
 
     Returns:
         `True` for the cloud URL schemes — `s3://`, `gs://`, `az://`, `abfs://`,
-        `abfss://`, `adls://`,
+        `abfss://`,
         `http(s)://`, `dods://` — and for the network `/vsi*` handlers: `/vsis3/`,
         `/vsigs/`, `/vsiaz/`, `/vsicurl/` and its query-string form,
         `/vsicurl_streaming/`, `/vsioss/`, `/vsiswift/`, `/vsihdfs/`,
@@ -319,8 +321,18 @@ def is_network_backed(path: str) -> bool:
 
             ```
     """
+    # An archive chain wraps the real handler: `/vsizip//vsicurl/https://...`
+    # is read over the network, and `_to_vsi` builds exactly that shape from a
+    # `https://host/a.zip/x.tif` URL. Look past the archive prefixes first, or
+    # every chained remote path classifies as local.
+    unwrapped = path
+    while unwrapped.startswith(_ARCHIVE_VSI_PREFIXES):
+        for prefix in _ARCHIVE_VSI_PREFIXES:
+            if unwrapped.startswith(prefix):
+                unwrapped = unwrapped[len(prefix) :]
+                break
     network: bool
-    if path.startswith(_NETWORK_VSI_PREFIXES):
+    if unwrapped.startswith(_NETWORK_VSI_PREFIXES):
         network = True
     else:
         scheme = urlparse(path).scheme.lower()
@@ -452,7 +464,6 @@ def _to_vsi(path: str) -> str:
     `az://container/blob`       `/vsiaz/container/blob`
     `abfs://container/blob`     `/vsiadls/container/blob`
     `abfss://container/blob`    `/vsiadls/container/blob`
-    `adls://container/blob`     `/vsiadls/container/blob`
     `https://host/path.tif`     `/vsicurl/https://host/path.tif`
     `http://host/path.tif`      `/vsicurl/http://host/path.tif`
     `file:///C:/path/x.tif`     `C:/path/x.tif` (Windows)
@@ -472,6 +483,12 @@ def _to_vsi(path: str) -> str:
     Returns:
         The VSI-rewritten path if a rewrite applies; otherwise
         `path` unchanged.
+
+    Raises:
+        ValueError: An ABFS(S) URL names a storage account that does not match
+            the configured one, or names one with nothing configured. GDAL takes
+            the account from configuration, so continuing would read a different
+            storage account than the URL asks for.
 
     Examples:
         - Cloud-object-store URLs get the matching /vsi prefix:
@@ -505,7 +522,13 @@ def _to_vsi(path: str) -> str:
             ```
     """
     if path.startswith(_VSI_PREFIXES):
-        return path
+        # Already VSI, so there is no scheme to rewrite -- but archive chaining
+        # still applies. `/vsioss/`, `/vsiswift/`, `/vsihdfs/` and `/vsiwebhdfs/`
+        # have no URL scheme at all, so the raw form is the ONLY way to name
+        # them; returning here made their chaining unreachable. Idempotent: an
+        # already-chained path starts with an archive prefix, which
+        # `_chain_archive_vsi` does not act on.
+        return _chain_archive_vsi(path)
     parsed = urlparse(path)
     scheme = parsed.scheme.lower()
     new_path = _chain_archive_vsi(_scheme_to_vsi(parsed, scheme, path))
@@ -594,6 +617,27 @@ def to_fsspec_url(path: str) -> str:
     return f"{alias}{separator}{remainder}" if separator and alias else path
 
 
+def _configured_azure_account() -> str:
+    """The Azure storage account GDAL will use, or ``""`` when none is set.
+
+    GDAL accepts the account either directly as `AZURE_STORAGE_ACCOUNT` or
+    embedded in `AZURE_STORAGE_CONNECTION_STRING` as `AccountName=`. Reading only
+    the first refuses a setup that is perfectly valid for `/vsiadls/`.
+
+    Returns:
+        str: The configured account name, lower-cased, or ``""`` when unset.
+    """
+    account = gdal.GetConfigOption("AZURE_STORAGE_ACCOUNT") or ""
+    if not account:
+        connection = gdal.GetConfigOption("AZURE_STORAGE_CONNECTION_STRING") or ""
+        for part in connection.split(";"):
+            key, separator, value = part.partition("=")
+            if separator and key.strip().lower() == "accountname":
+                account = value.strip()
+                break
+    return account.lower()
+
+
 def _gen2_filesystem(parsed: ParseResult, path: str) -> str:
     """Filesystem (container) name from an ABFS(S) authority.
 
@@ -623,10 +667,8 @@ def _gen2_filesystem(parsed: ParseResult, path: str) -> str:
     if "@" not in authority:
         return authority
     filesystem, _, host = authority.partition("@")
-    account = host.split(".", 1)[0]
-    configured = gdal.GetConfigOption("AZURE_STORAGE_ACCOUNT") or os.environ.get(
-        "AZURE_STORAGE_ACCOUNT", ""
-    )
+    account = host.split(".", 1)[0].lower()
+    configured = _configured_azure_account()
     if configured and configured != account:
         raise ValueError(
             f"{path!r} names storage account {account!r}, but AZURE_STORAGE_ACCOUNT "
@@ -673,7 +715,7 @@ def _extract_archive_search_region(path: str) -> str | None:
         url = path[len(embedding) :]
         # `//` guards against `urlparse` reading a colon in the first path
         # segment as a scheme (`bucket:tag/a.zip/x` would lose `bucket:tag`).
-        parsed = urlparse(url) if "://" in url else urlparse(f"//{url}")
+        parsed = urlparse(url if "://" in url else f"//{url}")
         # Only the path component — excludes scheme, hostname, and query. A
         # handler that embeds a URL (`/vsihdfs/hdfs://host/x`) is scanned the
         # same way as `/vsicurl/`, so a host named `data.gz` cannot trigger
@@ -871,7 +913,7 @@ class CloudConfig:
     ================================ ==================================
 
     The HTTP knobs apply to GDAL's `/vsicurl/` family (so `s3://`,
-    `gs://`, `az://`, `abfs://`, `adls://`, `http(s)://` all benefit). `vsi_cache`
+    `gs://`, `az://`, `abfs://`, `abfss://`, `http(s)://` all benefit). `vsi_cache`
     toggles GDAL's in-memory range cache for `/vsicurl/`-style readers
     — useful when re-reading the same remote chunks (e.g. iterating over
     blocks of a single COG). Set `vsi_cache=None` (default) to leave
