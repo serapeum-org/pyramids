@@ -233,3 +233,20 @@ class TestBasemapDispatch:
         with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
             cube.plot(band=0, basemap="CartoDB.Positron")
         assert mock_add.called, "collection animate path must draw the web-tile basemap"
+
+    def test_facet_tile_basemap_skips_when_result_exposes_no_axes(self):
+        """A facet result without an `axes` attribute is handled gracefully — no tiles, no crash."""
+        stack = np.random.default_rng(7).random((3, 6, 6)).astype("float32")
+        sentinel = object()  # a facet result that exposes no `.axes`
+        with patch.object(ArrayGlyph, "facet", return_value=sentinel):
+            with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+                result = render_array(
+                    arr=stack,
+                    mode="facet",
+                    facet_kwargs={"col": "time", "col_coords": [0, 1, 2]},
+                    basemap="CartoDB.Positron",
+                    basemap_epsg=4326,
+                    extent=[0.0, 0.0, 1.0, 1.0],
+                )
+        assert result is sentinel
+        assert not mock_add.called, "no panel Axes means no tile draw"
