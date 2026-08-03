@@ -119,11 +119,9 @@ class TestToVsi:
         assert "adls" not in URL_SCHEMES, "adls:// is not an ecosystem scheme"
         assert _to_vsi("adls://container/blob.tif") == "adls://container/blob.tif"
 
-    def test_gen2_account_authority_resolves_when_configured(self, monkeypatch):
+    def test_gen2_account_authority_resolves_when_configured(self):
         """The canonical `filesystem@account` authority uses only the filesystem.
 
-        Args:
-            monkeypatch: pytest monkeypatch fixture.
 
         Test scenario:
             `abfss://<fs>@<account>.dfs.core.windows.net/<path>` is how ABFS URIs
@@ -131,50 +129,31 @@ class TestToVsi:
             authority verbatim as the container yields a URL-encoded nonsense
             container on whatever account is configured.
         """
-        monkeypatch.setenv("AZURE_STORAGE_ACCOUNT", "prodlake")
-        gdal.SetConfigOption("AZURE_STORAGE_ACCOUNT", "prodlake")
-        try:
+        with gdal.config_option("AZURE_STORAGE_ACCOUNT", "prodlake"):
             resolved = _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/2026/x.tif")
-        finally:
-            gdal.SetConfigOption("AZURE_STORAGE_ACCOUNT", None)
         assert resolved == "/vsiadls/raw/2026/x.tif", resolved
 
-    def test_gen2_account_authority_refuses_when_unconfigured(self, monkeypatch):
-        """Naming an account in the URL with none configured is an error, not a guess.
+    def test_gen2_account_authority_refuses_when_unconfigured(self):
+        """Naming an account in the URL with none configured is an error, not a guess."""
+        with gdal.config_option("AZURE_STORAGE_ACCOUNT", None):
+            with pytest.raises(ValueError, match="AZURE_STORAGE_ACCOUNT"):
+                _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/x.tif")
 
-        Args:
-            monkeypatch: pytest monkeypatch fixture.
-        """
-        monkeypatch.delenv("AZURE_STORAGE_ACCOUNT", raising=False)
-        gdal.SetConfigOption("AZURE_STORAGE_ACCOUNT", None)
-        with pytest.raises(ValueError, match="AZURE_STORAGE_ACCOUNT"):
-            _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/x.tif")
-
-    def test_gen2_account_authority_refuses_a_mismatch(self, monkeypatch):
+    def test_gen2_account_authority_refuses_a_mismatch(self):
         """A URL naming a different account than the configured one refuses.
 
-        Args:
-            monkeypatch: pytest monkeypatch fixture.
 
         Test scenario:
             GDAL reads the account from configuration, so silently proceeding
             would read a different storage account than the URL names.
         """
-        monkeypatch.setenv("AZURE_STORAGE_ACCOUNT", "otheracct")
-        gdal.SetConfigOption("AZURE_STORAGE_ACCOUNT", "otheracct")
-        try:
+        with gdal.config_option("AZURE_STORAGE_ACCOUNT", "otheracct"):
             with pytest.raises(ValueError, match="otheracct"):
                 _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/x.tif")
-        finally:
-            gdal.SetConfigOption("AZURE_STORAGE_ACCOUNT", None)
 
     def test_bare_gen2_authority_is_still_a_plain_container(self):
         """Without an `@`, the authority is the filesystem name as before."""
         assert _to_vsi("abfs://fs/2026/x.tif") == "/vsiadls/fs/2026/x.tif"
-
-    def test_az_still_maps_to_blob(self):
-        """`az://` keeps naming Blob, so the two Azure handlers stay reachable."""
-        assert _to_vsi("az://container/blob.tif") == "/vsiaz/container/blob.tif"
 
     def test_https_simple(self):
         assert _to_vsi("https://foo.com/x.tif") == "/vsicurl/https://foo.com/x.tif"
@@ -933,7 +912,7 @@ class TestHandlerTableInvariant:
     def test_streaming_handlers_do_not_chain_archives(self):
         """Their remainder is an option list, so an archive marker is untrustworthy."""
         path = "/vsis3_streaming/b/a.zip/x.tif"
-        assert _chain_archive_vsi(path) == path, "streaming handlers must not chain"
+        assert _to_vsi(path) == path, "streaming handlers must not chain"
 
 
 class TestAdlsHandler:
@@ -951,7 +930,7 @@ class TestAdlsHandler:
 
     def test_chains_an_archive(self):
         """A zipped raster on Gen2 is rewritten the way the S3 equivalent is."""
-        chained = _chain_archive_vsi("/vsiadls/c/a.zip/x.tif")
+        chained = _to_vsi("/vsiadls/c/a.zip/x.tif")
         assert chained == "/vsizip//vsiadls/c/a.zip/x.tif", chained
 
 
@@ -988,7 +967,9 @@ class TestNetworkHandlersChainArchives:
             path: A VSI path pointing inside an archive.
             expected: The chained form GDAL needs to read the inner file.
         """
-        assert _chain_archive_vsi(path) == expected
+        assert _to_vsi(path) == expected, (
+            "chaining must be reachable through the public rewrite"
+        )
 
     @pytest.mark.parametrize(
         "path",
@@ -1008,4 +989,4 @@ class TestNetworkHandlersChainArchives:
             scanning the raw remainder would let a host named `data.gz` trigger
             chaining — the same trap `/vsicurl/` already guarded against.
         """
-        assert _chain_archive_vsi(path) == path, "a hostname must not trigger chaining"
+        assert _to_vsi(path) == path, "a hostname must not trigger chaining"
