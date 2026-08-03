@@ -23,14 +23,13 @@ _cleo_array = pytest.importorskip(
 _cleo_geo = pytest.importorskip("cleopatra.geo", reason="cleopatra not installed")
 ArrayGlyph = _cleo_array.ArrayGlyph
 Basemap = _cleo_geo.Basemap
+plt = pytest.importorskip("matplotlib.pyplot", reason="cleopatra not installed")
 
 
 @pytest.fixture(autouse=True)
 def _close_matplotlib_figures():
     """Close figures after each test so the suite does not leak them."""
     yield
-    import matplotlib.pyplot as plt
-
     plt.close("all")
 
 

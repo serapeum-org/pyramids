@@ -19,14 +19,13 @@ _cleo_array = pytest.importorskip(
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 ColorBar = _cleo_array.ColorBar
+plt = pytest.importorskip("matplotlib.pyplot", reason="cleopatra not installed")
 
 
 @pytest.fixture(autouse=True)
 def _close_matplotlib_figures():
     """Close figures after each test so the suite does not leak them."""
     yield
-    import matplotlib.pyplot as plt
-
     plt.close("all")
 
 
