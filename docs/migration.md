@@ -37,7 +37,12 @@ Azure Blob *File System* driver, which is Gen2.
   now get the right one, with directory semantics.
 - If you used `abfs://` against a **flat Blob** account, switch to `az://`, which is unchanged and still names
   Blob. Credentials are the same `AZURE_STORAGE_*` family either way.
-- `abfss://` and `adls://` are new spellings of the Gen2 scheme, if you prefer to be explicit.
+- `abfss://` is accepted too, if you prefer to be explicit about TLS. There is no `adls://` scheme: the
+  registered Azure Data Lake name is `adl://` (Gen1), which GDAL does not handle.
+- The canonical `abfss://<filesystem>@<account>.dfs.core.windows.net/<path>` form is understood, but GDAL
+  takes the storage account from configuration rather than from the URL. If the URL names an account,
+  `AZURE_STORAGE_ACCOUNT` must be set to match it — a mismatch, or naming an account with none configured,
+  raises instead of silently reading a different account.
 
 **`/vsiadls/` is now recognised as a remote, network-backed path.** Previously `is_remote()` and
 `is_network_backed()` both returned `False` for a Gen2 path, so it was classified as a local file — opening still
@@ -47,7 +52,6 @@ worked, but anything reasoning about the path (credential handling, archive chai
 `/vsizip/<handler>/...` for `/vsiadls/`, `/vsioss/` (Alibaba), `/vsiswift/` (OpenStack), `/vsihdfs/` and
 `/vsiwebhdfs/`, not only for S3, Google Cloud, Azure Blob and `/vsicurl/`. If you were chaining these by hand,
 the manual prefix is no longer needed — and a hand-built `/vsizip//vsioss/...` still works unchanged.
-
 
 **`Dataset.epsg` no longer reports EPSG:4326 for a raster that has no CRS.** It previously substituted WGS 84
 whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that
