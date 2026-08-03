@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6526,10 +6526,12 @@ Azure Blob <em>File System</em> driver, which is Gen2.</p>
   Blob. Credentials are the same <code>AZURE_STORAGE_*</code> family either way.</li>
 <li><code>abfss://</code> is accepted too, if you prefer to be explicit about TLS. There is no <code>adls://</code> scheme: the
   registered Azure Data Lake name is <code>adl://</code> (Gen1), which GDAL does not handle.</li>
-<li>The canonical <code>abfss://&lt;filesystem&gt;@&lt;account&gt;.dfs.core.windows.net/&lt;path&gt;</code> form is understood, but GDAL
-  takes the storage account from configuration rather than from the URL. If the URL names an account,
-  <code>AZURE_STORAGE_ACCOUNT</code> must be set to match it — a mismatch, or naming an account with none configured,
-  raises instead of silently reading a different account.</li>
+<li>The canonical <code>abfss://&lt;filesystem&gt;@&lt;account&gt;.dfs.core.windows.net/&lt;path&gt;</code> form is understood: the filesystem
+  becomes the container and the account is dropped from the path, because GDAL takes it from configuration. The
+  rewrite is deterministic — the same URL always yields the same <code>/vsi*</code> path — and if the URL names an account
+  that disagrees with the configured one, a <code>UserWarning</code> says which account will actually be read. Set
+  <code>AZURE_STORAGE_ACCOUNT</code> (or <code>AccountName=</code> inside <code>AZURE_STORAGE_CONNECTION_STRING</code>) to match, or use the bare
+  <code>abfs://&lt;filesystem&gt;/&lt;path&gt;</code> form.</li>
 </ul>
 <p><strong><code>/vsiadls/</code> is now recognised as a remote, network-backed path.</strong> Previously <code>is_remote()</code> and
 <code>is_network_backed()</code> both returned <code>False</code> for a Gen2 path, so it was classified as a local file — opening still
@@ -6540,9 +6542,11 @@ or tar is rewritten to <code>/vsizip/&lt;handler&gt;/...</code> for <code>/vsiad
 URL scheme at all, so the raw <code>/vsi*</code> spelling is the only way to name them — paths already in <code>/vsi*</code> form now
 go through the chaining too, where before they were returned untouched. If you were chaining by hand, the manual
 prefix is no longer needed, and a hand-built <code>/vsizip//vsioss/...</code> still works unchanged.</p>
-<p><strong>Credentials for <code>abfs://</code> are the same <code>AZURE_STORAGE_*</code> family</strong>, with one exception: GDAL's anonymous-access
-switch is per-handler, so a workflow relying on <code>AZURE_NO_SIGN_REQUEST</code> against <code>/vsiaz/</code> needs the <code>/vsiadls/</code>
-equivalent once <code>abfs://</code> routes there.</p>
+<p><strong>Credentials are unchanged.</strong> <code>/vsiadls/</code> reads the same <code>AZURE_STORAGE_ACCOUNT</code> / <code>AZURE_STORAGE_ACCESS_KEY</code> /
+<code>AZURE_STORAGE_SAS_TOKEN</code> / <code>AZURE_STORAGE_CONNECTION_STRING</code> family as <code>/vsiaz/</code>, and honours
+<code>AZURE_NO_SIGN_REQUEST</code> identically (verified: with it set both handlers skip the instance-metadata credential
+lookup). <code>CloudConfig</code> gains an <code>azure_no_sign_request=True</code> flag so anonymous Azure reads have the same knob the
+S3 side already had.</p>
 <p><strong><code>Dataset.epsg</code> no longer reports EPSG:4326 for a raster that has no CRS.</strong> It previously substituted WGS 84
 whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that
 claim propagated into <code>to_file</code>, <code>to_crs</code>, <code>bounds</code> and alignment checks. It now returns <code>None</code>, matching GDAL,
