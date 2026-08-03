@@ -22,6 +22,7 @@ from typing import Any
 
 from osgeo import gdal
 
+from pyramids.base.remote import is_network_backed
 from pyramids.dataset.cog.options import COG_READ_DEFAULTS
 
 
@@ -58,28 +59,21 @@ def config_context(config: dict[str, str] | None) -> Iterator[None]:
             gdal.SetConfigOption(key, old)
 
 
-_REMOTE_PREFIXES: tuple[str, ...] = (
-    "/vsicurl",
-    "/vsis3",
-    "/vsigs",
-    "/vsiaz",
-    "/vsioss",
-    "/vsiswift",
-    "http://",
-    "https://",
-)
-
-
 def _is_remote(path: str) -> bool:
     """Return ``True`` for a remote / network-backed path.
+
+    Delegates to :func:`pyramids.base.remote.is_network_backed` rather than
+    keeping a prefix table of its own. The local copy listed six handlers and
+    went stale: `/vsiadls/` was absent, so the COG read defaults were skipped for
+    an ADLS Gen2 path while the identical `/vsiaz/` path got them (#918).
 
     Args:
         path: A local path or ``/vsi*`` path.
 
     Returns:
-        bool: ``True`` for ``/vsicurl``/cloud-VSI/HTTP(S) paths.
+        bool: ``True`` for a path GDAL reads over the network.
     """
-    return path.startswith(_REMOTE_PREFIXES) or "://" in path
+    return is_network_backed(path)
 
 
 def _resolve_read_config(
