@@ -741,7 +741,7 @@ class FeatureCollection(GeoDataFrame):
         :func:`pyramids._io._parse_path`, which handles:
 
         * Cloud-URL rewriting (`s3://`, `gs://`, `az://`,
-          `abfs://`, `http(s)://`, `file://` → GDAL `/vsi*/`
+          `abfs://`, `abfss://`, `http(s)://`, `file://` → GDAL `/vsi*/`
           form). verified end-to-end through an HTTP test.
           For AWS / GCS / Azure credentials either set the standard
           environment variables (`AWS_ACCESS_KEY_ID`,

@@ -38,7 +38,7 @@ from shapely.geometry import box
 from pyramids import _io as _pyramids_io
 from pyramids.base._errors import FeatureError
 from pyramids.base._utils import import_pyarrow
-from pyramids.base.remote import is_remote
+from pyramids.base.remote import is_remote, to_fsspec_url
 
 if TYPE_CHECKING:
     from pyramids.feature._lazy_collection import LazyFeatureCollection
@@ -553,7 +553,11 @@ def read_parquet(
     # resolves against the drive root, so the read dies with FileNotFoundError.
     # Hand fsspec the URL untouched; local paths still go through _parse_path.
     path_str = str(path)
-    resolved = path_str if is_remote(path_str) else _pyramids_io._parse_path(path)
+    resolved = (
+        to_fsspec_url(path_str)
+        if is_remote(path_str)
+        else _pyramids_io._parse_path(path)
+    )
     if backend == "dask":
         return read_parquet_dask(
             resolved,
