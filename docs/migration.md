@@ -48,10 +48,16 @@ Azure Blob *File System* driver, which is Gen2.
 `is_network_backed()` both returned `False` for a Gen2 path, so it was classified as a local file — opening still
 worked, but anything reasoning about the path (credential handling, archive chaining) got the wrong answer.
 
-**Archive chaining now covers every network handler.** A raster inside a zip or tar is rewritten to
-`/vsizip/<handler>/...` for `/vsiadls/`, `/vsioss/` (Alibaba), `/vsiswift/` (OpenStack), `/vsihdfs/` and
-`/vsiwebhdfs/`, not only for S3, Google Cloud, Azure Blob and `/vsicurl/`. If you were chaining these by hand,
-the manual prefix is no longer needed — and a hand-built `/vsizip//vsioss/...` still works unchanged.
+**Archive chaining now covers every network handler, including for raw `/vsi*` paths.** A raster inside a zip
+or tar is rewritten to `/vsizip/<handler>/...` for `/vsiadls/`, `/vsioss/` (Alibaba), `/vsiswift/` (OpenStack),
+`/vsihdfs/` and `/vsiwebhdfs/`, not only for S3, Google Cloud, Azure Blob and `/vsicurl/`. Four of those have no
+URL scheme at all, so the raw `/vsi*` spelling is the only way to name them — paths already in `/vsi*` form now
+go through the chaining too, where before they were returned untouched. If you were chaining by hand, the manual
+prefix is no longer needed, and a hand-built `/vsizip//vsioss/...` still works unchanged.
+
+**Credentials for `abfs://` are the same `AZURE_STORAGE_*` family**, with one exception: GDAL's anonymous-access
+switch is per-handler, so a workflow relying on `AZURE_NO_SIGN_REQUEST` against `/vsiaz/` needs the `/vsiadls/`
+equivalent once `abfs://` routes there.
 
 **`Dataset.epsg` no longer reports EPSG:4326 for a raster that has no CRS.** It previously substituted WGS 84
 whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that

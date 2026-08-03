@@ -15,7 +15,7 @@ flowchart LR
 ## Open a raster — paths, URLs, archives, and bytes
 
 `Dataset.read_file(path)` accepts plain paths, `/vsi*` paths, and URL
-schemes (`http(s)://`, `s3://`, `gs://`, `az://`, `abfs://` / `adls://`,
+schemes (`http(s)://`, `s3://`, `gs://`, `az://`, `abfs://` / `abfss://`,
 `file://`) — URLs are transparently rewritten to GDAL's virtual
 filesystem so cloud objects open with HTTP range requests, no extra
 boilerplate.
