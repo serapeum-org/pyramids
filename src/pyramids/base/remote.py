@@ -129,6 +129,7 @@ _ARCHIVE_MARKER_RE = re.compile(r"\.(tar\.gz|tgz|zip|tar|gz)(?=/)", re.IGNORECAS
 URL_SCHEMES: dict[str, str] = {
     "s3": _VSIS3,
     "gs": _VSIGS,
+    "gcs": _VSIGS,
     "az": _VSIAZ,
     "abfs": _VSIADLS,
     "abfss": _VSIADLS,
@@ -549,6 +550,48 @@ def _scheme_to_vsi(parsed: ParseResult, scheme: str, path: str) -> str:
             local = local[1:]
         return local
     return path  # pragma: no cover — all schemes above covered
+
+
+# GDAL-only spellings mapped to the equivalent fsspec protocol. The Parquet
+# readers hand a remote URL straight to geopandas/fsspec, which resolves the
+# scheme itself -- and fsspec registers `abfs` but not `abfss`, so the TLS
+# spelling would die as an unknown protocol there while working for GDAL.
+_FSSPEC_SCHEME_ALIASES: dict[str, str] = {"abfss": "abfs"}
+
+
+def to_fsspec_url(path: str) -> str:
+    """Rewrite a URL to a scheme fsspec recognises, leaving others untouched.
+
+    GDAL and fsspec accept overlapping but not identical scheme spellings. A path
+    handed to the Parquet readers goes to fsspec, not GDAL, so a GDAL-only
+    spelling has to be normalised first.
+
+    Args:
+        path: A URL or local path.
+
+    Returns:
+        str: The same path with a GDAL-only scheme swapped for its fsspec
+        equivalent; unchanged when the scheme is already known or absent.
+
+    Examples:
+        - The TLS spelling of ABFS becomes the one fsspec registers:
+            ```python
+            >>> from pyramids.base.remote import to_fsspec_url
+            >>> to_fsspec_url("abfss://fs/part.parquet")
+            'abfs://fs/part.parquet'
+
+            ```
+        - Anything else is returned as-is:
+            ```python
+            >>> from pyramids.base.remote import to_fsspec_url
+            >>> to_fsspec_url("s3://bucket/part.parquet")
+            's3://bucket/part.parquet'
+
+            ```
+    """
+    scheme, separator, remainder = path.partition("://")
+    alias = _FSSPEC_SCHEME_ALIASES.get(scheme.lower())
+    return f"{alias}{separator}{remainder}" if separator and alias else path
 
 
 def _gen2_filesystem(parsed: ParseResult, path: str) -> str:
