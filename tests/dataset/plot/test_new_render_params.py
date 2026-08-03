@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset
+from pyramids.dataset._plot_helpers import render_array
 
 pytestmark = pytest.mark.plot
 
@@ -56,3 +57,27 @@ class TestNewRenderParams:
         """`full_bleed=True` (chrome-free layout) renders."""
         glyph = self._dataset().plot(band=0, full_bleed=True)
         assert isinstance(glyph, ArrayGlyph)
+
+    def test_colorbar_spec_reaches_animate(self):
+        """`colorbar=ColorBar(...)` forwards on the animate path (clean render)."""
+        stack = np.random.default_rng(1).random((3, 6, 6)).astype("float32")
+        result = render_array(
+            arr=stack,
+            mode="animate",
+            animation_axis_values=[0, 1, 2],
+            colorbar=ColorBar(location="bottom"),
+            extent=[0.0, 0.0, 1.0, 1.0],
+        )
+        assert isinstance(result, ArrayGlyph)
+
+    def test_full_bleed_reaches_animate(self):
+        """`full_bleed=True` forwards on the animate path (clean render)."""
+        stack = np.random.default_rng(2).random((3, 6, 6)).astype("float32")
+        result = render_array(
+            arr=stack,
+            mode="animate",
+            animation_axis_values=[0, 1, 2],
+            full_bleed=True,
+            extent=[0.0, 0.0, 1.0, 1.0],
+        )
+        assert isinstance(result, ArrayGlyph)

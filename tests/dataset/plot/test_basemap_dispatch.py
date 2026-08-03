@@ -164,3 +164,41 @@ class TestBasemapDispatch:
                 extent=[0.0, 0.0, 1.0, 1.0],
             )
         assert captured.get("basemap") is basemap
+
+    def test_dict_basemap_reaches_the_animate_render_call(self):
+        """A dict basemap on the animate path forwards to `cleo.animate(basemap=)`."""
+        captured, spy = self._spy_on("animate")
+        basemap = {"relief": False}
+        stack = np.random.default_rng(4).random((3, 6, 6)).astype("float32")
+        with patch.object(ArrayGlyph, "animate", spy):
+            with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+                render_array(
+                    arr=stack,
+                    mode="animate",
+                    animation_axis_values=[0, 1, 2],
+                    basemap=basemap,
+                    basemap_epsg=4326,
+                    extent=[0.0, 0.0, 1.0, 1.0],
+                )
+        assert captured.get("basemap") == basemap
+        assert not mock_add.called
+
+    def test_tile_basemap_on_facet_draws_per_visible_panel(self):
+        """A str tile basemap on the facet path tiles each visible panel once."""
+        stack = np.random.default_rng(5).random((3, 6, 6)).astype("float32")
+        with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+            result = render_array(
+                arr=stack,
+                mode="facet",
+                facet_kwargs={"col": "time", "col_coords": [0, 1, 2]},
+                basemap="CartoDB.Positron",
+                basemap_epsg=4326,
+                extent=[0.0, 0.0, 1.0, 1.0],
+            )
+        visible = [
+            ax
+            for ax in np.asarray(result.axes).ravel()
+            if ax is not None and ax.get_visible()
+        ]
+        assert visible, "facet must expose at least one visible panel"
+        assert mock_add.call_count == len(visible)
