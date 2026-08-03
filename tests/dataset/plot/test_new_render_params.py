@@ -13,6 +13,9 @@ from pyramids.dataset._plot_helpers import render_array
 
 pytestmark = pytest.mark.plot
 
+# Version-gate first: the module binds a 0.28-only spec (ColorBar) at module scope,
+# so an installed-but-older cleopatra must skip cleanly, not error at collection.
+pytest.importorskip("cleopatra", minversion="0.28", reason="needs cleopatra >= 0.28")
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 _cleo_config.Config.set_matplotlib_backend("agg")
 _cleo_array = pytest.importorskip(
