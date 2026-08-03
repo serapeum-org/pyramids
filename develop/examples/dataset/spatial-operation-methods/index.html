@@ -7139,7 +7139,7 @@ worth knowing:</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fded8120440&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f2fe4538590&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7307,11 +7307,15 @@ let's confirm the raster's current cell size.</p>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">dataset_8km</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
-    <span class="n">vmin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Rhine River Basin (resampled to 8 km)"</span><span class="p">,</span> <span class="n">colorbar</span><span class="o">=</span><span class="n">ColorBar</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s2">"Elevation(m)"</span><span class="p">)</span>
+    <span class="n">vmin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Rhine River Basin (resampled to 8 km)"</span><span class="p">,</span>
+    <span class="n">colorbar</span><span class="o">=</span><span class="n">ColorBar</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s2">"Elevation(m)"</span><span class="p">),</span>
 <span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-7">dataset_8km.plot(
-    vmin=0, title="Rhine River Basin (resampled to 8 km)", colorbar=ColorBar(label="Elevation(m)")
+    vmin=0,
+    title="Rhine River Basin (resampled to 8 km)",
+    colorbar=ColorBar(label="Elevation(m)"),
 )</div>
 </div>
 </div>
@@ -7324,7 +7328,7 @@ let's confirm the raster's current cell size.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fded81f3110&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f2fe460b250&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7543,11 +7547,15 @@ cell size is a fraction of a degree.</p>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">reprojected_dataset</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
-    <span class="n">vmin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Rhine River Basin (reprojected to WGS 84)"</span><span class="p">,</span> <span class="n">colorbar</span><span class="o">=</span><span class="n">ColorBar</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s2">"Elevation(m)"</span><span class="p">)</span>
+    <span class="n">vmin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Rhine River Basin (reprojected to WGS 84)"</span><span class="p">,</span>
+    <span class="n">colorbar</span><span class="o">=</span><span class="n">ColorBar</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s2">"Elevation(m)"</span><span class="p">),</span>
 <span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-11">reprojected_dataset.plot(
-    vmin=0, title="Rhine River Basin (reprojected to WGS 84)", colorbar=ColorBar(label="Elevation(m)")
+    vmin=0,
+    title="Rhine River Basin (reprojected to WGS 84)",
+    colorbar=ColorBar(label="Elevation(m)"),
 )</div>
 </div>
 </div>
@@ -7560,7 +7568,7 @@ cell size is a fraction of a degree.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[11]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fded7f4efd0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f2fe4443110&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7849,7 +7857,7 @@ WGS 84 into the DEM's UTM CRS (EPSG:4647).</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[16]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fded7f95480&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f2fe44795b0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7955,7 +7963,7 @@ Rhine basin.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[18]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fded7d0a450&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f2fe4202450&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
