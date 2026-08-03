@@ -3474,46 +3474,7 @@ class IO(_Engine["Dataset"]):
                     "been rewritten."
                 )
                 if write_refused:
-                    # GDAL reports every unwritable overview target with the same
-                    # CPLE_NoWriteAccess it uses for a read-only dataset, so the number
-                    # alone cannot tell them apart -- and only one of the two is fixable
-                    # by reopening. Ask who owns the level instead: a level owned by a
-                    # VRT is one the VRT computes (a warped band, or an overview
-                    # inherited from the source), and no access mode makes it writable.
-                    # A level owned by a real raster -- the dataset itself for an
-                    # internal overview, or the `.ovr` GTiff for an external one -- is
-                    # usually writable once the handle is.
-                    if self._overview_target_is_virtual(overviews):
-                        raise OverviewTargetError(
-                            f"Cannot regenerate the overviews of band {i}: their pixels "
-                            "belong to a VRT, which computes them on read rather than "
-                            "storing them, so they cannot be rewritten in place. Rebuild "
-                            "them with create_overviews() -- which on a warped VRT "
-                            "resamples with the warper's own algorithm, ignoring any "
-                            "resampling_method -- or save the dataset with to_file(path) "
-                            "and regenerate on the saved raster."
-                        ) from err
-                    # "Usually", because ownership alone cannot prove the access mode is
-                    # the blocker: a VRT serving an explicit <Overview> owns a real,
-                    # on-disk-writable `.ovr`, yet GDAL opens VRT sources read-only, so it
-                    # refuses however the parent was opened. Advising a reopen is only
-                    # honest while one is still available -- on a handle already open for
-                    # writing the advice is provably the caller's own last move, which is
-                    # the misdiagnosis this classification exists to remove.
-                    if self._ds._access != "read_only":
-                        raise OverviewTargetError(
-                            f"Cannot regenerate the overviews of band {i}: GDAL refused "
-                            "the write although this dataset is already open for writing, "
-                            "so the access mode is not the blocker -- the levels are "
-                            "reached through a source GDAL opens read-only. Regenerate "
-                            "them on the raster that owns them, or rebuild this "
-                            "dataset's own with create_overviews()."
-                        ) from err
-                    raise ReadOnlyError(
-                        f"Cannot regenerate the overviews of band {i}: the overviews "
-                        "are opened read-only. Please read the dataset using "
-                        "read_only=False to recreate overviews."
-                    ) from err
+                    raise self._refusal_for(i, overviews) from err
                 raise
             # gdal.UseExceptions() is process-global, so a caller that turned it off
             # (or a driver that fails without pushing a CPL error) would otherwise
@@ -3523,6 +3484,60 @@ class IO(_Engine["Dataset"]):
                 raise RuntimeError(
                     f"Failed regenerating the overviews of band {i} (0-based): {detail}"
                 )
+
+    def _refusal_for(self, band_index: int, overviews: list[gdal.Band]) -> Exception:
+        """Build the error for a band GDAL refused to rewrite, once the refusal is known.
+
+        GDAL reports every unwritable overview target with the same `CPLE_NoWriteAccess`
+        it uses for a read-only dataset, so the number cannot tell them apart — and only
+        one of them is fixable by reopening. Two questions separate them.
+
+        First, who owns the level. A level owned by a VRT is one the VRT computes — a
+        warped band, or an overview inherited from the source it wraps — and no access
+        mode makes those writable. A level owned by a real raster is stored: the dataset
+        itself for an internal overview, the `.ovr` GTiff for an external one.
+
+        Stored is not the same as reachable, so the second question is whether a reopen is
+        even available. A VRT serving an explicit `<Overview>` owns a real,
+        on-disk-writable `.ovr`, yet GDAL opens VRT sources read-only and refuses however
+        the parent was opened. Advising a reopen is honest only while one is still to be
+        had; on a handle already open for writing it is provably the caller's own last
+        move, which is the misdiagnosis this classification exists to remove.
+
+        Args:
+            band_index: The 0-based band GDAL stopped on, named in the message.
+            overviews: That band's level bands, already resolved.
+
+        Returns:
+            Exception:
+                An `OverviewTargetError` when the target cannot be written whatever the
+                caller does, or a `ReadOnlyError` when reopening writable is still worth
+                trying. The caller raises it `from` GDAL's own error.
+        """
+        if self._overview_target_is_virtual(overviews):
+            refusal: Exception = OverviewTargetError(
+                f"Cannot regenerate the overviews of band {band_index}: their pixels "
+                "belong to a VRT, which computes them on read rather than storing them, "
+                "so they cannot be rewritten in place. Rebuild them with "
+                "create_overviews() -- which on a warped VRT resamples with the warper's "
+                "own algorithm, ignoring any resampling_method -- or save the dataset "
+                "with to_file(path) and regenerate on the saved raster."
+            )
+        elif self._ds._access != "read_only":
+            refusal = OverviewTargetError(
+                f"Cannot regenerate the overviews of band {band_index}: GDAL refused the "
+                "write although this dataset is already open for writing, so the access "
+                "mode is not the blocker -- the levels are reached through a source GDAL "
+                "opens read-only. Regenerate them on the raster that owns them, or "
+                "rebuild this dataset's own with create_overviews()."
+            )
+        else:
+            refusal = ReadOnlyError(
+                f"Cannot regenerate the overviews of band {band_index}: the overviews "
+                "are opened read-only. Please read the dataset using read_only=False to "
+                "recreate overviews."
+            )
+        return refusal
 
     @staticmethod
     def _is_write_refusal(err: RuntimeError) -> bool:
