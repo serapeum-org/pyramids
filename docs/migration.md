@@ -177,9 +177,11 @@ These calls hand back such a handle, and so start raising:
 - `Dataset.wrap_longitude()` on a **file-backed** source, whose lazy roll is a plain pathless VRT. On an
   in-memory source the roll is a `MEM` raster and is unaffected. This one previously produced the damage above
   verbatim — a stray `.ovr` and no levels — so the refusal is a fix, not a regression.
-- `Dataset.to_zarr(..., overview_factors=[...])` on an inline-XML VRT, since it builds the pyramid levels through
-  `create_overviews`. Without `overview_factors` it is unaffected, and the description-less VRTs above already
-  failed earlier in `to_zarr`'s base-array write.
+- `Dataset.to_zarr(..., overview_factors=[...])` on any handle the refusal covers, since it builds the pyramid
+  levels through `create_overviews`. The target is checked pre-flight, so the call leaves no store behind, and
+  before the `compute` argument, so a call that is also `compute=False` reports the refusal rather than the
+  `ValueError`. Without `overview_factors` the refusal does not apply; a description-less VRT then fails where
+  it always did, in `to_zarr`'s base-array write.
 
 Write the view out first and build the overviews on the saved raster:
 

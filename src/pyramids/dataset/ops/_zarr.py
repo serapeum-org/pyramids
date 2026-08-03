@@ -148,10 +148,23 @@ def write_dataset_to_zarr(
         compressor: Zarr codec(s) for the `data` array. `"auto"` (default) keeps
             zarr's default codec; pass a zarr-v3 codec / list to override, or
             `None` for an uncompressed array.
+        overview_factors: Downsample factors (e.g. `[2, 4, 8]`) written as extra
+            `data_<factor>` arrays plus a `multiscales` attribute. Built through
+            `Dataset.create_overviews`, so they need `compute=True` and a dataset
+            that can hold overviews.
+        overview_resampling: GDAL resampling for those levels, `"average"` by
+            default.
 
     Returns:
         `None` on `compute=True`; a :class:`dask.delayed.Delayed`
         on `compute=False`.
+
+    Raises:
+        OverviewTargetError: `overview_factors` was given and `ds` cannot hold
+            overviews — a plain VRT whose description is not a path. Taken pre-flight,
+            so nothing is written, and ahead of the `compute` check, so the target the
+            caller cannot fix is reported before the argument they can.
+        ValueError: `overview_factors` was given with `compute=False`.
 
     Examples:
         - Round-trip a small Dataset through Zarr (requires the

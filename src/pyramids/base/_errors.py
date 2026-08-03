@@ -64,8 +64,9 @@ class OutOfBoundsError(_PyramidsError):
 class OverviewTargetError(_PyramidsError, ValueError):
     """The dataset cannot hold the overview levels the call was asked to write.
 
-    Raised by `Dataset.create_overviews` and `Dataset.recreate_overviews` for two
-    conditions that no argument can fix:
+    Raised by `Dataset.create_overviews`, `Dataset.recreate_overviews` and
+    `Dataset.to_zarr(..., overview_factors=[...])` — which builds its pyramid through
+    `create_overviews` — for conditions that no argument can fix:
 
     - a **plain VRT whose description is not a path**. A plain VRT owns no pixel storage,
       so GDAL can only write the levels to an external `.ovr` sidecar named after that
@@ -75,11 +76,15 @@ class OverviewTargetError(_PyramidsError, ValueError):
       source it wraps. Neither is writable in any access mode, so neither can be
       regenerated in place. `create_overviews` still gives such a handle levels of its
       own.
+    - **a stored level GDAL refuses on a handle already open for writing**, from
+      `recreate_overviews` only: the levels are reached through a source GDAL opens
+      read-only, so the access mode is not the blocker and there is no reopen to advise.
 
-    Subclasses `ValueError`, which both methods already raise for bad arguments, so
+    Subclasses `ValueError`, which those methods already raise for bad arguments, so
     existing `except ValueError` handlers keep working. Catch this instead to tell the two
-    apart: a bad argument is worth retrying with different arguments, whereas this one is
-    a property of the dataset and needs `to_file(path)` first::
+    apart: a bad argument is worth retrying with different arguments, whereas this one is a
+    property of the dataset and needs a different target — `to_file(path)` first, or the
+    raster that owns the levels::
 
         try:
             view.create_overviews(overview_levels=levels)

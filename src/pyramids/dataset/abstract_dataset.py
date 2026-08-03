@@ -1541,17 +1541,21 @@ class RasterBase(ABC):
                 Or the levels a band exposes are owned by a VRT, which computes them on read instead of storing
                 them — a *warped* VRT's bands, or the levels a plain VRT inherits from the source it wraps — so
                 no access mode makes them writable; give the handle levels of its own with `create_overviews()`.
-                Unlike `create_overviews`, a warped VRT is **not** exempt here. Subclasses `ValueError`.
+                Unlike `create_overviews`, a warped VRT is **not** exempt here. Also raised when the levels are
+                *stored* yet GDAL refuses them on a dataset already open for writing: they are reached through a
+                source GDAL opens read-only, so there is no reopen left to advise — regenerate on the raster that
+                owns them. Subclasses `ValueError`.
             ReadOnlyError:
-                If the overviews the call targets are opened read-only, so GDAL refuses to rewrite them —
-                internal overviews inside a read-only dataset, or an external .ovr that a later handle
-                reopened read-only. Please read the dataset using read_only=False. Raised only where the access
-                mode is genuinely the blocker — where the levels are *stored* and the handle simply cannot
-                write them. A level a VRT *computes* is refused for a reason no reopen can fix; where GDAL
-                reports that with the same error number it is separated out and raises `OverviewTargetError`
-                instead. Some VRT spellings — one carrying its own `<OverviewList>`, or one reached
-                through a `.ovr` that is itself a VRT — refuse it with a different number and surface as GDAL's
-                own `RuntimeError`, which already names the cause.
+                If GDAL refuses to rewrite the overviews the call targets, those levels are *stored*, and this
+                handle is open read-only — internal overviews inside a read-only dataset, or an external .ovr
+                that a later handle reopened read-only. Please read the dataset using read_only=False. That is
+                the one shape where reopening is worth trying, not a promise it will succeed: a VRT serving an
+                explicit `<Overview>` owns a real .ovr that GDAL opens read-only whatever the parent's mode, and
+                reopening turns this into the `OverviewTargetError` above. A level a VRT *computes* is separated
+                out the same way, since GDAL reports it with the same error number. Two spellings refuse with a
+                different number instead (`CPLE_AppDefined`): a VRT carrying its own `<OverviewList>`, in either
+                access mode, and a writable handle whose .ovr is itself a VRT. Both surface as GDAL's own
+                `RuntimeError`, which already names the cause.
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or transport failure
                 is not relabelled as an access-mode error. GDAL's own error is re-raised carrying a note

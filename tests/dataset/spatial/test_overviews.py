@@ -854,13 +854,13 @@ class TestCreateOverviewsPathlessGuard:
     def test_to_zarr_with_overview_factors_surfaces_the_refusal(
         self, tmp_path, monkeypatch
     ):
-        """`to_zarr(overview_factors=...)` builds levels, so the refusal escapes there.
+        """`to_zarr(overview_factors=...)` builds levels, so it refuses the same shapes.
 
         Test scenario:
-            An inline-XML VRT is the one refused shape whose base array still writes —
-            GDAL reopens it from its own description, where a description-less VRT fails
-            first in `to_zarr`'s base-array write — so `_write_overview_levels` is reached and
-            `create_overviews` refuses. Expected: `OverviewTargetError` out of `to_zarr`.
+            An inline-XML VRT — the shape whose base array `to_zarr` would otherwise get
+            as far as writing, since GDAL can reopen it from its own description.
+            Expected: `OverviewTargetError` out of `to_zarr`, which the pre-flight guard
+            now raises before `_write_overview_levels` is reached at all.
         """
         pytest.importorskip("zarr")
         monkeypatch.chdir(tmp_path)

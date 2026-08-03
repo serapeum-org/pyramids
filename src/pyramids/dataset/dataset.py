@@ -1680,12 +1680,16 @@ class Dataset(RasterBase):
 
         Raises:
             OverviewTargetError: `overview_factors` was given and this dataset cannot
-                hold overviews — a plain VRT whose description is not a path. The levels
-                are built through `create_overviews`, which refuses that shape. In
-                practice only an inline-XML VRT reaches this: GDAL can reopen it from
-                its own description, so the base array writes first, whereas a
-                description-less VRT fails earlier in `to_zarr`'s base-array write. Save the dataset
-                with `to_file(path)` and write the Zarr from the saved raster.
+                hold overviews — a plain VRT whose description is not a path: an empty
+                one, a blank one, or inline VRT XML. The levels are built through
+                `create_overviews`, which refuses that shape, so the target is checked
+                pre-flight and no store is written at all. The check runs *before* the
+                `compute` one, so a call that is wrong in both ways reports this rather
+                than the `ValueError` below — passing `compute=True` would still leave
+                the dataset refused. Save it with `to_file(path)` and write the Zarr
+                from the saved raster.
+            ValueError: `overview_factors` was given with `compute=False`; the pyramid
+                levels are written eagerly.
         """
         resolved_chunks = chunks if chunks is not None else "auto"
         return write_dataset_to_zarr(
