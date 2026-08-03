@@ -1,6 +1,32 @@
 ﻿# Change log
 
 
+## 0.48.0 (2026-08-02)
+
+### BREAKING CHANGE
+
+- gdal.RegenerateOverviews cascades, filling each deeper
+level from the level above rather than from the full-resolution band, so
+overviews at level 1 and deeper change. Level 0 is unaffected. Values
+survive only for nearest, and for average/rms on a floating-point band
+with no no-data; every other method differs, and mode can move by whole
+classes. Nothing warns, and there is no way back -- create_overviews
+cascades too. See docs/migration.md.
+
+### Feat
+
+- **processing**: add declarative geoprocessing pipeline + batch runner (#912)
+- **dataset**: expose an overview level as a Dataset (#915)
+
+### Fix
+
+- **dataset**: don't treat a paletted band as RGB imagery in plot() (#914)
+- **dataset**: report every recreate_overviews outcome (#895)
+
+### Perf
+
+- **dataset**: regenerate a band's overviews in one GDAL pass (#919)
+
 ## 0.47.0 (2026-08-01)
 
 ### BREAKING CHANGE
