@@ -1532,9 +1532,10 @@ class RasterBase(ABC):
                 description is not a path — an empty one, a blank one, or inline VRT XML — so there is nothing to
                 name an external sidecar after; save it with `to_file(path)` and build the levels there with
                 `create_overviews()` (`to_file` does not carry overviews, so there is nothing to regenerate).
-                Or it is a *warped* VRT, whose levels the warper recomputes onto bands that are never writable,
-                so they cannot be rewritten in place; rebuild them with `create_overviews()`. Unlike
-                `create_overviews`, a warped VRT is **not** exempt here. Subclasses `ValueError`.
+                Or the levels a band exposes are owned by a VRT, which computes them on read instead of storing
+                them — a *warped* VRT's bands, or the levels a plain VRT inherits from the source it wraps — so
+                no access mode makes them writable; give the handle levels of its own with `create_overviews()`.
+                Unlike `create_overviews`, a warped VRT is **not** exempt here. Subclasses `ValueError`.
             ReadOnlyError:
                 If the overviews the call targets are opened read-only, so GDAL refuses to rewrite them —
                 internal overviews inside a read-only dataset, or an external .ovr that a later handle

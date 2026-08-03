@@ -198,7 +198,7 @@ def _mixed_ownership_vrt(tmp_path) -> str:
 
 
 def _level_owner_driver(band: gdal.Band, index: int = 0) -> str | None:
-    """Name the driver of the dataset owning ``band``'s overview ``index``, or None."""
+    """Name the driver of the dataset owning `band`'s overview `index`, or None."""
     owner = band.GetOverview(index).GetDataset()
     driver = owner.GetDriver() if owner is not None else None
     return None if driver is None else driver.ShortName
@@ -1093,10 +1093,10 @@ class TestCreateOverviewsPathlessGuard:
         Test scenario:
             A read-only path-ful VRT whose levels live in the sidecar it owns — the
             genuine access-mode case on a VRT handle. Expected: `ReadOnlyError`, reached
-            without `_is_warped_vrt` running at all. Serialising the document on a mosaic
-            with many sources costs milliseconds in a failure path, and it resets the CPL
-            error number the classification depends on, so the check the regeneration
-            branch asks must not go near it.
+            without `_is_warped_vrt` running at all: the ownership check replaced it, and
+            serialising the document on a mosaic with many sources costs milliseconds in
+            a failure path. Both reset the CPL error number, which is why the refusal is
+            classified before either of them runs.
         """
         monkeypatch.chdir(tmp_path)
         source = _overviewed_raster(tmp_path, "no_serialise_src.tif")
@@ -1347,10 +1347,10 @@ def level_owners(tmp_path, monkeypatch):
 class TestOverviewTargetIsVirtual:
     """The predicate that splits the one `CPLE_NoWriteAccess` refusal into two answers.
 
-    `TestCreateOverviewsPathlessGuard` drives it through the five shapes GDAL actually
-    produces; this class drives it directly, over the inputs those shapes cannot reach —
-    a band with no levels, a level whose owner names no driver, and a list whose *later*
-    entry is the VRT-owned one.
+    `TestCreateOverviewsPathlessGuard` drives it through the shapes GDAL actually
+    produces; this class drives it directly — one owner kind at a time, plus the inputs
+    those shapes cannot reach: a band with no levels, a level with no owning dataset at
+    all, and a list whose *later* entry is the VRT-owned one.
     """
 
     @pytest.mark.parametrize(

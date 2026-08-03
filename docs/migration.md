@@ -209,9 +209,10 @@ followed. Two shapes are affected:
   from a *writable* parent fails identically, and a pathless view has no path to reopen. `create_overviews()`
   still builds a warped view's levels; only in-place regeneration is refused.
 - a **plain VRT that inherits its levels from the source** it wraps — the common
-  `gdal.Translate(..., format="VRT")` or mosaic over an already-overviewed raster. The read-only dataset in
-  GDAL's message is the *source*, which `read_only=False` on the VRT cannot change. Give the VRT its own
-  sidecar with `create_overviews()`, or regenerate on the source raster instead.
+  `gdal.Translate(..., format="VRT")` or mosaic over an already-overviewed raster. GDAL serves each such level
+  from an implicit read-only VRT it builds for the level, not from the handle you opened, so the read-only
+  dataset in its message is one `read_only=False` cannot reach — holding the source open writable does not help
+  either. Give the VRT its own sidecar with `create_overviews()`, or regenerate on the source raster instead.
 
 The two are told apart by who owns the level: a level owned by a VRT is computed, one owned by a real raster
 (the dataset itself for an internal overview, the `.ovr` GTiff for an external one) is stored. `ReadOnlyError`

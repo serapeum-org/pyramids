@@ -64,15 +64,17 @@ class OutOfBoundsError(_PyramidsError):
 class OverviewTargetError(_PyramidsError, ValueError):
     """The dataset cannot hold the overview levels the call was asked to write.
 
-    Raised by `Dataset.create_overviews` and `Dataset.recreate_overviews` for two handles
-    that cannot hold the levels, neither of them fixable by changing the call:
+    Raised by `Dataset.create_overviews` and `Dataset.recreate_overviews` for two
+    conditions that no argument can fix:
 
     - a **plain VRT whose description is not a path**. A plain VRT owns no pixel storage,
       so GDAL can only write the levels to an external `.ovr` sidecar named after that
       description — with nothing usable to name it after, the levels would be stranded.
-    - a **warped VRT**, from `recreate_overviews` only. Its levels are recomputed by the
-      warper and its bands are `VRTWarpedRasterBand`s, which are never writable, so they
-      cannot be regenerated in place. `create_overviews` still builds them.
+    - **levels a VRT computes rather than stores**, from `recreate_overviews` only: a
+      warped VRT's `VRTWarpedRasterBand`s, or the levels a plain VRT inherits from the
+      source it wraps. Neither is writable in any access mode, so neither can be
+      regenerated in place. `create_overviews` still gives such a handle levels of its
+      own.
 
     Subclasses `ValueError`, which both methods already raise for bad arguments, so
     existing `except ValueError` handlers keep working. Catch this instead to tell the two
