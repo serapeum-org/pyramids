@@ -39,10 +39,12 @@ Azure Blob *File System* driver, which is Gen2.
   Blob. Credentials are the same `AZURE_STORAGE_*` family either way.
 - `abfss://` is accepted too, if you prefer to be explicit about TLS. There is no `adls://` scheme: the
   registered Azure Data Lake name is `adl://` (Gen1), which GDAL does not handle.
-- The canonical `abfss://<filesystem>@<account>.dfs.core.windows.net/<path>` form is understood, but GDAL
-  takes the storage account from configuration rather than from the URL. If the URL names an account,
-  `AZURE_STORAGE_ACCOUNT` must be set to match it — a mismatch, or naming an account with none configured,
-  raises instead of silently reading a different account.
+- The canonical `abfss://<filesystem>@<account>.dfs.core.windows.net/<path>` form is understood: the filesystem
+  becomes the container and the account is dropped from the path, because GDAL takes it from configuration. The
+  rewrite is deterministic — the same URL always yields the same `/vsi*` path — and if the URL names an account
+  that disagrees with the configured one, a `UserWarning` says which account will actually be read. Set
+  `AZURE_STORAGE_ACCOUNT` (or `AccountName=` inside `AZURE_STORAGE_CONNECTION_STRING`) to match, or use the bare
+  `abfs://<filesystem>/<path>` form.
 
 **`/vsiadls/` is now recognised as a remote, network-backed path.** Previously `is_remote()` and
 `is_network_backed()` both returned `False` for a Gen2 path, so it was classified as a local file — opening still
@@ -55,9 +57,11 @@ URL scheme at all, so the raw `/vsi*` spelling is the only way to name them — 
 go through the chaining too, where before they were returned untouched. If you were chaining by hand, the manual
 prefix is no longer needed, and a hand-built `/vsizip//vsioss/...` still works unchanged.
 
-**Credentials for `abfs://` are the same `AZURE_STORAGE_*` family**, with one exception: GDAL's anonymous-access
-switch is per-handler, so a workflow relying on `AZURE_NO_SIGN_REQUEST` against `/vsiaz/` needs the `/vsiadls/`
-equivalent once `abfs://` routes there.
+**Credentials are unchanged.** `/vsiadls/` reads the same `AZURE_STORAGE_ACCOUNT` / `AZURE_STORAGE_ACCESS_KEY` /
+`AZURE_STORAGE_SAS_TOKEN` / `AZURE_STORAGE_CONNECTION_STRING` family as `/vsiaz/`, and honours
+`AZURE_NO_SIGN_REQUEST` identically (verified: with it set both handlers skip the instance-metadata credential
+lookup). `CloudConfig` gains an `azure_no_sign_request=True` flag so anonymous Azure reads have the same knob the
+S3 side already had.
 
 **`Dataset.epsg` no longer reports EPSG:4326 for a raster that has no CRS.** It previously substituted WGS 84
 whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that
