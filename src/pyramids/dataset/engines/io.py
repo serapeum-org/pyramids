@@ -2007,9 +2007,13 @@ class IO(_Engine["Dataset"]):
                 the non-mutating `to_cog`. Use it when writing a *borrowed*
                 handle you must not disturb, e.g. streaming each timestep of a
                 :class:`~pyramids.dataset.DatasetCollection` to disk without
-                repointing the collection's cached handles. Ignored for the
-                ASCII and ``driver="COG"`` paths, which never reopen (both
-                write without swapping the source regardless of this flag).
+                repointing the collection's cached handles. One caveat: a
+                NetCDF variable-subset source is still materialized in place by
+                the write path before the copy (a full read GDAL needs to window
+                a multidim view), so such a source is mutated regardless of this
+                flag. Ignored for the ASCII and ``driver="COG"`` paths, which
+                never reopen (both write without swapping the source regardless
+                of this flag).
 
         Examples:
             - Create a Dataset with 4 bands, 5 rows, 5 columns, at the point lon/lat (0, 0):

@@ -185,9 +185,11 @@ def _write_to_file_sync(
             :meth:`pyramids.dataset.engines.COG.to_cog`).
         reopen: When True (default), reopen the written file and swap it
             into `ds` in place (see :meth:`IO.to_file`). When False, write
-            and return without mutating `ds`. Only affects the CreateCopy
-            path — the ASCII and `"COG"` drivers return earlier and never
-            reopen, so the flag is a no-op for them.
+            and return without mutating `ds` — except a NetCDF variable-subset
+            source, which ``_materialize_md_view()`` mutates in place before the
+            copy regardless of this flag. Only affects the CreateCopy path — the
+            ASCII and `"COG"` drivers return earlier and never reopen, so the
+            flag is a no-op for them.
     """
     if driver == "COG":
         _write_cog(ds, path, band, tile_length, creation_options)
