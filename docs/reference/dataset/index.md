@@ -147,6 +147,7 @@ classDiagram
     class _errors_OptionalPackageDoesNotExist
     class _errors_FailedToSaveError
     class _errors_OutOfBoundsError
+    class _errors_OverviewTargetError
 
     %% inheritance relations
     RasterBase <|-- Dataset
@@ -160,6 +161,7 @@ classDiagram
     Dataset ..> _errors_AlignmentError : "raises"
     Dataset ..> _errors_NoDataValueError : "raises"
     Dataset ..> _errors_FailedToSaveError : "raises"
+    Dataset ..> _errors_OverviewTargetError : "raises"
     Dataset ..> _errors_OutOfBoundsError : "raises"
     NetCDF ..> _errors_OptionalPackageDoesNotExist : "raises"
     Config ..> Dataset : "initialises raster settings"

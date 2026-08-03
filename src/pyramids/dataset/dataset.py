@@ -1686,6 +1686,19 @@ class Dataset(RasterBase):
                 Read a level back with `Dataset.from_zarr(store, level=factor)`.
             overview_resampling: GDAL resampling for the pyramid levels
                 (`"average"` default, `"nearest"`, `"bilinear"`, ...).
+
+        Raises:
+            OverviewTargetError: `overview_factors` was given and this dataset cannot
+                hold overviews — a plain VRT whose description is not a path: an empty
+                one, a blank one, or inline VRT XML. The levels are built through
+                `create_overviews`, which refuses that shape, so the target is checked
+                pre-flight and no store is written at all. The check runs *before* the
+                `compute` one, so a call that is wrong in both ways reports this rather
+                than the `ValueError` below — passing `compute=True` would still leave
+                the dataset refused. Save it with `to_file(path)` and write the Zarr
+                from the saved raster.
+            ValueError: `overview_factors` was given with `compute=False`; the pyramid
+                levels are written eagerly.
         """
         resolved_chunks = chunks if chunks is not None else "auto"
         return write_dataset_to_zarr(

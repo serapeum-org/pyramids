@@ -31,7 +31,12 @@ from pyproj import CRS
 
 from pyramids._io import new_vsimem_path, read_vsi_bytes
 from pyramids.base._domain import is_no_data
-from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
+from pyramids.base._errors import (
+    FailedToSaveError,
+    OutOfBoundsError,
+    OverviewTargetError,
+    ReadOnlyError,
+)
 from pyramids.base._file_manager import (
     CachingFileManager,
     ThreadLocalFileManager,
@@ -67,6 +72,9 @@ from pyramids.dataset.engines._validate import (
 )
 
 _VSIMEM_PREFIX = "/vsimem/"
+# How much of an offending VRT description the refusal quotes back. An inline-XML
+# description is a whole document, so it is cut rather than dumped into the message.
+_DESCRIPTION_EXCERPT = 80
 
 _GRID_SNAP_TOL = 1e-9
 """Fractional-pixel tolerance for snapping a bbox edge onto an exact cell boundary.
@@ -2955,28 +2963,229 @@ class IO(_Engine["Dataset"]):
             overview_number.append(self._ds._iloc(i).GetOverviewCount())
         return overview_number
 
+    def _has_nowhere_for_an_overview_sidecar(self) -> bool:
+        """Whether this handle is a VRT that cannot store the overviews it would build.
+
+        A plain VRT owns no pixel storage, so GDAL can only put its overviews in an
+        external `.ovr` sidecar named after the dataset description. Two descriptions are
+        not usable as a path: one that is empty or blank — both strip to the same thing
+        here — which makes GDAL write a file called literally `.ovr` into the process's
+        working directory attached to nothing while dropping the levels the handle already
+        exposed; and inline VRT XML, which GDAL stores verbatim and then fails on, trying
+        to create a file named after the whole document.
+
+        Two VRT families are deliberately excluded because they are not affected:
+
+        - a *warped* VRT (`subClass="VRTWarpedDataset"`, produced by `warped_view`, the
+          warping form of `to_crs`, `crop(mask, touch=False)` with a vector mask, and the
+          lazy `georeference` / `orthorectify` forms) keeps its overviews in RAM and needs
+          no sidecar. `to_crs(..., maintain_alignment=True)` and `crop` with a raster mask
+          take different paths and return a `MEM` dataset, exempt as a non-VRT rather than
+          as a warped one;
+        - a VRT with a real path — including one under `/vsimem/` — names its sidecar
+          after that path and writes it successfully.
+
+        The warped exemption is read off the root element of the serialised document, so
+        it has to be proven rather than assumed: a handle that serialises no
+        `<VRTDataset …>` root at all is refused, since nothing then shows it keeps its
+        levels in RAM.
+
+        A handle that is not a VRT is never blocked here, whatever its description: `MEM`
+        keeps its levels internally, and a NetCDF variable view over a regular grid names
+        its sidecar after the container when the container is file-backed, or is refused
+        by GDAL itself with `RuntimeError: No filename associated with array` when it is
+        not. A NetCDF variable view is not always a non-VRT handle, though: when the
+        classic view comes back in index space, `_georeference_index_subset` wraps it in a
+        plain pathless VRT, and that shape is blocked here like any other.
+
+        Three callers gate on this, for different reasons: `create_overviews` has nowhere
+        to put a new sidecar; `write_dataset_to_zarr` builds its pyramid through that same
+        method, so it refuses the same shape before writing anything; and
+        `recreate_overviews` is blocked because a plain VRT computes whatever levels it
+        exposes. The last could be left to the ownership check in `_regenerate_overviews`
+        whenever the handle exposes levels at all, but gating up front keeps the two
+        overview methods refusing the same shape for the same handle, and spares the
+        caller a GDAL round trip that can only fail.
+
+        The description is read as it stands now, while GDAL fixed the sidecar's basename
+        when the handle was opened. A handle renamed after opening can therefore pass this
+        check and still strand its levels. No pyramids API renames a dataset handle, so
+        the two cannot disagree today.
+
+        Returns:
+            bool:
+                True when this handle is a VRT whose overviews have nowhere to go.
+        """
+        blocked = False
+        if self._ds.driver_type == "vrt":
+            # Cheap and decisive: a usable path settles it without serialising the
+            # document, which costs milliseconds on a mosaic with many sources.
+            description = self._ds.raster.GetDescription().strip()
+            if not description or description.startswith("<"):
+                blocked = not self._is_warped_vrt()
+        return blocked
+
+    def _is_warped_vrt(self) -> bool:
+        """Whether this handle is a warped VRT, whose levels live in RAM.
+
+        Decided from the `subClass` attribute on the **root** element of the serialised
+        `xml:VRT` document. The slice is anchored on `<VRTDataset` rather than on the first
+        `>`: a nested source may carry its own `<VRTDataset>` tag, and a leading XML
+        declaration or comment would otherwise shift the slice off the root and report
+        every warped VRT as plain.
+
+        The slice ends at the first `>` after `<VRTDataset`, which is the root start tag's
+        own terminator: GDAL's serialiser escapes `>` inside attribute values, and the
+        only root attributes it writes are the raster dimensions and `subClass`.
+
+        A root element that cannot be isolated answers False — the exemption has to be
+        proven, not assumed. The sole caller, `_has_nowhere_for_an_overview_sidecar`,
+        negates the result, so that default is fail-safe there: an unreadable root refuses
+        rather than letting a plain VRT strand its levels. GDAL always serialises the
+        document for a real VRT, so the fallback is not reachable today. Weigh the
+        direction again before adding a caller that uses the result *un*-negated, where
+        the same default would silently mean "not warped".
+
+        Returns:
+            bool:
+                True when the root element declares `subClass="VRTWarpedDataset"`.
+        """
+        xml = (self._ds.raster.GetMetadata("xml:VRT") or [""])[0]
+        start = xml.find("<VRTDataset")
+        end = xml.find(">", start)
+        root = xml[start : end + 1] if start != -1 and end != -1 else ""
+        return 'subClass="VRTWarpedDataset"' in root
+
+    def _no_sidecar_message(self, *, regenerating: bool = False) -> str:
+        """Build the `OverviewTargetError` message for a VRT with no usable description.
+
+        Shared by `create_overviews`, `recreate_overviews` and `write_dataset_to_zarr` so
+        the recovery clause cannot drift; it names `create_overviews` for all three,
+        whichever was called, because `to_file` does not carry overviews into the output,
+        so the saved raster has none and regenerating on it would only warn and no-op.
+
+        The diagnosis is not shared, because the callers are blocked for different
+        reasons. Building has nowhere to *put* a new sidecar — the wording the zarr writer
+        takes as well, since it builds its pyramid through `create_overviews`.
+        Regenerating is blocked by ownership, not by the missing path — a plain VRT
+        computes whatever levels it exposes, and the path-ful equivalent is refused too —
+        so claiming the description is what stops it would misattribute the cause in the
+        very direction this classification exists to correct.
+
+        Args:
+            regenerating: True when `recreate_overviews` is the caller.
+
+        Returns:
+            str:
+                The message, quoting the offending description — truncated, with an
+                ellipsis when it was cut — so a caller holding several handles can tell
+                which call failed.
+        """
+        full = self._ds.raster.GetDescription()
+        description = full[:_DESCRIPTION_EXCERPT]
+        ellipsis = "..." if len(full) > _DESCRIPTION_EXCERPT else ""
+        if regenerating:
+            diagnosis = (
+                "This dataset is a plain VRT, so the overviews it exposes have nowhere "
+                "to go: it computes them rather than storing them, and its description "
+                "is not a path to hang a new sidecar on either."
+            )
+        else:
+            diagnosis = (
+                "This dataset is a plain VRT whose description is not a path, so its "
+                "overviews have nowhere to go: a plain VRT stores no pixels of its own, "
+                "and GDAL names the external sidecar after the description, so there is "
+                "nothing to write the levels to."
+            )
+        return (
+            f"{diagnosis} Description: {description!r}{ellipsis}. Save it first with "
+            "to_file(path) and build the overviews on the saved raster with "
+            "create_overviews()."
+        )
+
+    @staticmethod
+    def _overview_target_is_virtual(overviews: list[gdal.Band]) -> bool:
+        """Whether these overview levels are computed rather than stored.
+
+        Asked only after GDAL has refused the write, to tell the two `CPLE_NoWriteAccess`
+        cases apart. A level whose owning dataset is a VRT is one the VRT produces on
+        read — a `VRTWarpedRasterBand`, or a level inherited from the source a plain VRT
+        wraps — so no access mode makes it writable. A level owned by a real raster is
+        stored: the dataset itself for an internal overview, the `.ovr` GTiff for an
+        external one. Stored is not the same as reachable, though — a VRT serving an
+        explicit `<Overview>` owns a real `.ovr` GTiff that GDAL still opens read-only —
+        so the caller weighs the access mode as well before advising a reopen.
+
+        An internal overview reports no driver on its owning dataset, which reads as
+        stored — correct, and the conservative direction: mistaking a stored level for a
+        computed one would replace an actionable "reopen writable" with advice to rebuild.
+
+        Args:
+            overviews: The level bands already resolved for one band.
+
+        Returns:
+            bool:
+                True when any level's pixels belong to a VRT.
+        """
+        virtual = False
+        for level in overviews:
+            owner = level.GetDataset()
+            driver = owner.GetDriver() if owner is not None else None
+            if driver is not None and driver.ShortName == "VRT":
+                virtual = True
+                break
+        return virtual
+
     def create_overviews(
         self,
         resampling_method: str = "nearest",
         overview_levels: list | None = None,
     ) -> None:
         """Create overviews for the dataset.
+
         Args:
             resampling_method (str):
                 The resampling method used to create the overviews. Possible values are
                 "NEAREST", "CUBIC", "AVERAGE", "GAUSS", "CUBICSPLINE", "LANCZOS", "MODE",
                 "AVERAGE_MAGPHASE", "RMS", "BILINEAR". Defaults to "nearest".
             overview_levels (list, optional):
-                The overview levels. Restricted to typical power-of-two reduction factors. Defaults to [2, 4, 8, 16,
-                32].
+                The overview levels, as reduction factors drawn from the supported set
+                (2, 4, 8 … 2048). Defaults to the full set.
+
         Returns:
             None:
                 Creates internal or external overviews depending on the dataset access mode. See Notes.
+
+        Raises:
+            TypeError:
+                `overview_levels` is not a list.
+            ValueError:
+                `overview_levels` holds a factor outside the supported set, or
+                `resampling_method` is not one of the allowed values.
+            OverviewTargetError:
+                Checked *before* the arguments, since no argument value can make this
+                dataset work — so a call that is wrong in both ways reports this, not the
+                `TypeError` / `ValueError` above.
+                The dataset is a plain VRT whose description is not a path — an empty one,
+                a blank one, or inline VRT XML. A plain VRT owns no pixel storage, so its
+                overviews can only go to an external sidecar, and there is nothing to name
+                one after; save it with `to_file(path)` and build the levels on the saved
+                raster. A *warped* VRT is exempt: it holds its overviews in RAM.
+                Subclasses `ValueError`, so a handler for the argument errors above still
+                catches it.
+            RuntimeError:
+                GDAL failed to build the levels.
+
         Notes:
-            - External (.ovr file): If the dataset is read with `read_only=True` then the overviews file will be created
-              as an external .ovr file in the same directory of the dataset.
-            - Internal: If the dataset is read with `read_only=False` then the overviews will be created internally in
-              the dataset, and the dataset needs to be saved/flushed to persist the changes to disk.
+            - External (.ovr file): if the dataset is read with `read_only=True` then the overviews file is created
+              as an external .ovr file in the same directory as the dataset.
+            - Internal: for a format that supports internal overviews, reading with `read_only=False` puts them
+              inside the dataset, which then needs to be saved/flushed to persist them to disk. A *plain* VRT has
+              no internal storage, so its levels go to an external sidecar in either access mode; a warped VRT
+              holds them in RAM and writes no sidecar at all.
+            - On a **warped** VRT, `resampling_method` has no effect: GDAL resamples those levels with the
+              warper's own algorithm, so `"average"` and `"nearest"` produce identical pixels. Build the levels
+              on a saved raster instead if the method matters.
             - You can check the count per band via the `overview_count` property.
         Examples:
             - Create a Dataset with 4 bands, 10 rows, 10 columns, at the point lon/lat (0, 0):
@@ -3022,6 +3231,10 @@ class IO(_Engine["Dataset"]):
             - Dataset.read_overview_array: Read overview values
             - Dataset.plot: Plot a band
         """
+        # This one is about the dataset, not the call, so no argument can make it
+        # succeed. Check it first, or a typo'd argument masks the real blocker.
+        if self._has_nowhere_for_an_overview_sidecar():
+            raise OverviewTargetError(self._no_sidecar_message())
         if overview_levels is None:
             overview_levels = OVERVIEW_LEVELS
         else:
@@ -3078,9 +3291,36 @@ class IO(_Engine["Dataset"]):
         Raises:
             ValueError:
                 If resampling_method is not one of the allowed values above.
+            OverviewTargetError:
+                Checked *before* the arguments, since no argument value can make this
+                dataset work, so a call that is wrong in both ways reports this rather
+                than the `ValueError` above.
+                If the dataset is a plain VRT whose description is not a path — there is
+                nothing to name an external sidecar after, so the levels have nowhere to
+                go — or if the levels a band exposes are owned by a VRT, which computes
+                them on read instead of storing them: a *warped* VRT's
+                `VRTWarpedRasterBand`s, or the levels a plain VRT inherits from the source
+                it wraps. Save it with `to_file(path)` and build the levels on the saved
+                raster with `create_overviews()` — `to_file` does not carry overviews, so
+                the saved raster has none to regenerate — or give the handle levels of its
+                own with `create_overviews()`, which a warped VRT keeps in RAM and a
+                path-ful plain VRT writes to its own sidecar. Also raised when the levels
+                are *stored* yet GDAL refuses them on a dataset already open for writing:
+                they are reached through a source GDAL opens read-only, so there is no
+                reopen left to advise — regenerate on the raster that owns them.
+                Subclasses `ValueError`.
             ReadOnlyError:
-                If GDAL refuses the rewrite because the overviews it targets are opened
-                read-only. Read with read_only=False.
+                If GDAL refuses the rewrite, the levels it targets are *stored*, and this
+                handle is open read-only — the one shape where reading again with
+                read_only=False is worth trying. It is not a promise that it will
+                succeed: a VRT serving an explicit `<Overview>` owns a real `.ovr` that
+                GDAL opens read-only whatever the parent's mode, and reopening turns this
+                into the `OverviewTargetError` above. A level a VRT *computes* is
+                separated out the same way, since GDAL reports it with the same error
+                number. Two spellings refuse with a different number instead
+                (`CPLE_AppDefined`): a VRT carrying its own `<OverviewList>`, in either
+                access mode, and a writable handle whose `.ovr` is itself a VRT. Both
+                surface as GDAL's own `RuntimeError`, which already names the cause.
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or
                 transport failure is not relabelled as an access-mode error. GDAL's own
@@ -3088,11 +3328,21 @@ class IO(_Engine["Dataset"]):
                 band's levels regenerate in one call, so no level is named; a failing
                 status that raised nothing is turned into one.
 
+        Note:
+            Bands are regenerated in order and the exceptions above are raised on the
+            first band that fails, so earlier bands — and, within the failing band,
+            earlier levels — may already have been rewritten. The dataset is not rolled
+            back.
+
         Warns:
             UserWarning:
                 No band has overviews, so there is nothing to regenerate; or only some
                 bands have them, and the empty ones were skipped. Also when the dataset
-                has no bands at all.
+                has no bands at all. None of these fire on a *plain* pathless VRT — that
+                raises `OverviewTargetError` first, since "call create_overviews() to
+                build them" is advice it would also refuse. A warped VRT is exempt from
+                that guard, so an empty one still warns; its refusal comes only from the
+                regeneration attempt itself.
 
         See Also:
             - Dataset.create_overviews: Create the dataset overviews.
@@ -3101,6 +3351,13 @@ class IO(_Engine["Dataset"]):
             - Dataset.read_overview_array: Read overview values.
             - Dataset.plot: Plot a band.
         """
+        # Same shape check as `create_overviews`, and for the same reason: without it a
+        # pathless VRT reaches GDAL, is refused as a write, and is diagnosed as an
+        # access-mode problem -- advising a reopen with `read_only=False` that a handle
+        # with no path cannot perform. The diagnosis differs, though: what blocks
+        # regeneration is that a plain VRT computes its levels, not that it lacks a path.
+        if self._has_nowhere_for_an_overview_sidecar():
+            raise OverviewTargetError(self._no_sidecar_message(regenerating=True))
         if resampling_method.upper() not in RESAMPLING_METHODS:
             raise ValueError(f"resampling_method should be one of {RESAMPLING_METHODS}")
         overview_count = self.overview_count
@@ -3164,9 +3421,16 @@ class IO(_Engine["Dataset"]):
             resampling_method: One of `RESAMPLING_METHODS`, already validated.
 
         Raises:
-            ReadOnlyError: GDAL refused the write because the overview target is
-                read-only, as classified by :meth:`_is_write_refusal`. The original
-                error stays chained as `__cause__`.
+            OverviewTargetError: GDAL refused the write and no reopen can fix it, for
+                either of two reasons. The failing band's levels are owned by a VRT — a
+                warped band, or one a plain VRT inherits from its source — so the VRT
+                computes them on read and no access mode makes them writable; or they are
+                stored, but this handle is already open for writing, which leaves no
+                reopen to advise. The original error stays chained as `__cause__`.
+            ReadOnlyError: GDAL refused the write, :meth:`_overview_target_is_virtual`
+                says the levels are stored rather than computed, and this handle is open
+                read-only — the one shape where reopening writable is worth trying. The
+                original error stays chained as `__cause__`.
             RuntimeError: Any other GDAL failure — the error GDAL raised, re-raised with
                 a note naming the band it stopped on, or a fresh one carrying
                 `gdal.GetLastErrorMsg()` when `RegenerateOverviews` reports a
@@ -3181,12 +3445,15 @@ class IO(_Engine["Dataset"]):
                 # the #863 defect, narrowed to a band.
                 continue
             band = self._ds._iloc(i)
+            # Bound before the try because the handler classifies on it: left to the
+            # assignment below it would still hold the *previous* band's levels if this
+            # band's resolution failed, and would be unbound entirely on band 0.
+            overviews: list[gdal.Band] = []
             gdal.ErrorReset()
             try:
-                # Resolve inside the try so a level that has gone missing since the
-                # caller snapshotted the counts is reported against its band like any
-                # other failure, rather than escaping bare. Taken off the already
-                # resolved band: get_overview would re-resolve it and re-read
+                # Resolved inside the try so any failure here is reported against its
+                # band like the regeneration's own, rather than escaping bare. Taken off
+                # the already resolved band: get_overview would re-resolve it and re-read
                 # GetOverviewCount once per level.
                 # Holding every level's handle at once (the singular loop held one) is
                 # safe: GetOverview registers a child reference on the owning dataset,
@@ -3194,17 +3461,20 @@ class IO(_Engine["Dataset"]):
                 overviews = [band.GetOverview(j) for j in range(overview_count[i])]
                 status = gdal.RegenerateOverviews(band, overviews, resampling_method)
             except RuntimeError as err:
+                # Classify FIRST: `_is_write_refusal` reads GDAL's process-global
+                # last-error number, and any GDAL call made in this handler resets it --
+                # `_overview_target_is_virtual` below asks each level for its dataset,
+                # and that alone takes the number from CPLE_NoWriteAccess to CPLE_None.
+                # The number is not dependable even here, so the phrase list carries the
+                # write refusals too; see `_is_write_refusal`.
+                write_refused = self._is_write_refusal(err)
                 err.add_note(
                     f"Failed regenerating the overviews of band {i} (0-based); "
                     "earlier bands, and this band's earlier levels, may already have "
                     "been rewritten."
                 )
-                if self._is_write_refusal(err):
-                    raise ReadOnlyError(
-                        f"Cannot regenerate the overviews of band {i}: the overviews "
-                        "are opened read-only. Please read the dataset using "
-                        "read_only=False to recreate overviews."
-                    ) from err
+                if write_refused:
+                    raise self._refusal_for(i, overviews) from err
                 raise
             # gdal.UseExceptions() is process-global, so a caller that turned it off
             # (or a driver that fails without pushing a CPL error) would otherwise
@@ -3215,6 +3485,62 @@ class IO(_Engine["Dataset"]):
                     f"Failed regenerating the overviews of band {i} (0-based): {detail}"
                 )
 
+    def _refusal_for(
+        self, band_index: int, overviews: list[gdal.Band]
+    ) -> OverviewTargetError | ReadOnlyError:
+        """Build the error for a band GDAL refused to rewrite, once the refusal is known.
+
+        GDAL reports every unwritable overview target with the same `CPLE_NoWriteAccess`
+        it uses for a read-only dataset, so the number cannot tell them apart — and only
+        one of them is fixable by reopening. Two questions separate them.
+
+        First, who owns the level. A level owned by a VRT is one the VRT computes — a
+        warped band, or an overview inherited from the source it wraps — and no access
+        mode makes those writable. A level owned by a real raster is stored: the dataset
+        itself for an internal overview, the `.ovr` GTiff for an external one.
+
+        Stored is not the same as reachable, so the second question is whether a reopen is
+        even available. A VRT serving an explicit `<Overview>` owns a real,
+        on-disk-writable `.ovr`, yet GDAL opens VRT sources read-only and refuses however
+        the parent was opened. Advising a reopen is honest only while one is still to be
+        had; on a handle already open for writing it is provably the caller's own last
+        move, which is the misdiagnosis this classification exists to remove.
+
+        Args:
+            band_index: The 0-based band GDAL stopped on, named in the message.
+            overviews: That band's level bands, already resolved.
+
+        Returns:
+            OverviewTargetError | ReadOnlyError:
+                `OverviewTargetError` when the target cannot be written whatever the
+                caller does, `ReadOnlyError` when reopening writable is still worth
+                trying. The caller raises it `from` GDAL's own error.
+        """
+        if self._overview_target_is_virtual(overviews):
+            refusal: OverviewTargetError | ReadOnlyError = OverviewTargetError(
+                f"Cannot regenerate the overviews of band {band_index}: their pixels "
+                "belong to a VRT, which computes them on read rather than storing them, "
+                "so they cannot be rewritten in place. Rebuild them with "
+                "create_overviews() -- which on a warped VRT resamples with the warper's "
+                "own algorithm, ignoring any resampling_method -- or save the dataset "
+                "with to_file(path) and regenerate on the saved raster."
+            )
+        elif self._ds._access != "read_only":
+            refusal = OverviewTargetError(
+                f"Cannot regenerate the overviews of band {band_index}: GDAL refused the "
+                "write although this dataset is already open for writing, so the access "
+                "mode is not the blocker -- the levels are reached through a source GDAL "
+                "opens read-only. Regenerate them on the raster that owns them, or "
+                "rebuild this dataset's own with create_overviews()."
+            )
+        else:
+            refusal = ReadOnlyError(
+                f"Cannot regenerate the overviews of band {band_index}: the overviews "
+                "are opened read-only. Please read the dataset using read_only=False to "
+                "recreate overviews."
+            )
+        return refusal
+
     @staticmethod
     def _is_write_refusal(err: RuntimeError) -> bool:
         """Return True if a GDAL regeneration failure is a read-only refusal.
@@ -3222,15 +3548,27 @@ class IO(_Engine["Dataset"]):
         Classifies on the CPL error number (`CPLE_NoWriteAccess`) rather than the
         message: GDAL prefixes messages with the dataset path, so a bare "read-only"
         substring test relabels an unrelated failure on a raster living under, say,
-        `/mnt/read-only-archive/` as an access-mode error. The exact GDAL phrasings are
-        kept only as a fallback for drivers that raise without setting the number —
-        those phrases cannot occur incidentally in a path the way the bare token can.
+        `/mnt/read-only-archive/` as an access-mode error. The fallback therefore matches
+        GDAL's exact phrasings, which cannot occur incidentally in a path the way the bare
+        token can.
+
+        **Call this before any GDAL call in the handler**, so the number is still the one
+        this regeneration set: *any* GDAL call made after the failure resets it — asking a
+        level band for its owning dataset, which :meth:`_overview_target_is_virtual` does,
+        already takes it from `CPLE_NoWriteAccess` to `CPLE_None`.
+
+        Calling early is necessary but not sufficient, which is why the phrase list covers
+        the write refusals rather than only exotic drivers. The number is not reliably
+        intact even at the top of the handler: raising a warped band's refusal was measured
+        answering `CPLE_NoWriteAccess` on one run and `CPLE_None` on the next, from the
+        same call on the same data, so a classification resting on the number alone was
+        intermittently wrong. The message is deterministic where the number is not.
 
         Args:
             err: The error GDAL raised. Only its message is read, and only on the
-                fallback path; the primary signal is GDAL's process-global last-error
-                number, which the caller keeps meaningful by resetting it before each
-                regeneration.
+                fallback path; the number is tried first, the caller resetting it before
+                each regeneration and classifying before calling back into GDAL. When it
+                has been lost anyway — see above — the message decides alone.
 
         Returns:
             bool: True when the failure is GDAL refusing to write the overview target.
@@ -3245,6 +3583,7 @@ class IO(_Engine["Dataset"]):
                     "read-only mode",
                     "read only dataset",
                     "read-only dataset",
+                    "write to a vrtwarpedrasterband",
                 )
             )
         return refusal
@@ -3351,12 +3690,12 @@ class IO(_Engine["Dataset"]):
         Windows the file cannot be deleted. Neither form carries a path of its own, so
         `read_array(threadsafe=True)` and pickling it raise, and `read_array(chunks=...)`
         returns a graph that raises when it is computed; call `to_file()` first if you
-        need any of those. `create_overviews()` on the lazily described form has nowhere
-        to put the external sidecar it needs either, so it drops a stray `.ovr` into the
-        process's working directory — the materialised form builds its levels in RAM and
-        writes nothing. The `read_only` label stops pixel writes; metadata setters still
-        work, since a pathless handle cannot spill a PAM sidecar. A `NetCDF` variable
-        view returns a plain `Dataset` — an overview level is an ordinary raster, not a
+        need any of those. `create_overviews()` on the lazily described form raises
+        `OverviewTargetError` for the same reason — a plain VRT has nowhere to put the
+        external sidecar it would need — while the materialised form builds its levels in
+        RAM and works. The `read_only` label stops pixel writes; metadata setters still work,
+        since a pathless handle cannot spill a PAM sidecar. A `NetCDF` variable view
+        returns a plain `Dataset` — an overview level is an ordinary raster, not a
         NetCDF container — and only a real mapping of dataset metadata is carried, so a
         container's structured attributes stay behind. While the materialised form is
         being built it holds the level's pixels three times over: the per-band reads,

@@ -1458,7 +1458,7 @@ class RasterBase(ABC):
     @abstractmethod
     def create_overviews(
         self, resampling_method: str = "nearest", overview_levels: list | None = None
-    ):
+    ) -> None:
         """Create overviews for the dataset.
 
         Args:
@@ -1468,22 +1468,44 @@ class RasterBase(ABC):
                     "NEAREST", "CUBIC", "AVERAGE", "GAUSS", "CUBICSPLINE", "LANCZOS", "MODE",
                     "AVERAGE_MAGPHASE", "RMS", "BILINEAR".
             overview_levels (list, optional):
-                The overview levels, restricted to the typical power-of-two reduction factors. Default [2, 4, 8, 16, 32].
+                The overview levels, as reduction factors restricted to the powers of two from 2 to 2048.
+                Defaults to the full set.
 
         Returns:
-            Tuple[str, list]:
-                Information about whether overviews are internal or external, and the overview_count list per band.
-                - External (.ovr file):
-                    If the dataset is read with `read_only=True` then the overviews' file will be
-                    created in the same directory of the dataset, with the same name of the dataset and .ovr extension.
-                - Internal:
-                    If the dataset is read with `read_only=False` then the overviews will be created internally in the
-                    dataset, and the dataset needs to be saved/flushed to save the new changes to disk.
+            None:
+                The levels are built on the dataset itself; read the count per band from `overview_count`.
+
+        Raises:
+            TypeError:
+                `overview_levels` is not a list.
+            ValueError:
+                `overview_levels` holds a factor outside the supported set, or `resampling_method` is not one of
+                the allowed values.
+            OverviewTargetError:
+                Checked *before* the arguments, since no argument value can make this dataset work, so a call
+                that is wrong in both ways reports this rather than the `TypeError` / `ValueError` above.
+                The dataset is a plain VRT whose description is not a path — an empty one, a blank one, or inline
+                VRT XML. A plain VRT owns no pixel storage, so its overviews can only go to an external sidecar,
+                and there is nothing to name one after; save it with `to_file(path)` and build the levels on the
+                saved raster. A *warped* VRT is exempt: it holds its overviews in RAM. Subclasses `ValueError`.
+            RuntimeError:
+                GDAL failed to build the levels.
+
+        Notes:
+            - External (.ovr file): if the dataset is read with `read_only=True` then the overviews' file is
+              created in the same directory as the dataset, with the same name and an `.ovr` extension.
+            - Internal: for a format that supports internal overviews, reading with `read_only=False` puts them
+              inside the dataset, which then needs to be saved/flushed to persist them to disk. A *plain* VRT has
+              no internal storage, so its levels go to an external sidecar in either access mode; a warped VRT
+              holds them in RAM and writes no sidecar at all.
+            - On a **warped** VRT, `resampling_method` has no effect: GDAL resamples those levels with the
+              warper's own algorithm, so `"average"` and `"nearest"` produce identical pixels. Build the levels
+              on a saved raster instead if the method matters.
         """
         pass
 
     @abstractmethod
-    def recreate_overviews(self, resampling_method: str = "nearest"):
+    def recreate_overviews(self, resampling_method: str = "nearest") -> None:
         """Recreate overviews for the dataset.
 
         Regenerates the existing overviews in place; it never builds new ones — call
@@ -1508,21 +1530,51 @@ class RasterBase(ABC):
             ValueError:
                 resampling_method should be one of {"NEAREST", "CUBIC", "AVERAGE", "GAUSS", "CUBICSPLINE", "LANCZOS",
                 "MODE", "AVERAGE_MAGPHASE", "RMS", "BILINEAR"}.
+            OverviewTargetError:
+                The dataset cannot hold regenerated levels, for either of two reasons. The first is checked
+                *before* the arguments, since no argument value can make such a dataset work, so a call that is
+                wrong in both ways reports this rather than the `ValueError` above.
+                It is a plain VRT whose
+                description is not a path — an empty one, a blank one, or inline VRT XML — so there is nothing to
+                name an external sidecar after; save it with `to_file(path)` and build the levels there with
+                `create_overviews()` (`to_file` does not carry overviews, so there is nothing to regenerate).
+                Or the levels a band exposes are owned by a VRT, which computes them on read instead of storing
+                them — a *warped* VRT's bands, or the levels a plain VRT inherits from the source it wraps — so
+                no access mode makes them writable; give the handle levels of its own with `create_overviews()`.
+                Unlike `create_overviews`, a warped VRT is **not** exempt here. Also raised when the levels are
+                *stored* yet GDAL refuses them on a dataset already open for writing: they are reached through a
+                source GDAL opens read-only, so there is no reopen left to advise — regenerate on the raster that
+                owns them. Subclasses `ValueError`.
             ReadOnlyError:
-                If the overviews the call targets are opened read-only, so GDAL refuses to rewrite them —
-                internal overviews inside a read-only dataset, or an external .ovr that a later handle
-                reopened read-only. Please read the dataset using read_only=False
+                If GDAL refuses to rewrite the overviews the call targets, those levels are *stored*, and this
+                handle is open read-only — internal overviews inside a read-only dataset, or an external .ovr
+                that a later handle reopened read-only. Please read the dataset using read_only=False. That is
+                the one shape where reopening is worth trying, not a promise it will succeed: a VRT serving an
+                explicit `<Overview>` owns a real .ovr that GDAL opens read-only whatever the parent's mode, and
+                reopening turns this into the `OverviewTargetError` above. A level a VRT *computes* is separated
+                out the same way, since GDAL reports it with the same error number. Two spellings refuse with a
+                different number instead (`CPLE_AppDefined`): a VRT carrying its own `<OverviewList>`, in either
+                access mode, and a writable handle whose .ovr is itself a VRT. Both surface as GDAL's own
+                `RuntimeError`, which already names the cause.
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or transport failure
                 is not relabelled as an access-mode error. GDAL's own error is re-raised carrying a note
                 that names the band it stopped on — a band's levels regenerate in one call, so no level is
                 named; a failing status that raised nothing is turned into one.
 
+        Note:
+            Bands are regenerated in order and the exceptions above are raised on the first band that fails, so
+            earlier bands — and, within the failing band, earlier levels — may already have been rewritten. The
+            dataset is not rolled back.
+
         Warns:
             UserWarning:
                 No band has overviews, so there is nothing to regenerate; or only some
                 bands have them, and the empty ones were skipped. Also when the dataset
-                has no bands at all.
+                has no bands at all. None of these fire on a *plain* pathless VRT — that raises
+                `OverviewTargetError` first, since "call create_overviews() to build them" is advice it would
+                also refuse. A warped VRT is exempt from that guard, so an empty one still warns; its refusal
+                comes only from the regeneration attempt itself.
         """
         pass
 
