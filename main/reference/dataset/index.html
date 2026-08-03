@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -15898,7 +15898,7 @@ release deterministic on Windows.</p>
 <a id="__codelineno-0-2421" name="__codelineno-0-2421"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Open a raster from a path, URL, or archive member.</span>
 <a id="__codelineno-0-2422" name="__codelineno-0-2422"></a>
 <a id="__codelineno-0-2423" name="__codelineno-0-2423"></a><span class="sd">        Plain local paths, ``/vsi*`` paths, and URL schemes</span>
-<a id="__codelineno-0-2424" name="__codelineno-0-2424"></a><span class="sd">        (``http(s)://``, ``s3://``, ``gs://``, ``az://`` / ``abfs://``,</span>
+<a id="__codelineno-0-2424" name="__codelineno-0-2424"></a><span class="sd">        (``http(s)://``, ``s3://``, ``gs://``, ``az://``, ``abfs://`` / ``abfss://``,</span>
 <a id="__codelineno-0-2425" name="__codelineno-0-2425"></a><span class="sd">        ``file://``) are all accepted — URLs are transparently rewritten to</span>
 <a id="__codelineno-0-2426" name="__codelineno-0-2426"></a><span class="sd">        GDAL&#39;s virtual filesystem (GDAL fetches via HTTP range requests for</span>
 <a id="__codelineno-0-2427" name="__codelineno-0-2427"></a><span class="sd">        ``http(s)``). Compressed archives are detected from the extension; pass</span>
@@ -15973,7 +15973,7 @@ release deterministic on Windows.</p>
 <a id="__codelineno-0-2496" name="__codelineno-0-2496"></a>
 <a id="__codelineno-0-2497" name="__codelineno-0-2497"></a><span class="sd">        This is **not** a URL helper. Reading from a URL is already</span>
 <a id="__codelineno-0-2498" name="__codelineno-0-2498"></a><span class="sd">        supported by :meth:`read_file`, which rewrites ``http(s)://``,</span>
-<a id="__codelineno-0-2499" name="__codelineno-0-2499"></a><span class="sd">        ``s3://``, ``gs://``, ``az://`` / ``abfs://`` and ``file://``</span>
+<a id="__codelineno-0-2499" name="__codelineno-0-2499"></a><span class="sd">        ``s3://``, ``gs://``, ``az://``, ``abfs://`` / ``abfss://`` and ``file://``</span>
 <a id="__codelineno-0-2500" name="__codelineno-0-2500"></a><span class="sd">        to GDAL ``/vsi*`` paths. Use ``from_bytes`` only when you</span>
 <a id="__codelineno-0-2501" name="__codelineno-0-2501"></a><span class="sd">        already hold the bytes.</span>
 <a id="__codelineno-0-2502" name="__codelineno-0-2502"></a>
@@ -23313,7 +23313,7 @@ plus the range (the STAC-valid null-datetime form).</p>
 
         <p>Open a raster from a path, URL, or archive member.</p>
 <p>Plain local paths, <code>/vsi*</code> paths, and URL schemes
-(<code>http(s)://</code>, <code>s3://</code>, <code>gs://</code>, <code>az://</code> / <code>abfs://</code>,
+(<code>http(s)://</code>, <code>s3://</code>, <code>gs://</code>, <code>az://</code>, <code>abfs://</code> / <code>abfss://</code>,
 <code>file://</code>) are all accepted — URLs are transparently rewritten to
 GDAL's virtual filesystem (GDAL fetches via HTTP range requests for
 <code>http(s)</code>). Compressed archives are detected from the extension; pass
@@ -23556,7 +23556,7 @@ nothing captured.</p>
 <a id="__codelineno-0-2421" name="__codelineno-0-2421"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Open a raster from a path, URL, or archive member.</span>
 <a id="__codelineno-0-2422" name="__codelineno-0-2422"></a>
 <a id="__codelineno-0-2423" name="__codelineno-0-2423"></a><span class="sd">    Plain local paths, ``/vsi*`` paths, and URL schemes</span>
-<a id="__codelineno-0-2424" name="__codelineno-0-2424"></a><span class="sd">    (``http(s)://``, ``s3://``, ``gs://``, ``az://`` / ``abfs://``,</span>
+<a id="__codelineno-0-2424" name="__codelineno-0-2424"></a><span class="sd">    (``http(s)://``, ``s3://``, ``gs://``, ``az://``, ``abfs://`` / ``abfss://``,</span>
 <a id="__codelineno-0-2425" name="__codelineno-0-2425"></a><span class="sd">    ``file://``) are all accepted — URLs are transparently rewritten to</span>
 <a id="__codelineno-0-2426" name="__codelineno-0-2426"></a><span class="sd">    GDAL&#39;s virtual filesystem (GDAL fetches via HTTP range requests for</span>
 <a id="__codelineno-0-2427" name="__codelineno-0-2427"></a><span class="sd">    ``http(s)``). Compressed archives are detected from the extension; pass</span>
@@ -23640,7 +23640,7 @@ bodies (<code>requests.get(url).content</code>), object-store
 <code>get_object</code> payloads, database blobs, and test fixtures.</p>
 <p>This is <strong>not</strong> a URL helper. Reading from a URL is already
 supported by :meth:<code>read_file</code>, which rewrites <code>http(s)://</code>,
-<code>s3://</code>, <code>gs://</code>, <code>az://</code> / <code>abfs://</code> and <code>file://</code>
+<code>s3://</code>, <code>gs://</code>, <code>az://</code>, <code>abfs://</code> / <code>abfss://</code> and <code>file://</code>
 to GDAL <code>/vsi*</code> paths. Use <code>from_bytes</code> only when you
 already hold the bytes.</p>
 <p>The <code>/vsimem/</code> entry is removed automatically when the
@@ -23985,7 +23985,7 @@ truncated payload, or a headerless format without a
 <a id="__codelineno-0-2496" name="__codelineno-0-2496"></a>
 <a id="__codelineno-0-2497" name="__codelineno-0-2497"></a><span class="sd">    This is **not** a URL helper. Reading from a URL is already</span>
 <a id="__codelineno-0-2498" name="__codelineno-0-2498"></a><span class="sd">    supported by :meth:`read_file`, which rewrites ``http(s)://``,</span>
-<a id="__codelineno-0-2499" name="__codelineno-0-2499"></a><span class="sd">    ``s3://``, ``gs://``, ``az://`` / ``abfs://`` and ``file://``</span>
+<a id="__codelineno-0-2499" name="__codelineno-0-2499"></a><span class="sd">    ``s3://``, ``gs://``, ``az://``, ``abfs://`` / ``abfss://`` and ``file://``</span>
 <a id="__codelineno-0-2500" name="__codelineno-0-2500"></a><span class="sd">    to GDAL ``/vsi*`` paths. Use ``from_bytes`` only when you</span>
 <a id="__codelineno-0-2501" name="__codelineno-0-2501"></a><span class="sd">    already hold the bytes.</span>
 <a id="__codelineno-0-2502" name="__codelineno-0-2502"></a>

@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6610,7 +6610,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 </div>
 <h2 id="open-a-raster-paths-urls-archives-and-bytes"><a class="toclink" href="#open-a-raster-paths-urls-archives-and-bytes">Open a raster — paths, URLs, archives, and bytes</a><a class="headerlink" href="#open-a-raster-paths-urls-archives-and-bytes" title="Permanent link">#</a></h2>
 <p><code>Dataset.read_file(path)</code> accepts plain paths, <code>/vsi*</code> paths, and URL
-schemes (<code>http(s)://</code>, <code>s3://</code>, <code>gs://</code>, <code>az://</code> / <code>abfs://</code>,
+schemes (<code>http(s)://</code>, <code>s3://</code>, <code>gs://</code>, <code>az://</code>, <code>abfs://</code> / <code>abfss://</code>,
 <code>file://</code>) — URLs are transparently rewritten to GDAL's virtual
 filesystem so cloud objects open with HTTP range requests, no extra
 boilerplate.</p>
