@@ -150,6 +150,60 @@ def _mixed_overview_vrt(tmp_path) -> str:
     return str(vrt)
 
 
+def _mixed_ownership_vrt(tmp_path) -> str:
+    """Build a 2-band VRT whose band 1 *stores* its level and whose band 2 *computes* it.
+
+    Band 1 sources a raster carrying an external `.ovr` and names that sidecar in an
+    explicit `<Overview>`, so GDAL serves its level from the sidecar GTiff. Band 2 has no
+    `<Overview>` of its own and takes its level from the dataset-level `<OverviewList>`,
+    which GDAL serves from the VRT. One handle, one level per band, two different owners
+    — the shape a per-band classifier and a dataset-wide one disagree about.
+    """
+    driver = gdal.GetDriverByName("GTiff")
+    sources = []
+    for name in ("stored_owner.tif", "computed_owner.tif"):
+        path = str(tmp_path / name)
+        raster = driver.Create(path, 64, 64, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((10.0, 0.5, 0.0, 80.0, 0.0, -0.5))
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        raster.SetProjection(srs.ExportToWkt())
+        raster.GetRasterBand(1).WriteArray(np.full((64, 64), 1.0, dtype="float32"))
+        raster = None
+        sources.append(path)
+    stored, computed = sources
+    # Read-only sends the levels to an external `.ovr`, which is the GTiff that then owns
+    # band 1's level; the update mode used for `computed` keeps them internal.
+    handle = gdal.Open(stored, gdal.GA_ReadOnly)
+    handle.BuildOverviews("AVERAGE", [2])
+    handle = None
+    handle = gdal.Open(computed, gdal.GA_Update)
+    handle.BuildOverviews("AVERAGE", [2])
+    handle = None
+
+    vrt = tmp_path / "mixed_ownership.vrt"
+    vrt.write_text(
+        f'<VRTDataset rasterXSize="64" rasterYSize="64">'
+        f'<VRTRasterBand dataType="Float32" band="1">'
+        f'<SimpleSource><SourceFilename relativeToVRT="0">{stored}</SourceFilename>'
+        f"<SourceBand>1</SourceBand></SimpleSource>"
+        f'<Overview><SourceFilename relativeToVRT="0">{stored}.ovr</SourceFilename>'
+        f"<SourceBand>1</SourceBand></Overview></VRTRasterBand>"
+        f'<VRTRasterBand dataType="Float32" band="2">'
+        f'<SimpleSource><SourceFilename relativeToVRT="0">{computed}</SourceFilename>'
+        f"<SourceBand>1</SourceBand></SimpleSource></VRTRasterBand>"
+        f"<OverviewList>2</OverviewList></VRTDataset>"
+    )
+    return str(vrt)
+
+
+def _level_owner_driver(band: gdal.Band, index: int = 0) -> str | None:
+    """Name the driver of the dataset owning ``band``'s overview ``index``, or None."""
+    owner = band.GetOverview(index).GetDataset()
+    driver = owner.GetDriver() if owner is not None else None
+    return None if driver is None else driver.ShortName
+
+
 def test_create_overviews(era5_image: gdal.Dataset, clean_overview_after_test):
     dataset = Dataset(era5_image)
     dataset.create_overviews()
@@ -997,6 +1051,75 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             dataset.close()
 
+    def test_a_stored_band_is_not_condemned_by_a_computed_sibling(
+        self, tmp_path, monkeypatch
+    ):
+        """The verdict follows the failing band's own levels, not the dataset's.
+
+        Test scenario:
+            One VRT whose band 0 keeps its level in an external `.ovr` GTiff while band 1
+            takes its level from the VRT itself. GDAL refuses band 0 first, and that band
+            is stored — expected: `ReadOnlyError` naming band 0, because reopening the
+            sidecar writable really is its fix. A classifier that scanned the whole
+            dataset would find band 1's VRT-owned level and hand band 0 the unactionable
+            "rebuild them" advice instead.
+        """
+        monkeypatch.chdir(tmp_path)
+        vrt_path = _mixed_ownership_vrt(tmp_path)
+        dataset = Dataset.read_file(vrt_path, read_only=False)
+        try:
+            assert dataset.overview_count == [1, 1], (
+                f"precondition: both bands carry a level, {dataset.overview_count}"
+            )
+            assert _level_owner_driver(dataset._iloc(0)) == "GTiff", (
+                "precondition: band 0's level is stored in the external sidecar"
+            )
+            assert _level_owner_driver(dataset._iloc(1)) == "VRT", (
+                "precondition: band 1's level is computed by the VRT"
+            )
+            with pytest.raises(ReadOnlyError, match="band 0") as excinfo:
+                dataset.recreate_overviews("average")
+            assert not isinstance(excinfo.value, OverviewTargetError), (
+                "band 0's own level is stored, so its sibling must not decide for it"
+            )
+        finally:
+            dataset.close()
+
+    def test_the_write_refusal_is_classified_without_serialising_the_document(
+        self, tmp_path, monkeypatch
+    ):
+        """Deciding a refusal never reads `xml:VRT`, which the ownership check replaced.
+
+        Test scenario:
+            A read-only path-ful VRT whose levels live in the sidecar it owns — the
+            genuine access-mode case on a VRT handle. Expected: `ReadOnlyError`, reached
+            without `_is_warped_vrt` running at all. Serialising the document on a mosaic
+            with many sources costs milliseconds in a failure path, and it resets the CPL
+            error number the classification depends on, so the check the regeneration
+            branch asks must not go near it.
+        """
+        monkeypatch.chdir(tmp_path)
+        source = _overviewed_raster(tmp_path, "no_serialise_src.tif")
+        vrt_path = tmp_path / "no_serialise.vrt"
+        gdal.Translate(str(vrt_path), str(source), format="VRT").FlushCache()
+        writable = Dataset.read_file(str(vrt_path), read_only=False)
+        try:
+            writable.create_overviews("average", overview_levels=[2])
+        finally:
+            writable.close()
+        serialise = MagicMock(return_value=False)
+        monkeypatch.setattr(IO, "_is_warped_vrt", serialise)
+        dataset = Dataset.read_file(str(vrt_path), read_only=True)
+        try:
+            assert _level_owner_driver(dataset._iloc(0)) == "GTiff", (
+                "precondition: the levels are stored in the sidecar the VRT owns"
+            )
+            with pytest.raises(ReadOnlyError, match="read-only"):
+                dataset.recreate_overviews("average")
+            serialise.assert_not_called()
+        finally:
+            dataset.close()
+
     @pytest.mark.parametrize("parent_read_only", [True, False], ids=["ro", "writable"])
     def test_recreate_on_a_warped_view_does_not_blame_the_access_mode(
         self, tmp_path, monkeypatch, parent_read_only
@@ -1184,6 +1307,139 @@ class TestCreateOverviewsPathlessGuard:
             )
         finally:
             dataset.close()
+
+
+@pytest.fixture
+def level_owners(tmp_path, monkeypatch):
+    """Yield real GDAL bands keyed by the kind of dataset that owns their pixels.
+
+    The classifier reads `level.GetDataset().GetDriver()`, so every entry is a genuine
+    band taken from a real handle rather than a stub: the `.ovr` GTiff of an external
+    sidecar, an internal overview (whose owner reports no driver at all), a `MEM`
+    dataset, a plain GTiff and a VRT.
+    """
+    monkeypatch.chdir(tmp_path)
+    external = _plain_raster(tmp_path, "external_owner.tif")
+    handle = gdal.Open(external, gdal.GA_ReadOnly)
+    handle.BuildOverviews("AVERAGE", [2])
+    handle = None
+    internal = _overviewed_raster(tmp_path, "internal_owner.tif")
+    vrt_path = tmp_path / "virtual_owner.vrt"
+    gdal.Translate(str(vrt_path), internal, format="VRT").FlushCache()
+
+    plain = gdal.Open(_plain_raster(tmp_path, "plain_owner.tif"))
+    sidecar = gdal.Open(external)
+    stacked = gdal.Open(internal)
+    virtual = gdal.Open(str(vrt_path))
+    memory = gdal.GetDriverByName("MEM").Create("", 8, 8, 1, gdal.GDT_Float32)
+    try:
+        yield {
+            "gtiff": plain.GetRasterBand(1),
+            "external-ovr": sidecar.GetRasterBand(1).GetOverview(0),
+            "internal-ovr": stacked.GetRasterBand(1).GetOverview(0),
+            "mem": memory.GetRasterBand(1),
+            "vrt": virtual.GetRasterBand(1).GetOverview(0),
+        }
+    finally:
+        plain = sidecar = stacked = virtual = memory = None
+
+
+class TestOverviewTargetIsVirtual:
+    """The predicate that splits the one `CPLE_NoWriteAccess` refusal into two answers.
+
+    `TestCreateOverviewsPathlessGuard` drives it through the five shapes GDAL actually
+    produces; this class drives it directly, over the inputs those shapes cannot reach —
+    a band with no levels, a level whose owner names no driver, and a list whose *later*
+    entry is the VRT-owned one.
+    """
+
+    @pytest.mark.parametrize(
+        "owner, driver, virtual",
+        [
+            ("gtiff", "GTiff", False),
+            ("external-ovr", "GTiff", False),
+            ("internal-ovr", None, False),
+            ("mem", "MEM", False),
+            ("vrt", "VRT", True),
+        ],
+    )
+    def test_only_a_vrt_owner_makes_a_level_virtual(
+        self, level_owners, owner, driver, virtual
+    ):
+        """A level is computed only when a VRT owns its pixels.
+
+        Args:
+            owner: Key into the `level_owners` fixture.
+            driver: The short name the owning dataset really reports, or None.
+            virtual: The verdict the predicate must return.
+
+        Test scenario:
+            Feed the predicate one real band per owner kind — expected: True for the
+            VRT-owned level alone. The internal overview is the case worth stating: its
+            owner reports no driver at all, and that must read as *stored*, because
+            rebuilding is the wrong advice for a level a writable handle could rewrite.
+        """
+        level = level_owners[owner]
+        actual = level.GetDataset().GetDriver()
+        assert (None if actual is None else actual.ShortName) == driver, (
+            f"precondition: the {owner} level's owner must report driver {driver}"
+        )
+        assert IO._overview_target_is_virtual([level]) is virtual, (
+            f"a level owned by a {driver} dataset must read as "
+            f"{'computed' if virtual else 'stored'}"
+        )
+
+    def test_no_levels_at_all_read_as_stored(self):
+        """An empty level list is not virtual, so it cannot invent a refusal.
+
+        Test scenario:
+            The band-level loop skips a band with no levels, so the predicate never sees
+            an empty list in production — expected: False anyway, since "no evidence of a
+            VRT" must never default to the answer that tells the caller to rebuild.
+        """
+        assert IO._overview_target_is_virtual([]) is False, (
+            "with no levels to inspect there is nothing to prove computed"
+        )
+
+    @pytest.mark.parametrize(
+        "first, second",
+        [("external-ovr", "vrt"), ("vrt", "internal-ovr")],
+        ids=["stored-then-computed", "computed-then-stored"],
+    )
+    def test_a_stored_level_does_not_end_the_search(self, level_owners, first, second):
+        """One VRT-owned level anywhere in the chain condemns the whole batch.
+
+        Args:
+            first: Key of the level handed to the predicate first.
+            second: Key of the level handed to it second.
+
+        Test scenario:
+            Both orders of a mixed pair — expected: True either way. A band's levels go
+            to GDAL as one batch, so a scan that stopped at the first stored level would
+            call the batch writable and raise the access-mode error on a chain that has a
+            computed level in it. The `internal-ovr` entry pairs a driver-less owner with
+            the VRT one, so the None-driver guard cannot short-circuit the scan either.
+        """
+        levels = [level_owners[first], level_owners[second]]
+        assert IO._overview_target_is_virtual(levels) is True, (
+            f"a {first} level followed by a {second} one must read as computed"
+        )
+
+    def test_a_level_with_no_owning_dataset_reads_as_stored(self):
+        """A level that names no owner is answered, not crashed on.
+
+        Test scenario:
+            Every band GDAL hands back today reports an owning dataset, so this input is
+            unreachable through the public API and has to be built directly — expected:
+            False, and no `AttributeError` from asking a missing owner for its driver,
+            since the predicate runs inside an exception handler where a second failure
+            would replace GDAL's own diagnosis.
+        """
+        level = MagicMock(spec=gdal.Band)
+        level.GetDataset.return_value = None
+        assert IO._overview_target_is_virtual([level]) is False, (
+            "an owner-less level cannot be proven computed"
+        )
 
 
 class TestReCreateOverviews:
