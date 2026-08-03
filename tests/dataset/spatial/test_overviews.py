@@ -209,13 +209,23 @@ def pathless_level(tmp_path, monkeypatch):
 
 
 class TestCreateOverviewsPathlessGuard:
-    """`create_overviews` refuses a VRT that has nowhere to put a sidecar (#917).
+    """Overview targets a dataset cannot hold, across both build and regenerate.
 
-    GDAL names an external `.ovr` after the dataset description. A plain VRT owns no pixel
-    storage, so its overviews can only go external — and with an empty description GDAL
-    wrote a file called literally `.ovr` into the working directory, attached nothing,
-    and dropped the levels the handle already exposed. A warped VRT is exempt: it keeps
-    its levels in RAM and needs no sidecar.
+    Two related refusals live here, since they share the predicates and the message:
+
+    - **#917** — `create_overviews` on a plain VRT with nowhere to put a sidecar. GDAL
+      names an external `.ovr` after the dataset description; a plain VRT owns no pixel
+      storage, so with an unusable description GDAL wrote a file called literally `.ovr`
+      into the working directory, attached nothing, and dropped the levels the handle
+      already exposed. A warped VRT is exempt here: it keeps its levels in RAM.
+    - **#922** — `recreate_overviews` on a level a VRT *computes* rather than stores (a
+      warped band, or one inherited from the source). GDAL refuses those with the same
+      `CPLE_NoWriteAccess` it uses for a read-only dataset, so they were misreported as an
+      access-mode problem with advice the caller could not act on.
+
+    The cases that must keep working — `MEM`, path-ful and `/vsimem/` VRTs, regular-grid
+    NetCDF views, and stored levels in a genuinely read-only handle — are pinned here too,
+    since they are what the discriminators must not over-fire on.
     """
 
     def test_pathless_vrt_refuses_instead_of_writing_a_stray_sidecar(
