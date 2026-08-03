@@ -20,6 +20,8 @@ from pyramids.dataset._plot_helpers import render_array as _render_array
 from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
 
 if TYPE_CHECKING:
+    from cleopatra.geo import Basemap
+
     from pyramids.netcdf.netcdf import NetCDF
 
 logger = logging.getLogger(__name__)
@@ -162,7 +164,7 @@ class NetCDFPlot:
         kind: str = "auto",
         animate: bool | str | None = None,
         chunks: Any | None = None,
-        basemap: bool | str | None = None,
+        basemap: bool | str | dict[str, Any] | Basemap | None = None,
         exclude_value: Any | None = None,
         title: str | None = None,
         ax: Any | None = None,
@@ -955,7 +957,7 @@ class NetCDFPlot:
         animate_dim: str,
         analysis_kwargs: dict[str, Any],
         exclude_value: Any | None,
-        basemap: bool | str | None,
+        basemap: bool | str | dict[str, Any] | Basemap | None,
     ) -> Any:
         """Build the lazy ``data_getter`` and dispatch the animation render.
 
@@ -979,9 +981,11 @@ class NetCDFPlot:
                 ``coords``, ``_facet_stack``) before forwarding to
                 cleopatra's animate entry point.
             exclude_value: Per-frame mask value forwarded to cleopatra.
-            basemap: Forwarded to :func:`render_array`; only honoured
-                when the animation eventually exposes a single ``Axes``
-                (cleopatra's :func:`add_tiles` is single-axes today).
+            basemap: Forwarded to :func:`render_array`. A web-tile basemap
+                (``str`` / ``True``) draws on the animation's single
+                persistent ``Axes`` underneath the frames; a cleopatra
+                ``Basemap`` relief layer forwards into cleopatra's animate
+                call.
 
         Returns:
             cleopatra.array_glyph.ArrayGlyph: The cleopatra glyph

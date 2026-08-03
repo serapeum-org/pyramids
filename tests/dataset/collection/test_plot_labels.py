@@ -59,6 +59,14 @@ class TestPlotAnimationAxisValues:
             cube.plot(band=0)
         assert render.call_args.kwargs["animation_axis_values"] == [0, 1, 2]
 
+    def test_forwards_basemap_epsg_from_the_base_raster(self):
+        """`plot` forwards the base raster's EPSG so a basemap does not falsely
+        raise "must have a CRS" on the collection animate path."""
+        cube = _collection(3)
+        with patch("pyramids.dataset.collection.render_array") as render:
+            cube.plot(band=0, basemap="CartoDB.Positron")
+        assert render.call_args.kwargs["basemap_epsg"] == cube.base.epsg
+
     def test_defaults_to_time_axis_when_present(self):
         """When the collection carries a time axis, plot labels frames by it."""
         cube = _collection(3)

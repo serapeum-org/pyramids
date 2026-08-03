@@ -1107,6 +1107,12 @@ class RasterBase(ABC):
                     Title of the plot. The default is 'Total Discharge'.
                 title_size (int, optional):
                     Title size. The default is 15.
+                colorbar (bool | ColorBar, optional):
+                    Colour-bar spec ``pyramids.plot.ColorBar(label=..., length=..., orientation=...,
+                    label_size=..., label_rotation=..., label_location=..., ticks_spacing=...)``
+                    (cleopatra >= 0.28) — the complete, preferred replacement for the loose ``cbar_*`` /
+                    ``orientation`` / ``rotation`` / ``ticks_spacing`` kwargs below. ``False`` hides the
+                    bar, ``None`` uses the default.
                 orientation (str, optional):
                     Orientation of the color bar horizontal/vertical. The default is 'vertical'.
                 rotation (number, optional):
