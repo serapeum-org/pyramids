@@ -2008,20 +2008,15 @@ class Analysis(_Engine["Dataset"]):
                 re-exported from ``pyramids.plot`` — import them from there rather than cleopatra.
                 Configure the colour bar through ``colorbar=ColorBar(label=..., length=...,
                 orientation=..., label_size=..., label_rotation=..., label_location=...,
-                ticks_spacing=...)`` (cleopatra >= 0.28); the loose ``cbar_*`` / ``orientation`` /
-                ``rotation`` / ``ticks_spacing`` rows below are the deprecated aliases it replaces.
+                ticks_spacing=...)``. The loose ``cbar_*`` / ``ticks_spacing`` kwargs it replaces
+                are deprecated (cleopatra >= 0.28): still accepted for now, but they emit a
+                ``DeprecationWarning`` and are no longer listed below — migrate to ``ColorBar``.
                 | Parameter                   | Type                | Description |
                 |-----------------------------|---------------------|-------------|
                 | `points`                    | array \\| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
                 | `figsize`                   | tuple, optional     | Figure size. Default is `(8, 8)`. |
                 | `title`                     | str, optional       | Title of the plot. Default is `'Total Discharge'`. |
                 | `title_size`                | int, optional       | Title size. Default is `15`. |
-                | `orientation`               | str, optional       | Orientation of the color bar (`horizontal` or `vertical`). Default is `'vertical'`. |
-                | `rotation`                  | number, optional    | Rotation of the color bar label. Default is `-90`. |
-                | `cbar_length`               | float, optional     | Ratio to control the height of the color bar. Default is `0.75`. |
-                | `ticks_spacing`             | int, optional       | Spacing between color bar ticks. Default is `2`. |
-                | `cbar_label_size`           | int, optional       | Size of the color bar label. Default is `12`. |
-                | `cbar_label`                | str, optional       | Label of the color bar. Default is `'Discharge m\u00b3/s'`. |
                 | `color_scale`               | str, optional       | Color-scale mode. One of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styles.ColorScale` member. Integer codes are no longer accepted. Default is `"linear"`. |
                 | `gamma`                     | float, optional     | Exponent for the `"power"` color scale. Default is `1/2`. |
                 | `line_threshold`            | float, optional     | `linthresh` for the `"sym-lognorm"` color scale. Default is `0.0001`. |

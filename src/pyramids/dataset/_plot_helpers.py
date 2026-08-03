@@ -532,7 +532,28 @@ def render_array(
     # render method only overwrites ``default_options["title"]`` when its
     # ``title`` arg is not ``None``, so a constructor-set title survives and
     # routing it to the constructor (via ``option_keys()``) is correct.
-    RENDER_ONLY_OVERRIDES = {"kind"}
+    # cleopatra 0.28 deprecated these loose colour-bar kwargs in favour of
+    # ``ColorBar`` fields, and emits the ``DeprecationWarning`` only inside
+    # ``.plot`` / ``.animate`` — never the constructor. Because they are in
+    # ``option_keys()``, routing them to the constructor (like every other
+    # option) would *suppress* that warning on the single-frame plot/facet path,
+    # while the animate path — which merges every kwarg into the render call —
+    # still warned. The same ``cbar_label=`` then warned on an animation but not
+    # on a plain plot. Force them to the render call so cleopatra's deprecation
+    # fires uniformly; they still render (cleopatra folds them into
+    # ``default_options`` there). Prefer ``colorbar=ColorBar(...)`` instead.
+    _DEPRECATED_CBAR_KWARGS = frozenset(
+        {
+            "cbar_label",
+            "cbar_length",
+            "cbar_label_size",
+            "cbar_label_rotation",
+            "cbar_label_location",
+            "cbar_orientation",
+            "ticks_spacing",
+        }
+    )
+    RENDER_ONLY_OVERRIDES = {"kind"} | _DEPRECATED_CBAR_KWARGS
     # Reuse the option set resolved for the style/hillshade guard above — it is
     # cleopatra's declared constructor options and does not change within a call.
     ctor_option_keys = option_keys

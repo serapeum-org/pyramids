@@ -1111,20 +1111,8 @@ class RasterBase(ABC):
                     Colour-bar spec ``pyramids.plot.ColorBar(label=..., length=..., orientation=...,
                     label_size=..., label_rotation=..., label_location=..., ticks_spacing=...)``
                     (cleopatra >= 0.28) — the complete, preferred replacement for the loose ``cbar_*`` /
-                    ``orientation`` / ``rotation`` / ``ticks_spacing`` kwargs below. ``False`` hides the
-                    bar, ``None`` uses the default.
-                orientation (str, optional):
-                    Orientation of the color bar horizontal/vertical. The default is 'vertical'.
-                rotation (number, optional):
-                    Rotation of the color bar label. The default is -90.
-                cbar_length (float, optional):
-                    Ratio to control the height of the color bar. The default is 0.75.
-                ticks_spacing (int, optional):
-                    Spacing in the color bar ticks. The default is 2.
-                cbar_label_size (int, optional):
-                    Size of the color bar label. The default is 12.
-                cbar_label (str, optional):
-                    Label of the color bar. The default is 'Discharge m3/s'.
+                    ``ticks_spacing`` kwargs, which are deprecated (still accepted, but they emit a
+                    ``DeprecationWarning``). ``False`` hides the bar, ``None`` uses the default.
                 color_scale (str, optional):
                     Color-scale mode. One of "linear", "power", "sym-lognorm", "boundary-norm", "midpoint"
                     (case-insensitive), or a ``cleopatra.styles.ColorScale`` member. Integer codes are no

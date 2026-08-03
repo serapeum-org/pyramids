@@ -5,6 +5,8 @@ its `**kwargs` pass-through; cleopatra rejects an unknown kwarg, so a clean rend
 proves the param reached the glyph rather than being dropped.
 """
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
@@ -84,3 +86,25 @@ class TestNewRenderParams:
             extent=[0.0, 0.0, 1.0, 1.0],
         )
         assert isinstance(result, ArrayGlyph)
+
+    def test_deprecated_cbar_kwarg_routes_to_the_render_call(self):
+        """A loose `cbar_*` kwarg reaches `ArrayGlyph.plot`, not the constructor.
+
+        The loose colour-bar kwargs are in `option_keys()`, so the default split would
+        route them to the constructor — where cleopatra's own `cbar_*` deprecation never
+        fires (it warns only from the render method). `render_array` forces them to the
+        render call so the deprecation surfaces uniformly; assert they get there and the
+        label still renders (behaviour preserved). Prefer `colorbar=ColorBar(...)`.
+        """
+        captured: dict = {}
+        original = ArrayGlyph.plot
+
+        def spy(self, *args, **kwargs):
+            captured.update(kwargs)
+            return original(self, *args, **kwargs)
+
+        with patch.object(ArrayGlyph, "plot", spy):
+            glyph = self._dataset().plot(band=0, cbar_label="mm")
+        assert "cbar_label" in captured, "loose cbar_label must reach the render call"
+        label = glyph.cbar.ax.get_ylabel() or glyph.cbar.ax.get_xlabel()
+        assert label == "mm", f"colour-bar label should still render, got {label!r}"

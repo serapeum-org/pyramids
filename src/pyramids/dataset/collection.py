@@ -2499,13 +2499,7 @@ class DatasetCollection:
                 | figsize                    | tuple, optional       | Figure size. Default is `(8, 8)`. |
                 | title                      | str, optional         | Title of the plot. Default is `'Total Discharge'`. |
                 | title_size                 | int, optional         | Title size. Default is `15`. |
-                | orientation                | str, optional         | Orientation of the color bar (`horizontal` or `vertical`). Default is `'vertical'`. |
-                | rotation                   | number, optional      | Rotation of the color bar label. Default is `-90`. |
-                | colorbar                   | bool \| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28) — the complete, preferred replacement for the loose `cbar_*` / `orientation` / `rotation` / `ticks_spacing` kwargs. `False` hides it, `None` uses the default. |
-                | cbar_length                | float, optional       | Ratio to control the height of the color bar. Default is `0.75`. |
-                | ticks_spacing              | int, optional         | Spacing in the color bar ticks. Default is `2`. |
-                | cbar_label_size            | int, optional         | Size of the color bar label. Default is `12`. |
-                | cbar_label                 | str, optional         | Label of the color bar. Default is `'Discharge m³/s'`. |
+                | colorbar                   | bool \| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28). The loose `cbar_*` / `ticks_spacing` kwargs it replaces are deprecated — still accepted, but they emit a `DeprecationWarning`. `False` hides it, `None` uses the default. |
                 | color_scale                | str, optional         | Color-scale mode (default `"linear"`): one of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styles.ColorScale` member. Integer codes are no longer accepted. |
                 | gamma                      | float, optional       | Exponent for `color_scale="power"`. Default is `1/2`. |
                 | line_threshold             | float, optional       | `linthresh` for `color_scale="sym-lognorm"`. Default is `0.0001`. |
