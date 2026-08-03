@@ -173,13 +173,18 @@ def write_dataset_to_zarr(
             ```
     """
     _require_zarr()
-    if overview_factors and not compute:
-        raise ValueError("overview_factors requires compute=True")
     if overview_factors and ds.io._has_nowhere_for_an_overview_sidecar():
         # Refuse before writing anything. The pyramid is built after the base array and
         # the metadata are committed, so letting this surface from `_write_overview_levels`
         # would leave a store that looks written but carries no `multiscales`.
+        #
+        # Ahead of the `compute` check for the same reason `recreate_overviews` puts its
+        # target check ahead of the argument validation: passing `compute=True` still
+        # leaves this dataset refused, so reporting the fixable argument first would send
+        # the caller round a loop that cannot end in a written pyramid.
         raise OverviewTargetError(ds.io._no_sidecar_message())
+    if overview_factors and not compute:
+        raise ValueError("overview_factors requires compute=True")
     arr = _build_dask_array(ds, chunks)
     metadata = _metadata_dict(ds)
     resolved_store = _resolve_store(store, storage_options)

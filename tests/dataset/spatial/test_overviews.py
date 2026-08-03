@@ -904,17 +904,18 @@ class TestCreateOverviewsPathlessGuard:
         finally:
             dataset.close()
 
-    def test_to_zarr_reports_the_compute_argument_before_the_unusable_target(
+    def test_to_zarr_reports_the_unusable_target_before_the_compute_argument(
         self, tmp_path, monkeypatch
     ):
-        """`compute=False` is rejected first, ahead of the target the caller cannot fix.
+        """The target the caller cannot fix is reported ahead of the argument they can.
 
         Test scenario:
             A call wrong in both ways — a refused target *and* `overview_factors` with
-            `compute=False` — expected: the plain `ValueError` naming `compute`, not the
-            `OverviewTargetError`, and still no store, since both guards run before any
-            write. This is the opposite order from `recreate_overviews`, which reports
-            the unusable target ahead of its own argument check.
+            `compute=False` — expected: `OverviewTargetError`, not the plain `ValueError`
+            naming `compute`, and no store either way. Passing `compute=True` would still
+            leave this dataset refused, so reporting the fixable argument first sends the
+            caller round a loop that cannot end in a written pyramid. Same precedence as
+            `recreate_overviews`.
         """
         pytest.importorskip("zarr")
         monkeypatch.chdir(tmp_path)
@@ -923,12 +924,8 @@ class TestCreateOverviewsPathlessGuard:
         store = tmp_path / "ordering.zarr"
         dataset = Dataset.read_file(xml)
         try:
-            with pytest.raises(ValueError, match="compute=True") as excinfo:
+            with pytest.raises(OverviewTargetError, match="nowhere to go"):
                 dataset.to_zarr(str(store), overview_factors=[2], compute=False)
-            assert not isinstance(excinfo.value, OverviewTargetError), (
-                "the argument the caller can change is reported first, got "
-                f"{type(excinfo.value).__name__}"
-            )
             assert not store.exists(), "neither guard may leave a store behind"
         finally:
             dataset.close()
