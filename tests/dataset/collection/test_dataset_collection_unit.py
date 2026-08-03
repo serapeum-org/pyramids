@@ -468,6 +468,44 @@ class TestToFile:
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def test_to_file_preserves_color_table(self):
+        """A palette (color table) on a slice survives the streaming write.
+
+        The old ``read_array()`` + ``_mem_dataset_from_array()`` round-trip
+        flattened output through ``create_from_array``, dropping color tables;
+        the ``CreateCopy`` stream preserves them. Guards that fidelity benefit
+        against a regression back to a flattening write path (this test fails on
+        the pre-rewrite path).
+        """
+        src = Dataset.create(
+            cell_size=1.0,
+            rows=3,
+            columns=3,
+            dtype="uint8",
+            bands=1,
+            top_left_corner=(0.0, 3.0),
+            epsg=4326,
+            no_data_value=0,
+        )
+        band = src.raster.GetRasterBand(1)
+        ct = gdal.ColorTable()
+        ct.SetColorEntry(1, (255, 0, 0, 255))
+        ct.SetColorEntry(2, (0, 255, 0, 255))
+        band.SetRasterColorTable(ct)
+        band.WriteArray(np.array([[1, 2, 1], [2, 1, 2], [1, 2, 1]], dtype=np.uint8))
+        cube = DatasetCollection.create_cube(src, dataset_length=1)
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            cube.to_file(tmp_dir / "paletted")
+            reloaded = Dataset.read_file(str(tmp_dir / "paletted" / "0.tif"))
+            rct = reloaded.raster.GetRasterBand(1).GetRasterColorTable()
+            assert rct is not None, "color table was dropped by to_file"
+            assert rct.GetColorEntry(1) == (255, 0, 0, 255), (
+                f"palette entry not preserved: {rct.GetColorEntry(1)}"
+            )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 class TestIloc:
     """Tests for iloc method."""
