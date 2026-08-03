@@ -3485,7 +3485,9 @@ class IO(_Engine["Dataset"]):
                     f"Failed regenerating the overviews of band {i} (0-based): {detail}"
                 )
 
-    def _refusal_for(self, band_index: int, overviews: list[gdal.Band]) -> Exception:
+    def _refusal_for(
+        self, band_index: int, overviews: list[gdal.Band]
+    ) -> OverviewTargetError | ReadOnlyError:
         """Build the error for a band GDAL refused to rewrite, once the refusal is known.
 
         GDAL reports every unwritable overview target with the same `CPLE_NoWriteAccess`
@@ -3509,13 +3511,13 @@ class IO(_Engine["Dataset"]):
             overviews: That band's level bands, already resolved.
 
         Returns:
-            Exception:
-                An `OverviewTargetError` when the target cannot be written whatever the
-                caller does, or a `ReadOnlyError` when reopening writable is still worth
+            OverviewTargetError | ReadOnlyError:
+                `OverviewTargetError` when the target cannot be written whatever the
+                caller does, `ReadOnlyError` when reopening writable is still worth
                 trying. The caller raises it `from` GDAL's own error.
         """
         if self._overview_target_is_virtual(overviews):
-            refusal: Exception = OverviewTargetError(
+            refusal: OverviewTargetError | ReadOnlyError = OverviewTargetError(
                 f"Cannot regenerate the overviews of band {band_index}: their pixels "
                 "belong to a VRT, which computes them on read rather than storing them, "
                 "so they cannot be rewritten in place. Rebuild them with "
