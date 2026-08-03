@@ -2681,9 +2681,12 @@ class DatasetCollection:
         """Write every timestep of the collection to disk, one file per step.
 
         Each timestep is streamed straight to its output file via
-        :meth:`Dataset.to_file`, whose GDAL ``CreateCopy`` reads the source
-        block-by-block, so a whole GeoTIFF or MEM slice is never held in memory
-        and its per-timestep handle is not repointed at the output. (The one
+        :meth:`Dataset.to_file`, whose GDAL ``CreateCopy`` makes no extra full
+        copy: a file-backed slice is read block-by-block (peak ~one block, never
+        a whole scene), and an already-in-memory slice is copied once by
+        ``CreateCopy`` instead of three times by the old
+        ``read_array()`` + ``_mem_dataset_from_array()`` round-trip. Either way
+        the per-timestep handle is not repointed at the output. (The one
         exception: a NetCDF variable-subset slice is materialized in place by
         the write path before the copy — a full in-memory read GDAL requires to
         window a multidim view — so such a handle is mutated. Today's
@@ -2766,9 +2769,10 @@ class DatasetCollection:
 
         for i in range(self.time_length):
             # Stream each timestep straight to disk: Dataset.to_file writes via GDAL
-            # CreateCopy, which reads the source block-by-block, so a whole slice is
-            # never held in RAM (peak memory ~one block, not a full scene). reopen=False
-            # keeps the borrowed handle from iloc(i) unmutated. This also drops the old
+            # CreateCopy, which makes no extra full copy — a file-backed slice reads
+            # block-by-block (peak ~one block, not a full scene); an in-memory slice is
+            # copied once instead of thrice. reopen=False keeps the borrowed handle from
+            # iloc(i) unmutated. This also drops the old
             # read_array() + _mem_dataset_from_array() round-trip, which — besides the two
             # extra full copies — flattened the output through create_from_array (band-0
             # nodata only, no color table / per-band nodata / RAT); CreateCopy preserves
