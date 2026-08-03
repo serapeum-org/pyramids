@@ -29,7 +29,12 @@ import pandas as pd
 from osgeo import gdal
 
 from pyramids.base._utils import import_pyarrow
-from pyramids.base.remote import CloudConfig, _to_vsi, resolve_s3_region
+from pyramids.base.remote import (
+    URL_SCHEMES,
+    CloudConfig,
+    _to_vsi,
+    resolve_s3_region,
+)
 from pyramids.netcdf.utils import decode_cf_time, encode_cf_time
 
 # Soft guard: realising a store this large into a DataFrame loads it all into
@@ -45,8 +50,11 @@ _PARQUET_INSTALL_HINT = (
 )
 
 # Remote object-store / http URL schemes (the part before "://"). A store opened
-# from one of these is read through GDAL's /vsi* virtual filesystem.
-_REMOTE_SCHEMES = ("s3", "gs", "gcs", "az", "abfs", "http", "https")
+# from one of these is read through GDAL's /vsi* virtual filesystem. Derived from
+# `URL_SCHEMES` rather than repeated, so a handler added there (ADLS Gen2, #918)
+# cannot be remote for `Dataset` and local here. `file` names a local path and is
+# excluded; `gcs` is an alias GDAL accepts that `URL_SCHEMES` does not list.
+_REMOTE_SCHEMES = tuple(sorted({*URL_SCHEMES, "gcs"} - {"file"}))
 
 
 def _get_attr(obj: Any, name: str) -> Any:
