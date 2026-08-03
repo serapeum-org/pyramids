@@ -294,7 +294,7 @@ def render_array(
             ``basemap`` is truthy and this is ``None`` the helper
             raises :class:`ValueError`.
         **kwargs: Forwarded to the cleopatra entry point selected by
-            ``mode`` (including cleopatra 0.27 render params such as
+            ``mode`` (including cleopatra >= 0.28 render params such as
             ``colorbar=`` / ``full_bleed=``).
 
     Returns:

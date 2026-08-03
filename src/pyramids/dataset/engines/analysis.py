@@ -1999,7 +1999,7 @@ class Analysis(_Engine["Dataset"]):
             basemap (bool, str, or Basemap, optional):
                 Reference layer under the plot, dispatched by type. ``True`` or a tile-provider
                 string (e.g. "CartoDB.Positron") draws a pyramids web-tile basemap. A
-                ``pyramids.plot.Basemap(relief=..., features=...)`` (cleopatra >= 0.27) draws a
+                ``pyramids.plot.Basemap(relief=..., features=...)`` (cleopatra >= 0.28) draws a
                 shaded-relief / coastline reference layer instead. Default is None (no basemap).
                 Requires the [viz] extra (mercantile, xyzservices, Pillow). A ``Basemap`` is not
                 supported on the faceted path.
@@ -2034,7 +2034,7 @@ class Analysis(_Engine["Dataset"]):
                 | `background_color_threshold`| float or int, optional | Threshold for deciding text color over cells: if value > threshold -> black text; else white text. If `None`, max value / 2 is used. Default is `None`. |
                 | `add_colorbar`              | bool, optional      | Whether to draw the colour bar. Default is `True`. When `False`, no colorbar is created and the returned glyph's `cbar` is `None`. |
                 | `colorbar`                  | bool \\| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28) — the complete, preferred replacement for the loose `cbar_*` kwargs. `False` hides it, `None` uses the default. |
-                | `full_bleed`                | bool \\| str, optional | cleopatra >= 0.27 chrome-free layout: drop axes/margins so the array fills the figure. Default `False`. |
+                | `full_bleed`                | bool \\| str, optional | cleopatra >= 0.28 chrome-free layout: drop axes/margins so the array fills the figure. Default `False`. |
         Returns:
             ArrayGlyph:
                 A cleopatra ``ArrayGlyph`` wrapping the rendered figure. The underlying matplotlib
