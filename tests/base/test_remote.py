@@ -109,9 +109,68 @@ class TestToVsi:
         """The TLS spelling of the Gen2 scheme resolves the same way."""
         assert _to_vsi("abfss://container/blob.tif") == "/vsiadls/container/blob.tif"
 
-    def test_adls_maps_to_vsiadls(self):
-        """`adls://` names the Gen2 handler explicitly."""
-        assert _to_vsi("adls://container/blob.tif") == "/vsiadls/container/blob.tif"
+    def test_there_is_no_adls_scheme(self):
+        """`adls://` is not a real scheme, so it is not accepted.
+
+        The registered Azure Data Lake name is `adl://` (Gen1, which GDAL does
+        not handle). Inventing `adls://` would collide with it visually and fail
+        in the fsspec-backed readers, which resolve the scheme themselves.
+        """
+        assert "adls" not in URL_SCHEMES, "adls:// is not an ecosystem scheme"
+        assert _to_vsi("adls://container/blob.tif") == "adls://container/blob.tif"
+
+    def test_gen2_account_authority_resolves_when_configured(self, monkeypatch):
+        """The canonical `filesystem@account` authority uses only the filesystem.
+
+        Args:
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            `abfss://<fs>@<account>.dfs.core.windows.net/<path>` is how ABFS URIs
+            are written everywhere in the Azure and Hadoop world. Taking the
+            authority verbatim as the container yields a URL-encoded nonsense
+            container on whatever account is configured.
+        """
+        monkeypatch.setenv("AZURE_STORAGE_ACCOUNT", "prodlake")
+        gdal.SetConfigOption("AZURE_STORAGE_ACCOUNT", "prodlake")
+        try:
+            resolved = _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/2026/x.tif")
+        finally:
+            gdal.SetConfigOption("AZURE_STORAGE_ACCOUNT", None)
+        assert resolved == "/vsiadls/raw/2026/x.tif", resolved
+
+    def test_gen2_account_authority_refuses_when_unconfigured(self, monkeypatch):
+        """Naming an account in the URL with none configured is an error, not a guess.
+
+        Args:
+            monkeypatch: pytest monkeypatch fixture.
+        """
+        monkeypatch.delenv("AZURE_STORAGE_ACCOUNT", raising=False)
+        gdal.SetConfigOption("AZURE_STORAGE_ACCOUNT", None)
+        with pytest.raises(ValueError, match="AZURE_STORAGE_ACCOUNT"):
+            _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/x.tif")
+
+    def test_gen2_account_authority_refuses_a_mismatch(self, monkeypatch):
+        """A URL naming a different account than the configured one refuses.
+
+        Args:
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            GDAL reads the account from configuration, so silently proceeding
+            would read a different storage account than the URL names.
+        """
+        monkeypatch.setenv("AZURE_STORAGE_ACCOUNT", "otheracct")
+        gdal.SetConfigOption("AZURE_STORAGE_ACCOUNT", "otheracct")
+        try:
+            with pytest.raises(ValueError, match="otheracct"):
+                _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/x.tif")
+        finally:
+            gdal.SetConfigOption("AZURE_STORAGE_ACCOUNT", None)
+
+    def test_bare_gen2_authority_is_still_a_plain_container(self):
+        """Without an `@`, the authority is the filesystem name as before."""
+        assert _to_vsi("abfs://fs/2026/x.tif") == "/vsiadls/fs/2026/x.tif"
 
     def test_az_still_maps_to_blob(self):
         """`az://` keeps naming Blob, so the two Azure handlers stay reachable."""
@@ -832,15 +891,49 @@ class TestHandlerTableInvariant:
         assert prefix in _VSI_PREFIXES, f"{prefix} should be a known VSI prefix"
         assert prefix not in _NETWORK_VSI_PREFIXES, f"{prefix} is not network-backed"
 
-    def test_every_bucket_scheme_maps_to_an_object_store(self):
-        """A URL scheme in the bucket form must name a `<bucket>/<key>` handler.
+    def test_every_url_scheme_is_actually_rewritten(self):
+        """No scheme in the map may fall through `_to_vsi` unchanged.
 
-        Guards the derivation in `_to_vsi`: a scheme added to `URL_SCHEMES`
-        whose prefix is not an object store would silently fall through to
-        "unrecognised" instead of being rewritten.
+        The real risk the derivation guards against: a scheme added to
+        `URL_SCHEMES` whose prefix no branch of `_to_vsi` handles would be
+        returned as-is and handed to GDAL raw. Asserting on the rewrite is what
+        catches that; asserting that the derived set matches its own derivation
+        cannot fail.
         """
-        for scheme in _BUCKET_URL_SCHEMES:
-            assert URL_SCHEMES[scheme] in _OBJECT_STORE_VSI_PREFIXES, scheme
+        for scheme in URL_SCHEMES:
+            rewritten = _to_vsi(f"{scheme}://container/key.tif")
+            assert rewritten != f"{scheme}://container/key.tif", (
+                f"{scheme}:// is in URL_SCHEMES but _to_vsi leaves it unchanged"
+            )
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            "/vsis3_streaming/",
+            "/vsigs_streaming/",
+            "/vsiaz_streaming/",
+            "/vsioss_streaming/",
+            "/vsiswift_streaming/",
+        ],
+    )
+    def test_streaming_handlers_are_network_backed(self, prefix: str):
+        """GDAL's `_streaming` twins read the same services over the network.
+
+        Args:
+            prefix: A streaming VSI prefix.
+
+        Test scenario:
+            Only `/vsicurl_streaming/` was listed, so the five object-store
+            streaming handlers classified as local files.
+        """
+        path = f"{prefix}bucket/key.tif"
+        assert is_remote(path), f"{prefix} must be remote"
+        assert is_network_backed(path), f"{prefix} must be network-backed"
+
+    def test_streaming_handlers_do_not_chain_archives(self):
+        """Their remainder is an option list, so an archive marker is untrustworthy."""
+        path = "/vsis3_streaming/b/a.zip/x.tif"
+        assert _chain_archive_vsi(path) == path, "streaming handlers must not chain"
 
 
 class TestAdlsHandler:
@@ -867,6 +960,10 @@ class TestNetworkHandlersChainArchives:
 
     `_CLOUD_VSI_PREFIXES` used to be s3/gs/az/curl only, so a zipped raster on
     Alibaba OSS, OpenStack Swift or HDFS was never rewritten.
+
+    These assert the path *rewrite* only. `/vsihdfs/` and `/vsiwebhdfs/` need a
+    GDAL built with HDFS support and are not registered in every build (the
+    project's own is one that lacks them), so nothing here opens a dataset.
     """
 
     @pytest.mark.parametrize(
