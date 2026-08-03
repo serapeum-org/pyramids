@@ -29,6 +29,26 @@ This catches the deprecations; the hard behavior changes do **not** warn — sea
 
 ### unreleased
 
+**`abfs://` now means Azure Data Lake Storage Gen2, not Blob.** It mapped to GDAL's `/vsiaz/` (Blob) and now maps
+to `/vsiadls/` (Gen2), matching what `abfs` means everywhere else in the Azure and Hadoop ecosystems — it is the
+Azure Blob *File System* driver, which is Gen2.
+
+- If you used `abfs://` against a **Gen2** account, this is the fix: you were being routed to the Blob handler and
+  now get the right one, with directory semantics.
+- If you used `abfs://` against a **flat Blob** account, switch to `az://`, which is unchanged and still names
+  Blob. Credentials are the same `AZURE_STORAGE_*` family either way.
+- `abfss://` and `adls://` are new spellings of the Gen2 scheme, if you prefer to be explicit.
+
+**`/vsiadls/` is now recognised as a remote, network-backed path.** Previously `is_remote()` and
+`is_network_backed()` both returned `False` for a Gen2 path, so it was classified as a local file — opening still
+worked, but anything reasoning about the path (credential handling, archive chaining) got the wrong answer.
+
+**Archive chaining now covers every network handler.** A raster inside a zip or tar is rewritten to
+`/vsizip/<handler>/...` for `/vsiadls/`, `/vsioss/` (Alibaba), `/vsiswift/` (OpenStack), `/vsihdfs/` and
+`/vsiwebhdfs/`, not only for S3, Google Cloud, Azure Blob and `/vsicurl/`. If you were chaining these by hand,
+the manual prefix is no longer needed — and a hand-built `/vsizip//vsioss/...` still works unchanged.
+
+
 **`Dataset.epsg` no longer reports EPSG:4326 for a raster that has no CRS.** It previously substituted WGS 84
 whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that
 claim propagated into `to_file`, `to_crs`, `bounds` and alignment checks. It now returns `None`, matching GDAL,

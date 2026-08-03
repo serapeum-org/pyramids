@@ -22,7 +22,7 @@ pip install 'pyramids-gis[parquet]'  # optional GeoParquet
 
 `read_file` handles Shapefile, GeoJSON, GeoPackage, KML, FlatGeobuf —
 anything pyogrio / fiona supports — plus zip/tar/gz archives and
-cloud URLs (`s3://`, `gs://`, `az://`, `abfs://`, `http(s)://`).
+cloud URLs (`s3://`, `gs://`, `az://`, `abfs://`, `adls://`, `http(s)://`).
 
 ```python
 from pyramids.feature import FeatureCollection

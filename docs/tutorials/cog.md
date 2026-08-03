@@ -147,7 +147,8 @@ pyramids rewrites URL-scheme paths to GDAL's `/vsi*` form automatically:
 | `s3://bucket/key.tif` | `/vsis3/bucket/key.tif` |
 | `gs://bucket/key.tif` | `/vsigs/bucket/key.tif` |
 | `az://container/blob.tif` | `/vsiaz/container/blob.tif` |
-| `abfs://container/blob.tif` | `/vsiaz/container/blob.tif` |
+| `abfs://container/blob.tif` | `/vsiadls/container/blob.tif` |
+| `adls://container/blob.tif` | `/vsiadls/container/blob.tif` |
 | `https://foo/x.tif` | `/vsicurl/https://foo/x.tif` |
 | `file:///C:/path/x.tif` | `C:/path/x.tif` |
 
