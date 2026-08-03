@@ -1498,6 +1498,9 @@ class RasterBase(ABC):
               inside the dataset, which then needs to be saved/flushed to persist them to disk. A *plain* VRT has
               no internal storage, so its levels go to an external sidecar in either access mode; a warped VRT
               holds them in RAM and writes no sidecar at all.
+            - On a **warped** VRT, `resampling_method` has no effect: GDAL resamples those levels with the
+              warper's own algorithm, so `"average"` and `"nearest"` produce identical pixels. Build the levels
+              on a saved raster instead if the method matters.
         """
         pass
 
@@ -1528,7 +1531,10 @@ class RasterBase(ABC):
                 resampling_method should be one of {"NEAREST", "CUBIC", "AVERAGE", "GAUSS", "CUBICSPLINE", "LANCZOS",
                 "MODE", "AVERAGE_MAGPHASE", "RMS", "BILINEAR"}.
             OverviewTargetError:
-                The dataset cannot hold regenerated levels, for either of two reasons. It is a plain VRT whose
+                The dataset cannot hold regenerated levels, for either of two reasons. The first is checked
+                *before* the arguments, since no argument value can make such a dataset work, so a call that is
+                wrong in both ways reports this rather than the `ValueError` above.
+                It is a plain VRT whose
                 description is not a path — an empty one, a blank one, or inline VRT XML — so there is nothing to
                 name an external sidecar after; save it with `to_file(path)` and build the levels there with
                 `create_overviews()` (`to_file` does not carry overviews, so there is nothing to regenerate).
@@ -1543,13 +1549,19 @@ class RasterBase(ABC):
                 mode is genuinely the blocker — where the levels are *stored* and the handle simply cannot
                 write them. A level a VRT *computes* is refused for a reason no reopen can fix; where GDAL
                 reports that with the same error number it is separated out and raises `OverviewTargetError`
-                instead. Some VRT spellings refuse it with a different number and surface as GDAL's own
-                `RuntimeError`, which already names the cause.
+                instead. Some VRT spellings — one carrying its own `<OverviewList>`, or one reached
+                through a `.ovr` that is itself a VRT — refuse it with a different number and surface as GDAL's
+                own `RuntimeError`, which already names the cause.
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or transport failure
                 is not relabelled as an access-mode error. GDAL's own error is re-raised carrying a note
                 that names the band it stopped on — a band's levels regenerate in one call, so no level is
                 named; a failing status that raised nothing is turned into one.
+
+        Note:
+            Bands are regenerated in order and the exceptions above are raised on the first band that fails, so
+            earlier bands — and, within the failing band, earlier levels — may already have been rewritten. The
+            dataset is not rolled back.
 
         Warns:
             UserWarning:

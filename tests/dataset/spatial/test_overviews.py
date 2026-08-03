@@ -12,7 +12,7 @@ import pytest
 from osgeo import gdal, osr
 
 from pyramids.dataset import Dataset
-from pyramids.dataset.engines.io import IO
+from pyramids.dataset.engines.io import _DESCRIPTION_EXCERPT, IO
 from pyramids.errors import OverviewTargetError, PyramidsError, ReadOnlyError
 from pyramids.netcdf import Container, NetCDF
 
@@ -1319,8 +1319,8 @@ class TestCreateOverviewsPathlessGuard:
         stub = MagicMock(spec=Dataset, driver_type="vrt", raster=handle)
         message = IO(stub)._no_sidecar_message()
         marker = "..." if truncated else ""
-        assert f"Description: {description[:80]!r}{marker}. Save it first" in message, (
-            f"the message must quote {description[:80]!r}{marker}, got: {message}"
+        assert f"Description: {description[:_DESCRIPTION_EXCERPT]!r}{marker}. Save it first" in message, (
+            f"the message must quote {description[:_DESCRIPTION_EXCERPT]!r}{marker}, got: {message}"
         )
         if description:
             assert (description in message) is not truncated, (
@@ -1348,7 +1348,7 @@ class TestCreateOverviewsPathlessGuard:
         dataset = Dataset.read_file(xml)
         try:
             description = dataset.raster.GetDescription()
-            assert len(description) > 80, (
+            assert len(description) > _DESCRIPTION_EXCERPT, (
                 f"precondition: the description outruns the quote, {len(description)}"
             )
             with pytest.raises(OverviewTargetError) as build:
@@ -1356,7 +1356,7 @@ class TestCreateOverviewsPathlessGuard:
             with pytest.raises(OverviewTargetError) as regenerate:
                 dataset.recreate_overviews()
             built, regenerated = str(build.value), str(regenerate.value)
-            assert f"Description: {description[:80]!r}" in built, (
+            assert f"Description: {description[:_DESCRIPTION_EXCERPT]!r}" in built, (
                 f"the refusal must quote the description that caused it, got: {built}"
             )
             assert description not in built, (
@@ -1375,7 +1375,7 @@ class TestCreateOverviewsPathlessGuard:
             assert built.endswith(recovery) and regenerated.endswith(recovery), (
                 f"both refusals must share the recovery clause: {built} vs {regenerated}"
             )
-            assert f"Description: {description[:80]!r}" in regenerated, (
+            assert f"Description: {description[:_DESCRIPTION_EXCERPT]!r}" in regenerated, (
                 f"both refusals must quote the description, got: {regenerated}"
             )
             assert built != regenerated, (
@@ -1412,15 +1412,20 @@ def level_owners(tmp_path, monkeypatch):
     stacked = gdal.Open(internal)
     virtual = gdal.Open(str(vrt_path))
     memory = gdal.GetDriverByName("MEM").Create("", 8, 8, 1, gdal.GDT_Float32)
+    owners = {
+        "gtiff": plain.GetRasterBand(1),
+        "external-ovr": sidecar.GetRasterBand(1).GetOverview(0),
+        "internal-ovr": stacked.GetRasterBand(1).GetOverview(0),
+        "mem": memory.GetRasterBand(1),
+        "vrt": virtual.GetRasterBand(1).GetOverview(0),
+    }
     try:
-        yield {
-            "gtiff": plain.GetRasterBand(1),
-            "external-ovr": sidecar.GetRasterBand(1).GetOverview(0),
-            "internal-ovr": stacked.GetRasterBand(1).GetOverview(0),
-            "mem": memory.GetRasterBand(1),
-            "vrt": virtual.GetRasterBand(1).GetOverview(0),
-        }
+        yield owners
     finally:
+        # Each band keeps its owning dataset alive, so dropping the datasets alone would
+        # leave the files open — on Windows that is what turns tmp_path cleanup into an
+        # "access is denied".
+        owners.clear()
         plain = sidecar = stacked = virtual = memory = None
 
 

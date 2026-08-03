@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from pyramids.base._errors import OverviewTargetError
 from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
 from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset.ops._geobox_zarr import (
@@ -174,6 +175,11 @@ def write_dataset_to_zarr(
     _require_zarr()
     if overview_factors and not compute:
         raise ValueError("overview_factors requires compute=True")
+    if overview_factors and ds.io._has_nowhere_for_an_overview_sidecar():
+        # Refuse before writing anything. The pyramid is built after the base array and
+        # the metadata are committed, so letting this surface from `_write_overview_levels`
+        # would leave a store that looks written but carries no `multiscales`.
+        raise OverviewTargetError(ds.io._no_sidecar_message())
     arr = _build_dask_array(ds, chunks)
     metadata = _metadata_dict(ds)
     resolved_store = _resolve_store(store, storage_options)

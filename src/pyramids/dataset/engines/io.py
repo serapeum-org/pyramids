@@ -2998,6 +2998,18 @@ class IO(_Engine["Dataset"]):
         classic view comes back in index space, `_georeference_index_subset` wraps it in a
         plain pathless VRT, and that shape is blocked here like any other.
 
+        Both `create_overviews` and `recreate_overviews` gate on this, for different
+        reasons: building has nowhere to put a new sidecar, while regenerating is blocked
+        because a plain VRT computes whatever levels it exposes. The second could be left
+        to the ownership check in `_regenerate_overviews`, but gating up front keeps the
+        two methods refusing the same shape for the same handle, and spares the caller a
+        GDAL round trip that can only fail.
+
+        The description is read as it stands now, while GDAL fixed the sidecar's basename
+        when the handle was opened. A handle renamed after opening can therefore pass this
+        check and still strand its levels. No pyramids API renames a dataset handle, so
+        the two cannot disagree today.
+
         Returns:
             bool:
                 True when this handle is a VRT whose overviews have nowhere to go.
@@ -3275,6 +3287,9 @@ class IO(_Engine["Dataset"]):
             ValueError:
                 If resampling_method is not one of the allowed values above.
             OverviewTargetError:
+                Checked *before* the arguments, since no argument value can make this
+                dataset work, so a call that is wrong in both ways reports this rather
+                than the `ValueError` above.
                 If the dataset is a plain VRT whose description is not a path — there is
                 nothing to name an external sidecar after, so the levels have nowhere to
                 go — or if the levels a band exposes are owned by a VRT, which computes
@@ -3292,15 +3307,22 @@ class IO(_Engine["Dataset"]):
                 simply cannot write them. A level a VRT *computes* is refused for a
                 reason no reopen can fix; where GDAL reports that with the same error
                 number it is separated out and raises `OverviewTargetError` instead.
-                Some VRT spellings refuse it with a different number — a VRT carrying its
-                own `<OverviewList>` answers `CPLE_AppDefined` — and those surface as
-                GDAL's own `RuntimeError`, which already names the cause.
+                Some VRT spellings refuse it with a different number — a VRT carrying
+                its own `<OverviewList>`, or one reached through a `.ovr` that is itself
+                a VRT, both answer `CPLE_AppDefined` — and those surface as GDAL's own
+                `RuntimeError`, which already names the cause.
             RuntimeError:
                 Any other GDAL regeneration failure, so a disk-full, corrupt-overview or
                 transport failure is not relabelled as an access-mode error. GDAL's own
                 error is re-raised carrying a note that names the band it stopped on — a
                 band's levels regenerate in one call, so no level is named; a failing
                 status that raised nothing is turned into one.
+
+        Note:
+            Bands are regenerated in order and the exceptions above are raised on the
+            first band that fails, so earlier bands — and, within the failing band,
+            earlier levels — may already have been rewritten. The dataset is not rolled
+            back.
 
         Warns:
             UserWarning:
@@ -3502,7 +3524,7 @@ class IO(_Engine["Dataset"]):
         kept only as a fallback for drivers that raise without setting the number —
         those phrases cannot occur incidentally in a path the way the bare token can.
 
-        **Call this before anything else in the handler**, so the number is still the one
+        **Call this before any GDAL call in the handler**, so the number is still the one
         this regeneration set: *any* GDAL call made after the failure resets it — asking a
         level band for its owning dataset, which :meth:`_overview_target_is_virtual` does,
         already takes it from `CPLE_NoWriteAccess` to `CPLE_None`.
