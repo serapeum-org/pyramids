@@ -3042,7 +3042,7 @@ class IO(_Engine["Dataset"]):
         root = xml[start : end + 1] if start != -1 and end != -1 else ""
         return 'subClass="VRTWarpedDataset"' in root
 
-    def _no_sidecar_message(self) -> str:
+    def _no_sidecar_message(self, *, regenerating: bool = False) -> str:
         """Build the `OverviewTargetError` message for a VRT with no usable description.
 
         Shared by `create_overviews` and `recreate_overviews` so the recovery clause
@@ -3057,6 +3057,9 @@ class IO(_Engine["Dataset"]):
         is what stops it would misattribute the cause in the very direction this
         classification exists to correct.
 
+        Args:
+            regenerating: True when `recreate_overviews` is the caller.
+
         Returns:
             str:
                 The message, quoting the offending description — truncated, with an
@@ -3066,12 +3069,19 @@ class IO(_Engine["Dataset"]):
         full = self._ds.raster.GetDescription()
         description = full[: _DESCRIPTION_EXCERPT]
         ellipsis = "..." if len(full) > _DESCRIPTION_EXCERPT else ""
-        diagnosis = (
-            "This dataset is a plain VRT whose description is not a path, so its "
-            "overviews have nowhere to go: a plain VRT stores no pixels of its own, "
-            "and GDAL names the external sidecar after the description, so there is "
-            "nothing to write the levels to."
-        )
+        if regenerating:
+            diagnosis = (
+                "This dataset is a plain VRT, so the overviews it exposes have nowhere "
+                "to go: it computes them rather than storing them, and its description "
+                "is not a path to hang a new sidecar on either."
+            )
+        else:
+            diagnosis = (
+                "This dataset is a plain VRT whose description is not a path, so its "
+                "overviews have nowhere to go: a plain VRT stores no pixels of its own, "
+                "and GDAL names the external sidecar after the description, so there is "
+                "nothing to write the levels to."
+            )
         return (
             f"{diagnosis} Description: {description!r}{ellipsis}. Save it first with "
             "to_file(path) and build the overviews on the saved raster with "
@@ -3315,7 +3325,7 @@ class IO(_Engine["Dataset"]):
         # with no path cannot perform. The diagnosis differs, though: what blocks
         # regeneration is that a plain VRT computes its levels, not that it lacks a path.
         if self._has_nowhere_for_an_overview_sidecar():
-            raise OverviewTargetError(self._no_sidecar_message())
+            raise OverviewTargetError(self._no_sidecar_message(regenerating=True))
         if resampling_method.upper() not in RESAMPLING_METHODS:
             raise ValueError(f"resampling_method should be one of {RESAMPLING_METHODS}")
         overview_count = self.overview_count
