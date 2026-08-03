@@ -981,9 +981,11 @@ class NetCDFPlot:
                 ``coords``, ``_facet_stack``) before forwarding to
                 cleopatra's animate entry point.
             exclude_value: Per-frame mask value forwarded to cleopatra.
-            basemap: Forwarded to :func:`render_array`; only honoured
-                when the animation eventually exposes a single ``Axes``
-                (cleopatra's :func:`add_tiles` is single-axes today).
+            basemap: Forwarded to :func:`render_array`. A web-tile basemap
+                (``str`` / ``True``) draws on the animation's single
+                persistent ``Axes`` underneath the frames; a cleopatra
+                ``Basemap`` relief layer forwards into cleopatra's animate
+                call.
 
         Returns:
             cleopatra.array_glyph.ArrayGlyph: The cleopatra glyph

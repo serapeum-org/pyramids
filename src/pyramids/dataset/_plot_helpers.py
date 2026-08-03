@@ -635,6 +635,15 @@ def render_array(
         else:
             cleo.animate(animation_axis_values, **animate_kwargs, **cleo_basemap_kwarg)
         result = cleo
+        if tile_basemap:
+            # A pyramids web-tile basemap draws on the animation's single
+            # persistent Axes, mirroring the plot path — so ``basemap=`` behaves
+            # the same whether the caller renders a single frame or an animation
+            # (e.g. ``DatasetCollection.plot`` / ``NetCDF.plot`` on a time stack).
+            # cleopatra's ``animate`` only updates the raster via ``im.set_data``
+            # (blit=True) and never clears the Axes, so the underlay drawn now is
+            # captured in the blit background and persists across frames.
+            _apply_basemap(cleo.ax)
     else:
         # Facet path: cleopatra's ``ArrayGlyph.facet`` accepts every
         # option that ``ArrayGlyph.plot`` does (it allocates one Axes

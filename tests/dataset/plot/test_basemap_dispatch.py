@@ -10,7 +10,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._plot_helpers import render_array
 
 pytestmark = pytest.mark.plot
@@ -205,3 +205,31 @@ class TestBasemapDispatch:
         ]
         assert visible, "facet must expose at least one visible panel"
         assert mock_add.call_count == len(visible)
+
+    def test_tile_basemap_on_animate_draws_on_the_animation_axis(self):
+        """A str tile basemap on the animate path tiles the animation's Axes once."""
+        stack = np.random.default_rng(6).random((3, 6, 6)).astype("float32")
+        with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+            result = render_array(
+                arr=stack,
+                mode="animate",
+                animation_axis_values=[0, 1, 2],
+                basemap="CartoDB.Positron",
+                basemap_epsg=4326,
+                extent=[0.0, 0.0, 1.0, 1.0],
+            )
+        assert result.ax is not None
+        assert mock_add.call_count == 1
+        assert mock_add.call_args.args[0] is result.ax
+
+    def test_collection_plot_draws_tile_basemap_end_to_end(self):
+        """`DatasetCollection.plot(basemap=...)` tiles the animation (was a no-op).
+
+        The collection path is always an animation, so this exercises the same
+        class-level uniformity the base `plot`/`animate` API promises: a web-tile
+        basemap works on `DatasetCollection` exactly as it does on `Dataset`.
+        """
+        cube = DatasetCollection.create_cube(self._dataset(), 3)
+        with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+            cube.plot(band=0, basemap="CartoDB.Positron")
+        assert mock_add.called, "collection animate path must draw the web-tile basemap"
