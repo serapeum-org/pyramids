@@ -256,6 +256,50 @@ class TestSaveDatasetCollection:
         assert len(files) == 6
         shutil.rmtree(path)
 
+    def test_to_geotiff_writes_correct_per_timestep_content(
+        self, rasters_folder_path: str, tmp_path: Path
+    ):
+        """Each written file must hold its own timestep's pixels (streaming fidelity).
+
+        The file-count tests above do not verify content. This reloads every
+        ``i.tif`` and compares it to the source handle at index ``i`` — proving the
+        streaming CreateCopy rewrite reproduces each scene exactly.
+        """
+        cube = DatasetCollection.read_multiple_files(
+            rasters_folder_path, with_order=False
+        )
+        out_dir = tmp_path / "stack"
+        cube.to_file(out_dir)
+
+        for i in range(cube.time_length):
+            written = Dataset.read_file(str(out_dir / f"{i}.tif")).read_array()
+            expected = cube.iloc(i).read_array()
+            np.testing.assert_array_equal(
+                written, expected, err_msg=f"timestep {i} content differs on disk"
+            )
+
+    def test_to_file_does_not_mutate_backing_handles(
+        self, rasters_folder_path: str, tmp_path: Path
+    ):
+        """Saving a file-backed collection must not repoint its per-timestep handles.
+
+        ``to_file`` streams each ``iloc(i)`` handle with ``reopen=False``, so after
+        the save the handles still point at their original input files, not at the
+        freshly written outputs.
+        """
+        cube = DatasetCollection.read_multiple_files(
+            rasters_folder_path, with_order=False
+        )
+        before = [Path(cube.iloc(i).file_name) for i in range(cube.time_length)]
+
+        cube.to_file(tmp_path / "stack")
+
+        after = [Path(cube.iloc(i).file_name) for i in range(cube.time_length)]
+        assert after == before, (
+            "to_file must leave the collection's backing handles pointing at their "
+            f"original files; before={before}, after={after}"
+        )
+
 
 class TestCrop:
     def test_crop_with_raster_inplace(

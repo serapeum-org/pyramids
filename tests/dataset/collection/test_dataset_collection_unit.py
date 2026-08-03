@@ -326,6 +326,186 @@ class TestToFile:
         with pytest.raises(ValueError, match="does not equal"):
             cube_with_values.to_file(["a.tif", "b.tif"])
 
+    def test_to_file_writes_correct_per_timestep_data(
+        self, cube_with_values: DatasetCollection
+    ):
+        """Each written file must hold its own timestep's pixels, not the base template.
+
+        Guards the streaming rewrite: to_file now hands each ``iloc(i)`` handle
+        straight to ``Dataset.to_file`` (GDAL CreateCopy) instead of the old
+        read_array + in-memory copy. The per-slice values must survive intact.
+        """
+        expected = np.arange(3 * 5 * 6, dtype=np.float64).reshape(3, 5, 6)
+        tmp_dir = Path(tempfile.mkdtemp())
+        out_dir = tmp_dir / "stack"
+        try:
+            cube_with_values.to_file(out_dir)
+            for i in range(3):
+                written = Dataset.read_file(str(out_dir / f"{i}.tif"))
+                np.testing.assert_allclose(written.read_array(), expected[i])
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_to_file_preserves_collection_data(
+        self, cube_with_values: DatasetCollection
+    ):
+        """Saving must not mutate the collection's in-memory per-timestep data.
+
+        ``cube_with_values`` is ``datasets=``-backed (``_files is None``), so the
+        old trailing ``self._datasets = None`` collapsed every slice to the base
+        template on the next read. A save is a pure side-effect-free export now:
+        the collection still yields its original per-slice values afterwards.
+        """
+        expected = np.arange(3 * 5 * 6, dtype=np.float64).reshape(3, 5, 6)
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            cube_with_values.to_file(tmp_dir / "stack")
+            for i in range(3):
+                np.testing.assert_allclose(cube_with_values[i], expected[i])
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_to_file_does_not_mutate_source_handles(
+        self, cube_with_values: DatasetCollection
+    ):
+        """Per-timestep handles stay path-less MEM datasets after a save.
+
+        ``cube_with_values`` is ``datasets=``-backed by in-memory MEM datasets
+        (``file_name == ""``). ``to_file`` streams them with ``reopen=False``, so
+        none of them are repointed at the written files.
+        """
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            cube_with_values.to_file(tmp_dir / "stack")
+            for i in range(3):
+                assert cube_with_values.iloc(i).file_name == "", (
+                    f"timestep {i} handle was repointed to a file after save"
+                )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_to_file_accepts_path_object_directory(
+        self, cube_with_values: DatasetCollection
+    ):
+        """A ``pathlib.Path`` directory is accepted (not only ``str``).
+
+        Test scenario:
+            Passing a ``Path`` directory writes ``0.tif``..``2.tif`` just like a
+            string path — exercising the ``isinstance(path, (str, Path))`` branch.
+        """
+        tmp_dir = Path(tempfile.mkdtemp())
+        out_dir = tmp_dir / "as_path"
+        try:
+            cube_with_values.to_file(out_dir)
+            assert sorted(p.name for p in out_dir.iterdir()) == [
+                "0.tif",
+                "1.tif",
+                "2.tif",
+            ]
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_to_file_list_paths_creates_missing_parent(
+        self, cube_with_values: DatasetCollection
+    ):
+        """A list of paths whose parent dir does not exist yet is created.
+
+        Test scenario:
+            Exercises the ``else`` branch that ``mkdir(parents=True)`` the parent
+            of the first path when it is missing.
+        """
+        tmp_dir = Path(tempfile.mkdtemp())
+        missing_parent = tmp_dir / "not_yet" / "here"
+        paths = [missing_parent / f"t{i}.tif" for i in range(3)]
+        try:
+            assert not missing_parent.exists(), "precondition: parent is absent"
+            cube_with_values.to_file(paths)
+            for p in paths:
+                assert p.exists(), f"expected file at {p}"
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_to_file_single_timestep(self, base_dataset: Dataset):
+        """A one-timestep collection writes exactly one file with the base pixels.
+
+        Test scenario:
+            ``create_cube(base, 1)`` written to a directory yields a single
+            ``0.tif`` whose pixels equal the base template.
+        """
+        cube = DatasetCollection.create_cube(base_dataset, dataset_length=1)
+        tmp_dir = Path(tempfile.mkdtemp())
+        out_dir = tmp_dir / "single"
+        try:
+            cube.to_file(out_dir)
+            files = sorted(p.name for p in out_dir.iterdir())
+            assert files == ["0.tif"], f"expected a single 0.tif, got {files}"
+            written = Dataset.read_file(str(out_dir / "0.tif")).read_array()
+            np.testing.assert_allclose(written, base_dataset.read_array())
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_to_file_list_infers_driver_from_path_extension(
+        self, base_dataset: Dataset
+    ):
+        """An explicit path list honors each path's extension, not the default driver.
+
+        ``to_file`` passes no ``driver`` to the per-timestep write, so a list of
+        ``.asc`` paths writes ASCII grids even though the collection's default
+        driver is ``geotiff`` — the pre-streaming extension-inference contract.
+        Guards against silently writing GeoTIFF bytes into ``.asc``-named files.
+        """
+        cube = DatasetCollection.create_cube(base_dataset, dataset_length=2)
+        tmp_dir = Path(tempfile.mkdtemp())
+        paths = [tmp_dir / f"grid_{i}.asc" for i in range(2)]
+        try:
+            cube.to_file(paths)
+            for p in paths:
+                assert p.exists(), f"expected an output at {p}"
+                magic = p.read_bytes()[:2]
+                assert magic not in (b"II", b"MM"), (
+                    f"{p} was written as a TIFF, not ASCII (driver override leaked)"
+                )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_to_file_preserves_color_table(self):
+        """A palette (color table) on a slice survives the streaming write.
+
+        The old ``read_array()`` + ``_mem_dataset_from_array()`` round-trip
+        flattened output through ``create_from_array``, dropping color tables;
+        the ``CreateCopy`` stream preserves them. Guards that fidelity benefit
+        against a regression back to a flattening write path (this test fails on
+        the pre-rewrite path).
+        """
+        src = Dataset.create(
+            cell_size=1.0,
+            rows=3,
+            columns=3,
+            dtype="uint8",
+            bands=1,
+            top_left_corner=(0.0, 3.0),
+            epsg=4326,
+            no_data_value=0,
+        )
+        band = src.raster.GetRasterBand(1)
+        ct = gdal.ColorTable()
+        ct.SetColorEntry(1, (255, 0, 0, 255))
+        ct.SetColorEntry(2, (0, 255, 0, 255))
+        band.SetRasterColorTable(ct)
+        band.WriteArray(np.array([[1, 2, 1], [2, 1, 2], [1, 2, 1]], dtype=np.uint8))
+        cube = DatasetCollection.create_cube(src, dataset_length=1)
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            cube.to_file(tmp_dir / "paletted")
+            reloaded = Dataset.read_file(str(tmp_dir / "paletted" / "0.tif"))
+            rct = reloaded.raster.GetRasterBand(1).GetRasterColorTable()
+            assert rct is not None, "color table was dropped by to_file"
+            assert rct.GetColorEntry(1) == (255, 0, 0, 255), (
+                f"palette entry not preserved: {rct.GetColorEntry(1)}"
+            )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 class TestIloc:
     """Tests for iloc method."""

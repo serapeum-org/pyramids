@@ -2681,20 +2681,40 @@ class DatasetCollection:
         driver: str = "geotiff",
         band: int = 0,
     ):
-        """Save to geotiff format.
+        """Write every timestep of the collection to disk, one file per step.
 
-            saveRaster saves a raster to a path
+        Each timestep is streamed straight to its output file via
+        :meth:`Dataset.to_file`, whose GDAL ``CreateCopy`` makes no extra full
+        copy: a file-backed slice is read block-by-block (peak ~one block, never
+        a whole scene), and an already-in-memory slice is copied once by
+        ``CreateCopy`` instead of three times by the old
+        ``read_array()`` + ``_mem_dataset_from_array()`` round-trip. Either way
+        the per-timestep handle is not repointed at the output. (The one
+        exception: a NetCDF variable-subset slice is materialized in place by
+        the write path before the copy — a full in-memory read GDAL requires to
+        window a multidim view — so such a handle is mutated. Today's
+        collections yield GeoTIFF/MEM handles, so this does not arise in
+        practice.)
 
         Args:
-            path (str | list[str]):
-                a path includng the name of the raster and extention.
+            path (str | Path | list[str | Path]):
+                A single directory — the timesteps are written as ``0.<ext>`` …
+                ``<N-1>.<ext>`` and the directory is created if missing — or an
+                explicit list of one path per timestep.
             driver (str):
-                driver = "geotiff".
+                Output driver as a catalog key (e.g. ``"geotiff"`` (default) or
+                ``"ascii"``); sets the extension when ``path`` is a directory.
             band (int):
-                band index, needed only in case of ascii drivers. Default is 1.
+                Band index to write; used only by single-band drivers such as
+                ``"ascii"`` and ignored by GeoTIFF (which writes every band).
+                Default is 0.
+
+        Raises:
+            ValueError: ``path`` is a list whose length differs from
+                :attr:`time_length`.
 
         Examples:
-            - Save to a file:
+            - Save to a directory — one file per timestep:
 
               ```python
               >>> import os, tempfile
@@ -2710,6 +2730,28 @@ class DatasetCollection:
               ['0.tif', '1.tif', '2.tif']
 
               ```
+            - Save to explicit per-timestep paths and read one slice back:
+
+              ```python
+              >>> import os, tempfile
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, DatasetCollection
+              >>> src = Dataset.create_from_array(
+              ...     np.full((4, 4), 7.0, dtype="float32"), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+              ... )
+              >>> collection = DatasetCollection.create_cube(src, 2)
+              >>> out_dir = tempfile.mkdtemp()
+              >>> paths = [os.path.join(out_dir, f"slice_{i}.tif") for i in range(2)]
+              >>> collection.to_file(paths)
+              >>> arr = Dataset.read_file(paths[0]).read_array()
+              >>> float(arr.max())
+              7.0
+
+              ```
+
+        See Also:
+            DatasetCollection.to_cog_stack: Write each timestep as a Cloud
+            Optimized GeoTIFF.
         """
         ext = CATALOG.get_extension(driver)
 
@@ -2729,11 +2771,22 @@ class DatasetCollection:
                 parent.mkdir(parents=True, exist_ok=True)
 
         for i in range(self.time_length):
-            src = self.iloc(i)
-            transient = self._mem_dataset_from_array(src.read_array(), source=src)
-            transient.to_file(path[i], band=band)
-            transient.close()
-        self._datasets = None
+            # Stream each timestep straight to disk: Dataset.to_file writes via GDAL
+            # CreateCopy, which makes no extra full copy — a file-backed slice reads
+            # block-by-block (peak ~one block, not a full scene); an in-memory slice is
+            # copied once instead of thrice. reopen=False keeps the borrowed handle from
+            # iloc(i) unmutated. This also drops the old
+            # read_array() + _mem_dataset_from_array() round-trip, which — besides the two
+            # extra full copies — flattened the output through create_from_array (band-0
+            # nodata only, no color table / per-band nodata / RAT); CreateCopy preserves
+            # them. Mirrors the sibling to_cog_stack.
+            #
+            # No driver= is passed: the per-timestep write infers it from path[i]'s
+            # extension, exactly as before this rewrite. The directory branch already
+            # builds path[i] with `driver`'s extension, so `driver` is still honored there;
+            # an explicit path list keeps its old per-path extension semantics (e.g. a
+            # list of .asc paths writes ASCII even though the default driver is geotiff).
+            self.iloc(i).to_file(path[i], band=band, reopen=False)
 
     def to_cog_stack(
         self,
