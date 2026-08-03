@@ -2421,7 +2421,7 @@ class Dataset(RasterBase):
         """Open a raster from a path, URL, or archive member.
 
         Plain local paths, ``/vsi*`` paths, and URL schemes
-        (``http(s)://``, ``s3://``, ``gs://``, ``az://`` / ``abfs://``,
+        (``http(s)://``, ``s3://``, ``gs://``, ``az://``, ``abfs://`` / ``adls://``,
         ``file://``) are all accepted — URLs are transparently rewritten to
         GDAL's virtual filesystem (GDAL fetches via HTTP range requests for
         ``http(s)``). Compressed archives are detected from the extension; pass
@@ -2496,7 +2496,7 @@ class Dataset(RasterBase):
 
         This is **not** a URL helper. Reading from a URL is already
         supported by :meth:`read_file`, which rewrites ``http(s)://``,
-        ``s3://``, ``gs://``, ``az://`` / ``abfs://`` and ``file://``
+        ``s3://``, ``gs://``, ``az://``, ``abfs://`` / ``adls://`` and ``file://``
         to GDAL ``/vsi*`` paths. Use ``from_bytes`` only when you
         already hold the bytes.
 
