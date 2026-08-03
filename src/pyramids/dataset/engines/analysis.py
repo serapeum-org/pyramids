@@ -29,6 +29,7 @@ from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
     from cleopatra.array_glyph import ArrayGlyph
+    from cleopatra.geo import Basemap
 
     from pyramids.dataset.dataset import Dataset
 
@@ -1946,7 +1947,7 @@ class Analysis(_Engine["Dataset"]):
         overview: bool | None = False,
         overview_index: int | None = 0,
         percentile: int | None = None,
-        basemap: bool | str | None = None,
+        basemap: bool | str | dict[str, Any] | Basemap | None = None,
         **kwargs: Any,
     ) -> ArrayGlyph:
         """Plot the values/overviews of a given band.
@@ -1995,11 +1996,20 @@ class Analysis(_Engine["Dataset"]):
                 Index of the overview. Default is 0.
             percentile: int
                 The percentile value to be used for scaling.
-            basemap (bool or str, optional):
-                If True, add an OpenStreetMap basemap underneath the plot. If a string, use it as
-                the tile provider name (e.g. "CartoDB.Positron"). Default is None (no basemap).
-                Requires the [viz] extra (mercantile, xyzservices, Pillow).
+            basemap (bool, str, or Basemap, optional):
+                Reference layer under the plot, dispatched by type. ``True`` or a tile-provider
+                string (e.g. "CartoDB.Positron") draws a pyramids web-tile basemap. A
+                ``pyramids.plot.Basemap(relief=..., features=...)`` (cleopatra >= 0.28) draws a
+                shaded-relief / coastline reference layer instead. Default is None (no basemap).
+                Requires the [viz] extra (mercantile, xyzservices, Pillow). A ``Basemap`` is not
+                supported on the faceted path.
         kwargs:
+                The typed specs below (``ColorBar`` / ``PointOverlay`` / ``Basemap``) are
+                re-exported from ``pyramids.plot`` — import them from there rather than cleopatra.
+                Configure the colour bar through ``colorbar=ColorBar(label=..., length=...,
+                orientation=..., label_size=..., label_rotation=..., label_location=...,
+                ticks_spacing=...)`` (cleopatra >= 0.28); the loose ``cbar_*`` / ``orientation`` /
+                ``rotation`` / ``ticks_spacing`` rows below are the deprecated aliases it replaces.
                 | Parameter                   | Type                | Description |
                 |-----------------------------|---------------------|-------------|
                 | `points`                    | array \\| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
@@ -2023,6 +2033,8 @@ class Analysis(_Engine["Dataset"]):
                 | `num_size`                  | int, optional       | Size of numbers plotted on top of each cell. Default is `8`. |
                 | `background_color_threshold`| float or int, optional | Threshold for deciding text color over cells: if value > threshold -> black text; else white text. If `None`, max value / 2 is used. Default is `None`. |
                 | `add_colorbar`              | bool, optional      | Whether to draw the colour bar. Default is `True`. When `False`, no colorbar is created and the returned glyph's `cbar` is `None`. |
+                | `colorbar`                  | bool \\| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28) — the complete, preferred replacement for the loose `cbar_*` kwargs. `False` hides it, `None` uses the default. |
+                | `full_bleed`                | bool \\| str, optional | cleopatra >= 0.28 chrome-free layout: drop axes/margins so the array fills the figure. Default `False`. |
         Returns:
             ArrayGlyph:
                 A cleopatra ``ArrayGlyph`` wrapping the rendered figure. The underlying matplotlib

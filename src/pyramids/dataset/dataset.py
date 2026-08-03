@@ -232,6 +232,7 @@ def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.typing.NDA
 
 if TYPE_CHECKING:
     import dask.array as da
+    from cleopatra.geo import Basemap
     from geopandas import GeoDataFrame
 
 
@@ -798,7 +799,7 @@ class Dataset(RasterBase):
         overview: bool | None = False,
         overview_index: int | None = 0,
         percentile: int | None = None,
-        basemap: bool | str | None = None,
+        basemap: bool | str | dict[str, Any] | Basemap | None = None,
         rgb_options: dict | None = None,
         **kwargs: Any,
     ):
@@ -850,10 +851,12 @@ class Dataset(RasterBase):
             percentile (int, optional):
                 **Deprecated**; pass via ``rgb_options={"percentile": ...}``.
                 Percentile used when computing colour-scale limits. Default is ``None``.
-            basemap (bool or str, optional):
-                If ``True``, overlay an OpenStreetMap basemap. If a string, use it as the
-                contextily/xyzservices tile-provider name (e.g. ``"CartoDB.Positron"``).
-                Default is ``None``. Requires the ``[viz]`` extra.
+            basemap (bool, str, or Basemap, optional):
+                Reference layer, dispatched by type. ``True`` or a tile-provider string
+                (e.g. ``"CartoDB.Positron"``) overlays a pyramids web-tile basemap. A
+                ``pyramids.plot.Basemap(relief=..., features=...)`` (cleopatra >= 0.28)
+                draws a shaded-relief / coastline layer instead. Default is ``None``.
+                Requires the ``[viz]`` extra.
             rgb_options (dict, optional):
                 Grouped Sentinel-imagery kwargs. Accepted keys:
                 ``"rgb"``, ``"surface_reflectance"``, ``"cutoff"``,
@@ -1686,6 +1689,19 @@ class Dataset(RasterBase):
                 Read a level back with `Dataset.from_zarr(store, level=factor)`.
             overview_resampling: GDAL resampling for the pyramid levels
                 (`"average"` default, `"nearest"`, `"bilinear"`, ...).
+
+        Raises:
+            OverviewTargetError: `overview_factors` was given and this dataset cannot
+                hold overviews — a plain VRT whose description is not a path: an empty
+                one, a blank one, or inline VRT XML. The levels are built through
+                `create_overviews`, which refuses that shape, so the target is checked
+                pre-flight and no store is written at all. The check runs *before* the
+                `compute` one, so a call that is wrong in both ways reports this rather
+                than the `ValueError` below — passing `compute=True` would still leave
+                the dataset refused. Save it with `to_file(path)` and write the Zarr
+                from the saved raster.
+            ValueError: `overview_factors` was given with `compute=False`; the pyramid
+                levels are written eagerly.
         """
         resolved_chunks = chunks if chunks is not None else "auto"
         return write_dataset_to_zarr(

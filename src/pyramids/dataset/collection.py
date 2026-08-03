@@ -2501,6 +2501,7 @@ class DatasetCollection:
                 | title_size                 | int, optional         | Title size. Default is `15`. |
                 | orientation                | str, optional         | Orientation of the color bar (`horizontal` or `vertical`). Default is `'vertical'`. |
                 | rotation                   | number, optional      | Rotation of the color bar label. Default is `-90`. |
+                | colorbar                   | bool \| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28) — the complete, preferred replacement for the loose `cbar_*` / `orientation` / `rotation` / `ticks_spacing` kwargs. `False` hides it, `None` uses the default. |
                 | cbar_length                | float, optional       | Ratio to control the height of the color bar. Default is `0.75`. |
                 | ticks_spacing              | int, optional         | Spacing in the color bar ticks. Default is `2`. |
                 | cbar_label_size            | int, optional         | Size of the color bar label. Default is `12`. |
@@ -2649,6 +2650,7 @@ class DatasetCollection:
                 percentile=percentile,
                 mode="animate",
                 animation_axis_values=axis_values,
+                basemap_epsg=self.base.epsg,
                 **kwargs,
             )
         data = np.stack([ds.read_array(band=band) for ds in self.datasets], axis=0)
@@ -2669,6 +2671,7 @@ class DatasetCollection:
             exclude_value=exclude_value,
             mode="animate",
             animation_axis_values=axis_values,
+            basemap_epsg=self.base.epsg,
             **kwargs,
         )
 

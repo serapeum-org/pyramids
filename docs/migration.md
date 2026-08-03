@@ -63,6 +63,8 @@ prefix is no longer needed, and a hand-built `/vsizip//vsioss/...` still works u
 lookup). `CloudConfig` gains an `azure_no_sign_request=True` flag so anonymous Azure reads have the same knob the
 S3 side already had.
 
+### 0.47.0
+
 **`Dataset.epsg` no longer reports EPSG:4326 for a raster that has no CRS.** It previously substituted WGS 84
 whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that
 claim propagated into `to_file`, `to_crs`, `bounds` and alignment checks. It now returns `None`, matching GDAL,
@@ -163,6 +165,86 @@ that leaked out of an empty table lookup. Only affects code catching the old typ
 
 ### unreleased
 
+**`create_overviews` now refuses a plain VRT whose description is not a path.** It raises `OverviewTargetError`
+instead of returning normally. That is a new exception, importable as
+`from pyramids.errors import OverviewTargetError`, which subclasses `ValueError`,
+so an existing `except ValueError` around the call keeps catching it — catch the new type to tell "this dataset
+can never work" apart from "these arguments were wrong". `recreate_overviews` raises it for the same shape, where
+it previously reported a misleading `ReadOnlyError` advising a reopen that a handle with no path cannot perform —
+or, when the VRT exposed **no** levels at all, returned normally with a `UserWarning` saying to call
+`create_overviews()` first. That advice is now refused too, so a pipeline that called `recreate_overviews()`
+defensively across a mix of handles and ignored the warning goes from a silent no-op to a raise.
+A plain VRT owns no pixel storage, so GDAL can only write its overviews to an external `.ovr`
+sidecar named after the dataset description — and when that description is not a path, the sidecar landed as a
+file called literally `.ovr` in the process's working directory, attached to nothing, while the levels the handle
+was already exposing were dropped. The call reported success and silently did neither thing it promised.
+
+Three descriptions are refused: an empty one, a blank one, and any that begins with `<` once stripped — in
+practice an inline VRT XML document passed to `Dataset.read_file(...)`, which previously surfaced as a raw GDAL
+`RuntimeError` naming a file whose name was the whole document. No real path starts with `<`.
+
+These calls hand back such a handle, and so start raising:
+
+- `Dataset.get_overview_dataset(...)` — **only** its lazily described form, taken when the parent can be reopened
+  by name. When the parent cannot be (a `create_from_array` raster, for instance), the method materialises a
+  `MEM` level instead, and that still builds.
+- anything wrapping a `gdal.Translate(..., format="VRT")` or `gdal.BuildVRT("", ...)` result kept in memory.
+- `NetCDF.get_variable(...)` when the classic view comes back in **index space** — an irregularly spaced
+  coordinate defeats the geotransform guess, and the view is then wrapped in a plain pathless VRT. A view over a
+  regular grid is not VRT-wrapped and is unaffected.
+- `Dataset.wrap_longitude()` on a **file-backed** source, whose lazy roll is a plain pathless VRT. On an
+  in-memory source the roll is a `MEM` raster and is unaffected. This one previously produced the damage above
+  verbatim — a stray `.ovr` and no levels — so the refusal is a fix, not a regression.
+- `Dataset.to_zarr(..., overview_factors=[...])` on any handle the refusal covers, since it builds the pyramid
+  levels through `create_overviews`. The target is checked pre-flight, so the call leaves no store behind, and
+  before the `compute` argument, so a call that is also `compute=False` reports the refusal rather than the
+  `ValueError`. Without `overview_factors` the refusal does not apply; a description-less VRT then fails where
+  it always did, in `to_zarr`'s base-array write.
+
+Write the view out first and build the overviews on the saved raster:
+
+```python
+view.to_file("level.tif")
+view.close()  # on Windows an open handle keeps the parent file locked
+saved = Dataset.read_file("level.tif", read_only=False)
+saved.create_overviews(overview_levels=[2, 4])
+```
+
+Unaffected **by the `create_overviews` refusal**: **warped** VRTs keep their overviews in RAM and need no
+sidecar. These produce one — `Dataset.warped_view(...)`, `Dataset.to_crs(...)` in its warping form,
+`Dataset.crop(mask, touch=False)` with a **vector** mask, and the lazy `georeference` / `orthorectify` forms.
+(`to_crs(..., maintain_alignment=True)` and `crop` with a *raster* mask are different paths: both return a `MEM`
+dataset, exempt as a non-VRT rather than as a warped one.)
+Tests cover `warped_view` and `to_crs`; the others are exempt by the same root-element check. A VRT with a
+real path (including under `/vsimem/`) names its sidecar after that path, and `MEM` rasters are not VRTs at all.
+Warped VRTs are **not** exempt from the `recreate_overviews` refusal — see the next entry.
+
+**`recreate_overviews` now raises `OverviewTargetError` instead of `ReadOnlyError` when a VRT computes the
+levels.** GDAL reports every unwritable overview target with the same `CPLE_NoWriteAccess` it uses for a
+genuinely read-only dataset, so the old message told callers to reopen with `read_only=False` whenever the write
+was refused. For a level a VRT computes rather than stores, that advice cannot help and often cannot even be
+followed. Two shapes are affected:
+
+- a **warped** VRT — its levels land on `VRTWarpedRasterBand`s, which are never writable. A warped view taken
+  from a *writable* parent fails identically, and a pathless view has no path to reopen. `create_overviews()`
+  still builds a warped view's levels; only in-place regeneration is refused.
+- a **plain VRT that inherits its levels from the source** it wraps — the common
+  `gdal.Translate(..., format="VRT")` or mosaic over an already-overviewed raster. GDAL serves each such level
+  from an implicit read-only VRT it builds for the level, not from the handle you opened, so the read-only
+  dataset in its message is one `read_only=False` cannot reach — holding the source open writable does not help
+  either. Give the VRT its own sidecar with `create_overviews()`, or regenerate on the source raster instead.
+
+The two are told apart by who owns the level: a level owned by a VRT is computed, one owned by a real raster
+(the dataset itself for an internal overview, the `.ovr` GTiff for an external one) is stored.
+
+`ReadOnlyError` is now raised only when a reopen is still worth trying — a stored level on a handle that is
+itself open read-only. It is **not** a promise that reopening will succeed: a VRT serving an explicit
+`<Overview>` owns a real, on-disk-writable `.ovr`, yet GDAL opens VRT sources read-only and refuses however the
+parent was opened. What has changed is that a dataset **already open for writing** never gets told to reopen —
+that shape now raises `OverviewTargetError` too, since the access mode demonstrably is not the blocker.
+
+### 0.48.0
+
 **`recreate_overviews` now rebuilds a band's levels in one cascading pass.** Each deeper level is decimated from
 the level above rather than from the full-resolution band, matching what `create_overviews` (`BuildOverviews`)
 has always done — previously `recreate_overviews` rebuilt every level directly from the source. Nothing warns;
@@ -180,6 +262,8 @@ twice:
 There is no way to get the old per-level values back: no API rebuilds a deep level directly from the source any
 more. If your pipeline depends on them, rebuild the levels you need yourself from
 `Dataset.read_array()` and write them out.
+
+### 0.47.0
 
 **Operations that need a CRS now refuse instead of assuming one.** Each raises `CRSError` naming the operation
 and how to fix it, where previously the missing CRS was silently filled in with WGS 84:
@@ -215,7 +299,7 @@ ignored: there is no frame to transform into.
 
 ## cli
 
-### unreleased
+### 0.47.0
 
 **`pyramids calc` refuses a first input with no CRS.** The result cannot be georeferenced and pyramids will not
 stamp a default; set a CRS on the input first. `pyramids georeference` is unaffected — its GCPs and `--gcp-crs`

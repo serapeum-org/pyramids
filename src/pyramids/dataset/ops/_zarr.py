@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from pyramids.base._errors import OverviewTargetError
 from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
 from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset.ops._geobox_zarr import (
@@ -147,10 +148,23 @@ def write_dataset_to_zarr(
         compressor: Zarr codec(s) for the `data` array. `"auto"` (default) keeps
             zarr's default codec; pass a zarr-v3 codec / list to override, or
             `None` for an uncompressed array.
+        overview_factors: Downsample factors (e.g. `[2, 4, 8]`) written as extra
+            `data_<factor>` arrays plus a `multiscales` attribute. Built through
+            `Dataset.create_overviews`, so they need `compute=True` and a dataset
+            that can hold overviews.
+        overview_resampling: GDAL resampling for those levels, `"average"` by
+            default.
 
     Returns:
         `None` on `compute=True`; a :class:`dask.delayed.Delayed`
         on `compute=False`.
+
+    Raises:
+        OverviewTargetError: `overview_factors` was given and `ds` cannot hold
+            overviews — a plain VRT whose description is not a path. Taken pre-flight,
+            so nothing is written, and ahead of the `compute` check, so the target the
+            caller cannot fix is reported before the argument they can.
+        ValueError: `overview_factors` was given with `compute=False`.
 
     Examples:
         - Round-trip a small Dataset through Zarr (requires the
@@ -172,6 +186,16 @@ def write_dataset_to_zarr(
             ```
     """
     _require_zarr()
+    if overview_factors and ds.io._has_nowhere_for_an_overview_sidecar():
+        # Refuse before writing anything. The pyramid is built after the base array and
+        # the metadata are committed, so letting this surface from `_write_overview_levels`
+        # would leave a store that looks written but carries no `multiscales`.
+        #
+        # Ahead of the `compute` check for the same reason `recreate_overviews` puts its
+        # target check ahead of the argument validation: passing `compute=True` still
+        # leaves this dataset refused, so reporting the fixable argument first would send
+        # the caller round a loop that cannot end in a written pyramid.
+        raise OverviewTargetError(ds.io._no_sidecar_message())
     if overview_factors and not compute:
         raise ValueError("overview_factors requires compute=True")
     arr = _build_dask_array(ds, chunks)

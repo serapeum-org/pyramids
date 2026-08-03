@@ -9,6 +9,7 @@ import logging
 
 import pytest
 
+from pyramids import errors as public_errors
 from pyramids.base._errors import (
     AlignmentError,
     DatasetNotFoundError,
@@ -18,6 +19,7 @@ from pyramids.base._errors import (
     NoDataValueError,
     OptionalPackageDoesNotExist,
     OutOfBoundsError,
+    OverviewTargetError,
     ReadOnlyError,
     _PyramidsError,
 )
@@ -34,6 +36,7 @@ ALL_ERRORS = [
     OptionalPackageDoesNotExist,
     FailedToSaveError,
     OutOfBoundsError,
+    OverviewTargetError,
 ]
 
 
@@ -84,7 +87,7 @@ class TestPyramidsErrorBase:
 
 
 class TestExceptionHierarchy:
-    """Tests for all 9 concrete exception classes."""
+    """Tests for the concrete exception classes listed in `ALL_ERRORS`."""
 
     @pytest.mark.parametrize("exc_class", ALL_ERRORS, ids=lambda c: c.__name__)
     def test_str_returns_message(self, exc_class):
@@ -243,9 +246,7 @@ class TestErrorsReExport:
             works, so the public name must resolve to the underlying
             :class:`_PyramidsError` base class.
         """
-        import pyramids.errors as errs
-
-        assert errs.PyramidsError is _PyramidsError, (
+        assert public_errors.PyramidsError is _PyramidsError, (
             "pyramids.errors.PyramidsError must alias the private base"
         )
 
@@ -256,9 +257,9 @@ class TestErrorsReExport:
             A star-import (or static analyser) must not see dangling
             names. Every listed name must be an attribute on the module.
         """
-        import pyramids.errors as errs
-
-        missing = [n for n in errs.__all__ if not hasattr(errs, n)]
+        missing = [
+            name for name in public_errors.__all__ if not hasattr(public_errors, name)
+        ]
         assert not missing, f"Names in __all__ with no attribute: {missing}"
 
     @pytest.mark.parametrize("exc_class", ALL_ERRORS, ids=lambda c: c.__name__)
@@ -274,8 +275,22 @@ class TestErrorsReExport:
             accessible via :mod:`pyramids.errors` by its unqualified
             class name. This is the promise of the public re-export.
         """
-        import pyramids.errors as errs
-
-        assert getattr(errs, exc_class.__name__, None) is exc_class, (
+        assert getattr(public_errors, exc_class.__name__, None) is exc_class, (
             f"{exc_class.__name__} must be re-exported from pyramids.errors"
+        )
+
+    def test_overview_target_error_is_re_exported_by_identity(self):
+        """``OverviewTargetError`` is in ``__all__`` and is the private class itself.
+
+        Test scenario:
+            The overview guard raises it and the module docstring tells callers to
+            import exceptions from here — expected: the name is in ``__all__``, so a
+            star-import and the static analysers see it, and it resolves to the very
+            class the engine raises, not a same-named copy an ``except`` would miss.
+        """
+        assert "OverviewTargetError" in public_errors.__all__, (
+            f"OverviewTargetError must be listed in __all__, got {public_errors.__all__}"
+        )
+        assert public_errors.OverviewTargetError is OverviewTargetError, (
+            "the public name must be the class the engine raises, not a copy"
         )
