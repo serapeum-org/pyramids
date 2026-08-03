@@ -484,11 +484,6 @@ def _to_vsi(path: str) -> str:
         The VSI-rewritten path if a rewrite applies; otherwise
         `path` unchanged.
 
-    Raises:
-        ValueError: An ABFS(S) URL names a storage account that does not match
-            the configured one, or names one with nothing configured. GDAL takes
-            the account from configuration, so continuing would read a different
-            storage account than the URL asks for.
 
     Examples:
         - Cloud-object-store URLs get the matching /vsi prefix:
@@ -644,24 +639,29 @@ def _gen2_filesystem(parsed: ParseResult, path: str) -> str:
     The canonical ABFS URI in the Azure, Hadoop, Spark and Databricks world is
     `abfss://<filesystem>@<account>.dfs.core.windows.net/<path>`, so the
     authority is not a bare container name. Taking it verbatim yields a
-    URL-encoded nonsense container on whatever account `AZURE_STORAGE_ACCOUNT`
-    happens to hold — a silent read of the wrong storage account.
+    URL-encoded nonsense container on whatever account GDAL is configured with.
 
-    The account cannot simply be adopted here: `_to_vsi` rewrites a string and
-    GDAL takes the account from configuration, so a URL naming a different
-    account than the one configured is a conflict the caller has to resolve.
-    Rather than pick one silently, that case raises.
+    The rewrite is deterministic: the same URL always produces the same `/vsi*`
+    path, whether or not credentials are configured and whether or not a
+    :class:`CloudConfig` block is active. The account cannot be carried in the
+    path — GDAL reads it from configuration — so when the URL names one that
+    disagrees with the configured account, that is a genuine conflict and warns.
+    It does not raise: this runs on every open, and a warning surfaces the
+    problem (including as an error under `-W error`) without turning a
+    path-rewriting helper into a failure point.
 
     Args:
         parsed: The parsed URL.
-        path: The original path, for the error message.
+        path: The original path, for the warning message.
 
     Returns:
         str: The filesystem name to use as the `/vsiadls/` container.
 
-    Raises:
-        ValueError: The URI names a storage account that does not match the
-            configured `AZURE_STORAGE_ACCOUNT`.
+    Warns:
+        UserWarning: The URI names a storage account that differs from the
+            configured `AZURE_STORAGE_ACCOUNT` (or the `AccountName=` inside
+            `AZURE_STORAGE_CONNECTION_STRING`), so the read would silently go to
+            a different account than the URL asks for.
     """
     authority = parsed.netloc
     if "@" not in authority:
@@ -669,18 +669,15 @@ def _gen2_filesystem(parsed: ParseResult, path: str) -> str:
     filesystem, _, host = authority.partition("@")
     account = host.split(".", 1)[0].lower()
     configured = _configured_azure_account()
-    if configured and configured != account:
-        raise ValueError(
-            f"{path!r} names storage account {account!r}, but AZURE_STORAGE_ACCOUNT "
-            f"is set to {configured!r}. GDAL takes the account from configuration, "
-            "so set it to match the URL (or drop the `@account` part of the URL)."
-        )
-    if not configured:
-        raise ValueError(
-            f"{path!r} names storage account {account!r}, but AZURE_STORAGE_ACCOUNT "
-            "is not set. GDAL reads the account from configuration, not from the "
-            "URL: set it (e.g. `CloudConfig(azure_storage_account=...)`) before "
-            "opening, or use the bare `abfs://<filesystem>/<path>` form."
+    if configured and account and configured != account:
+        warnings.warn(
+            f"{path!r} names storage account {account!r}, but GDAL is configured "
+            f"for {configured!r} and takes the account from configuration rather "
+            "than from the URL, so the read will go to "
+            f"{configured!r}. Set AZURE_STORAGE_ACCOUNT to match the URL (or use "
+            "the bare `abfs://<filesystem>/<path>` form) to remove the ambiguity.",
+            UserWarning,
+            stacklevel=4,
         )
     return filesystem
 
@@ -902,7 +899,8 @@ class CloudConfig:
     `gs_secret_access_key`           `GS_SECRET_ACCESS_KEY`
     `azure_storage_account`          `AZURE_STORAGE_ACCOUNT`
     `azure_storage_access_key`       `AZURE_STORAGE_ACCESS_KEY`
-    `azure_storage_sas_token`        `AZURE_STORAGE_SAS_TOKEN`
+    `azure_storage_sas_token`         `AZURE_STORAGE_SAS_TOKEN`
+    `azure_no_sign_request=True`      `AZURE_NO_SIGN_REQUEST=YES`
     `http_max_retry`                 `GDAL_HTTP_MAX_RETRY`
     `http_retry_delay`               `GDAL_HTTP_RETRY_DELAY` (seconds)
     `http_timeout`                   `GDAL_HTTP_TIMEOUT` (seconds)
@@ -1000,6 +998,7 @@ class CloudConfig:
     azure_storage_account: str | None = None
     azure_storage_access_key: str | None = None
     azure_storage_sas_token: str | None = None
+    azure_no_sign_request: bool = False
     http_max_retry: int | None = None
     http_retry_delay: float | None = None
     http_timeout: int | None = None
@@ -1134,6 +1133,9 @@ class CloudConfig:
             "AZURE_STORAGE_ACCOUNT": self.azure_storage_account,
             "AZURE_STORAGE_ACCESS_KEY": self.azure_storage_access_key,
             "AZURE_STORAGE_SAS_TOKEN": self.azure_storage_sas_token,
+            # Measured to apply to `/vsiaz/` and `/vsiadls/` alike: with it set,
+            # both skip the instance-metadata credential lookup.
+            "AZURE_NO_SIGN_REQUEST": "YES" if self.azure_no_sign_request else None,
             "GDAL_HTTP_MAX_RETRY": self.http_max_retry,
             "GDAL_HTTP_RETRY_DELAY": self.http_retry_delay,
             "GDAL_HTTP_TIMEOUT": self.http_timeout,
