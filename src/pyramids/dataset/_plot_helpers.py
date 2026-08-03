@@ -307,8 +307,8 @@ def render_array(
         ValueError: If ``mode`` is not one of the accepted values, if a
             required mode-specific argument is missing, if ``basemap`` is
             truthy and ``basemap_epsg`` is ``None``, if a cleopatra
-            ``Basemap`` is passed on the ``"facet"`` path, or if
-            ``color_scale`` is not a recognised
+            ``Basemap`` (or equivalent dict) is passed on the ``"facet"``
+            path, or if ``color_scale`` is not a recognised
             :class:`~cleopatra.styles.ColorScale` value.
 
     Examples:
@@ -648,10 +648,10 @@ def render_array(
             # relief/features reference layer cannot be drawn per panel. Fail
             # loudly rather than forward an unsupported kwarg.
             raise ValueError(
-                "A cleopatra `Basemap` reference layer is not supported on the "
-                "faceted plot path. Use a web-tile basemap (basemap='<provider>') "
-                "for per-panel tiles, or plot without faceting for a "
-                "relief/features basemap."
+                "A cleopatra `Basemap` (or equivalent dict) reference layer is not "
+                "supported on the faceted plot path. Use a web-tile basemap "
+                "(basemap='<provider>') for per-panel tiles, or plot without faceting "
+                "for a relief/features basemap."
             )
         result = cleo.facet(**facet_kwargs, **render_kwargs)
         if tile_basemap:
