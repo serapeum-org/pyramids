@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from contextlib import nullcontext
 
 import numpy as np  # noqa: E402
@@ -119,37 +120,63 @@ class TestToVsi:
         assert "adls" not in URL_SCHEMES, "adls:// is not an ecosystem scheme"
         assert _to_vsi("adls://container/blob.tif") == "adls://container/blob.tif"
 
-    def test_gen2_account_authority_resolves_when_configured(self):
-        """The canonical `filesystem@account` authority uses only the filesystem.
+    @pytest.mark.parametrize("configured", [None, "prodlake", "otheracct"])
+    def test_gen2_account_authority_rewrites_deterministically(self, configured):
+        """The rewrite does not depend on ambient credentials.
 
+        Args:
+            configured: The `AZURE_STORAGE_ACCOUNT` in force, or `None`.
 
         Test scenario:
-            `abfss://<fs>@<account>.dfs.core.windows.net/<path>` is how ABFS URIs
-            are written everywhere in the Azure and Hadoop world. Taking the
-            authority verbatim as the container yields a URL-encoded nonsense
-            container on whatever account is configured.
+            `_to_vsi` runs on essentially every open, so the same URL must
+            produce the same path whether or not credentials are configured and
+            whether or not a `CloudConfig` block is active.
         """
-        with gdal.config_option("AZURE_STORAGE_ACCOUNT", "prodlake"):
-            resolved = _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/2026/x.tif")
+        with gdal.config_option("AZURE_STORAGE_ACCOUNT", configured):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                resolved = _to_vsi(
+                    "abfss://raw@prodlake.dfs.core.windows.net/2026/x.tif"
+                )
         assert resolved == "/vsiadls/raw/2026/x.tif", resolved
 
-    def test_gen2_account_authority_refuses_when_unconfigured(self):
-        """Naming an account in the URL with none configured is an error, not a guess."""
-        with gdal.config_option("AZURE_STORAGE_ACCOUNT", None):
-            with pytest.raises(ValueError, match="AZURE_STORAGE_ACCOUNT"):
-                _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/x.tif")
-
-    def test_gen2_account_authority_refuses_a_mismatch(self):
-        """A URL naming a different account than the configured one refuses.
-
+    def test_a_conflicting_account_warns_rather_than_raising(self):
+        """A URL account that disagrees with the configured one is surfaced.
 
         Test scenario:
-            GDAL reads the account from configuration, so silently proceeding
-            would read a different storage account than the URL names.
+            GDAL takes the account from configuration, so the read would go
+            somewhere other than the URL names. That is worth flagging — but not
+            by raising from a path-rewriting helper on the open path.
         """
         with gdal.config_option("AZURE_STORAGE_ACCOUNT", "otheracct"):
-            with pytest.raises(ValueError, match="otheracct"):
+            with pytest.warns(UserWarning, match="otheracct"):
                 _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/x.tif")
+
+    def test_a_matching_account_is_silent(self):
+        """No warning when the URL and the configuration agree."""
+        with gdal.config_option("AZURE_STORAGE_ACCOUNT", "prodlake"):
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                assert (
+                    _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/x.tif")
+                    == "/vsiadls/raw/x.tif"
+                )
+
+    def test_the_account_may_come_from_the_connection_string(self):
+        """GDAL accepts the account embedded in the connection string.
+
+        Test scenario:
+            Reading only `AZURE_STORAGE_ACCOUNT` warned about a conflict on a
+            setup that is perfectly valid for `/vsiadls/`.
+        """
+        connection = "DefaultEndpointsProtocol=https;AccountName=prodlake;AccountKey=k"
+        with gdal.config_option("AZURE_STORAGE_CONNECTION_STRING", connection):
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                assert (
+                    _to_vsi("abfss://raw@prodlake.dfs.core.windows.net/x.tif")
+                    == "/vsiadls/raw/x.tif"
+                )
 
     def test_bare_gen2_authority_is_still_a_plain_container(self):
         """Without an `@`, the authority is the filesystem name as before."""
