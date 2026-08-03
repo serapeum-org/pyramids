@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7121,7 +7121,6 @@ runs from a fresh checkout. Reading the file emits a one-time log line as pyrami
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># NBVAL_IGNORE_OUTPUT</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.plot</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColorBar</span>
 
 <span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
 
@@ -7129,7 +7128,6 @@ runs from a fresh checkout. Reading the file emits a one-time log line as pyrami
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1"># NBVAL_IGNORE_OUTPUT
 from pyramids.dataset import Dataset
-from pyramids.plot import ColorBar
 
 %matplotlib inline
 
@@ -7285,9 +7283,14 @@ around -9.97e+36. The four bands are the first four daily precipitation fields o
 <td><code>30</code> (mm/day)</td>
 </tr>
 <tr>
-<td><code>colorbar</code></td>
-<td>colour-bar spec, e.g. <code>ColorBar(label="Rainfall mm/day", length=0.85)</code></td>
-<td>see example</td>
+<td><code>cbar_label</code></td>
+<td>colour-bar caption</td>
+<td><code>"Rainfall mm/day"</code></td>
+</tr>
+<tr>
+<td><code>cbar_length</code></td>
+<td>colour-bar length as a fraction of the axis</td>
+<td><code>0.85</code></td>
 </tr>
 <tr>
 <td><code>figsize</code></td>
@@ -7322,16 +7325,18 @@ around -9.97e+36. The four bands are the first four daily precipitation fields o
     <span class="n">band</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
     <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span>
     <span class="n">title</span><span class="o">=</span><span class="s2">"Noah daily Precipitation 1979-01-01"</span><span class="p">,</span>
+    <span class="n">cbar_label</span><span class="o">=</span><span class="s2">"Rainfall mm/day"</span><span class="p">,</span>
     <span class="n">vmax</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>
-    <span class="n">colorbar</span><span class="o">=</span><span class="n">ColorBar</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s2">"Rainfall mm/day"</span><span class="p">,</span> <span class="n">length</span><span class="o">=</span><span class="mf">0.85</span><span class="p">),</span>
+    <span class="n">cbar_length</span><span class="o">=</span><span class="mf">0.85</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-4">array_glyph = dataset.plot(
     band=0,
     figsize=(10, 5),
     title="Noah daily Precipitation 1979-01-01",
+    cbar_label="Rainfall mm/day",
     vmax=30,
-    colorbar=ColorBar(label="Rainfall mm/day", length=0.85),
+    cbar_length=0.85,
 )</div>
 </div>
 </div>
