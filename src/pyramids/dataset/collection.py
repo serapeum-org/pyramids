@@ -46,7 +46,8 @@ from pyramids.dataset.ops.io import _read_chunk
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
-    from cleopatra.array_glyph import ArrayGlyph
+    from cleopatra.array_glyph import ArrayGlyph, FrameLabel
+    from cleopatra.geo import Basemap
     from dask.delayed import Delayed
 
 
@@ -2425,6 +2426,8 @@ class DatasetCollection:
         cutoff: list | None = None,
         percentile: int | None = None,
         rgb_options: dict | None = None,
+        basemap: bool | str | dict[str, Any] | Basemap | None = None,
+        frame_label: FrameLabel | None = None,
         **kwargs: Any,
     ) -> ArrayGlyph:
         r"""Render the collection as an animated stack of band slices.
@@ -2491,6 +2494,20 @@ class DatasetCollection:
                 ``"cutoff"``, ``"percentile"``. Mirrors
                 :meth:`Dataset.plot`. On collision with a loose kwarg the
                 ``rgb_options`` value wins. Default ``None``.
+            basemap (bool, str, or Basemap, optional):
+                Reference layer under the animation, dispatched by type. ``True``
+                or a tile-provider string (e.g. ``"CartoDB.Positron"``) overlays a
+                pyramids web-tile basemap; a ``pyramids.plot.Basemap(relief=...,
+                features=...)`` (cleopatra >= 0.28) draws a shaded-relief /
+                coastline layer instead. The base raster's CRS is supplied
+                automatically. Default ``None`` (no basemap). Requires the
+                ``[viz]`` extra.
+            frame_label (FrameLabel, optional):
+                Typed per-frame label spec ``pyramids.plot.FrameLabel(...)``
+                (cleopatra >= 0.28) that styles the animation's frame caption
+                (colour, size, placement). ``animation_axis_values`` sets the
+                label *text* per frame; ``frame_label`` styles it. Default
+                ``None`` (cleopatra's default frame label).
             **kwargs:
                 | Parameter                  | Type                  | Description |
                 |----------------------------|-----------------------|-------------|
@@ -2603,6 +2620,17 @@ class DatasetCollection:
                 f"animation_axis_values has {len(axis_values)} labels but the "
                 f"collection has {self.time_length} timesteps."
             )
+        # Forward the basemap + typed animate spec once to both render paths.
+        # ``basemap`` type-dispatches in render_array (str/True -> web tiles,
+        # ``Basemap`` -> relief); ``basemap_epsg`` comes from the base raster so a
+        # collection basemap always has a CRS. ``frame_label`` is only forwarded when
+        # set, so cleopatra keeps its default per-frame label otherwise.
+        animate_extras: dict[str, Any] = {
+            "basemap": basemap,
+            "basemap_epsg": self.base.epsg,
+        }
+        if frame_label is not None:
+            animate_extras["frame_label"] = frame_label
         # Materialise the cube on demand for plotting. The render helper
         # expects a single (time, rows, cols) numpy array; reading each
         # Dataset's band into one stacked array is fine for a plot call
@@ -2644,7 +2672,7 @@ class DatasetCollection:
                 percentile=percentile,
                 mode="animate",
                 animation_axis_values=axis_values,
-                basemap_epsg=self.base.epsg,
+                **animate_extras,
                 **kwargs,
             )
         data = np.stack([ds.read_array(band=band) for ds in self.datasets], axis=0)
@@ -2665,7 +2693,7 @@ class DatasetCollection:
             exclude_value=exclude_value,
             mode="animate",
             animation_axis_values=axis_values,
-            basemap_epsg=self.base.epsg,
+            **animate_extras,
             **kwargs,
         )
 

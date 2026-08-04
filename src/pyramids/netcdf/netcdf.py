@@ -1735,7 +1735,11 @@ class NetCDF(Dataset):
                 the dim to animate along. ``None`` (default) returns a
                 static plot. Mutually exclusive with faceting and with
                 any selector that pins the animated dim. Defaults to
-                None.
+                None. On this animate path a
+                ``frame_label=pyramids.plot.FrameLabel(...)`` (cleopatra
+                >= 0.28) kwarg styles the per-frame caption — colour,
+                size and placement — and is forwarded to cleopatra's
+                animate call.
             chunks (Any, optional):
                 Chunking spec forwarded to :meth:`read_array` for the
                 static-plot path. ``None`` (default) preserves the eager
