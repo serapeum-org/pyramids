@@ -230,10 +230,13 @@ _CBAR_TO_COLORBAR = {
 _POINT_TO_OVERLAY = {
     "point_color": "color",
     "point_size": "size",
-    "point_label_color": "label_color",
-    "point_label_size": "label_size",
+    # Legacy ``pid_*`` aliases first, then the modern ``point_label_*`` names — the
+    # fold below is last-write-wins, so passing both makes ``point_label_*`` win,
+    # matching cleopatra's ``_resolve_point_overlay`` precedence.
     "pid_color": "label_color",
     "pid_size": "label_size",
+    "point_label_color": "label_color",
+    "point_label_size": "label_size",
 }
 
 
@@ -242,13 +245,14 @@ def _migrate_deprecated_plot_specs(
 ) -> None:
     """Fold deprecated loose ``cbar_*`` / ``point_*`` kwargs into the typed specs.
 
-    Mutates ``kwargs`` in place: the loose keys are popped and, when no explicit
-    ``colorbar=`` / ``points=`` was given, folded into a ``ColorBar`` /
-    ``PointOverlay``. Emits a pyramids ``DeprecationWarning`` naming the typed
-    replacement. When an explicit ``colorbar=`` (any value) or a ``PointOverlay``
-    was also passed, the loose keys are dropped and the explicit value wins (the
-    warning says so). Cleopatra therefore never sees the loose kwargs, so its own
-    deprecation never fires — no double warning.
+    Mutates ``kwargs`` in place: the loose keys are popped and folded into a
+    ``ColorBar`` / ``PointOverlay`` unless an explicit typed spec was already given.
+    A typed ``colorbar=ColorBar`` (or ``colorbar=False``, which hides the bar) and a
+    ``points=PointOverlay`` win — the loose keys are dropped with the warning.
+    ``colorbar=True`` / ``None`` still fold (they carry no styling of their own, so
+    dropping the loose kwargs would silently lose the caption). Emits a pyramids
+    ``DeprecationWarning`` naming the typed replacement. Cleopatra therefore never
+    sees the loose kwargs, so its own deprecation never fires — no double warning.
     """
     cbar = {
         _CBAR_TO_COLORBAR[k]: kwargs.pop(k)
@@ -256,11 +260,16 @@ def _migrate_deprecated_plot_specs(
         if k in kwargs
     }
     if cbar:
-        if "colorbar" in kwargs:
+        existing = kwargs.get("colorbar")
+        # Only a typed ColorBar (carries its own styling) or colorbar=False (bar
+        # hidden) can't be augmented by the loose kwargs. colorbar=True / None /
+        # absent carry no caption of their own, so fold the loose form in — else
+        # the caption that rendered before this migration would silently vanish.
+        if isinstance(existing, colorbar_cls) or existing is False:
             warnings.warn(
                 "The loose cbar_* / ticks_spacing kwargs are deprecated and were "
-                "ignored because colorbar= was also given; set them on the "
-                "pyramids.plot.ColorBar instead.",
+                "ignored because an explicit colorbar= was given; set the styling "
+                "on the pyramids.plot.ColorBar instead.",
                 DeprecationWarning,
                 stacklevel=3,
             )
@@ -376,11 +385,12 @@ def render_array(
             non-empty contextily provider string adds a pyramids web-tile
             basemap underneath the rendered plot (tile mode is applied on
             ``"plot"`` and per-panel on ``"facet"``). A
-            :class:`cleopatra.geo.Basemap` (or an equivalent ``dict``) is
-            cleopatra's relief/features reference layer, forwarded to the
-            glyph's own ``basemap=`` on the ``"plot"``/``"animate"`` render
-            call; it is **not** supported on ``"facet"`` (raises). An empty
-            string is treated as no basemap.
+            :class:`cleopatra.geo.Basemap` is cleopatra's relief/features
+            reference layer, forwarded to the glyph's own ``basemap=`` on the
+            ``"plot"``/``"animate"`` render call; it is **not** supported on
+            ``"facet"`` (raises). A ``dict`` is a deprecated alias translated to
+            ``Basemap`` up front (emits a ``DeprecationWarning``). An empty string
+            or empty ``dict`` is treated as no basemap.
         basemap_epsg: CRS code passed to
             :func:`pyramids.basemap.basemap.add_basemap` (and stamped on the
             glyph so cleopatra's own reference layers default to it). When
@@ -704,9 +714,10 @@ def render_array(
     # with pyramids' pre-existing web-tile ``basemap=``, so dispatch on the type:
     #   - a ``str`` provider name (or ``True``) is a pyramids web-tile basemap
     #     drawn under the raster -- pyramids owns this via ``add_basemap``;
-    #   - a ``cleopatra.geo.Basemap`` (or an equivalent ``dict``) is cleopatra's
-    #     relief/features reference layer, forwarded to the glyph's own
-    #     ``basemap=`` on the render call.
+    #   - a ``cleopatra.geo.Basemap`` is cleopatra's relief/features reference
+    #     layer, forwarded to the glyph's own ``basemap=`` on the render call.
+    #     (A non-empty ``dict`` was already deprecated + translated to a
+    #     ``Basemap`` up front, so only an empty ``{}`` reaches here — no basemap.)
     # ``basemap and basemap_epsg is None`` was already rejected at the top of
     # this function, so when ``basemap`` is truthy ``basemap_epsg`` is set.
     # A non-empty provider string, or ``True``, is a pyramids web-tile basemap.

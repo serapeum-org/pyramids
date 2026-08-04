@@ -115,12 +115,27 @@ class TestNewRenderParams:
 
     def test_explicit_colorbar_wins_over_loose_cbar(self):
         """An explicit `colorbar=ColorBar` wins; the loose `cbar_*` are dropped (deprecated)."""
-        with pytest.warns(DeprecationWarning, match="ignored because colorbar"):
+        with pytest.warns(
+            DeprecationWarning, match="ignored because an explicit colorbar"
+        ):
             glyph = self._dataset().plot(
                 band=0, colorbar=ColorBar(label="TYPED"), cbar_label="LOOSE"
             )
         label = glyph.cbar.ax.get_ylabel() or glyph.cbar.ax.get_xlabel()
         assert label == "TYPED", f"explicit ColorBar should win, got {label!r}"
+
+    def test_colorbar_true_still_folds_loose_cbar(self):
+        """`colorbar=True` + a loose `cbar_*` folds the styling in (not dropped).
+
+        `True` / `None` carry no caption of their own, so the loose kwargs must still
+        render — only a typed `ColorBar` (or `colorbar=False`) suppresses them.
+        """
+        with pytest.warns(DeprecationWarning, match="cbar_"):
+            glyph = self._dataset().plot(band=0, colorbar=True, cbar_label="DEPTH")
+        label = glyph.cbar.ax.get_ylabel() or glyph.cbar.ax.get_xlabel()
+        assert label == "DEPTH", (
+            f"colorbar=True must keep the loose label, got {label!r}"
+        )
 
     def test_deprecated_cbar_kwarg_renders_on_the_facet_path(self):
         """A loose `cbar_*` kwarg still renders the shared colour-bar label on the facet path.
