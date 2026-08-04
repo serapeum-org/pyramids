@@ -525,8 +525,11 @@ def create_time_conversion_func(
     Args:
         units: CF time unit string in the format
             `"<unit> since <origin>"`. Supported units are days, hours,
-            minutes, seconds, milliseconds, microseconds, and nanoseconds
-            (sub-second units decode at microsecond resolution).
+            minutes, seconds, milliseconds, microseconds, and nanoseconds.
+            Sub-second units decode at microsecond resolution (Python
+            `datetime`'s finest), so a nanosecond axis is rounded to the
+            nearest microsecond — exact for date/second output, and visible
+            only in a `%f` (microsecond) `out_format`.
         out_format: strftime format for the output strings.
             Defaults to `"%Y-%m-%d %H:%M:%S"`.
         calendar: CF calendar type. Defaults to `"standard"`.
@@ -589,7 +592,8 @@ def create_time_conversion_func(
         # offset is resolved as ``origin + timedelta(microseconds=value * factor)``:
         # day/hour/minute/second stay exact over any realistic date range, while the
         # sub-second units (notably the ``nanoseconds`` axis DatasetCollection.to_netcdf
-        # writes) round to the nearest microsecond — below any strftime output's precision.
+        # writes) round to the nearest microsecond — exact for date/second output, with any
+        # residual only in the microsecond digit of a ``%f`` format.
         micros_per_unit = {
             "day": 86_400_000_000.0,
             "hour": 3_600_000_000.0,
