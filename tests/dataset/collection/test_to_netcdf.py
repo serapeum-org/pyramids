@@ -607,6 +607,71 @@ class TestToNetcdfNoData:
             "per-var nodata leaked when source has no nodata"
         )
 
+    def test_nodata_round_trips_via_read_file(self, tmp_path):
+        """The written ``nodata`` attribute is restored as ``no_data_value`` on read.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Write an int16 collection with ``no_data_value=-9999`` and reopen it with
+            :meth:`NetCDF.read_file` — expected: every band of ``Band_1`` reports ``-9999``
+            (GDAL's classic view carries no band no-data, so the read falls back to the
+            ``nodata`` attribute). Regression test for #935.
+        """
+        col, _ = _make_int16_collection(tmp_path, no_data_value=-9999)
+        out = tmp_path / "nd_rt.nc"
+        col.to_netcdf(str(out))
+        var = NetCDF.read_file(str(out)).get_variable("Band_1")
+        assert all(v == -9999 for v in var.no_data_value), (
+            f"nodata did not round-trip: {var.no_data_value!r}"
+        )
+
+    def test_no_nodata_round_trips_as_none(self, tmp_path):
+        """A source without no-data reopens with ``no_data_value`` still ``None`` (no false positive).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Source raster with ``no_data_value=None`` — expected: the reopened variable
+            reports ``None`` for every band, i.e. the attribute fallback invents nothing.
+        """
+        p = os.path.join(str(tmp_path), "no_nd_rt.tif")
+        Dataset.create_from_array(
+            np.arange(20, dtype="int16").reshape(4, 5),
+            top_left_corner=(0, 0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=None,
+            path=p,
+        ).close()
+        out = tmp_path / "no_nd_rt.nc"
+        DatasetCollection.from_files([p]).to_netcdf(str(out))
+        var = NetCDF.read_file(str(out)).get_variable("Band_1")
+        assert all(v is None for v in var.no_data_value), (
+            f"expected all-None no_data_value, got {var.no_data_value!r}"
+        )
+
+    def test_nodata_round_trips_var_per_band_false(self, tmp_path):
+        """The single 4-D ``data`` variable also restores its no-data on read.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            ``var_per_band=False`` write with ``no_data_value=-9999`` — expected: the reopened
+            ``data`` variable reports ``-9999`` on every band, i.e. the attribute fallback covers
+            the 4-D layout too. Regression test for #935.
+        """
+        col, _ = _make_int16_collection(tmp_path, no_data_value=-9999)
+        out = tmp_path / "nd_4d_rt.nc"
+        col.to_netcdf(str(out), var_per_band=False)
+        var = NetCDF.read_file(str(out)).get_variable("data")
+        assert all(v == -9999 for v in var.no_data_value), (
+            f"4-D nodata did not round-trip: {var.no_data_value!r}"
+        )
+
 
 @pytest.mark.xarray
 class TestToNetcdfNoFilesPath:
@@ -721,3 +786,28 @@ class TestToNetcdfRoundTrip:
         assert time_vals.shape == (1,), f"expected length-1 time, got {time_vals.shape}"
         data = _array_values(str(out), "Band_1")
         assert data.shape == (1, 4, 5), f"expected (1,4,5), got {data.shape}"
+
+    def test_calendar_time_axis_decodes_via_reader(self, tmp_path):
+        """The nanosecond-encoded time axis decodes back to calendar dates via the reader.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Write with a :class:`pandas.DatetimeIndex` (encoded as CF ``nanoseconds since
+            1970-01-01``) and reopen — expected: :meth:`NetCDF.get_time_variable` and the
+            ``time_stamp`` property return the original dates rather than raising on the
+            ``nanoseconds`` unit. Regression test for #936.
+        """
+        col, _ = _make_int16_collection(tmp_path, count=2)
+        out = tmp_path / "cal.nc"
+        col.to_netcdf(
+            str(out), time_coords=pd.date_range("1979-01-01", periods=2, freq="D")
+        )
+        nc = NetCDF.read_file(str(out))
+        assert nc.get_time_variable() == ["1979-01-01", "1979-01-02"], (
+            f"time axis did not decode: {nc.get_time_variable()!r}"
+        )
+        assert nc.time_stamp == ["1979-01-01", "1979-01-02"], (
+            f"time_stamp did not decode: {nc.time_stamp!r}"
+        )

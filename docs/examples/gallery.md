@@ -45,6 +45,7 @@ sample data. Prefer a task list? See the ["How do I…?" index](index.md).
     ---
 
     [Dataset basics](dataset/dataset.ipynb) · [GeoTIFF ↔ NetCDF](conversions/geotiff-netcdf.ipynb) ·
+    [Collection → NetCDF](conversions/collection-to-netcdf.ipynb) ·
     [Raster formats](conversions/raster-formats.ipynb) · [Vector formats](conversions/vector-formats.ipynb) ·
     [Windowed & tiled reads](operations/windowed-reads.ipynb)
 
