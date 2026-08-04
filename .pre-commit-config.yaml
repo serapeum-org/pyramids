@@ -1,3 +1,12 @@
+# pre-commit.ci-only settings. Skip checkov there: its hook repo
+# (bridgecrewio/checkov) is 101.6 MiB, past pre-commit.ci's 100 MiB tier cache
+# cap, so cloning it fails the whole run at the build stage before any hook
+# executes. checkov still runs in the GitHub Actions lint.yml `pre-commit` job
+# (no such cap, and it finds no IaC files there), so coverage is unchanged —
+# this only unblocks pre-commit.ci.
+ci:
+  skip: [checkov]
+
 fail_fast: true
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
