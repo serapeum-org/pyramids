@@ -524,8 +524,12 @@ def create_time_conversion_func(
 
     Args:
         units: CF time unit string in the format
-            `"<unit> since <origin>"`. Supported units are
-            days, hours, minutes, and seconds.
+            `"<unit> since <origin>"`. Supported units are days, hours,
+            minutes, seconds, milliseconds, microseconds, and nanoseconds.
+            Sub-second units decode at microsecond resolution (Python
+            `datetime`'s finest), so a nanosecond axis is rounded to the
+            nearest microsecond — exact for date/second output, and visible
+            only in a `%f` (microsecond) `out_format`.
         out_format: strftime format for the output strings.
             Defaults to `"%Y-%m-%d %H:%M:%S"`.
         calendar: CF calendar type. Defaults to `"standard"`.
@@ -584,19 +588,30 @@ def create_time_conversion_func(
     else:
         unit, origin = _parse_units_origin(units)
 
-        if unit.startswith("day"):
-            scale = timedelta(days=1)
-        elif unit.startswith("hour"):
-            scale = timedelta(hours=1)
-        elif unit.startswith("min"):
-            scale = timedelta(minutes=1)
-        elif unit.startswith("sec"):
-            scale = timedelta(seconds=1)
-        else:
+        # Microseconds per CF unit. datetime/timedelta is microsecond-resolution, so the
+        # offset is resolved as ``origin + timedelta(microseconds=value * factor)``:
+        # day/hour/minute/second stay exact over any realistic date range, while the
+        # sub-second units (notably the ``nanoseconds`` axis DatasetCollection.to_netcdf
+        # writes) round to the nearest microsecond — exact for date/second output, with any
+        # residual only in the microsecond digit of a ``%f`` format.
+        micros_per_unit = {
+            "day": 86_400_000_000.0,
+            "hour": 3_600_000_000.0,
+            "min": 60_000_000.0,
+            "sec": 1_000_000.0,
+            "millisecond": 1_000.0,
+            "microsecond": 1.0,
+            "nanosecond": 0.001,
+        }
+        factor = next(
+            (m for prefix, m in micros_per_unit.items() if unit.startswith(prefix)),
+            None,
+        )
+        if factor is None:
             raise ValueError(f"Unsupported time unit: {unit!r}")
 
         def convert(value):
-            dt = origin + value * scale
+            dt = origin + timedelta(microseconds=float(value) * factor)
             return dt.strftime(out_format)
 
         converter = convert

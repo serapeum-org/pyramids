@@ -269,3 +269,28 @@ def test_inherited_to_raster_writes_file(tos_view, tmp_path):
     out = tmp_path / "tos_raster.tif"
     tos_view.to_raster(str(out))
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_to_file_of_reversed_y_md_view_roundtrips(tos_view, tmp_path):
+    """Writing a bottom-up-Y NetCDF variable subset via to_file preserves its pixels.
+
+    The tos view is backed by a reversed ``AsClassicDataset`` multidim view (the
+    fixture is y-asc / bottom-up), which GDAL >= 3.13 cannot window-read: the
+    tiled reads CreateCopy issues would raise ``arrayStartIdx[...] >= <dim>``.
+    The write path calls ``_materialize_md_view()`` before the copy so the write
+    succeeds and stays orientation-correct. This regression pins that guard — the
+    same one that keeps DatasetCollection.to_file safe for a NetCDF-subset slice.
+    """
+    expected = np.asarray(tos_view.read_array(band=0))
+    out = tmp_path / "tos_roundtrip.tif"
+    tos_view.to_file(str(out))
+
+    reloaded = np.asarray(Dataset.read_file(str(out)).read_array(band=0))
+    assert reloaded.shape == expected.shape, (
+        f"shape changed writing the md-view: {expected.shape} -> {reloaded.shape}"
+    )
+    np.testing.assert_array_equal(
+        reloaded,
+        expected,
+        err_msg="reversed-Y NetCDF md-view did not round-trip through to_file",
+    )

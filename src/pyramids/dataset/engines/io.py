@@ -1956,6 +1956,7 @@ class IO(_Engine["Dataset"]):
         *,
         compute: bool = True,
         lock: Any = None,
+        reopen: bool = True,
     ) -> Any:
         """Save dataset to tiff file (eager by default; `compute=False` defers).
 
@@ -2003,6 +2004,24 @@ class IO(_Engine["Dataset"]):
                 own file lock regardless, so this kwarg is currently a
                 no-op — supplied to future-proof the signature for when
                 we add per-tile parallel writes.
+            reopen (bool, keyword-only):
+                Applies only to the plain ``CreateCopy`` path (a GeoTIFF or
+                other single-file raster driver). `True` (default) reopens the
+                freshly written file and swaps this dataset's handle to point at
+                it — so after `ds.to_file(path)`, `ds` represents the on-disk
+                output (`ds.file_name`, access mode, and subsequent reads all
+                reflect the written file). `False` writes the file and returns
+                without that in-place swap, leaving `ds` unmutated — matching
+                the non-mutating `to_cog`. Use it when writing a *borrowed*
+                handle you must not disturb, e.g. streaming each timestep of a
+                :class:`~pyramids.dataset.DatasetCollection` to disk without
+                repointing the collection's cached handles. One caveat: a
+                NetCDF variable-subset source is still materialized in place by
+                the write path before the copy (a full read GDAL needs to window
+                a multidim view), so such a source is mutated regardless of this
+                flag. Ignored for the ASCII and ``driver="COG"`` paths, which
+                never reopen (both write without swapping the source regardless
+                of this flag).
 
         Examples:
             - Create a Dataset with 4 bands, 5 rows, 5 columns, at the point lon/lat (0, 0):
@@ -2028,6 +2047,23 @@ class IO(_Engine["Dataset"]):
               'my-dataset.tif'
 
               ```
+
+            - Write without repointing the source (``reopen=False``) — the
+              source stays the in-memory dataset it was:
+
+              ```python
+              >>> import os, tempfile
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> mem = Dataset.create_from_array(
+              ...     np.ones((4, 4), dtype="float32"), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+              ... )
+              >>> out = os.path.join(tempfile.mkdtemp(), "kept.tif")
+              >>> mem.to_file(out, reopen=False)
+              >>> mem.file_name
+              ''
+
+              ```
         """
         if compute:
             _io_module._write_to_file_sync(
@@ -2037,6 +2073,7 @@ class IO(_Engine["Dataset"]):
                 tile_length,
                 creation_options,
                 driver,
+                reopen=reopen,
             )
             result: Any = None
         else:
@@ -2072,6 +2109,7 @@ class IO(_Engine["Dataset"]):
                 tile_length,
                 creation_options,
                 driver,
+                reopen=reopen,
             )
         return result
 
