@@ -113,9 +113,8 @@ class TestNewRenderParams:
         """A loose `cbar_*` kwarg still renders the shared colour-bar label on the facet path.
 
         cleopatra's `facet` forwards these to each per-panel constructor (not `.plot`), so the
-        deprecation does not fire there — but the label must still render. This routing fixed a
-        latent drop where a facet `cbar_label` was previously routed to the parent constructor
-        and never forwarded into `cleo.facet`.
+        deprecation does not fire there — but the label must still render: `cbar_label` reaches
+        `cleo.facet(...)`, and the returned grid's shared colour bar carries it.
         """
         stack = np.random.default_rng(3).random((3, 6, 6)).astype("float32")
         result = render_array(
