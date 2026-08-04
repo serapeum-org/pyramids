@@ -308,6 +308,37 @@ class TestRenderArrayKwargRouting:
             f"`kind` must be force-routed to the render call; plot={plot}"
         )
 
+    def test_deprecated_cbar_kwargs_are_force_routed_to_the_render_call(self):
+        """Deprecated loose ``cbar_*`` kwargs route to the render call, not the ctor.
+
+        Test scenario:
+            The loose colour-bar kwargs are in ``option_keys()``, so the default
+            split would send them to ``__init__`` (where cleopatra's 0.28
+            deprecation never fires). They are force-routed to the render call
+            instead so the ``DeprecationWarning`` is not suppressed on the plot
+            path. Uses the ``_capture_calls`` fake, so it locks the routing
+            contract on any installed cleopatra, independent of the render.
+        """
+        assert "cbar_label" in ArrayGlyph.option_keys()
+        assert "ticks_spacing" in ArrayGlyph.option_keys()
+        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
+        rng = np.random.default_rng(506)
+        arr = rng.random((4, 4)).astype("float32")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                cbar_label="mm",
+                ticks_spacing=2,
+            )
+        assert "cbar_label" in plot and "cbar_label" not in ctor, (
+            f"loose `cbar_label` must be force-routed to the render call; ctor={ctor}"
+        )
+        assert "ticks_spacing" in plot and "ticks_spacing" not in ctor, (
+            f"loose `ticks_spacing` must be force-routed to the render call; plot={plot}"
+        )
+
     @pytest.mark.plot
     def test_kind_contourf_reaches_plot_not_clobbered(self):
         """Regression: ``kind="contourf"`` renders as contourf, not ``"auto"``.
