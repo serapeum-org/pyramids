@@ -374,6 +374,118 @@ class TestRenderArrayKwargRouting:
         assert overlay.color == "red"
         assert overlay.size == 9
 
+    def test_deprecated_pid_kwargs_fold_into_pointoverlay_labels(self):
+        """Legacy ``pid_*`` label kwargs fold into ``PointOverlay.label_*``.
+
+        Test scenario:
+            The oldest loose aliases ``pid_color`` / ``pid_size`` map to the
+            overlay's ``label_color`` / ``label_size`` — the least-obvious mapping,
+            so pin it explicitly rather than trusting the map by inspection.
+        """
+        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
+        rng = np.random.default_rng(508)
+        arr = rng.random((4, 4)).astype("float32")
+        pts = np.array([[1.0, 2, 3]])
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            with pytest.warns(DeprecationWarning, match="pid_"):
+                render_array(
+                    arr=arr,
+                    extent=[0.0, 0.0, 1.0, 1.0],
+                    mode="plot",
+                    points=pts,
+                    pid_color="green",
+                    pid_size=7,
+                )
+        seen = {**ctor, **plot}
+        assert "pid_color" not in seen and "pid_size" not in seen, (
+            f"legacy pid_* must be folded away; seen={sorted(seen)}"
+        )
+        overlay = plot.get("points", ctor.get("points"))
+        assert isinstance(overlay, PointOverlay), (
+            f"pid_* must fold into a PointOverlay; got {overlay!r}"
+        )
+        assert overlay.label_color == "green"
+        assert overlay.label_size == 7
+
+    def test_point_label_alias_wins_over_legacy_pid(self):
+        """When both ``point_label_*`` and ``pid_*`` are passed, the modern name wins.
+
+        Test scenario:
+            The fold is last-write-wins over ``_POINT_TO_OVERLAY`` insertion order
+            (``pid_*`` before ``point_label_*``), so passing both must land the
+            ``point_label_*`` value on the overlay — matching cleopatra's
+            ``_resolve_point_overlay`` precedence. Locks the fragile dict-order
+            invariant against a silent reorder.
+        """
+        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
+        rng = np.random.default_rng(509)
+        arr = rng.random((4, 4)).astype("float32")
+        pts = np.array([[1.0, 2, 3]])
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            with pytest.warns(DeprecationWarning, match="point_"):
+                render_array(
+                    arr=arr,
+                    extent=[0.0, 0.0, 1.0, 1.0],
+                    mode="plot",
+                    points=pts,
+                    pid_color="green",
+                    point_label_color="purple",
+                )
+        overlay = plot.get("points", ctor.get("points"))
+        assert overlay.label_color == "purple", (
+            f"point_label_color must win over pid_color; got {overlay.label_color!r}"
+        )
+
+    def test_loose_point_kwargs_ignored_when_points_is_pointoverlay(self):
+        """A loose ``point_*`` is dropped (with a warning) when ``points`` is already typed.
+
+        Test scenario:
+            An explicit ``PointOverlay`` wins — the loose ``point_color`` is popped
+            and warned as "ignored", and the overlay reaches the render call
+            untouched (its own styling preserved, not overwritten by the loose kwarg).
+        """
+        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
+        rng = np.random.default_rng(510)
+        arr = rng.random((4, 4)).astype("float32")
+        overlay_in = PointOverlay(np.array([[1.0, 2, 3]]), color="black")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            with pytest.warns(DeprecationWarning, match="ignored because points="):
+                render_array(
+                    arr=arr,
+                    extent=[0.0, 0.0, 1.0, 1.0],
+                    mode="plot",
+                    points=overlay_in,
+                    point_color="red",
+                )
+        seen = {**ctor, **plot}
+        assert "point_color" not in seen, "loose point_color must be dropped"
+        assert plot.get("points") is overlay_in, (
+            "the explicit PointOverlay must reach the render call untouched"
+        )
+
+    def test_loose_point_kwargs_dropped_when_no_points(self):
+        """A loose ``point_*`` with no ``points`` is a no-op (warned and dropped).
+
+        Test scenario:
+            Without a ``points`` array there is nothing to style, so the loose
+            ``point_color`` warns "no effect" and is dropped — never reaching
+            cleopatra, and no ``points`` kwarg is invented.
+        """
+        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
+        rng = np.random.default_rng(511)
+        arr = rng.random((4, 4)).astype("float32")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            with pytest.warns(DeprecationWarning, match="no effect"):
+                render_array(
+                    arr=arr,
+                    extent=[0.0, 0.0, 1.0, 1.0],
+                    mode="plot",
+                    point_color="red",
+                )
+        seen = {**ctor, **plot}
+        assert "point_color" not in seen, "loose point_color must be dropped"
+        assert "points" not in seen, "no points= may be invented from a loose kwarg"
+
     @pytest.mark.plot
     def test_kind_contourf_reaches_plot_not_clobbered(self):
         """Regression: ``kind="contourf"`` renders as contourf, not ``"auto"``.
