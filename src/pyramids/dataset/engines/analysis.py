@@ -2015,7 +2015,7 @@ class Analysis(_Engine["Dataset"]):
                 ``Basemap``. Migrate to the typed specs.
                 | Parameter                   | Type                | Description |
                 |-----------------------------|---------------------|-------------|
-                | `points`                    | array \\| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
+                | `points`                    | array \\| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `pyramids.plot.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — pyramids folds the loose `point_color` / `point_size` / `point_label_color` / `point_label_size` / `pid_color` / `pid_size` kwargs into a `PointOverlay` and emits a `DeprecationWarning`; set the styling on the `PointOverlay` instead. |
                 | `figsize`                   | tuple, optional     | Figure size. Default is `(8, 8)`. |
                 | `title`                     | str, optional       | Title of the plot. Default is `'Total Discharge'`. |
                 | `title_size`                | int, optional       | Title size. Default is `15`. |
