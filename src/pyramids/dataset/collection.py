@@ -46,7 +46,8 @@ from pyramids.dataset.ops.io import _read_chunk
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
-    from cleopatra.array_glyph import ArrayGlyph
+    from cleopatra.array_glyph import ArrayGlyph, FrameLabel
+    from cleopatra.geo import Basemap
     from dask.delayed import Delayed
 
 
@@ -2425,6 +2426,8 @@ class DatasetCollection:
         cutoff: list | None = None,
         percentile: int | None = None,
         rgb_options: dict | None = None,
+        basemap: bool | str | dict[str, Any] | Basemap | None = None,
+        frame_label: FrameLabel | None = None,
         **kwargs: Any,
     ) -> ArrayGlyph:
         r"""Render the collection as an animated stack of band slices.
@@ -2491,6 +2494,20 @@ class DatasetCollection:
                 ``"cutoff"``, ``"percentile"``. Mirrors
                 :meth:`Dataset.plot`. On collision with a loose kwarg the
                 ``rgb_options`` value wins. Default ``None``.
+            basemap (bool, str, or Basemap, optional):
+                Reference layer under the animation, dispatched by type. ``True``
+                or a tile-provider string (e.g. ``"CartoDB.Positron"``) overlays a
+                pyramids web-tile basemap; a ``pyramids.plot.Basemap(relief=...,
+                features=...)`` (cleopatra >= 0.28) draws a shaded-relief /
+                coastline layer instead. The base raster's CRS is supplied
+                automatically. Default ``None`` (no basemap). Requires the
+                ``[viz]`` extra.
+            frame_label (FrameLabel, optional):
+                Typed per-frame label spec ``pyramids.plot.FrameLabel(...)``
+                (cleopatra >= 0.28) that styles the animation's frame caption
+                (colour, size, placement). ``animation_axis_values`` sets the
+                label *text* per frame; ``frame_label`` styles it. Default
+                ``None`` (cleopatra's default frame label).
             **kwargs:
                 | Parameter                  | Type                  | Description |
                 |----------------------------|-----------------------|-------------|
@@ -2499,13 +2516,7 @@ class DatasetCollection:
                 | figsize                    | tuple, optional       | Figure size. Default is `(8, 8)`. |
                 | title                      | str, optional         | Title of the plot. Default is `'Total Discharge'`. |
                 | title_size                 | int, optional         | Title size. Default is `15`. |
-                | orientation                | str, optional         | Orientation of the color bar (`horizontal` or `vertical`). Default is `'vertical'`. |
-                | rotation                   | number, optional      | Rotation of the color bar label. Default is `-90`. |
-                | colorbar                   | bool \| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28) — the complete, preferred replacement for the loose `cbar_*` / `orientation` / `rotation` / `ticks_spacing` kwargs. `False` hides it, `None` uses the default. |
-                | cbar_length                | float, optional       | Ratio to control the height of the color bar. Default is `0.75`. |
-                | ticks_spacing              | int, optional         | Spacing in the color bar ticks. Default is `2`. |
-                | cbar_label_size            | int, optional         | Size of the color bar label. Default is `12`. |
-                | cbar_label                 | str, optional         | Label of the color bar. Default is `'Discharge m³/s'`. |
+                | colorbar                   | bool \| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28). The loose `cbar_*` / `ticks_spacing` kwargs it replaces are deprecated — still accepted, but they emit a `DeprecationWarning`. `False` hides it, `None` uses the default. |
                 | color_scale                | str, optional         | Color-scale mode (default `"linear"`): one of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styles.ColorScale` member. Integer codes are no longer accepted. |
                 | gamma                      | float, optional       | Exponent for `color_scale="power"`. Default is `1/2`. |
                 | line_threshold             | float, optional       | `linthresh` for `color_scale="sym-lognorm"`. Default is `0.0001`. |
@@ -2609,6 +2620,17 @@ class DatasetCollection:
                 f"animation_axis_values has {len(axis_values)} labels but the "
                 f"collection has {self.time_length} timesteps."
             )
+        # Forward the basemap + typed animate spec once to both render paths.
+        # ``basemap`` type-dispatches in render_array (str/True -> web tiles,
+        # ``Basemap`` -> relief); ``basemap_epsg`` comes from the base raster so a
+        # collection basemap always has a CRS. ``frame_label`` is only forwarded when
+        # set, so cleopatra keeps its default per-frame label otherwise.
+        animate_extras: dict[str, Any] = {
+            "basemap": basemap,
+            "basemap_epsg": self.base.epsg,
+        }
+        if frame_label is not None:
+            animate_extras["frame_label"] = frame_label
         # Materialise the cube on demand for plotting. The render helper
         # expects a single (time, rows, cols) numpy array; reading each
         # Dataset's band into one stacked array is fine for a plot call
@@ -2650,7 +2672,7 @@ class DatasetCollection:
                 percentile=percentile,
                 mode="animate",
                 animation_axis_values=axis_values,
-                basemap_epsg=self.base.epsg,
+                **animate_extras,
                 **kwargs,
             )
         data = np.stack([ds.read_array(band=band) for ds in self.datasets], axis=0)
@@ -2671,7 +2693,7 @@ class DatasetCollection:
             exclude_value=exclude_value,
             mode="animate",
             animation_axis_values=axis_values,
-            basemap_epsg=self.base.epsg,
+            **animate_extras,
             **kwargs,
         )
 

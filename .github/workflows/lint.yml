@@ -20,14 +20,18 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Fast, environment-free hooks: ruff (lint + format), the file/format/security
-  # checks, beautysh, shellcheck. Formatting and linting are identical on every OS and
-  # Python version, so this runs ONCE (no matrix) on a plain runner in ~1-2 min.
+  # Runs the pre-commit hooks in CI: ruff (lint + format), the file/format/security
+  # checks, beautysh, shellcheck, bandit, checkov — plus mypy, which needs the pixi `dev`
+  # env (typed deps + an importable package), so this job installs that env and the mypy
+  # hook runs here. One runner, no matrix (formatting/linting/typing are identical on every
+  # OS and Python version).
   #
-  # SKIP drops the hooks that need the pixi dev env: pytest-check and notebook-check are
-  # already the tests.yml matrix's job (running them here would duplicate it and pin to
-  # one Python), while mypy and doctest run in the `static` job below. no-commit-to-branch
-  # is a local commit guard that would misfire in CI, which legitimately runs on main.
+  # SKIP drops the hooks CI runs elsewhere or that can't run here: pytest-check and
+  # notebook-check are the tests.yml matrix's job (running them here would duplicate it and
+  # pin to one Python); doctest runs in the `static` job below; no-commit-to-branch is a
+  # local commit guard that would misfire in CI, which legitimately runs on main; gitleaks
+  # scans only staged changes (empty after a CI checkout), so it is inert in --all-files —
+  # the dedicated `gitleaks` job scans the whole tree.
   #
   # pixi-lock-check is deliberately out of CI scope: `pixi lock --check` re-solves against
   # live conda/PyPI channels, so it fails on *upstream* churn (a new build of an unrelated
@@ -37,10 +41,21 @@ jobs:
   # against the resolved env, so tests.yml exercises real code either way.
   pre-commit:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       # No fetch-depth: `pre-commit run --all-files` scans the working tree, not history.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # The mypy hook shells out to `pixi run --frozen -e dev mypy`, so the dev env must
+      # exist here. Installs pixi + the cached dev env (not activated — the hook selects
+      # the env explicitly with `-e dev`, and leaving it unactivated keeps the system
+      # Python below as the one that runs pre-commit itself).
+      - name: Set up pixi dev env
+        uses: serapeum-org/github-actions/actions/python-setup/pixi@38c111084f99d5ff5f4a1e63bedce48fe33a10c0  # pixi/v1.2.1
+        with:
+          environments: dev
+          cache: true
+          version: v0.73.0
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
@@ -61,16 +76,13 @@ jobs:
       - name: Run pre-commit hooks
         # --show-diff-on-failure prints exactly what the auto-fixers (ruff-format,
         # end-of-file-fixer, ...) would change, so a contributor sees the fix to apply.
-        # gitleaks is skipped here: its hook scans only staged changes (empty after a CI
-        # checkout), so it is inert in --all-files; the dedicated `gitleaks` job below
-        # scans the whole tree and is the real CI secret gate.
         run: pre-commit run --all-files --show-diff-on-failure --color=always
         env:
-          SKIP: no-commit-to-branch,gitleaks,mypy,pytest-check,doctest,notebook-check,pixi-lock-check
+          SKIP: no-commit-to-branch,gitleaks,pytest-check,doctest,notebook-check,pixi-lock-check
 
-  # Type check and doctests. Both need the full `dev` pixi env (typed deps and an
-  # importable package) but neither is platform- or Python-version-sensitive, so one
-  # runner covers them. Neither runs anywhere else in CI today.
+  # Src doctests. Need the full `dev` pixi env (typed deps and an importable package) but
+  # are not platform- or Python-version-sensitive, so one runner covers them. (mypy now
+  # runs in the `pre-commit` job above, via its hook.)
   static:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -86,9 +98,6 @@ jobs:
           activate-environment: dev
           cache: true
           version: v0.73.0
-
-      - name: Type check with mypy
-        run: pixi run -e dev mypy
 
       - name: Doctests (src)
         # The same check as the `doctest` pre-commit hook: run the shipped `>>>` examples

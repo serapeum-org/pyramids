@@ -19,6 +19,8 @@ _cleo_array = pytest.importorskip(
     "cleopatra.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
+# cleopatra >= 0.26 bundles the animate frame-label pair into FrameLabel.
+FrameLabel = getattr(_cleo_array, "FrameLabel", None)
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 Config = _cleo_config.Config
 Config.set_matplotlib_backend("Agg")
@@ -138,6 +140,30 @@ class TestNetCDFPlotAnimate:
                 nc.plot(variable="t2m", animate=True)
         assert captured["kw"]["mode"] == "animate"
         assert captured["kw"]["animation_axis_values"] == labels
+
+    @pytest.mark.skipif(FrameLabel is None, reason="cleopatra < 0.26 has no FrameLabel")
+    def test_animate_forwards_frame_label_to_render_array(self):
+        """``frame_label=FrameLabel(...)`` forwards through NetCDF.plot to the animate render.
+
+        Test scenario:
+            ``NetCDF.plot`` carries ``frame_label`` only via ``**kwargs`` (it is not a
+            named param, since the multi-mode facade rejects it on the static/facet
+            paths), so this pins that hop: with ``animate=True`` the typed spec must
+            reach :func:`pyramids.dataset._plot_helpers.render_array` on the
+            ``mode="animate"`` call, unchanged.
+        """
+        nc = make_plot_3d_nc(n_times=3)
+        spec = FrameLabel(location=(1, 3))
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(variable="t2m", animate=True, frame_label=spec)
+        assert captured["kw"]["mode"] == "animate"
+        assert captured["kw"]["frame_label"] is spec, (
+            "frame_label must forward through NetCDF.plot's **kwargs to the animate render"
+        )
 
     def test_animate_data_getter_called_once_per_frame(self):
         """The lazy ``data_getter`` invokes ``sel().read_array`` per frame.

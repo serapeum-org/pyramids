@@ -67,6 +67,37 @@ class TestPlotAnimationAxisValues:
             cube.plot(band=0, basemap="CartoDB.Positron")
         assert render.call_args.kwargs["basemap_epsg"] == cube.base.epsg
 
+    def test_forwards_named_basemap_and_frame_label(self):
+        """`plot` forwards the named `basemap` and `frame_label` to `render_array`."""
+        cube = _collection(3)
+        marker = object()
+        with patch("pyramids.dataset.collection.render_array") as render:
+            cube.plot(band=0, basemap="CartoDB.Positron", frame_label=marker)
+        kwargs = render.call_args.kwargs
+        assert kwargs["basemap"] == "CartoDB.Positron"
+        assert kwargs["frame_label"] is marker
+
+    def test_forwards_named_basemap_and_frame_label_rgb(self):
+        """The named `basemap` / `frame_label` reach `render_array` on the RGB path too."""
+        cube = _collection(2, bands=3)
+        marker = object()
+        with patch("pyramids.dataset.collection.render_array") as render:
+            cube.plot(
+                rgb_options={"rgb": [0, 1, 2], "surface_reflectance": 255},
+                basemap="CartoDB.Positron",
+                frame_label=marker,
+            )
+        kwargs = render.call_args.kwargs
+        assert kwargs["basemap"] == "CartoDB.Positron"
+        assert kwargs["frame_label"] is marker
+
+    def test_frame_label_omitted_when_none(self):
+        """`frame_label=None` (default) is not forwarded, so cleopatra keeps its default."""
+        cube = _collection(3)
+        with patch("pyramids.dataset.collection.render_array") as render:
+            cube.plot(band=0)
+        assert "frame_label" not in render.call_args.kwargs
+
     def test_defaults_to_time_axis_when_present(self):
         """When the collection carries a time axis, plot labels frames by it."""
         cube = _collection(3)
