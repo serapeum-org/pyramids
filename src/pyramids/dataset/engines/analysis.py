@@ -2009,8 +2009,9 @@ class Analysis(_Engine["Dataset"]):
                 Configure the colour bar through ``colorbar=ColorBar(label=..., length=...,
                 orientation=..., label_size=..., label_rotation=..., label_location=...,
                 ticks_spacing=...)``. The loose ``cbar_*`` / ``ticks_spacing`` kwargs it replaces
-                are deprecated (cleopatra >= 0.28): still accepted for now, but they emit a
-                ``DeprecationWarning`` and are no longer listed below — migrate to ``ColorBar``.
+                are deprecated (cleopatra >= 0.28): still accepted for now — and emit a
+                ``DeprecationWarning`` on the ``plot`` / ``animate`` render paths — but are no
+                longer listed below. Migrate to ``ColorBar``.
                 | Parameter                   | Type                | Description |
                 |-----------------------------|---------------------|-------------|
                 | `points`                    | array \\| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
@@ -2028,7 +2029,7 @@ class Analysis(_Engine["Dataset"]):
                 | `num_size`                  | int, optional       | Size of numbers plotted on top of each cell. Default is `8`. |
                 | `background_color_threshold`| float or int, optional | Threshold for deciding text color over cells: if value > threshold -> black text; else white text. If `None`, max value / 2 is used. Default is `None`. |
                 | `add_colorbar`              | bool, optional      | Whether to draw the colour bar. Default is `True`. When `False`, no colorbar is created and the returned glyph's `cbar` is `None`. |
-                | `colorbar`                  | bool \\| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28) — the complete, preferred replacement for the loose `cbar_*` kwargs. `False` hides it, `None` uses the default. |
+                | `colorbar`                  | bool \\| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28) — the complete, preferred replacement for the loose `cbar_*` / `ticks_spacing` kwargs. `False` hides it, `None` uses the default. |
                 | `full_bleed`                | bool \\| str, optional | cleopatra >= 0.28 chrome-free layout: drop axes/margins so the array fills the figure. Default `False`. |
         Returns:
             ArrayGlyph:
