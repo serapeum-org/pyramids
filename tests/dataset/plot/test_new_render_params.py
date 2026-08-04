@@ -108,3 +108,22 @@ class TestNewRenderParams:
         assert "cbar_label" in captured, "loose cbar_label must reach the render call"
         label = glyph.cbar.ax.get_ylabel() or glyph.cbar.ax.get_xlabel()
         assert label == "mm", f"colour-bar label should still render, got {label!r}"
+
+    def test_deprecated_cbar_kwarg_renders_on_the_facet_path(self):
+        """A loose `cbar_*` kwarg still renders the shared colour-bar label on the facet path.
+
+        cleopatra's `facet` forwards these to each per-panel constructor (not `.plot`), so the
+        deprecation does not fire there — but the label must still render. This routing fixed a
+        latent drop where a facet `cbar_label` was previously routed to the parent constructor
+        and never forwarded into `cleo.facet`.
+        """
+        stack = np.random.default_rng(3).random((3, 6, 6)).astype("float32")
+        result = render_array(
+            arr=stack,
+            mode="facet",
+            facet_kwargs={"col": "time", "col_coords": [0, 1, 2]},
+            cbar_label="mm",
+            extent=[0.0, 0.0, 1.0, 1.0],
+        )
+        label = result.cbar.ax.get_ylabel() or result.cbar.ax.get_xlabel()
+        assert label == "mm", f"facet colour-bar label should render, got {label!r}"
