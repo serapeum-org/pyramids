@@ -653,6 +653,25 @@ class TestToNetcdfNoData:
             f"expected all-None no_data_value, got {var.no_data_value!r}"
         )
 
+    def test_nodata_round_trips_var_per_band_false(self, tmp_path):
+        """The single 4-D ``data`` variable also restores its no-data on read.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            ``var_per_band=False`` write with ``no_data_value=-9999`` — expected: the reopened
+            ``data`` variable reports ``-9999`` on every band, i.e. the attribute fallback covers
+            the 4-D layout too. Regression test for #935.
+        """
+        col, _ = _make_int16_collection(tmp_path, no_data_value=-9999)
+        out = tmp_path / "nd_4d_rt.nc"
+        col.to_netcdf(str(out), var_per_band=False)
+        var = NetCDF.read_file(str(out)).get_variable("data")
+        assert all(v == -9999 for v in var.no_data_value), (
+            f"4-D nodata did not round-trip: {var.no_data_value!r}"
+        )
+
 
 @pytest.mark.xarray
 class TestToNetcdfNoFilesPath:

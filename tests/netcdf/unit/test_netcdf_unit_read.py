@@ -635,3 +635,60 @@ class TestReadMdArray1DNumeric:
         nc = Container(src)
         result = nc._read_md_array("profile")
         assert result is not None, "Should return result for 1D numeric array"
+
+
+class TestMdArrayNoData:
+    """`NetCDF._md_array_no_data` resolves the driver value, then missing_value/_FillValue/nodata."""
+
+    @staticmethod
+    def _md_array(*, driver=None, attrs=None):
+        """Fake MDArray whose driver value is `driver` and whose CF attributes are `attrs`."""
+        attrs = attrs or {}
+        md = MagicMock()
+        md.GetNoDataValueAsDouble.return_value = driver
+
+        def _get_attribute(name):
+            if name in attrs:
+                attr = MagicMock()
+                attr.ReadAsDoubleArray.return_value = [attrs[name]]
+                return attr
+            return None
+
+        md.GetAttribute.side_effect = _get_attribute
+        return md
+
+    def test_driver_value_takes_precedence(self):
+        """A driver-provided no-data short-circuits the attribute lookup."""
+        md = self._md_array(driver=-5.0, attrs={"nodata": 111.0})
+        assert NetCDF._md_array_no_data(md) == -5.0, "driver value should win"
+
+    def test_missing_value_attribute(self):
+        """`missing_value` resolves when the driver reports none."""
+        md = self._md_array(attrs={"missing_value": -1.0})
+        assert NetCDF._md_array_no_data(md) == -1.0, "missing_value should resolve"
+
+    def test_fill_value_attribute(self):
+        """`_FillValue` resolves when driver and `missing_value` are absent."""
+        md = self._md_array(attrs={"_FillValue": 9.0})
+        assert NetCDF._md_array_no_data(md) == 9.0, "_FillValue should resolve"
+
+    def test_nodata_attribute(self):
+        """`nodata` (the to_netcdf attribute) resolves as the final fallback (#935)."""
+        md = self._md_array(attrs={"nodata": 2147483648.0})
+        assert NetCDF._md_array_no_data(md) == 2147483648.0, "nodata attr should resolve"
+
+    def test_missing_value_precedes_nodata(self):
+        """With several attributes present, `missing_value` wins over `nodata`."""
+        md = self._md_array(attrs={"missing_value": -1.0, "nodata": 999.0})
+        assert NetCDF._md_array_no_data(md) == -1.0, "missing_value should precede nodata"
+
+    def test_returns_none_when_absent(self):
+        """No driver value and no recognised attribute yields None."""
+        assert NetCDF._md_array_no_data(self._md_array()) is None, "absent nodata should be None"
+
+    def test_getattribute_runtimeerror_swallowed(self):
+        """A RuntimeError from GetAttribute is treated as a missing attribute."""
+        md = MagicMock()
+        md.GetNoDataValueAsDouble.return_value = None
+        md.GetAttribute.side_effect = RuntimeError
+        assert NetCDF._md_array_no_data(md) is None, "RuntimeError should yield None"
