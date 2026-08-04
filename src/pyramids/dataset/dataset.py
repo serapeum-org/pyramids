@@ -855,8 +855,9 @@ class Dataset(RasterBase):
                 Reference layer, dispatched by type. ``True`` or a tile-provider string
                 (e.g. ``"CartoDB.Positron"``) overlays a pyramids web-tile basemap. A
                 ``pyramids.plot.Basemap(relief=..., features=...)`` (cleopatra >= 0.28)
-                draws a shaded-relief / coastline layer instead. Default is ``None``.
-                Requires the ``[viz]`` extra.
+                draws a shaded-relief / coastline layer instead. Passing a ``dict`` here is
+                a deprecated alias for ``Basemap`` (emits a ``DeprecationWarning``). Default
+                is ``None``. Requires the ``[viz]`` extra.
             rgb_options (dict, optional):
                 Grouped Sentinel-imagery kwargs. Accepted keys:
                 ``"rgb"``, ``"surface_reflectance"``, ``"cutoff"``,

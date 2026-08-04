@@ -2009,9 +2009,10 @@ class Analysis(_Engine["Dataset"]):
                 Configure the colour bar through ``colorbar=ColorBar(label=..., length=...,
                 orientation=..., label_size=..., label_rotation=..., label_location=...,
                 ticks_spacing=...)``. The loose ``cbar_*`` / ``ticks_spacing`` kwargs it replaces
-                are deprecated (cleopatra >= 0.28): still accepted for now — and emit a
-                ``DeprecationWarning`` on the ``plot`` / ``animate`` render paths — but are no
-                longer listed below. Migrate to ``ColorBar``.
+                are deprecated: pyramids still accepts them but folds them into a ``ColorBar``
+                and emits a ``DeprecationWarning``, so they are no longer listed below. The
+                same applies to ``point_*`` -> ``PointOverlay`` and a ``dict`` basemap ->
+                ``Basemap``. Migrate to the typed specs.
                 | Parameter                   | Type                | Description |
                 |-----------------------------|---------------------|-------------|
                 | `points`                    | array \\| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |

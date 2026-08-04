@@ -59,6 +59,7 @@ and pass nothing to the constructor.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -211,20 +212,96 @@ def _guard_style_hillshade(kwargs: dict[str, Any], option_keys: Any) -> None:
         )
 
 
-# cleopatra 0.28 deprecated these loose colour-bar kwargs in favour of ``ColorBar``
-# fields (see the routing rationale in ``render_array``). Module-level so the frozen
-# set is built once, not rebuilt on every plot call.
-_DEPRECATED_CBAR_KWARGS = frozenset(
-    {
-        "cbar_label",
-        "cbar_length",
-        "cbar_label_size",
-        "cbar_label_rotation",
-        "cbar_label_location",
-        "cbar_orientation",
-        "ticks_spacing",
+# Loose plot kwargs cleopatra 0.28 deprecated in favour of the typed specs
+# (ColorBar / PointOverlay). ``render_array`` translates them to the spec at the
+# render boundary (see ``_migrate_deprecated_plot_specs``) so cleopatra only ever
+# sees the typed form — no double DeprecationWarning — and the loose forms are
+# steered off in one place for every raster plot / animate path. The maps mirror
+# cleopatra's own loose-kwarg -> spec-field mapping.
+_CBAR_TO_COLORBAR = {
+    "cbar_label": "label",
+    "cbar_length": "length",
+    "cbar_label_size": "label_size",
+    "cbar_label_rotation": "label_rotation",
+    "cbar_label_location": "label_location",
+    "cbar_orientation": "orientation",
+    "ticks_spacing": "ticks_spacing",
+}
+_POINT_TO_OVERLAY = {
+    "point_color": "color",
+    "point_size": "size",
+    "point_label_color": "label_color",
+    "point_label_size": "label_size",
+    "pid_color": "label_color",
+    "pid_size": "label_size",
+}
+
+
+def _migrate_deprecated_plot_specs(
+    kwargs: dict[str, Any], colorbar_cls: Any, point_overlay_cls: Any
+) -> None:
+    """Fold deprecated loose ``cbar_*`` / ``point_*`` kwargs into the typed specs.
+
+    Mutates ``kwargs`` in place: the loose keys are popped and, when no explicit
+    ``colorbar=`` / ``points=`` was given, folded into a ``ColorBar`` /
+    ``PointOverlay``. Emits a pyramids ``DeprecationWarning`` naming the typed
+    replacement. When an explicit ``colorbar=`` (any value) or a ``PointOverlay``
+    was also passed, the loose keys are dropped and the explicit value wins (the
+    warning says so). Cleopatra therefore never sees the loose kwargs, so its own
+    deprecation never fires — no double warning.
+    """
+    cbar = {
+        _CBAR_TO_COLORBAR[k]: kwargs.pop(k)
+        for k in list(_CBAR_TO_COLORBAR)
+        if k in kwargs
     }
-)
+    if cbar:
+        if "colorbar" in kwargs:
+            warnings.warn(
+                "The loose cbar_* / ticks_spacing kwargs are deprecated and were "
+                "ignored because colorbar= was also given; set them on the "
+                "pyramids.plot.ColorBar instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+        else:
+            warnings.warn(
+                "The loose cbar_* / ticks_spacing kwargs are deprecated; pass "
+                "colorbar=pyramids.plot.ColorBar(...) instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            kwargs["colorbar"] = colorbar_cls(**cbar)
+
+    style = {
+        _POINT_TO_OVERLAY[k]: kwargs.pop(k)
+        for k in list(_POINT_TO_OVERLAY)
+        if k in kwargs
+    }
+    if style:
+        points = kwargs.get("points")
+        if isinstance(points, point_overlay_cls):
+            warnings.warn(
+                "The loose point_* / pid_* kwargs are deprecated and were ignored "
+                "because points= is already a PointOverlay; set them on it instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+        elif points is None:
+            warnings.warn(
+                "The loose point_* / pid_* kwargs are deprecated and have no effect "
+                "without points=; pass points=pyramids.plot.PointOverlay(points, ...).",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+        else:
+            warnings.warn(
+                "The loose point_* / pid_* kwargs are deprecated; pass "
+                "points=pyramids.plot.PointOverlay(points, ...) instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            kwargs["points"] = point_overlay_cls(points, **style)
 
 
 def render_array(
@@ -441,8 +518,27 @@ def render_array(
             ```
     """
     require_cleopatra()
-    from cleopatra.array_glyph import ArrayGlyph
+    from cleopatra.array_glyph import ArrayGlyph, ColorBar, PointOverlay
+    from cleopatra.geo import Basemap
     from cleopatra.styles import ColorScale
+
+    # Deprecate + translate the loose plot kwargs to the typed specs (cbar_* ->
+    # ColorBar, point_*/pid_* -> PointOverlay, dict basemap -> Basemap) so every
+    # raster plot/animate call is steered onto the typed API in one place and
+    # cleopatra only ever sees the typed form. The facet path is skipped:
+    # cleopatra's ``ArrayGlyph.facet`` does not accept ``colorbar=ColorBar`` /
+    # ``PointOverlay`` (only the loose ``cbar_*`` kwargs, like the mesh glyph), so
+    # faceting keeps the loose forms — there is no typed alternative there.
+    if mode != "facet":
+        _migrate_deprecated_plot_specs(kwargs, ColorBar, PointOverlay)
+    if isinstance(basemap, dict) and basemap:
+        warnings.warn(
+            "Passing a dict as basemap= is deprecated; pass "
+            "basemap=pyramids.plot.Basemap(...) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        basemap = Basemap(**basemap)
 
     valid_modes = ("plot", "animate", "facet")
     if mode not in valid_modes:
@@ -548,20 +644,13 @@ def render_array(
     # render method only overwrites ``default_options["title"]`` when its
     # ``title`` arg is not ``None``, so a constructor-set title survives and
     # routing it to the constructor (via ``option_keys()``) is correct.
-    # cleopatra 0.28 deprecated these loose colour-bar kwargs in favour of
-    # ``ColorBar`` fields, and emits the ``DeprecationWarning`` only inside
-    # ``.plot`` / ``.animate`` — never the constructor. Because they are in
-    # ``option_keys()``, routing them to the constructor (like every other
-    # option) suppressed that warning on the single-frame ``plot`` path, while the
-    # animate path — which merges every kwarg into the render call — still warned.
-    # The same ``cbar_label=`` then warned on an animation but not on a plain plot.
-    # Force them to the render call so cleopatra's deprecation fires on both the
-    # ``plot`` and ``animate`` paths; they still render (cleopatra folds them into
-    # ``default_options`` there). Prefer ``colorbar=ColorBar(...)`` instead.
-    # NOTE: the ``facet`` path stays silent — cleopatra's ``ArrayGlyph.facet``
-    # forwards these to each per-panel *constructor* (not ``.plot``), which does
-    # not emit the deprecation; they still render on every panel's shared bar.
-    RENDER_ONLY_OVERRIDES = {"kind"} | _DEPRECATED_CBAR_KWARGS
+    # ``kind`` is force-routed to the render call. The deprecated loose cbar_*
+    # kwargs are too — but only the ``facet`` path still carries them here (plot /
+    # animate already folded them into ``colorbar=ColorBar(...)`` above, so this is
+    # a no-op there). cleopatra's ``facet`` renders them only when they reach the
+    # facet *call* (its per-panel constructors), so force-routing keeps the loose
+    # cbar_* rendering on facet instead of being dropped on the parent constructor.
+    RENDER_ONLY_OVERRIDES = {"kind", *_CBAR_TO_COLORBAR}
     # Reuse the option set resolved for the style/hillshade guard above — it is
     # cleopatra's declared constructor options and does not change within a call.
     ctor_option_keys = option_keys

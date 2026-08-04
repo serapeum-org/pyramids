@@ -61,14 +61,14 @@ class TestBasemapDispatch:
         assert not mock_add.called, "a Basemap must not go through the tile path"
         assert glyph is not None
 
-    def test_dict_basemap_is_forwarded_not_tiled(self):
-        """A dict (the equivalent of a Basemap spec) also forwards, not tiled."""
+    def test_dict_basemap_is_translated_to_basemap_not_tiled(self):
+        """A dict basemap is deprecated, translated to a Basemap, and forwarded (not tiled)."""
         captured, spy = self._spy_on("plot")
-        basemap = {"relief": False}
         with patch.object(ArrayGlyph, "plot", spy):
             with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
-                self._dataset().plot(band=0, basemap=basemap)
-        assert captured.get("basemap") == basemap
+                with pytest.warns(DeprecationWarning, match="dict as basemap"):
+                    self._dataset().plot(band=0, basemap={"relief": False})
+        assert isinstance(captured.get("basemap"), Basemap)
         assert not mock_add.called
 
     def test_no_basemap_draws_no_tiles(self):
@@ -168,22 +168,22 @@ class TestBasemapDispatch:
             )
         assert captured.get("basemap") is basemap
 
-    def test_dict_basemap_reaches_the_animate_render_call(self):
-        """A dict basemap on the animate path forwards to `cleo.animate(basemap=)`."""
+    def test_dict_basemap_translated_to_basemap_on_animate(self):
+        """A dict basemap on animate is translated to a Basemap and forwarded to cleo.animate."""
         captured, spy = self._spy_on("animate")
-        basemap = {"relief": False}
         stack = np.random.default_rng(4).random((3, 6, 6)).astype("float32")
         with patch.object(ArrayGlyph, "animate", spy):
             with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
-                render_array(
-                    arr=stack,
-                    mode="animate",
-                    animation_axis_values=[0, 1, 2],
-                    basemap=basemap,
-                    basemap_epsg=4326,
-                    extent=[0.0, 0.0, 1.0, 1.0],
-                )
-        assert captured.get("basemap") == basemap
+                with pytest.warns(DeprecationWarning, match="dict as basemap"):
+                    render_array(
+                        arr=stack,
+                        mode="animate",
+                        animation_axis_values=[0, 1, 2],
+                        basemap={"relief": False},
+                        basemap_epsg=4326,
+                        extent=[0.0, 0.0, 1.0, 1.0],
+                    )
+        assert isinstance(captured.get("basemap"), Basemap)
         assert not mock_add.called
 
     def test_tile_basemap_on_facet_draws_per_visible_panel(self):
