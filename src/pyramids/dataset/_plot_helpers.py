@@ -265,11 +265,18 @@ def _migrate_deprecated_plot_specs(
         # hidden) can't be augmented by the loose kwargs. colorbar=True / None /
         # absent carry no caption of their own, so fold the loose form in — else
         # the caption that rendered before this migration would silently vanish.
-        if isinstance(existing, colorbar_cls) or existing is False:
+        if existing is False:
             warnings.warn(
                 "The loose cbar_* / ticks_spacing kwargs are deprecated and were "
-                "ignored because an explicit colorbar= was given; set the styling "
-                "on the pyramids.plot.ColorBar instead.",
+                "ignored because colorbar=False hides the colour bar.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+        elif isinstance(existing, colorbar_cls):
+            warnings.warn(
+                "The loose cbar_* / ticks_spacing kwargs are deprecated and were "
+                "ignored because an explicit colorbar=ColorBar was given; set the "
+                "styling on it instead.",
                 DeprecationWarning,
                 stacklevel=3,
             )

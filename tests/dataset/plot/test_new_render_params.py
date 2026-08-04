@@ -124,6 +124,18 @@ class TestNewRenderParams:
         label = glyph.cbar.ax.get_ylabel() or glyph.cbar.ax.get_xlabel()
         assert label == "TYPED", f"explicit ColorBar should win, got {label!r}"
 
+    def test_colorbar_false_drops_loose_cbar_and_hides_bar(self):
+        """`colorbar=False` hides the bar and drops the loose `cbar_*` (not folded).
+
+        The suppress half of the conflict contract: an explicit `colorbar=False` wins,
+        so the loose kwarg is dropped with a warning naming the `False` case and no
+        colour bar is drawn.
+        """
+        with pytest.warns(DeprecationWarning, match="ignored because colorbar=False"):
+            glyph = self._dataset().plot(band=0, colorbar=False, cbar_label="x")
+        assert isinstance(glyph, ArrayGlyph)
+        assert getattr(glyph, "cbar", None) is None, "colorbar=False must hide the bar"
+
     def test_colorbar_true_still_folds_loose_cbar(self):
         """`colorbar=True` + a loose `cbar_*` folds the styling in (not dropped).
 
