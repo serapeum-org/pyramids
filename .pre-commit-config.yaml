@@ -1,12 +1,3 @@
-# pre-commit.ci-only settings. Skip checkov there: its hook repo
-# (bridgecrewio/checkov) is 101.6 MiB, past pre-commit.ci's 100 MiB tier cache
-# cap, so cloning it fails the whole run at the build stage before any hook
-# executes. checkov still runs in the GitHub Actions lint.yml `pre-commit` job
-# (no such cap, and it finds no IaC files there), so coverage is unchanged —
-# this only unblocks pre-commit.ci.
-ci:
-  skip: [checkov]
-
 fail_fast: true
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -131,11 +122,6 @@ repos:
       - id: gitleaks
         name: "[cred -  check] gitleaks"
         args: ["--config", "ci/gitleaks.toml"]
-
-  - repo: https://github.com/bridgecrewio/checkov
-    rev: 3.3.8
-    hooks:
-      - id: checkov
 
   # The local hooks below run inside the pixi `dev` environment. `--frozen` uses
   # pixi.lock as-is — without it pixi re-solves every platform on each hook run,
