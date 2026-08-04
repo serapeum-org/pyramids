@@ -676,16 +676,22 @@ class TestMdArrayNoData:
     def test_nodata_attribute(self):
         """`nodata` (the to_netcdf attribute) resolves as the final fallback (#935)."""
         md = self._md_array(attrs={"nodata": 2147483648.0})
-        assert NetCDF._md_array_no_data(md) == 2147483648.0, "nodata attr should resolve"
+        assert NetCDF._md_array_no_data(md) == 2147483648.0, (
+            "nodata attr should resolve"
+        )
 
     def test_missing_value_precedes_nodata(self):
         """With several attributes present, `missing_value` wins over `nodata`."""
         md = self._md_array(attrs={"missing_value": -1.0, "nodata": 999.0})
-        assert NetCDF._md_array_no_data(md) == -1.0, "missing_value should precede nodata"
+        assert NetCDF._md_array_no_data(md) == -1.0, (
+            "missing_value should precede nodata"
+        )
 
     def test_returns_none_when_absent(self):
         """No driver value and no recognised attribute yields None."""
-        assert NetCDF._md_array_no_data(self._md_array()) is None, "absent nodata should be None"
+        assert NetCDF._md_array_no_data(self._md_array()) is None, (
+            "absent nodata should be None"
+        )
 
     def test_getattribute_runtimeerror_swallowed(self):
         """A RuntimeError from GetAttribute is treated as a missing attribute."""
@@ -724,13 +730,17 @@ class TestApplyAttributeNoData:
         """A band that already has a GDAL no-data is left untouched even if the attribute differs."""
         cube = SimpleNamespace(_no_data_value=[-1.0, -1.0], _band_count=2)
         NetCDF._apply_attribute_no_data(cube, self._md_array(999.0))
-        assert cube._no_data_value == [-1.0, -1.0], "existing GDAL no-data must not be overridden"
+        assert cube._no_data_value == [-1.0, -1.0], (
+            "existing GDAL no-data must not be overridden"
+        )
 
     def test_partial_none_is_left_untouched(self):
         """A mix of a real value and None counts as 'has no-data' and is not overwritten."""
         cube = SimpleNamespace(_no_data_value=[-1.0, None], _band_count=2)
         NetCDF._apply_attribute_no_data(cube, self._md_array(999.0))
-        assert cube._no_data_value == [-1.0, None], "a partially-set list must not be overwritten"
+        assert cube._no_data_value == [-1.0, None], (
+            "a partially-set list must not be overwritten"
+        )
 
     def test_no_attribute_leaves_none(self):
         """All-None stays None when the MDArray exposes no recognised attribute."""
@@ -745,4 +755,6 @@ class TestApplyAttributeNoData:
         """A raw MDArray-like cube lacking `_no_data_value` is skipped without error."""
         cube = SimpleNamespace()
         NetCDF._apply_attribute_no_data(cube, self._md_array(999.0))
-        assert not hasattr(cube, "_no_data_value"), "must not create the attribute on a 1-D cube"
+        assert not hasattr(cube, "_no_data_value"), (
+            "must not create the attribute on a 1-D cube"
+        )

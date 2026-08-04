@@ -801,7 +801,9 @@ class TestToNetcdfRoundTrip:
         """
         col, _ = _make_int16_collection(tmp_path, count=2)
         out = tmp_path / "cal.nc"
-        col.to_netcdf(str(out), time_coords=pd.date_range("1979-01-01", periods=2, freq="D"))
+        col.to_netcdf(
+            str(out), time_coords=pd.date_range("1979-01-01", periods=2, freq="D")
+        )
         nc = NetCDF.read_file(str(out))
         assert nc.get_time_variable() == ["1979-01-01", "1979-01-02"], (
             f"time axis did not decode: {nc.get_time_variable()!r}"
