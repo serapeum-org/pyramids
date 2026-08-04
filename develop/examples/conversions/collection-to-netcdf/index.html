@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6991,7 +6991,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=a72cfb1c">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=b74f918e">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7015,14 +7015,15 @@ a pile of dated <code>.tif</code> files.</p>
 </tr>
 </tbody>
 </table>
-<p>The whole trip is <code>DatasetCollection.read_multiple_files(folder).to_netcdf(path)</code>. This notebook covers the
+<p>The whole trip is <code>DatasetCollection.read_multiple_files(folder, with_order=True).to_netcdf(path)</code> — <code>with_order</code>
+parses the date in each file name so the cube gets a real calendar axis (details below). This notebook covers the
 <strong>multi-timestep</strong> case. For single-file raster⇄NetCDF conversions (one GeoTIFF's bands to variables and back),
 see <a href="geotiff-netcdf.ipynb">Converting between GeoTIFF and NetCDF</a>.</p>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=f451f5eb">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c2137ae3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7033,7 +7034,7 @@ see <a href="geotiff-netcdf.ipynb">Converting between GeoTIFF and NetCDF</a>.</p
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=7f3b940c">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=fcf947db">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7090,7 +7091,7 @@ DATA.is_dir(), WORK.is_dir()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=2880cc82">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=6c4d3a94">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7121,7 +7122,7 @@ from pyramids.netcdf.plot_options import Selectors</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=58f01bae">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=52544e28">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7135,7 +7136,7 @@ daily MSWEP rainfall rasters.</p>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=667773d1">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=5285e9ee">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7181,7 +7182,7 @@ sorted(p.name for p in folder.glob('*.tif'))</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=8e76bd72">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=4ebb3036">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7226,7 +7227,7 @@ col.time_length, col.meta.band_names, col.meta.shape</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6152559c">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0b2a4d95">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7238,7 +7239,7 @@ coordinate.</p>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=46d14961">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=2b28f956">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7284,7 +7285,7 @@ times</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6997a766">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8503f209">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7296,7 +7297,7 @@ the rainfall field change over the week.</p>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=e7115e34">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=e1345299">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7328,7 +7329,7 @@ the rainfall field change over the week.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fbdf36fc2f0&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f9909e4c2f0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7341,7 +7342,7 @@ the rainfall field change over the week.</p>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=25f0eb71">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d4c9c716">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7373,7 +7374,7 @@ the rainfall field change over the week.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fbdeb2b5450&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f9901d45590&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7386,7 +7387,7 @@ the rainfall field change over the week.</p>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2f4d0fa5">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=21f7a03d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7399,7 +7400,7 @@ stack yields one variable, <code>Band_1</code>).</p>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=fc376a38">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=7fc2f8b2">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7442,7 +7443,7 @@ out.stat().st_size  # bytes on disk</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ddd139da">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7157dae5">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7454,7 +7455,7 @@ and its length survive the round-trip, and each variable is shaped <code>(time, 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=6058e7e8">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=2b3195a9">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7495,7 +7496,7 @@ nc.variable_names, nc.epsg</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=a4a10fb4">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=07b44801">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7534,7 +7535,7 @@ nc.variable_names, nc.epsg</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=547e80ee">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=a94392e9">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7573,7 +7574,7 @@ nc.variable_names, nc.epsg</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5bd76373">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=b4e084b5">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7585,7 +7586,7 @@ dates.</p>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=491deb5a">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=590458d8">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7638,7 +7639,7 @@ Warning 1: dimension #0 (time) is not a Time or Vertical dimension.
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=1aa8b6e2">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=35820a16">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7651,7 +7652,7 @@ value round-trips as well, so the fill is masked automatically — no <code>excl
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=a684f003">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=79753764">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7683,7 +7684,7 @@ value round-trips as well, so the fill is masked automatically — no <code>excl
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7fbdeb559310&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f9901c75450&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7696,7 +7697,7 @@ value round-trips as well, so the fill is masked automatically — no <code>excl
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5e1a31a8">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=90254a3c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7708,7 +7709,7 @@ explicitly. Its length must equal <code>time_length</code>.</p>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d173dff5">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=78d2e55c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7765,7 +7766,7 @@ Warning 1: dimension #0 (time) is not a Time or Vertical dimension.
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=e52aa2cf">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c7f12bd6">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7777,7 +7778,7 @@ dimension, instead of one variable per band.</p>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=0ab6390c">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d9bd56ba">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7822,7 +7823,7 @@ nc4.variable_names, nc4.dimension_sizes</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=77392c01">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=e2dfd1b6">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>

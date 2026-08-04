@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -17758,7 +17758,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-4676" name="__codelineno-0-4676"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_apply_attribute_no_data</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">md_arr</span><span class="p">)</span>
 <a id="__codelineno-0-4677" name="__codelineno-0-4677"></a>
 <a id="__codelineno-0-4678" name="__codelineno-0-4678"></a>    <span class="nd">@staticmethod</span>
-<a id="__codelineno-0-4679" name="__codelineno-0-4679"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_apply_attribute_no_data</span><span class="p">(</span><span class="n">cube</span><span class="p">:</span> <span class="n">NetCDF</span><span class="p">,</span> <span class="n">md_arr</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-4679" name="__codelineno-0-4679"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_apply_attribute_no_data</span><span class="p">(</span><span class="n">cube</span><span class="p">:</span> <span class="n">NetCDF</span><span class="p">,</span> <span class="n">md_arr</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-4680" name="__codelineno-0-4680"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Stamp an attribute-derived no-data onto a variable whose classic view has none.</span>
 <a id="__codelineno-0-4681" name="__codelineno-0-4681"></a>
 <a id="__codelineno-0-4682" name="__codelineno-0-4682"></a><span class="sd">        A variable&#39;s ``AsClassicDataset`` view only sometimes exposes a band no-data — GDAL</span>
@@ -17767,15 +17767,15 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-4685" name="__codelineno-0-4685"></a><span class="sd">        When every band reports ``None``, resolve the value from the MDArray&#39;s CF/``nodata``</span>
 <a id="__codelineno-0-4686" name="__codelineno-0-4686"></a><span class="sd">        attributes and record it on the Python-side per-band list that :attr:`no_data_value` and the</span>
 <a id="__codelineno-0-4687" name="__codelineno-0-4687"></a><span class="sd">        plot mask read. The view ignores ``SetNoDataValue``, so only the wrapper list is updated.</span>
-<a id="__codelineno-0-4688" name="__codelineno-0-4688"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-4689" name="__codelineno-0-4689"></a>        <span class="c1"># A 1-D variable comes back as a raw gdal.MDArray with no band model (no</span>
-<a id="__codelineno-0-4690" name="__codelineno-0-4690"></a>        <span class="c1"># `_no_data_value`), so there is nothing to stamp — leave it untouched.</span>
-<a id="__codelineno-0-4691" name="__codelineno-0-4691"></a>        <span class="n">current</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="s2">&quot;_no_data_value&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-<a id="__codelineno-0-4692" name="__codelineno-0-4692"></a>        <span class="k">if</span> <span class="n">current</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="nb">any</span><span class="p">(</span><span class="n">v</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">current</span><span class="p">):</span>
-<a id="__codelineno-0-4693" name="__codelineno-0-4693"></a>            <span class="k">return</span>
-<a id="__codelineno-0-4694" name="__codelineno-0-4694"></a>        <span class="n">ndv</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">_md_array_no_data</span><span class="p">(</span><span class="n">md_arr</span><span class="p">)</span>
-<a id="__codelineno-0-4695" name="__codelineno-0-4695"></a>        <span class="k">if</span> <span class="n">ndv</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-4696" name="__codelineno-0-4696"></a>            <span class="n">cube</span><span class="o">.</span><span class="n">_no_data_value</span> <span class="o">=</span> <span class="p">[</span><span class="n">ndv</span><span class="p">]</span> <span class="o">*</span> <span class="n">cube</span><span class="o">.</span><span class="n">_band_count</span>
+<a id="__codelineno-0-4688" name="__codelineno-0-4688"></a>
+<a id="__codelineno-0-4689" name="__codelineno-0-4689"></a><span class="sd">        A 1-D variable comes back as a raw ``gdal.MDArray`` with no band model (no</span>
+<a id="__codelineno-0-4690" name="__codelineno-0-4690"></a><span class="sd">        ``_no_data_value``), so there is nothing to stamp and it is left untouched.</span>
+<a id="__codelineno-0-4691" name="__codelineno-0-4691"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-4692" name="__codelineno-0-4692"></a>        <span class="n">current</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="s2">&quot;_no_data_value&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-0-4693" name="__codelineno-0-4693"></a>        <span class="k">if</span> <span class="n">current</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="n">v</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">current</span><span class="p">):</span>
+<a id="__codelineno-0-4694" name="__codelineno-0-4694"></a>            <span class="n">ndv</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">_md_array_no_data</span><span class="p">(</span><span class="n">md_arr</span><span class="p">)</span>
+<a id="__codelineno-0-4695" name="__codelineno-0-4695"></a>            <span class="k">if</span> <span class="n">ndv</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-4696" name="__codelineno-0-4696"></a>                <span class="n">cube</span><span class="o">.</span><span class="n">_no_data_value</span> <span class="o">=</span> <span class="p">[</span><span class="n">ndv</span><span class="p">]</span> <span class="o">*</span> <span class="n">cube</span><span class="o">.</span><span class="n">_band_count</span>
 <a id="__codelineno-0-4697" name="__codelineno-0-4697"></a>
 <a id="__codelineno-0-4698" name="__codelineno-0-4698"></a>    <span class="nd">@staticmethod</span>
 <a id="__codelineno-0-4699" name="__codelineno-0-4699"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_clear_variable_metadata</span><span class="p">(</span><span class="n">cube</span><span class="p">:</span> <span class="n">NetCDF</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
