@@ -255,9 +255,7 @@ def _migrate_deprecated_plot_specs(
     sees the loose kwargs, so its own deprecation never fires — no double warning.
     """
     cbar = {
-        _CBAR_TO_COLORBAR[k]: kwargs.pop(k)
-        for k in list(_CBAR_TO_COLORBAR)
-        if k in kwargs
+        _CBAR_TO_COLORBAR[k]: kwargs.pop(k) for k in _CBAR_TO_COLORBAR if k in kwargs
     }
     if cbar:
         existing = kwargs.get("colorbar")
@@ -290,9 +288,7 @@ def _migrate_deprecated_plot_specs(
             kwargs["colorbar"] = colorbar_cls(**cbar)
 
     style = {
-        _POINT_TO_OVERLAY[k]: kwargs.pop(k)
-        for k in list(_POINT_TO_OVERLAY)
-        if k in kwargs
+        _POINT_TO_OVERLAY[k]: kwargs.pop(k) for k in _POINT_TO_OVERLAY if k in kwargs
     }
     if style:
         points = kwargs.get("points")
