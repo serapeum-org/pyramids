@@ -731,6 +731,10 @@ class TestCreateTimeConversionFunc:
         assert convert(283996800000000000) == "1979-01-01 00:00:00", (
             "nanosecond offset should decode to 1979-01-01"
         )
+        # A pre-epoch (negative) offset of one day decodes to 1969-12-31.
+        assert convert(-86_400_000_000_000) == "1969-12-31 00:00:00", (
+            "negative nanosecond offset should decode before the epoch"
+        )
 
     def test_custom_format(self):
         """Custom output format."""
