@@ -713,6 +713,25 @@ class TestCreateTimeConversionFunc:
         convert = create_time_conversion_func("seconds since 2000-01-01")
         assert convert(3600) == "2000-01-01 01:00:00", "3600 seconds should be 1 hour"
 
+    def test_milliseconds_conversion(self):
+        """Convert millisecond offsets."""
+        convert = create_time_conversion_func("milliseconds since 2000-01-01")
+        assert convert(1000) == "2000-01-01 00:00:01", "1000 ms should be 1 second"
+
+    def test_microseconds_conversion(self):
+        """Convert microsecond offsets."""
+        convert = create_time_conversion_func("microseconds since 2000-01-01")
+        assert convert(1_000_000) == "2000-01-01 00:00:01", "1e6 us should be 1 second"
+
+    def test_nanoseconds_conversion(self):
+        """Convert nanosecond offsets — the unit ``DatasetCollection.to_netcdf`` writes."""
+        convert = create_time_conversion_func("nanoseconds since 1970-01-01 00:00:00")
+        assert convert(0) == "1970-01-01 00:00:00", "ns 0 should be the epoch"
+        # 283996800 seconds == 3287 days after the epoch == 1979-01-01.
+        assert convert(283996800000000000) == "1979-01-01 00:00:00", (
+            "nanosecond offset should decode to 1979-01-01"
+        )
+
     def test_custom_format(self):
         """Custom output format."""
         convert = create_time_conversion_func(

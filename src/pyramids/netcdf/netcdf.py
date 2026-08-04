@@ -4673,6 +4673,27 @@ class NetCDF(Dataset):
         cube._md_array_dims = [d.GetName() for d in dims]
         self._track_band_dimensions(cube, dims, spatial_dim_indices)
         self._copy_variable_attrs(cube, md_arr)
+        self._apply_attribute_no_data(cube, md_arr)
+
+    @staticmethod
+    def _apply_attribute_no_data(cube: NetCDF, md_arr) -> None:
+        """Stamp an attribute-derived no-data onto a variable whose classic view has none.
+
+        A variable's ``AsClassicDataset`` view only sometimes exposes a band no-data — GDAL
+        surfaces some ``_FillValue`` types but not all, and never the ``nodata`` attribute
+        :meth:`DatasetCollection.to_netcdf` writes (GDAL's multidim writer rejects ``_FillValue``).
+        When every band reports ``None``, resolve the value from the MDArray's CF/``nodata``
+        attributes and record it on the Python-side per-band list that :attr:`no_data_value` and the
+        plot mask read. The view ignores ``SetNoDataValue``, so only the wrapper list is updated.
+        """
+        # A 1-D variable comes back as a raw gdal.MDArray with no band model (no
+        # `_no_data_value`), so there is nothing to stamp — leave it untouched.
+        current = getattr(cube, "_no_data_value", None)
+        if current is None or any(v is not None for v in current):
+            return
+        ndv = NetCDF._md_array_no_data(md_arr)
+        if ndv is not None:
+            cube._no_data_value = [ndv] * cube._band_count
 
     @staticmethod
     def _clear_variable_metadata(cube: NetCDF) -> None:
@@ -5992,11 +6013,13 @@ class NetCDF(Dataset):
 
         Returns:
             The no-data value as a ``float``: the driver's value if set, else the
-            ``missing_value`` then ``_FillValue`` CF attribute, else ``None``.
+            ``missing_value``, ``_FillValue``, then ``nodata`` CF attribute, else
+            ``None``. ``nodata`` is the attribute :meth:`DatasetCollection.to_netcdf`
+            writes, since GDAL's multidim writer rejects ``_FillValue``.
         """
         result = md_arr.GetNoDataValueAsDouble()
         if result is None:
-            for attr_name in ("missing_value", "_FillValue"):
+            for attr_name in ("missing_value", "_FillValue", "nodata"):
                 try:
                     attr = md_arr.GetAttribute(attr_name)
                 except RuntimeError:
