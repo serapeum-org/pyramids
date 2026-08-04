@@ -211,6 +211,22 @@ def _guard_style_hillshade(kwargs: dict[str, Any], option_keys: Any) -> None:
         )
 
 
+# cleopatra 0.28 deprecated these loose colour-bar kwargs in favour of ``ColorBar``
+# fields (see the routing rationale in ``render_array``). Module-level so the frozen
+# set is built once, not rebuilt on every plot call.
+_DEPRECATED_CBAR_KWARGS = frozenset(
+    {
+        "cbar_label",
+        "cbar_length",
+        "cbar_label_size",
+        "cbar_label_rotation",
+        "cbar_label_location",
+        "cbar_orientation",
+        "ticks_spacing",
+    }
+)
+
+
 def render_array(
     *,
     arr: np.ndarray | None,
@@ -536,23 +552,15 @@ def render_array(
     # ``ColorBar`` fields, and emits the ``DeprecationWarning`` only inside
     # ``.plot`` / ``.animate`` — never the constructor. Because they are in
     # ``option_keys()``, routing them to the constructor (like every other
-    # option) would *suppress* that warning on the single-frame plot/facet path,
-    # while the animate path — which merges every kwarg into the render call —
-    # still warned. The same ``cbar_label=`` then warned on an animation but not
-    # on a plain plot. Force them to the render call so cleopatra's deprecation
-    # fires uniformly; they still render (cleopatra folds them into
+    # option) suppressed that warning on the single-frame ``plot`` path, while the
+    # animate path — which merges every kwarg into the render call — still warned.
+    # The same ``cbar_label=`` then warned on an animation but not on a plain plot.
+    # Force them to the render call so cleopatra's deprecation fires on both the
+    # ``plot`` and ``animate`` paths; they still render (cleopatra folds them into
     # ``default_options`` there). Prefer ``colorbar=ColorBar(...)`` instead.
-    _DEPRECATED_CBAR_KWARGS = frozenset(
-        {
-            "cbar_label",
-            "cbar_length",
-            "cbar_label_size",
-            "cbar_label_rotation",
-            "cbar_label_location",
-            "cbar_orientation",
-            "ticks_spacing",
-        }
-    )
+    # NOTE: the ``facet`` path stays silent — cleopatra's ``ArrayGlyph.facet``
+    # forwards these to each per-panel *constructor* (not ``.plot``), which does
+    # not emit the deprecation; they still render on every panel's shared bar.
     RENDER_ONLY_OVERRIDES = {"kind"} | _DEPRECATED_CBAR_KWARGS
     # Reuse the option set resolved for the style/hillshade guard above — it is
     # cleopatra's declared constructor options and does not change within a call.
