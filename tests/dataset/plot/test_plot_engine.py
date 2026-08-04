@@ -397,8 +397,12 @@ class TestRenderArrayKwargRouting:
                     pid_size=7,
                 )
         seen = {**ctor, **plot}
-        assert "pid_color" not in seen, f"legacy pid_color must fold away; seen={sorted(seen)}"
-        assert "pid_size" not in seen, f"legacy pid_size must fold away; seen={sorted(seen)}"
+        assert "pid_color" not in seen, (
+            f"legacy pid_color must fold away; seen={sorted(seen)}"
+        )
+        assert "pid_size" not in seen, (
+            f"legacy pid_size must fold away; seen={sorted(seen)}"
+        )
         overlay = plot.get("points", ctor.get("points"))
         assert isinstance(overlay, PointOverlay), (
             f"pid_* must fold into a PointOverlay; got {overlay!r}"
