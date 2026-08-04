@@ -332,12 +332,10 @@ class TestRenderArrayKwargRouting:
                 cbar_label="mm",
                 ticks_spacing=2,
             )
-        assert "cbar_label" in plot and "cbar_label" not in ctor, (
-            f"loose `cbar_label` must be force-routed to the render call; ctor={ctor}"
-        )
-        assert "ticks_spacing" in plot and "ticks_spacing" not in ctor, (
-            f"loose `ticks_spacing` must be force-routed to the render call; plot={plot}"
-        )
+        assert "cbar_label" in plot, f"loose `cbar_label` must reach the render call; plot={plot}"
+        assert "cbar_label" not in ctor, f"loose `cbar_label` must not reach the ctor; ctor={ctor}"
+        assert "ticks_spacing" in plot, f"loose `ticks_spacing` must reach the render call; plot={plot}"
+        assert "ticks_spacing" not in ctor, f"loose `ticks_spacing` must not reach the ctor; ctor={ctor}"
 
     @pytest.mark.plot
     def test_kind_contourf_reaches_plot_not_clobbered(self):
