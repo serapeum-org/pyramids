@@ -542,7 +542,7 @@ def render_array(
     # cleopatra's ``ArrayGlyph.facet`` does not accept ``colorbar=ColorBar`` /
     # ``PointOverlay`` (only the loose ``cbar_*`` kwargs, like the mesh glyph), so
     # faceting keeps the loose forms — there is no typed alternative there.
-    # TODO(cleopatra#256): once ``ArrayGlyph.facet`` accepts ``colorbar=ColorBar``,
+    # Once cleopatra#256 lands (``ArrayGlyph.facet`` accepts ``colorbar=ColorBar``),
     # drop this facet exception (and the ``cbar_*`` in ``RENDER_ONLY_OVERRIDES``
     # below) so facet folds the loose kwargs like plot/animate. Tracked in #934.
     if mode != "facet":
