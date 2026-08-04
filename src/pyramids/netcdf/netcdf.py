@@ -4676,7 +4676,7 @@ class NetCDF(Dataset):
         self._apply_attribute_no_data(cube, md_arr)
 
     @staticmethod
-    def _apply_attribute_no_data(cube: NetCDF, md_arr) -> None:
+    def _apply_attribute_no_data(cube: NetCDF, md_arr: Any) -> None:
         """Stamp an attribute-derived no-data onto a variable whose classic view has none.
 
         A variable's ``AsClassicDataset`` view only sometimes exposes a band no-data — GDAL
@@ -4685,15 +4685,15 @@ class NetCDF(Dataset):
         When every band reports ``None``, resolve the value from the MDArray's CF/``nodata``
         attributes and record it on the Python-side per-band list that :attr:`no_data_value` and the
         plot mask read. The view ignores ``SetNoDataValue``, so only the wrapper list is updated.
+
+        A 1-D variable comes back as a raw ``gdal.MDArray`` with no band model (no
+        ``_no_data_value``), so there is nothing to stamp and it is left untouched.
         """
-        # A 1-D variable comes back as a raw gdal.MDArray with no band model (no
-        # `_no_data_value`), so there is nothing to stamp — leave it untouched.
         current = getattr(cube, "_no_data_value", None)
-        if current is None or any(v is not None for v in current):
-            return
-        ndv = NetCDF._md_array_no_data(md_arr)
-        if ndv is not None:
-            cube._no_data_value = [ndv] * cube._band_count
+        if current is not None and not any(v is not None for v in current):
+            ndv = NetCDF._md_array_no_data(md_arr)
+            if ndv is not None:
+                cube._no_data_value = [ndv] * cube._band_count
 
     @staticmethod
     def _clear_variable_metadata(cube: NetCDF) -> None:
