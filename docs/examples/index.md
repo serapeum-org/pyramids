@@ -9,6 +9,7 @@ notebook. Every notebook runs offline on the repository's test data.
 |------------|----------|
 | Open a raster and read values | [Dataset basics](dataset/dataset.ipynb) |
 | Convert GeoTIFF ↔ NetCDF (incl. bands ↔ variables) | [GeoTIFF ↔ NetCDF](conversions/geotiff-netcdf.ipynb) |
+| Stack dated rasters into one NetCDF (time axis) | [Collection → NetCDF](conversions/collection-to-netcdf.ipynb) |
 | Convert between raster formats (ASCII / COG / Zarr) | [Other raster formats](conversions/raster-formats.ipynb) |
 | Convert between vector formats (SHP / GPKG / GeoParquet) | [Vector formats](conversions/vector-formats.ipynb) |
 | Read only part of a raster (window / tile / bbox) | [Windowed & tiled reads](operations/windowed-reads.ipynb) |

@@ -135,6 +135,7 @@ nav:
           - Dask quickstart — NetCDF: examples/dask/netcdf.ipynb
       - Format conversions:
           - GeoTIFF ↔ NetCDF: examples/conversions/geotiff-netcdf.ipynb
+          - "DatasetCollection → NetCDF (time stack)": examples/conversions/collection-to-netcdf.ipynb
           - Other raster formats (ASCII / COG / Zarr): examples/conversions/raster-formats.ipynb
           - Vector formats (Shapefile / GeoPackage / GeoParquet): examples/conversions/vector-formats.ipynb
       - Operations:
