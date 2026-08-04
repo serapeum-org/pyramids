@@ -123,6 +123,11 @@ repos:
         name: "[cred -  check] gitleaks"
         args: ["--config", "ci/gitleaks.toml"]
 
+  - repo: https://github.com/bridgecrewio/checkov
+    rev: 3.3.8
+    hooks:
+      - id: checkov
+
   # The local hooks below run inside the pixi `dev` environment. `--frozen` uses
   # pixi.lock as-is — without it pixi re-solves every platform on each hook run,
   # which is slow and can hang. `-p no:cacheprovider` stops pytest writing to
