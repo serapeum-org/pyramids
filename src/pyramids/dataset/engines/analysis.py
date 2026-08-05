@@ -2259,13 +2259,15 @@ class Analysis(_Engine["Dataset"]):
         renders through its own colours — pyramids only builds the mapping; cleopatra
         draws it.
 
-        cleopatra's ``boundary-norm`` builds its ``BoundaryNorm`` with a fixed
-        ``ncolors=256``, so the palette is resampled to a **256-entry step lookup**
-        (nearest colour, no interpolation): each class then indexes its own exact,
-        opaque colour. A ``LinearSegmentedColormap`` would instead interpolate between
-        stops, blending the hue and bleeding alpha toward GDAL's transparent
-        ``(0, 0, 0, 0)`` gap-filler entries (GDAL densifies a colour table to
-        ``0..maxvalue``), so real classes would render translucent. An exact
+        cleopatra renders with ``BoundaryNorm(bounds, ncolors=256)``, so the palette is
+        turned into a **256-entry step lookup** whose slots are filled by asking that
+        exact norm which slot each class maps to and placing the class's colour there.
+        Each class then indexes its own exact, opaque colour regardless of the
+        palette's value range. (A fixed round-trip formula mis-indexes once the
+        densified entry count exceeds ~131, because the norm stretches regions to slots
+        by truncation; a ``LinearSegmentedColormap`` would instead interpolate between
+        stops, bleeding alpha toward GDAL's transparent ``(0, 0, 0, 0)`` gap-filler
+        entries — GDAL densifies a colour table to ``0..maxvalue``.) An exact
         one-swatch-per-class rendering with a discrete legend would need a first-class
         categorical colour-table API on cleopatra's ``ArrayGlyph``; see the follow-up
         tracked for #913.
@@ -2273,7 +2275,8 @@ class Analysis(_Engine["Dataset"]):
         Args:
             color_table (DataFrame):
                 The band's colour table — ``values`` plus ``red``/``green``/``blue``
-                (and optional ``alpha``), or a hex ``color`` column.
+                (and optional ``alpha``), or a hex ``color`` column. Must be non-empty
+                (the plot path only calls this once a colour table is present).
 
         Returns:
             tuple[matplotlib.colors.ListedColormap, list[float]]:
@@ -2282,13 +2285,15 @@ class Analysis(_Engine["Dataset"]):
         """
         require_cleopatra()
         from cleopatra.colors import category_boundaries
-        from matplotlib.colors import ListedColormap
+        from matplotlib.colors import BoundaryNorm, ListedColormap
 
         processed = Analysis._process_color_table(color_table).sort_values("values")
         rgba = processed[["red", "green", "blue", "alpha"]].to_numpy(dtype=float) / 255.0
         values = [float(v) for v in processed["values"].to_list()]
-        last = len(rgba) - 1
-        lut = [tuple(rgba[min(round(slot * last / 255), last)]) for slot in range(256)]
-        cmap = ListedColormap(lut)
         bounds = category_boundaries(values)
+        norm = BoundaryNorm(bounds, 256)
+        slots = np.asarray(norm(np.asarray(values))).astype(int)
+        lut = np.tile(rgba[0], (256, 1))
+        lut[slots] = rgba
+        cmap = ListedColormap(lut)
         return cmap, bounds

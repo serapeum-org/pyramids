@@ -205,6 +205,33 @@ class TestPalettePlot:
             assert got == rgba, f"class {value} should render {rgba} (opaque), got {got}"
 
     @pytest.mark.plot
+    def test_high_code_land_cover_palette_renders_exact_and_opaque(self):
+        """High class codes (densified count > 131) still render exact + opaque.
+
+        Test scenario:
+            Land-cover products use codes up to ~200-220, so GDAL densifies the table
+            to that many entries. Each class must land on the slot cleopatra's
+            ``BoundaryNorm`` actually maps it to — a fixed round-trip index mis-maps
+            past ~131 and renders some classes transparent.
+        """
+        arr = np.array([[10, 132, 200, 10]], dtype=np.int32)
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.color_table = pd.DataFrame(
+            {
+                "band": [1, 1, 1],
+                "values": [10, 132, 200],
+                "color": ["#00ff00", "#ff0000", "#0000ff"],
+            }
+        )
+        glyph = dataset.plot(band=0)
+        expected = {10: (0.0, 1.0, 0.0, 1.0), 132: (1.0, 0.0, 0.0, 1.0), 200: (0.0, 0.0, 1.0, 1.0)}
+        for value, rgba in expected.items():
+            got = tuple(round(c, 3) for c in glyph.im.cmap(glyph.im.norm(value)))
+            assert got == rgba, f"class {value} should render {rgba} (opaque), got {got}"
+
+    @pytest.mark.plot
     def test_single_entry_palette_renders_without_crash(self):
         """A one-entry colour table renders instead of crashing the colormap build.
 
