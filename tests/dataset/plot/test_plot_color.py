@@ -171,10 +171,16 @@ class TestPalettePlot:
         glyph = self._paletted_dataset().plot(band=0)
         assert type(glyph.im.cmap).__name__ == "ListedColormap"
         assert type(glyph.im.norm).__name__ == "BoundaryNorm"
-        expected = {1: (1.0, 0.0, 0.0, 1.0), 2: (0.0, 1.0, 0.0, 1.0), 3: (0.0, 0.0, 1.0, 1.0)}
+        expected = {
+            1: (1.0, 0.0, 0.0, 1.0),
+            2: (0.0, 1.0, 0.0, 1.0),
+            3: (0.0, 0.0, 1.0, 1.0),
+        }
         for value, rgba in expected.items():
             got = tuple(round(c, 3) for c in glyph.im.cmap(glyph.im.norm(value)))
-            assert got == rgba, f"value {value} should render {rgba} (opaque), got {got}"
+            assert got == rgba, (
+                f"value {value} should render {rgba} (opaque), got {got}"
+            )
 
     @pytest.mark.plot
     def test_sparse_land_cover_palette_renders_exact_and_opaque(self):
@@ -199,10 +205,16 @@ class TestPalettePlot:
             }
         )
         glyph = dataset.plot(band=0)
-        expected = {11: (0.0, 1.0, 0.0, 1.0), 21: (1.0, 0.0, 0.0, 1.0), 31: (0.0, 0.0, 1.0, 1.0)}
+        expected = {
+            11: (0.0, 1.0, 0.0, 1.0),
+            21: (1.0, 0.0, 0.0, 1.0),
+            31: (0.0, 0.0, 1.0, 1.0),
+        }
         for value, rgba in expected.items():
             got = tuple(round(c, 3) for c in glyph.im.cmap(glyph.im.norm(value)))
-            assert got == rgba, f"class {value} should render {rgba} (opaque), got {got}"
+            assert got == rgba, (
+                f"class {value} should render {rgba} (opaque), got {got}"
+            )
 
     @pytest.mark.plot
     def test_high_code_land_cover_palette_renders_exact_and_opaque(self):
@@ -226,10 +238,16 @@ class TestPalettePlot:
             }
         )
         glyph = dataset.plot(band=0)
-        expected = {10: (0.0, 1.0, 0.0, 1.0), 132: (1.0, 0.0, 0.0, 1.0), 200: (0.0, 0.0, 1.0, 1.0)}
+        expected = {
+            10: (0.0, 1.0, 0.0, 1.0),
+            132: (1.0, 0.0, 0.0, 1.0),
+            200: (0.0, 0.0, 1.0, 1.0),
+        }
         for value, rgba in expected.items():
             got = tuple(round(c, 3) for c in glyph.im.cmap(glyph.im.norm(value)))
-            assert got == rgba, f"class {value} should render {rgba} (opaque), got {got}"
+            assert got == rgba, (
+                f"class {value} should render {rgba} (opaque), got {got}"
+            )
 
     @pytest.mark.plot
     def test_single_entry_palette_renders_without_crash(self):
@@ -248,7 +266,9 @@ class TestPalettePlot:
         )
         glyph = dataset.plot(band=0)
         got = tuple(round(c, 3) for c in glyph.im.cmap(glyph.im.norm(0)))
-        assert got == (1.0, 0.0, 0.0, 1.0), f"single-entry palette should render red, got {got}"
+        assert got == (1.0, 0.0, 0.0, 1.0), (
+            f"single-entry palette should render red, got {got}"
+        )
 
     @pytest.mark.plot
     def test_explicit_cmap_overrides_palette(self):
@@ -327,4 +347,6 @@ class TestPalettePlot:
         glyph = dataset.plot()
         assert type(glyph.im.norm).__name__ == "BoundaryNorm"
         got = tuple(round(c, 3) for c in glyph.im.cmap(glyph.im.norm(1)))
-        assert got[:3] == (1.0, 0.0, 0.0), f"band-1 value 1 should be red, got {got[:3]}"
+        assert got[:3] == (1.0, 0.0, 0.0), (
+            f"band-1 value 1 should be red, got {got[:3]}"
+        )

@@ -2288,7 +2288,9 @@ class Analysis(_Engine["Dataset"]):
         from matplotlib.colors import BoundaryNorm, ListedColormap
 
         processed = Analysis._process_color_table(color_table).sort_values("values")
-        rgba = processed[["red", "green", "blue", "alpha"]].to_numpy(dtype=float) / 255.0
+        rgba = (
+            processed[["red", "green", "blue", "alpha"]].to_numpy(dtype=float) / 255.0
+        )
         values = [float(v) for v in processed["values"].to_list()]
         bounds = category_boundaries(values)
         norm = BoundaryNorm(bounds, 256)
