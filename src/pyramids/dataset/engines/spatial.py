@@ -1556,8 +1556,9 @@ class Spatial(_Engine["Dataset"]):
 
         Returns `None` when the optimisation cannot be applied safely, so the caller
         falls back to the full-source warp: a rotated/sheared geotransform, a missing CRS
-        on either side, a reprojection failure, or a cutline that does not overlap the
-        source (left for the existing "no valid pixels" error to report).
+        on either side, a reprojection that fails or yields non-finite bounds, or a
+        cutline that does not overlap the source (left for the existing "no valid pixels"
+        error to report).
 
         Args:
             src: The raster being cropped.
