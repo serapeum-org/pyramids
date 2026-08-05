@@ -772,11 +772,11 @@ class RasterBase(ABC):
     def _iloc(self, i: int) -> gdal.Band:
         """Access a GDAL Band by 0-based index.
 
-        Hosted on `RasterBase` so every collaborator can resolve
-        `self._ds._iloc(i)` without depending on `BandMetadata` being
-        in the MRO. The duplicate body on `BandMetadata` is kept during
-        Stage 1 of the L-2 migration (both bodies are identical) and is
-        removed in Stage 2 PR2.7 when the bands collaborator lands.
+        Hosted on `RasterBase` so any collaborator can resolve
+        `self._ds._iloc(i)` through its back-reference to the dataset,
+        without `RasterBase` having to know about the collaborators. The
+        `Bands` collaborator keeps an identical `_iloc` of its own for its
+        internal calls (`engines/bands.py`); the two bodies are equivalent.
 
         The returned band object is only valid while the parent dataset
         is open. Do not store the band reference — use it immediately
