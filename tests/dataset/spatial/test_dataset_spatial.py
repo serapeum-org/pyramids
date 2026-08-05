@@ -987,12 +987,10 @@ class TestCropBoundsTheReadToTheCrop:
         west, south, east, north = Spatial._cutline_window_bounds(
             dataset, self._grid_aligned_mask()
         )
-        assert west <= 1.0 - 0.01 + 1e-9 and east >= 1.5 + 0.01 - 1e-9, (
-            f"the window must clear the x-envelope by a cell: {(west, east)}"
-        )
-        assert south <= 3.0 - 0.01 + 1e-9 and north >= 3.5 + 0.01 - 1e-9, (
-            f"the window must clear the y-envelope by a cell: {(south, north)}"
-        )
+        assert west <= 1.0 - 0.01 + 1e-9, f"the window must clear the west edge: {west}"
+        assert east >= 1.5 + 0.01 - 1e-9, f"the window must clear the east edge: {east}"
+        assert south <= 3.0 - 0.01 + 1e-9, f"the window must clear the south edge: {south}"
+        assert north >= 3.5 + 0.01 - 1e-9, f"the window must clear the north edge: {north}"
         assert abs((west / 0.01) - round(west / 0.01)) < 1e-6, (
             "the window edges must stay snapped to the source grid"
         )
@@ -1117,8 +1115,11 @@ class TestCropBoundsTheReadToTheCrop:
         """
         mask = self._grid_aligned_mask().to_crs(32631)
         cropped = self._large_source().crop(mask=mask, touch=True)
-        assert 45 <= cropped.shape[-2] <= 55 and 45 <= cropped.shape[-1] <= 55, (
-            f"the cross-CRS crop must cover the ~50x50 region, not a sliver: {cropped.shape}"
+        assert 45 <= cropped.shape[-2] <= 55, (
+            f"the cross-CRS crop's rows must cover the ~50-cell region: {cropped.shape}"
+        )
+        assert 45 <= cropped.shape[-1] <= 55, (
+            f"the cross-CRS crop's cols must cover the ~50-cell region: {cropped.shape}"
         )
         assert np.isfinite(np.asarray(cropped.read_array())).any(), (
             "the fallback crop must contain real data"
