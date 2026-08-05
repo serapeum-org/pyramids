@@ -1648,9 +1648,7 @@ class Spatial(_Engine["Dataset"]):
         # warp to the cutline's own window first: the trimmed result is identical
         # because every non-no-data cell lives inside that window, but the read shrinks
         # from the source to the crop. cropToCutline already bounds the touch=False path.
-        window = (
-            self._cutline_window_bounds(self._ds, feature) if touch else None
-        )
+        window = self._cutline_window_bounds(self._ds, feature) if touch else None
         # Pin the resolution to the source's own so the windowed warp is a pixel-exact
         # subset and cannot resample; only needed when a window is set.
         gt = self._ds._raster.GetGeoTransform() if window else None

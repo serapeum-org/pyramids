@@ -989,8 +989,12 @@ class TestCropBoundsTheReadToTheCrop:
         )
         assert west <= 1.0 - 0.01 + 1e-9, f"the window must clear the west edge: {west}"
         assert east >= 1.5 + 0.01 - 1e-9, f"the window must clear the east edge: {east}"
-        assert south <= 3.0 - 0.01 + 1e-9, f"the window must clear the south edge: {south}"
-        assert north >= 3.5 + 0.01 - 1e-9, f"the window must clear the north edge: {north}"
+        assert south <= 3.0 - 0.01 + 1e-9, (
+            f"the window must clear the south edge: {south}"
+        )
+        assert north >= 3.5 + 0.01 - 1e-9, (
+            f"the window must clear the north edge: {north}"
+        )
         assert abs((west / 0.01) - round(west / 0.01)) < 1e-6, (
             "the window edges must stay snapped to the source grid"
         )
@@ -1041,7 +1045,11 @@ class TestCropBoundsTheReadToTheCrop:
             off, proving the arithmetic loses no grazed cell.
         """
         mask = gpd.GeoDataFrame(
-            geometry=[Polygon([(1.013, 3.027), (1.487, 2.964), (1.402, 2.511), (0.978, 2.603)])],
+            geometry=[
+                Polygon(
+                    [(1.013, 3.027), (1.487, 2.964), (1.402, 2.511), (0.978, 2.603)]
+                )
+            ],
             crs=4326,
         )
         windowed = self._large_source().crop(mask=mask, touch=True)
@@ -1066,7 +1074,9 @@ class TestCropBoundsTheReadToTheCrop:
         """
         gdf = self._grid_aligned_mask()
         from_gdf = Spatial._cutline_window_bounds(self._large_source(), gdf)
-        from_fc = Spatial._cutline_window_bounds(self._large_source(), FeatureCollection(gdf))
+        from_fc = Spatial._cutline_window_bounds(
+            self._large_source(), FeatureCollection(gdf)
+        )
         assert from_gdf == from_fc, (
             f"FeatureCollection and GeoDataFrame must agree: {from_fc} vs {from_gdf}"
         )
@@ -1144,7 +1154,9 @@ class TestCropBoundsTheReadToTheCrop:
     def test_crop_falls_back_to_the_full_source_warp_when_the_window_is_none(self):
         """A CRS-less source (window=None) crops to the exact same pixels as the windowed path."""
         crs_less_mask = gpd.GeoDataFrame(geometry=[box(1.0, 3.0, 1.5, 3.5)], crs=None)
-        reference = self._large_source().crop(mask=self._grid_aligned_mask(), touch=True)
+        reference = self._large_source().crop(
+            mask=self._grid_aligned_mask(), touch=True
+        )
         crs_less_source = self._crs_less_source()
         assert Spatial._cutline_window_bounds(crs_less_source, crs_less_mask) is None, (
             "a CRS-less source must trigger the full-source fallback"
