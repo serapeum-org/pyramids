@@ -2256,20 +2256,23 @@ class Analysis(_Engine["Dataset"]):
         """Build a colormap + boundary edges from a GDAL colour table.
 
         Normalises the ``[values, red, green, blue, alpha]`` colour table (via
-        :meth:`_process_color_table`) into a matplotlib ``LinearSegmentedColormap``
-        whose stops are the palette's colours, and derives the ``BoundaryNorm`` bin
-        edges from cleopatra's ``category_boundaries``. The colormap is handed to
-        cleopatra as an explicit ``cmap`` with ``color_scale="boundary-norm"`` so a
-        paletted raster renders through its own colours — pyramids only builds the
-        mapping; cleopatra draws it.
+        :meth:`_process_color_table`) into a matplotlib ``ListedColormap`` carrying the
+        palette's exact colours, and derives the ``BoundaryNorm`` bin edges from
+        cleopatra's ``category_boundaries``. The colormap is handed to cleopatra as an
+        explicit ``cmap`` with ``color_scale="boundary-norm"`` so a paletted raster
+        renders through its own colours — pyramids only builds the mapping; cleopatra
+        draws it.
 
-        A segmented (not listed) colormap is used deliberately: cleopatra's
-        ``boundary-norm`` builds its ``BoundaryNorm`` with a fixed ``ncolors=256``, so
-        a small ``ListedColormap`` would be over-indexed and every class would clamp
-        to the last colour. Sampling the segmented ramp at each class's bin centre
-        lands on the palette stop instead. (An exact one-swatch-per-class rendering
-        with a discrete legend would need a first-class categorical colour-table API
-        on cleopatra's ``ArrayGlyph``; see the follow-up tracked for #913.)
+        cleopatra's ``boundary-norm`` builds its ``BoundaryNorm`` with a fixed
+        ``ncolors=256``, so the palette is resampled to a **256-entry step lookup**
+        (nearest colour, no interpolation): each class then indexes its own exact,
+        opaque colour. A ``LinearSegmentedColormap`` would instead interpolate between
+        stops, blending the hue and bleeding alpha toward GDAL's transparent
+        ``(0, 0, 0, 0)`` gap-filler entries (GDAL densifies a colour table to
+        ``0..maxvalue``), so real classes would render translucent. An exact
+        one-swatch-per-class rendering with a discrete legend would need a first-class
+        categorical colour-table API on cleopatra's ``ArrayGlyph``; see the follow-up
+        tracked for #913.
 
         Args:
             color_table (DataFrame):
@@ -2277,19 +2280,19 @@ class Analysis(_Engine["Dataset"]):
                 (and optional ``alpha``), or a hex ``color`` column.
 
         Returns:
-            tuple[matplotlib.colors.LinearSegmentedColormap, list[float]]:
-                The colormap and its ``len(values) + 1`` ascending boundary edges,
-                sorted by colour-table value.
+            tuple[matplotlib.colors.ListedColormap, list[float]]:
+                The 256-entry step colormap and the ``len(values) + 1`` ascending
+                boundary edges, sorted by colour-table value.
         """
         require_cleopatra()
         from cleopatra.colors import category_boundaries
-        from matplotlib.colors import LinearSegmentedColormap
+        from matplotlib.colors import ListedColormap
 
         processed = Analysis._process_color_table(color_table).sort_values("values")
         rgba = processed[["red", "green", "blue", "alpha"]].to_numpy(dtype=float) / 255.0
         values = [float(v) for v in processed["values"].to_list()]
-        cmap = LinearSegmentedColormap.from_list(
-            "gdal_color_table", [tuple(channel) for channel in rgba]
-        )
+        last = len(rgba) - 1
+        lut = [tuple(rgba[min(round(slot * last / 255), last)]) for slot in range(256)]
+        cmap = ListedColormap(lut)
         bounds = category_boundaries(values)
         return cmap, bounds

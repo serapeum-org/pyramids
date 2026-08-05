@@ -169,12 +169,59 @@ class TestPalettePlot:
             returns the palette colour, not a default matplotlib colormap.
         """
         glyph = self._paletted_dataset().plot(band=0)
-        assert type(glyph.im.cmap).__name__ == "LinearSegmentedColormap"
+        assert type(glyph.im.cmap).__name__ == "ListedColormap"
         assert type(glyph.im.norm).__name__ == "BoundaryNorm"
-        expected = {1: (1.0, 0.0, 0.0), 2: (0.0, 1.0, 0.0), 3: (0.0, 0.0, 1.0)}
-        for value, rgb in expected.items():
+        expected = {1: (1.0, 0.0, 0.0, 1.0), 2: (0.0, 1.0, 0.0, 1.0), 3: (0.0, 0.0, 1.0, 1.0)}
+        for value, rgba in expected.items():
             got = tuple(round(c, 3) for c in glyph.im.cmap(glyph.im.norm(value)))
-            assert got[:3] == rgb, f"value {value} should render {rgb}, got {got[:3]}"
+            assert got == rgba, f"value {value} should render {rgba} (opaque), got {got}"
+
+    @pytest.mark.plot
+    def test_sparse_land_cover_palette_renders_exact_and_opaque(self):
+        """A sparse land-cover palette renders each class exactly, fully opaque.
+
+        Test scenario:
+            GDAL densifies a colour table to ``0..maxvalue`` with transparent
+            ``(0, 0, 0, 0)`` gap-fillers, so classes such as 11/21/31 land far apart.
+            The 256-entry step colormap must still map each class to its own opaque
+            colour — no interpolation blend and no alpha bleed toward the phantom
+            transparent stops.
+        """
+        arr = np.array([[11, 21, 31, 11]], dtype=np.int32)
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.color_table = pd.DataFrame(
+            {
+                "band": [1, 1, 1],
+                "values": [11, 21, 31],
+                "color": ["#00ff00", "#ff0000", "#0000ff"],
+            }
+        )
+        glyph = dataset.plot(band=0)
+        expected = {11: (0.0, 1.0, 0.0, 1.0), 21: (1.0, 0.0, 0.0, 1.0), 31: (0.0, 0.0, 1.0, 1.0)}
+        for value, rgba in expected.items():
+            got = tuple(round(c, 3) for c in glyph.im.cmap(glyph.im.norm(value)))
+            assert got == rgba, f"class {value} should render {rgba} (opaque), got {got}"
+
+    @pytest.mark.plot
+    def test_single_entry_palette_renders_without_crash(self):
+        """A one-entry colour table renders instead of crashing the colormap build.
+
+        Test scenario:
+            A palette with a single value must not raise from the colormap
+            construction; the class renders in its one colour.
+        """
+        arr = np.zeros((1, 3), dtype=np.int32)
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.color_table = pd.DataFrame(
+            {"band": [1], "values": [0], "color": ["#ff0000"]}
+        )
+        glyph = dataset.plot(band=0)
+        got = tuple(round(c, 3) for c in glyph.im.cmap(glyph.im.norm(0)))
+        assert got == (1.0, 0.0, 0.0, 1.0), f"single-entry palette should render red, got {got}"
 
     @pytest.mark.plot
     def test_explicit_cmap_overrides_palette(self):
@@ -199,13 +246,13 @@ class TestPalettePlot:
         assert glyph.im.cmap.name == "coolwarm_r"
 
     @pytest.mark.plot
-    def test_palette_colormap_returns_ramp_and_sorted_edges(self):
-        """``_palette_colormap`` returns a segmented ramp + ``N+1`` ascending edges.
+    def test_palette_colormap_returns_step_cmap_and_sorted_edges(self):
+        """``_palette_colormap`` returns a 256-entry step colormap + ``N+1`` edges.
 
         Test scenario:
             Given an unsorted three-value colour table, the helper sorts by value
-            and returns a ``LinearSegmentedColormap`` plus four ascending boundary
-            edges (one per gap, bracketing each class).
+            and returns a ``ListedColormap`` plus four ascending boundary edges (one
+            per gap, bracketing each class).
         """
         color_table = pd.DataFrame(
             {
@@ -216,7 +263,8 @@ class TestPalettePlot:
             }
         )
         cmap, bounds = Analysis._palette_colormap(color_table)
-        assert type(cmap).__name__ == "LinearSegmentedColormap"
+        assert type(cmap).__name__ == "ListedColormap"
+        assert cmap.N == 256
         assert len(bounds) == 4
         assert bounds == sorted(bounds)
 
