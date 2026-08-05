@@ -15,6 +15,7 @@ from shapely.geometry import Polygon, box
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.spatial import Spatial
+from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
 
@@ -1031,6 +1032,48 @@ class TestCropBoundsTheReadToTheCrop:
             "a CRS-less source must fall back rather than assume the cutline's CRS"
         )
 
+    def test_the_window_is_lossless_on_a_non_grid_aligned_polygon(self, monkeypatch):
+        """A same-CRS polygon with mid-cell vertices crops identically windowed or full.
+
+        Test scenario:
+            Every other equivalence test uses a grid-aligned box, so the floor/ceil
+            snapping and the one-cell touch margin are never exercised on an edge that
+            falls between cell boundaries. This polygon's vertices sit mid-cell; the
+            windowed touch=True crop must byte-match the same crop with the window forced
+            off, proving the arithmetic loses no grazed cell.
+        """
+        mask = gpd.GeoDataFrame(
+            geometry=[Polygon([(1.013, 3.027), (1.487, 2.964), (1.402, 2.511), (0.978, 2.603)])],
+            crs=4326,
+        )
+        windowed = self._large_source().crop(mask=mask, touch=True)
+        monkeypatch.setattr(
+            Spatial, "_cutline_window_bounds", staticmethod(lambda src, feature: None)
+        )
+        full = self._large_source().crop(mask=mask, touch=True)
+        assert windowed.shape == full.shape, (
+            f"the window truncated a non-aligned polygon: {windowed.shape} vs {full.shape}"
+        )
+        np.testing.assert_array_equal(
+            np.asarray(windowed.read_array()), np.asarray(full.read_array())
+        )
+
+    def test_a_feature_collection_gives_the_same_window_as_a_geodataframe(self):
+        """The helper answers identically for the FeatureCollection production passes it.
+
+        Test scenario:
+            The unit tests exercise the helper with a raw GeoDataFrame, but crop() always
+            hands it a FeatureCollection; confirm the two forms of the same mask yield the
+            same window.
+        """
+        gdf = self._grid_aligned_mask()
+        from_gdf = Spatial._cutline_window_bounds(self._large_source(), gdf)
+        from_fc = Spatial._cutline_window_bounds(self._large_source(), FeatureCollection(gdf))
+        assert from_gdf == from_fc, (
+            f"FeatureCollection and GeoDataFrame must agree: {from_fc} vs {from_gdf}"
+        )
+        assert from_gdf is not None, "precondition: a same-CRS mask yields a window"
+
     def test_window_is_none_for_a_cutline_in_a_different_crs(self):
         """A cutline not already in the source CRS is not eligible for the window.
 
@@ -1058,9 +1101,8 @@ class TestCropBoundsTheReadToTheCrop:
             geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
             epsg=4326,
         )
-        assert Spatial._cutline_window_bounds(south_up, self._grid_aligned_mask()) is None, (
-            "a south-up grid must fall back to the full-source warp"
-        )
+        window = Spatial._cutline_window_bounds(south_up, self._grid_aligned_mask())
+        assert window is None, "a south-up grid must fall back to the full-source warp"
 
     def test_a_different_crs_cutline_crops_through_the_full_source_fallback(self):
         """crop() completes for a cutline outside the source CRS, via the full warp.
@@ -1100,13 +1142,13 @@ class TestCropBoundsTheReadToTheCrop:
 
     def test_crop_falls_back_to_the_full_source_warp_when_the_window_is_none(self):
         """A CRS-less source (window=None) crops to the exact same pixels as the windowed path."""
-        mask = self._grid_aligned_mask()
-        reference = self._large_source().crop(mask=mask, touch=True)
+        crs_less_mask = gpd.GeoDataFrame(geometry=[box(1.0, 3.0, 1.5, 3.5)], crs=None)
+        reference = self._large_source().crop(mask=self._grid_aligned_mask(), touch=True)
         crs_less_source = self._crs_less_source()
-        assert Spatial._cutline_window_bounds(crs_less_source, mask) is None, (
+        assert Spatial._cutline_window_bounds(crs_less_source, crs_less_mask) is None, (
             "a CRS-less source must trigger the full-source fallback"
         )
-        fallback = crs_less_source.crop(mask=mask, touch=True)
+        fallback = crs_less_source.crop(mask=crs_less_mask, touch=True)
         assert fallback.shape == reference.shape, (
             f"fallback shape {fallback.shape} != reference {reference.shape}"
         )
