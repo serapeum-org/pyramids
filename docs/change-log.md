@@ -1,6 +1,36 @@
 ﻿# Change log
 
 
+## 0.49.0 (2026-08-05)
+
+### BREAKING CHANGE
+
+- create_overviews and recreate_overviews now raise
+OverviewTargetError for a plain VRT whose description is not a path,
+and recreate_overviews raises it for levels a VRT computes rather than
+stores. Code catching ReadOnlyError around recreate_overviews on such a
+handle must catch OverviewTargetError instead.
+Dataset.wrap_longitude() on a file-backed source and
+Dataset.to_zarr(overview_factors=...) are affected through the same
+guard.
+
+### Feat
+
+- **plot**: render paletted rasters through their GDAL colour table (#939)
+- **plot**: finish the typed plot-spec migration on .plot/.animate (#930)
+- **plot**: adopt cleopatra 0.28 and its typed plot + basemap API (#920)
+
+### Fix
+
+- **netcdf**: round-trip no-data and sub-second time units on read (#937)
+- **dataset**: refuse overview targets a dataset cannot hold (#921)
+- **remote**: recognise ADLS Gen2 and complete the VSI handler tables (#924)
+
+### Perf
+
+- **spatial**: bound the cutline crop warp to the output window (#938)
+- **collection**: stream DatasetCollection.to_file per timestep (#925)
+
 ## 0.48.0 (2026-08-02)
 
 ### BREAKING CHANGE
