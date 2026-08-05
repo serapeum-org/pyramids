@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -8911,8 +8911,7 @@ its own <a href="../../../tutorials/lazy/lazy-raster/#zonal-statistics-datasetzo
 <span class="normal"><a href="#__codelineno-0-2291">2291</a></span>
 <span class="normal"><a href="#__codelineno-0-2292">2292</a></span>
 <span class="normal"><a href="#__codelineno-0-2293">2293</a></span>
-<span class="normal"><a href="#__codelineno-0-2294">2294</a></span>
-<span class="normal"><a href="#__codelineno-0-2295">2295</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-92" name="__codelineno-0-92"></a><span class="k">class</span><span class="w"> </span><span class="nc">Analysis</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
+<span class="normal"><a href="#__codelineno-0-2294">2294</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-92" name="__codelineno-0-92"></a><span class="k">class</span><span class="w"> </span><span class="nc">Analysis</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
 <a id="__codelineno-0-93" name="__codelineno-0-93"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Mixin providing analysis, statistics, and data extraction operations for Dataset.&quot;&quot;&quot;</span>
 <a id="__codelineno-0-94" name="__codelineno-0-94"></a>
 <a id="__codelineno-0-95" name="__codelineno-0-95"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">stats</span><span class="p">(</span>
@@ -10955,167 +10954,166 @@ its own <a href="../../../tutorials/lazy/lazy-raster/#zonal-statistics-datasetzo
 <a id="__codelineno-0-2132" name="__codelineno-0-2132"></a>        <span class="c1"># discrete colormap from the palette and hand it to cleopatra as an</span>
 <a id="__codelineno-0-2133" name="__codelineno-0-2133"></a>        <span class="c1"># explicit ``cmap`` + ``color_scale=&quot;boundary-norm&quot;``. Only the single-band</span>
 <a id="__codelineno-0-2134" name="__codelineno-0-2134"></a>        <span class="c1"># static path (no ``rgb``, no facet) carries a palette, and an explicit</span>
-<a id="__codelineno-0-2135" name="__codelineno-0-2135"></a>        <span class="c1"># ``cmap`` / ``color_scale`` from the caller wins over it.</span>
+<a id="__codelineno-0-2135" name="__codelineno-0-2135"></a>        <span class="c1"># ``cmap`` / ``color_scale`` / ``bounds`` from the caller wins over it.</span>
 <a id="__codelineno-0-2136" name="__codelineno-0-2136"></a>        <span class="k">if</span> <span class="p">(</span>
 <a id="__codelineno-0-2137" name="__codelineno-0-2137"></a>            <span class="n">mode</span> <span class="o">==</span> <span class="s2">&quot;plot&quot;</span>
 <a id="__codelineno-0-2138" name="__codelineno-0-2138"></a>            <span class="ow">and</span> <span class="n">rgb</span> <span class="ow">is</span> <span class="kc">None</span>
 <a id="__codelineno-0-2139" name="__codelineno-0-2139"></a>            <span class="ow">and</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;cmap&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
 <a id="__codelineno-0-2140" name="__codelineno-0-2140"></a>            <span class="ow">and</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;color_scale&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
-<a id="__codelineno-0-2141" name="__codelineno-0-2141"></a>        <span class="p">):</span>
-<a id="__codelineno-0-2142" name="__codelineno-0-2142"></a>            <span class="n">full_color_table</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">color_table</span>
-<a id="__codelineno-0-2143" name="__codelineno-0-2143"></a>            <span class="c1"># ``_get_color_table`` numbers its ``band`` column 1-indexed (GDAL</span>
-<a id="__codelineno-0-2144" name="__codelineno-0-2144"></a>            <span class="c1"># band number), while ``band`` here is the 0-indexed plot band.</span>
-<a id="__codelineno-0-2145" name="__codelineno-0-2145"></a>            <span class="n">band_color_table</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-0-2146" name="__codelineno-0-2146"></a>                <span class="n">full_color_table</span><span class="p">[</span><span class="n">full_color_table</span><span class="p">[</span><span class="s2">&quot;band&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
-<a id="__codelineno-0-2147" name="__codelineno-0-2147"></a>                <span class="k">if</span> <span class="ow">not</span> <span class="n">full_color_table</span><span class="o">.</span><span class="n">empty</span>
-<a id="__codelineno-0-2148" name="__codelineno-0-2148"></a>                <span class="k">else</span> <span class="n">full_color_table</span>
-<a id="__codelineno-0-2149" name="__codelineno-0-2149"></a>            <span class="p">)</span>
-<a id="__codelineno-0-2150" name="__codelineno-0-2150"></a>            <span class="k">if</span> <span class="ow">not</span> <span class="n">band_color_table</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
-<a id="__codelineno-0-2151" name="__codelineno-0-2151"></a>                <span class="n">cmap</span><span class="p">,</span> <span class="n">bounds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_palette_colormap</span><span class="p">(</span><span class="n">band_color_table</span><span class="p">)</span>
-<a id="__codelineno-0-2152" name="__codelineno-0-2152"></a>                <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;cmap&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cmap</span>
-<a id="__codelineno-0-2153" name="__codelineno-0-2153"></a>                <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;color_scale&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;boundary-norm&quot;</span>
-<a id="__codelineno-0-2154" name="__codelineno-0-2154"></a>                <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;bounds&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">bounds</span>
-<a id="__codelineno-0-2155" name="__codelineno-0-2155"></a>        <span class="k">return</span> <span class="n">render_array</span><span class="p">(</span>
-<a id="__codelineno-0-2156" name="__codelineno-0-2156"></a>            <span class="n">arr</span><span class="o">=</span><span class="n">arr</span><span class="p">,</span>
-<a id="__codelineno-0-2157" name="__codelineno-0-2157"></a>            <span class="n">extent</span><span class="o">=</span><span class="n">effective_extent</span><span class="p">,</span>
-<a id="__codelineno-0-2158" name="__codelineno-0-2158"></a>            <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">,</span>
-<a id="__codelineno-0-2159" name="__codelineno-0-2159"></a>            <span class="n">exclude_value</span><span class="o">=</span><span class="n">exclude_value</span><span class="p">,</span>
-<a id="__codelineno-0-2160" name="__codelineno-0-2160"></a>            <span class="n">rgb</span><span class="o">=</span><span class="n">rgb</span><span class="p">,</span>
-<a id="__codelineno-0-2161" name="__codelineno-0-2161"></a>            <span class="n">surface_reflectance</span><span class="o">=</span><span class="n">surface_reflectance</span><span class="p">,</span>
-<a id="__codelineno-0-2162" name="__codelineno-0-2162"></a>            <span class="n">cutoff</span><span class="o">=</span><span class="n">cutoff</span><span class="p">,</span>
-<a id="__codelineno-0-2163" name="__codelineno-0-2163"></a>            <span class="n">percentile</span><span class="o">=</span><span class="n">percentile</span><span class="p">,</span>
-<a id="__codelineno-0-2164" name="__codelineno-0-2164"></a>            <span class="n">mode</span><span class="o">=</span><span class="n">mode</span><span class="p">,</span>
-<a id="__codelineno-0-2165" name="__codelineno-0-2165"></a>            <span class="n">facet_kwargs</span><span class="o">=</span><span class="n">facet_kwargs</span><span class="p">,</span>
-<a id="__codelineno-0-2166" name="__codelineno-0-2166"></a>            <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span>
-<a id="__codelineno-0-2167" name="__codelineno-0-2167"></a>            <span class="n">fig</span><span class="o">=</span><span class="n">fig</span><span class="p">,</span>
-<a id="__codelineno-0-2168" name="__codelineno-0-2168"></a>            <span class="n">basemap</span><span class="o">=</span><span class="n">basemap</span><span class="p">,</span>
-<a id="__codelineno-0-2169" name="__codelineno-0-2169"></a>            <span class="n">basemap_epsg</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span>
-<a id="__codelineno-0-2170" name="__codelineno-0-2170"></a>            <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
-<a id="__codelineno-0-2171" name="__codelineno-0-2171"></a>        <span class="p">)</span>
-<a id="__codelineno-0-2172" name="__codelineno-0-2172"></a>
-<a id="__codelineno-0-2173" name="__codelineno-0-2173"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_resolve_plot_array</span><span class="p">(</span>
-<a id="__codelineno-0-2174" name="__codelineno-0-2174"></a>        <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-2175" name="__codelineno-0-2175"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-2176" name="__codelineno-0-2176"></a>        <span class="n">rgb</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-2177" name="__codelineno-0-2177"></a>        <span class="n">overview</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-2178" name="__codelineno-0-2178"></a>        <span class="n">overview_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-2179" name="__codelineno-0-2179"></a>        <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<a id="__codelineno-0-2180" name="__codelineno-0-2180"></a>        <span class="n">facet_stack</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-<a id="__codelineno-0-2181" name="__codelineno-0-2181"></a>        <span class="n">chunks</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-<a id="__codelineno-0-2182" name="__codelineno-0-2182"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<a id="__codelineno-0-2183" name="__codelineno-0-2183"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Resolve the array to render for :meth:`plot`.</span>
-<a id="__codelineno-0-2184" name="__codelineno-0-2184"></a>
-<a id="__codelineno-0-2185" name="__codelineno-0-2185"></a><span class="sd">        - ``mode=&quot;facet&quot;``: use the caller-injected ``_facet_stack``.</span>
-<a id="__codelineno-0-2186" name="__codelineno-0-2186"></a><span class="sd">        - ``_chunks`` injected: lazy-read and materialise only the requested band</span>
-<a id="__codelineno-0-2187" name="__codelineno-0-2187"></a><span class="sd">          (see :meth:`_read_plot_lazy_array`).</span>
-<a id="__codelineno-0-2188" name="__codelineno-0-2188"></a><span class="sd">        - otherwise: eager-read the band — or the full ``(bands, rows, cols)``</span>
-<a id="__codelineno-0-2189" name="__codelineno-0-2189"></a><span class="sd">          array when ``rgb`` is set so cleopatra can pick the colour channels —</span>
-<a id="__codelineno-0-2190" name="__codelineno-0-2190"></a><span class="sd">          from an overview when ``overview`` is truthy.</span>
-<a id="__codelineno-0-2191" name="__codelineno-0-2191"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-2192" name="__codelineno-0-2192"></a>        <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="s2">&quot;facet&quot;</span><span class="p">:</span>
-<a id="__codelineno-0-2193" name="__codelineno-0-2193"></a>            <span class="n">arr</span> <span class="o">=</span> <span class="n">facet_stack</span>
-<a id="__codelineno-0-2194" name="__codelineno-0-2194"></a>        <span class="k">elif</span> <span class="n">chunks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-2195" name="__codelineno-0-2195"></a>            <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_plot_lazy_array</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="n">chunks</span><span class="p">)</span>
-<a id="__codelineno-0-2196" name="__codelineno-0-2196"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-2197" name="__codelineno-0-2197"></a>            <span class="n">read_band</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">rgb</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">band</span>
-<a id="__codelineno-0-2198" name="__codelineno-0-2198"></a>            <span class="k">if</span> <span class="n">overview</span><span class="p">:</span>
-<a id="__codelineno-0-2199" name="__codelineno-0-2199"></a>                <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_overview_array</span><span class="p">(</span>
-<a id="__codelineno-0-2200" name="__codelineno-0-2200"></a>                    <span class="n">band</span><span class="o">=</span><span class="n">read_band</span><span class="p">,</span>
-<a id="__codelineno-0-2201" name="__codelineno-0-2201"></a>                    <span class="n">overview_index</span><span class="o">=</span><span class="p">(</span>
-<a id="__codelineno-0-2202" name="__codelineno-0-2202"></a>                        <span class="n">overview_index</span> <span class="k">if</span> <span class="n">overview_index</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span>
-<a id="__codelineno-0-2203" name="__codelineno-0-2203"></a>                    <span class="p">),</span>
-<a id="__codelineno-0-2204" name="__codelineno-0-2204"></a>                <span class="p">)</span>
-<a id="__codelineno-0-2205" name="__codelineno-0-2205"></a>            <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-2206" name="__codelineno-0-2206"></a>                <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">read_band</span><span class="p">)</span>
-<a id="__codelineno-0-2207" name="__codelineno-0-2207"></a>        <span class="k">return</span> <span class="n">arr</span>
-<a id="__codelineno-0-2208" name="__codelineno-0-2208"></a>
-<a id="__codelineno-0-2209" name="__codelineno-0-2209"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_read_plot_lazy_array</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">chunks</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
-<a id="__codelineno-0-2210" name="__codelineno-0-2210"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Lazy-read path for :meth:`plot` (``_chunks`` injected by ``NetCDF.plot``).</span>
-<a id="__codelineno-0-2211" name="__codelineno-0-2211"></a>
-<a id="__codelineno-0-2212" name="__codelineno-0-2212"></a><span class="sd">        Builds a dask array of the variable and materialises only the requested</span>
-<a id="__codelineno-0-2213" name="__codelineno-0-2213"></a><span class="sd">        slice. ``read_array(chunks=...)`` keeps the variable&#39;s native</span>
-<a id="__codelineno-0-2214" name="__codelineno-0-2214"></a><span class="sd">        ``(d0, ..., rows, cols)`` shape, so a &gt;2-D result is reshaped to</span>
-<a id="__codelineno-0-2215" name="__codelineno-0-2215"></a><span class="sd">        ``(-1, rows, cols)`` to match the eager ``read_array`` band flattening</span>
-<a id="__codelineno-0-2216" name="__codelineno-0-2216"></a><span class="sd">        before ``band`` indexes it; only that band&#39;s chunks are computed.</span>
-<a id="__codelineno-0-2217" name="__codelineno-0-2217"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-2218" name="__codelineno-0-2218"></a>        <span class="n">lazy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">chunks</span><span class="o">=</span><span class="n">chunks</span><span class="p">)</span>
-<a id="__codelineno-0-2219" name="__codelineno-0-2219"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">lazy</span><span class="p">,</span> <span class="s2">&quot;compute&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-2220" name="__codelineno-0-2220"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">lazy</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">lazy</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
-<a id="__codelineno-0-2221" name="__codelineno-0-2221"></a>        <span class="k">elif</span> <span class="n">lazy</span><span class="o">.</span><span class="n">ndim</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
-<a id="__codelineno-0-2222" name="__codelineno-0-2222"></a>            <span class="n">lazy</span> <span class="o">=</span> <span class="n">lazy</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">*</span><span class="n">lazy</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:])</span>
-<a id="__codelineno-0-2223" name="__codelineno-0-2223"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">lazy</span><span class="p">[</span><span class="n">band</span><span class="p">]</span><span class="o">.</span><span class="n">compute</span><span class="p">())</span>
-<a id="__codelineno-0-2224" name="__codelineno-0-2224"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-2225" name="__codelineno-0-2225"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">lazy</span><span class="o">.</span><span class="n">compute</span><span class="p">())</span>
-<a id="__codelineno-0-2226" name="__codelineno-0-2226"></a>        <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
-<a id="__codelineno-0-2227" name="__codelineno-0-2227"></a>
-<a id="__codelineno-0-2228" name="__codelineno-0-2228"></a>    <span class="nd">@staticmethod</span>
-<a id="__codelineno-0-2229" name="__codelineno-0-2229"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_process_color_table</span><span class="p">(</span><span class="n">color_table</span><span class="p">:</span> <span class="n">DataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DataFrame</span><span class="p">:</span>
-<a id="__codelineno-0-2230" name="__codelineno-0-2230"></a>        <span class="n">require_cleopatra</span><span class="p">()</span>
-<a id="__codelineno-0-2231" name="__codelineno-0-2231"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">cleopatra.colors</span><span class="w"> </span><span class="kn">import</span> <span class="n">Colors</span>
-<a id="__codelineno-0-2232" name="__codelineno-0-2232"></a>
-<a id="__codelineno-0-2233" name="__codelineno-0-2233"></a>        <span class="c1"># if the color_table does not contain the red, green, and blue columns, assume it has one column with</span>
-<a id="__codelineno-0-2234" name="__codelineno-0-2234"></a>        <span class="c1"># the color as hex and then, convert the color to rgb.</span>
-<a id="__codelineno-0-2235" name="__codelineno-0-2235"></a>        <span class="k">if</span> <span class="nb">all</span><span class="p">(</span><span class="n">elem</span> <span class="ow">in</span> <span class="n">color_table</span><span class="o">.</span><span class="n">columns</span> <span class="k">for</span> <span class="n">elem</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;red&quot;</span><span class="p">,</span> <span class="s2">&quot;green&quot;</span><span class="p">,</span> <span class="s2">&quot;blue&quot;</span><span class="p">]):</span>
-<a id="__codelineno-0-2236" name="__codelineno-0-2236"></a>            <span class="n">color_df</span> <span class="o">=</span> <span class="n">color_table</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="p">[</span><span class="s2">&quot;values&quot;</span><span class="p">,</span> <span class="s2">&quot;red&quot;</span><span class="p">,</span> <span class="s2">&quot;green&quot;</span><span class="p">,</span> <span class="s2">&quot;blue&quot;</span><span class="p">]]</span>
-<a id="__codelineno-0-2237" name="__codelineno-0-2237"></a>        <span class="k">elif</span> <span class="s2">&quot;color&quot;</span> <span class="ow">in</span> <span class="n">color_table</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-<a id="__codelineno-0-2238" name="__codelineno-0-2238"></a>            <span class="n">color</span> <span class="o">=</span> <span class="n">Colors</span><span class="p">(</span><span class="n">color_table</span><span class="p">[</span><span class="s2">&quot;color&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
-<a id="__codelineno-0-2239" name="__codelineno-0-2239"></a>            <span class="n">color_rgb</span> <span class="o">=</span> <span class="n">color</span><span class="o">.</span><span class="n">to_rgb</span><span class="p">(</span><span class="n">normalized</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<a id="__codelineno-0-2240" name="__codelineno-0-2240"></a>            <span class="n">color_df</span> <span class="o">=</span> <span class="n">DataFrame</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;values&quot;</span><span class="p">])</span>
-<a id="__codelineno-0-2241" name="__codelineno-0-2241"></a>            <span class="n">color_df</span><span class="p">[</span><span class="s2">&quot;values&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">color_table</span><span class="p">[</span><span class="s2">&quot;values&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_list</span><span class="p">()</span>
-<a id="__codelineno-0-2242" name="__codelineno-0-2242"></a>            <span class="n">color_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="p">[</span><span class="s2">&quot;red&quot;</span><span class="p">,</span> <span class="s2">&quot;green&quot;</span><span class="p">,</span> <span class="s2">&quot;blue&quot;</span><span class="p">]]</span> <span class="o">=</span> <span class="n">color_rgb</span>
-<a id="__codelineno-0-2243" name="__codelineno-0-2243"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-2244" name="__codelineno-0-2244"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-2245" name="__codelineno-0-2245"></a>                <span class="sa">f</span><span class="s2">&quot;color_table must contain either red, green, blue, or color columns. given columns are: &quot;</span>
-<a id="__codelineno-0-2246" name="__codelineno-0-2246"></a>                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">color_table</span><span class="o">.</span><span class="n">columns</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-2247" name="__codelineno-0-2247"></a>            <span class="p">)</span>
-<a id="__codelineno-0-2248" name="__codelineno-0-2248"></a>        <span class="k">if</span> <span class="s2">&quot;alpha&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">color_table</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-<a id="__codelineno-0-2249" name="__codelineno-0-2249"></a>            <span class="n">color_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="s2">&quot;alpha&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">255</span>
-<a id="__codelineno-0-2250" name="__codelineno-0-2250"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-2251" name="__codelineno-0-2251"></a>            <span class="n">color_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="s2">&quot;alpha&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">color_table</span><span class="p">[</span><span class="s2">&quot;alpha&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-2252" name="__codelineno-0-2252"></a>        <span class="k">return</span> <span class="n">color_df</span>
+<a id="__codelineno-0-2141" name="__codelineno-0-2141"></a>            <span class="ow">and</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;bounds&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
+<a id="__codelineno-0-2142" name="__codelineno-0-2142"></a>        <span class="p">):</span>
+<a id="__codelineno-0-2143" name="__codelineno-0-2143"></a>            <span class="c1"># Read only the resolved band&#39;s colour table, not every band&#39;s — the</span>
+<a id="__codelineno-0-2144" name="__codelineno-0-2144"></a>            <span class="c1"># full-dataset ``color_table`` rebuilds a row per entry for all bands.</span>
+<a id="__codelineno-0-2145" name="__codelineno-0-2145"></a>            <span class="n">band_color_table</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">bands</span><span class="o">.</span><span class="n">_get_color_table</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">)</span>
+<a id="__codelineno-0-2146" name="__codelineno-0-2146"></a>            <span class="k">if</span> <span class="ow">not</span> <span class="n">band_color_table</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+<a id="__codelineno-0-2147" name="__codelineno-0-2147"></a>                <span class="n">cmap</span><span class="p">,</span> <span class="n">bounds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_palette_colormap</span><span class="p">(</span><span class="n">band_color_table</span><span class="p">)</span>
+<a id="__codelineno-0-2148" name="__codelineno-0-2148"></a>                <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;cmap&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cmap</span>
+<a id="__codelineno-0-2149" name="__codelineno-0-2149"></a>                <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;color_scale&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;boundary-norm&quot;</span>
+<a id="__codelineno-0-2150" name="__codelineno-0-2150"></a>                <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;bounds&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">bounds</span>
+<a id="__codelineno-0-2151" name="__codelineno-0-2151"></a>        <span class="k">return</span> <span class="n">render_array</span><span class="p">(</span>
+<a id="__codelineno-0-2152" name="__codelineno-0-2152"></a>            <span class="n">arr</span><span class="o">=</span><span class="n">arr</span><span class="p">,</span>
+<a id="__codelineno-0-2153" name="__codelineno-0-2153"></a>            <span class="n">extent</span><span class="o">=</span><span class="n">effective_extent</span><span class="p">,</span>
+<a id="__codelineno-0-2154" name="__codelineno-0-2154"></a>            <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">,</span>
+<a id="__codelineno-0-2155" name="__codelineno-0-2155"></a>            <span class="n">exclude_value</span><span class="o">=</span><span class="n">exclude_value</span><span class="p">,</span>
+<a id="__codelineno-0-2156" name="__codelineno-0-2156"></a>            <span class="n">rgb</span><span class="o">=</span><span class="n">rgb</span><span class="p">,</span>
+<a id="__codelineno-0-2157" name="__codelineno-0-2157"></a>            <span class="n">surface_reflectance</span><span class="o">=</span><span class="n">surface_reflectance</span><span class="p">,</span>
+<a id="__codelineno-0-2158" name="__codelineno-0-2158"></a>            <span class="n">cutoff</span><span class="o">=</span><span class="n">cutoff</span><span class="p">,</span>
+<a id="__codelineno-0-2159" name="__codelineno-0-2159"></a>            <span class="n">percentile</span><span class="o">=</span><span class="n">percentile</span><span class="p">,</span>
+<a id="__codelineno-0-2160" name="__codelineno-0-2160"></a>            <span class="n">mode</span><span class="o">=</span><span class="n">mode</span><span class="p">,</span>
+<a id="__codelineno-0-2161" name="__codelineno-0-2161"></a>            <span class="n">facet_kwargs</span><span class="o">=</span><span class="n">facet_kwargs</span><span class="p">,</span>
+<a id="__codelineno-0-2162" name="__codelineno-0-2162"></a>            <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span>
+<a id="__codelineno-0-2163" name="__codelineno-0-2163"></a>            <span class="n">fig</span><span class="o">=</span><span class="n">fig</span><span class="p">,</span>
+<a id="__codelineno-0-2164" name="__codelineno-0-2164"></a>            <span class="n">basemap</span><span class="o">=</span><span class="n">basemap</span><span class="p">,</span>
+<a id="__codelineno-0-2165" name="__codelineno-0-2165"></a>            <span class="n">basemap_epsg</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span>
+<a id="__codelineno-0-2166" name="__codelineno-0-2166"></a>            <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+<a id="__codelineno-0-2167" name="__codelineno-0-2167"></a>        <span class="p">)</span>
+<a id="__codelineno-0-2168" name="__codelineno-0-2168"></a>
+<a id="__codelineno-0-2169" name="__codelineno-0-2169"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_resolve_plot_array</span><span class="p">(</span>
+<a id="__codelineno-0-2170" name="__codelineno-0-2170"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-2171" name="__codelineno-0-2171"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-2172" name="__codelineno-0-2172"></a>        <span class="n">rgb</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-2173" name="__codelineno-0-2173"></a>        <span class="n">overview</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-2174" name="__codelineno-0-2174"></a>        <span class="n">overview_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-2175" name="__codelineno-0-2175"></a>        <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-2176" name="__codelineno-0-2176"></a>        <span class="n">facet_stack</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<a id="__codelineno-0-2177" name="__codelineno-0-2177"></a>        <span class="n">chunks</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<a id="__codelineno-0-2178" name="__codelineno-0-2178"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<a id="__codelineno-0-2179" name="__codelineno-0-2179"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Resolve the array to render for :meth:`plot`.</span>
+<a id="__codelineno-0-2180" name="__codelineno-0-2180"></a>
+<a id="__codelineno-0-2181" name="__codelineno-0-2181"></a><span class="sd">        - ``mode=&quot;facet&quot;``: use the caller-injected ``_facet_stack``.</span>
+<a id="__codelineno-0-2182" name="__codelineno-0-2182"></a><span class="sd">        - ``_chunks`` injected: lazy-read and materialise only the requested band</span>
+<a id="__codelineno-0-2183" name="__codelineno-0-2183"></a><span class="sd">          (see :meth:`_read_plot_lazy_array`).</span>
+<a id="__codelineno-0-2184" name="__codelineno-0-2184"></a><span class="sd">        - otherwise: eager-read the band — or the full ``(bands, rows, cols)``</span>
+<a id="__codelineno-0-2185" name="__codelineno-0-2185"></a><span class="sd">          array when ``rgb`` is set so cleopatra can pick the colour channels —</span>
+<a id="__codelineno-0-2186" name="__codelineno-0-2186"></a><span class="sd">          from an overview when ``overview`` is truthy.</span>
+<a id="__codelineno-0-2187" name="__codelineno-0-2187"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-2188" name="__codelineno-0-2188"></a>        <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="s2">&quot;facet&quot;</span><span class="p">:</span>
+<a id="__codelineno-0-2189" name="__codelineno-0-2189"></a>            <span class="n">arr</span> <span class="o">=</span> <span class="n">facet_stack</span>
+<a id="__codelineno-0-2190" name="__codelineno-0-2190"></a>        <span class="k">elif</span> <span class="n">chunks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-2191" name="__codelineno-0-2191"></a>            <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_plot_lazy_array</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="n">chunks</span><span class="p">)</span>
+<a id="__codelineno-0-2192" name="__codelineno-0-2192"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-2193" name="__codelineno-0-2193"></a>            <span class="n">read_band</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">rgb</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">band</span>
+<a id="__codelineno-0-2194" name="__codelineno-0-2194"></a>            <span class="k">if</span> <span class="n">overview</span><span class="p">:</span>
+<a id="__codelineno-0-2195" name="__codelineno-0-2195"></a>                <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_overview_array</span><span class="p">(</span>
+<a id="__codelineno-0-2196" name="__codelineno-0-2196"></a>                    <span class="n">band</span><span class="o">=</span><span class="n">read_band</span><span class="p">,</span>
+<a id="__codelineno-0-2197" name="__codelineno-0-2197"></a>                    <span class="n">overview_index</span><span class="o">=</span><span class="p">(</span>
+<a id="__codelineno-0-2198" name="__codelineno-0-2198"></a>                        <span class="n">overview_index</span> <span class="k">if</span> <span class="n">overview_index</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span>
+<a id="__codelineno-0-2199" name="__codelineno-0-2199"></a>                    <span class="p">),</span>
+<a id="__codelineno-0-2200" name="__codelineno-0-2200"></a>                <span class="p">)</span>
+<a id="__codelineno-0-2201" name="__codelineno-0-2201"></a>            <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-2202" name="__codelineno-0-2202"></a>                <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">read_band</span><span class="p">)</span>
+<a id="__codelineno-0-2203" name="__codelineno-0-2203"></a>        <span class="k">return</span> <span class="n">arr</span>
+<a id="__codelineno-0-2204" name="__codelineno-0-2204"></a>
+<a id="__codelineno-0-2205" name="__codelineno-0-2205"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_read_plot_lazy_array</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">chunks</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<a id="__codelineno-0-2206" name="__codelineno-0-2206"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Lazy-read path for :meth:`plot` (``_chunks`` injected by ``NetCDF.plot``).</span>
+<a id="__codelineno-0-2207" name="__codelineno-0-2207"></a>
+<a id="__codelineno-0-2208" name="__codelineno-0-2208"></a><span class="sd">        Builds a dask array of the variable and materialises only the requested</span>
+<a id="__codelineno-0-2209" name="__codelineno-0-2209"></a><span class="sd">        slice. ``read_array(chunks=...)`` keeps the variable&#39;s native</span>
+<a id="__codelineno-0-2210" name="__codelineno-0-2210"></a><span class="sd">        ``(d0, ..., rows, cols)`` shape, so a &gt;2-D result is reshaped to</span>
+<a id="__codelineno-0-2211" name="__codelineno-0-2211"></a><span class="sd">        ``(-1, rows, cols)`` to match the eager ``read_array`` band flattening</span>
+<a id="__codelineno-0-2212" name="__codelineno-0-2212"></a><span class="sd">        before ``band`` indexes it; only that band&#39;s chunks are computed.</span>
+<a id="__codelineno-0-2213" name="__codelineno-0-2213"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-2214" name="__codelineno-0-2214"></a>        <span class="n">lazy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">chunks</span><span class="o">=</span><span class="n">chunks</span><span class="p">)</span>
+<a id="__codelineno-0-2215" name="__codelineno-0-2215"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">lazy</span><span class="p">,</span> <span class="s2">&quot;compute&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-2216" name="__codelineno-0-2216"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">lazy</span> <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">lazy</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
+<a id="__codelineno-0-2217" name="__codelineno-0-2217"></a>        <span class="k">elif</span> <span class="n">lazy</span><span class="o">.</span><span class="n">ndim</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
+<a id="__codelineno-0-2218" name="__codelineno-0-2218"></a>            <span class="n">lazy</span> <span class="o">=</span> <span class="n">lazy</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">*</span><span class="n">lazy</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:])</span>
+<a id="__codelineno-0-2219" name="__codelineno-0-2219"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">lazy</span><span class="p">[</span><span class="n">band</span><span class="p">]</span><span class="o">.</span><span class="n">compute</span><span class="p">())</span>
+<a id="__codelineno-0-2220" name="__codelineno-0-2220"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-2221" name="__codelineno-0-2221"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">lazy</span><span class="o">.</span><span class="n">compute</span><span class="p">())</span>
+<a id="__codelineno-0-2222" name="__codelineno-0-2222"></a>        <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+<a id="__codelineno-0-2223" name="__codelineno-0-2223"></a>
+<a id="__codelineno-0-2224" name="__codelineno-0-2224"></a>    <span class="nd">@staticmethod</span>
+<a id="__codelineno-0-2225" name="__codelineno-0-2225"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_process_color_table</span><span class="p">(</span><span class="n">color_table</span><span class="p">:</span> <span class="n">DataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DataFrame</span><span class="p">:</span>
+<a id="__codelineno-0-2226" name="__codelineno-0-2226"></a>        <span class="n">require_cleopatra</span><span class="p">()</span>
+<a id="__codelineno-0-2227" name="__codelineno-0-2227"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">cleopatra.colors</span><span class="w"> </span><span class="kn">import</span> <span class="n">Colors</span>
+<a id="__codelineno-0-2228" name="__codelineno-0-2228"></a>
+<a id="__codelineno-0-2229" name="__codelineno-0-2229"></a>        <span class="c1"># if the color_table does not contain the red, green, and blue columns, assume it has one column with</span>
+<a id="__codelineno-0-2230" name="__codelineno-0-2230"></a>        <span class="c1"># the color as hex and then, convert the color to rgb.</span>
+<a id="__codelineno-0-2231" name="__codelineno-0-2231"></a>        <span class="k">if</span> <span class="nb">all</span><span class="p">(</span><span class="n">elem</span> <span class="ow">in</span> <span class="n">color_table</span><span class="o">.</span><span class="n">columns</span> <span class="k">for</span> <span class="n">elem</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;red&quot;</span><span class="p">,</span> <span class="s2">&quot;green&quot;</span><span class="p">,</span> <span class="s2">&quot;blue&quot;</span><span class="p">]):</span>
+<a id="__codelineno-0-2232" name="__codelineno-0-2232"></a>            <span class="n">color_df</span> <span class="o">=</span> <span class="n">color_table</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="p">[</span><span class="s2">&quot;values&quot;</span><span class="p">,</span> <span class="s2">&quot;red&quot;</span><span class="p">,</span> <span class="s2">&quot;green&quot;</span><span class="p">,</span> <span class="s2">&quot;blue&quot;</span><span class="p">]]</span>
+<a id="__codelineno-0-2233" name="__codelineno-0-2233"></a>        <span class="k">elif</span> <span class="s2">&quot;color&quot;</span> <span class="ow">in</span> <span class="n">color_table</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+<a id="__codelineno-0-2234" name="__codelineno-0-2234"></a>            <span class="n">color</span> <span class="o">=</span> <span class="n">Colors</span><span class="p">(</span><span class="n">color_table</span><span class="p">[</span><span class="s2">&quot;color&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+<a id="__codelineno-0-2235" name="__codelineno-0-2235"></a>            <span class="n">color_rgb</span> <span class="o">=</span> <span class="n">color</span><span class="o">.</span><span class="n">to_rgb</span><span class="p">(</span><span class="n">normalized</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-0-2236" name="__codelineno-0-2236"></a>            <span class="n">color_df</span> <span class="o">=</span> <span class="n">DataFrame</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;values&quot;</span><span class="p">])</span>
+<a id="__codelineno-0-2237" name="__codelineno-0-2237"></a>            <span class="n">color_df</span><span class="p">[</span><span class="s2">&quot;values&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">color_table</span><span class="p">[</span><span class="s2">&quot;values&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_list</span><span class="p">()</span>
+<a id="__codelineno-0-2238" name="__codelineno-0-2238"></a>            <span class="n">color_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="p">[</span><span class="s2">&quot;red&quot;</span><span class="p">,</span> <span class="s2">&quot;green&quot;</span><span class="p">,</span> <span class="s2">&quot;blue&quot;</span><span class="p">]]</span> <span class="o">=</span> <span class="n">color_rgb</span>
+<a id="__codelineno-0-2239" name="__codelineno-0-2239"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-2240" name="__codelineno-0-2240"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-2241" name="__codelineno-0-2241"></a>                <span class="sa">f</span><span class="s2">&quot;color_table must contain either red, green, blue, or color columns. given columns are: &quot;</span>
+<a id="__codelineno-0-2242" name="__codelineno-0-2242"></a>                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">color_table</span><span class="o">.</span><span class="n">columns</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-2243" name="__codelineno-0-2243"></a>            <span class="p">)</span>
+<a id="__codelineno-0-2244" name="__codelineno-0-2244"></a>        <span class="k">if</span> <span class="s2">&quot;alpha&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">color_table</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+<a id="__codelineno-0-2245" name="__codelineno-0-2245"></a>            <span class="n">color_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="s2">&quot;alpha&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">255</span>
+<a id="__codelineno-0-2246" name="__codelineno-0-2246"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-2247" name="__codelineno-0-2247"></a>            <span class="n">color_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="s2">&quot;alpha&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">color_table</span><span class="p">[</span><span class="s2">&quot;alpha&quot;</span><span class="p">]</span>
+<a id="__codelineno-0-2248" name="__codelineno-0-2248"></a>        <span class="k">return</span> <span class="n">color_df</span>
+<a id="__codelineno-0-2249" name="__codelineno-0-2249"></a>
+<a id="__codelineno-0-2250" name="__codelineno-0-2250"></a>    <span class="nd">@staticmethod</span>
+<a id="__codelineno-0-2251" name="__codelineno-0-2251"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_palette_colormap</span><span class="p">(</span><span class="n">color_table</span><span class="p">:</span> <span class="n">DataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]:</span>
+<a id="__codelineno-0-2252" name="__codelineno-0-2252"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a colormap + boundary edges from a GDAL colour table.</span>
 <a id="__codelineno-0-2253" name="__codelineno-0-2253"></a>
-<a id="__codelineno-0-2254" name="__codelineno-0-2254"></a>    <span class="nd">@staticmethod</span>
-<a id="__codelineno-0-2255" name="__codelineno-0-2255"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_palette_colormap</span><span class="p">(</span><span class="n">color_table</span><span class="p">:</span> <span class="n">DataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]:</span>
-<a id="__codelineno-0-2256" name="__codelineno-0-2256"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a colormap + boundary edges from a GDAL colour table.</span>
-<a id="__codelineno-0-2257" name="__codelineno-0-2257"></a>
-<a id="__codelineno-0-2258" name="__codelineno-0-2258"></a><span class="sd">        Normalises the ``[values, red, green, blue, alpha]`` colour table (via</span>
-<a id="__codelineno-0-2259" name="__codelineno-0-2259"></a><span class="sd">        :meth:`_process_color_table`) into a matplotlib ``LinearSegmentedColormap``</span>
-<a id="__codelineno-0-2260" name="__codelineno-0-2260"></a><span class="sd">        whose stops are the palette&#39;s colours, and derives the ``BoundaryNorm`` bin</span>
-<a id="__codelineno-0-2261" name="__codelineno-0-2261"></a><span class="sd">        edges from cleopatra&#39;s ``category_boundaries``. The colormap is handed to</span>
-<a id="__codelineno-0-2262" name="__codelineno-0-2262"></a><span class="sd">        cleopatra as an explicit ``cmap`` with ``color_scale=&quot;boundary-norm&quot;`` so a</span>
-<a id="__codelineno-0-2263" name="__codelineno-0-2263"></a><span class="sd">        paletted raster renders through its own colours — pyramids only builds the</span>
-<a id="__codelineno-0-2264" name="__codelineno-0-2264"></a><span class="sd">        mapping; cleopatra draws it.</span>
-<a id="__codelineno-0-2265" name="__codelineno-0-2265"></a>
-<a id="__codelineno-0-2266" name="__codelineno-0-2266"></a><span class="sd">        A segmented (not listed) colormap is used deliberately: cleopatra&#39;s</span>
-<a id="__codelineno-0-2267" name="__codelineno-0-2267"></a><span class="sd">        ``boundary-norm`` builds its ``BoundaryNorm`` with a fixed ``ncolors=256``, so</span>
-<a id="__codelineno-0-2268" name="__codelineno-0-2268"></a><span class="sd">        a small ``ListedColormap`` would be over-indexed and every class would clamp</span>
-<a id="__codelineno-0-2269" name="__codelineno-0-2269"></a><span class="sd">        to the last colour. Sampling the segmented ramp at each class&#39;s bin centre</span>
-<a id="__codelineno-0-2270" name="__codelineno-0-2270"></a><span class="sd">        lands on the palette stop instead. (An exact one-swatch-per-class rendering</span>
-<a id="__codelineno-0-2271" name="__codelineno-0-2271"></a><span class="sd">        with a discrete legend would need a first-class categorical colour-table API</span>
-<a id="__codelineno-0-2272" name="__codelineno-0-2272"></a><span class="sd">        on cleopatra&#39;s ``ArrayGlyph``; see the follow-up tracked for #913.)</span>
-<a id="__codelineno-0-2273" name="__codelineno-0-2273"></a>
-<a id="__codelineno-0-2274" name="__codelineno-0-2274"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-2275" name="__codelineno-0-2275"></a><span class="sd">            color_table (DataFrame):</span>
-<a id="__codelineno-0-2276" name="__codelineno-0-2276"></a><span class="sd">                The band&#39;s colour table — ``values`` plus ``red``/``green``/``blue``</span>
-<a id="__codelineno-0-2277" name="__codelineno-0-2277"></a><span class="sd">                (and optional ``alpha``), or a hex ``color`` column.</span>
-<a id="__codelineno-0-2278" name="__codelineno-0-2278"></a>
-<a id="__codelineno-0-2279" name="__codelineno-0-2279"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-2280" name="__codelineno-0-2280"></a><span class="sd">            tuple[matplotlib.colors.LinearSegmentedColormap, list[float]]:</span>
-<a id="__codelineno-0-2281" name="__codelineno-0-2281"></a><span class="sd">                The colormap and its ``len(values) + 1`` ascending boundary edges,</span>
-<a id="__codelineno-0-2282" name="__codelineno-0-2282"></a><span class="sd">                sorted by colour-table value.</span>
-<a id="__codelineno-0-2283" name="__codelineno-0-2283"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-2284" name="__codelineno-0-2284"></a>        <span class="n">require_cleopatra</span><span class="p">()</span>
-<a id="__codelineno-0-2285" name="__codelineno-0-2285"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">cleopatra.colors</span><span class="w"> </span><span class="kn">import</span> <span class="n">category_boundaries</span>
-<a id="__codelineno-0-2286" name="__codelineno-0-2286"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">matplotlib.colors</span><span class="w"> </span><span class="kn">import</span> <span class="n">LinearSegmentedColormap</span>
-<a id="__codelineno-0-2287" name="__codelineno-0-2287"></a>
-<a id="__codelineno-0-2288" name="__codelineno-0-2288"></a>        <span class="n">processed</span> <span class="o">=</span> <span class="n">Analysis</span><span class="o">.</span><span class="n">_process_color_table</span><span class="p">(</span><span class="n">color_table</span><span class="p">)</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="s2">&quot;values&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-2289" name="__codelineno-0-2289"></a>        <span class="n">rgba</span> <span class="o">=</span> <span class="n">processed</span><span class="p">[[</span><span class="s2">&quot;red&quot;</span><span class="p">,</span> <span class="s2">&quot;green&quot;</span><span class="p">,</span> <span class="s2">&quot;blue&quot;</span><span class="p">,</span> <span class="s2">&quot;alpha&quot;</span><span class="p">]]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span> <span class="o">/</span> <span class="mf">255.0</span>
-<a id="__codelineno-0-2290" name="__codelineno-0-2290"></a>        <span class="n">values</span> <span class="o">=</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">processed</span><span class="p">[</span><span class="s2">&quot;values&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_list</span><span class="p">()]</span>
-<a id="__codelineno-0-2291" name="__codelineno-0-2291"></a>        <span class="n">cmap</span> <span class="o">=</span> <span class="n">LinearSegmentedColormap</span><span class="o">.</span><span class="n">from_list</span><span class="p">(</span>
-<a id="__codelineno-0-2292" name="__codelineno-0-2292"></a>            <span class="s2">&quot;gdal_color_table&quot;</span><span class="p">,</span> <span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span> <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">rgba</span><span class="p">]</span>
-<a id="__codelineno-0-2293" name="__codelineno-0-2293"></a>        <span class="p">)</span>
-<a id="__codelineno-0-2294" name="__codelineno-0-2294"></a>        <span class="n">bounds</span> <span class="o">=</span> <span class="n">category_boundaries</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
-<a id="__codelineno-0-2295" name="__codelineno-0-2295"></a>        <span class="k">return</span> <span class="n">cmap</span><span class="p">,</span> <span class="n">bounds</span>
+<a id="__codelineno-0-2254" name="__codelineno-0-2254"></a><span class="sd">        Normalises the ``[values, red, green, blue, alpha]`` colour table (via</span>
+<a id="__codelineno-0-2255" name="__codelineno-0-2255"></a><span class="sd">        :meth:`_process_color_table`) into a matplotlib ``ListedColormap`` carrying the</span>
+<a id="__codelineno-0-2256" name="__codelineno-0-2256"></a><span class="sd">        palette&#39;s exact colours, and derives the ``BoundaryNorm`` bin edges from</span>
+<a id="__codelineno-0-2257" name="__codelineno-0-2257"></a><span class="sd">        cleopatra&#39;s ``category_boundaries``. The colormap is handed to cleopatra as an</span>
+<a id="__codelineno-0-2258" name="__codelineno-0-2258"></a><span class="sd">        explicit ``cmap`` with ``color_scale=&quot;boundary-norm&quot;`` so a paletted raster</span>
+<a id="__codelineno-0-2259" name="__codelineno-0-2259"></a><span class="sd">        renders through its own colours — pyramids only builds the mapping; cleopatra</span>
+<a id="__codelineno-0-2260" name="__codelineno-0-2260"></a><span class="sd">        draws it.</span>
+<a id="__codelineno-0-2261" name="__codelineno-0-2261"></a>
+<a id="__codelineno-0-2262" name="__codelineno-0-2262"></a><span class="sd">        cleopatra&#39;s ``boundary-norm`` builds its ``BoundaryNorm`` with a fixed</span>
+<a id="__codelineno-0-2263" name="__codelineno-0-2263"></a><span class="sd">        ``ncolors=256``, so the palette is resampled to a **256-entry step lookup**</span>
+<a id="__codelineno-0-2264" name="__codelineno-0-2264"></a><span class="sd">        (nearest colour, no interpolation): each class then indexes its own exact,</span>
+<a id="__codelineno-0-2265" name="__codelineno-0-2265"></a><span class="sd">        opaque colour. A ``LinearSegmentedColormap`` would instead interpolate between</span>
+<a id="__codelineno-0-2266" name="__codelineno-0-2266"></a><span class="sd">        stops, blending the hue and bleeding alpha toward GDAL&#39;s transparent</span>
+<a id="__codelineno-0-2267" name="__codelineno-0-2267"></a><span class="sd">        ``(0, 0, 0, 0)`` gap-filler entries (GDAL densifies a colour table to</span>
+<a id="__codelineno-0-2268" name="__codelineno-0-2268"></a><span class="sd">        ``0..maxvalue``), so real classes would render translucent. An exact</span>
+<a id="__codelineno-0-2269" name="__codelineno-0-2269"></a><span class="sd">        one-swatch-per-class rendering with a discrete legend would need a first-class</span>
+<a id="__codelineno-0-2270" name="__codelineno-0-2270"></a><span class="sd">        categorical colour-table API on cleopatra&#39;s ``ArrayGlyph``; see the follow-up</span>
+<a id="__codelineno-0-2271" name="__codelineno-0-2271"></a><span class="sd">        tracked for #913.</span>
+<a id="__codelineno-0-2272" name="__codelineno-0-2272"></a>
+<a id="__codelineno-0-2273" name="__codelineno-0-2273"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-2274" name="__codelineno-0-2274"></a><span class="sd">            color_table (DataFrame):</span>
+<a id="__codelineno-0-2275" name="__codelineno-0-2275"></a><span class="sd">                The band&#39;s colour table — ``values`` plus ``red``/``green``/``blue``</span>
+<a id="__codelineno-0-2276" name="__codelineno-0-2276"></a><span class="sd">                (and optional ``alpha``), or a hex ``color`` column.</span>
+<a id="__codelineno-0-2277" name="__codelineno-0-2277"></a>
+<a id="__codelineno-0-2278" name="__codelineno-0-2278"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-2279" name="__codelineno-0-2279"></a><span class="sd">            tuple[matplotlib.colors.ListedColormap, list[float]]:</span>
+<a id="__codelineno-0-2280" name="__codelineno-0-2280"></a><span class="sd">                The 256-entry step colormap and the ``len(values) + 1`` ascending</span>
+<a id="__codelineno-0-2281" name="__codelineno-0-2281"></a><span class="sd">                boundary edges, sorted by colour-table value.</span>
+<a id="__codelineno-0-2282" name="__codelineno-0-2282"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-2283" name="__codelineno-0-2283"></a>        <span class="n">require_cleopatra</span><span class="p">()</span>
+<a id="__codelineno-0-2284" name="__codelineno-0-2284"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">cleopatra.colors</span><span class="w"> </span><span class="kn">import</span> <span class="n">category_boundaries</span>
+<a id="__codelineno-0-2285" name="__codelineno-0-2285"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">matplotlib.colors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ListedColormap</span>
+<a id="__codelineno-0-2286" name="__codelineno-0-2286"></a>
+<a id="__codelineno-0-2287" name="__codelineno-0-2287"></a>        <span class="n">processed</span> <span class="o">=</span> <span class="n">Analysis</span><span class="o">.</span><span class="n">_process_color_table</span><span class="p">(</span><span class="n">color_table</span><span class="p">)</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="s2">&quot;values&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-2288" name="__codelineno-0-2288"></a>        <span class="n">rgba</span> <span class="o">=</span> <span class="n">processed</span><span class="p">[[</span><span class="s2">&quot;red&quot;</span><span class="p">,</span> <span class="s2">&quot;green&quot;</span><span class="p">,</span> <span class="s2">&quot;blue&quot;</span><span class="p">,</span> <span class="s2">&quot;alpha&quot;</span><span class="p">]]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span> <span class="o">/</span> <span class="mf">255.0</span>
+<a id="__codelineno-0-2289" name="__codelineno-0-2289"></a>        <span class="n">values</span> <span class="o">=</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">processed</span><span class="p">[</span><span class="s2">&quot;values&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_list</span><span class="p">()]</span>
+<a id="__codelineno-0-2290" name="__codelineno-0-2290"></a>        <span class="n">last</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">rgba</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+<a id="__codelineno-0-2291" name="__codelineno-0-2291"></a>        <span class="n">lut</span> <span class="o">=</span> <span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="n">rgba</span><span class="p">[</span><span class="nb">min</span><span class="p">(</span><span class="nb">round</span><span class="p">(</span><span class="n">slot</span> <span class="o">*</span> <span class="n">last</span> <span class="o">/</span> <span class="mi">255</span><span class="p">),</span> <span class="n">last</span><span class="p">)])</span> <span class="k">for</span> <span class="n">slot</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">256</span><span class="p">)]</span>
+<a id="__codelineno-0-2292" name="__codelineno-0-2292"></a>        <span class="n">cmap</span> <span class="o">=</span> <span class="n">ListedColormap</span><span class="p">(</span><span class="n">lut</span><span class="p">)</span>
+<a id="__codelineno-0-2293" name="__codelineno-0-2293"></a>        <span class="n">bounds</span> <span class="o">=</span> <span class="n">category_boundaries</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+<a id="__codelineno-0-2294" name="__codelineno-0-2294"></a>        <span class="k">return</span> <span class="n">cmap</span><span class="p">,</span> <span class="n">bounds</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -17620,11 +17618,7 @@ Returns:
 <span class="normal"><a href="#__codelineno-0-2164">2164</a></span>
 <span class="normal"><a href="#__codelineno-0-2165">2165</a></span>
 <span class="normal"><a href="#__codelineno-0-2166">2166</a></span>
-<span class="normal"><a href="#__codelineno-0-2167">2167</a></span>
-<span class="normal"><a href="#__codelineno-0-2168">2168</a></span>
-<span class="normal"><a href="#__codelineno-0-2169">2169</a></span>
-<span class="normal"><a href="#__codelineno-0-2170">2170</a></span>
-<span class="normal"><a href="#__codelineno-0-2171">2171</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1940" name="__codelineno-0-1940"></a><span class="k">def</span><span class="w"> </span><span class="nf">plot</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-2167">2167</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1940" name="__codelineno-0-1940"></a><span class="k">def</span><span class="w"> </span><span class="nf">plot</span><span class="p">(</span>
 <a id="__codelineno-0-1941" name="__codelineno-0-1941"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-1942" name="__codelineno-0-1942"></a>    <span class="n">band</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
 <a id="__codelineno-0-1943" name="__codelineno-0-1943"></a>    <span class="n">exclude_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -17819,43 +17813,39 @@ Returns:
 <a id="__codelineno-0-2132" name="__codelineno-0-2132"></a>    <span class="c1"># discrete colormap from the palette and hand it to cleopatra as an</span>
 <a id="__codelineno-0-2133" name="__codelineno-0-2133"></a>    <span class="c1"># explicit ``cmap`` + ``color_scale=&quot;boundary-norm&quot;``. Only the single-band</span>
 <a id="__codelineno-0-2134" name="__codelineno-0-2134"></a>    <span class="c1"># static path (no ``rgb``, no facet) carries a palette, and an explicit</span>
-<a id="__codelineno-0-2135" name="__codelineno-0-2135"></a>    <span class="c1"># ``cmap`` / ``color_scale`` from the caller wins over it.</span>
+<a id="__codelineno-0-2135" name="__codelineno-0-2135"></a>    <span class="c1"># ``cmap`` / ``color_scale`` / ``bounds`` from the caller wins over it.</span>
 <a id="__codelineno-0-2136" name="__codelineno-0-2136"></a>    <span class="k">if</span> <span class="p">(</span>
 <a id="__codelineno-0-2137" name="__codelineno-0-2137"></a>        <span class="n">mode</span> <span class="o">==</span> <span class="s2">&quot;plot&quot;</span>
 <a id="__codelineno-0-2138" name="__codelineno-0-2138"></a>        <span class="ow">and</span> <span class="n">rgb</span> <span class="ow">is</span> <span class="kc">None</span>
 <a id="__codelineno-0-2139" name="__codelineno-0-2139"></a>        <span class="ow">and</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;cmap&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
 <a id="__codelineno-0-2140" name="__codelineno-0-2140"></a>        <span class="ow">and</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;color_scale&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
-<a id="__codelineno-0-2141" name="__codelineno-0-2141"></a>    <span class="p">):</span>
-<a id="__codelineno-0-2142" name="__codelineno-0-2142"></a>        <span class="n">full_color_table</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">color_table</span>
-<a id="__codelineno-0-2143" name="__codelineno-0-2143"></a>        <span class="c1"># ``_get_color_table`` numbers its ``band`` column 1-indexed (GDAL</span>
-<a id="__codelineno-0-2144" name="__codelineno-0-2144"></a>        <span class="c1"># band number), while ``band`` here is the 0-indexed plot band.</span>
-<a id="__codelineno-0-2145" name="__codelineno-0-2145"></a>        <span class="n">band_color_table</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-0-2146" name="__codelineno-0-2146"></a>            <span class="n">full_color_table</span><span class="p">[</span><span class="n">full_color_table</span><span class="p">[</span><span class="s2">&quot;band&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
-<a id="__codelineno-0-2147" name="__codelineno-0-2147"></a>            <span class="k">if</span> <span class="ow">not</span> <span class="n">full_color_table</span><span class="o">.</span><span class="n">empty</span>
-<a id="__codelineno-0-2148" name="__codelineno-0-2148"></a>            <span class="k">else</span> <span class="n">full_color_table</span>
-<a id="__codelineno-0-2149" name="__codelineno-0-2149"></a>        <span class="p">)</span>
-<a id="__codelineno-0-2150" name="__codelineno-0-2150"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">band_color_table</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
-<a id="__codelineno-0-2151" name="__codelineno-0-2151"></a>            <span class="n">cmap</span><span class="p">,</span> <span class="n">bounds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_palette_colormap</span><span class="p">(</span><span class="n">band_color_table</span><span class="p">)</span>
-<a id="__codelineno-0-2152" name="__codelineno-0-2152"></a>            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;cmap&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cmap</span>
-<a id="__codelineno-0-2153" name="__codelineno-0-2153"></a>            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;color_scale&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;boundary-norm&quot;</span>
-<a id="__codelineno-0-2154" name="__codelineno-0-2154"></a>            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;bounds&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">bounds</span>
-<a id="__codelineno-0-2155" name="__codelineno-0-2155"></a>    <span class="k">return</span> <span class="n">render_array</span><span class="p">(</span>
-<a id="__codelineno-0-2156" name="__codelineno-0-2156"></a>        <span class="n">arr</span><span class="o">=</span><span class="n">arr</span><span class="p">,</span>
-<a id="__codelineno-0-2157" name="__codelineno-0-2157"></a>        <span class="n">extent</span><span class="o">=</span><span class="n">effective_extent</span><span class="p">,</span>
-<a id="__codelineno-0-2158" name="__codelineno-0-2158"></a>        <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">,</span>
-<a id="__codelineno-0-2159" name="__codelineno-0-2159"></a>        <span class="n">exclude_value</span><span class="o">=</span><span class="n">exclude_value</span><span class="p">,</span>
-<a id="__codelineno-0-2160" name="__codelineno-0-2160"></a>        <span class="n">rgb</span><span class="o">=</span><span class="n">rgb</span><span class="p">,</span>
-<a id="__codelineno-0-2161" name="__codelineno-0-2161"></a>        <span class="n">surface_reflectance</span><span class="o">=</span><span class="n">surface_reflectance</span><span class="p">,</span>
-<a id="__codelineno-0-2162" name="__codelineno-0-2162"></a>        <span class="n">cutoff</span><span class="o">=</span><span class="n">cutoff</span><span class="p">,</span>
-<a id="__codelineno-0-2163" name="__codelineno-0-2163"></a>        <span class="n">percentile</span><span class="o">=</span><span class="n">percentile</span><span class="p">,</span>
-<a id="__codelineno-0-2164" name="__codelineno-0-2164"></a>        <span class="n">mode</span><span class="o">=</span><span class="n">mode</span><span class="p">,</span>
-<a id="__codelineno-0-2165" name="__codelineno-0-2165"></a>        <span class="n">facet_kwargs</span><span class="o">=</span><span class="n">facet_kwargs</span><span class="p">,</span>
-<a id="__codelineno-0-2166" name="__codelineno-0-2166"></a>        <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span>
-<a id="__codelineno-0-2167" name="__codelineno-0-2167"></a>        <span class="n">fig</span><span class="o">=</span><span class="n">fig</span><span class="p">,</span>
-<a id="__codelineno-0-2168" name="__codelineno-0-2168"></a>        <span class="n">basemap</span><span class="o">=</span><span class="n">basemap</span><span class="p">,</span>
-<a id="__codelineno-0-2169" name="__codelineno-0-2169"></a>        <span class="n">basemap_epsg</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span>
-<a id="__codelineno-0-2170" name="__codelineno-0-2170"></a>        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
-<a id="__codelineno-0-2171" name="__codelineno-0-2171"></a>    <span class="p">)</span>
+<a id="__codelineno-0-2141" name="__codelineno-0-2141"></a>        <span class="ow">and</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;bounds&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
+<a id="__codelineno-0-2142" name="__codelineno-0-2142"></a>    <span class="p">):</span>
+<a id="__codelineno-0-2143" name="__codelineno-0-2143"></a>        <span class="c1"># Read only the resolved band&#39;s colour table, not every band&#39;s — the</span>
+<a id="__codelineno-0-2144" name="__codelineno-0-2144"></a>        <span class="c1"># full-dataset ``color_table`` rebuilds a row per entry for all bands.</span>
+<a id="__codelineno-0-2145" name="__codelineno-0-2145"></a>        <span class="n">band_color_table</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">bands</span><span class="o">.</span><span class="n">_get_color_table</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">)</span>
+<a id="__codelineno-0-2146" name="__codelineno-0-2146"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">band_color_table</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+<a id="__codelineno-0-2147" name="__codelineno-0-2147"></a>            <span class="n">cmap</span><span class="p">,</span> <span class="n">bounds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_palette_colormap</span><span class="p">(</span><span class="n">band_color_table</span><span class="p">)</span>
+<a id="__codelineno-0-2148" name="__codelineno-0-2148"></a>            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;cmap&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cmap</span>
+<a id="__codelineno-0-2149" name="__codelineno-0-2149"></a>            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;color_scale&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;boundary-norm&quot;</span>
+<a id="__codelineno-0-2150" name="__codelineno-0-2150"></a>            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;bounds&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">bounds</span>
+<a id="__codelineno-0-2151" name="__codelineno-0-2151"></a>    <span class="k">return</span> <span class="n">render_array</span><span class="p">(</span>
+<a id="__codelineno-0-2152" name="__codelineno-0-2152"></a>        <span class="n">arr</span><span class="o">=</span><span class="n">arr</span><span class="p">,</span>
+<a id="__codelineno-0-2153" name="__codelineno-0-2153"></a>        <span class="n">extent</span><span class="o">=</span><span class="n">effective_extent</span><span class="p">,</span>
+<a id="__codelineno-0-2154" name="__codelineno-0-2154"></a>        <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">,</span>
+<a id="__codelineno-0-2155" name="__codelineno-0-2155"></a>        <span class="n">exclude_value</span><span class="o">=</span><span class="n">exclude_value</span><span class="p">,</span>
+<a id="__codelineno-0-2156" name="__codelineno-0-2156"></a>        <span class="n">rgb</span><span class="o">=</span><span class="n">rgb</span><span class="p">,</span>
+<a id="__codelineno-0-2157" name="__codelineno-0-2157"></a>        <span class="n">surface_reflectance</span><span class="o">=</span><span class="n">surface_reflectance</span><span class="p">,</span>
+<a id="__codelineno-0-2158" name="__codelineno-0-2158"></a>        <span class="n">cutoff</span><span class="o">=</span><span class="n">cutoff</span><span class="p">,</span>
+<a id="__codelineno-0-2159" name="__codelineno-0-2159"></a>        <span class="n">percentile</span><span class="o">=</span><span class="n">percentile</span><span class="p">,</span>
+<a id="__codelineno-0-2160" name="__codelineno-0-2160"></a>        <span class="n">mode</span><span class="o">=</span><span class="n">mode</span><span class="p">,</span>
+<a id="__codelineno-0-2161" name="__codelineno-0-2161"></a>        <span class="n">facet_kwargs</span><span class="o">=</span><span class="n">facet_kwargs</span><span class="p">,</span>
+<a id="__codelineno-0-2162" name="__codelineno-0-2162"></a>        <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span>
+<a id="__codelineno-0-2163" name="__codelineno-0-2163"></a>        <span class="n">fig</span><span class="o">=</span><span class="n">fig</span><span class="p">,</span>
+<a id="__codelineno-0-2164" name="__codelineno-0-2164"></a>        <span class="n">basemap</span><span class="o">=</span><span class="n">basemap</span><span class="p">,</span>
+<a id="__codelineno-0-2165" name="__codelineno-0-2165"></a>        <span class="n">basemap_epsg</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span>
+<a id="__codelineno-0-2166" name="__codelineno-0-2166"></a>        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+<a id="__codelineno-0-2167" name="__codelineno-0-2167"></a>    <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
