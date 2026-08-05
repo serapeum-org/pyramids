@@ -2132,12 +2132,13 @@ class Analysis(_Engine["Dataset"]):
         # discrete colormap from the palette and hand it to cleopatra as an
         # explicit ``cmap`` + ``color_scale="boundary-norm"``. Only the single-band
         # static path (no ``rgb``, no facet) carries a palette, and an explicit
-        # ``cmap`` / ``color_scale`` from the caller wins over it.
+        # ``cmap`` / ``color_scale`` / ``bounds`` from the caller wins over it.
         if (
             mode == "plot"
             and rgb is None
             and kwargs.get("cmap") is None
             and kwargs.get("color_scale") is None
+            and kwargs.get("bounds") is None
         ):
             # Read only the resolved band's colour table, not every band's — the
             # full-dataset ``color_table`` rebuilds a row per entry for all bands.

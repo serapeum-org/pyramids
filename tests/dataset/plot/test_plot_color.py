@@ -236,6 +236,12 @@ class TestPalettePlot:
         assert type(glyph.im.norm).__name__ != "BoundaryNorm"
 
     @pytest.mark.plot
+    def test_explicit_bounds_overrides_palette(self):
+        """A lone ``bounds=`` opts out of the palette rather than being overwritten."""
+        glyph = self._paletted_dataset().plot(band=0, bounds=[0, 1, 2, 3])
+        assert glyph.im.cmap.name == "coolwarm_r"
+
+    @pytest.mark.plot
     def test_non_paletted_raster_keeps_default_cmap(self):
         """A raster with no colour table renders with cleopatra's default colormap."""
         arr = np.random.default_rng(0).random((5, 5)).astype("float32")
