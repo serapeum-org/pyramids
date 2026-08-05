@@ -1559,8 +1559,9 @@ class Spatial(_Engine["Dataset"]):
         its vertices, leaving straight edges, whereas GDAL densifies the cutline when it
         transforms it, so its masked region bulges past the vertex envelope on a curving
         projection — the window would under-cover it and the crop would come back
-        truncated. Same-CRS cutlines have straight, axis-aligned edges in source
-        coordinates, so the envelope is exact.
+        truncated. A same-CRS cutline is applied by GDAL with no transform and so no
+        densification, so its edges stay straight in source coordinates and the polygon's
+        `total_bounds` envelope is exact — for any polygon, not only axis-aligned ones.
 
         Returns `None`, falling back to the full-source warp, whenever the optimisation
         cannot be applied safely: a rotated, sheared or non-north-up geotransform; a
@@ -1650,7 +1651,9 @@ class Spatial(_Engine["Dataset"]):
         window = (
             self._cutline_window_bounds(self._ds, feature) if touch else None
         )
-        gt = self._ds._raster.GetGeoTransform()
+        # Pin the resolution to the source's own so the windowed warp is a pixel-exact
+        # subset and cannot resample; only needed when a window is set.
+        gt = self._ds._raster.GetGeoTransform() if window else None
         with _feature_ogr.as_vsimem_path(feature) as cutline_path:
             warp_options = gdal.WarpOptions(
                 format="VRT",
@@ -1658,8 +1661,8 @@ class Spatial(_Engine["Dataset"]):
                 cutlineDSName=cutline_path,
                 multithread=True,
                 outputBounds=window,
-                xRes=abs(gt[1]) if window else None,
-                yRes=abs(gt[5]) if window else None,
+                xRes=abs(gt[1]) if gt else None,
+                yRes=abs(gt[5]) if gt else None,
             )
             # base_cls is a dynamic MRO walk that always resolves to Dataset itself
             # (the class directly above RasterBase; see the comment above), never a
