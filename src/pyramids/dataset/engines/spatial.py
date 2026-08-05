@@ -1547,57 +1547,58 @@ class Spatial(_Engine["Dataset"]):
     ) -> tuple[float, float, float, float] | None:
         """The source-grid window that contains every cell the cutline can touch.
 
-        Returns `(west, south, east, north)` in the source CRS, snapped to source pixel
-        edges and grown by one cell on each side so a "touch" crop keeps every cell the
-        polygon merely grazes, then clipped to the source extent. `gdal.Warp` bounded to
-        this window masks and trims to exactly the same cells the full-source warp would,
-        because the cutline masks every cell outside the polygon regardless of the window
-        — only the read shrinks.
+        Returns `(west, south, east, north)` snapped to source pixel edges and grown by
+        one cell on each side so a "touch" crop keeps every cell the polygon merely
+        grazes, then clipped to the source extent. `gdal.Warp` bounded to this window
+        masks and trims to exactly the same cells the full-source warp would, because the
+        cutline masks every cell outside the polygon regardless of the window — only the
+        read shrinks.
 
-        Returns `None` when the optimisation cannot be applied safely, so the caller
-        falls back to the full-source warp: a rotated/sheared geotransform, a missing CRS
-        on either side, a reprojection that fails or yields non-finite bounds, or a
-        cutline that does not overlap the source (left for the existing "no valid pixels"
-        error to report).
+        The window is only computed when the cutline is **already in the source CRS**. A
+        reprojected cutline is not eligible: `geopandas` reprojects a polygon by moving
+        its vertices, leaving straight edges, whereas GDAL densifies the cutline when it
+        transforms it, so its masked region bulges past the vertex envelope on a curving
+        projection — the window would under-cover it and the crop would come back
+        truncated. Same-CRS cutlines have straight, axis-aligned edges in source
+        coordinates, so the envelope is exact.
+
+        Returns `None`, falling back to the full-source warp, whenever the optimisation
+        cannot be applied safely: a rotated, sheared or non-north-up geotransform; a
+        missing or differing CRS; a degenerate (non-finite) envelope; or a cutline that
+        does not overlap the source (left for the existing "no valid pixels" error).
 
         Args:
             src: The raster being cropped.
-            feature: The cutline, in its own CRS.
+            feature: The cutline.
 
         Returns:
             tuple[float, float, float, float] | None:
                 The clipped window, or None to fall back.
         """
-        gt = src._raster.GetGeoTransform()
-        if gt[2] or gt[4]:
-            # Rotated/sheared grid: pixel edges are not axis-aligned, so an
-            # axis-aligned outputBounds would not map cleanly onto them.
-            return None
+        window: tuple[float, float, float, float] | None = None
+        x0, dx, row_skew, y0, col_skew, dy = src._raster.GetGeoTransform()
         source_crs = src.crs
-        if not source_crs or feature.crs is None:
-            return None
-        try:
-            in_source_crs = feature.to_crs(source_crs)
-        except Exception:  # noqa: BLE001 -- any pyproj/geopandas failure => fall back
-            return None
-        minx, miny, maxx, maxy = (float(v) for v in in_source_crs.total_bounds)
-        if not all(np.isfinite(v) for v in (minx, miny, maxx, maxy)):
-            return None
-
-        x0, dx, _, y0, _, dy = gt
-        height = dy * src.rows  # dy is negative for a north-up grid
-        src_west, src_east = x0, x0 + dx * src.columns
-        src_south, src_north = y0 + height, y0
-        # Snap outward to whole pixels, then one cell of "touch" margin each side.
-        west = x0 + (math.floor((minx - x0) / dx) - 1) * dx
-        east = x0 + (math.ceil((maxx - x0) / dx) + 1) * dx
-        north = y0 + (math.floor((y0 - maxy) / -dy) - 1) * dy
-        south = y0 + (math.ceil((y0 - miny) / -dy) + 1) * dy
-        west, east = max(west, src_west), min(east, src_east)
-        south, north = max(south, src_south), min(north, src_north)
-        if west >= east or south >= north:
-            return None
-        return (west, south, east, north)
+        north_up = not row_skew and not col_skew and dx > 0 and dy < 0
+        same_crs = (
+            bool(source_crs)
+            and feature.crs is not None
+            and crs_equal(source_crs, feature.crs.to_wkt())
+        )
+        if north_up and same_crs:
+            minx, miny, maxx, maxy = (float(v) for v in feature.total_bounds)
+            if all(math.isfinite(v) for v in (minx, miny, maxx, maxy)):
+                src_west, src_east = x0, x0 + dx * src.columns
+                src_south, src_north = y0 + dy * src.rows, y0  # dy < 0
+                # Snap outward to whole pixels, then one cell of "touch" margin per side.
+                west = x0 + (math.floor((minx - x0) / dx) - 1) * dx
+                east = x0 + (math.ceil((maxx - x0) / dx) + 1) * dx
+                north = y0 + (math.floor((y0 - maxy) / -dy) - 1) * dy
+                south = y0 + (math.ceil((y0 - miny) / -dy) + 1) * dy
+                west, east = max(west, src_west), min(east, src_east)
+                south, north = max(south, src_south), min(north, src_north)
+                if west < east and south < north:
+                    window = (west, south, east, north)
+        return window
 
     def _crop_with_polygon_warp(
         self, feature: FeatureCollection | GeoDataFrame, touch: bool = True
@@ -1649,6 +1650,7 @@ class Spatial(_Engine["Dataset"]):
         window = (
             self._cutline_window_bounds(self._ds, feature) if touch else None
         )
+        gt = self._ds._raster.GetGeoTransform()
         with _feature_ogr.as_vsimem_path(feature) as cutline_path:
             warp_options = gdal.WarpOptions(
                 format="VRT",
@@ -1656,8 +1658,8 @@ class Spatial(_Engine["Dataset"]):
                 cutlineDSName=cutline_path,
                 multithread=True,
                 outputBounds=window,
-                xRes=abs(self._ds._raster.GetGeoTransform()[1]) if window else None,
-                yRes=abs(self._ds._raster.GetGeoTransform()[5]) if window else None,
+                xRes=abs(gt[1]) if window else None,
+                yRes=abs(gt[5]) if window else None,
             )
             # base_cls is a dynamic MRO walk that always resolves to Dataset itself
             # (the class directly above RasterBase; see the comment above), never a

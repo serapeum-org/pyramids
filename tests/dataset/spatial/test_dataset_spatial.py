@@ -893,16 +893,6 @@ class TestCutlineBorderTrim:
         )
 
 
-class _ReprojectionFails:
-    """A cutline stand-in that carries a CRS but always fails to reproject."""
-
-    crs = PyprojCRS.from_epsg(4326)
-
-    def to_crs(self, _crs):
-        """Raise as if pyproj could not project the cutline into the source CRS."""
-        raise RuntimeError("cutline reprojection failed")
-
-
 class TestCropBoundsTheReadToTheCrop:
     """#854: a touch=True polygon crop reads its output window, not the whole source."""
 
@@ -1041,11 +1031,55 @@ class TestCropBoundsTheReadToTheCrop:
             "a CRS-less source must fall back rather than assume the cutline's CRS"
         )
 
-    def test_window_is_none_when_reprojection_fails(self):
-        """A cutline whose reprojection raises falls back instead of propagating."""
+    def test_window_is_none_for_a_cutline_in_a_different_crs(self):
+        """A cutline not already in the source CRS is not eligible for the window.
+
+        Test scenario:
+            geopandas reprojects by moving vertices while GDAL densifies the cutline,
+            so a curving reprojection could under-cover GDAL's masked region; the helper
+            declines and the crop falls back to the correct full-source warp.
+        """
         dataset = self._large_source()
-        assert Spatial._cutline_window_bounds(dataset, _ReprojectionFails()) is None, (
-            "a pyproj/geopandas reprojection failure must fall back to the full warp"
+        reprojected = self._grid_aligned_mask().to_crs(32631)
+        assert Spatial._cutline_window_bounds(dataset, reprojected) is None, (
+            "a reprojected cutline must fall back rather than risk a truncated crop"
+        )
+
+    def test_window_is_none_for_a_south_up_grid(self):
+        """A non-north-up geotransform is declined, not mis-snapped.
+
+        Test scenario:
+            The pixel math assumes dx>0 and dy<0; a south-up (dy>0) grid would invert
+            the row snapping, so the helper must fall back rather than compute a wrong
+            window.
+        """
+        south_up = Dataset.create_from_array(
+            np.zeros((10, 10), dtype="float32"),
+            geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+            epsg=4326,
+        )
+        assert Spatial._cutline_window_bounds(south_up, self._grid_aligned_mask()) is None, (
+            "a south-up grid must fall back to the full-source warp"
+        )
+
+    def test_a_different_crs_cutline_crops_through_the_full_source_fallback(self):
+        """crop() completes for a cutline outside the source CRS, via the full warp.
+
+        Test scenario:
+            The helper declines a different-CRS cutline (it cannot bound a curving
+            reprojection safely), so crop() takes the full-source path and must still
+            return the region's real pixels, untruncated. The structural guarantee — the
+            window is never built for a different CRS — is pinned by
+            `test_window_is_none_for_a_cutline_in_a_different_crs`; here we confirm the
+            fallback is wired and produces a sound crop end to end.
+        """
+        mask = self._grid_aligned_mask().to_crs(32631)
+        cropped = self._large_source().crop(mask=mask, touch=True)
+        assert 45 <= cropped.shape[-2] <= 55 and 45 <= cropped.shape[-1] <= 55, (
+            f"the cross-CRS crop must cover the ~50x50 region, not a sliver: {cropped.shape}"
+        )
+        assert np.isfinite(np.asarray(cropped.read_array())).any(), (
+            "the fallback crop must contain real data"
         )
 
     def test_window_is_none_for_a_non_finite_envelope(self):
