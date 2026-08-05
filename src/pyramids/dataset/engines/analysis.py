@@ -2139,14 +2139,9 @@ class Analysis(_Engine["Dataset"]):
             and kwargs.get("cmap") is None
             and kwargs.get("color_scale") is None
         ):
-            full_color_table = self._ds.color_table
-            # ``_get_color_table`` numbers its ``band`` column 1-indexed (GDAL
-            # band number), while ``band`` here is the 0-indexed plot band.
-            band_color_table = (
-                full_color_table[full_color_table["band"] == band + 1]
-                if not full_color_table.empty
-                else full_color_table
-            )
+            # Read only the resolved band's colour table, not every band's — the
+            # full-dataset ``color_table`` rebuilds a row per entry for all bands.
+            band_color_table = self._ds.bands._get_color_table(band=band)
             if not band_color_table.empty:
                 cmap, bounds = self._palette_colormap(band_color_table)
                 kwargs["cmap"] = cmap
