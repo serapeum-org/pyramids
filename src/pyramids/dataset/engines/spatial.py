@@ -7,6 +7,7 @@ Owns the Spatial family of operations on a Dataset. Accessed as
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, overload
 from xml.sax.saxutils import escape  # nosec B406 - output escaping only
@@ -1540,6 +1541,66 @@ class Spatial(_Engine["Dataset"]):
         dst_obj = Spatial._correct_wrap_cutline_error(dst_obj)
         return dst_obj
 
+    @staticmethod
+    def _cutline_window_bounds(
+        src: RasterBase, feature: FeatureCollection | GeoDataFrame
+    ) -> tuple[float, float, float, float] | None:
+        """The source-grid window that contains every cell the cutline can touch.
+
+        Returns `(west, south, east, north)` snapped to source pixel edges and grown by
+        one cell on each side so a "touch" crop keeps every cell the polygon merely
+        grazes, then clipped to the source extent. `gdal.Warp` bounded to this window
+        masks and trims to exactly the same cells the full-source warp would, because the
+        cutline masks every cell outside the polygon regardless of the window — only the
+        read shrinks.
+
+        The window is only computed when the cutline is **already in the source CRS**. A
+        reprojected cutline is not eligible: `geopandas` reprojects a polygon by moving
+        its vertices, leaving straight edges, whereas GDAL densifies the cutline when it
+        transforms it, so its masked region bulges past the vertex envelope on a curving
+        projection — the window would under-cover it and the crop would come back
+        truncated. A same-CRS cutline is applied by GDAL with no transform and so no
+        densification, so its edges stay straight in source coordinates and the polygon's
+        `total_bounds` envelope is exact — for any polygon, not only axis-aligned ones.
+
+        Returns `None`, falling back to the full-source warp, whenever the optimisation
+        cannot be applied safely: a rotated, sheared or non-north-up geotransform; a
+        missing or differing CRS; a degenerate (non-finite) envelope; or a cutline that
+        does not overlap the source (left for the existing "no valid pixels" error).
+
+        Args:
+            src: The raster being cropped.
+            feature: The cutline.
+
+        Returns:
+            tuple[float, float, float, float] | None:
+                The clipped window, or None to fall back.
+        """
+        window: tuple[float, float, float, float] | None = None
+        x0, dx, row_skew, y0, col_skew, dy = src._raster.GetGeoTransform()
+        source_crs = src.crs
+        north_up = not row_skew and not col_skew and dx > 0 and dy < 0
+        same_crs = (
+            bool(source_crs)
+            and feature.crs is not None
+            and crs_equal(source_crs, feature.crs.to_wkt())
+        )
+        if north_up and same_crs:
+            minx, miny, maxx, maxy = (float(v) for v in feature.total_bounds)
+            if all(math.isfinite(v) for v in (minx, miny, maxx, maxy)):
+                src_west, src_east = x0, x0 + dx * src.columns
+                src_south, src_north = y0 + dy * src.rows, y0  # dy < 0
+                # Snap outward to whole pixels, then one cell of "touch" margin per side.
+                west = x0 + (math.floor((minx - x0) / dx) - 1) * dx
+                east = x0 + (math.ceil((maxx - x0) / dx) + 1) * dx
+                north = y0 + (math.floor((y0 - maxy) / -dy) - 1) * dy
+                south = y0 + (math.ceil((y0 - miny) / -dy) + 1) * dy
+                west, east = max(west, src_west), min(east, src_east)
+                south, north = max(south, src_south), min(north, src_north)
+                if west < east and south < north:
+                    window = (west, south, east, north)
+        return window
+
     def _crop_with_polygon_warp(
         self, feature: FeatureCollection | GeoDataFrame, touch: bool = True
     ) -> Dataset:
@@ -1581,12 +1642,25 @@ class Spatial(_Engine["Dataset"]):
         # The warp output (VRT) may resolve the cutline lazily, so we must
         # complete every access that could touch the cutline path inside
         # the with-block that keeps that path alive.
+        # With touch=True the warp keeps the whole source grid (cropToCutline is
+        # False) and _correct_wrap_cutline_error reads it back to trim the no-data
+        # border, so peak memory tracked the *source*, not the crop (#854). Bound the
+        # warp to the cutline's own window first: the trimmed result is identical
+        # because every non-no-data cell lives inside that window, but the read shrinks
+        # from the source to the crop. cropToCutline already bounds the touch=False path.
+        window = self._cutline_window_bounds(self._ds, feature) if touch else None
+        # Pin the resolution to the source's own so the windowed warp is a pixel-exact
+        # subset and cannot resample; only needed when a window is set.
+        gt = self._ds._raster.GetGeoTransform() if window else None
         with _feature_ogr.as_vsimem_path(feature) as cutline_path:
             warp_options = gdal.WarpOptions(
                 format="VRT",
                 cropToCutline=not touch,
                 cutlineDSName=cutline_path,
                 multithread=True,
+                outputBounds=window,
+                xRes=abs(gt[1]) if gt else None,
+                yRes=abs(gt[5]) if gt else None,
             )
             # base_cls is a dynamic MRO walk that always resolves to Dataset itself
             # (the class directly above RasterBase; see the comment above), never a

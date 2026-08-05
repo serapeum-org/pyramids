@@ -11,10 +11,11 @@ import pytest
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
 from pyproj import CRS as PyprojCRS
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, box
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.spatial import Spatial
+from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
 
@@ -891,3 +892,305 @@ class TestCutlineBorderTrim:
         assert (trimmed.geotransform[0], trimmed.geotransform[3]) == (1.0, 4.0), (
             f"expected the origin at (1.0, 4.0), got {trimmed.geotransform[:4]}"
         )
+
+
+class TestCropBoundsTheReadToTheCrop:
+    """#854: a touch=True polygon crop reads its output window, not the whole source."""
+
+    @staticmethod
+    def _large_source(no_data: float = -9999.0) -> Dataset:
+        """A 400x400 raster over x[0,4] y[0,4] with a no-data value set."""
+        array = np.arange(400 * 400, dtype="float32").reshape(400, 400)
+        return Dataset.create_from_array(
+            array,
+            top_left_corner=(0.0, 4.0),
+            cell_size=0.01,
+            epsg=4326,
+            no_data_value=no_data,
+        )
+
+    @staticmethod
+    def _crs_less_source(no_data: float = -9999.0) -> Dataset:
+        """The `_large_source` grid built via a raw MEM raster with no projection set."""
+        array = np.arange(400 * 400, dtype="float32").reshape(400, 400)
+        mem = gdal.GetDriverByName("MEM").Create("", 400, 400, 1, gdal.GDT_Float32)
+        mem.SetGeoTransform((0.0, 0.01, 0.0, 4.0, 0.0, -0.01))
+        band = mem.GetRasterBand(1)
+        band.WriteArray(array)
+        band.SetNoDataValue(no_data)
+        return Dataset(mem)
+
+    @staticmethod
+    def _grid_aligned_mask() -> gpd.GeoDataFrame:
+        """A 50x50-cell box whose edges sit on the source's cell boundaries."""
+        return gpd.GeoDataFrame(geometry=[box(1.0, 3.0, 1.5, 3.5)], crs=4326)
+
+    def test_touch_true_reads_the_crop_window_not_the_source(self, monkeypatch):
+        """Peak read tracks the output, not the source — the #854 regression.
+
+        Test scenario:
+            A 50x50 window is cropped from a 400x400 source. Before the fix the
+            trim read the full 160000-cell source back; now it reads ~the output.
+        """
+        dataset = self._large_source()
+        peak = {"cells": 0}
+        original = Dataset.read_array
+
+        def spy(self, *args, **kwargs):
+            arr = original(self, *args, **kwargs)
+            peak["cells"] = max(peak["cells"], getattr(arr, "size", 0))
+            return arr
+
+        monkeypatch.setattr(Dataset, "read_array", spy)
+        out = dataset.crop(mask=self._grid_aligned_mask(), touch=True)
+        output_cells = out.shape[-1] * out.shape[-2]
+        assert peak["cells"] <= 4 * output_cells, (
+            f"the crop must read ~its output ({output_cells} cells), not the "
+            f"400x400 source; read {peak['cells']}"
+        )
+        assert peak["cells"] < 160000, "the full source array must not be read"
+
+    def test_bounded_touch_crop_equals_the_unbounded_reference(self):
+        """touch=True (windowed warp + NumPy trim) matches touch=False (cropToCutline).
+
+        Test scenario:
+            The two paths share no code — touch=False crops to the cutline inside
+            GDAL, touch=True windows the warp then trims in NumPy — so on a
+            grid-aligned box, where "touch" and "inside" coincide, an identical
+            result is strong evidence the window dropped or added no pixel.
+        """
+        dataset = self._large_source()
+        mask = self._grid_aligned_mask()
+        windowed = dataset.crop(mask=mask, touch=True)
+        reference = dataset.crop(mask=mask, touch=False)
+        assert windowed.shape == reference.shape, (
+            f"shapes differ: {windowed.shape} vs {reference.shape}"
+        )
+        np.testing.assert_array_equal(
+            np.asarray(windowed.read_array()), np.asarray(reference.read_array())
+        )
+        # The two paths reach the origin through different float arithmetic, so it
+        # can differ by a ULP (~1e-16 deg); every practical tolerance is far coarser.
+        np.testing.assert_allclose(
+            windowed.geotransform, reference.geotransform, atol=1e-9
+        )
+
+    def test_window_covers_the_cutline_with_a_one_cell_margin(self):
+        """The window contains the polygon envelope plus a cell of touch margin.
+
+        Test scenario:
+            The margin is what lets a grazing cell survive the trim, so the
+            window must reach one cell beyond the envelope on every side and stay
+            snapped to the source grid.
+        """
+        dataset = self._large_source()
+        west, south, east, north = Spatial._cutline_window_bounds(
+            dataset, self._grid_aligned_mask()
+        )
+        assert west <= 1.0 - 0.01 + 1e-9, f"the window must clear the west edge: {west}"
+        assert east >= 1.5 + 0.01 - 1e-9, f"the window must clear the east edge: {east}"
+        assert south <= 3.0 - 0.01 + 1e-9, (
+            f"the window must clear the south edge: {south}"
+        )
+        assert north >= 3.5 + 0.01 - 1e-9, (
+            f"the window must clear the north edge: {north}"
+        )
+        assert abs((west / 0.01) - round(west / 0.01)) < 1e-6, (
+            "the window edges must stay snapped to the source grid"
+        )
+
+    def test_window_is_none_for_a_rotated_grid(self):
+        """A sheared geotransform disables the optimisation and falls back safely.
+
+        Test scenario:
+            Rotated pixels are not axis-aligned, so an axis-aligned outputBounds
+            cannot map onto them; the helper returns None and the caller warps
+            the full source as before.
+        """
+        rotated = Dataset.create_from_array(
+            np.zeros((10, 10), dtype="float32"),
+            geo=(0.0, 1.0, 0.5, 10.0, 0.5, -1.0),
+            epsg=4326,
+        )
+        assert (
+            Spatial._cutline_window_bounds(rotated, self._grid_aligned_mask()) is None
+        ), "a rotated grid must fall back to the full-source warp"
+
+    def test_window_is_none_when_the_cutline_has_no_crs(self):
+        """Without a cutline CRS the envelope cannot be projected; fall back."""
+        dataset = self._large_source()
+        crs_less = gpd.GeoDataFrame(geometry=[box(1.0, 3.0, 1.5, 3.5)], crs=None)
+        assert Spatial._cutline_window_bounds(dataset, crs_less) is None, (
+            "a CRS-less cutline must fall back rather than guess a projection"
+        )
+
+    def test_window_is_none_when_the_source_has_no_crs(self):
+        """A source with no projection cannot host the reprojected envelope; fall back."""
+        crs_less_source = self._crs_less_source()
+        window = Spatial._cutline_window_bounds(
+            crs_less_source, self._grid_aligned_mask()
+        )
+        assert window is None, (
+            "a CRS-less source must fall back rather than assume the cutline's CRS"
+        )
+
+    def test_the_window_is_lossless_on_a_non_grid_aligned_polygon(self, monkeypatch):
+        """A same-CRS polygon with mid-cell vertices crops identically windowed or full.
+
+        Test scenario:
+            Every other equivalence test uses a grid-aligned box, so the floor/ceil
+            snapping and the one-cell touch margin are never exercised on an edge that
+            falls between cell boundaries. This polygon's vertices sit mid-cell; the
+            windowed touch=True crop must byte-match the same crop with the window forced
+            off, proving the arithmetic loses no grazed cell.
+        """
+        mask = gpd.GeoDataFrame(
+            geometry=[
+                Polygon(
+                    [(1.013, 3.027), (1.487, 2.964), (1.402, 2.511), (0.978, 2.603)]
+                )
+            ],
+            crs=4326,
+        )
+        windowed = self._large_source().crop(mask=mask, touch=True)
+        monkeypatch.setattr(
+            Spatial, "_cutline_window_bounds", staticmethod(lambda src, feature: None)
+        )
+        full = self._large_source().crop(mask=mask, touch=True)
+        assert windowed.shape == full.shape, (
+            f"the window truncated a non-aligned polygon: {windowed.shape} vs {full.shape}"
+        )
+        np.testing.assert_array_equal(
+            np.asarray(windowed.read_array()), np.asarray(full.read_array())
+        )
+
+    def test_a_feature_collection_gives_the_same_window_as_a_geodataframe(self):
+        """The helper answers identically for the FeatureCollection production passes it.
+
+        Test scenario:
+            The unit tests exercise the helper with a raw GeoDataFrame, but crop() always
+            hands it a FeatureCollection; confirm the two forms of the same mask yield the
+            same window.
+        """
+        gdf = self._grid_aligned_mask()
+        from_gdf = Spatial._cutline_window_bounds(self._large_source(), gdf)
+        from_fc = Spatial._cutline_window_bounds(
+            self._large_source(), FeatureCollection(gdf)
+        )
+        assert from_gdf == from_fc, (
+            f"FeatureCollection and GeoDataFrame must agree: {from_fc} vs {from_gdf}"
+        )
+        assert from_gdf is not None, "precondition: a same-CRS mask yields a window"
+
+    def test_window_is_none_for_a_cutline_in_a_different_crs(self):
+        """A cutline not already in the source CRS is not eligible for the window.
+
+        Test scenario:
+            geopandas reprojects by moving vertices while GDAL densifies the cutline,
+            so a curving reprojection could under-cover GDAL's masked region; the helper
+            declines and the crop falls back to the correct full-source warp.
+        """
+        dataset = self._large_source()
+        reprojected = self._grid_aligned_mask().to_crs(32631)
+        assert Spatial._cutline_window_bounds(dataset, reprojected) is None, (
+            "a reprojected cutline must fall back rather than risk a truncated crop"
+        )
+
+    def test_window_is_none_for_a_south_up_grid(self):
+        """A non-north-up geotransform is declined, not mis-snapped.
+
+        Test scenario:
+            The pixel math assumes dx>0 and dy<0; a south-up (dy>0) grid would invert
+            the row snapping, so the helper must fall back rather than compute a wrong
+            window.
+        """
+        south_up = Dataset.create_from_array(
+            np.zeros((10, 10), dtype="float32"),
+            geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+            epsg=4326,
+        )
+        window = Spatial._cutline_window_bounds(south_up, self._grid_aligned_mask())
+        assert window is None, "a south-up grid must fall back to the full-source warp"
+
+    def test_a_different_crs_cutline_crops_through_the_full_source_fallback(self):
+        """crop() completes for a cutline outside the source CRS, via the full warp.
+
+        Test scenario:
+            The helper declines a different-CRS cutline (it cannot bound a curving
+            reprojection safely), so crop() takes the full-source path and must still
+            return the region's real pixels, untruncated. The structural guarantee — the
+            window is never built for a different CRS — is pinned by
+            `test_window_is_none_for_a_cutline_in_a_different_crs`; here we confirm the
+            fallback is wired and produces a sound crop end to end.
+        """
+        mask = self._grid_aligned_mask().to_crs(32631)
+        cropped = self._large_source().crop(mask=mask, touch=True)
+        assert 45 <= cropped.shape[-2] <= 55, (
+            f"the cross-CRS crop's rows must cover the ~50-cell region: {cropped.shape}"
+        )
+        assert 45 <= cropped.shape[-1] <= 55, (
+            f"the cross-CRS crop's cols must cover the ~50-cell region: {cropped.shape}"
+        )
+        assert np.isfinite(np.asarray(cropped.read_array())).any(), (
+            "the fallback crop must contain real data"
+        )
+
+    def test_window_is_none_for_a_non_finite_envelope(self):
+        """An empty cutline yields NaN bounds, so the helper falls back."""
+        dataset = self._large_source()
+        empty = gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs=4326))
+        assert Spatial._cutline_window_bounds(dataset, empty) is None, (
+            "a non-finite (NaN) envelope must fall back to the full-source warp"
+        )
+
+    def test_window_is_none_when_the_cutline_is_outside_the_source(self):
+        """A cutline beyond the source extent clips to an empty window; fall back."""
+        dataset = self._large_source()
+        outside = gpd.GeoDataFrame(geometry=[box(10.0, 10.0, 11.0, 11.0)], crs=4326)
+        assert Spatial._cutline_window_bounds(dataset, outside) is None, (
+            "a cutline off the source must clip to empty and fall back"
+        )
+
+    def test_crop_falls_back_to_the_full_source_warp_when_the_window_is_none(self):
+        """A CRS-less source (window=None) crops to the exact same pixels as the windowed path."""
+        crs_less_mask = gpd.GeoDataFrame(geometry=[box(1.0, 3.0, 1.5, 3.5)], crs=None)
+        reference = self._large_source().crop(
+            mask=self._grid_aligned_mask(), touch=True
+        )
+        crs_less_source = self._crs_less_source()
+        assert Spatial._cutline_window_bounds(crs_less_source, crs_less_mask) is None, (
+            "a CRS-less source must trigger the full-source fallback"
+        )
+        fallback = crs_less_source.crop(mask=crs_less_mask, touch=True)
+        assert fallback.shape == reference.shape, (
+            f"fallback shape {fallback.shape} != reference {reference.shape}"
+        )
+        np.testing.assert_array_equal(
+            np.asarray(fallback.read_array()), np.asarray(reference.read_array())
+        )
+
+    def test_bounded_touch_crop_is_grid_origin_independent(self):
+        """The windowed crop matches the reference on a 0..360-longitude grid too."""
+        array = np.arange(200 * 200, dtype="float32").reshape(200, 200)
+        source = Dataset.create_from_array(
+            array,
+            top_left_corner=(200.0, 40.0),
+            cell_size=0.1,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        mask = gpd.GeoDataFrame(geometry=[box(210.0, 22.0, 213.0, 25.0)], crs=4326)
+        windowed = source.crop(mask=mask, touch=True)
+        reference = source.crop(mask=mask, touch=False)
+        assert windowed.shape == reference.shape, (
+            f"shapes differ on a 0..360 grid: {windowed.shape} vs {reference.shape}"
+        )
+        np.testing.assert_array_equal(
+            np.asarray(windowed.read_array()), np.asarray(reference.read_array())
+        )
+
+    def test_crop_with_polygon_warp_rejects_a_non_feature(self):
+        """A mask that is neither GeoDataFrame nor FeatureCollection raises TypeError."""
+        dataset = self._large_source()
+        with pytest.raises(TypeError, match="FeatureCollection or GeoDataFrame"):
+            dataset.spatial._crop_with_polygon_warp("not a feature", touch=True)
