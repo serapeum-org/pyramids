@@ -707,9 +707,9 @@ class Dataset(RasterBase):
               ```
 
             - A ``palette_index`` band is not an RGB channel, so it does not trigger
-              the RGB branch — the raster resolves to a single band (rule 3, #910).
-              A fresh dataset is built here so the example is independent of the
-              tags set above:
+              the RGB branch — the raster resolves to the paletted band so its GDAL
+              colour table renders (#913; band ``0`` here). A fresh dataset is built
+              here so the example is independent of the tags set above:
 
               ```python
               >>> paletted = np.random.rand(3, 8, 8).astype(np.float32)
@@ -744,16 +744,25 @@ class Dataset(RasterBase):
         RGB imagery; ``undefined``, ``palette_index``, ``gray_index`` and the
         other single-channel/paletted interpretations do not -- otherwise a
         multi-band raster carrying any of them is mis-resolved as a false-colour
-        RGB composite (see #910). A non-RGB raster renders a single band: band 0
-        by default, or ``rgb[0]`` when an explicit ``rgb`` is supplied, so the
-        downstream ``exclude_value`` nodata mask keys off the same band the RGB
-        render uses.
+        RGB composite (see #910). A non-RGB raster renders a single band:
+        ``rgb[0]`` when an explicit ``rgb`` is supplied, else the first
+        ``palette_index`` band so its GDAL colour table renders (#913), else
+        band 0. The downstream ``exclude_value`` nodata mask keys off the same
+        band the render uses.
         """
         band_colors = list(self.band_color.values())
         has_rgb_interp = any(c in RGB_CHANNEL_INTERPS for c in band_colors)
         if not has_rgb_interp:
             resolved_rgb = rgb
-            resolved_band = int(rgb[0]) if rgb is not None else 0
+            if rgb is not None:
+                resolved_band = int(rgb[0])
+            else:
+                # Prefer a paletted band so its colour table renders (#913),
+                # otherwise fall back to band 0.
+                palette_bands = [
+                    i for i, c in enumerate(band_colors) if c == "palette_index"
+                ]
+                resolved_band = palette_bands[0] if palette_bands else 0
         else:
             resolved_rgb = rgb if rgb is not None else self._infer_rgb_band_order()
             resolved_band = int(resolved_rgb[0])

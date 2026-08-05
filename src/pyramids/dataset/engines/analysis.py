@@ -1958,6 +1958,12 @@ class Analysis(_Engine["Dataset"]):
         heuristic, no `ColorInterpretation` lookup, no default-to-zero fallback) \u2014 those
         are dataset-type-specific decisions that belong on the facades.
 
+        When the resolved band carries a GDAL colour table and the caller passes neither
+        ``cmap`` nor ``color_scale``, the raster renders through that palette: the colour
+        table is turned into a colormap and handed to cleopatra with
+        ``color_scale="boundary-norm"`` so each pixel value shows its own colour (#913).
+        An explicit ``cmap`` / ``color_scale`` opts out.
+
         The plot function uses the `cleopatra` as a backend to plot the raster data, for more information check
         [ArrayGlyph](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/#cleopatra.array_glyph.ArrayGlyph.plot).
 
@@ -2122,6 +2128,26 @@ class Analysis(_Engine["Dataset"]):
         effective_extent = (
             injected_extent if injected_extent is not None else self._ds.bbox
         )
+        # Render a paletted band through its GDAL colour table (#913): build a
+        # discrete colormap from the palette and hand it to cleopatra as an
+        # explicit ``cmap`` + ``color_scale="boundary-norm"``. Only the single-band
+        # static path (no ``rgb``, no facet) carries a palette, and an explicit
+        # ``cmap`` / ``color_scale`` / ``bounds`` from the caller wins over it.
+        if (
+            mode == "plot"
+            and rgb is None
+            and kwargs.get("cmap") is None
+            and kwargs.get("color_scale") is None
+            and kwargs.get("bounds") is None
+        ):
+            # Read only the resolved band's colour table, not every band's — the
+            # full-dataset ``color_table`` rebuilds a row per entry for all bands.
+            band_color_table = self._ds.bands._get_color_table(band=band)
+            if not band_color_table.empty:
+                cmap, bounds = self._palette_colormap(band_color_table)
+                kwargs["cmap"] = cmap
+                kwargs["color_scale"] = "boundary-norm"
+                kwargs["bounds"] = bounds
         return render_array(
             arr=arr,
             extent=effective_extent,
@@ -2220,3 +2246,56 @@ class Analysis(_Engine["Dataset"]):
         else:
             color_df.loc[:, "alpha"] = color_table["alpha"]
         return color_df
+
+    @staticmethod
+    def _palette_colormap(color_table: DataFrame) -> tuple[Any, list[float]]:
+        """Build a colormap + boundary edges from a GDAL colour table.
+
+        Normalises the ``[values, red, green, blue, alpha]`` colour table (via
+        :meth:`_process_color_table`) into a matplotlib ``ListedColormap`` carrying the
+        palette's exact colours, and derives the ``BoundaryNorm`` bin edges from
+        cleopatra's ``category_boundaries``. The colormap is handed to cleopatra as an
+        explicit ``cmap`` with ``color_scale="boundary-norm"`` so a paletted raster
+        renders through its own colours — pyramids only builds the mapping; cleopatra
+        draws it.
+
+        cleopatra renders with ``BoundaryNorm(bounds, ncolors=256)``, so the palette is
+        turned into a **256-entry step lookup** whose slots are filled by asking that
+        exact norm which slot each class maps to and placing the class's colour there.
+        Each class then indexes its own exact, opaque colour regardless of the
+        palette's value range. (A fixed round-trip formula mis-indexes once the
+        densified entry count exceeds ~131, because the norm stretches regions to slots
+        by truncation; a ``LinearSegmentedColormap`` would instead interpolate between
+        stops, bleeding alpha toward GDAL's transparent ``(0, 0, 0, 0)`` gap-filler
+        entries — GDAL densifies a colour table to ``0..maxvalue``.) An exact
+        one-swatch-per-class rendering with a discrete legend would need a first-class
+        categorical colour-table API on cleopatra's ``ArrayGlyph``; see the follow-up
+        tracked for #913.
+
+        Args:
+            color_table (DataFrame):
+                The band's colour table — ``values`` plus ``red``/``green``/``blue``
+                (and optional ``alpha``), or a hex ``color`` column. Must be non-empty
+                (the plot path only calls this once a colour table is present).
+
+        Returns:
+            tuple[matplotlib.colors.ListedColormap, list[float]]:
+                The 256-entry step colormap and the ``len(values) + 1`` ascending
+                boundary edges, sorted by colour-table value.
+        """
+        require_cleopatra()
+        from cleopatra.colors import category_boundaries
+        from matplotlib.colors import BoundaryNorm, ListedColormap
+
+        processed = Analysis._process_color_table(color_table).sort_values("values")
+        rgba = (
+            processed[["red", "green", "blue", "alpha"]].to_numpy(dtype=float) / 255.0
+        )
+        values = [float(v) for v in processed["values"].to_list()]
+        bounds = category_boundaries(values)
+        norm = BoundaryNorm(bounds, 256)
+        slots = np.asarray(norm(np.asarray(values))).astype(int)
+        lut = np.tile(rgba[0], (256, 1))
+        lut[slots] = rgba
+        cmap = ListedColormap(lut)
+        return cmap, bounds
