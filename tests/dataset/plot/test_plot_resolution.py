@@ -152,8 +152,8 @@ class TestResolvePlotBandPolicy:
         assert resolved_rgb is None
 
     @pytest.mark.parametrize("palette_band", [0, 1, 2])
-    def test_paletted_band_not_treated_as_rgb(self, palette_band):
-        """#910: a ``palette_index`` band must not trigger the RGB heuristic.
+    def test_paletted_band_resolves_to_its_band(self, palette_band):
+        """#910/#913: a ``palette_index`` band resolves to itself, never RGB.
 
         Args:
             palette_band: Which band carries the palette (0, 1, or 2); the
@@ -162,15 +162,10 @@ class TestResolvePlotBandPolicy:
         Test scenario:
             A paletted band is rendered through its colour table, not as an
             RGB channel. A 3-band raster with a palette on one band (others
-            ``undefined``) must resolve to ``(0, None)`` and emit no
-            deprecation warning — not be mis-read as false-colour RGB
-            ``[2, 1, 0]`` with the Sentinel-2 fallback warning.
-
-            Note: ``resolved_band == 0`` is a deliberate placeholder even when
-            the palette sits on band 1 or 2 — the plot path does not yet render
-            a palette through its colour table (see #910), so no specific band
-            is more meaningful today. Revisit this assertion when paletted
-            rendering lands.
+            ``undefined``) must resolve to ``(palette_band, None)`` — so its
+            GDAL colour table renders (#913) — and emit no deprecation warning,
+            not be mis-read as false-colour RGB ``[2, 1, 0]`` with the
+            Sentinel-2 fallback warning.
         """
         rng = np.random.default_rng(910)
         arr = rng.random((3, 6, 6)).astype("float32")
@@ -185,8 +180,8 @@ class TestResolvePlotBandPolicy:
                 band=None, rgb=None
             )
         deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
-        assert resolved_band == 0, (
-            f"Paletted raster must resolve to band 0, got {resolved_band}"
+        assert resolved_band == palette_band, (
+            f"paletted raster must resolve to band {palette_band}, got {resolved_band}"
         )
         assert resolved_rgb is None, (
             f"rgb must stay None for a paletted raster, got {resolved_rgb}"

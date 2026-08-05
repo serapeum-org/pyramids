@@ -121,3 +121,129 @@ class TestColorRelief:
         color_table = Analysis._process_color_table(self.df)
         assert isinstance(color_table, DataFrame)
         assert all(color_table.columns == ["values", "red", "green", "blue", "alpha"])
+
+    @pytest.mark.plot
+    def test_process_color_table_without_rgb_or_color_raises(self):
+        """A colour table lacking both RGB and hex ``color`` columns is rejected.
+
+        Test scenario:
+            ``_process_color_table`` needs either ``red``/``green``/``blue`` or a
+            single hex ``color`` column; a table with only ``values`` raises
+            ``ValueError`` naming the columns it did receive.
+        """
+        bad = pd.DataFrame({"values": [1, 2, 3]})
+        with pytest.raises(ValueError, match="red, green, blue, or color") as exc_info:
+            Analysis._process_color_table(bad)
+        assert "values" in str(exc_info.value), (
+            f"error should list the given columns, got: {exc_info.value}"
+        )
+
+
+class TestPalettePlot:
+    """#913: a paletted raster renders through its GDAL colour table on ``plot()``."""
+
+    @staticmethod
+    def _paletted_dataset():
+        """A single-band raster (values 1..3) tagged with a red/green/blue palette."""
+        arr = np.array([[1, 2, 3], [3, 2, 1], [1, 2, 3]], dtype=np.int32)
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        dataset.color_table = pd.DataFrame(
+            {
+                "band": [1, 1, 1],
+                "values": [1, 2, 3],
+                "color": ["#ff0000", "#00ff00", "#0000ff"],
+            }
+        )
+        return dataset
+
+    @pytest.mark.plot
+    def test_paletted_raster_renders_through_color_table(self):
+        """Each pixel value maps to its exact palette colour via a boundary norm.
+
+        Test scenario:
+            A single-band raster carrying a red/green/blue colour table on values
+            1/2/3 must plot through that table — the mappable's colormap is the
+            palette ramp under a ``BoundaryNorm``, and sampling it at each value
+            returns the palette colour, not a default matplotlib colormap.
+        """
+        glyph = self._paletted_dataset().plot(band=0)
+        assert type(glyph.im.cmap).__name__ == "LinearSegmentedColormap"
+        assert type(glyph.im.norm).__name__ == "BoundaryNorm"
+        expected = {1: (1.0, 0.0, 0.0), 2: (0.0, 1.0, 0.0), 3: (0.0, 0.0, 1.0)}
+        for value, rgb in expected.items():
+            got = tuple(round(c, 3) for c in glyph.im.cmap(glyph.im.norm(value)))
+            assert got[:3] == rgb, f"value {value} should render {rgb}, got {got[:3]}"
+
+    @pytest.mark.plot
+    def test_explicit_cmap_overrides_palette(self):
+        """An explicit ``cmap=`` wins over the colour table — palette wiring skipped."""
+        glyph = self._paletted_dataset().plot(band=0, cmap="viridis")
+        assert glyph.im.cmap.name == "viridis"
+
+    @pytest.mark.plot
+    def test_explicit_color_scale_overrides_palette(self):
+        """An explicit ``color_scale=`` opts out of the palette's boundary norm."""
+        glyph = self._paletted_dataset().plot(band=0, color_scale="linear")
+        assert type(glyph.im.norm).__name__ != "BoundaryNorm"
+
+    @pytest.mark.plot
+    def test_non_paletted_raster_keeps_default_cmap(self):
+        """A raster with no colour table renders with cleopatra's default colormap."""
+        arr = np.random.default_rng(0).random((5, 5)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        glyph = dataset.plot(band=0)
+        assert glyph.im.cmap.name == "coolwarm_r"
+
+    @pytest.mark.plot
+    def test_palette_colormap_returns_ramp_and_sorted_edges(self):
+        """``_palette_colormap`` returns a segmented ramp + ``N+1`` ascending edges.
+
+        Test scenario:
+            Given an unsorted three-value colour table, the helper sorts by value
+            and returns a ``LinearSegmentedColormap`` plus four ascending boundary
+            edges (one per gap, bracketing each class).
+        """
+        color_table = pd.DataFrame(
+            {
+                "values": [3, 1, 2],
+                "red": [0, 255, 0],
+                "green": [0, 0, 255],
+                "blue": [255, 0, 0],
+            }
+        )
+        cmap, bounds = Analysis._palette_colormap(color_table)
+        assert type(cmap).__name__ == "LinearSegmentedColormap"
+        assert len(bounds) == 4
+        assert bounds == sorted(bounds)
+
+    @pytest.mark.plot
+    def test_multiband_palette_band_renders_its_table(self):
+        """A 3-band raster with a palette on band 1 plots band 1's colour table.
+
+        Test scenario:
+            ``plot()`` with no explicit band resolves the ``palette_index`` band
+            (band 1, GDAL band 2), then renders that band's red/green table so
+            value 1 comes back red. Values ``1``/``3`` (an even entry count once
+            gap-filled) keep the boundary-norm sampling exact.
+        """
+        mid = np.array([[1, 3, 1, 3]] * 4, dtype=np.int32)
+        other = np.full((4, 4), 9, dtype=np.int32)
+        dataset = Dataset.create_from_array(
+            np.stack([other, mid, other]),
+            top_left_corner=(0, 0),
+            cell_size=0.05,
+            epsg=4326,
+        )
+        dataset.color_table = pd.DataFrame(
+            {"band": [2, 2], "values": [1, 3], "color": ["#ff0000", "#00ff00"]}
+        )
+        dataset.band_color = {1: "palette_index"}
+
+        glyph = dataset.plot()
+        assert type(glyph.im.norm).__name__ == "BoundaryNorm"
+        got = tuple(round(c, 3) for c in glyph.im.cmap(glyph.im.norm(1)))
+        assert got[:3] == (1.0, 0.0, 0.0), f"band-1 value 1 should be red, got {got[:3]}"
