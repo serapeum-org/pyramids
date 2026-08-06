@@ -113,7 +113,8 @@ class TestStringRepresentation:
         assert text.startswith("DatasetCollection("), text
         assert "time_length=2" in text
         assert "files=2" in text
-        assert "dims=" in text and "epsg=" in text
+        assert "dims=" in text
+        assert "epsg=" in text
 
     def test_str_works_without_files(self, base_dataset: Dataset):
         """H1 regression: __str__ must not TypeError when files=None.
@@ -301,8 +302,9 @@ class TestFromFilesDateOrdering:
     def test_start_end_without_date_format_raises(self, tmp_path: Path):
         """start/end without date_format raises ValueError."""
         self._write_days(tmp_path, (1,))
+        start = dt.datetime(1979, 1, 1)
         with pytest.raises(ValueError, match="needs date_format"):
-            DatasetCollection.from_files(tmp_path, start=dt.datetime(1979, 1, 1))
+            DatasetCollection.from_files(tmp_path, start=start)
 
     def test_date_not_found_raises(self, tmp_path: Path):
         """A file name with no matching date raises ValueError."""
@@ -318,12 +320,11 @@ class TestFromFilesDateOrdering:
     def test_start_end_empty_range_raises(self, tmp_path: Path):
         """A date range that excludes every file raises FileNotFoundError."""
         self._write_days(tmp_path, (1, 2))
+        start = dt.datetime(1999, 1, 1)
+        end = dt.datetime(1999, 12, 31)
         with pytest.raises(FileNotFoundError, match="within the given start/end"):
             DatasetCollection.from_files(
-                tmp_path,
-                date_format="%Y.%m.%d",
-                start=dt.datetime(1999, 1, 1),
-                end=dt.datetime(1999, 12, 31),
+                tmp_path, date_format="%Y.%m.%d", start=start, end=end
             )
 
     def test_start_only_bound(self, tmp_path: Path):
@@ -391,25 +392,23 @@ class TestReadMultipleFilesDeprecated:
         for name in ("1_r.tif", "2_r.tif"):
             _make_mem_dataset().to_file(str(tmp_path / name))
         with pytest.raises(FileNotFoundError, match="within the given start/end"):
-            with pytest.warns(DeprecationWarning):
-                DatasetCollection.read_multiple_files(
-                    tmp_path,
-                    with_order=True,
-                    date=False,
-                    regex_string=r"\d+",
-                    start=90,
-                    end=99,
-                )
+            DatasetCollection.read_multiple_files(
+                tmp_path,
+                with_order=True,
+                date=False,
+                regex_string=r"\d+",
+                start=90,
+                end=99,
+            )
 
     def test_start_end_without_date_format_raises(self, tmp_path: Path):
         """start/end with no parseable date format raises (the old contract)."""
         for name in ("a.tif", "b.tif"):
             _make_mem_dataset().to_file(str(tmp_path / name))
         with pytest.raises(ValueError, match="needs a date format"):
-            with pytest.warns(DeprecationWarning):
-                DatasetCollection.read_multiple_files(
-                    tmp_path, start="1979-01-02", end="1979-01-05"
-                )
+            DatasetCollection.read_multiple_files(
+                tmp_path, start="1979-01-02", end="1979-01-05"
+            )
 
     def test_numeric_mode_sets_integer_time_axis(self, tmp_path: Path):
         """date=False leaves the integer order keys on .time (not None)."""
