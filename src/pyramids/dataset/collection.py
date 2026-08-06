@@ -54,6 +54,10 @@ if TYPE_CHECKING:
     from dask.delayed import Delayed
 
 
+_DEFAULT_GLOB = "*.tif"
+_EMPTY_RANGE_MSG = "no files fall within the given start/end range"
+
+
 class _GroupedCollection:
     """Lightweight view over a :class:`DatasetCollection` grouped by label.
 
@@ -1818,7 +1822,7 @@ class DatasetCollection:
         cls,
         files: str | Path | Sequence[str | Path],
         *,
-        glob: str = "*.tif",
+        glob: str = _DEFAULT_GLOB,
         date_format: str | None = None,
         date_regex: str = r"\d{4}.\d{2}.\d{2}",
         start: dt.datetime | None = None,
@@ -1908,9 +1912,7 @@ class DatasetCollection:
                     if (start is None or d >= start) and (end is None or d <= end)
                 ]
                 if not kept:
-                    raise FileNotFoundError(
-                        "no files fall within the given start/end range"
-                    )
+                    raise FileNotFoundError(_EMPTY_RANGE_MSG)
                 resolved = [f for f, _ in kept]
                 dates = [d for _, d in kept]
             time_axis = dates
@@ -2193,7 +2195,7 @@ class DatasetCollection:
         start: str | None = None,
         end: str | None = None,
         fmt: str = "%Y-%m-%d",
-        glob: str = "*.tif",
+        glob: str = _DEFAULT_GLOB,
     ) -> DatasetCollection:
         r"""Deprecated — use :meth:`from_files`.
 
@@ -2255,9 +2257,7 @@ class DatasetCollection:
                     and (end_dt is None or d <= end_dt)
                 ]
                 if not kept:
-                    raise FileNotFoundError(
-                        "no files fall within the given start/end range"
-                    )
+                    raise FileNotFoundError(_EMPTY_RANGE_MSG)
                 resolved = [f for f, _ in kept]
                 dates = [d for _, d in kept]
             return cls._build(resolved, dates, meta=None, gdal_env=None, validate=False)
@@ -2282,9 +2282,7 @@ class DatasetCollection:
                     and (end_i is None or n <= end_i)
                 ]
                 if not kept_nums:
-                    raise FileNotFoundError(
-                        "no files fall within the given start/end range"
-                    )
+                    raise FileNotFoundError(_EMPTY_RANGE_MSG)
                 resolved = [f for f, _ in kept_nums]
                 nums = [n for _, n in kept_nums]
             return cls._build(resolved, nums, meta=None, gdal_env=None, validate=False)
@@ -3423,7 +3421,7 @@ class DatasetCollection:
         with tempfile.TemporaryDirectory(prefix="pyramids-merge-") as staging:
             staging_path = Path(staging)
             self.to_file(staging_path, driver="geotiff")
-            staged_files = sorted(staging_path.glob("*.tif"))
+            staged_files = sorted(staging_path.glob(_DEFAULT_GLOB))
             merge_rasters(
                 [str(p) for p in staged_files],
                 dst,
