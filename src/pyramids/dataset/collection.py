@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import numbers
 import re
 import tempfile
+import textwrap
 import warnings
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -700,37 +702,84 @@ class DatasetCollection:
             self._handle_cache[idx] = handle
         return handle
 
-    def __str__(self):
-        """__str__."""
-        source_line = (
-            f"Files: {len(self._files)}"
-            if self._files is not None
-            else f"Time length: {self._time_length} (in-memory)"
-        )
-        message = f"""
-            {source_line}
-            Cell size: {self._base.cell_size}
-            EPSG: {self._base.epsg}
-            Dimension: {self.rows} * {self.columns}
-            Mask: {self._base.no_data_value[0]}
-        """
-        return message
+    def _summary(self) -> dict[str, Any]:
+        """Fields shared by :meth:`__str__` / :meth:`__repr__`.
 
-    def __repr__(self):
-        """__repr__."""
-        source_line = (
-            f"Files: {len(self._files)}"
-            if self._files is not None
-            else f"Time length: {self._time_length} (in-memory)"
-        )
-        message = f"""
-            {source_line}
-            Cell size: {self._base.cell_size}
-            EPSG: {self._base.epsg}
-            Dimension: {self.rows} * {self.columns}
-            Mask: {self._base.no_data_value[0]}
+        Never raises: the geo-attributes are read behind a guard so a
+        half-built or already-closed collection still produces a usable
+        representation (a `__repr__` that raises makes debugging painful).
+        Missing values are left out of the returned dict.
         """
-        return message
+        fields: dict[str, Any] = {
+            "time_length": self._time_length,
+            "files": len(self._files) if self._files is not None else None,
+        }
+        try:
+            fields["dims"] = f"{self.rows}x{self.columns}"
+            fields["epsg"] = self._base.epsg
+            fields["cell_size"] = self._base.cell_size
+            fields["nodata"] = self._base.no_data_value[0]
+        except Exception:  # pragma: no cover - defensive: repr must not raise
+            pass
+        return fields
+
+    def __repr__(self) -> str:
+        """Concise, unambiguous single-line representation for developers."""
+        fields = self._summary()
+        backing = (
+            f"files={fields['files']}"
+            if fields["files"] is not None
+            else "in-memory"
+        )
+        return (
+            f"{type(self).__name__}(time_length={fields['time_length']}, "
+            f"{backing}, dims={fields.get('dims', '?')}, "
+            f"epsg={fields.get('epsg', '?')})"
+        )
+
+    def __str__(self) -> str:
+        """Human-readable multi-line summary of the collection."""
+        fields = self._summary()
+        backing = (
+            f"Files:       {fields['files']}"
+            if fields["files"] is not None
+            else "Backing:     in-memory"
+        )
+        return textwrap.dedent(
+            f"""\
+            {type(self).__name__}
+              {backing}
+              Time length: {fields['time_length']}
+              Dimensions:  {fields.get('dims', '?')} (rows x cols)
+              EPSG:        {fields.get('epsg', '?')}
+              Cell size:   {fields.get('cell_size', '?')}
+              NoData:      {fields.get('nodata', '?')}"""
+        )
+
+    def close(self) -> None:
+        """Release every open GDAL handle held by the collection.
+
+        Closes the base template plus every cached per-timestep handle (the
+        lazy :attr:`datasets` list and the per-index handle cache), then clears
+        the caches. Idempotent — :meth:`Dataset.close` is a no-op after the
+        first call — but the collection should not be read again afterwards.
+        Prefer the context-manager form (``with DatasetCollection.from_files(...)
+        as dc: ...``) so the handles are released on scope exit.
+        """
+        handles = [self._base, *(self._datasets or []), *self._handle_cache.values()]
+        for dataset in handles:
+            if dataset is not None:
+                dataset.close()
+        self._datasets = None
+        self._handle_cache = {}
+
+    def __enter__(self) -> DatasetCollection:
+        """Enter a context whose exit releases the collection's handles."""
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Close all handles on context exit."""
+        self.close()
 
     @property
     def base(self) -> Dataset:
@@ -2288,8 +2337,10 @@ class DatasetCollection:
         # read_array() is called with no chunks=, so it always returns a plain
         # ndarray (the dask.Array arm of ArrayLike is unreachable here); numpy's
         # __getitem__ stub returns Any for a general index.
-        if isinstance(key, int):
-            return cast(np.typing.NDArray, self._dataset_at(key).read_array(band=0))
+        if isinstance(key, numbers.Integral):
+            return cast(
+                np.typing.NDArray, self._dataset_at(int(key)).read_array(band=0)
+            )
         return cast(np.typing.NDArray, self.values[key])
 
     def __setitem__(self, key: int, value: np.ndarray) -> None:
@@ -2303,17 +2354,23 @@ class DatasetCollection:
             TypeError: If ``key`` is not an integer (slice assignment
                 is not supported; rebuild the collection instead).
         """
-        if not isinstance(key, int):
+        if not isinstance(key, numbers.Integral):
             raise TypeError(
                 f"DatasetCollection.__setitem__ only accepts an integer "
                 f"index along the time axis; got {type(key).__name__}. "
                 f"Rebuild the collection if you need bulk replacement."
             )
+        if value.shape[-2:] != (self.rows, self.columns):
+            raise ValueError(
+                f"array shape {value.shape} does not match the collection's "
+                f"({self.rows}, {self.columns}); its last two axes must be "
+                f"(rows, cols). Assigning would break timestep alignment."
+            )
         # Materialise the cache (so we have a list to modify) without building the
         # full cube. _mem_dataset_from_array preserves the input array's dtype (a
         # CreateCopy on the base would cast through the base's dtype).
         datasets = self.datasets
-        datasets[key] = self._mem_dataset_from_array(value)
+        datasets[int(key)] = self._mem_dataset_from_array(value)
         # The mutation breaks the disk correspondence for that slot;
         # if the user mutates any timestep, the lazy reductions can no
         # longer trust ``_files``. Drop the path list so they fall
@@ -2325,9 +2382,14 @@ class DatasetCollection:
         return self._time_length
 
     def __iter__(self):
-        """Iterate over per-timestep arrays (matches the legacy API)."""
-        for ds in self.datasets:
-            yield ds.read_array(band=0)
+        """Iterate over per-timestep band-0 arrays (matches the legacy API).
+
+        Opens one timestep at a time via :meth:`_dataset_at` rather than
+        materialising every handle through :attr:`datasets`, so a partial
+        iteration (e.g. ``next(iter(dc))``) reads a single file, not all N.
+        """
+        for i in range(self._time_length):
+            yield self._dataset_at(i).read_array(band=0)
 
     def _stack_band0(self, datasets: list[Dataset]) -> np.typing.NDArray:
         """Stack band 0 of each dataset into a ``(len, rows, cols)`` cube.

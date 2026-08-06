@@ -104,11 +104,15 @@ class TestStringRepresentation:
         text = str(md)
         assert "EPSG" in text, "__str__ should contain 'EPSG'"
 
-    def test_repr_contains_dimension(self, base_dataset: Dataset):
-        """Repr should contain dimension info."""
+    def test_repr_is_concise_single_line(self, base_dataset: Dataset):
+        """__repr__ is a one-line ``ClassName(...)`` carrying the key fields."""
         md = DatasetCollection(base_dataset, time_length=2, files=["a.tif", "b.tif"])
         text = repr(md)
-        assert "Dimension" in text, "__repr__ should contain 'Dimension'"
+        assert "\n" not in text, f"__repr__ must be single-line; got: {text!r}"
+        assert text.startswith("DatasetCollection("), text
+        assert "time_length=2" in text
+        assert "files=2" in text
+        assert "dims=" in text and "epsg=" in text
 
     def test_str_works_without_files(self, base_dataset: Dataset):
         """H1 regression: __str__ must not TypeError when files=None.
@@ -132,7 +136,77 @@ class TestStringRepresentation:
         md = DatasetCollection(base_dataset, time_length=2)
         text = repr(md)
         assert "in-memory" in text
-        assert "Time length: 2" in text
+        assert "time_length=2" in text
+
+    def test_repr_does_not_raise_after_close(self, base_dataset: Dataset):
+        """__repr__ stays usable (never raises) even after the handles are closed.
+
+        Reading the geo-attributes off a closed base would raise; the defensive
+        ``_summary`` guard degrades those fields to ``?`` instead of blowing up
+        the representation.
+        """
+        md = DatasetCollection(base_dataset, time_length=2)
+        md.close()
+        text = repr(md)
+        assert text.startswith("DatasetCollection("), text
+        assert "time_length=2" in text
+
+
+class TestCloseAndContextManager:
+    """Tests for close() and the context-manager protocol."""
+
+    def test_close_releases_base_and_is_idempotent(self, base_dataset: Dataset):
+        """close() releases the base handle and a second call is a no-op."""
+        md = DatasetCollection(base_dataset, time_length=2)
+        assert base_dataset._raster is not None
+        md.close()
+        assert base_dataset._raster is None, "base handle should be released"
+        md.close()  # idempotent — must not raise
+
+    def test_close_clears_caches(self, cube_with_values: DatasetCollection):
+        """close() drops the per-timestep handle caches."""
+        cube_with_values.close()
+        assert cube_with_values._datasets is None
+        assert cube_with_values._handle_cache == {}
+
+    def test_context_manager_closes_on_exit(self, base_dataset: Dataset):
+        """The with-block releases the collection's handles on exit."""
+        with DatasetCollection(base_dataset, time_length=2) as md:
+            assert md._base._raster is not None
+        assert md._base._raster is None, "handles should be released on exit"
+
+
+class TestIntegerIndexing:
+    """Tests for NumPy-integer keys and shape validation on __getitem__/__setitem__."""
+
+    def test_getitem_accepts_numpy_integer(self, cube_with_values: DatasetCollection):
+        """A NumPy integer key reads the same slice as a Python int."""
+        expected = np.arange(3 * 5 * 6, dtype=np.float64).reshape(3, 5, 6)
+        np.testing.assert_allclose(cube_with_values[np.int64(1)], expected[1])
+
+    def test_setitem_accepts_numpy_integer(self, cube_with_values: DatasetCollection):
+        """A NumPy integer key assigns a slice (previously raised TypeError)."""
+        new = np.full((5, 6), 42.0)
+        cube_with_values[np.int64(0)] = new
+        np.testing.assert_allclose(cube_with_values[0], new)
+
+    def test_setitem_rejects_shape_mismatch(self, cube_with_values: DatasetCollection):
+        """A wrong-sized array is rejected instead of silently misaligning the cube."""
+        with pytest.raises(ValueError, match="does not match the collection"):
+            cube_with_values[0] = np.zeros((3, 3))
+
+    def test_setitem_rejects_non_integer_key(self, cube_with_values: DatasetCollection):
+        """A non-integer key still raises TypeError."""
+        with pytest.raises(TypeError, match="only accepts an integer"):
+            cube_with_values["x"] = np.zeros((5, 6))
+
+    def test_iter_yields_per_timestep_arrays(self, cube_with_values: DatasetCollection):
+        """Iteration yields each timestep's band-0 array in order."""
+        expected = np.arange(3 * 5 * 6, dtype=np.float64).reshape(3, 5, 6)
+        seen = list(cube_with_values)
+        assert len(seen) == 3
+        for i, arr in enumerate(seen):
+            np.testing.assert_allclose(arr, expected[i])
 
 
 class TestShapeProperties:
