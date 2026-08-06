@@ -347,6 +347,14 @@ class TestFromFilesConstruction:
         assert cube.time_length == 1
         assert cube.files == [str(p)]
 
+    def test_single_file_path_string(self, tmp_path: Path):
+        """A single file-path string is read as a one-timestep collection (not globbed)."""
+        p = tmp_path / "only.tif"
+        _make_mem_dataset().to_file(str(p))
+        cube = DatasetCollection.from_files(str(p))
+        assert cube.time_length == 1
+        assert cube.files == [str(p)]
+
     def test_validate_passes_for_homogeneous_files(self, tmp_path: Path):
         """validate=True succeeds when every file matches the template."""
         for name in ("a.tif", "b.tif"):

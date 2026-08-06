@@ -1941,8 +1941,9 @@ class DatasetCollection:
     ) -> list[str]:
         """Resolve ``files`` to a list of path strings.
 
-        A ``str`` / :class:`~pathlib.Path` is a folder: its entries matching ``glob``
-        are returned sorted by name (a deterministic base order). A sequence is
+        A ``str`` / :class:`~pathlib.Path` pointing at a directory globs its entries
+        matching ``glob``, returned sorted by name (a deterministic base order); one
+        pointing at a single file is wrapped in a one-element list. A sequence is
         returned as-is — order preserved, so callers such as ``from_stac`` keep their
         temporally-ordered list.
         """
@@ -1950,6 +1951,8 @@ class DatasetCollection:
             folder = Path(files)
             if not folder.exists():
                 raise FileNotFoundError(f"The path does not exist: {folder}")
+            if folder.is_file():
+                return [str(folder)]
             matched = sorted(
                 str(folder / entry.name)
                 for entry in folder.iterdir()
