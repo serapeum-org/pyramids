@@ -12,7 +12,7 @@ import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import numpy as np
 import pandas as pd
@@ -448,6 +448,22 @@ def _target_epsg(to_epsg: int | str | Any) -> int | None:
         return CRS.from_user_input(to_epsg).to_epsg()
     except Exception:  # pragma: no cover - defensive against odd CRS inputs
         return None
+
+
+class SupportsComparison(Protocol):
+    """An ordering key: any value that supports the rich-comparison operators.
+
+    The type of the per-file sort/time key produced by ``order_by`` (and of the
+    ``start`` / ``end`` bounds and the ``time`` labels) — the collection sorts the
+    keys and range-filters them, so they must be orderable (``datetime``, ``int``,
+    ``str``, …). A structural :class:`typing.Protocol`, so any comparable value
+    satisfies it without subclassing.
+    """
+
+    def __lt__(self, other: Any, /) -> bool: ...
+    def __le__(self, other: Any, /) -> bool: ...
+    def __gt__(self, other: Any, /) -> bool: ...
+    def __ge__(self, other: Any, /) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -1857,11 +1873,11 @@ class DatasetCollection:
         cls,
         files: Sequence[str | Path],
         *,
-        order_by: Callable[[str], Any] | None = None,
+        order_by: Callable[[str], SupportsComparison] | None = None,
         sort: bool = True,
-        time: Sequence[Any] | None = None,
-        start: Any = None,
-        end: Any = None,
+        time: Sequence[SupportsComparison] | None = None,
+        start: SupportsComparison | None = None,
+        end: SupportsComparison | None = None,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
         validate: bool = False,
@@ -1948,11 +1964,11 @@ class DatasetCollection:
         path: str | Path,
         *,
         glob: str = "*.tif",
-        order_by: Callable[[str], Any] | None = None,
+        order_by: Callable[[str], SupportsComparison] | None = None,
         sort: bool = True,
-        time: Sequence[Any] | None = None,
-        start: Any = None,
-        end: Any = None,
+        time: Sequence[SupportsComparison] | None = None,
+        start: SupportsComparison | None = None,
+        end: SupportsComparison | None = None,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
         validate: bool = False,
@@ -2031,12 +2047,12 @@ class DatasetCollection:
     @staticmethod
     def _order_and_filter(
         files: list[str],
-        order_by: Callable[[str], Any] | None,
-        time: Sequence[Any] | None,
-        start: Any,
-        end: Any,
+        order_by: Callable[[str], SupportsComparison] | None,
+        time: Sequence[SupportsComparison] | None,
+        start: SupportsComparison | None,
+        end: SupportsComparison | None,
         sort: bool,
-    ) -> tuple[list[str], list[Any] | None]:
+    ) -> tuple[list[str], list[SupportsComparison] | None]:
         """Sort/label/subset ``files``; return ``(files, time_axis)``.
 
         ``order_by`` reads a key from each file's name and makes the keys the axis,
@@ -2048,7 +2064,7 @@ class DatasetCollection:
         """
         if order_by is not None and time is not None:
             raise ValueError("pass either order_by or time, not both")
-        keys: list[Any] | None = None
+        keys: list[SupportsComparison] | None = None
         if order_by is not None:
             keys = [order_by(Path(f).name) for f in files]
             if sort:
@@ -2316,7 +2332,7 @@ class DatasetCollection:
             raise TypeError(
                 f"path input should be string/Path/list type, given: {type(path)}"
             )
-        order_by: Callable[[str], Any] | None = None
+        order_by: Callable[[str], SupportsComparison] | None = None
         sort = with_order
         if with_order:
             if date:
