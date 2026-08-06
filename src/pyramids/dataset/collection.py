@@ -775,6 +775,11 @@ class DatasetCollection:
         block) closes ``my_ds`` as well: the collection takes ownership of the
         base. Do not ``close`` such a collection, or pass a base you are willing
         to hand over, if you need ``my_ds`` afterwards.
+
+        A :meth:`from_zarr` collection's resolved store is dropped here (so it can
+        be garbage-collected) but not explicitly closed — a Zarr store is not a
+        GDAL handle; if it wraps something with its own resources, close that
+        yourself.
         """
         handles = [self._base, *(self._datasets or []), *self._handle_cache.values()]
         for dataset in handles:
@@ -782,6 +787,7 @@ class DatasetCollection:
                 dataset.close()
         self._datasets = None
         self._handle_cache = {}
+        self._zarr_store = None
 
     def __enter__(self) -> DatasetCollection:
         """Enter a context whose exit releases the collection's handles.

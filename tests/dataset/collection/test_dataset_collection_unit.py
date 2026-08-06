@@ -176,6 +176,13 @@ class TestCloseAndContextManager:
             assert md._base._raster is not None
         assert md._base._raster is None, "handles should be released on exit"
 
+    def test_close_drops_zarr_store(self, base_dataset: Dataset):
+        """close() drops a from_zarr collection's resolved store reference."""
+        md = DatasetCollection(base_dataset, time_length=2, zarr_store=object())
+        assert md._zarr_store is not None
+        md.close()
+        assert md._zarr_store is None, "zarr store reference should be dropped"
+
 
 class TestIntegerIndexing:
     """Tests for NumPy-integer keys and shape validation on __getitem__/__setitem__."""
