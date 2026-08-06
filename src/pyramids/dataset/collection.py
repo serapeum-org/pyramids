@@ -766,6 +766,15 @@ class DatasetCollection:
         first call — but the collection should not be read again afterwards.
         Prefer the context-manager form (``with DatasetCollection.from_files(...)
         as dc: ...``) so the handles are released on scope exit.
+
+        Ownership: ``close`` closes the ``base`` :class:`~pyramids.dataset.Dataset`
+        too. For a collection built by :meth:`from_files` / :meth:`from_stac` the
+        base is opened internally, so this is what you want. But if you built the
+        collection from a :class:`Dataset` you still hold —
+        ``DatasetCollection(my_ds, n)`` — ``close`` (and therefore the ``with``
+        block) closes ``my_ds`` as well: the collection takes ownership of the
+        base. Do not ``close`` such a collection, or pass a base you are willing
+        to hand over, if you need ``my_ds`` afterwards.
         """
         handles = [self._base, *(self._datasets or []), *self._handle_cache.values()]
         for dataset in handles:
@@ -775,11 +784,17 @@ class DatasetCollection:
         self._handle_cache = {}
 
     def __enter__(self) -> DatasetCollection:
-        """Enter a context whose exit releases the collection's handles."""
+        """Enter a context whose exit releases the collection's handles.
+
+        The collection takes ownership of its handles — including the ``base``
+        (see :meth:`close`). Wrap a collection you built from your own
+        :class:`~pyramids.dataset.Dataset` in ``with`` only if you are willing to
+        let that base be closed on exit.
+        """
         return self
 
     def __exit__(self, *exc: object) -> None:
-        """Close all handles on context exit."""
+        """Close all handles on context exit (see :meth:`close` for ownership)."""
         self.close()
 
     @property
