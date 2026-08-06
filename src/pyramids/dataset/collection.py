@@ -2404,11 +2404,15 @@ class DatasetCollection:
 
         Args:
             key (int): Integer index along the time axis.
-            value (np.ndarray): A 2D ``(rows, cols)`` array.
+            value (np.ndarray): A 2D ``(rows, cols)`` array, or a multi-band
+                ``(bands, rows, cols)`` array — only the last two axes (the
+                spatial dimensions) are validated against the collection.
 
         Raises:
             TypeError: If ``key`` is not an integer (slice assignment
                 is not supported; rebuild the collection instead).
+            ValueError: If ``value``'s last two axes do not match the
+                collection's ``(rows, columns)``.
         """
         if not isinstance(key, numbers.Integral):
             raise TypeError(
