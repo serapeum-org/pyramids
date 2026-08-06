@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import fnmatch
 import numbers
 import re
 import tempfile
@@ -2040,7 +2041,7 @@ class DatasetCollection:
         start: str | None = None,
         end: str | None = None,
         fmt: str = "%Y-%m-%d",
-        extension: str = ".tif",
+        glob: str = "*.tif",
     ) -> DatasetCollection:
         r"""read_multiple_files.
 
@@ -2112,8 +2113,11 @@ class DatasetCollection:
                 the given path will be read.
             fmt (str):
                 Format of the given date in the start/end parameter.
-            extension (str):
-                The extension of the files you want to read from the given path. Default is ".tif".
+            glob (str):
+                :mod:`fnmatch` pattern selecting which files to read when ``path`` is a folder, matched against each
+                entry's name. Default ``"*.tif"``. Use it to widen (``"*.tif*"`` for ``.tif`` and ``.tiff``), narrow
+                (``"S2_*.tif"``), or switch format (``"*.nc"``); sidecars (``.aux.xml`` / ``.prj`` / ``.tfw``) are
+                skipped because they do not match. Ignored when ``path`` is an explicit list of files.
 
         Returns:
             DatasetCollection:
@@ -2150,7 +2154,7 @@ class DatasetCollection:
             if not path.exists():
                 raise FileNotFoundError("The path you have provided does not exist")
             # get a list of all files
-            files = [f.name for f in path.iterdir() if f.name.endswith(extension)]
+            files = [f.name for f in path.iterdir() if fnmatch.fnmatch(f.name, glob)]
             # check whether there are files or not inside the folder
             if len(files) < 1:
                 raise FileNotFoundError("The path you have provided is empty")

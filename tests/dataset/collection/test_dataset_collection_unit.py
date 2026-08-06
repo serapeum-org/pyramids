@@ -209,6 +209,38 @@ class TestIntegerIndexing:
             np.testing.assert_allclose(arr, expected[i])
 
 
+class TestReadMultipleFilesGlob:
+    """Tests for the ``glob`` file filter of read_multiple_files."""
+
+    @staticmethod
+    def _write_tif(path: Path, fill: float = 1.0) -> None:
+        """Write a small single-band GeoTIFF to ``path``."""
+        _make_mem_dataset(fill_value=fill).to_file(str(path))
+
+    def test_glob_default_reads_tif_and_skips_sidecars(self, tmp_path: Path):
+        """The default ``*.tif`` glob reads rasters and skips non-.tif sidecars."""
+        self._write_tif(tmp_path / "r0.tif")
+        self._write_tif(tmp_path / "r1.tif")
+        (tmp_path / "notes.txt").write_text("sidecar")
+        (tmp_path / "r0.tif.aux.xml").write_text("<PAMDataset/>")
+        cube = DatasetCollection.read_multiple_files(str(tmp_path))
+        assert cube.time_length == 2, "only the two .tif rasters should be read"
+
+    def test_glob_custom_pattern_selects_subset(self, tmp_path: Path):
+        """A custom glob narrows the selection to matching names."""
+        self._write_tif(tmp_path / "keep_a.tif")
+        self._write_tif(tmp_path / "keep_b.tif")
+        self._write_tif(tmp_path / "drop_c.tif")
+        cube = DatasetCollection.read_multiple_files(str(tmp_path), glob="keep_*.tif")
+        assert cube.time_length == 2, "glob should select only the keep_* rasters"
+
+    def test_glob_no_match_raises(self, tmp_path: Path):
+        """A glob matching no file raises FileNotFoundError."""
+        self._write_tif(tmp_path / "r.tif")
+        with pytest.raises(FileNotFoundError):
+            DatasetCollection.read_multiple_files(str(tmp_path), glob="*.nc")
+
+
 class TestShapeProperties:
     """Tests for shape, rows, columns."""
 
