@@ -308,6 +308,59 @@ class TestFromFilesDateOrdering:
         with pytest.raises(ValueError, match="at least one path"):
             DatasetCollection.from_files([])
 
+    def test_start_end_empty_range_raises(self, tmp_path: Path):
+        """A date range that excludes every file raises FileNotFoundError."""
+        self._write_days(tmp_path, (1, 2))
+        with pytest.raises(FileNotFoundError, match="within the given start/end"):
+            DatasetCollection.from_files(
+                tmp_path,
+                date_format="%Y.%m.%d",
+                start=dt.datetime(1999, 1, 1),
+                end=dt.datetime(1999, 12, 31),
+            )
+
+    def test_start_only_bound(self, tmp_path: Path):
+        """Passing only ``start`` keeps the files on/after that date."""
+        self._write_days(tmp_path, (1, 2, 3))
+        cube = DatasetCollection.from_files(
+            tmp_path, date_format="%Y.%m.%d", start=dt.datetime(1979, 1, 2)
+        )
+        assert cube.time == [dt.datetime(1979, 1, 2), dt.datetime(1979, 1, 3)]
+
+    def test_end_only_bound(self, tmp_path: Path):
+        """Passing only ``end`` keeps the files on/before that date."""
+        self._write_days(tmp_path, (1, 2, 3))
+        cube = DatasetCollection.from_files(
+            tmp_path, date_format="%Y.%m.%d", end=dt.datetime(1979, 1, 2)
+        )
+        assert cube.time == [dt.datetime(1979, 1, 1), dt.datetime(1979, 1, 2)]
+
+
+class TestFromFilesConstruction:
+    """Construction paths of from_files: single file, validate, explicit meta."""
+
+    def test_single_file_list(self, tmp_path: Path):
+        """A one-element list builds a one-timestep collection."""
+        p = tmp_path / "only.tif"
+        _make_mem_dataset().to_file(str(p))
+        cube = DatasetCollection.from_files([str(p)])
+        assert cube.time_length == 1
+        assert cube.files == [str(p)]
+
+    def test_validate_passes_for_homogeneous_files(self, tmp_path: Path):
+        """validate=True succeeds when every file matches the template."""
+        for name in ("a.tif", "b.tif"):
+            _make_mem_dataset(rows=5, cols=6).to_file(str(tmp_path / name))
+        cube = DatasetCollection.from_files(tmp_path, validate=True)
+        assert cube.time_length == 2
+
+    def test_validate_detects_shape_mismatch(self, tmp_path: Path):
+        """validate=True raises AlignmentError when a file's shape differs."""
+        _make_mem_dataset(rows=5, cols=6).to_file(str(tmp_path / "a.tif"))
+        _make_mem_dataset(rows=4, cols=4).to_file(str(tmp_path / "b.tif"))
+        with pytest.raises(AlignmentError):
+            DatasetCollection.from_files(tmp_path, validate=True)
+
 
 class TestReadMultipleFilesDeprecated:
     """The read_multiple_files shim warns but still works."""
@@ -317,6 +370,21 @@ class TestReadMultipleFilesDeprecated:
         with pytest.warns(DeprecationWarning, match="deprecated"):
             cube = DatasetCollection.read_multiple_files(rasters_folder_path)
         assert cube.time_length == 6
+
+    def test_numeric_ordering_empty_range_raises(self, tmp_path: Path):
+        """The legacy numeric mode with an out-of-range start/end raises."""
+        for name in ("1_r.tif", "2_r.tif"):
+            _make_mem_dataset().to_file(str(tmp_path / name))
+        with pytest.raises(FileNotFoundError, match="within the given start/end"):
+            with pytest.warns(DeprecationWarning):
+                DatasetCollection.read_multiple_files(
+                    tmp_path,
+                    with_order=True,
+                    date=False,
+                    regex_string=r"\d+",
+                    start=90,
+                    end=99,
+                )
 
 
 class TestShapeProperties:
