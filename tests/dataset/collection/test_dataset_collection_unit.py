@@ -396,6 +396,33 @@ class TestReadMultipleFilesDeprecated:
                     tmp_path, start="1979-01-02", end="1979-01-05"
                 )
 
+    def test_numeric_mode_sets_integer_time_axis(self, tmp_path: Path):
+        """date=False leaves the integer order keys on .time (not None)."""
+        for name in ("2_r.tif", "1_r.tif"):
+            _make_mem_dataset().to_file(str(tmp_path / name))
+        with pytest.warns(DeprecationWarning):
+            cube = DatasetCollection.read_multiple_files(
+                tmp_path, with_order=True, date=False, regex_string=r"\d+"
+            )
+        assert cube.time == [1, 2], f"expected integer axis [1, 2], got {cube.time}"
+
+    def test_date_without_order_preserves_input_order(self, tmp_path: Path):
+        """with_order=False + a date format labels time WITHOUT reordering the list."""
+        paths = []
+        for day in (3, 1, 2):  # deliberately unsorted
+            p = tmp_path / f"r_1979.01.{day:02d}.tif"
+            _make_mem_dataset().to_file(str(p))
+            paths.append(str(p))
+        with pytest.warns(DeprecationWarning):
+            cube = DatasetCollection.read_multiple_files(
+                paths, with_order=False, date=True, file_name_data_fmt="%Y.%m.%d"
+            )
+        assert cube.time == [
+            dt.datetime(1979, 1, 3),
+            dt.datetime(1979, 1, 1),
+            dt.datetime(1979, 1, 2),
+        ], f"input order should be preserved; got {cube.time}"
+
 
 class TestShapeProperties:
     """Tests for shape, rows, columns."""

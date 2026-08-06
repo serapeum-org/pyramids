@@ -1897,19 +1897,39 @@ class DatasetCollection:
             raise ValueError(
                 "start/end filtering needs date_format to parse the file-name dates"
             )
+        return cls._build(
+            resolved, time_axis, meta=meta, gdal_env=gdal_env, validate=validate
+        )
+
+    @classmethod
+    def _build(
+        cls,
+        files: list[str],
+        time_axis: list[dt.datetime] | list[int] | None,
+        *,
+        meta: RasterMeta | None,
+        gdal_env: dict[str, str] | None,
+        validate: bool,
+    ) -> DatasetCollection:
+        """Open the first file as the template and construct the collection.
+
+        Shared by :meth:`from_files` and the deprecated :meth:`read_multiple_files`
+        so both build the same lazy collection (only the first file opened eagerly)
+        with an optional pre-computed ``time_axis``.
+        """
         with cloud_config_from_env(gdal_env):
             # The template is reachable as `collection.base`, and the legacy
             # `DatasetCollection(src, N)` shape replicates it as every timestep, so it
             # needs the env for its own reads too — not just this open.
-            template = Dataset.read_file(resolved[0], gdal_env=gdal_env)
+            template = Dataset.read_file(files[0], gdal_env=gdal_env)
             if meta is None:
                 meta = RasterMeta.from_dataset(template)
         if validate:
-            cls._validate_headers(resolved, meta, gdal_env)
+            cls._validate_headers(files, meta, gdal_env)
         return cls(
             template,
-            len(resolved),
-            files=resolved,
+            len(files),
+            files=files,
             time=time_axis,
             meta=meta,
             gdal_env=gdal_env,
@@ -2189,16 +2209,31 @@ class DatasetCollection:
                 f"path input should be string/Path/list type, given: {type(path)}"
             )
         if date and file_name_data_fmt is not None:
+            resolved = cls._resolve_files(path, glob)
+            dates = [
+                cls._parse_date(Path(f).name, regex_string, file_name_data_fmt)
+                for f in resolved
+            ]
+            if with_order:  # old shim sorts only when with_order is set (M3)
+                order = sorted(range(len(resolved)), key=dates.__getitem__)
+                resolved = [resolved[i] for i in order]
+                dates = [dates[i] for i in order]
             start_dt = dt.datetime.strptime(start, fmt) if start is not None else None
             end_dt = dt.datetime.strptime(end, fmt) if end is not None else None
-            return cls.from_files(
-                path,
-                glob=glob,
-                date_format=file_name_data_fmt,
-                date_regex=regex_string,
-                start=start_dt,
-                end=end_dt,
-            )
+            if start_dt is not None or end_dt is not None:
+                kept = [
+                    (f, d)
+                    for f, d in zip(resolved, dates)
+                    if (start_dt is None or d >= start_dt)
+                    and (end_dt is None or d <= end_dt)
+                ]
+                if not kept:
+                    raise FileNotFoundError(
+                        "no files fall within the given start/end range"
+                    )
+                resolved = [f for f, _ in kept]
+                dates = [d for _, d in kept]
+            return cls._build(resolved, dates, meta=None, gdal_env=None, validate=False)
         if with_order and date:
             raise ValueError(
                 "An ordered read (with_order=True) needs a date format; "
@@ -2206,25 +2241,26 @@ class DatasetCollection:
             )
         if with_order and not date:
             resolved = cls._resolve_files(path, glob)
-            numbers = [cls._parse_number(Path(f).name, regex_string) for f in resolved]
-            order = sorted(range(len(resolved)), key=numbers.__getitem__)
+            nums = [cls._parse_number(Path(f).name, regex_string) for f in resolved]
+            order = sorted(range(len(resolved)), key=nums.__getitem__)
             resolved = [resolved[i] for i in order]
-            numbers = [numbers[i] for i in order]
+            nums = [nums[i] for i in order]
             start_i = int(start) if start is not None else None
             end_i = int(end) if end is not None else None
             if start_i is not None or end_i is not None:
-                kept = [
-                    f
-                    for f, n in zip(resolved, numbers)
+                kept_nums = [
+                    (f, n)
+                    for f, n in zip(resolved, nums)
                     if (start_i is None or n >= start_i)
                     and (end_i is None or n <= end_i)
                 ]
-                if not kept:
+                if not kept_nums:
                     raise FileNotFoundError(
                         "no files fall within the given start/end range"
                     )
-                resolved = kept
-            return cls.from_files(resolved)
+                resolved = [f for f, _ in kept_nums]
+                nums = [n for _, n in kept_nums]
+            return cls._build(resolved, nums, meta=None, gdal_env=None, validate=False)
         if start is not None or end is not None:
             raise ValueError(
                 "start/end filtering needs a date format (pass file_name_data_fmt) "
