@@ -2214,7 +2214,10 @@ class DatasetCollection:
 
         Raises:
             TypeError: ``path`` is not a str / Path / list.
-            ValueError: ``with_order`` and ``date`` without ``file_name_data_fmt``.
+            ValueError: ``with_order`` and ``date`` without ``file_name_data_fmt``,
+                or ``start`` / ``end`` given in a mode that cannot parse a key.
+            FileNotFoundError: a folder that does not exist or matched nothing, or a
+                ``start`` / ``end`` range that excludes every file.
         """
         warnings.warn(
             "DatasetCollection.read_multiple_files is deprecated; use "
