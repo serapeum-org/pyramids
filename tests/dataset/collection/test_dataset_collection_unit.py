@@ -281,8 +281,13 @@ class TestFromFilesOrdering:
     def test_explicit_time_no_sort(self, tmp_path: Path):
         """time supplies the axis as-is, without sorting."""
         files = self._write_days(tmp_path, (1, 2, 3))
-        cube = DatasetCollection.from_files(files, time=[2000, 2001, 2002])
-        assert cube.time == [2000, 2001, 2002]
+        axis = [
+            dt.datetime(2000, 1, 1),
+            dt.datetime(2001, 1, 1),
+            dt.datetime(2002, 1, 1),
+        ]
+        cube = DatasetCollection.from_files(files, time=axis)
+        assert cube.time == axis
 
     def test_order_by_and_time_are_mutually_exclusive(self, tmp_path: Path):
         """Passing both order_by and time raises ValueError."""

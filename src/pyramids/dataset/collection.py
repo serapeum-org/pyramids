@@ -1857,11 +1857,11 @@ class DatasetCollection:
         cls,
         files: Sequence[str | Path],
         *,
-        order_by: Callable[[str], Any] | None = None,
+        order_by: Callable[[str], dt.datetime] | None = None,
         sort: bool = True,
-        time: Sequence[Any] | None = None,
-        start: Any = None,
-        end: Any = None,
+        time: Sequence[dt.datetime] | None = None,
+        start: dt.datetime | None = None,
+        end: dt.datetime | None = None,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
         validate: bool = False,
@@ -1948,11 +1948,11 @@ class DatasetCollection:
         path: str | Path,
         *,
         glob: str = "*.tif",
-        order_by: Callable[[str], Any] | None = None,
+        order_by: Callable[[str], dt.datetime] | None = None,
         sort: bool = True,
-        time: Sequence[Any] | None = None,
-        start: Any = None,
-        end: Any = None,
+        time: Sequence[dt.datetime] | None = None,
+        start: dt.datetime | None = None,
+        end: dt.datetime | None = None,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
         validate: bool = False,
@@ -2031,12 +2031,12 @@ class DatasetCollection:
     @staticmethod
     def _order_and_filter(
         files: list[str],
-        order_by: Callable[[str], Any] | None,
-        time: Sequence[Any] | None,
-        start: Any,
-        end: Any,
+        order_by: Callable[[str], dt.datetime] | None,
+        time: Sequence[dt.datetime] | None,
+        start: dt.datetime | None,
+        end: dt.datetime | None,
         sort: bool,
-    ) -> tuple[list[str], list[Any] | None]:
+    ) -> tuple[list[str], list[dt.datetime] | None]:
         """Sort/label/subset ``files``; return ``(files, time_axis)``.
 
         ``order_by`` reads a key from each file's name and makes the keys the axis,
@@ -2048,7 +2048,7 @@ class DatasetCollection:
         """
         if order_by is not None and time is not None:
             raise ValueError("pass either order_by or time, not both")
-        keys: list[Any] | None = None
+        keys: list[dt.datetime] | None = None
         if order_by is not None:
             keys = [order_by(Path(f).name) for f in files]
             if sort:
@@ -2316,7 +2316,11 @@ class DatasetCollection:
             raise TypeError(
                 f"path input should be string/Path/list type, given: {type(path)}"
             )
-        order_by: Callable[[str], Any] | None = None
+        # from_folder / from_files order by datetime; this deprecated shim also has
+        # to serve the old numeric (date=False) mode, whose keys and bounds are ints.
+        # Ints are still comparable, so they sort/filter fine at runtime — the casts
+        # below only carry the legacy int path through the datetime-typed factories.
+        order_by: Callable[[str], dt.datetime] | None = None
         sort = with_order
         if with_order:
             if date:
@@ -2327,16 +2331,20 @@ class DatasetCollection:
                     )
                 order_by = FilenameDate(regex_string, file_name_data_fmt)
             else:
-                order_by = _filename_number(regex_string)
+                order_by = cast(
+                    "Callable[[str], dt.datetime]", _filename_number(regex_string)
+                )
         elif date and file_name_data_fmt is not None:
             # dates in the names but no with_order: label the time axis without
             # reordering the files (the old parse-without-sort behaviour).
             order_by = FilenameDate(regex_string, file_name_data_fmt)
-        start_key = (
-            dt.datetime.strptime(start, fmt) if (start is not None and date) else start
+        start_key = cast(
+            "dt.datetime | None",
+            dt.datetime.strptime(start, fmt) if (start is not None and date) else start,
         )
-        end_key = (
-            dt.datetime.strptime(end, fmt) if (end is not None and date) else end
+        end_key = cast(
+            "dt.datetime | None",
+            dt.datetime.strptime(end, fmt) if (end is not None and date) else end,
         )
         if isinstance(path, (str, Path)):
             return cls.from_folder(
