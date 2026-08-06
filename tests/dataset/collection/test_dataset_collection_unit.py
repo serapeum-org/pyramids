@@ -14,6 +14,7 @@ Targets untested / low-coverage code paths in
 - Error paths for ``__getitem__``, ``__setitem__``, ``open_multi_dataset``
 """
 
+import datetime as dt
 import pickle
 import shutil
 import tempfile
@@ -24,7 +25,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
-from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset import Dataset, DatasetCollection, FilenameDate
 from pyramids.dataset.collection import _target_epsg
 from tests.dataset.collection._helpers import make_int16_collection
 
@@ -209,8 +210,8 @@ class TestIntegerIndexing:
             np.testing.assert_allclose(arr, expected[i])
 
 
-class TestReadMultipleFilesGlob:
-    """Tests for the ``glob`` file filter of read_multiple_files."""
+class TestFromFolderGlob:
+    """Tests for the ``glob`` file filter of from_folder."""
 
     @staticmethod
     def _write_tif(path: Path, fill: float = 1.0) -> None:
@@ -223,7 +224,7 @@ class TestReadMultipleFilesGlob:
         self._write_tif(tmp_path / "r1.tif")
         (tmp_path / "notes.txt").write_text("sidecar")
         (tmp_path / "r0.tif.aux.xml").write_text("<PAMDataset/>")
-        cube = DatasetCollection.read_multiple_files(str(tmp_path))
+        cube = DatasetCollection.from_folder(str(tmp_path))
         assert cube.time_length == 2, "only the two .tif rasters should be read"
 
     def test_glob_custom_pattern_selects_subset(self, tmp_path: Path):
@@ -231,14 +232,121 @@ class TestReadMultipleFilesGlob:
         self._write_tif(tmp_path / "keep_a.tif")
         self._write_tif(tmp_path / "keep_b.tif")
         self._write_tif(tmp_path / "drop_c.tif")
-        cube = DatasetCollection.read_multiple_files(str(tmp_path), glob="keep_*.tif")
+        cube = DatasetCollection.from_folder(str(tmp_path), glob="keep_*.tif")
         assert cube.time_length == 2, "glob should select only the keep_* rasters"
 
     def test_glob_no_match_raises(self, tmp_path: Path):
         """A glob matching no file raises FileNotFoundError."""
         self._write_tif(tmp_path / "r.tif")
         with pytest.raises(FileNotFoundError):
-            DatasetCollection.read_multiple_files(str(tmp_path), glob="*.nc")
+            DatasetCollection.from_folder(str(tmp_path), glob="*.nc")
+
+
+class TestFilenameDate:
+    """Tests for the FilenameDate order_by helper."""
+
+    def test_parses_single_digit_month_day(self):
+        """A date with non-padded month/day parses when regex + fmt agree."""
+        key = FilenameDate(r"\d{4}_\d{1,2}_\d{1,2}", "%Y_%m_%d")
+        assert key("evap_1979_1_1.tif") == dt.datetime(1979, 1, 1)
+
+    def test_no_match_raises(self):
+        """A name with no matching date raises ValueError."""
+        with pytest.raises(ValueError, match="matched no date"):
+            FilenameDate()("no_date_here.tif")
+
+
+class TestFromFilesOrdering:
+    """Tests for order_by / time / start / end on from_files."""
+
+    @staticmethod
+    def _write_days(folder: Path, days) -> list[str]:
+        """Write one dated GeoTIFF per day (fill == day); return the paths."""
+        paths = []
+        for day in days:
+            p = folder / f"r_1979.01.{day:02d}.tif"
+            _make_mem_dataset(fill_value=float(day)).to_file(str(p))
+            paths.append(str(p))
+        return paths
+
+    def test_order_by_sorts_and_sets_time(self, tmp_path: Path):
+        """order_by sorts the timesteps by date and makes the dates the time axis."""
+        files = self._write_days(tmp_path, (3, 1, 2))  # unsorted on disk
+        cube = DatasetCollection.from_files(
+            files, order_by=FilenameDate(r"\d{4}.\d{2}.\d{2}", "%Y.%m.%d")
+        )
+        assert cube.time == [dt.datetime(1979, 1, d) for d in (1, 2, 3)]
+        np.testing.assert_allclose(cube[0], 1.0)  # earliest date has fill 1.0
+
+    def test_explicit_time_no_sort(self, tmp_path: Path):
+        """time supplies the axis as-is, without sorting."""
+        files = self._write_days(tmp_path, (1, 2, 3))
+        cube = DatasetCollection.from_files(files, time=[2000, 2001, 2002])
+        assert cube.time == [2000, 2001, 2002]
+
+    def test_order_by_and_time_are_mutually_exclusive(self, tmp_path: Path):
+        """Passing both order_by and time raises ValueError."""
+        files = self._write_days(tmp_path, (1,))
+        with pytest.raises(ValueError, match="either order_by or time"):
+            DatasetCollection.from_files(files, order_by=FilenameDate(), time=[1])
+
+    def test_time_length_mismatch_raises(self, tmp_path: Path):
+        """A time sequence of the wrong length raises ValueError."""
+        files = self._write_days(tmp_path, (1,))
+        with pytest.raises(ValueError, match="time length"):
+            DatasetCollection.from_files(files, time=[1, 2])
+
+    def test_start_end_without_key_raises(self, tmp_path: Path):
+        """start/end with neither order_by nor time raises ValueError."""
+        files = self._write_days(tmp_path, (1,))
+        with pytest.raises(ValueError, match="per-file key"):
+            DatasetCollection.from_files(files, start=dt.datetime(1979, 1, 1))
+
+
+class TestFromFolderOrdering:
+    """Tests for ordering / subsetting on from_folder."""
+
+    @staticmethod
+    def _write_days(folder: Path, days) -> None:
+        """Write one dated GeoTIFF per day into ``folder``."""
+        for day in days:
+            p = folder / f"p_1979.01.{day:02d}.tif"
+            _make_mem_dataset(fill_value=float(day)).to_file(str(p))
+
+    def test_reads_and_orders_folder(self, tmp_path: Path):
+        """from_folder globs, sorts by date, and sets the time axis."""
+        self._write_days(tmp_path, (3, 1, 2))
+        cube = DatasetCollection.from_folder(
+            tmp_path, order_by=FilenameDate(r"\d{4}.\d{2}.\d{2}", "%Y.%m.%d")
+        )
+        assert cube.time_length == 3
+        assert cube.time == [dt.datetime(1979, 1, d) for d in (1, 2, 3)]
+
+    def test_start_end_subsets(self, tmp_path: Path):
+        """start/end keep the inclusive date range."""
+        self._write_days(tmp_path, (1, 2, 3, 4))
+        cube = DatasetCollection.from_folder(
+            tmp_path,
+            order_by=FilenameDate(r"\d{4}.\d{2}.\d{2}", "%Y.%m.%d"),
+            start=dt.datetime(1979, 1, 2),
+            end=dt.datetime(1979, 1, 3),
+        )
+        assert cube.time == [dt.datetime(1979, 1, 2), dt.datetime(1979, 1, 3)]
+
+    def test_missing_folder_raises(self, tmp_path: Path):
+        """A non-existent folder raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            DatasetCollection.from_folder(tmp_path / "nope")
+
+
+class TestReadMultipleFilesDeprecated:
+    """The read_multiple_files shim warns but still works."""
+
+    def test_emits_deprecation_warning_and_reads(self, rasters_folder_path: str):
+        """It emits DeprecationWarning and returns a working collection."""
+        with pytest.warns(DeprecationWarning, match="deprecated"):
+            cube = DatasetCollection.read_multiple_files(rasters_folder_path)
+        assert cube.time_length == 6
 
 
 class TestShapeProperties:
@@ -665,18 +773,19 @@ class TestReadMultipleFilesErrors:
         assert md.files == paths, "files should match the input list"
 
     def test_with_order_date_mismatch_raises(self, tmp_path):
-        """Filenames that don't match regex should raise ValueError."""
+        """Filenames that don't match the regex should raise ValueError."""
         src = _make_mem_dataset(rows=3, cols=3)
         paths = []
         for name in ["no_date_a.tif", "no_date_b.tif"]:
             p = str(tmp_path / name)
             src.to_file(p)
             paths.append(p)
-        with pytest.raises(ValueError, match="does not match"):
+        with pytest.raises(ValueError, match="matched no date"):
             DatasetCollection.read_multiple_files(
                 paths,
                 with_order=True,
                 regex_string=r"\d{4}\.\d{2}\.\d{2}",
+                file_name_data_fmt="%Y.%m.%d",
             )
 
     def test_with_order_missing_fmt_raises(self, tmp_path):
