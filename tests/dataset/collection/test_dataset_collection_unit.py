@@ -386,6 +386,16 @@ class TestReadMultipleFilesDeprecated:
                     end=99,
                 )
 
+    def test_start_end_without_date_format_raises(self, tmp_path: Path):
+        """start/end with no parseable date format raises (the old contract)."""
+        for name in ("a.tif", "b.tif"):
+            _make_mem_dataset().to_file(str(tmp_path / name))
+        with pytest.raises(ValueError, match="needs a date format"):
+            with pytest.warns(DeprecationWarning):
+                DatasetCollection.read_multiple_files(
+                    tmp_path, start="1979-01-02", end="1979-01-05"
+                )
+
 
 class TestShapeProperties:
     """Tests for shape, rows, columns."""

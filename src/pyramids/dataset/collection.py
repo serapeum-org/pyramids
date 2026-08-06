@@ -2225,6 +2225,11 @@ class DatasetCollection:
                     )
                 resolved = kept
             return cls.from_files(resolved)
+        if start is not None or end is not None:
+            raise ValueError(
+                "start/end filtering needs a date format (pass file_name_data_fmt) "
+                "or the numeric mode (with_order=True, date=False)."
+            )
         return cls.from_files(path, glob=glob)
 
     @property
