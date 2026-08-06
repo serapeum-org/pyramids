@@ -1,13 +1,13 @@
 """Tests for :meth:`pyramids.dataset.DatasetCollection.to_netcdf` (PY-4).
 
-``to_netcdf`` requires xarray, so the whole module is ``xarray``-marked and runs
-only in the xarray CI job. The *missing*-xarray branch (the
-``OptionalPackageDoesNotExist`` path) lives in ``test_to_netcdf_missing_xarray.py``
-as a ``core`` test so it still runs in the extras-free suite.
+``to_netcdf`` writes through pyramids' own GDAL multidimensional NetCDF writer
+and needs no ``xarray`` (nor a ``netcdf4`` / ``h5netcdf`` engine), so the whole
+module is ``core`` and runs in the extras-free suite. The companion
+``test_to_netcdf_without_xarray.py`` pins that contract by masking ``xarray``
+and asserting the write still succeeds.
 
 Inspection round-trip is done with :func:`osgeo.gdal.OpenEx` in
-``OF_MULTIDIM_RASTER`` mode so the assertions don't require an xarray
-NetCDF engine (xarray in CI may not pull ``netcdf4``).
+``OF_MULTIDIM_RASTER`` mode so the assertions never require a NetCDF engine.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from tests.dataset.collection._helpers import (
     make_int16_collection as _make_int16_collection,
 )
 
-pytestmark = pytest.mark.xarray
+pytestmark = pytest.mark.core
 
 
 def _root_attrs(path: str) -> dict:
@@ -72,7 +72,6 @@ def _array_values(path: str, name: str) -> np.ndarray:
     return np.asarray(g.OpenMDArray(name).ReadAsArray())
 
 
-@pytest.mark.xarray
 class TestToNetcdfDefaults:
     """Default-path tests (positional time index, var-per-band, CF root attrs)."""
 
@@ -193,7 +192,6 @@ class TestToNetcdfDefaults:
             )
 
 
-@pytest.mark.xarray
 class TestToNetcdfTimeCoords:
     """``time_coords`` plumbing: explicit values, datetime coercion, warnings, errors."""
 
@@ -460,7 +458,6 @@ class TestToNetcdfTimeCoords:
         assert "time" not in names, f"default 'time' should not appear: {names}"
 
 
-@pytest.mark.xarray
 class TestToNetcdfVarPerBand:
     """``var_per_band`` branch behaviour."""
 
@@ -522,7 +519,6 @@ class TestToNetcdfVarPerBand:
         )
 
 
-@pytest.mark.xarray
 class TestToNetcdfNoData:
     """No-data propagation through the writer (the ``_FillValue`` workaround)."""
 
@@ -673,7 +669,6 @@ class TestToNetcdfNoData:
         )
 
 
-@pytest.mark.xarray
 class TestToNetcdfNoFilesPath:
     """Support for collections that have no ``_files`` (e.g. ``create_cube``)."""
 
@@ -707,7 +702,6 @@ class TestToNetcdfNoFilesPath:
         assert values.shape == (3, 4, 5), f"unexpected shape: {values.shape}"
 
 
-@pytest.mark.xarray
 class TestToNetcdfLargeCubeWarning:
     """ARC-46: ``to_netcdf`` warns (pointing at ``to_zarr``) for an oversized cube."""
 
@@ -746,7 +740,6 @@ class TestToNetcdfLargeCubeWarning:
         )
 
 
-@pytest.mark.xarray
 class TestToNetcdfRoundTrip:
     """End-to-end: re-open the written file via :class:`NetCDF` and compare."""
 
