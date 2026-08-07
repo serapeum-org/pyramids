@@ -7,7 +7,7 @@ Builds a kerchunk v1 reference manifest by walking the HDF5 container with
 submits work to a process-global event loop and flakily deadlocks (#530).
 
 The output is the ordinary kerchunk reference document, so the consumer side
-(``xr.open_dataset(engine="kerchunk")``) is unchanged.
+(any standard kerchunk reader) is unchanged.
 
 Scope: the feature surface GDAL's netCDF driver writes — fixed-width numeric and
 fixed-length string dtypes, ``deflate``/``shuffle`` filters, dimension scales.

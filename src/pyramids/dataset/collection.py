@@ -1247,8 +1247,8 @@ class DatasetCollection:
         offers. Geobox metadata (epsg, geotransform, nodata, band_names,
         time_length) is written as attributes on the root group + the
         `data` array following the standard `crs_wkt` / `GeoTransform`
-        attribute convention, so downstream `xr.open_zarr(store)` consumers
-        can reconstruct the geobox without pyramids.
+        attribute convention, so downstream GeoZarr readers can
+        reconstruct the geobox without pyramids.
 
         Args:
             store: Target store (path, fsspec URL, or zarr.Store).
