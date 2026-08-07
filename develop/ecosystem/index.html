@@ -6232,17 +6232,17 @@ the datacube/NetCDF axis. A full, symbol-checked feature matrix lives in
 <li><a href="https://rasterio.readthedocs.io/"><strong>rasterio</strong></a> (+ <code>rio-cogeo</code> / <code>rasterstats</code> / <code>rio-tiler</code>) — a mature,
   minimal, highly-composable raster core. Pick it when you want the smallest raster dependency and will add the
   pieces yourself.</li>
-<li><a href="https://docs.xarray.dev/"><strong>xarray</strong></a> + <a href="https://corteva.github.io/rioxarray/"><strong>rioxarray</strong></a> — the standard
-  for N-dimensional labelled arrays / large lazy datacubes, with a CRS-aware raster layer on top. Pick them when
-  your problem is genuinely N-dimensional scientific arrays. pyramids can hand off to and from xarray
-  (<code>NetCDF.to_xarray</code> / <code>from_xarray</code>).</li>
+<li><strong>The labeled N-dimensional array ecosystem</strong> — the standard for N-dimensional labelled arrays / large lazy
+  datacubes, with a CRS-aware raster layer on top. Pick it when your problem is genuinely N-dimensional
+  scientific arrays. pyramids can hand off to and from that stack (<code>NetCDF.to_xarray</code> / <code>from_xarray</code>).</li>
 <li><a href="https://geopandas.org/"><strong>geopandas</strong></a> / <a href="https://fiona.readthedocs.io/"><strong>fiona</strong></a> — dedicated vector.
   <code>FeatureCollection</code> already wraps geopandas, so you can drop down to it anytime.</li>
 </ul>
 <div class="admonition info">
 <p class="admonition-title">Interop, not lock-in</p>
-<p>Because pyramids is GDAL-backed and wraps a <code>GeoDataFrame</code>, moving data to rasterio, xarray/rioxarray, or
-geopandas is a one-liner (<code>to_xarray</code>, the underlying <code>.geometry</code>, or a written GeoTIFF/GeoParquet). Use
+<p>Because pyramids is GDAL-backed and wraps a <code>GeoDataFrame</code>, moving data to rasterio, the labeled-array
+stack, or geopandas is a one-liner (<code>to_xarray</code>, the underlying <code>.geometry</code>, or a written
+GeoTIFF/GeoParquet). Use
 pyramids for breadth in one package; drop to a peer for its niche strength.</p>
 </div>
 

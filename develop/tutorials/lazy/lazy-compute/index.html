@@ -6348,8 +6348,8 @@ into the specifics:</p>
   <code>Dataset.to_zarr</code>, <code>focal_*</code>, <code>slope</code>, <code>aspect</code>, <code>hillshade</code>,
   <code>zonal_stats</code>.</li>
 <li><a href="../lazy-netcdf/">Lazy NetCDF</a> — <code>NetCDF.read_array(chunks=…)</code>,
-  <code>to_kerchunk</code>, <code>combine_kerchunk</code>, <code>open_mfdataset</code>, the xarray
-  backend entry point.</li>
+  <code>to_kerchunk</code>, <code>combine_kerchunk</code>, <code>open_mfdataset</code>, the
+  labeled-array interop entry point.</li>
 <li><a href="../lazy-collection/">Lazy DatasetCollection</a> — time-series cubes,
   <code>from_stac</code>, <code>from_files</code>, <code>to_zarr</code>, <code>to_kerchunk</code>, <code>groupby</code>.</li>
 <li><a href="../lazy-vector/">Lazy vector reads</a> — <code>LazyFeatureCollection</code>,
@@ -6437,9 +6437,9 @@ minimal:</p>
 </tr>
 </tbody>
 </table>
-<p>xarray interop (<code>NetCDF.to_xarray()</code> / <code>.from_xarray()</code>,
+<p>The labeled-array interop (<code>NetCDF.to_xarray()</code> / <code>.from_xarray()</code>,
 <code>DatasetCollection.to_netcdf</code>) is <strong>not</strong> a pyramids extra — pyramids is
-GDAL-backed, so xarray is a peer. <code>pip install xarray</code> directly for those helpers.</p>
+GDAL-backed, so that library is a peer. <code>pip install xarray</code> directly for those helpers.</p>
 <p>Install one or many:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;pyramids-gis[lazy,parquet,stac,zonal]&#39;</span>
 </code></pre></div>
@@ -6544,8 +6544,8 @@ you write generic utilities without importing the concrete classes:</p>
   available.</li>
 </ul>
 <h2 id="pickle-handle-hygiene-cachingfilemanager"><a class="toclink" href="#pickle-handle-hygiene-cachingfilemanager">Pickle &amp; handle hygiene — <code>CachingFileManager</code></a><a class="headerlink" href="#pickle-handle-hygiene-cachingfilemanager" title="Permanent link">#</a></h2>
-<p>Every lazy read in pyramids goes through one pattern copied verbatim
-from xarray: the <strong><code>CachingFileManager</code></strong>. You won't interact with it
+<p>Every lazy read in pyramids goes through one pattern adapted from the
+labeled-array stack: the <strong><code>CachingFileManager</code></strong>. You won't interact with it
 directly most of the time, but its semantics affect what works on a
 distributed cluster and what doesn't:</p>
 <ul>
