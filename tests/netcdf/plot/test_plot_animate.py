@@ -53,12 +53,12 @@ class TestNetCDFPlotAnimate:
         assert isinstance(result, ArrayGlyph)
 
     def test_animate_unknown_dim_raises(self):
-        """``animate="bogus"`` raises ``KeyError`` (unknown dim name, xarray-style) (N4).
+        """``animate="bogus"`` raises ``KeyError`` (unknown dim name) (N4).
 
         Test scenario:
             N4 — an unknown *dim name* on ``animate=`` is a missing-key
-            error, so it raises ``KeyError`` (mirroring xarray's
-            ``ds.sel(unknown_dim=...)``), distinct from the ``ValueError``
+            error, so it raises ``KeyError`` (a missing-key lookup),
+            distinct from the ``ValueError``
             used for invalid *combinations* (pin conflict, faceting
             conflict, ``animate=True`` ambiguity). The message still
             lists the available band dims.
