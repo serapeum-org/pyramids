@@ -398,6 +398,12 @@ def _build_multidim(
         _apply_md_array_attrs(md_arr, merged)
 
     for var_name, (var_dims, var_values, var_attrs) in data_vars.items():
+        unknown = [d for d in var_dims if d not in gdal_dims]
+        if unknown:
+            raise ValueError(
+                f"variable {var_name!r} references unknown dimension(s) "
+                f"{unknown} not in dims {sorted(gdal_dims)}"
+            )
         values, cf_attrs = _encode_temporal_array(np.asarray(var_values))
         ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
         md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)

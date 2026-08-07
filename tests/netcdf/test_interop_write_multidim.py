@@ -254,6 +254,23 @@ class TestWriteMultidimNetcdf:
             f"time axis not numeric: {vals!r}"
         )
 
+    def test_unknown_variable_dimension_raises_value_error(self, tmp_path):
+        """A variable over a dimension absent from ``dims`` raises ``ValueError``.
+
+        Test scenario:
+            ``data_vars`` references dimension ``z`` not present in ``dims`` —
+            expected: ``ValueError`` naming the offending variable and dimension,
+            instead of an opaque ``KeyError``.
+        """
+        with pytest.raises(ValueError, match="unknown dimension"):
+            write_multidim_netcdf(
+                tmp_path / "bad.nc",
+                dims={"x": 2},
+                coords={"x": (np.array([0.0, 1.0]), {})},
+                data_vars={"v": (("z",), np.array([1.0, 2.0]), {})},
+                global_attrs={},
+            )
+
     def test_write_failure_raises_runtime_error(self, tmp_path, monkeypatch):
         """A ``None`` from the netCDF driver's ``CreateCopy`` raises ``RuntimeError``.
 
