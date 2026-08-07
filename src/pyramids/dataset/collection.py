@@ -2517,15 +2517,32 @@ class DatasetCollection:
                 (colour, size, placement). ``animation_axis_values`` sets the
                 label *text* per frame; ``frame_label`` styles it. Default
                 ``None`` (cleopatra's default frame label).
+            colorbar (bool or ColorBar, optional):
+                Colour-bar spec ``pyramids.plot.ColorBar(label=…, length=…,
+                orientation=…, label_size=…, label_rotation=…, label_location=…,
+                ticks_spacing=…)`` (cleopatra >= 0.28). The loose ``cbar_*`` /
+                ``ticks_spacing`` kwargs it replaces are deprecated — still accepted,
+                but they emit a :class:`DeprecationWarning`. ``False`` hides it,
+                ``None`` uses the default. Default ``None``.
+            points (np.ndarray or PointOverlay, optional):
+                Point overlay. A 3-column array ``(value, row, col)`` draws unstyled
+                points; to style them pass a ``pyramids.plot.PointOverlay(points,
+                color=…, size=…, label_color=…, label_size=…)`` instead (on cleopatra
+                >= 0.26 the loose ``point_color`` / ``point_size`` / ``pid_color`` /
+                ``pid_size`` kwargs are deprecated). Default ``None``.
+            animation_axis_values (sequence, optional):
+                Per-frame labels for the animation, one per timestep. Defaults to the
+                collection's ``time`` axis when set (e.g. dates parsed by
+                ``read_multiple_files``), else ``range(time_length)`` (index labels).
+                Pass a sequence to override (e.g. ``range(2000, 2024)``); it must carry
+                exactly one label per timestep or a :class:`ValueError` is raised.
+                Default ``None``.
             **kwargs:
                 | Parameter                  | Type                  | Description |
                 |----------------------------|-----------------------|-------------|
-                | animation_axis_values      | sequence, optional    | Per-frame labels for the animation, one per timestep. Defaults to the collection's `time` axis when set (e.g. dates parsed by `read_multiple_files`), else `range(time_length)` (index labels). Pass a sequence here to override (e.g. `range(2000, 2024)`). |
-                | points                     | array \| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.glyphs.gridded.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
                 | figsize                    | tuple, optional       | Figure size. Default is `(8, 8)`. |
                 | title                      | str, optional         | Title of the plot. Default is `'Total Discharge'`. |
                 | title_size                 | int, optional         | Title size. Default is `15`. |
-                | colorbar                   | bool \| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28). The loose `cbar_*` / `ticks_spacing` kwargs it replaces are deprecated — still accepted, but they emit a `DeprecationWarning`. `False` hides it, `None` uses the default. |
                 | color_scale                | str, optional         | Color-scale mode (default `"linear"`): one of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styling.styles.ColorScale` member. Integer codes are no longer accepted. |
                 | gamma                      | float, optional       | Exponent for `color_scale="power"`. Default is `1/2`. |
                 | line_threshold             | float, optional       | `linthresh` for `color_scale="sym-lognorm"`. Default is `0.0001`. |

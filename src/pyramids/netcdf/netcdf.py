@@ -1764,6 +1764,17 @@ class NetCDF(Dataset):
                 Existing matplotlib Axes to draw into. Defaults to None.
             figsize (tuple, optional):
                 Figure size in inches. Defaults to None.
+            colorbar (bool or ColorBar, optional):
+                Colour-bar spec. A ``pyramids.plot.ColorBar(label=…, …)``
+                (cleopatra >= 0.28) draws a configured bar; ``False`` hides it and
+                ``None`` uses cleopatra's default. Only forwarded when set. Default
+                is ``None``.
+            points (np.ndarray or PointOverlay, optional):
+                Point overlay for the static / animate paths. A 3-column array
+                ``(value, row, col)`` draws unstyled points; pass a
+                ``pyramids.plot.PointOverlay(...)`` to style them. Only forwarded
+                when set — the multi-panel ``facet`` path has no ``points``
+                parameter and raises if one is supplied. Default is ``None``.
             **kwargs:
                 Additional keyword arguments forwarded to
                 :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`.

@@ -873,6 +873,21 @@ class Dataset(RasterBase):
                 draws a shaded-relief / coastline layer instead. Passing a ``dict`` here is
                 a deprecated alias for ``Basemap`` (emits a ``DeprecationWarning``). Default
                 is ``None``. Requires the ``[viz]`` extra.
+            colorbar (bool or ColorBar, optional):
+                Colour-bar spec. A ``pyramids.plot.ColorBar(label=…, length=…,
+                orientation=…, …)`` (cleopatra >= 0.28) draws a configured bar; the loose
+                ``cbar_*`` / ``ticks_spacing`` kwargs it replaces are deprecated (still
+                accepted, but they emit a :class:`DeprecationWarning`). ``False`` hides the
+                bar, ``None`` uses cleopatra's default. Default is ``None``.
+            points (np.ndarray or PointOverlay, optional):
+                Point overlay. A 3-column array ``(value, row, col)`` draws unstyled
+                points; pass a ``pyramids.plot.PointOverlay(points, color=…, size=…, …)``
+                to style them. Default is ``None``.
+            kind (str, optional):
+                Renderer to use. ``"auto"`` (default) picks per data; otherwise one of
+                ``"imshow"`` / ``"pcolormesh"`` / ``"contour"`` / ``"contourf"``.
+            title (str, optional):
+                Axes title. Default is ``None`` (cleopatra's default title).
             rgb_options (dict, optional):
                 Grouped Sentinel-imagery kwargs. Accepted keys:
                 ``"rgb"``, ``"surface_reflectance"``, ``"cutoff"``,
