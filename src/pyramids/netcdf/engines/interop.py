@@ -489,4 +489,3 @@ def write_multidim_netcdf(
     """
     mem_src = _build_multidim(dims, coords, data_vars, global_attrs)
     _create_copy_to_netcdf(mem_src, str(path))
-    mem_src = None
