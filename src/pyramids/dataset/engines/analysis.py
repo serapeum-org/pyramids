@@ -28,8 +28,8 @@ from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
-    from cleopatra.array_glyph import ArrayGlyph
-    from cleopatra.geo import Basemap
+    from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
 
     from pyramids.dataset.dataset import Dataset
 
@@ -1674,7 +1674,7 @@ class Analysis(_Engine["Dataset"]):
         """Plot the value distribution of a band as a histogram.
 
         Backed by cleopatra's
-        :class:`~cleopatra.statistical_glyph.StatisticalGlyph`. The band is
+        :class:`~cleopatra.glyphs.stats.histogram_glyph.HistogramGlyph`. The band is
         read into memory, the band's no-data value and ``exclude_value``
         (and any ``NaN`` for floating-point bands) are dropped, and only the
         remaining valid samples reach the glyph. Requires the ``[viz]`` extra.
@@ -1690,15 +1690,15 @@ class Analysis(_Engine["Dataset"]):
             ax (matplotlib.axes.Axes, optional):
                 Axes to draw on. A new figure/axes is created when ``None``.
             **kwargs:
-                Style options forwarded to the ``StatisticalGlyph``
+                Style options forwarded to the ``HistogramGlyph``
                 constructor, filtered via
-                :meth:`StatisticalGlyph.filter_kwargs` so only accepted keys
+                :meth:`HistogramGlyph.filter_kwargs` so only accepted keys
                 are passed.
 
         Returns:
             tuple:
                 ``(fig, ax, hist)`` from
-                :meth:`StatisticalGlyph.histogram` — the
+                :meth:`HistogramGlyph.histogram` — the
                 :class:`matplotlib.figure.Figure`, the
                 :class:`matplotlib.axes.Axes`, and the histogram ``dict``.
 
@@ -1729,7 +1729,7 @@ class Analysis(_Engine["Dataset"]):
                 ```
         """
         require_cleopatra()
-        from cleopatra.statistical_glyph import StatisticalGlyph
+        from cleopatra.glyphs.stats.histogram_glyph import HistogramGlyph
 
         arr = self._ds.read_array(band=band).flatten()
         no_data_value = self._ds.no_data_value[band]
@@ -1748,9 +1748,7 @@ class Analysis(_Engine["Dataset"]):
                 f"Band {band} has no valid samples to histogram after masking "
                 "no-data / exclude_value / NaN."
             )
-        glyph = StatisticalGlyph(
-            values, ax=ax, **StatisticalGlyph.filter_kwargs(kwargs)
-        )
+        glyph = HistogramGlyph(values, ax=ax, **HistogramGlyph.filter_kwargs(kwargs))
         result = glyph.histogram(bins=bins)
         return result
 
@@ -1804,7 +1802,7 @@ class Analysis(_Engine["Dataset"]):
                 ```
         """
         require_cleopatra()
-        from cleopatra.array_glyph import ArrayGlyph
+        from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
 
         arr = self._ds.read_array(band=band)
         no_data_value = self._ds.no_data_value[band]
@@ -1842,7 +1840,7 @@ class Analysis(_Engine["Dataset"]):
         Reads ``u_band`` and ``v_band`` as the vector components over the
         dataset's cell-centre coordinate grid (built from the geotransform)
         and renders them via cleopatra's
-        :class:`~cleopatra.vector_glyph.VectorGlyph` as arrows, wind barbs,
+        :class:`~cleopatra.glyphs.gridded.vector_glyph.VectorGlyph` as arrows, wind barbs,
         or streamlines, coloured by vector magnitude. Requires the ``[viz]``
         extra.
 
@@ -1905,7 +1903,7 @@ class Analysis(_Engine["Dataset"]):
                 ```
         """
         require_cleopatra()
-        from cleopatra.vector_glyph import VectorGlyph
+        from cleopatra.glyphs.gridded.vector_glyph import VectorGlyph
 
         band_count = self._ds.band_count
         for name, idx in (("u_band", u_band), ("v_band", v_band)):
@@ -1965,7 +1963,7 @@ class Analysis(_Engine["Dataset"]):
         An explicit ``cmap`` / ``color_scale`` opts out.
 
         The plot function uses the `cleopatra` as a backend to plot the raster data, for more information check
-        [ArrayGlyph](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/#cleopatra.array_glyph.ArrayGlyph.plot).
+        [ArrayGlyph](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/#cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.plot).
 
         Implementation note: this method is a thin caller around the
         shared :func:`pyramids.dataset._plot_helpers.render_array`
@@ -2025,7 +2023,7 @@ class Analysis(_Engine["Dataset"]):
                 | `figsize`                   | tuple, optional     | Figure size. Default is `(8, 8)`. |
                 | `title`                     | str, optional       | Title of the plot. Default is `'Total Discharge'`. |
                 | `title_size`                | int, optional       | Title size. Default is `15`. |
-                | `color_scale`               | str, optional       | Color-scale mode. One of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styles.ColorScale` member. Integer codes are no longer accepted. Default is `"linear"`. |
+                | `color_scale`               | str, optional       | Color-scale mode. One of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styling.styles.ColorScale` member. Integer codes are no longer accepted. Default is `"linear"`. |
                 | `gamma`                     | float, optional     | Exponent for the `"power"` color scale. Default is `1/2`. |
                 | `line_threshold`            | float, optional     | `linthresh` for the `"sym-lognorm"` color scale. Default is `0.0001`. |
                 | `line_scale`                | float, optional     | `linscale` for the `"sym-lognorm"` color scale. Default is `0.001`. |
@@ -2224,7 +2222,7 @@ class Analysis(_Engine["Dataset"]):
     @staticmethod
     def _process_color_table(color_table: DataFrame) -> DataFrame:
         require_cleopatra()
-        from cleopatra.colors import Colors
+        from cleopatra.styling.colors import Colors
 
         # if the color_table does not contain the red, green, and blue columns, assume it has one column with
         # the color as hex and then, convert the color to rgb.
@@ -2284,7 +2282,7 @@ class Analysis(_Engine["Dataset"]):
                 boundary edges, sorted by colour-table value.
         """
         require_cleopatra()
-        from cleopatra.colors import category_boundaries
+        from cleopatra.styling.colors import category_boundaries
         from matplotlib.colors import BoundaryNorm, ListedColormap
 
         processed = Analysis._process_color_table(color_table).sort_values("values")

@@ -1116,7 +1116,7 @@ class RasterBase(ABC):
                     ``DeprecationWarning``). ``False`` hides the bar, ``None`` uses the default.
                 color_scale (str, optional):
                     Color-scale mode. One of "linear", "power", "sym-lognorm", "boundary-norm", "midpoint"
-                    (case-insensitive), or a ``cleopatra.styles.ColorScale`` member. Integer codes are no
+                    (case-insensitive), or a ``cleopatra.styling.styles.ColorScale`` member. Integer codes are no
                     longer accepted. The default is "linear".
                 gamma (float, optional):
                     Exponent for the "power" color scale. The default is 1./2.

@@ -232,7 +232,7 @@ def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.typing.NDA
 
 if TYPE_CHECKING:
     import dask.array as da
-    from cleopatra.geo import Basemap
+    from cleopatra.basemap.geo import Basemap
     from geopandas import GeoDataFrame
 
 

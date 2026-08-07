@@ -71,7 +71,7 @@ from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
 from pyramids.netcdf.utils import _read_attributes, create_time_conversion_func
 
 if TYPE_CHECKING:
-    from cleopatra.geo import Basemap
+    from cleopatra.basemap.geo import Basemap
 
 # Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
 # and `close()` (which snapshots) on the same container from different threads.
@@ -1774,14 +1774,14 @@ class NetCDF(Dataset):
                 passing the CRS the data was plotted in (its own CRS — no reprojection needed) so the
                 layer lines up::
 
-                    from cleopatra.reference import add_features
+                    from cleopatra.basemap.reference import add_features
                     var = nc.get_variable("t2m")
                     glyph = var.plot()
                     add_features(glyph.ax, "coastline", crs=var.epsg, zorder=5)
 
                 ``add_features`` fetches Natural Earth data (cached under ``~/.cleopatra``), so it
                 needs the ``[viz]`` extra and network access on first use. A relief backdrop is
-                available the same way via :func:`cleopatra.reference.add_relief`.
+                available the same way via :func:`cleopatra.basemap.reference.add_relief`.
 
         Raises:
             TypeError: If any of the Sentinel-only kwargs (``rgb``,
@@ -2009,7 +2009,7 @@ class NetCDF(Dataset):
             - Facet over the time dim. :class:`FacetSpec` lists the
               column dim (and optionally a row dim and a wrap value).
               The return type becomes
-              :class:`cleopatra.array_glyph.FacetGrid`:
+              :class:`cleopatra.glyphs.gridded.array_glyph.FacetGrid`:
 
               ```python
               >>> from pyramids.netcdf import FacetSpec

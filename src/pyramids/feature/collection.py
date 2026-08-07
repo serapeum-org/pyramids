@@ -2202,8 +2202,8 @@ class FeatureCollection(GeoDataFrame):
           :meth:`geopandas.GeoDataFrame.plot` and return the matplotlib
           ``Axes``. This is the long-standing behaviour and is unchanged.
         - ``"cleopatra"``: render polygons through
-          :class:`~cleopatra.polygon_glyph.PolygonGlyph` or points through
-          :class:`~cleopatra.scatter_glyph.ScatterGlyph` — sharing the
+          :class:`~cleopatra.glyphs.primitives.polygon_glyph.PolygonGlyph` or points through
+          :class:`~cleopatra.glyphs.primitives.scatter_glyph.ScatterGlyph` — sharing the
           colour/colorbar styling of the raster glyph path — and return the
           cleopatra glyph. Requires the ``[viz]`` extra.
 
@@ -2295,7 +2295,7 @@ class FeatureCollection(GeoDataFrame):
             **kwargs: Style options, filtered to the glyph's accepted keys.
 
         Returns:
-            cleopatra.scatter_glyph.ScatterGlyph: The point glyph.
+            cleopatra.glyphs.primitives.scatter_glyph.ScatterGlyph: The point glyph.
         """
         return _plot.scatter_glyph(self, values, **kwargs)
 
@@ -2313,7 +2313,7 @@ class FeatureCollection(GeoDataFrame):
             **kwargs: Style options, filtered to the glyph's accepted keys.
 
         Returns:
-            cleopatra.polygon_glyph.PolygonGlyph: The polygon glyph.
+            cleopatra.glyphs.primitives.polygon_glyph.PolygonGlyph: The polygon glyph.
         """
         return _plot.polygon_glyph(self, values, **kwargs)
 

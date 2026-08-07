@@ -13,7 +13,7 @@ from pyramids.netcdf.netcdf import NetCDF
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
@@ -332,7 +332,7 @@ class TestPlotPR6Cleanups:
                 return (None, self.ax)
 
         with _patch(
-            "cleopatra.array_glyph.ArrayGlyph",
+            "cleopatra.glyphs.gridded.array_glyph.ArrayGlyph",
             new=_FakeGlyph,
         ):
             _rarr(

@@ -20,8 +20,12 @@ pytestmark = pytest.mark.plot
 # Guard every optional-dependency import (cleopatra + its matplotlib backend)
 # behind importorskip so the module skips cleanly in a core-only install
 # (e.g. the wheel-test job), rather than erroring at collection.
-_pg = pytest.importorskip("cleopatra.polygon_glyph", reason="cleopatra not installed")
-_sg = pytest.importorskip("cleopatra.scatter_glyph", reason="cleopatra not installed")
+_pg = pytest.importorskip(
+    "cleopatra.glyphs.primitives.polygon_glyph", reason="cleopatra not installed"
+)
+_sg = pytest.importorskip(
+    "cleopatra.glyphs.primitives.scatter_glyph", reason="cleopatra not installed"
+)
 _cfg = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 _mpl_axes = pytest.importorskip("matplotlib.axes", reason="matplotlib not installed")
 _cfg.Config.set_matplotlib_backend("agg")

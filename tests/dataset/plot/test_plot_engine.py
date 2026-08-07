@@ -13,7 +13,7 @@ from pyramids.dataset.engines import Analysis
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 # cleopatra >= 0.26 bundles the point-overlay styling kwargs into this class,
@@ -158,7 +158,7 @@ class TestRenderArrayKwargRouting:
         fake_cls, ctor, plot, _, _, _ = self._capture_calls()
         rng = np.random.default_rng(101)
         arr = rng.random((4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr,
                 extent=[0.0, 0.0, 1.0, 1.0],
@@ -197,7 +197,7 @@ class TestRenderArrayKwargRouting:
             "full_bleed": True,
             "kind": "imshow",
         }
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr,
                 extent=[0.0, 0.0, 1.0, 1.0],
@@ -223,7 +223,7 @@ class TestRenderArrayKwargRouting:
         fake_cls, ctor, _, animate, _, anim_args = self._capture_calls()
         rng = np.random.default_rng(303)
         arr = rng.random((4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr,
                 extent=[0.0, 0.0, 1.0, 1.0],
@@ -258,7 +258,7 @@ class TestRenderArrayKwargRouting:
         fake_cls, ctor, _, _, facet, _ = self._capture_calls()
         rng = np.random.default_rng(404)
         arr = rng.random((3, 4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr,
                 extent=[0.0, 0.0, 1.0, 1.0],
@@ -291,7 +291,7 @@ class TestRenderArrayKwargRouting:
         fake_cls, ctor, plot, _, _, _ = self._capture_calls()
         rng = np.random.default_rng(505)
         arr = rng.random((4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr,
                 extent=[0.0, 0.0, 1.0, 1.0],
@@ -318,7 +318,7 @@ class TestRenderArrayKwargRouting:
         fake_cls, ctor, plot, _, _, _ = self._capture_calls()
         rng = np.random.default_rng(506)
         arr = rng.random((4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             with pytest.warns(DeprecationWarning, match="cbar_"):
                 render_array(
                     arr=arr,
@@ -353,7 +353,7 @@ class TestRenderArrayKwargRouting:
         rng = np.random.default_rng(507)
         arr = rng.random((4, 4)).astype("float32")
         pts = np.array([[1.0, 2, 3]])
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             with pytest.warns(DeprecationWarning, match="point_"):
                 render_array(
                     arr=arr,
@@ -386,7 +386,7 @@ class TestRenderArrayKwargRouting:
         rng = np.random.default_rng(508)
         arr = rng.random((4, 4)).astype("float32")
         pts = np.array([[1.0, 2, 3]])
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             with pytest.warns(DeprecationWarning, match="pid_"):
                 render_array(
                     arr=arr,
@@ -424,7 +424,7 @@ class TestRenderArrayKwargRouting:
         rng = np.random.default_rng(509)
         arr = rng.random((4, 4)).astype("float32")
         pts = np.array([[1.0, 2, 3]])
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             with pytest.warns(DeprecationWarning, match="point_"):
                 render_array(
                     arr=arr,
@@ -451,7 +451,7 @@ class TestRenderArrayKwargRouting:
         rng = np.random.default_rng(510)
         arr = rng.random((4, 4)).astype("float32")
         overlay_in = PointOverlay(np.array([[1.0, 2, 3]]), color="black")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             with pytest.warns(DeprecationWarning, match="ignored because points="):
                 render_array(
                     arr=arr,
@@ -477,7 +477,7 @@ class TestRenderArrayKwargRouting:
         fake_cls, ctor, plot, _, _, _ = self._capture_calls()
         rng = np.random.default_rng(511)
         arr = rng.random((4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             with pytest.warns(DeprecationWarning, match="no effect"):
                 render_array(
                     arr=arr,
@@ -640,7 +640,7 @@ class TestStyleHillshadePresets:
         fake_cls, ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
         rng = np.random.default_rng(745)
         arr = rng.random((5, 5)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade=value
             )
@@ -659,7 +659,7 @@ class TestStyleHillshadePresets:
         fake_cls, ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
         rng = np.random.default_rng(748)
         arr = rng.random((5, 5)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", style=None)
         assert "style" not in ctor, "style=None must not reach the ctor"
         assert "style" not in plot, "style=None must not reach plot"
@@ -675,7 +675,7 @@ class TestStyleHillshadePresets:
         fake_cls, ctor, _plot, *_ = TestRenderArrayKwargRouting._capture_calls()
         rng = np.random.default_rng(746)
         arr = rng.random((5, 5)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade={}
             )
@@ -980,7 +980,7 @@ class TestPointOverlay:
         overlay = PointOverlay(self._points(), color="red")
         rng = np.random.default_rng(761)
         arr = rng.random((5, 5)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", points=overlay
             )

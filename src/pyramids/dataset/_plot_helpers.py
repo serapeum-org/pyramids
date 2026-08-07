@@ -78,7 +78,7 @@ from pyramids.base._utils import require_cleopatra
 from pyramids.basemap import basemap as _basemap_module
 
 if TYPE_CHECKING:
-    from cleopatra.geo import Basemap
+    from cleopatra.basemap.geo import Basemap
 
 # N-6 — Mesh rendering shares this module's "data in, glyph out"
 # contract via :func:`mesh_render`. The function lives next to
@@ -370,7 +370,7 @@ def render_array(
         animation_axis_values: Frame labels for the animation path.
             Required when ``mode == "animate"``.
         data_getter: Optional callable ``f(i) -> ndarray`` forwarded to
-            :meth:`cleopatra.array_glyph.ArrayGlyph.animate` as the
+            :meth:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.animate` as the
             ``data_getter`` kwarg. When set the animation streams each
             frame lazily through this callback instead of slicing the
             pre-materialised ``arr`` stack — used by
@@ -388,7 +388,7 @@ def render_array(
             non-empty contextily provider string adds a pyramids web-tile
             basemap underneath the rendered plot (tile mode is applied on
             ``"plot"`` and per-panel on ``"facet"``). A
-            :class:`cleopatra.geo.Basemap` is cleopatra's relief/features
+            :class:`cleopatra.basemap.geo.Basemap` is cleopatra's relief/features
             reference layer, forwarded to the glyph's own ``basemap=`` on the
             ``"plot"``/``"animate"`` render call; it is **not** supported on
             ``"facet"`` (raises). A ``dict`` is a deprecated alias translated to
@@ -405,8 +405,8 @@ def render_array(
 
     Returns:
         The result object cleopatra returns for that mode — typically a
-        :class:`cleopatra.array_glyph.ArrayGlyph` for ``"plot"`` and
-        ``"animate"``, and a :class:`cleopatra.array_glyph.FacetGrid`
+        :class:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph` for ``"plot"`` and
+        ``"animate"``, and a :class:`cleopatra.glyphs.gridded.array_glyph.FacetGrid`
         for ``"facet"``.
 
     Raises:
@@ -415,7 +415,7 @@ def render_array(
             truthy and ``basemap_epsg`` is ``None``, if a cleopatra
             ``Basemap`` (or equivalent dict) is passed on the ``"facet"``
             path, or if ``color_scale`` is not a recognised
-            :class:`~cleopatra.styles.ColorScale` value.
+            :class:`~cleopatra.styling.styles.ColorScale` value.
 
     Examples:
         - Single-slice plot path. Tagged ``+SKIP`` because the call
@@ -531,22 +531,18 @@ def render_array(
             ```
     """
     require_cleopatra()
-    from cleopatra.array_glyph import ArrayGlyph, ColorBar, PointOverlay
-    from cleopatra.geo import Basemap
-    from cleopatra.styles import ColorScale
+    from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph, PointOverlay
+    from cleopatra.styling.colorbar import ColorBar
+    from cleopatra.styling.styles import ColorScale
 
     # Deprecate + translate the loose plot kwargs to the typed specs (cbar_* ->
     # ColorBar, point_*/pid_* -> PointOverlay, dict basemap -> Basemap) so every
-    # raster plot/animate call is steered onto the typed API in one place and
-    # cleopatra only ever sees the typed form. The facet path is skipped:
-    # cleopatra's ``ArrayGlyph.facet`` does not accept ``colorbar=ColorBar`` /
-    # ``PointOverlay`` (only the loose ``cbar_*`` kwargs, like the mesh glyph), so
-    # faceting keeps the loose forms — there is no typed alternative there.
-    # Once cleopatra#256 lands (``ArrayGlyph.facet`` accepts ``colorbar=ColorBar``),
-    # drop this facet exception (and the ``cbar_*`` in ``RENDER_ONLY_OVERRIDES``
-    # below) so facet folds the loose kwargs like plot/animate. Tracked in #934.
-    if mode != "facet":
-        _migrate_deprecated_plot_specs(kwargs, ColorBar, PointOverlay)
+    # raster plot/animate/facet call is steered onto the typed API in one place and
+    # cleopatra only ever sees the typed form. cleopatra >= 0.29 accepts
+    # ``colorbar=ColorBar`` on ``ArrayGlyph.facet`` too (serapeum-org/cleopatra#271),
+    # so faceting folds the loose kwargs like plot/animate — no exception.
+    _migrate_deprecated_plot_specs(kwargs, ColorBar, PointOverlay)
     if isinstance(basemap, dict) and basemap:
         warnings.warn(
             "Passing a dict as basemap= is deprecated; pass "
@@ -660,13 +656,10 @@ def render_array(
     # render method only overwrites ``default_options["title"]`` when its
     # ``title`` arg is not ``None``, so a constructor-set title survives and
     # routing it to the constructor (via ``option_keys()``) is correct.
-    # ``kind`` is force-routed to the render call. The deprecated loose cbar_*
-    # kwargs are too — but only the ``facet`` path still carries them here (plot /
-    # animate already folded them into ``colorbar=ColorBar(...)`` above, so this is
-    # a no-op there). cleopatra's ``facet`` renders them only when they reach the
-    # facet *call* (its per-panel constructors), so force-routing keeps the loose
-    # cbar_* rendering on facet instead of being dropped on the parent constructor.
-    RENDER_ONLY_OVERRIDES = {"kind", *_CBAR_TO_COLORBAR}
+    # ``kind`` is force-routed to the render call. The loose cbar_* kwargs no longer
+    # need force-routing: every mode (incl. facet, on cleopatra >= 0.29) folds them
+    # into ``colorbar=ColorBar(...)`` above, so they never reach the split.
+    RENDER_ONLY_OVERRIDES = {"kind"}
     # Reuse the option set resolved for the style/hillshade guard above — it is
     # cleopatra's declared constructor options and does not change within a call.
     ctor_option_keys = option_keys
@@ -717,7 +710,7 @@ def render_array(
     # with pyramids' pre-existing web-tile ``basemap=``, so dispatch on the type:
     #   - a ``str`` provider name (or ``True``) is a pyramids web-tile basemap
     #     drawn under the raster -- pyramids owns this via ``add_basemap``;
-    #   - a ``cleopatra.geo.Basemap`` is cleopatra's relief/features reference
+    #   - a ``cleopatra.basemap.geo.Basemap`` is cleopatra's relief/features reference
     #     layer, forwarded to the glyph's own ``basemap=`` on the render call.
     #     (A non-empty ``dict`` was already deprecated + translated to a
     #     ``Basemap`` up front, so only an empty ``{}`` reaches here — no basemap.)
@@ -824,7 +817,7 @@ def mesh_render(
     """N-6 — sibling of :func:`render_array` for UGRID mesh data.
 
     Routes a pyramids ``Mesh2d`` + a per-element data array through
-    cleopatra's :class:`~cleopatra.mesh_glyph.MeshGlyph`, returning the
+    cleopatra's :class:`~cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph`, returning the
     glyph instance. Mirrors the :func:`render_array` contract — "single
     backend abstraction, one entry point per cleopatra glyph" — so the
     raster facade (:meth:`pyramids.dataset.Dataset.plot`,
@@ -852,7 +845,7 @@ def mesh_render(
             ``edgecolor``, ``colorbar``, ``title``.
 
     Returns:
-        cleopatra.mesh_glyph.MeshGlyph: The same instance that
+        cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph: The same instance that
             :func:`pyramids.netcdf.ugrid.plot.plot_mesh_data` returns.
 
     Raises:
@@ -906,7 +899,7 @@ def mesh_render(
     if basemap and basemap_epsg is None:
         raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
     require_cleopatra()
-    from cleopatra.mesh_glyph import MeshGlyph
+    from cleopatra.glyphs.gridded.mesh_glyph import MeshGlyph
 
     from pyramids.netcdf.ugrid.plot import plot_mesh_data
 

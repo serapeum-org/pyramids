@@ -851,7 +851,7 @@ class UgridDataset:
                 shaded-relief array.
 
         Returns:
-            cleopatra.mesh_glyph.MeshGlyph instance with the plot
+            cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph instance with the plot
                 rendered. Use the returned object to access the matplotlib
                 handles and the mappable:
 
@@ -899,7 +899,7 @@ class UgridDataset:
             **kwargs: Additional arguments passed to plot_mesh_outline.
 
         Returns:
-            cleopatra.mesh_glyph.MeshGlyph instance with the wireframe
+            cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph instance with the wireframe
                 rendered. ``glyph.fig`` / ``glyph.ax`` are the matplotlib
                 handles; ``glyph.im`` is ``None`` (an outline carries no
                 scalar mapping, so no mappable is produced).

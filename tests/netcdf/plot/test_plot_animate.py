@@ -16,7 +16,7 @@ from tests.netcdf.plot._plot_helpers import _make_4d_nc, _make_fake_render
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 # cleopatra >= 0.26 bundles the animate frame-label pair into FrameLabel.

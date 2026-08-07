@@ -20,7 +20,7 @@ from tests.netcdf.plot._plot_helpers import (
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")

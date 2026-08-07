@@ -832,7 +832,7 @@ class Bands(_Engine["Dataset"]):
                 True to overwrite the existing color table. Default is False.
         """
         require_cleopatra()
-        from cleopatra.colors import Colors
+        from cleopatra.styling.colors import Colors
 
         color = Colors(color_df["color"].tolist())
         color_rgb = color.to_rgb(normalized=False)

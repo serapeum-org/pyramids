@@ -12,7 +12,7 @@ from pyramids.dataset.engines import Analysis
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
@@ -42,7 +42,7 @@ class TestDatasetPlotFacade:
 
         Test scenario:
             Calling the facade with a single-band dataset must return
-            an instance of :class:`cleopatra.array_glyph.ArrayGlyph` so
+            an instance of :class:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph` so
             downstream callers can chain visual customisations.
         """
         rng = np.random.default_rng(1337)
@@ -91,7 +91,7 @@ class TestDatasetPlotFacade:
         ],
     )
     def test_color_scale_string_aliases_work(self, color_scale):
-        """``color_scale`` accepts the ``cleopatra.styles.ColorScale`` aliases.
+        """``color_scale`` accepts the ``cleopatra.styling.styles.ColorScale`` aliases.
 
         Args:
             color_scale: String alias for the colour-scale enum (lookup

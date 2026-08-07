@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 mesh_glyph = pytest.importorskip(
-    "cleopatra.mesh_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.mesh_glyph", reason="cleopatra not installed"
 )
 MeshGlyph = mesh_glyph.MeshGlyph
 from pyramids.base._errors import OptionalPackageDoesNotExist
@@ -63,6 +63,25 @@ class TestPlotMeshData:
         data = np.array([1.0, 2.0])
         result = plot_mesh_data(triangle_mesh, data, location="face")
         assert result.im is not None, "plot() must set the mesh mappable on .im"
+
+    def test_typed_colorbar_renders_on_mesh(self, triangle_mesh):
+        """A `ColorBar` spec styles the mesh colour bar (cleopatra >= 0.29, #933).
+
+        Test scenario:
+            cleopatra 0.29 accepts `colorbar=ColorBar` on `MeshGlyph.plot`, so passing
+            a typed spec draws a labelled colour bar rather than only accepting `bool`.
+        """
+        from cleopatra.styling.colorbar import ColorBar
+
+        data = np.array([1.0, 2.0])
+        result = plot_mesh_data(
+            triangle_mesh, data, location="face", colorbar=ColorBar(label="depth")
+        )
+        assert result._cbar is not None, "a ColorBar spec must draw a colour bar"
+        label = result._cbar.ax.get_ylabel() or result._cbar.ax.get_xlabel()
+        assert label == "depth", (
+            f"mesh colour bar should carry the label, got {label!r}"
+        )
 
     def test_invalid_location_raises(self, triangle_mesh):
         """Test that invalid location raises ValueError."""

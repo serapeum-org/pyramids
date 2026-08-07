@@ -17,11 +17,11 @@ pytestmark = pytest.mark.plot
 
 # Version-gate first: the module binds a 0.28-only spec (ColorBar) at module scope,
 # so an installed-but-older cleopatra must skip cleanly, not error at collection.
-pytest.importorskip("cleopatra", minversion="0.28", reason="needs cleopatra >= 0.28")
+pytest.importorskip("cleopatra", minversion="0.29", reason="needs cleopatra >= 0.29")
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 _cleo_config.Config.set_matplotlib_backend("agg")
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 ColorBar = _cleo_array.ColorBar
@@ -149,20 +149,22 @@ class TestNewRenderParams:
             f"colorbar=True must keep the loose label, got {label!r}"
         )
 
-    def test_deprecated_cbar_kwarg_renders_on_the_facet_path(self):
-        """A loose `cbar_*` kwarg still renders the shared colour-bar label on the facet path.
+    def test_deprecated_cbar_kwarg_folds_into_colorbar_on_the_facet_path(self):
+        """A loose `cbar_*` kwarg folds into a ColorBar and renders on the facet path.
 
-        cleopatra's `facet` does not accept `colorbar=ColorBar` (only the loose `cbar_*`
-        kwargs), so the translation is skipped on the facet path — the loose form is kept,
-        and the returned grid's shared colour bar still carries the label.
+        cleopatra >= 0.29 accepts `colorbar=ColorBar` on `ArrayGlyph.facet`
+        (serapeum-org/cleopatra#271), so the facet path folds the deprecated loose
+        `cbar_*` into a ColorBar (emitting a DeprecationWarning) like plot/animate; the
+        returned grid's shared colour bar still carries the label.
         """
         stack = np.random.default_rng(3).random((3, 6, 6)).astype("float32")
-        result = render_array(
-            arr=stack,
-            mode="facet",
-            facet_kwargs={"col": "time", "col_coords": [0, 1, 2]},
-            cbar_label="mm",
-            extent=[0.0, 0.0, 1.0, 1.0],
-        )
+        with pytest.warns(DeprecationWarning, match="cbar_"):
+            result = render_array(
+                arr=stack,
+                mode="facet",
+                facet_kwargs={"col": "time", "col_coords": [0, 1, 2]},
+                cbar_label="mm",
+                extent=[0.0, 0.0, 1.0, 1.0],
+            )
         label = result.cbar.ax.get_ylabel() or result.cbar.ax.get_xlabel()
         assert label == "mm", f"facet colour-bar label should render, got {label!r}"

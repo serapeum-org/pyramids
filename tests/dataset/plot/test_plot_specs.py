@@ -26,11 +26,11 @@ class TestPlotSpecReExports:
     @pytest.mark.parametrize(
         "name, module_name, attribute",
         [
-            ("ColorBar", "cleopatra.array_glyph", "ColorBar"),
-            ("FrameLabel", "cleopatra.array_glyph", "FrameLabel"),
-            ("PointOverlay", "cleopatra.array_glyph", "PointOverlay"),
-            ("Basemap", "cleopatra.geo", "Basemap"),
-            ("Feature", "cleopatra.geo", "Feature"),
+            ("ColorBar", "cleopatra.styling.colorbar", "ColorBar"),
+            ("FrameLabel", "cleopatra.glyphs.gridded.array_glyph", "FrameLabel"),
+            ("PointOverlay", "cleopatra.glyphs.gridded.array_glyph", "PointOverlay"),
+            ("Basemap", "cleopatra.basemap.geo", "Basemap"),
+            ("Feature", "cleopatra.basemap.geo", "Feature"),
         ],
     )
     def test_spec_resolves_to_cleopatra_class(self, name, module_name, attribute):
@@ -66,5 +66,5 @@ class TestPlotSpecReExports:
         with patch(
             "pyramids.plot.require_optional", return_value=_OldCleopatraModule()
         ):
-            with pytest.raises(OptionalPackageDoesNotExist, match="0.28"):
+            with pytest.raises(OptionalPackageDoesNotExist, match="0.29"):
                 plot_specs.ColorBar

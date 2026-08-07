@@ -81,7 +81,7 @@ def plot_cleopatra(fc: Any, column: str | None = None, **kwargs: Any) -> Any:
 def scatter_glyph(fc: Any, values: Any, **kwargs: Any) -> Any:
     """Build a cleopatra ScatterGlyph from `fc`'s point coordinates."""
     require_cleopatra()
-    from cleopatra.scatter_glyph import ScatterGlyph
+    from cleopatra.glyphs.primitives.scatter_glyph import ScatterGlyph
 
     return ScatterGlyph(
         fc.geometry.x.to_numpy(),
@@ -94,7 +94,7 @@ def scatter_glyph(fc: Any, values: Any, **kwargs: Any) -> Any:
 def polygon_glyph(fc: Any, values: Any, **kwargs: Any) -> Any:
     """Build a cleopatra PolygonGlyph from `fc`'s polygon exterior rings."""
     require_cleopatra()
-    from cleopatra.polygon_glyph import PolygonGlyph
+    from cleopatra.glyphs.primitives.polygon_glyph import PolygonGlyph
 
     polygons: list = []
     poly_values: list | None = [] if values is not None else None

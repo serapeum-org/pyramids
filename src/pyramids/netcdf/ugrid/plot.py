@@ -1,6 +1,6 @@
-"""UGRID mesh visualization (delegates to cleopatra.mesh_glyph).
+"""UGRID mesh visualization (delegates to cleopatra.glyphs.gridded.mesh_glyph).
 
-Thin wrapper around `cleopatra.mesh_glyph.MeshGlyph` that accepts
+Thin wrapper around `cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph` that accepts
 pyramids `Mesh2d` objects and delegates all rendering to cleopatra.
 Requires the `viz` optional extra. Install with one of:
 
@@ -10,10 +10,13 @@ Requires the `viz` optional extra. Install with one of:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pyramids.base._utils import require_cleopatra
 from pyramids.netcdf.ugrid.mesh import Mesh2d
+
+if TYPE_CHECKING:
+    from cleopatra.styling.colorbar import ColorBar
 
 _CLEOPATRA_MSG = (
     "Mesh plotting requires the cleopatra package. Install with one of:\n"
@@ -40,7 +43,7 @@ def _mesh_to_glyph(mesh: Mesh2d, **kwargs: Any) -> Any:
             and any key in `MeshGlyph.default_options`.
 
     Returns:
-        cleopatra.mesh_glyph.MeshGlyph: A MeshGlyph instance ready
+        cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph: A MeshGlyph instance ready
             for plotting. Call `.plot()` or `.plot_outline()`
             on the returned object.
 
@@ -49,7 +52,7 @@ def _mesh_to_glyph(mesh: Mesh2d, **kwargs: Any) -> Any:
             The error message includes install instructions.
     """
     require_cleopatra(_CLEOPATRA_MSG)
-    from cleopatra.mesh_glyph import MeshGlyph
+    from cleopatra.glyphs.gridded.mesh_glyph import MeshGlyph
 
     edge_nodes = None
     if mesh.edge_node_connectivity is not None:
@@ -75,7 +78,7 @@ def plot_mesh_data(
     vmin: float | None = None,
     vmax: float | None = None,
     edgecolor: str = "none",
-    colorbar: bool = True,
+    colorbar: bool | ColorBar | None = True,
     title: str | None = None,
     **kwargs: Any,
 ) -> Any:
@@ -85,7 +88,7 @@ def plot_mesh_data(
     face-centered data, uses `tripcolor` (each triangle colored
     by the value of its parent face). For node-centered data, uses
     `tricontourf` (smooth interpolated contours). All rendering
-    is delegated to `cleopatra.mesh_glyph.MeshGlyph.plot`.
+    is delegated to `cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph.plot`.
 
     The returned `MeshGlyph` instance gives access to the
     underlying `Figure`/`Axes` and all cleopatra capabilities
@@ -111,8 +114,10 @@ def plot_mesh_data(
         edgecolor: Edge color for face rendering. Use `"none"` for
             no edges or `"gray"` for visible mesh lines.
             Defaults to `"none"`.
-        colorbar: Whether to add a colorbar to the plot. Defaults
-            to True.
+        colorbar: Colour-bar control. `True` (default) draws the default bar,
+            `False`/`None` hides it, or pass a `pyramids.plot.ColorBar(...)` to
+            style it (caption / placement / sizing) — cleopatra >= 0.29 renders
+            the typed spec on `MeshGlyph` just like `ArrayGlyph`.
         title: Plot title string. Defaults to None (no title).
         **kwargs: Additional keyword arguments forwarded to
             `MeshGlyph.plot`. Common options include
@@ -126,7 +131,7 @@ def plot_mesh_data(
             `location="node"`).
 
     Returns:
-        cleopatra.mesh_glyph.MeshGlyph: The MeshGlyph instance with
+        cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph: The MeshGlyph instance with
             the plot rendered. Access `glyph.fig` and `glyph.ax`
             for the matplotlib Figure and Axes.
 
@@ -188,7 +193,7 @@ def plot_mesh_outline(
             `matplotlib.collections.LineCollection`.
 
     Returns:
-        cleopatra.mesh_glyph.MeshGlyph: The MeshGlyph instance with
+        cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph: The MeshGlyph instance with
             the wireframe rendered. Access `glyph.fig` and
             `glyph.ax` for the matplotlib Figure and Axes.
 

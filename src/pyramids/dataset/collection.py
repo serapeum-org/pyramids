@@ -46,8 +46,8 @@ from pyramids.dataset.ops.io import _read_chunk
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
-    from cleopatra.array_glyph import ArrayGlyph, FrameLabel
-    from cleopatra.geo import Basemap
+    from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph, FrameLabel
     from dask.delayed import Delayed
 
 
@@ -2512,12 +2512,12 @@ class DatasetCollection:
                 | Parameter                  | Type                  | Description |
                 |----------------------------|-----------------------|-------------|
                 | animation_axis_values      | sequence, optional    | Per-frame labels for the animation, one per timestep. Defaults to the collection's `time` axis when set (e.g. dates parsed by `read_multiple_files`), else `range(time_length)` (index labels). Pass a sequence here to override (e.g. `range(2000, 2024)`). |
-                | points                     | array \| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
+                | points                     | array \| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.glyphs.gridded.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
                 | figsize                    | tuple, optional       | Figure size. Default is `(8, 8)`. |
                 | title                      | str, optional         | Title of the plot. Default is `'Total Discharge'`. |
                 | title_size                 | int, optional         | Title size. Default is `15`. |
                 | colorbar                   | bool \| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28). The loose `cbar_*` / `ticks_spacing` kwargs it replaces are deprecated — still accepted, but they emit a `DeprecationWarning`. `False` hides it, `None` uses the default. |
-                | color_scale                | str, optional         | Color-scale mode (default `"linear"`): one of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styles.ColorScale` member. Integer codes are no longer accepted. |
+                | color_scale                | str, optional         | Color-scale mode (default `"linear"`): one of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styling.styles.ColorScale` member. Integer codes are no longer accepted. |
                 | gamma                      | float, optional       | Exponent for `color_scale="power"`. Default is `1/2`. |
                 | line_threshold             | float, optional       | `linthresh` for `color_scale="sym-lognorm"`. Default is `0.0001`. |
                 | line_scale                 | float, optional       | `linscale` for `color_scale="sym-lognorm"`. Default is `0.001`. |

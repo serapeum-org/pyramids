@@ -1,7 +1,7 @@
-"""Web-tile basemap helpers — thin wrappers over ``cleopatra.tiles``.
+"""Web-tile basemap helpers — thin wrappers over ``cleopatra.basemap.tiles``.
 
 :func:`add_basemap` and :func:`get_provider` here delegate to
-:func:`cleopatra.tiles.add_tiles` and :func:`cleopatra.tiles.get_provider`
+:func:`cleopatra.basemap.tiles.add_tiles` and :func:`cleopatra.basemap.tiles.get_provider`
 (the cleopatra C-6 helpers, shipped in ``cleopatra >= 0.8.0`` and pinned
 via the ``[viz]`` extra as ``cleopatra[tiles]``). All the real work —
 provider resolution, zoom selection, parallel tile fetching, stitching,
@@ -40,7 +40,7 @@ _BASEMAP_MSG = (
 def get_provider(name: str | None = None) -> Any:
     """Resolve a web-tile provider by name.
 
-    Thin wrapper over :func:`cleopatra.tiles.get_provider`.
+    Thin wrapper over :func:`cleopatra.basemap.tiles.get_provider`.
 
     Args:
         name (str or None, optional):
@@ -84,10 +84,10 @@ def get_provider(name: str | None = None) -> Any:
     See Also:
         add_basemap: Uses ``get_provider`` internally (via cleopatra) when
             ``source`` is a string.
-        cleopatra.tiles.get_provider: The underlying implementation.
+        cleopatra.basemap.tiles.get_provider: The underlying implementation.
     """
     import_basemap(_BASEMAP_MSG)
-    from cleopatra.tiles import get_provider as _get_provider
+    from cleopatra.basemap.tiles import get_provider as _get_provider
 
     return _get_provider(name)
 
@@ -106,7 +106,7 @@ def add_basemap(
 ) -> Any:
     """Add a web-tile basemap underneath the data plotted on ``ax``.
 
-    Thin wrapper over :func:`cleopatra.tiles.add_tiles`: fetches XYZ web
+    Thin wrapper over :func:`cleopatra.basemap.tiles.add_tiles`: fetches XYZ web
     tiles for the axes' geographic extent, stitches them into a single
     image, reprojects to the data's CRS via GDAL when ``crs`` is not Web
     Mercator, and renders the image beneath the data layer.
@@ -146,7 +146,7 @@ def add_basemap(
 
     Returns:
         matplotlib.axes.Axes: The axes with the basemap added (whatever
-            :func:`cleopatra.tiles.add_tiles` returns).
+            :func:`cleopatra.basemap.tiles.add_tiles` returns).
 
     Raises:
         OptionalPackageDoesNotExist: If the cleopatra ``[tiles]`` extra is
@@ -181,10 +181,10 @@ def add_basemap(
 
     See Also:
         get_provider: Resolve a tile provider name to a ``TileProvider``.
-        cleopatra.tiles.add_tiles: The underlying implementation.
+        cleopatra.basemap.tiles.add_tiles: The underlying implementation.
     """
     import_basemap(_BASEMAP_MSG)
-    from cleopatra.tiles import add_tiles
+    from cleopatra.basemap.tiles import add_tiles
 
     result = add_tiles(
         ax,

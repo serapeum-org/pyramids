@@ -13,7 +13,7 @@ from pyramids.netcdf.netcdf import NetCDF
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
@@ -103,7 +103,7 @@ class TestPlotDataSet:
         Test scenario:
             A band carrying a no-data pixel (``-9999``) and a repeated
             ``7.0`` is histogrammed with ``exclude_value=7.0``. Capturing
-            the values handed to ``StatisticalGlyph`` proves both the
+            the values handed to ``HistogramGlyph`` proves both the
             no-data value and the explicit ``exclude_value`` are dropped,
             leaving only the genuine samples.
         """
@@ -128,7 +128,9 @@ class TestPlotDataSet:
             def histogram(self, bins=15):
                 return ("fig", "ax", {})
 
-        with patch("cleopatra.statistical_glyph.StatisticalGlyph", new=_FakeSG):
+        with patch(
+            "cleopatra.glyphs.stats.histogram_glyph.HistogramGlyph", new=_FakeSG
+        ):
             dataset.plot_histogram(band=0, bins=5, exclude_value=7.0)
         vals = sorted(captured["values"].tolist())
         assert vals == [
@@ -231,7 +233,7 @@ class TestPlotDataSet:
         Test scenario:
             Every pixel equals the no-data value, so after masking there are
             no samples; ``plot_histogram`` must raise a targeted ``ValueError``
-            rather than passing an empty array to ``StatisticalGlyph``.
+            rather than passing an empty array to ``HistogramGlyph``.
         """
         arr = np.full((4, 4), -9999.0, dtype="float32")
         dataset = Dataset.create_from_array(
@@ -479,7 +481,7 @@ class TestPlotDatasetCollection:
         rasters_folder_rasters_number: int,
         rasters_folder_dim: tuple,
     ):
-        from cleopatra.array_glyph import ArrayGlyph
+        from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
 
         cube = DatasetCollection.read_multiple_files(
             rasters_folder_path, with_order=False
