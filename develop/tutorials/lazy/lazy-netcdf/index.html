@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -1023,10 +1023,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#handing-a-pyramids-lazy-array-to-a-labeled-array-library" class="md-nav__link">
+  <a href="#handing-a-pyramids-lazy-array-to-xarray" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Handing a pyramids lazy array to a labeled-array library
+        Handing a pyramids lazy array to xarray
       
     </span>
   </a>
@@ -6284,10 +6284,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#handing-a-pyramids-lazy-array-to-a-labeled-array-library" class="md-nav__link">
+  <a href="#handing-a-pyramids-lazy-array-to-xarray" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Handing a pyramids lazy array to a labeled-array library
+        Handing a pyramids lazy array to xarray
       
     </span>
   </a>
@@ -6364,9 +6364,9 @@
 <p>NetCDFs are typically the heaviest single files in a GIS pipeline —
 reanalysis, climate projections, ocean models. Pyramids exposes four
 native lazy entry points covering single-file reads, multi-file
-stacks, and zero-copy Zarr-backed cube indexing — <strong>no labeled-array
-dependency in the lazy read path</strong>, so installs stay slim and pyramids
-stays a peer of the labeled-array stack rather than a consumer:</p>
+stacks, and zero-copy Zarr-backed cube indexing — <strong>no xarray in the
+lazy read path</strong>, so installs stay slim and pyramids stays a peer of
+xarray rather than a consumer:</p>
 <table>
 <thead>
 <tr>
@@ -6434,8 +6434,8 @@ in the dask graph — no materialisation:</p>
 <code>lock=False</code> opts into lock-free reads when you know each worker has
 its own handle.</p>
 <h2 id="many-files-one-variable-open_mfdataset"><a class="toclink" href="#many-files-one-variable-open_mfdataset">Many files, one variable — <code>open_mfdataset</code></a><a class="headerlink" href="#many-files-one-variable-open_mfdataset" title="Permanent link">#</a></h2>
-<p>Unlike the labeled-array stack's <code>open_mfdataset</code>, the pyramids helper is
-deliberately narrow: one variable at a time, no "by_coords" inference, no combine
+<p>Unlike <code>xarray.open_mfdataset</code>, the pyramids helper is deliberately
+narrow: one variable at a time, no "by_coords" inference, no combine
 strategies. For the common hydrology / meteorology case — 365 daily
 <code>noah_YYYYMMDD.nc</code> files, stack <code>precipitation</code>, reduce on time —
 that narrowness is the whole point.</p>
@@ -6481,7 +6481,7 @@ order is deterministic.</p>
 <h2 id="zero-copy-cube-indexing-kerchunk"><a class="toclink" href="#zero-copy-cube-indexing-kerchunk">Zero-copy cube indexing — kerchunk</a><a class="headerlink" href="#zero-copy-cube-indexing-kerchunk" title="Permanent link">#</a></h2>
 <p>A kerchunk manifest is a JSON document containing byte-range pointers
 into each source file; no pixel data is moved. Downstream consumers
-open the resulting archive as a lazy Zarr-backed dataset with
+open the resulting archive as a lazy Zarr-backed xarray with
 <strong>zero rewrite</strong> — the speedup is the avoided decode cost.</p>
 <p>Emit a manifest for a single file:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span>
@@ -6504,7 +6504,7 @@ open the resulting archive as a lazy Zarr-backed dataset with
 <a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    <span class="n">identical_dims</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;lat&quot;</span><span class="p">,</span> <span class="s2">&quot;lon&quot;</span><span class="p">),</span>
 <a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">)</span>
 </code></pre></div>
-<p>Consume the manifest with fsspec and a labeled-array Zarr reader:</p>
+<p>Consume the manifest with fsspec + xarray:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">fsspec</span>
 <a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">xarray</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xr</span>
 <a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
@@ -6536,7 +6536,7 @@ raise a branded <code>ImportError</code> naming the extra when it's absent.</p>
 <td><code>combine_kerchunk</code></td>
 </tr>
 <tr>
-<td>Cloud data read through a labeled-array/fsspec reader</td>
+<td>Cloud data read through xarray/fsspec</td>
 <td><code>combine_kerchunk</code></td>
 </tr>
 <tr>
@@ -6545,12 +6545,12 @@ raise a branded <code>ImportError</code> naming the extra when it's absent.</p>
 </tr>
 </tbody>
 </table>
-<h2 id="handing-a-pyramids-lazy-array-to-a-labeled-array-library"><a class="toclink" href="#handing-a-pyramids-lazy-array-to-a-labeled-array-library">Handing a pyramids lazy array to a labeled-array library</a><a class="headerlink" href="#handing-a-pyramids-lazy-array-to-a-labeled-array-library" title="Permanent link">#</a></h2>
+<h2 id="handing-a-pyramids-lazy-array-to-xarray"><a class="toclink" href="#handing-a-pyramids-lazy-array-to-xarray">Handing a pyramids lazy array to xarray</a><a class="headerlink" href="#handing-a-pyramids-lazy-array-to-xarray" title="Permanent link">#</a></h2>
 <p>Pyramids deliberately does <strong>not</strong> register as an
-<code>engine=</code> for a labeled-array <code>open_dataset</code>. It is a peer of the
-labeled-array stack, not a backend beneath it. If your pipeline ends there
-anyway, use <code>NetCDF.to_xarray()</code> for an eager conversion, or wrap pyramids'
-lazy array in a labeled-array <code>DataArray</code> yourself:</p>
+<code>engine=</code> for <code>xr.open_dataset</code>. It is a peer of xarray, not a
+backend beneath it. If your pipeline ends in xarray anyway, use
+<code>NetCDF.to_xarray()</code> for an eager conversion, or wrap pyramids' lazy
+array in <code>xr.DataArray</code> yourself:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">xarray</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xr</span>
 <a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
 <a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span>
@@ -6563,11 +6563,11 @@ lazy array in a labeled-array <code>DataArray</code> yourself:</p>
 </code></pre></div>
 <p>You keep pyramids' <code>CachingFileManager</code> + <code>SerializableLock</code>
 semantics (handle pooling, distributed-safe pickling) on the read
-side, and the labeled-array ergonomics on the downstream side — no backend
+side, and xarray's ergonomics on the downstream side — no backend
 adapter layer in between.</p>
-<p>Install: <code>[lazy]</code> pulls <code>kerchunk</code> + <code>h5py</code>; add the labeled-array library
-(a peer dep, not a pyramids extra — <code>pip install xarray</code>) if you want a
-labeled-array <code>DataArray</code> / <code>.to_xarray()</code> / <code>.from_xarray()</code>.</p>
+<p>Install: <code>[lazy]</code> pulls <code>kerchunk</code> + <code>h5py</code>; add <code>xarray</code> (a peer dep,
+not a pyramids extra — <code>pip install xarray</code>) if you want <code>xr.DataArray</code>
+/ <code>.to_xarray()</code> / <code>.from_xarray()</code>.</p>
 <h2 id="a-worked-pipeline-era5-on-aws"><a class="toclink" href="#a-worked-pipeline-era5-on-aws">A worked pipeline — ERA5 on AWS</a><a class="headerlink" href="#a-worked-pipeline-era5-on-aws" title="Permanent link">#</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span>
@@ -6603,9 +6603,9 @@ extra:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>ImportError: dask is required for lazy NetCDF reads; install pyramids-gis[lazy]
 </code></pre></div>
 <p>Calls that need kerchunk name <code>[lazy]</code>. <code>NetCDF.to_xarray()</code> /
-<code>.from_xarray()</code> name the labeled-array library (a peer dep, <code>pip install xarray</code>).
-The eager <code>NetCDF.read_array(chunks=None)</code> path is always available and does
-not touch dask / the labeled-array stack / kerchunk.</p>
+<code>.from_xarray()</code> name <code>xarray</code> (a peer dep, <code>pip install xarray</code>). The eager
+<code>NetCDF.read_array(chunks=None)</code> path is always available and does
+not touch dask / xarray / kerchunk.</p>
 <h2 id="ugrid-unstructured-grids"><a class="toclink" href="#ugrid-unstructured-grids">UGRID unstructured grids</a><a class="headerlink" href="#ugrid-unstructured-grids" title="Permanent link">#</a></h2>
 <p><code>UgridDataset</code> (FVCOM, SCHISM, ADCIRC, Delft3D) is not yet wired to
 pyramids' lazy stack — it currently uses eager reads throughout.

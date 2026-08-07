@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6360,7 +6360,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-120" name="__codelineno-0-120"></a>        <span class="k">if</span> <span class="n">topo</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-121" name="__codelineno-0-121"></a>            <span class="n">topologies</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">topo</span><span class="p">)</span>
 <a id="__codelineno-0-122" name="__codelineno-0-122"></a>
-<a id="__codelineno-0-123" name="__codelineno-0-123"></a>    <span class="c1"># Fallback: UGRID-style files declare topology purely via cf_role on the connectivity variable</span>
+<a id="__codelineno-0-123" name="__codelineno-0-123"></a>    <span class="c1"># Fallback: UXARRAY-style files declare topology purely via cf_role on the connectivity variable</span>
 <a id="__codelineno-0-124" name="__codelineno-0-124"></a>    <span class="c1"># (no central mesh_topology variable). Infer a face/node mesh from it (#589).</span>
 <a id="__codelineno-0-125" name="__codelineno-0-125"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">topologies</span><span class="p">:</span>
 <a id="__codelineno-0-126" name="__codelineno-0-126"></a>        <span class="n">inferred</span> <span class="o">=</span> <span class="n">_infer_topology_from_connectivity</span><span class="p">(</span><span class="n">scan</span><span class="p">)</span>
