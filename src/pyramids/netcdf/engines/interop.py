@@ -284,7 +284,7 @@ def from_xarray(
 
     result = cls.read_file(path, read_only=True)
     if cleanup_temp:
-        result._xarray_temp_path = path
+        result._interop_temp_path = path
         weakref.finalize(result, os.unlink, path)
     return result
 

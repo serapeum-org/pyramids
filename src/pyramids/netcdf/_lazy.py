@@ -656,8 +656,9 @@ def build_lazy_array(
         orient: When `True` (the default) the block is normalized to the
             raster convention (row 0 = north, col 0 = west) like the eager
             `get_variable` read. Pass `False` for a raw read in the file's
-            native axis order (e.g. `to_xarray`, whose coordinate arrays are
-            also read raw, so the data must not be flipped relative to them).
+            native axis order (the raw interop read path, whose coordinate
+            arrays are also read raw, so the data must not be flipped relative
+            to them).
 
     Returns:
         dask.array.Array: Lazy array that computes chunk-by-chunk
@@ -716,7 +717,7 @@ def build_lazy_array(
     # SAME plane the eager `get_variable` resolved -- moving a non-trailing plane to the trailing two
     # axes when `spatial_dims` is threaded through (#728). A trailing plane makes this a no-op, so the
     # ordinary `(time, lev, lat, lon)` case is unchanged. Skipped for a raw read (`orient=False`),
-    # which must return the file's native axis order (ARC-48 `to_xarray`).
+    # which must return the file's native axis order (ARC-48 raw interop read).
     if orient:
         lazy = _orient_lazy_plane(
             lazy, da, len(shape), spatial_dims, flips, (flip_y, flip_x)

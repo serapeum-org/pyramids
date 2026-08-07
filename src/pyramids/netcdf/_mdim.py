@@ -175,7 +175,7 @@ def strip_netcdf_subdataset_prefix(path: str) -> str:
     itself hold a colon (a Windows drive letter), so a naive ``split(":")`` mis-parses it. Parse the
     quoted remainder with ``rfind('"')`` and the rare unquoted ``NETCDF:<path>:<var>`` form with a
     right split. A path without the prefix is returned unchanged. Single source for the three call
-    sites (`_is_file_backed`, the lazy read, and `to_xarray`) that used to strip it inline (review L1).
+    sites (`_is_file_backed`, the lazy read, and the interop read) that used to strip it inline (review L1).
 
     Args:
         path: A file path or a ``NETCDF:`` subdataset spec.

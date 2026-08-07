@@ -1,6 +1,6 @@
 """Unit tests for :mod:`pyramids.dataset.ops._geobox_zarr`.
 
-Covers the GeoZarr geobox helpers with zarr-python only (no xarray): pixel-centre
+Covers the GeoZarr geobox helpers with zarr-python only: pixel-centre
 coordinate maths, the ``write_geobox`` array/attribute layout, and ``read_geobox``
 for both the GeoZarr ``spatial_ref`` branch and the legacy flat-attribute branch.
 """

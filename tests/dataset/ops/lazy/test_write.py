@@ -1,7 +1,7 @@
 """Tests for :meth:`pyramids.dataset.Dataset.to_file` ``compute=False``.
 
 DASK-7: defer the write via ``dask.delayed`` when ``compute=False``;
-add :meth:`Dataset.to_raster` alias for rioxarray API parity.
+add :meth:`Dataset.to_raster` alias for API parity.
 """
 
 from __future__ import annotations

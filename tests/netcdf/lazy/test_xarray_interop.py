@@ -570,16 +570,16 @@ class TestFromXarrayTempFile:
 
         Test scenario:
             When no path is given, the result should have
-            _xarray_temp_path set to a real file.
+            _interop_temp_path set to a real file.
         """
         nc = _make_3d_nc()
         ds = nc.to_xarray()
         nc2 = NetCDF.from_xarray(ds)
-        assert hasattr(nc2, "_xarray_temp_path"), (
-            "Result should have _xarray_temp_path attribute"
+        assert hasattr(nc2, "_interop_temp_path"), (
+            "Result should have _interop_temp_path attribute"
         )
-        assert os.path.exists(nc2._xarray_temp_path), (
-            f"Temp file should exist: {nc2._xarray_temp_path}"
+        assert os.path.exists(nc2._interop_temp_path), (
+            f"Temp file should exist: {nc2._interop_temp_path}"
         )
 
     def test_temp_file_is_readable(self):

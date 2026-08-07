@@ -473,7 +473,7 @@ class NetCDF(Dataset):
     """
 
     # NetCDF-only instance attributes assigned outside ``__init__``: the
-    # temp-file path tracked for an xarray round-trip (set by the interop
+    # temp-file path tracked for an interop round-trip (set by the interop
     # engine), the 2-D curvilinear coordinate windows carried on a
     # cropped subset (set by the selection engine, read defensively via
     # ``getattr`` in the plot engine), and the weak set of lazy-read file
@@ -481,7 +481,7 @@ class NetCDF(Dataset):
     # latter is a declaration only — no class-level value — so a fresh
     # instance still reports "nothing tracked yet" through the
     # ``getattr(owner, "_lazy_managers", ...)`` lookups that read it.
-    _xarray_temp_path: str
+    _interop_temp_path: str
     _curvilinear_coords: tuple[Any, Any] | None
     _lazy_managers: weakref.WeakSet[Any]
 
@@ -622,8 +622,8 @@ class NetCDF(Dataset):
         # NetCDF-specific engine collaborators (issue #615, STR-1). Distinct
         # attribute names from the eight inherited Dataset engines so they do
         # not clobber `self.io` / `self.spatial` / … . NetCDF exposes thin
-        # façade methods that delegate here (e.g. `nc.to_xarray()` ->
-        # `self.interop.to_xarray()`).
+        # façade methods that delegate here (e.g. `nc.<method>()` ->
+        # `self.interop.<method>()`).
         self.interop = Interop(self)
         # `varops` (not `variables`) because `variables` is an existing read-side
         # property returning the lazy variable dict — the engine must not shadow it.
@@ -2879,7 +2879,7 @@ class NetCDF(Dataset):
     def _is_file_backed(var: NetCDF) -> bool:
         """True when the variable's data lives in a reopenable file, so a lazy chunk read is possible.
 
-        An in-memory container (`create_from_array` / `from_xarray`) has no file for the lazy chunk
+        An in-memory container (e.g. built by `create_from_array`) has no file for the lazy chunk
         graph to reopen; streaming it saves nothing and the reopen would fail.
 
         Args:

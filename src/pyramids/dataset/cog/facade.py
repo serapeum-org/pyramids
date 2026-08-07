@@ -2,7 +2,7 @@
 
 :func:`write_cog` is the single-call entry point that accepts a pyramids
 :class:`~pyramids.dataset.Dataset`, a raw :class:`osgeo.gdal.Dataset`, a
-NumPy array (with ``crs`` + ``transform``), an :class:`xarray.DataArray`,
+NumPy array (with ``crs`` + ``transform``), a labeled ``DataArray``,
 or a path to an existing raster; applies pyramids' house-style COG
 defaults (DEFLATE, dtype-aware predictor, 512px tiles, average overviews,
 ``BIGTIFF=IF_SAFER``); and — by default — round-trips the written file
@@ -145,7 +145,7 @@ def _dataarray_to_dataset(
     crs: Any | None,
     nodata: float | int | None,
 ) -> Dataset:
-    """Build an in-memory :class:`Dataset` from an :class:`xarray.DataArray`.
+    """Build an in-memory :class:`Dataset` from a labeled ``DataArray``.
 
     The geotransform is derived from the spatial coordinates (cell size from
     the first coordinate step, top-left from the first cell edge). The CRS is
@@ -155,7 +155,7 @@ def _dataarray_to_dataset(
     opportunistically — no extra dependency is required.
 
     Args:
-        da: A 2-D or 3-D :class:`xarray.DataArray` with longitude/latitude
+        da: A 2-D or 3-D labeled ``DataArray`` with longitude/latitude
             (or x/y) coordinates.
         crs: Optional CRS override; wins over any embedded CRS.
         nodata: Optional NoData scalar.
@@ -212,7 +212,7 @@ def _normalize_to_dataset(
 
     Args:
         data: A :class:`Dataset`, :class:`osgeo.gdal.Dataset`,
-            :class:`numpy.ndarray`, :class:`xarray.DataArray`, or a path
+            :class:`numpy.ndarray`, a labeled ``DataArray``, or a path
             to an existing raster.
         crs: Required only for the NumPy-array form.
         transform: Required only for the NumPy-array form.
@@ -247,7 +247,7 @@ def _normalize_to_dataset(
     else:
         raise TypeError(
             "write_cog accepts a Dataset, gdal.Dataset, numpy.ndarray, "
-            f"xarray.DataArray, or a path; got {type(data).__name__}."
+            f"a labeled DataArray, or a path; got {type(data).__name__}."
         )
 
     if nodata is not None:
@@ -279,7 +279,7 @@ def write_cog(
 
     Thin convenience facade over
     :meth:`pyramids.dataset.engines.cog.COG.to_cog`. It accepts a wider
-    range of inputs (NumPy array, ``xarray.DataArray``, ``gdal.Dataset``,
+    range of inputs (NumPy array, a labeled ``DataArray``, ``gdal.Dataset``,
     path, or :class:`~pyramids.dataset.Dataset`), normalises them into a
     :class:`~pyramids.dataset.Dataset`, then **delegates the entire write
     to ``to_cog``** — which owns all COG policy: the house defaults
@@ -299,7 +299,7 @@ def write_cog(
             - :class:`~pyramids.dataset.Dataset` — used directly.
             - :class:`osgeo.gdal.Dataset` — wrapped in a :class:`Dataset`.
             - :class:`numpy.ndarray` — requires ``crs`` and ``transform``.
-            - :class:`xarray.DataArray` — geotransform is derived from the
+            - a labeled ``DataArray`` — geotransform is derived from the
               spatial coordinates; CRS from ``crs`` / DataArray metadata.
             - :class:`str` / :class:`~pathlib.Path` — an existing raster.
         output: Destination path. The parent directory must exist.
