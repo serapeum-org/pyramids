@@ -202,7 +202,7 @@ DEFAULT_RESAMPLING = "nearest neighbor"
 
 # Resampling-method name -> GDAL warp/translate constant. Covers every
 # ``gdal.GRA_*`` algorithm of the supported GDAL floor; the snake_case names
-# match rasterio's ``Resampling`` enum so users migrating from rasterio can
+# match the common ``Resampling`` enum names so migrating users can
 # keep their method strings. ``"nearest neighbor"`` is the historical pyramids
 # name and stays as an alias of ``"nearest"``. Constants introduced by newer
 # GDAL versions are guarded with ``hasattr`` so importing pyramids never fails
@@ -239,7 +239,7 @@ def resolve_resampling(method: str) -> int:
 
     Normalises case and surrounding whitespace, so ``"Lanczos"`` and
     ``" average "`` are accepted. The valid names are the keys of
-    :data:`INTERPOLATION_METHODS` (rasterio-style snake_case plus the
+    :data:`INTERPOLATION_METHODS` (snake_case plus the
     historical ``"nearest neighbor"`` alias).
 
     Args:

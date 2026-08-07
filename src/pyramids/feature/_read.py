@@ -365,7 +365,7 @@ def iter_features(
 ) -> Iterator[dict[str, Any] | FeatureCollection]:
     """Stream features from `path` without materialising the file (see FeatureCollection.iter_features)."""
     # Runs lazily on first iteration (iter_features is a generator), preserving the
-    # fiona-style "validate on first next()" behaviour.
+    # the "validate on first next()" behaviour.
     _validate_iter_features_args(
         fc_cls,
         chunksize=chunksize,
@@ -426,7 +426,7 @@ def build_iter_read_kwargs(
     """Build the pyogrio ``read_file`` kwargs for :func:`iter_features`.
 
     The engine is pinned to pyogrio (``skip_features`` / ``max_features`` are
-    pyogrio-specific; the fiona engine silently ignores them). For every
+    pyogrio-specific; some engines silently ignore them). For every
     ``tile_strategy`` except ``"none"`` the ``bbox`` is pushed down to pyogrio;
     for ``"none"`` it is held back for a post-load Python filter.
     """

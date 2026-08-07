@@ -7,8 +7,9 @@ It fetches a collection subset from an OGC API – Features service and returns 
 OGC API – Features is the **modern REST/JSON successor to WFS**: a landing page
 links to ``/collections``, each collection exposes ``/collections/{id}/items`` as
 GeoJSON, and large result sets are paged through ``links`` with ``rel="next"``.
-The transport here is **GDAL's native OGR ``OAPIF`` driver** — no ``owslib`` /
-``requests``. GDAL negotiates ``/conformance``, issues the ``/items`` requests and
+The transport here is **GDAL's native OGR ``OAPIF`` driver** — no third-party
+OGC or HTTP client library. GDAL negotiates ``/conformance``, issues the
+``/items`` requests and
 follows the ``next`` links, and the features decode through the existing OGR /
 pyogrio reader that backs :class:`FeatureCollection`. pyramids adds, on top of the
 driver, a cached ``/collections`` check so an unadvertised collection fails fast

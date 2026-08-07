@@ -8,7 +8,8 @@ OGC API – Coverages is the **modern REST/JSON successor to WCS**: a landing pa
 links to ``/collections``, each coverage is a collection exposing
 ``/collections/{id}/coverage`` (with ``subset`` query subsetting and format
 negotiation). The transport here is **GDAL's native ``OGCAPI`` driver** — no
-``owslib`` / ``requests``. The driver discovers the coverage, negotiates the
+third-party OGC or HTTP client library. The driver discovers the coverage,
+negotiates the
 GeoTIFF representation and exposes it as a single (often planet-spanning) virtual
 raster whose 256×256 tiles are fetched lazily on read.
 

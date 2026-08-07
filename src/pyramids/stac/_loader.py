@@ -405,8 +405,7 @@ def _load_zarr(href: str):
     :class:`~pyramids.dataset.DatasetCollection` (read straight from the store);
     anything lower-dimensional as a :class:`~pyramids.dataset.Dataset`. Uses the
     tolerant foreign-GeoZarr reader (FR-8), so non-pyramids stores
-    (rioxarray / odc-geo / GDAL) load too. Mirrors the lazy-cube approach of
-    stackstac / odc-stac.
+    (standard GeoZarr readers) load too.
 
     Args:
         href: The asset href (path / fsspec URL / `s3://...`).

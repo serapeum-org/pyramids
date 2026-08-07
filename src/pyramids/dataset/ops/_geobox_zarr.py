@@ -1,15 +1,15 @@
 """GeoZarr / CF geobox encoding shared by the zarr read/write paths.
 
 pyramids writes raster geo-referencing into a Zarr store following the CF /
-GeoZarr convention so the result is auto-georeferenced by rioxarray, odc-geo and
-:func:`xarray.open_zarr` without pyramids in the loop:
+GeoZarr convention so the result is auto-georeferenced by standard GeoZarr
+readers without pyramids in the loop:
 
 * a scalar ``spatial_ref`` grid-mapping array holding ``crs_wkt`` + a
   space-delimited ``GeoTransform`` (and the EPSG code, or ``0`` when the CRS has
   no authority code);
 * 1-D ``x`` / ``y`` coordinate arrays at pixel centres;
 * a ``grid_mapping="spatial_ref"`` attribute on each data array;
-* ``_ARRAY_DIMENSIONS`` attr on every array (the Zarr-v2 convention xarray uses
+* ``_ARRAY_DIMENSIONS`` attr on every array (the Zarr-v2 convention used
   to recover dimension names) **plus** the Zarr-v3-native ``dimension_names``
   field on the array metadata, so consumers on either version see the dims.
 
@@ -308,7 +308,7 @@ def _transform_from_xy(group: Any) -> tuple[float, ...]:
 def read_geobox(group: Any, *, data_name: str | None = None) -> dict[str, Any]:
     """Recover ``{crs_wkt, geotransform, epsg, legacy}`` from a Zarr ``group``.
 
-    Tolerant of foreign GeoZarr stores (rioxarray / odc-geo / GDAL), not just
+    Tolerant of foreign GeoZarr stores from standard GeoZarr readers, not just
     pyramids-written ones (FR-8): the data array is auto-detected when
     ``data_name`` is ``None``; the CRS comes from the grid-mapping variable named
     by the data array's ``grid_mapping`` attribute (default ``spatial_ref``),

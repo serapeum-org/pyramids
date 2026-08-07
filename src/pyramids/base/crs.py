@@ -413,7 +413,7 @@ def epsg_of_crs(wkt: str | None) -> int | None:
     CRS-consuming operation keeps working. Only the *code* is absent, because
     there genuinely is not one.
 
-    This mirrors how GDAL, rasterio, rioxarray and geopandas all behave —
+    This mirrors standard CRS-handling behaviour —
     `to_epsg()` returns `None` rather than guessing.
 
     Args:
@@ -740,7 +740,7 @@ def require_crs_spec(epsg: int | None, wkt: str | None, operation: str) -> int |
 
     Use at the point of an operation that genuinely cannot proceed without a
     CRS — reprojection, a coordinate transform, a spatial join against a vector.
-    Mirrors how GDAL, rasterio, rioxarray and geopandas all behave: a missing
+    Mirrors standard CRS-handling behaviour: a missing
     CRS propagates quietly until something actually needs it, and then fails
     with a message naming the fix.
 

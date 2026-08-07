@@ -2270,7 +2270,7 @@ class IO(_Engine["Dataset"]):
 
         Forwards every argument to :meth:`to_file`; see that method's
         documentation for the full contract. Provided for parity with the
-        rioxarray `.rio.to_raster` name.
+        common `.to_raster` name.
 
         Examples:
             - Write a dataset to a GeoTIFF:

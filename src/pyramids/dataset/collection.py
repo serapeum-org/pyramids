@@ -1183,7 +1183,7 @@ class DatasetCollection:
 
         Produces a single JSON sidecar that points at every timestep's
         source file — downstream consumers open the entire cube as a
-        lazy Zarr-backed xarray with zero data rewrite.
+        lazy Zarr-backed cube with zero data rewrite.
 
         Currently routes through
         :func:`pyramids.netcdf._kerchunk_facade.combine_kerchunk`, which
@@ -1291,8 +1291,8 @@ class DatasetCollection:
         )
         if mode == "a" and append_dim is None and region is None:
             raise ValueError(
-                "mode='a' requires append_dim='time' or region=... (xarray-style "
-                "incremental write); use mode='w' to (over)write the whole cube."
+                "mode='a' requires append_dim='time' or region=... (append_dim / "
+                "region semantics); use mode='w' to (over)write the whole cube."
             )
         data = self.data
         resolved_store = _resolve_store(store, storage_options)
@@ -1404,8 +1404,8 @@ class DatasetCollection:
 
         Materialises every timestep in memory, assembles a GDAL
         multidimensional container straight from the ``numpy`` arrays,
-        and writes it with pyramids' own GDAL NetCDF writer — no
-        ``xarray`` and no ``netcdf4`` / ``h5netcdf`` engine plug-in. The
+        and writes it with pyramids' own GDAL NetCDF writer — and
+        needs no third-party NetCDF engine plug-in. The
         result is a self-describing NetCDF with one variable per band
         (``CF-1.8`` ``Conventions`` attr; geobox attached as ``crs_wkt``
         / ``GeoTransform`` root attrs).

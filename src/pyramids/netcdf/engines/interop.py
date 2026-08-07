@@ -52,9 +52,8 @@ class Interop(_Engine["NetCDF"]):
 
         The entire conversion goes through GDAL's Multidimensional
         API — the same reader the rest of pyramids' NetCDF code uses.
-        No xarray engine plugin (`netcdf4`, `h5netcdf`,
-        `scipy.io.netcdf`) is involved, so xarray does not need to
-        pull a NetCDF backend: pyramids is the backend.
+        No xarray NetCDF engine plugin is involved — pyramids is the
+        writer, so xarray does not need to pull a NetCDF backend.
 
         With the default `chunks=None` the returned `xr.Dataset` holds
         already-materialised numpy arrays. Pass `chunks` (a dict / int /
@@ -224,9 +223,8 @@ def from_xarray(
     Extracts dimensions, coordinates, data variables, and
     attributes from the `xarray.Dataset` and writes them to a
     NetCDF file through pyramids' own GDAL Multidimensional
-    writer. No xarray engine plugin (`netcdf4`, `h5netcdf`)
-    is invoked — pyramids is the writer, so xarray does not
-    need to pull a NetCDF backend.
+    writer. No xarray NetCDF engine plugin is involved — pyramids
+    is the writer, so xarray does not need to pull a NetCDF backend.
 
     Usage::
 

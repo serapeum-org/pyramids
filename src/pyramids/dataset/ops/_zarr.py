@@ -323,8 +323,8 @@ def _finalize_metadata(resolved_store: Any, metadata: dict[str, Any]) -> None:
 
     Keeps the pyramids round-trip attrs (nodata / band_names / dtype / shape) on
     the ``data`` array, and adds the GeoZarr ``spatial_ref`` grid mapping plus
-    1-D ``x`` / ``y`` coords so the store is auto-georeferenced by rioxarray /
-    odc-geo / :func:`xarray.open_zarr`.
+    1-D ``x`` / ``y`` coords so the store is auto-georeferenced by standard
+    GeoZarr readers.
     """
     _require_zarr()
     _, rows, cols = (int(v) for v in metadata["shape"])
