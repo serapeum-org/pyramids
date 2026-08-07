@@ -296,6 +296,12 @@ platforms = ["win-64", "linux-64", "linux-aarch64", "osx-arm64", "osx-64"]
 
 [tool.pixi.pypi-dependencies]
 pyramids-gis = { path = ".", editable = true }
+# Dev/CI track cleopatra's restructured main (0.29) ahead of its PyPI/conda-forge
+# release; git main (0.29.0) satisfies the published [viz] extra's `>=0.28.0`, so the
+# git source wins in every dev/test/docs env while the built wheel keeps a plain
+# version spec (PyPI rejects direct-URL metadata). Remove this and bump the [viz]
+# floor to `>=0.29.0` once cleopatra 0.29 is released.
+cleopatra = { git = "https://github.com/serapeum-org/cleopatra.git", branch = "main", extras = ["tiles"] }
 
 [tool.pixi.tasks]
 main = { cmd = "pytest -vvv --cov=src/pyramids -sv -m 'not plot and not xarray' --cov-report=xml", description = "Run the main test suite" }
