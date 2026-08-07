@@ -145,6 +145,9 @@ class TestRoundTrip:
             fill = np.asarray(f["values"].attrs["_FillValue"]).reshape(-1)[0]
         mask = truth != fill
         np.testing.assert_allclose(got[mask], truth[mask])
+        # Raw fsspec + zarr read does no CF masking, so fill cells keep the raw
+        # sentinel (an intentional swap from the CF-decoded fill->NaN semantics
+        # the old labeled-array reader applied).
         assert (got[~mask] == fill).all(), "fill cells keep the fill sentinel"
         dims = list(arrays["values"].attrs["_ARRAY_DIMENSIONS"])
         assert dims == ["bands", "y", "x"]
