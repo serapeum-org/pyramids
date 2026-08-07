@@ -724,7 +724,7 @@ class DatasetCollection:
             fields["epsg"] = self._base.epsg
             fields["cell_size"] = self._base.cell_size
             fields["nodata"] = self._base.no_data_value[0]
-        except Exception:  # pragma: no cover - defensive: repr must not raise
+        except Exception:  # nosec B110 # pragma: no cover - defensive: repr must not raise
             pass
         return fields
 
@@ -732,9 +732,7 @@ class DatasetCollection:
         """Concise, unambiguous single-line representation for developers."""
         fields = self._summary()
         backing = (
-            f"files={fields['files']}"
-            if fields["files"] is not None
-            else "in-memory"
+            f"files={fields['files']}" if fields["files"] is not None else "in-memory"
         )
         return (
             f"{type(self).__name__}(time_length={fields['time_length']}, "
