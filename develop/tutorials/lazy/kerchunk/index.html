@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6487,8 +6487,8 @@ automatically falls back to the kerchunk translator and emits a warning.</p>
 </code></pre></div>
 <h2 id="consuming-a-manifest"><a class="toclink" href="#consuming-a-manifest">Consuming a manifest</a><a class="headerlink" href="#consuming-a-manifest" title="Permanent link">#</a></h2>
 <p>The manifest is a <em>Zarr reference store</em>, so it is opened by any Zarr-aware reader pointed at it through an
-fsspec "reference" filesystem. The canonical consumer in the scientific-Python stack is xarray
-(<code>xr.open_dataset(manifest, engine="kerchunk")</code>), but the manifest is just data — anything that speaks the
+fsspec "reference" filesystem. The canonical consumer in the scientific-Python stack is the labeled-array
+library (<code>open_dataset(manifest, engine="kerchunk")</code>), but the manifest is just data — anything that speaks the
 Zarr v2 reference spec can read it. pyramids' role is to <strong>produce</strong> correct manifests; reading the underlying
 arrays directly (rather than through a manifest) is what <code>NetCDF.read_file</code> / <code>NetCDF.read_array</code> already do.</p>
 <h2 id="why-the-name-kerchunk"><a class="toclink" href="#why-the-name-kerchunk">Why the name "kerchunk"?</a><a class="headerlink" href="#why-the-name-kerchunk" title="Permanent link">#</a></h2>

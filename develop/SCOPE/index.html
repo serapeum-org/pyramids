@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6493,9 +6493,9 @@ or in a downstream package. It was distilled from the 2026-06 out-of-scope audit
 <p>plus the spatial primitives that operate on them (reproject, crop, align, mosaic, resample, rasterize,
 vectorize, zonal stats, focal/terrain analysis, interpolation) and the cloud/lazy I/O needed to do that
 at scale.</p>
-<p>Its peer group is <strong>rasterio / rioxarray / fiona / geopandas</strong> — the general-purpose Python geospatial
-stack. pyramids competes in that niche: it is the GDAL-backed engine, not a domain application built on
-top of one.</p>
+<p>Its peer group is <strong>rasterio / fiona / geopandas</strong> and the labeled-array raster bridges — the
+general-purpose Python geospatial stack. pyramids competes in that niche: it is the GDAL-backed engine,
+not a domain application built on top of one.</p>
 <p><strong>Guiding principle:</strong> pyramids owns <em>generic geospatial primitives and format support</em>. Anything whose
 correctness depends on knowing the scientific domain, the sensor, the data provider, or the downstream
 workflow belongs in a package that has that knowledge.</p>

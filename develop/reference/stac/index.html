@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6311,7 +6311,7 @@
 <a href="https://stacspec.org/">SpatioTemporal Asset Catalog</a> ecosystem — searching STAC
 APIs, reading assets as pyramids <code>Dataset</code> / <code>NetCDF</code> objects, building cubes,
 signing cloud credentials, and writing STAC Items back out. Everything is
-<strong>GDAL-native</strong> (no rasterio, no xarray) and <strong>duck-typed</strong> over the STAC
+<strong>GDAL-native</strong> (no rasterio, no labeled-array stack) and <strong>duck-typed</strong> over the STAC
 Item/Asset contract, so <code>pystac</code> is never imported by pyramids itself — raw STAC
 JSON dicts work as well as <code>pystac.Item</code> objects.</p>
 <h2 id="module-layout"><a class="toclink" href="#module-layout">Module layout</a><a class="headerlink" href="#module-layout" title="Permanent link">#</a></h2>

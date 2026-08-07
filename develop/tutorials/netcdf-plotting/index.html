@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6359,7 +6359,7 @@
 
 
 <h1 id="plotting-netcdf-data"><a class="toclink" href="#plotting-netcdf-data">Plotting NetCDF data</a><a class="headerlink" href="#plotting-netcdf-data" title="Permanent link">#</a></h1>
-<p><code>NetCDF.plot</code> is a dedicated, <strong>xarray-aligned</strong> plotting surface — it does <em>not</em> inherit
+<p><code>NetCDF.plot</code> is a dedicated, <strong>labeled-array-style</strong> plotting surface — it does <em>not</em> inherit
 <code>Dataset.plot</code>'s GeoTIFF / Sentinel-imagery semantics. Instead of <code>band=&lt;int&gt;</code> you pick a
 <em>variable</em>; instead of loose keyword soup you pass small, frozen option dataclasses; and you get
 first-class support for selecting along non-spatial dimensions, curvilinear grids, contour/pcolormesh
@@ -6405,7 +6405,7 @@ arguments. Otherwise name it:</p>
 <p>A NetCDF variable is often 3-D (<code>time, lat, lon</code>) or 4-D (<code>time, level, lat, lon</code>). Use
 <code>Selectors</code> to reduce it to a 2-D slice — <code>time=</code> / <code>level=</code> / <code>member=</code> are convenience aliases for
 the common CF dimensions, and <code>sel=</code> / <code>isel=</code> are the generic label- and integer-based escape
-hatches (mirroring <code>xarray.Dataset.sel</code> / <code>.isel</code>):</p>
+hatches (mirroring a labeled-array dataset's <code>.sel</code> / <code>.isel</code>):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">Selectors</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="c1"># label-based: a timestamp and a pressure level</span>
@@ -6420,7 +6420,7 @@ hatches (mirroring <code>xarray.Dataset.sel</code> / <code>.isel</code>):</p>
 <p>If you leave a non-spatial dimension unpinned, the leading slice is rendered (and, for <code>animate=</code>,
 it becomes the frame axis — see below).</p>
 <h2 id="3-colour-mapping"><a class="toclink" href="#3-colour-mapping">3. Colour mapping</a><a class="headerlink" href="#3-colour-mapping" title="Permanent link">#</a></h2>
-<p>Group all colour options under <code>ColourOpts</code> — these mirror xarray's plotting kwargs:</p>
+<p>Group all colour options under <code>ColourOpts</code> — these mirror the labeled-array plotting kwargs:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColourOpts</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># robust limits (2nd / 98th percentile), a diverging cmap centred on zero</span>

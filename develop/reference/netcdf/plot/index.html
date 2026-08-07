@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6278,7 +6278,7 @@
 <a href="../../../tutorials/netcdf-plotting/"><strong>Plotting NetCDF data</strong></a> tutorial. This page is the API
 reference (signature table + the auto-generated <code>Selectors</code> / <code>ColourOpts</code> / <code>FacetSpec</code> docs).</p>
 </blockquote>
-<p><code>NetCDF.plot</code> has its own, xarray-aligned plotting surface — it does <strong>not</strong> inherit the
+<p><code>NetCDF.plot</code> has its own, labeled-array-style plotting surface — it does <strong>not</strong> inherit the
 GeoTIFF / Sentinel-imagery semantics of <code>Dataset.plot</code>. You pick a <em>variable</em>, slice along the
 non-spatial dimensions, and pass colour / faceting / coordinate options through small grouped,
 frozen dataclasses (<code>Selectors</code>, <code>ColourOpts</code>, <code>FacetSpec</code>) re-exported from <code>pyramids.netcdf</code>.</p>
@@ -6330,7 +6330,7 @@ construction but compares/hashes equal to the corresponding <code>ColorOpts</cod
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;era5.nc&quot;</span><span class="p">)</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># pick a variable, select along non-spatial dims, xarray-style colour kwargs</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># pick a variable, select along non-spatial dims, labeled-array-style colour kwargs</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s2">&quot;t2m&quot;</span><span class="p">,</span> <span class="n">selectors</span><span class="o">=</span><span class="n">Selectors</span><span class="p">(</span><span class="n">time</span><span class="o">=</span><span class="s2">&quot;2020-01-01&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">850</span><span class="p">),</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="n">colour</span><span class="o">=</span><span class="n">ColourOpts</span><span class="p">(</span><span class="n">cmap</span><span class="o">=</span><span class="s2">&quot;coolwarm&quot;</span><span class="p">,</span> <span class="n">robust</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
@@ -7065,7 +7065,7 @@ returns <code>NotImplemented</code> for the cross-class case, so Python defers t
         <p>Faceting specification for :meth:<code>NetCDF.plot</code>.</p>
 <p>When set, <code>NetCDF.plot</code> builds a stack of slices along the named
 dims and hands them to
-:meth:<code>cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.facet</code>. At least one of
+:meth:<code>cleopatra.array_glyph.ArrayGlyph.facet</code>. At least one of
 <code>col</code> or <code>row</code> must be set; <code>row</code> alone (without <code>col</code>) is
 invalid and rejected by the validator.</p>
 
@@ -7227,7 +7227,7 @@ set. Defaults to None.</p>
 <a id="__codelineno-0-282" name="__codelineno-0-282"></a>
 <a id="__codelineno-0-283" name="__codelineno-0-283"></a><span class="sd">    When set, ``NetCDF.plot`` builds a stack of slices along the named</span>
 <a id="__codelineno-0-284" name="__codelineno-0-284"></a><span class="sd">    dims and hands them to</span>
-<a id="__codelineno-0-285" name="__codelineno-0-285"></a><span class="sd">    :meth:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.facet`. At least one of</span>
+<a id="__codelineno-0-285" name="__codelineno-0-285"></a><span class="sd">    :meth:`cleopatra.array_glyph.ArrayGlyph.facet`. At least one of</span>
 <a id="__codelineno-0-286" name="__codelineno-0-286"></a><span class="sd">    ``col`` or ``row`` must be set; ``row`` alone (without ``col``) is</span>
 <a id="__codelineno-0-287" name="__codelineno-0-287"></a><span class="sd">    invalid and rejected by the validator.</span>
 <a id="__codelineno-0-288" name="__codelineno-0-288"></a>
