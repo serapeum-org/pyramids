@@ -14,6 +14,7 @@ Targets untested / low-coverage code paths in
 - Error paths for ``__getitem__``, ``__setitem__``, ``open_multi_dataset``
 """
 
+import datetime as dt
 import pickle
 import shutil
 import tempfile
@@ -104,11 +105,16 @@ class TestStringRepresentation:
         text = str(md)
         assert "EPSG" in text, "__str__ should contain 'EPSG'"
 
-    def test_repr_contains_dimension(self, base_dataset: Dataset):
-        """Repr should contain dimension info."""
+    def test_repr_is_concise_single_line(self, base_dataset: Dataset):
+        """__repr__ is a one-line ``ClassName(...)`` carrying the key fields."""
         md = DatasetCollection(base_dataset, time_length=2, files=["a.tif", "b.tif"])
         text = repr(md)
-        assert "Dimension" in text, "__repr__ should contain 'Dimension'"
+        assert "\n" not in text, f"__repr__ must be single-line; got: {text!r}"
+        assert text.startswith("DatasetCollection("), text
+        assert "time_length=2" in text
+        assert "files=2" in text
+        assert "dims=" in text
+        assert "epsg=" in text
 
     def test_str_works_without_files(self, base_dataset: Dataset):
         """H1 regression: __str__ must not TypeError when files=None.
@@ -132,7 +138,304 @@ class TestStringRepresentation:
         md = DatasetCollection(base_dataset, time_length=2)
         text = repr(md)
         assert "in-memory" in text
-        assert "Time length: 2" in text
+        assert "time_length=2" in text
+
+    def test_repr_does_not_raise_after_close(self, base_dataset: Dataset):
+        """__repr__ stays usable (never raises) even after the handles are closed.
+
+        Reading the geo-attributes off a closed base would raise; the defensive
+        ``_summary`` guard degrades those fields to ``?`` instead of blowing up
+        the representation.
+        """
+        md = DatasetCollection(base_dataset, time_length=2)
+        md.close()
+        text = repr(md)
+        assert text.startswith("DatasetCollection("), text
+        assert "time_length=2" in text
+
+
+class TestCloseAndContextManager:
+    """Tests for close() and the context-manager protocol."""
+
+    def test_close_releases_base_and_is_idempotent(self, base_dataset: Dataset):
+        """close() releases the base handle and a second call is a no-op."""
+        md = DatasetCollection(base_dataset, time_length=2)
+        assert base_dataset._raster is not None
+        md.close()
+        assert base_dataset._raster is None, "base handle should be released"
+        md.close()  # idempotent — must not raise
+
+    def test_close_clears_caches(self, cube_with_values: DatasetCollection):
+        """close() drops the per-timestep handle caches."""
+        cube_with_values.close()
+        assert cube_with_values._datasets is None
+        assert cube_with_values._handle_cache == {}
+
+    def test_context_manager_closes_on_exit(self, base_dataset: Dataset):
+        """The with-block releases the collection's handles on exit."""
+        with DatasetCollection(base_dataset, time_length=2) as md:
+            assert md._base._raster is not None
+        assert md._base._raster is None, "handles should be released on exit"
+
+    def test_close_drops_zarr_store(self, base_dataset: Dataset):
+        """close() drops a from_zarr collection's resolved store reference."""
+        md = DatasetCollection(base_dataset, time_length=2, zarr_store=object())
+        assert md._zarr_store is not None
+        md.close()
+        assert md._zarr_store is None, "zarr store reference should be dropped"
+
+
+class TestIntegerIndexing:
+    """Tests for NumPy-integer keys and shape validation on __getitem__/__setitem__."""
+
+    def test_getitem_accepts_numpy_integer(self, cube_with_values: DatasetCollection):
+        """A NumPy integer key reads the same slice as a Python int."""
+        expected = np.arange(3 * 5 * 6, dtype=np.float64).reshape(3, 5, 6)
+        np.testing.assert_allclose(cube_with_values[np.int64(1)], expected[1])
+
+    def test_setitem_accepts_numpy_integer(self, cube_with_values: DatasetCollection):
+        """A NumPy integer key assigns a slice (previously raised TypeError)."""
+        new = np.full((5, 6), 42.0)
+        cube_with_values[np.int64(0)] = new
+        np.testing.assert_allclose(cube_with_values[0], new)
+
+    def test_setitem_rejects_shape_mismatch(self, cube_with_values: DatasetCollection):
+        """A wrong-sized array is rejected instead of silently misaligning the cube."""
+        with pytest.raises(ValueError, match="does not match the collection"):
+            cube_with_values[0] = np.zeros((3, 3))
+
+    def test_setitem_rejects_non_integer_key(self, cube_with_values: DatasetCollection):
+        """A non-integer key still raises TypeError."""
+        with pytest.raises(TypeError, match="only accepts an integer"):
+            cube_with_values["x"] = np.zeros((5, 6))
+
+    def test_iter_yields_per_timestep_arrays(self, cube_with_values: DatasetCollection):
+        """Iteration yields each timestep's band-0 array in order."""
+        expected = np.arange(3 * 5 * 6, dtype=np.float64).reshape(3, 5, 6)
+        seen = list(cube_with_values)
+        assert len(seen) == 3
+        for i, arr in enumerate(seen):
+            np.testing.assert_allclose(arr, expected[i])
+
+
+class TestFromFilesGlob:
+    """The glob filter of from_files when given a folder."""
+
+    @staticmethod
+    def _write_tif(path: Path, fill: float = 1.0) -> None:
+        """Write a small single-band GeoTIFF to ``path``."""
+        _make_mem_dataset(fill_value=fill).to_file(str(path))
+
+    def test_glob_default_reads_tif_and_skips_sidecars(self, tmp_path: Path):
+        """The default ``*.tif`` glob reads rasters and skips non-.tif sidecars."""
+        self._write_tif(tmp_path / "r0.tif")
+        self._write_tif(tmp_path / "r1.tif")
+        (tmp_path / "notes.txt").write_text("sidecar")
+        (tmp_path / "r0.tif.aux.xml").write_text("<PAMDataset/>")
+        cube = DatasetCollection.from_files(str(tmp_path))
+        assert cube.time_length == 2, "only the two .tif rasters should be read"
+
+    def test_glob_custom_pattern_selects_subset(self, tmp_path: Path):
+        """A custom glob narrows the selection to matching names."""
+        self._write_tif(tmp_path / "keep_a.tif")
+        self._write_tif(tmp_path / "keep_b.tif")
+        self._write_tif(tmp_path / "drop_c.tif")
+        cube = DatasetCollection.from_files(str(tmp_path), glob="keep_*.tif")
+        assert cube.time_length == 2, "glob should select only the keep_* rasters"
+
+    def test_glob_no_match_raises(self, tmp_path: Path):
+        """A glob matching no file raises FileNotFoundError."""
+        self._write_tif(tmp_path / "r.tif")
+        with pytest.raises(FileNotFoundError):
+            DatasetCollection.from_files(str(tmp_path), glob="*.nc")
+
+    def test_missing_folder_raises(self, tmp_path: Path):
+        """A non-existent folder raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            DatasetCollection.from_files(tmp_path / "nope")
+
+
+class TestFromFilesDateOrdering:
+    """date_format ordering / subsetting on from_files (folder or list)."""
+
+    @staticmethod
+    def _write_days(folder: Path, days) -> None:
+        """Write one dated GeoTIFF per day (fill == day) into ``folder``."""
+        for day in days:
+            p = folder / f"r_1979.01.{day:02d}.tif"
+            _make_mem_dataset(fill_value=float(day)).to_file(str(p))
+
+    def test_date_format_sorts_and_sets_time_axis(self, tmp_path: Path):
+        """date_format sorts by the file-name date and makes it the time axis."""
+        self._write_days(tmp_path, (3, 1, 2))
+        cube = DatasetCollection.from_files(tmp_path, date_format="%Y.%m.%d")
+        assert cube.time == [dt.datetime(1979, 1, d) for d in (1, 2, 3)]
+        np.testing.assert_allclose(cube[0], 1.0)  # earliest date has fill 1.0
+
+    def test_date_format_on_an_explicit_list(self, tmp_path: Path):
+        """date_format works on a list too, not just a folder."""
+        self._write_days(tmp_path, (2, 1))
+        files = [str(p) for p in tmp_path.glob("*.tif")]
+        cube = DatasetCollection.from_files(files, date_format="%Y.%m.%d")
+        assert cube.time == [dt.datetime(1979, 1, 1), dt.datetime(1979, 1, 2)]
+
+    def test_start_end_subsets(self, tmp_path: Path):
+        """start/end keep the inclusive date range."""
+        self._write_days(tmp_path, (1, 2, 3, 4))
+        cube = DatasetCollection.from_files(
+            tmp_path,
+            date_format="%Y.%m.%d",
+            start=dt.datetime(1979, 1, 2),
+            end=dt.datetime(1979, 1, 3),
+        )
+        assert cube.time == [dt.datetime(1979, 1, 2), dt.datetime(1979, 1, 3)]
+
+    def test_custom_date_regex(self, tmp_path: Path):
+        """date_regex locates a non-default date pattern in the names."""
+        for day in (2, 1):
+            _make_mem_dataset().to_file(str(tmp_path / f"evap_1979_{day}_1.tif"))
+        cube = DatasetCollection.from_files(
+            tmp_path, date_regex=r"\d{4}_\d{1,2}_\d{1,2}", date_format="%Y_%m_%d"
+        )
+        assert cube.time == [dt.datetime(1979, 1, 1), dt.datetime(1979, 2, 1)]
+
+    def test_start_end_without_date_format_raises(self, tmp_path: Path):
+        """start/end without date_format raises ValueError."""
+        self._write_days(tmp_path, (1,))
+        start = dt.datetime(1979, 1, 1)
+        with pytest.raises(ValueError, match="needs date_format"):
+            DatasetCollection.from_files(tmp_path, start=start)
+
+    def test_date_not_found_raises(self, tmp_path: Path):
+        """A file name with no matching date raises ValueError."""
+        _make_mem_dataset().to_file(str(tmp_path / "no_date_here.tif"))
+        with pytest.raises(ValueError, match="matched no date"):
+            DatasetCollection.from_files(tmp_path, date_format="%Y.%m.%d")
+
+    def test_empty_list_raises(self):
+        """An empty list raises ValueError."""
+        with pytest.raises(ValueError, match="at least one path"):
+            DatasetCollection.from_files([])
+
+    def test_start_end_empty_range_raises(self, tmp_path: Path):
+        """A date range that excludes every file raises FileNotFoundError."""
+        self._write_days(tmp_path, (1, 2))
+        start = dt.datetime(1999, 1, 1)
+        end = dt.datetime(1999, 12, 31)
+        with pytest.raises(FileNotFoundError, match="within the given start/end"):
+            DatasetCollection.from_files(
+                tmp_path, date_format="%Y.%m.%d", start=start, end=end
+            )
+
+    def test_start_only_bound(self, tmp_path: Path):
+        """Passing only ``start`` keeps the files on/after that date."""
+        self._write_days(tmp_path, (1, 2, 3))
+        cube = DatasetCollection.from_files(
+            tmp_path, date_format="%Y.%m.%d", start=dt.datetime(1979, 1, 2)
+        )
+        assert cube.time == [dt.datetime(1979, 1, 2), dt.datetime(1979, 1, 3)]
+
+    def test_end_only_bound(self, tmp_path: Path):
+        """Passing only ``end`` keeps the files on/before that date."""
+        self._write_days(tmp_path, (1, 2, 3))
+        cube = DatasetCollection.from_files(
+            tmp_path, date_format="%Y.%m.%d", end=dt.datetime(1979, 1, 2)
+        )
+        assert cube.time == [dt.datetime(1979, 1, 1), dt.datetime(1979, 1, 2)]
+
+
+class TestFromFilesConstruction:
+    """Construction paths of from_files: single file, validate, explicit meta."""
+
+    def test_single_file_list(self, tmp_path: Path):
+        """A one-element list builds a one-timestep collection."""
+        p = tmp_path / "only.tif"
+        _make_mem_dataset().to_file(str(p))
+        cube = DatasetCollection.from_files([str(p)])
+        assert cube.time_length == 1
+        assert cube.files == [str(p)]
+
+    def test_single_file_path_string(self, tmp_path: Path):
+        """A single file-path string is read as a one-timestep collection (not globbed)."""
+        p = tmp_path / "only.tif"
+        _make_mem_dataset().to_file(str(p))
+        cube = DatasetCollection.from_files(str(p))
+        assert cube.time_length == 1
+        assert cube.files == [str(p)]
+
+    def test_validate_passes_for_homogeneous_files(self, tmp_path: Path):
+        """validate=True succeeds when every file matches the template."""
+        for name in ("a.tif", "b.tif"):
+            _make_mem_dataset(rows=5, cols=6).to_file(str(tmp_path / name))
+        cube = DatasetCollection.from_files(tmp_path, validate=True)
+        assert cube.time_length == 2
+
+    def test_validate_detects_shape_mismatch(self, tmp_path: Path):
+        """validate=True raises AlignmentError when a file's shape differs."""
+        _make_mem_dataset(rows=5, cols=6).to_file(str(tmp_path / "a.tif"))
+        _make_mem_dataset(rows=4, cols=4).to_file(str(tmp_path / "b.tif"))
+        with pytest.raises(AlignmentError):
+            DatasetCollection.from_files(tmp_path, validate=True)
+
+
+class TestReadMultipleFilesDeprecated:
+    """The read_multiple_files shim warns but still works."""
+
+    def test_emits_deprecation_warning_and_reads(self, rasters_folder_path: str):
+        """It emits DeprecationWarning and returns a working collection."""
+        with pytest.warns(DeprecationWarning, match="deprecated"):
+            cube = DatasetCollection.read_multiple_files(rasters_folder_path)
+        assert cube.time_length == 6
+
+    def test_numeric_ordering_empty_range_raises(self, tmp_path: Path):
+        """The legacy numeric mode with an out-of-range start/end raises."""
+        for name in ("1_r.tif", "2_r.tif"):
+            _make_mem_dataset().to_file(str(tmp_path / name))
+        with pytest.raises(FileNotFoundError, match="within the given start/end"):
+            DatasetCollection.read_multiple_files(
+                tmp_path,
+                with_order=True,
+                date=False,
+                regex_string=r"\d+",
+                start=90,
+                end=99,
+            )
+
+    def test_start_end_without_date_format_raises(self, tmp_path: Path):
+        """start/end with no parseable date format raises (the old contract)."""
+        for name in ("a.tif", "b.tif"):
+            _make_mem_dataset().to_file(str(tmp_path / name))
+        with pytest.raises(ValueError, match="needs a date format"):
+            DatasetCollection.read_multiple_files(
+                tmp_path, start="1979-01-02", end="1979-01-05"
+            )
+
+    def test_numeric_mode_sets_integer_time_axis(self, tmp_path: Path):
+        """date=False leaves the integer order keys on .time (not None)."""
+        for name in ("2_r.tif", "1_r.tif"):
+            _make_mem_dataset().to_file(str(tmp_path / name))
+        with pytest.warns(DeprecationWarning):
+            cube = DatasetCollection.read_multiple_files(
+                tmp_path, with_order=True, date=False, regex_string=r"\d+"
+            )
+        assert cube.time == [1, 2], f"expected integer axis [1, 2], got {cube.time}"
+
+    def test_date_without_order_preserves_input_order(self, tmp_path: Path):
+        """with_order=False + a date format labels time WITHOUT reordering the list."""
+        paths = []
+        for day in (3, 1, 2):  # deliberately unsorted
+            p = tmp_path / f"r_1979.01.{day:02d}.tif"
+            _make_mem_dataset().to_file(str(p))
+            paths.append(str(p))
+        with pytest.warns(DeprecationWarning):
+            cube = DatasetCollection.read_multiple_files(
+                paths, with_order=False, date=True, file_name_data_fmt="%Y.%m.%d"
+            )
+        assert cube.time == [
+            dt.datetime(1979, 1, 3),
+            dt.datetime(1979, 1, 1),
+            dt.datetime(1979, 1, 2),
+        ], f"input order should be preserved; got {cube.time}"
 
 
 class TestShapeProperties:
@@ -559,18 +862,19 @@ class TestReadMultipleFilesErrors:
         assert md.files == paths, "files should match the input list"
 
     def test_with_order_date_mismatch_raises(self, tmp_path):
-        """Filenames that don't match regex should raise ValueError."""
+        """Filenames that don't match the regex should raise ValueError."""
         src = _make_mem_dataset(rows=3, cols=3)
         paths = []
         for name in ["no_date_a.tif", "no_date_b.tif"]:
             p = str(tmp_path / name)
             src.to_file(p)
             paths.append(p)
-        with pytest.raises(ValueError, match="does not match"):
+        with pytest.raises(ValueError, match="matched no date"):
             DatasetCollection.read_multiple_files(
                 paths,
                 with_order=True,
                 regex_string=r"\d{4}\.\d{2}\.\d{2}",
+                file_name_data_fmt="%Y.%m.%d",
             )
 
     def test_with_order_missing_fmt_raises(self, tmp_path):

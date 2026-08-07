@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
+import fnmatch
+import numbers
 import re
 import tempfile
+import textwrap
 import warnings
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -49,6 +52,10 @@ if TYPE_CHECKING:
     from cleopatra.array_glyph import ArrayGlyph, FrameLabel
     from cleopatra.geo import Basemap
     from dask.delayed import Delayed
+
+
+_DEFAULT_GLOB = "*.tif"
+_EMPTY_RANGE_MSG = "no files fall within the given start/end range"
 
 
 class _GroupedCollection:
@@ -700,37 +707,103 @@ class DatasetCollection:
             self._handle_cache[idx] = handle
         return handle
 
-    def __str__(self):
-        """__str__."""
-        source_line = (
-            f"Files: {len(self._files)}"
-            if self._files is not None
-            else f"Time length: {self._time_length} (in-memory)"
-        )
-        message = f"""
-            {source_line}
-            Cell size: {self._base.cell_size}
-            EPSG: {self._base.epsg}
-            Dimension: {self.rows} * {self.columns}
-            Mask: {self._base.no_data_value[0]}
-        """
-        return message
+    def _summary(self) -> dict[str, Any]:
+        """Fields shared by :meth:`__str__` / :meth:`__repr__`.
 
-    def __repr__(self):
-        """__repr__."""
-        source_line = (
-            f"Files: {len(self._files)}"
-            if self._files is not None
-            else f"Time length: {self._time_length} (in-memory)"
-        )
-        message = f"""
-            {source_line}
-            Cell size: {self._base.cell_size}
-            EPSG: {self._base.epsg}
-            Dimension: {self.rows} * {self.columns}
-            Mask: {self._base.no_data_value[0]}
+        Never raises: the geo-attributes are read behind a guard so a
+        half-built or already-closed collection still produces a usable
+        representation (a `__repr__` that raises makes debugging painful).
+        Missing values are left out of the returned dict.
         """
-        return message
+        fields: dict[str, Any] = {
+            "time_length": self._time_length,
+            "files": len(self._files) if self._files is not None else None,
+        }
+        try:
+            fields["dims"] = f"{self.rows}x{self.columns}"
+            fields["epsg"] = self._base.epsg
+            fields["cell_size"] = self._base.cell_size
+            fields["nodata"] = self._base.no_data_value[0]
+        except Exception:  # nosec B110 # pragma: no cover - defensive: repr must not raise
+            pass
+        return fields
+
+    def __repr__(self) -> str:
+        """Concise, unambiguous single-line representation for developers."""
+        fields = self._summary()
+        backing = (
+            f"files={fields['files']}" if fields["files"] is not None else "in-memory"
+        )
+        return (
+            f"{type(self).__name__}(time_length={fields['time_length']}, "
+            f"{backing}, dims={fields.get('dims', '?')}, "
+            f"epsg={fields.get('epsg', '?')})"
+        )
+
+    def __str__(self) -> str:
+        """Human-readable multi-line summary of the collection."""
+        fields = self._summary()
+        backing = (
+            f"Files:       {fields['files']}"
+            if fields["files"] is not None
+            else "Backing:     in-memory"
+        )
+        return textwrap.dedent(
+            f"""\
+            {type(self).__name__}
+              {backing}
+              Time length: {fields['time_length']}
+              Dimensions:  {fields.get('dims', '?')} (rows x cols)
+              EPSG:        {fields.get('epsg', '?')}
+              Cell size:   {fields.get('cell_size', '?')}
+              NoData:      {fields.get('nodata', '?')}"""
+        )
+
+    def close(self) -> None:
+        """Release every open GDAL handle held by the collection.
+
+        Closes the base template plus every cached per-timestep handle (the
+        lazy :attr:`datasets` list and the per-index handle cache), then clears
+        the caches. Idempotent — :meth:`Dataset.close` is a no-op after the
+        first call — but the collection should not be read again afterwards.
+        Prefer the context-manager form (``with DatasetCollection.from_files(...)
+        as dc: ...``) so the handles are released on scope exit.
+
+        Ownership: ``close`` closes the ``base`` :class:`~pyramids.dataset.Dataset`
+        too. For a collection built by :meth:`from_files` / :meth:`from_stac` the
+        base is opened internally, so this is what you want. But if you built the
+        collection from a :class:`Dataset` you still hold —
+        ``DatasetCollection(my_ds, n)`` — ``close`` (and therefore the ``with``
+        block) closes ``my_ds`` as well: the collection takes ownership of the
+        base. Do not ``close`` such a collection, or pass a base you are willing
+        to hand over, if you need ``my_ds`` afterwards.
+
+        A :meth:`from_zarr` collection's resolved store is dropped here (so it can
+        be garbage-collected) but not explicitly closed — a Zarr store is not a
+        GDAL handle; if it wraps something with its own resources, close that
+        yourself.
+        """
+        handles = [self._base, *(self._datasets or []), *self._handle_cache.values()]
+        for dataset in handles:
+            if dataset is not None:
+                dataset.close()
+        self._datasets = None
+        self._handle_cache = {}
+        self._zarr_store = None
+
+    def __enter__(self) -> DatasetCollection:
+        """Enter a context whose exit releases the collection's handles.
+
+        The collection takes ownership of its handles — including the ``base``
+        (see :meth:`close`). Wrap a collection you built from your own
+        :class:`~pyramids.dataset.Dataset` in ``with`` only if you are willing to
+        let that base be closed on exit.
+        """
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Close all handles on context exit (see :meth:`close` for ownership)."""
+        self.close()
 
     @property
     def base(self) -> Dataset:
@@ -1745,61 +1818,190 @@ class DatasetCollection:
     @classmethod
     def from_files(
         cls,
-        files: Sequence[str | Path],
+        files: str | Path | Sequence[str | Path],
         *,
+        glob: str = _DEFAULT_GLOB,
+        date_format: str | None = None,
+        date_regex: str = r"\d{4}.\d{2}.\d{2}",
+        start: dt.datetime | None = None,
+        end: dt.datetime | None = None,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
         validate: bool = False,
     ) -> DatasetCollection:
-        """Build a collection from a list of files without pre-opening all.
+        r"""Build a collection from a folder of rasters or an explicit list of files.
 
-        Only the first file is opened eagerly (to derive
-        :class:`RasterMeta`). The remaining files are referenced by
-        path only — lazy readers open them on demand through
-        :class:`~pyramids.base._file_manager.CachingFileManager`.
+        ``files`` may be a directory (its entries matching ``glob`` are read) or a
+        sequence of paths. Only the first file is opened eagerly (to derive
+        :class:`RasterMeta`); the rest are opened lazily on demand.
+
+        When ``date_format`` is given, a date is parsed out of each file *name* and
+        the timesteps are sorted by it, and those dates become the collection's
+        :attr:`time` axis (used by :meth:`plot` as the frame labels). ``start`` /
+        ``end`` then keep only the timesteps in that inclusive date range.
 
         Args:
-            files: Sequence of file paths backing each timestep.
-            meta: Optional pre-computed :class:`RasterMeta`. When
-                omitted, derived from the first file via
-                :meth:`RasterMeta.from_dataset`.
-            gdal_env: Optional GDAL config (e.g. a signer's
-                `gdal_env()`) installed around every open of the backing
-                files, including the eager template open below. Persisted
-                on the collection for the lazy read paths. `None` (default)
-                installs no extra config.
-            validate: When `True`, open every file's header (no pixel read) and check
-                its `(band, rows, cols)` shape and dtype against the template — a
-                heterogeneous file raises `AlignmentError` at construction instead of
-                silently corrupting the lazy cube (whose dask assembly trusts the
-                first file's shape/dtype). Defaults to `False`, preserving the lazy
-                "only open the first file" design.
+            files: A folder (``str`` / :class:`~pathlib.Path`, globbed with ``glob``)
+                or an explicit sequence of file paths.
+            glob: :mod:`fnmatch` pattern selecting the rasters when ``files`` is a
+                folder (default ``"*.tif"``; e.g. ``"*.tif*"``, ``"S2_*.tif"``).
+                Ignored for a list. Sidecars (``.aux.xml`` / ``.prj``) do not match.
+            date_format: :func:`~datetime.datetime.strptime` format of the date in
+                the file names, e.g. ``"%Y.%m.%d"``. When given, the timesteps are
+                sorted by that date and it becomes the time axis. ``None`` (default)
+                keeps the files in their given order with no time axis.
+            date_regex: Where the date sits in each file name. Default
+                ``r"\d{4}.\d{2}.\d{2}"`` matches ``1979.01.02`` / ``1979-01-02`` /
+                ``1979_01_02`` (``.`` is any separator). Only used with ``date_format``.
+            start: Inclusive lower bound on the parsed date to keep a subset. Needs
+                ``date_format``.
+            end: Inclusive upper bound; see ``start``.
+            meta: Optional pre-computed :class:`RasterMeta`; derived from the first
+                file when omitted.
+            gdal_env: Optional GDAL config (e.g. a signer's ``gdal_env()``) installed
+                around every open of the backing files, including the eager template
+                open, and persisted on the collection for the lazy reads.
+            validate: When ``True``, check every file's header shape/dtype against the
+                template and raise :class:`AlignmentError` on a mismatch instead of
+                lazily corrupting the cube. Default ``False``.
 
         Returns:
-            DatasetCollection: A new collection whose `time_length`
-            matches `len(files)`.
+            DatasetCollection: A collection whose ``time_length`` is the number of
+            (kept) files.
 
         Raises:
-            ValueError: When `files` is empty.
-            AlignmentError: When `validate=True` and a file's header does not match
-                the template's shape/dtype.
+            FileNotFoundError: ``files`` is a folder that does not exist or matched no
+                file, or ``start`` / ``end`` exclude every file.
+            ValueError: ``files`` is an empty list; ``start`` / ``end`` given without
+                ``date_format``; or ``date_regex`` matches no date in a file name.
+            AlignmentError: ``validate=True`` and a file's header does not match.
+
+        Examples:
+            - Read a folder, unordered:
+
+              ```python
+              >>> from pyramids.dataset import DatasetCollection
+              >>> cube = DatasetCollection.from_files("rasters")  # doctest: +SKIP
+
+              ```
+            - Read a folder ordered by the date in the file names:
+
+              ```python
+              >>> from pyramids.dataset import DatasetCollection
+              >>> cube = DatasetCollection.from_files(  # doctest: +SKIP
+              ...     "rasters", date_format="%Y.%m.%d"
+              ... )
+
+              ```
         """
-        resolved = [str(p) for p in files]
-        if not resolved:
-            raise ValueError("files must contain at least one path")
+        resolved = cls._resolve_files(files, glob)
+        time_axis: list[dt.datetime] | None = None
+        if date_format is not None:
+            dates = [
+                cls._parse_date(Path(f).name, date_regex, date_format) for f in resolved
+            ]
+            order = sorted(range(len(resolved)), key=dates.__getitem__)
+            resolved = [resolved[i] for i in order]
+            dates = [dates[i] for i in order]
+            if start is not None or end is not None:
+                kept = [
+                    (f, d)
+                    for f, d in zip(resolved, dates)
+                    if (start is None or d >= start) and (end is None or d <= end)
+                ]
+                if not kept:
+                    raise FileNotFoundError(_EMPTY_RANGE_MSG)
+                resolved = [f for f, _ in kept]
+                dates = [d for _, d in kept]
+            time_axis = dates
+        elif start is not None or end is not None:
+            raise ValueError(
+                "start/end filtering needs date_format to parse the file-name dates"
+            )
+        return cls._build(
+            resolved, time_axis, meta=meta, gdal_env=gdal_env, validate=validate
+        )
+
+    @classmethod
+    def _build(
+        cls,
+        files: list[str],
+        time_axis: list[dt.datetime] | list[int] | None,
+        *,
+        meta: RasterMeta | None,
+        gdal_env: dict[str, str] | None,
+        validate: bool,
+    ) -> DatasetCollection:
+        """Open the first file as the template and construct the collection.
+
+        Shared by :meth:`from_files` and the deprecated :meth:`read_multiple_files`
+        so both build the same lazy collection (only the first file opened eagerly)
+        with an optional pre-computed ``time_axis``.
+        """
         with cloud_config_from_env(gdal_env):
             # The template is reachable as `collection.base`, and the legacy
-            # `DatasetCollection(src, time_length=N)` shape replicates it as every
-            # timestep, so it needs the env for its own reads too — not just for
-            # this open.
-            template = Dataset.read_file(resolved[0], gdal_env=gdal_env)
+            # `DatasetCollection(src, N)` shape replicates it as every timestep, so it
+            # needs the env for its own reads too — not just this open.
+            template = Dataset.read_file(files[0], gdal_env=gdal_env)
             if meta is None:
                 meta = RasterMeta.from_dataset(template)
         if validate:
-            cls._validate_headers(resolved, meta, gdal_env)
+            cls._validate_headers(files, meta, gdal_env)
         return cls(
-            template, len(resolved), files=resolved, meta=meta, gdal_env=gdal_env
+            template,
+            len(files),
+            files=files,
+            time=time_axis,
+            meta=meta,
+            gdal_env=gdal_env,
         )
+
+    @staticmethod
+    def _resolve_files(
+        files: str | Path | Sequence[str | Path], glob: str
+    ) -> list[str]:
+        """Resolve ``files`` to a list of path strings.
+
+        A ``str`` / :class:`~pathlib.Path` pointing at a directory globs its entries
+        matching ``glob``, returned sorted by name (a deterministic base order); one
+        pointing at a single file is wrapped in a one-element list. A sequence is
+        returned as-is — order preserved, so callers such as ``from_stac`` keep their
+        temporally-ordered list.
+        """
+        if isinstance(files, (str, Path)):
+            folder = Path(files)
+            if not folder.exists():
+                raise FileNotFoundError(f"The path does not exist: {folder}")
+            if folder.is_file():
+                return [str(folder)]
+            matched = sorted(
+                str(folder / entry.name)
+                for entry in folder.iterdir()
+                if fnmatch.fnmatch(entry.name, glob)
+            )
+            if not matched:
+                raise FileNotFoundError(f"No file in {folder} matched glob {glob!r}")
+            return matched
+        resolved = [str(p) for p in files]
+        if not resolved:
+            raise ValueError("files must contain at least one path")
+        return resolved
+
+    @staticmethod
+    def _parse_date(name: str, regex: str, fmt: str) -> dt.datetime:
+        """Return the date in ``name`` — the ``regex`` match parsed with ``fmt``."""
+        match = re.search(regex, name)
+        if match is None:
+            raise ValueError(f"date pattern {regex!r} matched no date in {name!r}")
+        return dt.datetime.strptime(match.group(), fmt)
+
+    @staticmethod
+    def _parse_number(name: str, regex: str) -> int:
+        """Return the integer in ``name`` — the ``regex`` match (legacy numeric order)."""
+        match = re.search(regex, name)
+        if match is None:
+            raise ValueError(f"regex {regex!r} matched no number in {name!r}")
+        return int(match.group())
 
     @staticmethod
     def _validate_headers(
@@ -1991,204 +2193,103 @@ class DatasetCollection:
         start: str | None = None,
         end: str | None = None,
         fmt: str = "%Y-%m-%d",
-        extension: str = ".tif",
+        glob: str = _DEFAULT_GLOB,
     ) -> DatasetCollection:
-        r"""read_multiple_files.
+        r"""Deprecated — use :meth:`from_files`.
 
-            - Read rasters from a folder (or list of files) and create a 3D array with the same 2D dimensions as the
-              first raster and length equal to the number of files.
-
-            - All rasters should have the same dimensions.
-            - If you want to read the rasters with a certain order, the raster file names should contain a date
-              that follows a consistent format (YYYY.MM.DD / YYYY-MM-DD or YYYY_MM_DD), e.g. "MSWEP_1979.01.01.tif".
+        A thin, behaviour-preserving shim. The old date knobs map onto
+        :meth:`from_files`' ``date_format`` / ``date_regex`` / ``start`` / ``end``;
+        the legacy numeric mode (``date=False`` — order by a number in the name) is
+        resolved here and forwarded as a pre-sorted list.
 
         Args:
-            path (str | list[str]):
-                Path of the folder that contains all the rasters, or a list containing the paths of the rasters to read.
-            with_order (bool):
-                True if the raster names follow a certain order. Then the raster names should have a date that follows
-                the same format (YYYY.MM.DD / YYYY-MM-DD or YYYY_MM_DD). For example:
-
-                ```python
-                "MSWEP_1979.01.01.tif"
-                "MSWEP_1979.01.02.tif"
-                ...
-                "MSWEP_1979.01.20.tif"
-
-                ```
-
-            regex_string (str):
-                A regex string used to locate the date in the file names. Default is r"\d{4}.\d{2}.\d{2}". Matched
-                against each file's name only (``Path(f).name``), not its directory path, so stray digit runs in the
-                path are never mistaken for the date. For example:
-
-                ```python
-                >>> fname = "MSWEP_YYYY.MM.DD.tif"
-                >>> regex_string = r"\d{4}.\d{2}.\d{2}"
-
-                ```
-
-                - Or:
-
-                ```python
-                >>> fname = "MSWEP_YYYY_M_D.tif"
-                >>> regex_string = r"\d{4}_\d{1}_\d{1}"
-
-                ```
-
-                - If there is a number at the beginning of the name:
-
-                ```python
-                >>> fname = "1_MSWEP_YYYY_M_D.tif"
-                >>> regex_string = r"\d+"
-
-                ```
-
-            date (bool):
-                True if the number in the file name is a date. Default is True.
-            file_name_data_fmt (str):
-                If the file names contain a date and you want to read them ordered. Default is None. For example:
-
-                ```python
-                >>> fname = "MSWEP_YYYY.MM.DD.tif"
-                >>> file_name_data_fmt = "%Y.%m.%d"
-
-                ```
-
-            start (str):
-                Start date if you want to read the input raster for a specific period only and not all rasters. If not
-                given, all rasters in the given path will be read.
-            end (str):
-                End date if you want to read the input rasters for a specific period only. If not given, all rasters in
-                the given path will be read.
-            fmt (str):
-                Format of the given date in the start/end parameter.
-            extension (str):
-                The extension of the files you want to read from the given path. Default is ".tif".
+            path: Folder (globbed with ``glob``) or an explicit list of files.
+            with_order: Sort the timesteps by the key in the file names.
+            regex_string: Regex locating the date/number in each file name.
+            date: ``True`` parses the match as a date (needs ``file_name_data_fmt``);
+                ``False`` parses it as an integer order key.
+            file_name_data_fmt: ``strptime`` format for the matched date.
+            start: Inclusive start (date string parsed with ``fmt``, or an int in the
+                numeric mode).
+            end: Inclusive end; see ``start``.
+            fmt: Format for ``start`` / ``end`` in the date mode.
+            glob: :mod:`fnmatch` pattern used when ``path`` is a folder.
 
         Returns:
-            DatasetCollection:
-                Instance of the DatasetCollection class.
+            DatasetCollection: The assembled collection.
 
-        Examples:
-            - Read all rasters in a folder:
-
-              ```python
-              >>> from pathlib import Path
-              >>> from pyramids.dataset import DatasetCollection
-              >>> raster_folder = "examples/data/geotiff/raster-folder"
-              >>> prec = DatasetCollection.read_multiple_files(raster_folder)
-
-              ```
-
-            - Read from a pre-collected list without ordering:
-
-              ```python
-              >>> raster_folder = Path("examples/data/geotiff/raster-folder")
-              >>> file_list = list(raster_folder.glob("*.tif"))
-              >>> prec = DatasetCollection.read_multiple_files(file_list, with_order=False)
-
-              ```
+        Raises:
+            TypeError: ``path`` is not a str / Path / list.
+            ValueError: ``with_order`` and ``date`` without ``file_name_data_fmt``,
+                or ``start`` / ``end`` given in a mode that cannot parse a key.
+            FileNotFoundError: a folder that does not exist or matched nothing, or a
+                ``start`` / ``end`` range that excludes every file.
         """
+        warnings.warn(
+            "DatasetCollection.read_multiple_files is deprecated; use "
+            "from_files(path, glob=..., date_format=...) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not isinstance(path, (str, Path, list)):
             raise TypeError(
                 f"path input should be string/Path/list type, given: {type(path)}"
             )
-
-        if isinstance(path, (str, Path)):
-            path = Path(path)
-            # check whither the path exists or not
-            if not path.exists():
-                raise FileNotFoundError("The path you have provided does not exist")
-            # get a list of all files
-            files = [f.name for f in path.iterdir() if f.name.endswith(extension)]
-            # check whether there are files or not inside the folder
-            if len(files) < 1:
-                raise FileNotFoundError("The path you have provided is empty")
-        else:
-            files = [str(p) for p in path]
-
-        # Parse a per-file date/order key from the file names when the caller
-        # signals the names encode one — either by requesting an ordered read
-        # (``with_order``) or by handing a ``file_name_data_fmt``. The parsed
-        # values feed both the optional sort and the collection's time axis,
-        # which :meth:`plot` uses as the animation frame labels. (issue #693)
-        df: pd.DataFrame | None = None
-        want_dates = with_order or (date and file_name_data_fmt is not None)
-        if want_dates:
-            # Match the date only in the file name, not the whole path: a list
-            # of absolute paths (or a temp dir) could carry stray digit runs
-            # that the regex would grab before reaching the name.
-            matches = [re.search(regex_string, Path(f).name) for f in files]
-            if None in matches:
-                # An ordered read genuinely needs the dates; a non-ordering
-                # opportunistic parse just skips building a time axis.
-                if with_order:
-                    raise ValueError(
-                        "The date format/separator given does not match the file names"
-                    )
-            elif date and file_name_data_fmt is None:
-                # Ordered + date but no format is a hard error (kept from the
-                # original contract); without ordering we simply skip the axis.
-                if with_order:
-                    raise ValueError(
-                        f"An ordered read (with_order={with_order}) needs a date "
-                        f"format; pass file_name_data_fmt (given: "
-                        f"{file_name_data_fmt})."
-                    )
-            else:
-                if date:
-                    # Reachable only when NOT(date and file_name_data_fmt is
-                    # None) (the elif above) and date is True here, so
-                    # file_name_data_fmt is guaranteed not None. Bind a
-                    # narrowed local so the lambda closure captures a plain
-                    # str, not the Optional parameter.
-                    assert file_name_data_fmt is not None
-                    date_fmt: str = file_name_data_fmt
-                    fn: Callable[[Any], Any] = lambda x: dt.datetime.strptime(
-                        x.group(), date_fmt
-                    )
-                else:
-                    fn = lambda x: int(x.group())
-                list_dates = [fn(m) for m in matches]
-                df = pd.DataFrame({"files": files, "date": list_dates})
-                if with_order:
-                    df.sort_values("date", inplace=True, ignore_index=True)
-                files = df.loc[:, "files"].values
-
-        if start is not None or end is not None:
-            if df is None:
-                raise ValueError(
-                    "start/end filtering needs dates parsed from the file names; "
-                    "pass file_name_data_fmt (and a matching regex_string)."
-                )
-            if date:
-                start_key: Any = dt.datetime.strptime(str(start), fmt)
-                end_key: Any = dt.datetime.strptime(str(end), fmt)
-            else:
-                start_key, end_key = start, end
-            df = df.loc[(df["date"] >= start_key) & (df["date"] <= end_key)]
-            files = df.loc[:, "files"].values
-
-        # `df["date"].tolist()` yields pandas Timestamps for a datetime column;
-        # normalise back to plain `datetime.datetime` so `time` matches the type
-        # the docstring promises (int keys pass through unchanged).
-        if df is not None:
-            time_axis: list | None = [
-                t.to_pydatetime() if isinstance(t, pd.Timestamp) else t
-                for t in df["date"].tolist()
+        if date and file_name_data_fmt is not None:
+            resolved = cls._resolve_files(path, glob)
+            dates = [
+                cls._parse_date(Path(f).name, regex_string, file_name_data_fmt)
+                for f in resolved
             ]
-        else:
-            time_axis = None
-
-        if not isinstance(path, list):
-            # add the path to all the files
-            files = [f"{path}/{i}" for i in files]
-        # create a 3d array with the 2d dimension of the first raster and the len
-        # of the number of rasters in the folder
-        sample = Dataset.read_file(files[0])
-
-        return cls(sample, len(files), files, time=time_axis)
+            if with_order:  # old shim sorts only when with_order is set (M3)
+                order = sorted(range(len(resolved)), key=dates.__getitem__)
+                resolved = [resolved[i] for i in order]
+                dates = [dates[i] for i in order]
+            start_dt = dt.datetime.strptime(start, fmt) if start is not None else None
+            end_dt = dt.datetime.strptime(end, fmt) if end is not None else None
+            if start_dt is not None or end_dt is not None:
+                kept = [
+                    (f, d)
+                    for f, d in zip(resolved, dates)
+                    if (start_dt is None or d >= start_dt)
+                    and (end_dt is None or d <= end_dt)
+                ]
+                if not kept:
+                    raise FileNotFoundError(_EMPTY_RANGE_MSG)
+                resolved = [f for f, _ in kept]
+                dates = [d for _, d in kept]
+            return cls._build(resolved, dates, meta=None, gdal_env=None, validate=False)
+        if with_order and date:
+            raise ValueError(
+                "An ordered read (with_order=True) needs a date format; "
+                "pass file_name_data_fmt."
+            )
+        if with_order and not date:
+            resolved = cls._resolve_files(path, glob)
+            nums = [cls._parse_number(Path(f).name, regex_string) for f in resolved]
+            order = sorted(range(len(resolved)), key=nums.__getitem__)
+            resolved = [resolved[i] for i in order]
+            nums = [nums[i] for i in order]
+            start_i = int(start) if start is not None else None
+            end_i = int(end) if end is not None else None
+            if start_i is not None or end_i is not None:
+                kept_nums = [
+                    (f, n)
+                    for f, n in zip(resolved, nums)
+                    if (start_i is None or n >= start_i)
+                    and (end_i is None or n <= end_i)
+                ]
+                if not kept_nums:
+                    raise FileNotFoundError(_EMPTY_RANGE_MSG)
+                resolved = [f for f, _ in kept_nums]
+                nums = [n for _, n in kept_nums]
+            return cls._build(resolved, nums, meta=None, gdal_env=None, validate=False)
+        if start is not None or end is not None:
+            raise ValueError(
+                "start/end filtering needs a date format (pass file_name_data_fmt) "
+                "or the numeric mode (with_order=True, date=False)."
+            )
+        return cls.from_files(path, glob=glob)
 
     @property
     def values(self) -> np.typing.NDArray:
@@ -2288,8 +2389,10 @@ class DatasetCollection:
         # read_array() is called with no chunks=, so it always returns a plain
         # ndarray (the dask.Array arm of ArrayLike is unreachable here); numpy's
         # __getitem__ stub returns Any for a general index.
-        if isinstance(key, int):
-            return cast(np.typing.NDArray, self._dataset_at(key).read_array(band=0))
+        if isinstance(key, numbers.Integral):
+            return cast(
+                np.typing.NDArray, self._dataset_at(int(key)).read_array(band=0)
+            )
         return cast(np.typing.NDArray, self.values[key])
 
     def __setitem__(self, key: int, value: np.ndarray) -> None:
@@ -2297,23 +2400,33 @@ class DatasetCollection:
 
         Args:
             key (int): Integer index along the time axis.
-            value (np.ndarray): A 2D ``(rows, cols)`` array.
+            value (np.ndarray): A 2D ``(rows, cols)`` array, or a multi-band
+                ``(bands, rows, cols)`` array — only the last two axes (the
+                spatial dimensions) are validated against the collection.
 
         Raises:
             TypeError: If ``key`` is not an integer (slice assignment
                 is not supported; rebuild the collection instead).
+            ValueError: If ``value``'s last two axes do not match the
+                collection's ``(rows, columns)``.
         """
-        if not isinstance(key, int):
+        if not isinstance(key, numbers.Integral):
             raise TypeError(
                 f"DatasetCollection.__setitem__ only accepts an integer "
                 f"index along the time axis; got {type(key).__name__}. "
                 f"Rebuild the collection if you need bulk replacement."
             )
+        if value.shape[-2:] != (self.rows, self.columns):
+            raise ValueError(
+                f"array shape {value.shape} does not match the collection's "
+                f"({self.rows}, {self.columns}); its last two axes must be "
+                f"(rows, cols). Assigning would break timestep alignment."
+            )
         # Materialise the cache (so we have a list to modify) without building the
         # full cube. _mem_dataset_from_array preserves the input array's dtype (a
         # CreateCopy on the base would cast through the base's dtype).
         datasets = self.datasets
-        datasets[key] = self._mem_dataset_from_array(value)
+        datasets[int(key)] = self._mem_dataset_from_array(value)
         # The mutation breaks the disk correspondence for that slot;
         # if the user mutates any timestep, the lazy reductions can no
         # longer trust ``_files``. Drop the path list so they fall
@@ -2325,9 +2438,14 @@ class DatasetCollection:
         return self._time_length
 
     def __iter__(self):
-        """Iterate over per-timestep arrays (matches the legacy API)."""
-        for ds in self.datasets:
-            yield ds.read_array(band=0)
+        """Iterate over per-timestep band-0 arrays (matches the legacy API).
+
+        Opens one timestep at a time via :meth:`_dataset_at` rather than
+        materialising every handle through :attr:`datasets`, so a partial
+        iteration (e.g. ``next(iter(dc))``) reads a single file, not all N.
+        """
+        for i in range(self._time_length):
+            yield self._dataset_at(i).read_array(band=0)
 
     def _stack_band0(self, datasets: list[Dataset]) -> np.typing.NDArray:
         """Stack band 0 of each dataset into a ``(len, rows, cols)`` cube.
@@ -3301,7 +3419,7 @@ class DatasetCollection:
         with tempfile.TemporaryDirectory(prefix="pyramids-merge-") as staging:
             staging_path = Path(staging)
             self.to_file(staging_path, driver="geotiff")
-            staged_files = sorted(staging_path.glob("*.tif"))
+            staged_files = sorted(staging_path.glob(_DEFAULT_GLOB))
             merge_rasters(
                 [str(p) for p in staged_files],
                 dst,

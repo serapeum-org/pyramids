@@ -101,7 +101,7 @@ class TestAscii:
         rasters_folder_dim: tuple,
     ):
         dataset = DatasetCollection.read_multiple_files(
-            ascii_folder_path, with_order=False, extension=".asc"
+            ascii_folder_path, with_order=False, glob="*.asc"
         )
         assert isinstance(dataset.base, Dataset)
         assert dataset.base.no_data_value[0] == pytest.approx(2147483648.0)
@@ -135,7 +135,7 @@ class TestOpenDatasetCollection:
         rasters_folder_dim: tuple,
     ):
         dataset = DatasetCollection.read_multiple_files(
-            ascii_folder_path, with_order=False, extension=".asc"
+            ascii_folder_path, with_order=False, glob="*.asc"
         )
         dataset.open_multi_dataset()
         assert dataset.values.shape == (
