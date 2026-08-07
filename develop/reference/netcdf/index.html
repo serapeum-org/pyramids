@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -13559,7 +13559,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-473" name="__codelineno-0-473"></a><span class="sd">    &quot;&quot;&quot;</span>
 <a id="__codelineno-0-474" name="__codelineno-0-474"></a>
 <a id="__codelineno-0-475" name="__codelineno-0-475"></a>    <span class="c1"># NetCDF-only instance attributes assigned outside ``__init__``: the</span>
-<a id="__codelineno-0-476" name="__codelineno-0-476"></a>    <span class="c1"># temp-file path tracked for an interop round-trip (set by the interop</span>
+<a id="__codelineno-0-476" name="__codelineno-0-476"></a>    <span class="c1"># temp-file path tracked for an xarray round-trip (set by the interop</span>
 <a id="__codelineno-0-477" name="__codelineno-0-477"></a>    <span class="c1"># engine), the 2-D curvilinear coordinate windows carried on a</span>
 <a id="__codelineno-0-478" name="__codelineno-0-478"></a>    <span class="c1"># cropped subset (set by the selection engine, read defensively via</span>
 <a id="__codelineno-0-479" name="__codelineno-0-479"></a>    <span class="c1"># ``getattr`` in the plot engine), and the weak set of lazy-read file</span>
@@ -13567,7 +13567,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-481" name="__codelineno-0-481"></a>    <span class="c1"># latter is a declaration only — no class-level value — so a fresh</span>
 <a id="__codelineno-0-482" name="__codelineno-0-482"></a>    <span class="c1"># instance still reports &quot;nothing tracked yet&quot; through the</span>
 <a id="__codelineno-0-483" name="__codelineno-0-483"></a>    <span class="c1"># ``getattr(owner, &quot;_lazy_managers&quot;, ...)`` lookups that read it.</span>
-<a id="__codelineno-0-484" name="__codelineno-0-484"></a>    <span class="n">_interop_temp_path</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-0-484" name="__codelineno-0-484"></a>    <span class="n">_xarray_temp_path</span><span class="p">:</span> <span class="nb">str</span>
 <a id="__codelineno-0-485" name="__codelineno-0-485"></a>    <span class="n">_curvilinear_coords</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
 <a id="__codelineno-0-486" name="__codelineno-0-486"></a>    <span class="n">_lazy_managers</span><span class="p">:</span> <span class="n">weakref</span><span class="o">.</span><span class="n">WeakSet</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span>
 <a id="__codelineno-0-487" name="__codelineno-0-487"></a>
@@ -13708,8 +13708,8 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-622" name="__codelineno-0-622"></a>        <span class="c1"># NetCDF-specific engine collaborators (issue #615, STR-1). Distinct</span>
 <a id="__codelineno-0-623" name="__codelineno-0-623"></a>        <span class="c1"># attribute names from the eight inherited Dataset engines so they do</span>
 <a id="__codelineno-0-624" name="__codelineno-0-624"></a>        <span class="c1"># not clobber `self.io` / `self.spatial` / … . NetCDF exposes thin</span>
-<a id="__codelineno-0-625" name="__codelineno-0-625"></a>        <span class="c1"># façade methods that delegate here (e.g. `nc.&lt;method&gt;()` -&gt;</span>
-<a id="__codelineno-0-626" name="__codelineno-0-626"></a>        <span class="c1"># `self.interop.&lt;method&gt;()`).</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a>        <span class="c1"># façade methods that delegate here (e.g. `nc.to_xarray()` -&gt;</span>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a>        <span class="c1"># `self.interop.to_xarray()`).</span>
 <a id="__codelineno-0-627" name="__codelineno-0-627"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">interop</span> <span class="o">=</span> <span class="n">Interop</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
 <a id="__codelineno-0-628" name="__codelineno-0-628"></a>        <span class="c1"># `varops` (not `variables`) because `variables` is an existing read-side</span>
 <a id="__codelineno-0-629" name="__codelineno-0-629"></a>        <span class="c1"># property returning the lazy variable dict — the engine must not shadow it.</span>
@@ -13987,8 +13987,8 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-901" name="__codelineno-0-901"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;CRS from the ``crs_wkt`` / ``epsg`` global attributes, or ``&quot;&quot;``.</span>
 <a id="__codelineno-0-902" name="__codelineno-0-902"></a>
 <a id="__codelineno-0-903" name="__codelineno-0-903"></a><span class="sd">        :meth:`pyramids.dataset.DatasetCollection.to_netcdf` writes the grid&#39;s</span>
-<a id="__codelineno-0-904" name="__codelineno-0-904"></a><span class="sd">        CRS as NetCDF global attributes (it goes through the GDAL multidim writer,</span>
-<a id="__codelineno-0-905" name="__codelineno-0-905"></a><span class="sd">        which has no place to hang a spatial reference), so reading one of our own</span>
+<a id="__codelineno-0-904" name="__codelineno-0-904"></a><span class="sd">        CRS as NetCDF global attributes (it goes through the xarray writer, which</span>
+<a id="__codelineno-0-905" name="__codelineno-0-905"></a><span class="sd">        has no place to hang a spatial reference), so reading one of our own</span>
 <a id="__codelineno-0-906" name="__codelineno-0-906"></a><span class="sd">        files back has to look there. GDAL surfaces them as ``NC_GLOBAL#crs_wkt``</span>
 <a id="__codelineno-0-907" name="__codelineno-0-907"></a><span class="sd">        and ``NC_GLOBAL#epsg``.</span>
 <a id="__codelineno-0-908" name="__codelineno-0-908"></a>
@@ -14738,7 +14738,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-1652" name="__codelineno-0-1652"></a>        <span class="n">figsize</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-1653" name="__codelineno-0-1653"></a>        <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
 <a id="__codelineno-0-1654" name="__codelineno-0-1654"></a>    <span class="p">):</span>
-<a id="__codelineno-0-1655" name="__codelineno-0-1655"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Plot a 2-D slice of a NetCDF variable using the plot vocabulary.</span>
+<a id="__codelineno-0-1655" name="__codelineno-0-1655"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Plot a 2-D slice of a NetCDF variable using xarray-aligned vocabulary.</span>
 <a id="__codelineno-0-1656" name="__codelineno-0-1656"></a>
 <a id="__codelineno-0-1657" name="__codelineno-0-1657"></a><span class="sd">        The public surface is shaped around **variables** and **dimensions** — ``band``</span>
 <a id="__codelineno-0-1658" name="__codelineno-0-1658"></a><span class="sd">        is not a NetCDF concept and has been removed from the signature. Variable</span>
@@ -14834,7 +14834,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-1748" name="__codelineno-0-1748"></a><span class="sd">                rendered slice is materialised. Has no effect on the</span>
 <a id="__codelineno-0-1749" name="__codelineno-0-1749"></a><span class="sd">                ``animate=`` path. Defaults to None.</span>
 <a id="__codelineno-0-1750" name="__codelineno-0-1750"></a><span class="sd">            basemap (bool, str, or Basemap, optional):</span>
-<a id="__codelineno-0-1751" name="__codelineno-0-1751"></a><span class="sd">                Reference layer, dispatched by type. ``True`` or a named basemap</span>
+<a id="__codelineno-0-1751" name="__codelineno-0-1751"></a><span class="sd">                Reference layer, dispatched by type. ``True`` or a named contextily</span>
 <a id="__codelineno-0-1752" name="__codelineno-0-1752"></a><span class="sd">                tile provider overlays a pyramids web-tile basemap; a</span>
 <a id="__codelineno-0-1753" name="__codelineno-0-1753"></a><span class="sd">                ``pyramids.plot.Basemap`` (cleopatra &gt;= 0.28) draws a relief/features</span>
 <a id="__codelineno-0-1754" name="__codelineno-0-1754"></a><span class="sd">                layer instead (not supported on the faceted path). Defaults to None.</span>
@@ -14860,20 +14860,20 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-1774" name="__codelineno-0-1774"></a><span class="sd">                passing the CRS the data was plotted in (its own CRS — no reprojection needed) so the</span>
 <a id="__codelineno-0-1775" name="__codelineno-0-1775"></a><span class="sd">                layer lines up::</span>
 <a id="__codelineno-0-1776" name="__codelineno-0-1776"></a>
-<a id="__codelineno-0-1777" name="__codelineno-0-1777"></a><span class="sd">                    from cleopatra.reference import add_features</span>
+<a id="__codelineno-0-1777" name="__codelineno-0-1777"></a><span class="sd">                    from cleopatra.basemap.reference import add_features</span>
 <a id="__codelineno-0-1778" name="__codelineno-0-1778"></a><span class="sd">                    var = nc.get_variable(&quot;t2m&quot;)</span>
 <a id="__codelineno-0-1779" name="__codelineno-0-1779"></a><span class="sd">                    glyph = var.plot()</span>
 <a id="__codelineno-0-1780" name="__codelineno-0-1780"></a><span class="sd">                    add_features(glyph.ax, &quot;coastline&quot;, crs=var.epsg, zorder=5)</span>
 <a id="__codelineno-0-1781" name="__codelineno-0-1781"></a>
 <a id="__codelineno-0-1782" name="__codelineno-0-1782"></a><span class="sd">                ``add_features`` fetches Natural Earth data (cached under ``~/.cleopatra``), so it</span>
 <a id="__codelineno-0-1783" name="__codelineno-0-1783"></a><span class="sd">                needs the ``[viz]`` extra and network access on first use. A relief backdrop is</span>
-<a id="__codelineno-0-1784" name="__codelineno-0-1784"></a><span class="sd">                available the same way via :func:`cleopatra.reference.add_relief`.</span>
+<a id="__codelineno-0-1784" name="__codelineno-0-1784"></a><span class="sd">                available the same way via :func:`cleopatra.basemap.reference.add_relief`.</span>
 <a id="__codelineno-0-1785" name="__codelineno-0-1785"></a>
 <a id="__codelineno-0-1786" name="__codelineno-0-1786"></a><span class="sd">        Raises:</span>
 <a id="__codelineno-0-1787" name="__codelineno-0-1787"></a><span class="sd">            TypeError: If any of the Sentinel-only kwargs (``rgb``,</span>
 <a id="__codelineno-0-1788" name="__codelineno-0-1788"></a><span class="sd">                ``surface_reflectance``, ``cutoff``, ``percentile``,</span>
 <a id="__codelineno-0-1789" name="__codelineno-0-1789"></a><span class="sd">                ``overview``, ``overview_index``) is passed. Each</span>
-<a id="__codelineno-0-1790" name="__codelineno-0-1790"></a><span class="sd">                rejection message names the aligned replacement.</span>
+<a id="__codelineno-0-1790" name="__codelineno-0-1790"></a><span class="sd">                rejection message names the xarray-aligned replacement.</span>
 <a id="__codelineno-0-1791" name="__codelineno-0-1791"></a><span class="sd">            ValueError: If called on a root MDIM container without</span>
 <a id="__codelineno-0-1792" name="__codelineno-0-1792"></a><span class="sd">                ``variable=``, if ``variable=`` is passed on a subset and</span>
 <a id="__codelineno-0-1793" name="__codelineno-0-1793"></a><span class="sd">                does not match the pinned variable name, if the resolved</span>
@@ -14944,7 +14944,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-1858" name="__codelineno-0-1858"></a><span class="sd">              ```</span>
 <a id="__codelineno-0-1859" name="__codelineno-0-1859"></a>
 <a id="__codelineno-0-1860" name="__codelineno-0-1860"></a><span class="sd">            - All six Sentinel-only kwargs are rejected with a hint at</span>
-<a id="__codelineno-0-1861" name="__codelineno-0-1861"></a><span class="sd">              the aligned replacement. These doctests run because</span>
+<a id="__codelineno-0-1861" name="__codelineno-0-1861"></a><span class="sd">              the xarray-aligned replacement. These doctests run because</span>
 <a id="__codelineno-0-1862" name="__codelineno-0-1862"></a><span class="sd">              the gate fires before any cleopatra import:</span>
 <a id="__codelineno-0-1863" name="__codelineno-0-1863"></a>
 <a id="__codelineno-0-1864" name="__codelineno-0-1864"></a><span class="sd">              ```python</span>
@@ -15095,7 +15095,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-2009" name="__codelineno-0-2009"></a><span class="sd">            - Facet over the time dim. :class:`FacetSpec` lists the</span>
 <a id="__codelineno-0-2010" name="__codelineno-0-2010"></a><span class="sd">              column dim (and optionally a row dim and a wrap value).</span>
 <a id="__codelineno-0-2011" name="__codelineno-0-2011"></a><span class="sd">              The return type becomes</span>
-<a id="__codelineno-0-2012" name="__codelineno-0-2012"></a><span class="sd">              :class:`cleopatra.array_glyph.FacetGrid`:</span>
+<a id="__codelineno-0-2012" name="__codelineno-0-2012"></a><span class="sd">              :class:`cleopatra.glyphs.gridded.array_glyph.FacetGrid`:</span>
 <a id="__codelineno-0-2013" name="__codelineno-0-2013"></a>
 <a id="__codelineno-0-2014" name="__codelineno-0-2014"></a><span class="sd">              ```python</span>
 <a id="__codelineno-0-2015" name="__codelineno-0-2015"></a><span class="sd">              &gt;&gt;&gt; from pyramids.netcdf import FacetSpec</span>
@@ -15965,7 +15965,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-2879" name="__codelineno-0-2879"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_is_file_backed</span><span class="p">(</span><span class="n">var</span><span class="p">:</span> <span class="n">NetCDF</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <a id="__codelineno-0-2880" name="__codelineno-0-2880"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;True when the variable&#39;s data lives in a reopenable file, so a lazy chunk read is possible.</span>
 <a id="__codelineno-0-2881" name="__codelineno-0-2881"></a>
-<a id="__codelineno-0-2882" name="__codelineno-0-2882"></a><span class="sd">        An in-memory container (e.g. built by `create_from_array`) has no file for the lazy chunk</span>
+<a id="__codelineno-0-2882" name="__codelineno-0-2882"></a><span class="sd">        An in-memory container (`create_from_array` / `from_xarray`) has no file for the lazy chunk</span>
 <a id="__codelineno-0-2883" name="__codelineno-0-2883"></a><span class="sd">        graph to reopen; streaming it saves nothing and the reopen would fail.</span>
 <a id="__codelineno-0-2884" name="__codelineno-0-2884"></a>
 <a id="__codelineno-0-2885" name="__codelineno-0-2885"></a><span class="sd">        Args:</span>
@@ -20587,8 +20587,8 @@ mode (subdatasets, bands). Defaults to True.</p>
 <a id="__codelineno-0-622" name="__codelineno-0-622"></a>    <span class="c1"># NetCDF-specific engine collaborators (issue #615, STR-1). Distinct</span>
 <a id="__codelineno-0-623" name="__codelineno-0-623"></a>    <span class="c1"># attribute names from the eight inherited Dataset engines so they do</span>
 <a id="__codelineno-0-624" name="__codelineno-0-624"></a>    <span class="c1"># not clobber `self.io` / `self.spatial` / … . NetCDF exposes thin</span>
-<a id="__codelineno-0-625" name="__codelineno-0-625"></a>    <span class="c1"># façade methods that delegate here (e.g. `nc.&lt;method&gt;()` -&gt;</span>
-<a id="__codelineno-0-626" name="__codelineno-0-626"></a>    <span class="c1"># `self.interop.&lt;method&gt;()`).</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a>    <span class="c1"># façade methods that delegate here (e.g. `nc.to_xarray()` -&gt;</span>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a>    <span class="c1"># `self.interop.to_xarray()`).</span>
 <a id="__codelineno-0-627" name="__codelineno-0-627"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">interop</span> <span class="o">=</span> <span class="n">Interop</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
 <a id="__codelineno-0-628" name="__codelineno-0-628"></a>    <span class="c1"># `varops` (not `variables`) because `variables` is an existing read-side</span>
 <a id="__codelineno-0-629" name="__codelineno-0-629"></a>    <span class="c1"># property returning the lazy variable dict — the engine must not shadow it.</span>
@@ -21075,7 +21075,7 @@ already inherits this via <code>super()</code>).</p>
 
     <div class="doc doc-contents ">
 
-        <p>Plot a 2-D slice of a NetCDF variable using the plot vocabulary.</p>
+        <p>Plot a 2-D slice of a NetCDF variable using xarray-aligned vocabulary.</p>
 <p>The public surface is shaped around <strong>variables</strong> and <strong>dimensions</strong> — <code>band</code>
 is not a NetCDF concept and has been removed from the signature. Variable
 selection is by name; the slice to render is pinned via a :class:<code>Selectors</code>
@@ -21337,7 +21337,7 @@ rendered slice is materialised. Has no effect on the
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Reference layer, dispatched by type. <code>True</code> or a named basemap
+                <p>Reference layer, dispatched by type. <code>True</code> or a named contextily
 tile provider overlays a pyramids web-tile basemap; a
 <code>pyramids.plot.Basemap</code> (cleopatra &gt;= 0.28) draws a relief/features
 layer instead (not supported on the faceted path). Defaults to None.</p>
@@ -21454,14 +21454,14 @@ plot further. In particular, to overlay a <strong>coastline</strong> (or borders
 rivers / lakes) on top of the data, call cleopatra's reference helper on the axes —
 passing the CRS the data was plotted in (its own CRS — no reprojection needed) so the
 layer lines up::</p>
-<div class="highlight"><pre><span></span><code>from cleopatra.reference import add_features
+<div class="highlight"><pre><span></span><code>from cleopatra.basemap.reference import add_features
 var = nc.get_variable(&quot;t2m&quot;)
 glyph = var.plot()
 add_features(glyph.ax, &quot;coastline&quot;, crs=var.epsg, zorder=5)
 </code></pre></div>
 <p><code>add_features</code> fetches Natural Earth data (cached under <code>~/.cleopatra</code>), so it
 needs the <code>[viz]</code> extra and network access on first use. A relief backdrop is
-available the same way via :func:<code>cleopatra.reference.add_relief</code>.</p>
+available the same way via :func:<code>cleopatra.basemap.reference.add_relief</code>.</p>
               </div>
             </td>
           </tr>
@@ -21487,7 +21487,7 @@ available the same way via :func:<code>cleopatra.reference.add_relief</code>.</p
                 <p>If any of the Sentinel-only kwargs (<code>rgb</code>,
 <code>surface_reflectance</code>, <code>cutoff</code>, <code>percentile</code>,
 <code>overview</code>, <code>overview_index</code>) is passed. Each
-rejection message names the aligned replacement.</p>
+rejection message names the xarray-aligned replacement.</p>
               </div>
             </td>
           </tr>
@@ -21564,7 +21564,7 @@ selectors do not pin to a single 2-D slice, or if
 </code></pre></div>
 <ul>
 <li>All six Sentinel-only kwargs are rejected with a hint at
-  the aligned replacement. These doctests run because
+  the xarray-aligned replacement. These doctests run because
   the gate fires before any cleopatra import:</li>
 </ul>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s2">&quot;t2m&quot;</span><span class="p">,</span> <span class="n">rgb</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">])</span>  <span class="c1"># doctest: +IGNORE_EXCEPTION_DETAIL</span>
@@ -21684,7 +21684,7 @@ selectors do not pin to a single 2-D slice, or if
 <li>Facet over the time dim. :class:<code>FacetSpec</code> lists the
   column dim (and optionally a row dim and a wrap value).
   The return type becomes
-  :class:<code>cleopatra.array_glyph.FacetGrid</code>:</li>
+  :class:<code>cleopatra.glyphs.gridded.array_glyph.FacetGrid</code>:</li>
 </ul>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">FacetSpec</span>
 <a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">grid</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>  <span class="c1"># doctest: +SKIP</span>
@@ -22297,7 +22297,7 @@ selectors do not pin to a single 2-D slice, or if
 <a id="__codelineno-0-1652" name="__codelineno-0-1652"></a>    <span class="n">figsize</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-1653" name="__codelineno-0-1653"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
 <a id="__codelineno-0-1654" name="__codelineno-0-1654"></a><span class="p">):</span>
-<a id="__codelineno-0-1655" name="__codelineno-0-1655"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Plot a 2-D slice of a NetCDF variable using the plot vocabulary.</span>
+<a id="__codelineno-0-1655" name="__codelineno-0-1655"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Plot a 2-D slice of a NetCDF variable using xarray-aligned vocabulary.</span>
 <a id="__codelineno-0-1656" name="__codelineno-0-1656"></a>
 <a id="__codelineno-0-1657" name="__codelineno-0-1657"></a><span class="sd">    The public surface is shaped around **variables** and **dimensions** — ``band``</span>
 <a id="__codelineno-0-1658" name="__codelineno-0-1658"></a><span class="sd">    is not a NetCDF concept and has been removed from the signature. Variable</span>
@@ -22393,7 +22393,7 @@ selectors do not pin to a single 2-D slice, or if
 <a id="__codelineno-0-1748" name="__codelineno-0-1748"></a><span class="sd">            rendered slice is materialised. Has no effect on the</span>
 <a id="__codelineno-0-1749" name="__codelineno-0-1749"></a><span class="sd">            ``animate=`` path. Defaults to None.</span>
 <a id="__codelineno-0-1750" name="__codelineno-0-1750"></a><span class="sd">        basemap (bool, str, or Basemap, optional):</span>
-<a id="__codelineno-0-1751" name="__codelineno-0-1751"></a><span class="sd">            Reference layer, dispatched by type. ``True`` or a named basemap</span>
+<a id="__codelineno-0-1751" name="__codelineno-0-1751"></a><span class="sd">            Reference layer, dispatched by type. ``True`` or a named contextily</span>
 <a id="__codelineno-0-1752" name="__codelineno-0-1752"></a><span class="sd">            tile provider overlays a pyramids web-tile basemap; a</span>
 <a id="__codelineno-0-1753" name="__codelineno-0-1753"></a><span class="sd">            ``pyramids.plot.Basemap`` (cleopatra &gt;= 0.28) draws a relief/features</span>
 <a id="__codelineno-0-1754" name="__codelineno-0-1754"></a><span class="sd">            layer instead (not supported on the faceted path). Defaults to None.</span>
@@ -22419,20 +22419,20 @@ selectors do not pin to a single 2-D slice, or if
 <a id="__codelineno-0-1774" name="__codelineno-0-1774"></a><span class="sd">            passing the CRS the data was plotted in (its own CRS — no reprojection needed) so the</span>
 <a id="__codelineno-0-1775" name="__codelineno-0-1775"></a><span class="sd">            layer lines up::</span>
 <a id="__codelineno-0-1776" name="__codelineno-0-1776"></a>
-<a id="__codelineno-0-1777" name="__codelineno-0-1777"></a><span class="sd">                from cleopatra.reference import add_features</span>
+<a id="__codelineno-0-1777" name="__codelineno-0-1777"></a><span class="sd">                from cleopatra.basemap.reference import add_features</span>
 <a id="__codelineno-0-1778" name="__codelineno-0-1778"></a><span class="sd">                var = nc.get_variable(&quot;t2m&quot;)</span>
 <a id="__codelineno-0-1779" name="__codelineno-0-1779"></a><span class="sd">                glyph = var.plot()</span>
 <a id="__codelineno-0-1780" name="__codelineno-0-1780"></a><span class="sd">                add_features(glyph.ax, &quot;coastline&quot;, crs=var.epsg, zorder=5)</span>
 <a id="__codelineno-0-1781" name="__codelineno-0-1781"></a>
 <a id="__codelineno-0-1782" name="__codelineno-0-1782"></a><span class="sd">            ``add_features`` fetches Natural Earth data (cached under ``~/.cleopatra``), so it</span>
 <a id="__codelineno-0-1783" name="__codelineno-0-1783"></a><span class="sd">            needs the ``[viz]`` extra and network access on first use. A relief backdrop is</span>
-<a id="__codelineno-0-1784" name="__codelineno-0-1784"></a><span class="sd">            available the same way via :func:`cleopatra.reference.add_relief`.</span>
+<a id="__codelineno-0-1784" name="__codelineno-0-1784"></a><span class="sd">            available the same way via :func:`cleopatra.basemap.reference.add_relief`.</span>
 <a id="__codelineno-0-1785" name="__codelineno-0-1785"></a>
 <a id="__codelineno-0-1786" name="__codelineno-0-1786"></a><span class="sd">    Raises:</span>
 <a id="__codelineno-0-1787" name="__codelineno-0-1787"></a><span class="sd">        TypeError: If any of the Sentinel-only kwargs (``rgb``,</span>
 <a id="__codelineno-0-1788" name="__codelineno-0-1788"></a><span class="sd">            ``surface_reflectance``, ``cutoff``, ``percentile``,</span>
 <a id="__codelineno-0-1789" name="__codelineno-0-1789"></a><span class="sd">            ``overview``, ``overview_index``) is passed. Each</span>
-<a id="__codelineno-0-1790" name="__codelineno-0-1790"></a><span class="sd">            rejection message names the aligned replacement.</span>
+<a id="__codelineno-0-1790" name="__codelineno-0-1790"></a><span class="sd">            rejection message names the xarray-aligned replacement.</span>
 <a id="__codelineno-0-1791" name="__codelineno-0-1791"></a><span class="sd">        ValueError: If called on a root MDIM container without</span>
 <a id="__codelineno-0-1792" name="__codelineno-0-1792"></a><span class="sd">            ``variable=``, if ``variable=`` is passed on a subset and</span>
 <a id="__codelineno-0-1793" name="__codelineno-0-1793"></a><span class="sd">            does not match the pinned variable name, if the resolved</span>
@@ -22503,7 +22503,7 @@ selectors do not pin to a single 2-D slice, or if
 <a id="__codelineno-0-1858" name="__codelineno-0-1858"></a><span class="sd">          ```</span>
 <a id="__codelineno-0-1859" name="__codelineno-0-1859"></a>
 <a id="__codelineno-0-1860" name="__codelineno-0-1860"></a><span class="sd">        - All six Sentinel-only kwargs are rejected with a hint at</span>
-<a id="__codelineno-0-1861" name="__codelineno-0-1861"></a><span class="sd">          the aligned replacement. These doctests run because</span>
+<a id="__codelineno-0-1861" name="__codelineno-0-1861"></a><span class="sd">          the xarray-aligned replacement. These doctests run because</span>
 <a id="__codelineno-0-1862" name="__codelineno-0-1862"></a><span class="sd">          the gate fires before any cleopatra import:</span>
 <a id="__codelineno-0-1863" name="__codelineno-0-1863"></a>
 <a id="__codelineno-0-1864" name="__codelineno-0-1864"></a><span class="sd">          ```python</span>
@@ -22654,7 +22654,7 @@ selectors do not pin to a single 2-D slice, or if
 <a id="__codelineno-0-2009" name="__codelineno-0-2009"></a><span class="sd">        - Facet over the time dim. :class:`FacetSpec` lists the</span>
 <a id="__codelineno-0-2010" name="__codelineno-0-2010"></a><span class="sd">          column dim (and optionally a row dim and a wrap value).</span>
 <a id="__codelineno-0-2011" name="__codelineno-0-2011"></a><span class="sd">          The return type becomes</span>
-<a id="__codelineno-0-2012" name="__codelineno-0-2012"></a><span class="sd">          :class:`cleopatra.array_glyph.FacetGrid`:</span>
+<a id="__codelineno-0-2012" name="__codelineno-0-2012"></a><span class="sd">          :class:`cleopatra.glyphs.gridded.array_glyph.FacetGrid`:</span>
 <a id="__codelineno-0-2013" name="__codelineno-0-2013"></a>
 <a id="__codelineno-0-2014" name="__codelineno-0-2014"></a><span class="sd">          ```python</span>
 <a id="__codelineno-0-2015" name="__codelineno-0-2015"></a><span class="sd">          &gt;&gt;&gt; from pyramids.netcdf import FacetSpec</span>
