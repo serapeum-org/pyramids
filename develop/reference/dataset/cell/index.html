@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7225,7 +7225,7 @@ and <code>ds.cell.get_cell_coords(...)</code> are equivalent.</p>
 <a id="__codelineno-0-470" name="__codelineno-0-470"></a><span class="sd">            - :meth:`map_to_array_coordinates`: The inverse direction</span>
 <a id="__codelineno-0-471" name="__codelineno-0-471"></a><span class="sd">              (map coordinates to the nearest array indices).</span>
 <a id="__codelineno-0-472" name="__codelineno-0-472"></a><span class="sd">            - :meth:`pyramids.dataset.abstract_dataset.RasterBase.xy`: The</span>
-<a id="__codelineno-0-473" name="__codelineno-0-473"></a><span class="sd">              scalar/array affine companion used by the affine-style API.</span>
+<a id="__codelineno-0-473" name="__codelineno-0-473"></a><span class="sd">              scalar/array affine companion used by the rasterio-style API.</span>
 <a id="__codelineno-0-474" name="__codelineno-0-474"></a><span class="sd">        &quot;&quot;&quot;</span>
 <a id="__codelineno-0-475" name="__codelineno-0-475"></a>        <span class="c1"># Materialise to 1-D float arrays first. Going through ``list`` accepts</span>
 <a id="__codelineno-0-476" name="__codelineno-0-476"></a>        <span class="c1"># any finite iterable of indices (lists, tuples, ndarrays, generators)</span>
@@ -8694,7 +8694,7 @@ non-square and rotated grids rather than assuming square pixels.</p>
 <li>:meth:<code>map_to_array_coordinates</code>: The inverse direction
   (map coordinates to the nearest array indices).</li>
 <li>:meth:<code>pyramids.dataset.abstract_dataset.RasterBase.xy</code>: The
-  scalar/array affine companion used by the affine-style API.</li>
+  scalar/array affine companion used by the rasterio-style API.</li>
 </ul>
 </details>
 
@@ -8856,7 +8856,7 @@ non-square and rotated grids rather than assuming square pixels.</p>
 <a id="__codelineno-0-470" name="__codelineno-0-470"></a><span class="sd">        - :meth:`map_to_array_coordinates`: The inverse direction</span>
 <a id="__codelineno-0-471" name="__codelineno-0-471"></a><span class="sd">          (map coordinates to the nearest array indices).</span>
 <a id="__codelineno-0-472" name="__codelineno-0-472"></a><span class="sd">        - :meth:`pyramids.dataset.abstract_dataset.RasterBase.xy`: The</span>
-<a id="__codelineno-0-473" name="__codelineno-0-473"></a><span class="sd">          scalar/array affine companion used by the affine-style API.</span>
+<a id="__codelineno-0-473" name="__codelineno-0-473"></a><span class="sd">          scalar/array affine companion used by the rasterio-style API.</span>
 <a id="__codelineno-0-474" name="__codelineno-0-474"></a><span class="sd">    &quot;&quot;&quot;</span>
 <a id="__codelineno-0-475" name="__codelineno-0-475"></a>    <span class="c1"># Materialise to 1-D float arrays first. Going through ``list`` accepts</span>
 <a id="__codelineno-0-476" name="__codelineno-0-476"></a>    <span class="c1"># any finite iterable of indices (lists, tuples, ndarrays, generators)</span>

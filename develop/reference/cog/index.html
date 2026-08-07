@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -10611,7 +10611,7 @@ defaults and dtype-aware resolution apply.</p>
         <p>Write raster data to disk as a Cloud Optimized GeoTIFF.</p>
 <p>Thin convenience facade over
 :meth:<code>pyramids.dataset.engines.cog.COG.to_cog</code>. It accepts a wider
-range of inputs (NumPy array, a labeled <code>DataArray</code>, <code>gdal.Dataset</code>,
+range of inputs (NumPy array, <code>xarray.DataArray</code>, <code>gdal.Dataset</code>,
 path, or :class:<code>~pyramids.dataset.Dataset</code>), normalises them into a
 :class:<code>~pyramids.dataset.Dataset</code>, then <strong>delegates the entire write
 to <code>to_cog</code></strong> — which owns all COG policy: the house defaults
@@ -10651,7 +10651,7 @@ override the defaults. By default the result is round-tripped through
 <li>:class:<code>~pyramids.dataset.Dataset</code> — used directly.</li>
 <li>:class:<code>osgeo.gdal.Dataset</code> — wrapped in a :class:<code>Dataset</code>.</li>
 <li>:class:<code>numpy.ndarray</code> — requires <code>crs</code> and <code>transform</code>.</li>
-<li>a labeled <code>DataArray</code> — geotransform is derived from the
+<li>:class:<code>xarray.DataArray</code> — geotransform is derived from the
   spatial coordinates; CRS from <code>crs</code> / DataArray metadata.</li>
 <li>:class:<code>str</code> / :class:<code>~pathlib.Path</code> — an existing raster.</li>
 </ul>
@@ -11032,7 +11032,7 @@ validation.</p>
 <a id="__codelineno-0-279" name="__codelineno-0-279"></a>
 <a id="__codelineno-0-280" name="__codelineno-0-280"></a><span class="sd">    Thin convenience facade over</span>
 <a id="__codelineno-0-281" name="__codelineno-0-281"></a><span class="sd">    :meth:`pyramids.dataset.engines.cog.COG.to_cog`. It accepts a wider</span>
-<a id="__codelineno-0-282" name="__codelineno-0-282"></a><span class="sd">    range of inputs (NumPy array, a labeled ``DataArray``, ``gdal.Dataset``,</span>
+<a id="__codelineno-0-282" name="__codelineno-0-282"></a><span class="sd">    range of inputs (NumPy array, ``xarray.DataArray``, ``gdal.Dataset``,</span>
 <a id="__codelineno-0-283" name="__codelineno-0-283"></a><span class="sd">    path, or :class:`~pyramids.dataset.Dataset`), normalises them into a</span>
 <a id="__codelineno-0-284" name="__codelineno-0-284"></a><span class="sd">    :class:`~pyramids.dataset.Dataset`, then **delegates the entire write</span>
 <a id="__codelineno-0-285" name="__codelineno-0-285"></a><span class="sd">    to ``to_cog``** — which owns all COG policy: the house defaults</span>
@@ -11052,7 +11052,7 @@ validation.</p>
 <a id="__codelineno-0-299" name="__codelineno-0-299"></a><span class="sd">            - :class:`~pyramids.dataset.Dataset` — used directly.</span>
 <a id="__codelineno-0-300" name="__codelineno-0-300"></a><span class="sd">            - :class:`osgeo.gdal.Dataset` — wrapped in a :class:`Dataset`.</span>
 <a id="__codelineno-0-301" name="__codelineno-0-301"></a><span class="sd">            - :class:`numpy.ndarray` — requires ``crs`` and ``transform``.</span>
-<a id="__codelineno-0-302" name="__codelineno-0-302"></a><span class="sd">            - a labeled ``DataArray`` — geotransform is derived from the</span>
+<a id="__codelineno-0-302" name="__codelineno-0-302"></a><span class="sd">            - :class:`xarray.DataArray` — geotransform is derived from the</span>
 <a id="__codelineno-0-303" name="__codelineno-0-303"></a><span class="sd">              spatial coordinates; CRS from ``crs`` / DataArray metadata.</span>
 <a id="__codelineno-0-304" name="__codelineno-0-304"></a><span class="sd">            - :class:`str` / :class:`~pathlib.Path` — an existing raster.</span>
 <a id="__codelineno-0-305" name="__codelineno-0-305"></a><span class="sd">        output: Destination path. The parent directory must exist.</span>

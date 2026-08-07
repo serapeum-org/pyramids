@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7701,7 +7701,7 @@ when its CRS cannot be resolved to an EPSG. Defaults to
 and :func:<code>crs_spec</code> falls back to it, so reprojection and every other
 CRS-consuming operation keeps working. Only the <em>code</em> is absent, because
 there genuinely is not one.</p>
-<p>This mirrors standard CRS-handling behaviour —
+<p>This mirrors how GDAL, rasterio, rioxarray and geopandas all behave —
 <code>to_epsg()</code> returns <code>None</code> rather than guessing.</p>
 
 
@@ -7898,7 +7898,7 @@ there genuinely is not one.</p>
 <a id="__codelineno-0-413" name="__codelineno-0-413"></a><span class="sd">    CRS-consuming operation keeps working. Only the *code* is absent, because</span>
 <a id="__codelineno-0-414" name="__codelineno-0-414"></a><span class="sd">    there genuinely is not one.</span>
 <a id="__codelineno-0-415" name="__codelineno-0-415"></a>
-<a id="__codelineno-0-416" name="__codelineno-0-416"></a><span class="sd">    This mirrors standard CRS-handling behaviour —</span>
+<a id="__codelineno-0-416" name="__codelineno-0-416"></a><span class="sd">    This mirrors how GDAL, rasterio, rioxarray and geopandas all behave —</span>
 <a id="__codelineno-0-417" name="__codelineno-0-417"></a><span class="sd">    `to_epsg()` returns `None` rather than guessing.</span>
 <a id="__codelineno-0-418" name="__codelineno-0-418"></a>
 <a id="__codelineno-0-419" name="__codelineno-0-419"></a><span class="sd">    Args:</span>
@@ -8207,7 +8207,7 @@ constructor rejects with an opaque <em>"Invalid projection: ''"</em>. Returning
         <p>Like :func:<code>crs_spec</code>, but raise when the dataset has no CRS.</p>
 <p>Use at the point of an operation that genuinely cannot proceed without a
 CRS — reprojection, a coordinate transform, a spatial join against a vector.
-Mirrors standard CRS-handling behaviour: a missing
+Mirrors how GDAL, rasterio, rioxarray and geopandas all behave: a missing
 CRS propagates quietly until something actually needs it, and then fails
 with a message naming the fix.</p>
 
@@ -8394,7 +8394,7 @@ with a message naming the fix.</p>
 <a id="__codelineno-0-740" name="__codelineno-0-740"></a>
 <a id="__codelineno-0-741" name="__codelineno-0-741"></a><span class="sd">    Use at the point of an operation that genuinely cannot proceed without a</span>
 <a id="__codelineno-0-742" name="__codelineno-0-742"></a><span class="sd">    CRS — reprojection, a coordinate transform, a spatial join against a vector.</span>
-<a id="__codelineno-0-743" name="__codelineno-0-743"></a><span class="sd">    Mirrors standard CRS-handling behaviour: a missing</span>
+<a id="__codelineno-0-743" name="__codelineno-0-743"></a><span class="sd">    Mirrors how GDAL, rasterio, rioxarray and geopandas all behave: a missing</span>
 <a id="__codelineno-0-744" name="__codelineno-0-744"></a><span class="sd">    CRS propagates quietly until something actually needs it, and then fails</span>
 <a id="__codelineno-0-745" name="__codelineno-0-745"></a><span class="sd">    with a message naming the fix.</span>
 <a id="__codelineno-0-746" name="__codelineno-0-746"></a>
