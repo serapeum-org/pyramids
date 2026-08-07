@@ -1,7 +1,7 @@
 """Shared builders for the DatasetCollection test modules.
 
 Kept in a non-``test_`` module so pytest does not collect it, and so the
-``to_netcdf`` happy-path suite and the ``without_xarray`` contract test can
+``to_netcdf`` happy-path suite and the engine-free contract test can
 share one collection builder instead of duplicating it.
 """
 

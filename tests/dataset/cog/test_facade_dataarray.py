@@ -1,10 +1,10 @@
-"""xarray-input tests for pyramids.dataset.cog.facade (the write_cog facade).
+"""DataArray-input tests for pyramids.dataset.cog.facade (the write_cog facade).
 
-These exercise the ``xr.DataArray`` input contract of ``write_cog`` /
+These exercise the ``DataArray`` input contract of ``write_cog`` /
 ``_dataarray_to_dataset`` / ``_normalize_to_dataset``. They live in their own
-``xarray``-marked module (rather than alongside the ``core`` facade tests) so the
-extras-free "pure wheel" core suite never collects them — they run only in the
-xarray CI job.
+``interop``-marked module (rather than alongside the ``core`` facade tests) so
+the extras-free "pure wheel" core suite never collects them — they run only in
+the interop CI job.
 """
 
 from __future__ import annotations
@@ -19,11 +19,11 @@ from pyramids.dataset.cog.facade import (
     _normalize_to_dataset,
 )
 
-pytestmark = pytest.mark.xarray
+pytestmark = pytest.mark.interop
 
 
 class _Coord:
-    """Minimal stand-in for an xarray coordinate (exposes `.values`)."""
+    """Minimal stand-in for a labeled coordinate (exposes `.values`)."""
 
     def __init__(self, values):
         self.values = np.asarray(values)
@@ -45,10 +45,10 @@ class _FakeDataArray:
 
 
 class TestDataArrayToDataset:
-    """Tests for _dataarray_to_dataset (xarray paths)."""
+    """Tests for _dataarray_to_dataset (DataArray paths)."""
 
     def _make_dataarray(self, *, attrs=None):
-        """Build a small real xarray.DataArray with lon/lat coords.
+        """Build a small real DataArray with lon/lat coords.
 
         Args:
             attrs: Optional attribute dict to attach (e.g. a `crs` key).
@@ -93,7 +93,7 @@ class TestDataArrayToDataset:
 
         Test scenario:
             A duck-typed DataArray exposing `rio.crs` is honored even
-            though rioxarray is not a dependency.
+            though the rio accessor library is not a dependency.
         """
         fake = _FakeDataArray(
             np.zeros((2, 2), dtype="float32"),
@@ -146,7 +146,7 @@ class TestNormalizeToDatasetDataArray:
     """The DataArray dispatch branch of _normalize_to_dataset."""
 
     def test_dataarray_dispatch(self):
-        """A real xarray.DataArray is dispatched by its type name.
+        """A real DataArray is dispatched by its type name.
 
         Test scenario:
             An `xr.DataArray` routes to `_dataarray_to_dataset` and

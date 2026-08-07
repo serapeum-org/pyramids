@@ -3,7 +3,7 @@
 ``to_netcdf`` writes through pyramids' own GDAL multidimensional NetCDF writer
 and needs no third-party NetCDF engine, so the whole
 module is ``core`` and runs in the extras-free suite. The companion
-``test_to_netcdf_without_xarray.py`` pins that contract by masking the engine
+``test_to_netcdf_no_engine.py`` pins that contract by masking the engine
 and asserting the write still succeeds.
 
 Inspection round-trip is done with :func:`osgeo.gdal.OpenEx` in

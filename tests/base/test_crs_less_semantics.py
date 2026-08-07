@@ -549,7 +549,7 @@ class TestCrsEquality:
 class TestNetCDFGlobalAttributeProvenance:
     """Tests for which NetCDF global attributes may define the dataset's CRS."""
 
-    @pytest.mark.xarray
+    @pytest.mark.interop
     def test_our_own_writer_round_trips(self, tmp_path):
         """A cube written by `to_netcdf` reads its CRS back.
 
