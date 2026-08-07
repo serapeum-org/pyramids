@@ -72,6 +72,8 @@ from pyramids.netcdf.utils import _read_attributes, create_time_conversion_func
 
 if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import PointOverlay
+    from cleopatra.styling.colorbar import ColorBar
 
 # Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
 # and `close()` (which snapshots) on the same container from different threads.
@@ -1650,6 +1652,8 @@ class NetCDF(Dataset):
         title: str | None = None,
         ax: Any | None = None,
         figsize: tuple[float, float] | None = None,
+        colorbar: bool | ColorBar | None = None,
+        points: np.ndarray | PointOverlay | None = None,
         **kwargs: Any,
     ):
         """Plot a 2-D slice of a NetCDF variable using xarray-aligned vocabulary.
@@ -2116,6 +2120,15 @@ class NetCDF(Dataset):
 
               ```
         """
+        # ``colorbar``/``points`` are hoisted to explicit params for parity with
+        # ``Dataset.plot`` / ``DatasetCollection.plot``; forward them through the
+        # same ``**kwargs`` channel the multi-mode render path already consumes.
+        # Only inject when set — the facet path rejects ``points`` outright, so a
+        # default ``None`` must not reach it.
+        if colorbar is not None:
+            kwargs["colorbar"] = colorbar
+        if points is not None:
+            kwargs["points"] = points
         return NetCDFPlot(self).run(
             variable,
             selectors=selectors,

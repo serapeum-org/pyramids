@@ -8,7 +8,7 @@ import tempfile
 import warnings
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Unpack, cast
 
 import numpy as np
 import pandas as pd
@@ -47,7 +47,13 @@ from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
-    from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph, FrameLabel
+    from cleopatra.glyphs.gridded.array_glyph import (
+        AnimateKwargs,
+        ArrayGlyph,
+        FrameLabel,
+        PointOverlay,
+    )
+    from cleopatra.styling.colorbar import ColorBar
     from dask.delayed import Delayed
 
 
@@ -2428,7 +2434,10 @@ class DatasetCollection:
         rgb_options: dict | None = None,
         basemap: bool | str | dict[str, Any] | Basemap | None = None,
         frame_label: FrameLabel | None = None,
-        **kwargs: Any,
+        colorbar: bool | ColorBar | None = None,
+        points: np.ndarray | PointOverlay | None = None,
+        animation_axis_values: Any = None,
+        **kwargs: Unpack[AnimateKwargs],
     ) -> ArrayGlyph:
         r"""Render the collection as an animated stack of band slices.
 
@@ -2608,7 +2617,11 @@ class DatasetCollection:
         default_labels = (
             list(self.time) if self.time is not None else list(range(self.time_length))
         )
-        axis_values = kwargs.pop("animation_axis_values", default_labels)
+        axis_values = (
+            default_labels
+            if animation_axis_values is None
+            else animation_axis_values
+        )
         if not hasattr(axis_values, "__len__"):
             axis_values = list(axis_values)  # materialise a generator override
         # An explicit override must carry exactly one label per frame; the
@@ -2628,6 +2641,8 @@ class DatasetCollection:
         animate_extras: dict[str, Any] = {
             "basemap": basemap,
             "basemap_epsg": self.base.epsg,
+            "colorbar": colorbar,
+            "points": points,
         }
         if frame_label is not None:
             animate_extras["frame_label"] = frame_label

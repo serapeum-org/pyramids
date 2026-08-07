@@ -235,6 +235,24 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
+# cleopatra ships inline types (the TypedDicts PlotKwargs/AnimateKwargs, the ColorBar /
+# PointOverlay / Basemap dataclasses, ...) but no `py.typed` marker yet, so the global
+# `ignore_missing_imports` would collapse them to `Any` and break `Unpack[PlotKwargs]`.
+# Follow its source types instead. Drop once cleopatra ships `py.typed`.
+module = "cleopatra.*"
+ignore_missing_imports = false
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+# render_array is the single dynamic-dispatch backend: it splits **kwargs into ctor /
+# render buckets at runtime (keyed on ArrayGlyph.option_keys()) and splats them into
+# cleopatra's now-typed plot/animate/facet. mypy cannot verify a runtime-built **dict
+# against a typed signature, so `arg-type` here is a wall of false positives (the 1367
+# plot tests prove the routing). Suppress just that code for this one module.
+module = "pyramids.dataset._plot_helpers"
+disable_error_code = ["arg-type", "no-any-return"]
+
+[[tool.mypy.overrides]]
 module = "pyramids.dataset.ops.*"
 disable_error_code = [
     "attr-defined", "call-arg", "misc", "return-value",

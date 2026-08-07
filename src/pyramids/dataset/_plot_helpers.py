@@ -79,6 +79,7 @@ from pyramids.basemap import basemap as _basemap_module
 
 if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
 
 # N-6 — Mesh rendering shares this module's "data in, glyph out"
 # contract via :func:`mesh_render`. The function lives next to
@@ -335,7 +336,7 @@ def render_array(
     basemap: bool | str | dict[str, Any] | Basemap | None = None,
     basemap_epsg: int | None = None,
     **kwargs: Any,
-):
+) -> ArrayGlyph:
     """Build an ArrayGlyph and dispatch to the right cleopatra render path.
 
     Args:

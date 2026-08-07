@@ -13,7 +13,7 @@ import weakref
 from collections.abc import Sequence
 from numbers import Number
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Unpack, cast
 
 import geopandas as gpd
 import numpy as np
@@ -233,6 +233,8 @@ def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.typing.NDA
 if TYPE_CHECKING:
     import dask.array as da
     from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import PlotKwargs, PointOverlay
+    from cleopatra.styling.colorbar import ColorBar
     from geopandas import GeoDataFrame
 
 
@@ -798,7 +800,7 @@ class Dataset(RasterBase):
             resolved_rgb = [int(v) for v in cast("list[int]", candidate)]
         return resolved_rgb
 
-    def plot(
+    def plot(  # type: ignore[override]  # narrows **kwargs to cleopatra's typed PlotKwargs
         self,
         band: int | None = None,
         exclude_value: Any | None = None,
@@ -809,8 +811,12 @@ class Dataset(RasterBase):
         overview_index: int | None = 0,
         percentile: int | None = None,
         basemap: bool | str | dict[str, Any] | Basemap | None = None,
+        colorbar: bool | ColorBar | None = None,
+        points: np.ndarray | PointOverlay | None = None,
+        kind: str = "auto",
+        title: str | None = None,
         rgb_options: dict | None = None,
-        **kwargs: Any,
+        **kwargs: Unpack[PlotKwargs],
     ):
         """Plot the values/overviews of a band.
 
@@ -970,6 +976,10 @@ class Dataset(RasterBase):
             overview_index=overview_index,
             percentile=percentile,
             basemap=basemap,
+            colorbar=colorbar,
+            points=points,
+            kind=kind,
+            title=title,
             **kwargs,
         )
 
