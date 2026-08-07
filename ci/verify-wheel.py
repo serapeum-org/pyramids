@@ -183,7 +183,7 @@ def _check_tls_read() -> None:
 def _netcdf_roundtrip(nc_driver, workdir: str) -> None:
     """Write a 1-band raster via the netCDF driver and read it back.
 
-    Self-contained (no xarray/netCDF4 needed): exercises the bundled
+    Self-contained (no external NetCDF Python libraries needed): exercises the bundled
     netCDF driver's write + read path. Raises on any failure. Handles
     both the direct-raster and subdataset-container open results.
     """

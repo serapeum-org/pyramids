@@ -3,8 +3,8 @@
 pyramids reads and writes **Zarr v3** stores for both single rasters
 (`Dataset`) and time-stacked cubes (`DatasetCollection`). On disk, the layout
 follows the CF / GeoZarr convention so a pyramids store opens georeferenced in
-any standards-aware reader (rioxarray, odc-geo, `xarray.open_zarr`, GDAL's
-Zarr driver) without needing pyramids in the loop. Conversely, the reader is
+any standards-aware GeoZarr reader (odc-geo, GDAL's Zarr driver, or a
+labeled-array Zarr reader) without needing pyramids in the loop. Conversely, the reader is
 tolerant: it opens GeoZarr stores written by other tools too.
 
 > **Requires the `[lazy]` extra** (`zarr>=3`, `dask`, `fsspec`, plus
@@ -44,7 +44,7 @@ Every pyramids-written store carries:
 
 …plus the standard attrs:
 
-- `data.attrs["_ARRAY_DIMENSIONS"]` (xarray v2 compatibility attribute) **plus**
+- `data.attrs["_ARRAY_DIMENSIONS"]` (labeled-array v2 compatibility attribute) **plus**
   the native zarr v3 `dimension_names` array property (set via the
   `create_array(..., dimension_names=…)` kwarg, not on `.attrs`) — both
   `["band","y","x"]` for `Dataset` and `["time","band","y","x"]` for cubes.
@@ -173,8 +173,8 @@ The reader auto-detects the primary data array (preferring `"data"`, then any
 array with a `grid_mapping` attr, then the highest-dim non-coordinate array),
 follows the CF `grid_mapping` link to the CRS variable (defaulting to
 `"spatial_ref"`), and falls back to deriving the transform from `x` / `y`
-coordinates when `GeoTransform` is absent — so stores written by rioxarray,
-odc-geo, or GDAL's Zarr driver open without pyramids in the loop.
+coordinates when `GeoTransform` is absent — so stores written by labeled-array
+Zarr writers, odc-geo, or GDAL's Zarr driver open without pyramids in the loop.
 
 For ambiguous foreign stores you can pin the array explicitly:
 

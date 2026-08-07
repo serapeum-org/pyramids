@@ -11,8 +11,8 @@ into the specifics:
   `Dataset.to_zarr`, `focal_*`, `slope`, `aspect`, `hillshade`,
   `zonal_stats`.
 - [Lazy NetCDF](lazy-netcdf.md) — `NetCDF.read_array(chunks=…)`,
-  `to_kerchunk`, `combine_kerchunk`, `open_mfdataset`, the xarray
-  backend entry point.
+  `to_kerchunk`, `combine_kerchunk`, `open_mfdataset`, the
+  labeled-array interop entry point.
 - [Lazy DatasetCollection](lazy-collection.md) — time-series cubes,
   `from_stac`, `from_files`, `to_zarr`, `to_kerchunk`, `groupby`.
 - [Lazy vector reads](lazy-vector.md) — `LazyFeatureCollection`,
@@ -66,9 +66,9 @@ minimal:
 | `[lazy]`         | `dask`, `zarr`, `fsspec`, `kerchunk`, `h5py` | Raster + NetCDF lazy reads, Zarr, groupby, `to_kerchunk`/`combine_kerchunk` manifests |
 | `[parquet]`      | `pyarrow`, `dask-geopandas` + `[lazy]`           | Eager GeoParquet I/O + lazy `LazyFeatureCollection` |
 
-xarray interop (`NetCDF.to_xarray()` / `.from_xarray()`,
+The labeled-array interop (`NetCDF.to_xarray()` / `.from_xarray()`,
 `DatasetCollection.to_netcdf`) is **not** a pyramids extra — pyramids is
-GDAL-backed, so xarray is a peer. `pip install xarray` directly for those helpers.
+GDAL-backed, so that library is a peer. `pip install xarray` directly for those helpers.
 
 Install one or many:
 
@@ -202,8 +202,8 @@ from pyramids.feature import is_lazy_fc, has_lazy_backend
 
 ## Pickle & handle hygiene — `CachingFileManager`
 
-Every lazy read in pyramids goes through one pattern copied verbatim
-from xarray: the **`CachingFileManager`**. You won't interact with it
+Every lazy read in pyramids goes through one pattern adapted from the
+labeled-array stack: the **`CachingFileManager`**. You won't interact with it
 directly most of the time, but its semantics affect what works on a
 distributed cluster and what doesn't:
 

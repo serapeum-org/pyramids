@@ -3,9 +3,9 @@
 NetCDFs are typically the heaviest single files in a GIS pipeline —
 reanalysis, climate projections, ocean models. Pyramids exposes four
 native lazy entry points covering single-file reads, multi-file
-stacks, and zero-copy Zarr-backed cube indexing — **no xarray in the
-lazy read path**, so installs stay slim and pyramids stays a peer of
-xarray rather than a consumer:
+stacks, and zero-copy Zarr-backed cube indexing — **no labeled-array
+dependency in the lazy read path**, so installs stay slim and pyramids
+stays a peer of the labeled-array stack rather than a consumer:
 
 | Entry point                              | Use when                                        |
 |------------------------------------------|-------------------------------------------------|
@@ -73,8 +73,8 @@ its own handle.
 
 ## Many files, one variable — `open_mfdataset`
 
-Unlike `xarray.open_mfdataset`, the pyramids helper is deliberately
-narrow: one variable at a time, no "by_coords" inference, no combine
+Unlike the labeled-array stack's `open_mfdataset`, the pyramids helper is
+deliberately narrow: one variable at a time, no "by_coords" inference, no combine
 strategies. For the common hydrology / meteorology case — 365 daily
 `noah_YYYYMMDD.nc` files, stack `precipitation`, reduce on time —
 that narrowness is the whole point.
@@ -127,7 +127,7 @@ order is deterministic.
 
 A kerchunk manifest is a JSON document containing byte-range pointers
 into each source file; no pixel data is moved. Downstream consumers
-open the resulting archive as a lazy Zarr-backed xarray with
+open the resulting archive as a lazy Zarr-backed dataset with
 **zero rewrite** — the speedup is the avoided decode cost.
 
 Emit a manifest for a single file:
@@ -157,7 +157,7 @@ manifest = NetCDF.combine_kerchunk(
 )
 ```
 
-Consume the manifest with fsspec + xarray:
+Consume the manifest with fsspec and a labeled-array Zarr reader:
 
 ```python
 import fsspec
@@ -181,16 +181,16 @@ raise a branded `ImportError` naming the extra when it's absent.
 |-------------------------------------------|-------------------------|
 | One-off parallel read-and-reduce          | `open_mfdataset`        |
 | A *reusable* index other tools can open   | `combine_kerchunk`      |
-| Cloud data read through xarray/fsspec     | `combine_kerchunk`      |
+| Cloud data read through a labeled-array/fsspec reader | `combine_kerchunk` |
 | Only pyramids consumers                   | `open_mfdataset`        |
 
-## Handing a pyramids lazy array to xarray
+## Handing a pyramids lazy array to a labeled-array library
 
 Pyramids deliberately does **not** register as an
-``engine=`` for `xr.open_dataset`. It is a peer of xarray, not a
-backend beneath it. If your pipeline ends in xarray anyway, use
-`NetCDF.to_xarray()` for an eager conversion, or wrap pyramids' lazy
-array in `xr.DataArray` yourself:
+``engine=`` for a labeled-array `open_dataset`. It is a peer of the
+labeled-array stack, not a backend beneath it. If your pipeline ends there
+anyway, use `NetCDF.to_xarray()` for an eager conversion, or wrap pyramids'
+lazy array in a labeled-array `DataArray` yourself:
 
 ```python
 import xarray as xr
@@ -206,12 +206,12 @@ da = xr.DataArray(arr, dims=("time", "lat", "lon"), name="t2m")
 
 You keep pyramids' `CachingFileManager` + `SerializableLock`
 semantics (handle pooling, distributed-safe pickling) on the read
-side, and xarray's ergonomics on the downstream side — no backend
+side, and the labeled-array ergonomics on the downstream side — no backend
 adapter layer in between.
 
-Install: `[lazy]` pulls `kerchunk` + `h5py`; add `xarray` (a peer dep,
-not a pyramids extra — `pip install xarray`) if you want `xr.DataArray`
-/ `.to_xarray()` / `.from_xarray()`.
+Install: `[lazy]` pulls `kerchunk` + `h5py`; add the labeled-array library
+(a peer dep, not a pyramids extra — `pip install xarray`) if you want a
+labeled-array `DataArray` / `.to_xarray()` / `.from_xarray()`.
 
 ## A worked pipeline — ERA5 on AWS
 
@@ -256,9 +256,9 @@ ImportError: dask is required for lazy NetCDF reads; install pyramids-gis[lazy]
 ```
 
 Calls that need kerchunk name `[lazy]`. `NetCDF.to_xarray()` /
-`.from_xarray()` name `xarray` (a peer dep, `pip install xarray`). The eager
-`NetCDF.read_array(chunks=None)` path is always available and does
-not touch dask / xarray / kerchunk.
+`.from_xarray()` name the labeled-array library (a peer dep, `pip install xarray`).
+The eager `NetCDF.read_array(chunks=None)` path is always available and does
+not touch dask / the labeled-array stack / kerchunk.
 
 ## UGRID unstructured grids
 
