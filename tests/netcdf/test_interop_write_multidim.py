@@ -250,9 +250,8 @@ class TestWriteMultidimNetcdf:
         )
         assert "seconds since" in _unit(str(out), "time"), "time not CF-encoded"
         vals = _values(str(out), "time")
-        assert vals.shape == (2,) and np.issubdtype(vals.dtype, np.number), (
-            f"time axis not numeric: {vals!r}"
-        )
+        assert vals.shape == (2,), f"time axis wrong shape: {vals.shape}"
+        assert np.issubdtype(vals.dtype, np.number), f"time axis not numeric: {vals!r}"
 
     def test_coord_length_mismatch_raises_value_error(self, tmp_path):
         """A coordinate whose length differs from its dimension size raises.
@@ -261,14 +260,12 @@ class TestWriteMultidimNetcdf:
             ``dims={"x": 3}`` but the ``x`` coord array has length 2 — expected:
             a ``ValueError`` naming the coordinate and the length mismatch.
         """
+        path = tmp_path / "badcoord.nc"
+        dims = {"x": 3}
+        coords = {"x": (np.array([0.0, 1.0]), {})}
+        data_vars = {"v": (("x",), np.array([1.0, 2.0, 3.0]), {})}
         with pytest.raises(ValueError, match="dimension is length"):
-            write_multidim_netcdf(
-                tmp_path / "badcoord.nc",
-                dims={"x": 3},
-                coords={"x": (np.array([0.0, 1.0]), {})},
-                data_vars={"v": (("x",), np.array([1.0, 2.0, 3.0]), {})},
-                global_attrs={},
-            )
+            write_multidim_netcdf(path, dims, coords, data_vars, {})
 
     def test_variable_shape_mismatch_raises_value_error(self, tmp_path):
         """A variable whose shape differs from its declared dims raises.
@@ -277,17 +274,15 @@ class TestWriteMultidimNetcdf:
             ``dims={"y": 2, "x": 3}`` but ``v`` is shape ``(2, 2)`` — expected: a
             ``ValueError`` naming the variable and the implied shape.
         """
+        path = tmp_path / "badvar.nc"
+        dims = {"y": 2, "x": 3}
+        coords = {
+            "y": (np.array([0.0, 1.0]), {}),
+            "x": (np.array([0.0, 1.0, 2.0]), {}),
+        }
+        data_vars = {"v": (("y", "x"), np.zeros((2, 2)), {})}
         with pytest.raises(ValueError, match="imply"):
-            write_multidim_netcdf(
-                tmp_path / "badvar.nc",
-                dims={"y": 2, "x": 3},
-                coords={
-                    "y": (np.array([0.0, 1.0]), {}),
-                    "x": (np.array([0.0, 1.0, 2.0]), {}),
-                },
-                data_vars={"v": (("y", "x"), np.zeros((2, 2)), {})},
-                global_attrs={},
-            )
+            write_multidim_netcdf(path, dims, coords, data_vars, {})
 
     def test_unknown_variable_dimension_raises_value_error(self, tmp_path):
         """A variable over a dimension absent from ``dims`` raises ``ValueError``.
@@ -297,14 +292,12 @@ class TestWriteMultidimNetcdf:
             expected: ``ValueError`` naming the offending variable and dimension,
             instead of an opaque ``KeyError``.
         """
+        path = tmp_path / "bad.nc"
+        dims = {"x": 2}
+        coords = {"x": (np.array([0.0, 1.0]), {})}
+        data_vars = {"v": (("z",), np.array([1.0, 2.0]), {})}
         with pytest.raises(ValueError, match="unknown dimension"):
-            write_multidim_netcdf(
-                tmp_path / "bad.nc",
-                dims={"x": 2},
-                coords={"x": (np.array([0.0, 1.0]), {})},
-                data_vars={"v": (("z",), np.array([1.0, 2.0]), {})},
-                global_attrs={},
-            )
+            write_multidim_netcdf(path, dims, coords, data_vars, {})
 
     def test_write_failure_raises_runtime_error(self, tmp_path, monkeypatch):
         """A ``None`` from the netCDF driver's ``CreateCopy`` raises ``RuntimeError``.
@@ -326,15 +319,13 @@ class TestWriteMultidimNetcdf:
         def _fake(name):
             return _NullCopyDriver() if name == "netCDF" else real(name)
 
+        path = tmp_path / "boom.nc"
+        dims = {"x": 1}
+        coords = {"x": (np.array([0.0]), {})}
+        data_vars = {"v": (("x",), np.array([1.0]), {})}
         monkeypatch.setattr(interop.gdal, "GetDriverByName", _fake)
         with pytest.raises(RuntimeError, match="Failed to write NetCDF"):
-            write_multidim_netcdf(
-                tmp_path / "boom.nc",
-                dims={"x": 1},
-                coords={"x": (np.array([0.0]), {})},
-                data_vars={"v": (("x",), np.array([1.0]), {})},
-                global_attrs={},
-            )
+            write_multidim_netcdf(path, dims, coords, data_vars, {})
 
 
 class TestApplyMdArrayAttrs:
