@@ -147,11 +147,11 @@ class TestResolveTargetGridMemory:
             A wide lon/lat bounds at a metre-sized resolution would be billions
             of pixels -> clear ValueError pointing at coarser res / like=.
         """
+        # ~ (100 deg / 1e-4) ^2 pixels = 1e12, far over the 250M limit. The Grid
+        # itself is valid; only _resolve_target_grid's OOM guard should raise.
+        grid = Grid(crs=4326, resolution=0.0001, bounds=(0.0, 0.0, 100.0, 100.0))
         with pytest.raises(ValueError, match="exceeding the"):
-            # ~ (100 deg / 1e-4) ^2 pixels = 1e12, far over the 250M limit.
-            _resolve_target_grid(
-                Grid(crs=4326, resolution=0.0001, bounds=(0.0, 0.0, 100.0, 100.0))
-            )
+            _resolve_target_grid(grid)
 
     def test_just_under_limit_builds(self):
         """A large-but-allowed grid still builds (S2-tile-scale).
