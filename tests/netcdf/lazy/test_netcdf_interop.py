@@ -855,9 +855,7 @@ class TestToXarrayLazy:
         nc = NetCDF.read_file(GEOG_3D_NC)
         try:
             eager = nc.to_xarray()
-            assert not hasattr(eager["t2m"].data, "dask"), (
-                "default export stays eager"
-            )
+            assert not hasattr(eager["t2m"].data, "dask"), "default export stays eager"
         finally:
             nc.close()
 

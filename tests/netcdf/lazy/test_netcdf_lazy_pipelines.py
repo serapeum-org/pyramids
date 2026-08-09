@@ -32,7 +32,9 @@ pytestmark = pytest.mark.netcdf_lazy
 try:
     import fsspec
     import zarr
-except ImportError:  # pragma: no cover - the kerchunk consumer test is @requires_kerchunk gated
+except (
+    ImportError
+):  # pragma: no cover - the kerchunk consumer test is @requires_kerchunk gated
     fsspec = zarr = None
 
 # #530: the deadlock was in manifest *generation* (kerchunk.hdf -> zarr-v3 sync()),

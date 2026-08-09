@@ -129,7 +129,9 @@ class TestWriteMultidimNetcdf:
         assert {"temp", "y", "x"}.issubset(_array_names(str(out))), (
             f"missing arrays: {_array_names(str(out))}"
         )
-        assert np.array_equal(_values(str(out), "temp"), data), "temp did not round-trip"
+        assert np.array_equal(_values(str(out), "temp"), data), (
+            "temp did not round-trip"
+        )
         assert np.array_equal(_values(str(out), "y"), [10.0, 20.0]), "y coord wrong"
 
     def test_global_attrs_written_to_root(self, tmp_path):
@@ -206,7 +208,11 @@ class TestWriteMultidimNetcdf:
             dims={"x": 2},
             coords={"x": (np.array([0.0, 1.0]), {})},
             data_vars={
-                "temp": (("x",), np.array([1.0, 2.0]), {"units": "kelvin", "long_name": "T"})
+                "temp": (
+                    ("x",),
+                    np.array([1.0, 2.0]),
+                    {"units": "kelvin", "long_name": "T"},
+                )
             },
             global_attrs={},
         )
