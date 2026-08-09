@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6551,7 +6551,7 @@ source file list.</p>
 execution; useful when the store-write is one step of a larger
 graph.</p>
 <p><code>collection.to_zarr</code> raises <code>RuntimeError</code> on a collection without a
-<code>files</code> list (e.g. the legacy <code>create_cube(src, n)</code> path) — Zarr
+<code>files</code> list (e.g. the in-memory <code>from_dataset(src, n)</code> path) — Zarr
 writes need a source file per timestep. <code>ImportError</code> raised when
 the <code>[lazy]</code> extra is missing.</p>
 <h2 id="kerchunk-manifest-collectionto_kerchunk"><a class="toclink" href="#kerchunk-manifest-collectionto_kerchunk">Kerchunk manifest — <code>collection.to_kerchunk</code></a><a class="headerlink" href="#kerchunk-manifest-collectionto_kerchunk" title="Permanent link">#</a></h2>
