@@ -865,21 +865,25 @@ class DatasetCollection:
         return self._base.columns
 
     @classmethod
-    def create_cube(cls, src: Dataset, dataset_length: int) -> DatasetCollection:
-        """Create DatasetCollection.
+    def create(cls, src: Dataset, time_length: int) -> DatasetCollection:
+        """Build an in-memory collection from a template raster.
 
-            - Create DatasetCollection from a sample raster and
+        Creates a scaffold of ``time_length`` timesteps that all share
+        ``src``'s geobox (CRS, geotransform, dtype) and has no backing files —
+        the values are filled in memory. Contrast with the data-source readers
+        :meth:`from_files`, :meth:`from_stac`, and :meth:`from_zarr`.
 
         Args:
-            src (Dataset):
-                Raster object.
-            dataset_length (int):
-                Length of the dataset.
+            src: Template :class:`~pyramids.dataset.Dataset` supplying the
+                geobox; it also serves as the single timestep until values are
+                set.
+            time_length: Number of timesteps in the collection.
 
         Returns:
-            DatasetCollection: DatasetCollection object.
+            DatasetCollection: An in-memory collection whose ``files`` is
+            ``None``.
         """
-        return cls(src, dataset_length)
+        return cls(src, time_length)
 
     def groupby(self, time_labels) -> _GroupedCollection:
         """Group time steps by per-timestep label.
@@ -1112,7 +1116,7 @@ class DatasetCollection:
             ImportError: If the optional `dask` extra is not
                 installed.
             RuntimeError: If the collection was constructed without a
-                `files` list (legacy `create_cube` path).
+                `files` list (the in-memory `create` path).
         """
         if self._zarr_store is None and (self._files is None or len(self._files) == 0):
             raise RuntimeError(
@@ -2842,7 +2846,7 @@ class DatasetCollection:
               >>> src = Dataset.create_from_array(
               ...     np.ones((5, 5), dtype="float32"), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
               ... )
-              >>> collection = DatasetCollection.create_cube(src, 3)
+              >>> collection = DatasetCollection.create(src, 3)
               >>> out_dir = tempfile.mkdtemp()
               >>> collection.to_file(out_dir)
               >>> sorted(os.listdir(out_dir))
@@ -2858,7 +2862,7 @@ class DatasetCollection:
               >>> src = Dataset.create_from_array(
               ...     np.full((4, 4), 7.0, dtype="float32"), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
               ... )
-              >>> collection = DatasetCollection.create_cube(src, 2)
+              >>> collection = DatasetCollection.create(src, 2)
               >>> out_dir = tempfile.mkdtemp()
               >>> paths = [os.path.join(out_dir, f"slice_{i}.tif") for i in range(2)]
               >>> collection.to_file(paths)
@@ -3161,7 +3165,7 @@ class DatasetCollection:
               >>> mask = Dataset.create_from_array(
               ...     np.ones((10, 10), dtype="int16"), top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
               ... )
-              >>> collection = DatasetCollection.create_cube(mask, 3)
+              >>> collection = DatasetCollection.create(mask, 3)
               >>> cropped = collection.crop(mask=mask)
               >>> cropped.time_length
               3
