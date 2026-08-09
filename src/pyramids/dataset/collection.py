@@ -882,6 +882,33 @@ class DatasetCollection:
         Returns:
             DatasetCollection: An in-memory collection whose ``files`` is
             ``None``.
+
+        Examples:
+            - Scaffold a 3-timestep collection from a template raster:
+
+              ```python
+              >>> from pyramids.dataset import Dataset, DatasetCollection
+              >>> template = Dataset.read_file("dem.tif")  # doctest: +SKIP
+              >>> cube = DatasetCollection.from_dataset(template, 3)  # doctest: +SKIP
+              >>> cube.time_length  # doctest: +SKIP
+              3
+
+              ```
+            - The scaffold is in memory, so it has no backing files:
+
+              ```python
+              >>> from pyramids.dataset import Dataset, DatasetCollection
+              >>> template = Dataset.read_file("dem.tif")  # doctest: +SKIP
+              >>> cube = DatasetCollection.from_dataset(template, 5)  # doctest: +SKIP
+              >>> cube.files is None  # doctest: +SKIP
+              True
+
+              ```
+
+        See Also:
+            from_files: Build a collection from rasters on disk.
+            from_zarr: Build a collection from a Zarr store.
+            from_stac: Build a collection from a STAC query.
         """
         return cls(src, time_length)
 
