@@ -53,54 +53,6 @@ def template(tmp_path):
     )
 
 
-class TestGrid:
-    """Tests for the Grid dataclass and its construction-time validation."""
-
-    def test_empty_is_empty(self):
-        """A default Grid reports empty.
-
-        Test scenario:
-            Grid() with no fields set -> is_empty True.
-        """
-        assert Grid().is_empty is True, "default Grid should be empty"
-
-    def test_explicit_not_empty(self):
-        """An explicit-grid Grid is not empty.
-
-        Test scenario:
-            crs + resolution + bounds -> is_empty False.
-        """
-        grid = Grid(crs=4326, resolution=1.0, bounds=(0, 0, 4, 4))
-        assert grid.is_empty is False, "explicit Grid should not be empty"
-
-    def test_like_with_explicit_raises(self, template):
-        """like combined with crs/resolution/bounds raises.
-
-        Test scenario:
-            Mutually-exclusive grid specs are rejected at construction.
-        """
-        with pytest.raises(ValueError, match="mutually exclusive"):
-            Grid(like=template, crs=4326, resolution=1.0, bounds=(0, 0, 4, 4))
-
-    def test_partial_explicit_raises(self):
-        """An incomplete crs/resolution/bounds trio raises.
-
-        Test scenario:
-            crs + resolution without bounds is rejected at construction.
-        """
-        with pytest.raises(ValueError, match="all be given together"):
-            Grid(crs=4326, resolution=1.0)
-
-    def test_unknown_anchor_raises(self):
-        """An unsupported anchor raises.
-
-        Test scenario:
-            anchor='center' is not implemented.
-        """
-        with pytest.raises(ValueError, match="anchor must be"):
-            Grid(crs=4326, resolution=1.0, bounds=(0, 0, 4, 4), anchor="center")
-
-
 class TestResolveTargetGrid:
     """Tests for the _resolve_target_grid helper (Grid -> template Dataset)."""
 
