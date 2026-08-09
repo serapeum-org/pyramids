@@ -58,9 +58,8 @@ class TestEncodeTemporalArray:
         vals = np.array(["2020-01-01", "NaT", "2020-01-03"], dtype="datetime64[ns]")
         encoded, _ = _encode_temporal_array(vals)
         assert np.isnan(encoded[1]), f"NaT must encode to NaN, got {encoded[1]}"
-        assert np.isfinite(encoded[0]) and np.isfinite(encoded[2]), (
-            "real instants must stay finite"
-        )
+        assert np.isfinite(encoded[0]), "real instant [0] must stay finite"
+        assert np.isfinite(encoded[2]), "real instant [2] must stay finite"
 
     def test_timedelta64_nat_encodes_to_nan(self):
         """A NaT in a timedelta64 array encodes to NaN, not the int64-sentinel value (review M2)."""

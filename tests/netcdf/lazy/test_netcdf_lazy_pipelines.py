@@ -92,4 +92,5 @@ class TestNetCDFLazyPipelines:
         assert "values" in arrays, f"expected 'values' array, got {sorted(arrays)}"
 
         data = np.asarray(arrays["values"][:])
-        assert data.ndim == 3 and data.size > 0
+        assert data.ndim == 3, f"expected a 3-D array, got {data.ndim}-D"
+        assert data.size > 0, "values array is empty"
