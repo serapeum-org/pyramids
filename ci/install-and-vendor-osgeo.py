@@ -148,7 +148,9 @@ def install_gdal_python_bindings() -> None:
     # gdalconst_wrap.c, which Apple clang rejects and breaks the macOS
     # wheels. PIP_CONSTRAINT is honored for BOTH the isolated build env
     # (x86_64 / Linux) and the arm64 --no-build-isolation setuptools install.
-    env.setdefault("PIP_CONSTRAINT", str(REPO_ROOT / "ci" / "gdal-build-constraints.txt"))
+    env.setdefault(
+        "PIP_CONSTRAINT", str(REPO_ROOT / "ci" / "gdal-build-constraints.txt")
+    )
 
     if is_windows:
         bin_dir, _, lib_dir = _data_layout_roots(prefix)
