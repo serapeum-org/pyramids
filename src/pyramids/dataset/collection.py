@@ -865,16 +865,16 @@ class DatasetCollection:
         return self._base.columns
 
     @classmethod
-    def from_dataset(cls, src: Dataset, time_length: int) -> DatasetCollection:
+    def from_dataset(cls, dataset: Dataset, time_length: int) -> DatasetCollection:
         """Build an in-memory collection from a template Dataset.
 
         Creates a scaffold of ``time_length`` timesteps that all share
-        ``src``'s geobox (CRS, geotransform, dtype) and has no backing files —
-        the values are filled in memory. Contrast with the data-source readers
-        :meth:`from_files`, :meth:`from_stac`, and :meth:`from_zarr`.
+        ``dataset``'s geobox (CRS, geotransform, dtype) and has no backing
+        files — the values are filled in memory. Contrast with the data-source
+        readers :meth:`from_files`, :meth:`from_stac`, and :meth:`from_zarr`.
 
         Args:
-            src: Template :class:`~pyramids.dataset.Dataset` supplying the
+            dataset: Template :class:`~pyramids.dataset.Dataset` supplying the
                 geobox; it also serves as the single timestep until values are
                 set.
             time_length: Number of timesteps in the collection.
@@ -910,7 +910,7 @@ class DatasetCollection:
             from_zarr: Build a collection from a Zarr store.
             from_stac: Build a collection from a STAC query.
         """
-        return cls(src, time_length)
+        return cls(dataset, time_length)
 
     def groupby(self, time_labels) -> _GroupedCollection:
         """Group time steps by per-timestep label.
@@ -1695,9 +1695,12 @@ class DatasetCollection:
                 order).
             patch_url: Optional low-level callable rewriting each href
                 (runs before `signer`).
-            bbox: M6 — optional `(minx, miny, maxx, maxy)` filter in
-                lon/lat; items whose `bbox` doesn't intersect are
-                dropped before hrefs are resolved.
+            bbox: M6 — **input filter**, `(minx, miny, maxx, maxy)` in
+                **lon/lat** (EPSG:4326). Selects *which STAC items* are read:
+                items whose footprint doesn't intersect it are dropped before
+                their hrefs are resolved. It does **not** clip the output — that
+                is `bounds`. (Note the difference from odc-stac, where `bbox`
+                sets the output extent.)
             max_items: M6 — cap the number of items consumed (after
                 bbox filtering). Useful for quick-look workflows.
             signer: Optional signer (e.g. a
@@ -1742,7 +1745,10 @@ class DatasetCollection:
                 exclusive with `crs`/`resolution`/`bounds`.
             crs: Target CRS for an explicit grid (with `resolution`+`bounds`).
             resolution: Target pixel size for an explicit grid.
-            bounds: Target `(minx, miny, maxx, maxy)` for an explicit grid.
+            bounds: **Output grid extent** — `(minx, miny, maxx, maxy)` in the
+                **target `crs`** (not lon/lat). Sets the extent every timestep is
+                warped/clipped to for the explicit grid. This is the output
+                window; to instead pre-filter *which items* are read, use `bbox`.
             anchor: Grid-snap rule for the explicit grid (`"edge"`).
 
         Returns:

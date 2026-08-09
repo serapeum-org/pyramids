@@ -27,7 +27,7 @@ reference below; the diagrams show parameters by name to stay readable.
 ```mermaid
 classDiagram
     class DatasetCollection {
-        +from_dataset(src, time_length) DatasetCollection
+        +from_dataset(dataset, time_length) DatasetCollection
         +from_files(files, glob, date_format, date_regex, start, end, meta, gdal_env, validate) DatasetCollection
         +from_stac(items, asset, patch_url, bbox, max_items, signer, align, skip_missing, groupby, like, crs, resolution, bounds, anchor) DatasetCollection
         +from_point(lat, lon, collection, bands, start_date, end_date, edge_size, resolution, units, stac, query, signer, align) DatasetCollection
