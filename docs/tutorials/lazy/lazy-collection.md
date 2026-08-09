@@ -218,7 +218,7 @@ execution; useful when the store-write is one step of a larger
 graph.
 
 `collection.to_zarr` raises `RuntimeError` on a collection without a
-`files` list (e.g. the legacy `create(src, n)` path) — Zarr
+`files` list (e.g. the in-memory `from_dataset(src, n)` path) — Zarr
 writes need a source file per timestep. `ImportError` raised when
 the `[lazy]` extra is missing.
 

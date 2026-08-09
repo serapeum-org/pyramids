@@ -86,7 +86,7 @@ class TestMetaPickleable:
 class TestBackwardsCompat:
     def test_create_still_works(self, template_file):
         src = Dataset.read_file(template_file)
-        collection = DatasetCollection.create(src, time_length=5)
+        collection = DatasetCollection.from_dataset(src, time_length=5)
         assert collection.time_length == 5
         assert collection.meta.rows == 4
 

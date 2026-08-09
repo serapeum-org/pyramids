@@ -694,7 +694,7 @@ class TestToNetcdfNoFilesPath:
             path=src_path,
         ).close()
         src = Dataset.read_file(src_path)
-        col = DatasetCollection.create(src, 3)
+        col = DatasetCollection.from_dataset(src, 3)
         out = tmp_path / "nf.nc"
         col.to_netcdf(str(out))
         assert out.exists(), "no-files write did not produce a file"

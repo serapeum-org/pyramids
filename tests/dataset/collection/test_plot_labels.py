@@ -34,7 +34,7 @@ def _collection(count: int = 3, bands: int = 1) -> DatasetCollection:
     src = Dataset.create_from_array(
         arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
     )
-    return DatasetCollection.create(src, count)
+    return DatasetCollection.from_dataset(src, count)
 
 
 def _dated_files(tmp_path, years=(2000, 2001, 2002)) -> list[str]:

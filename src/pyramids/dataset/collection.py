@@ -865,8 +865,8 @@ class DatasetCollection:
         return self._base.columns
 
     @classmethod
-    def create(cls, src: Dataset, time_length: int) -> DatasetCollection:
-        """Build an in-memory collection from a template raster.
+    def from_dataset(cls, src: Dataset, time_length: int) -> DatasetCollection:
+        """Build an in-memory collection from a template Dataset.
 
         Creates a scaffold of ``time_length`` timesteps that all share
         ``src``'s geobox (CRS, geotransform, dtype) and has no backing files —
@@ -1116,7 +1116,7 @@ class DatasetCollection:
             ImportError: If the optional `dask` extra is not
                 installed.
             RuntimeError: If the collection was constructed without a
-                `files` list (the in-memory `create` path).
+                `files` list (the in-memory `from_dataset` path).
         """
         if self._zarr_store is None and (self._files is None or len(self._files) == 0):
             raise RuntimeError(
@@ -2846,7 +2846,7 @@ class DatasetCollection:
               >>> src = Dataset.create_from_array(
               ...     np.ones((5, 5), dtype="float32"), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
               ... )
-              >>> collection = DatasetCollection.create(src, 3)
+              >>> collection = DatasetCollection.from_dataset(src, 3)
               >>> out_dir = tempfile.mkdtemp()
               >>> collection.to_file(out_dir)
               >>> sorted(os.listdir(out_dir))
@@ -2862,7 +2862,7 @@ class DatasetCollection:
               >>> src = Dataset.create_from_array(
               ...     np.full((4, 4), 7.0, dtype="float32"), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
               ... )
-              >>> collection = DatasetCollection.create(src, 2)
+              >>> collection = DatasetCollection.from_dataset(src, 2)
               >>> out_dir = tempfile.mkdtemp()
               >>> paths = [os.path.join(out_dir, f"slice_{i}.tif") for i in range(2)]
               >>> collection.to_file(paths)
@@ -3165,7 +3165,7 @@ class DatasetCollection:
               >>> mask = Dataset.create_from_array(
               ...     np.ones((10, 10), dtype="int16"), top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
               ... )
-              >>> collection = DatasetCollection.create(mask, 3)
+              >>> collection = DatasetCollection.from_dataset(mask, 3)
               >>> cropped = collection.crop(mask=mask)
               >>> cropped.time_length
               3

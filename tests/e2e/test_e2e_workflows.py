@@ -106,7 +106,7 @@ class TestDatasetCollectionRoundTrip:
         time_steps = 3
 
         base = _make_dataset(rows=rows, cols=cols, fill_value=1.0)
-        md = DatasetCollection.create(base, time_length=time_steps)
+        md = DatasetCollection.from_dataset(base, time_length=time_steps)
         values = (
             np.random.default_rng(0).random((time_steps, rows, cols)).astype(np.float64)
         )
@@ -579,7 +579,7 @@ class TestDatasetCollectionProcessingPipeline:
         time_steps = 4
 
         base = _make_dataset(rows=rows, cols=cols, fill_value=10.0)
-        md = DatasetCollection.create(base, time_length=time_steps)
+        md = DatasetCollection.from_dataset(base, time_length=time_steps)
 
         # Fill with known values: each time step has value = step_index + 1
         values = np.zeros((time_steps, rows, cols), dtype=np.float64)
@@ -605,7 +605,7 @@ class TestDatasetCollectionProcessingPipeline:
         time_steps = 6
 
         base = _make_dataset(rows=rows, cols=cols)
-        md = DatasetCollection.create(base, time_length=time_steps)
+        md = DatasetCollection.from_dataset(base, time_length=time_steps)
         values = np.random.default_rng(0).random((time_steps, rows, cols))
         md.values = values
 
