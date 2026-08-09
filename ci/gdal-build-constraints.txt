@@ -1,0 +1,12 @@
+# Build-time constraints for the GDAL Python-bindings build
+# (ci/install-and-vendor-osgeo.py sets PIP_CONSTRAINT to this file).
+#
+# setuptools 84.0.0 (released 2026-08-08) changed how a build's
+# extra_compile_args are assembled, so GDAL's setup.py `-std=c++11` — which
+# it adds to EVERY extension, including the C module gdalconst_wrap.c — now
+# reaches the C compile. Apple clang (Xcode 16.2 on the macos-14 runners)
+# rejects it with a hard error, `invalid argument '-std=c++11' not allowed
+# with 'C'`, breaking both macOS wheels (arm64 + x86_64). setuptools 83.0.0
+# built fine on the identical toolchain. Cap it until GDAL's setup.py stops
+# passing a C++ std flag to C sources (upstream bug) or setuptools reverts.
+setuptools<84

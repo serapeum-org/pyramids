@@ -143,6 +143,13 @@ def install_gdal_python_bindings() -> None:
 
     env = os.environ.copy()
 
+    # Cap build-time setuptools (see ci/gdal-build-constraints.txt): 84.0.0
+    # lets GDAL's setup.py `-std=c++11` reach the C compile of
+    # gdalconst_wrap.c, which Apple clang rejects and breaks the macOS
+    # wheels. PIP_CONSTRAINT is honored for BOTH the isolated build env
+    # (x86_64 / Linux) and the arm64 --no-build-isolation setuptools install.
+    env.setdefault("PIP_CONSTRAINT", str(REPO_ROOT / "ci" / "gdal-build-constraints.txt"))
+
     if is_windows:
         bin_dir, _, lib_dir = _data_layout_roots(prefix)
         include_dir = prefix / "Library" / "include"
