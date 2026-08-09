@@ -33,6 +33,7 @@ from pyramids.utm import utm_epsg
 
 if TYPE_CHECKING:
     from pyramids.dataset.collection import DatasetCollection
+    from pyramids.dataset.grid import Grid
 
 
 def _iter_items(items: Any) -> list[Any]:
@@ -195,11 +196,7 @@ def from_stac(
     align: bool = True,
     skip_missing: bool = False,
     groupby: str | None = None,
-    like: Any = None,
-    crs: int | str | None = None,
-    resolution: float | None = None,
-    bounds: Sequence[float] | None = None,
-    anchor: str = "edge",
+    grid: Grid | None = None,
 ) -> DatasetCollection:
     """Build a :class:`DatasetCollection` from a STAC ItemCollection.
 
@@ -288,19 +285,13 @@ def from_stac(
             `merge_rasters(method="first")` (first-valid pixel wins on overlap;
             see :func:`_from_stac_solar_day`). `time_length` is the number of
             distinct solar days, in chronological order. Single-asset only.
-        like: Optional target grid as an existing
-            :class:`~pyramids.dataset.Dataset`; every timestep of the built
-            cube is reprojected/resampled onto its CRS + grid (via
-            :meth:`DatasetCollection.align`), guaranteeing pixel co-registration.
-            Mutually exclusive with `crs`/`resolution`/`bounds`.
-        crs: Target CRS (EPSG int or CRS string) for an explicit target grid.
-            Must be given together with `resolution` and `bounds`.
-        resolution: Target pixel size (CRS units) for an explicit target grid.
-        bounds: Target `(minx, miny, maxx, maxy)` extent (in `crs`) for an
-            explicit target grid.
-        anchor: Grid-snap rule for the explicit `crs`/`resolution`/`bounds`
-            grid. `"edge"` (default) snaps pixel edges to multiples of
-            `resolution` (so independently-built grids co-register).
+        grid: Optional :class:`~pyramids.dataset.Grid` describing the target
+            output grid; every timestep of the built cube is reprojected /
+            resampled onto it (via :meth:`DatasetCollection.align`), guaranteeing
+            pixel co-registration. `None` (default) or an empty `Grid()` keeps
+            each timestep's native grid. Use `Grid(like=<Dataset>)` to match an
+            existing grid, or `Grid(crs=..., resolution=..., bounds=...)` for an
+            explicit one.
 
     Returns:
         DatasetCollection: A file-backed collection whose `time_length`
@@ -352,7 +343,7 @@ def from_stac(
     # pyramids.dataset import cycle (see _resolve_asset_href above).
     from pyramids.dataset.collection import DatasetCollection
 
-    target_grid = _resolve_target_grid(like, crs, resolution, bounds, anchor)
+    target_grid = _resolve_target_grid(grid)
 
     if groupby is not None:
         if groupby != "solar_day":
@@ -386,46 +377,27 @@ def from_stac(
     return collection
 
 
-def _resolve_target_grid(
-    like: Any,
-    crs: int | str | None,
-    resolution: float | None,
-    bounds: Sequence[float] | None,
-    anchor: str,
-) -> Any:
-    """Resolve the PC-2 grid-match arguments to a template Dataset (or None).
+def _resolve_target_grid(grid: Grid | None) -> Any:
+    """Resolve a :class:`~pyramids.dataset.Grid` to a template Dataset (or None).
+
+    The mode invariants (``like`` xor the ``crs``/``resolution``/``bounds`` trio,
+    the trio being all-or-nothing, and the ``anchor`` value) are validated by
+    :meth:`Grid.__post_init__`, so this only has to build the template.
 
     Args:
-        like: An existing :class:`~pyramids.dataset.Dataset` to match, or
-            `None`.
-        crs: Target CRS (with `resolution` + `bounds`) for an explicit grid.
-        resolution: Target pixel size.
-        bounds: Target `(minx, miny, maxx, maxy)` extent.
-        anchor: Grid-snap rule (`"edge"` supported).
+        grid: A :class:`~pyramids.dataset.Grid`, or `None`.
 
     Returns:
-        The `like` Dataset, a freshly built template Dataset for an explicit
-        grid, or `None` when no grid-match was requested.
-
-    Raises:
-        ValueError: `like` is combined with `crs`/`resolution`/`bounds`; the
-            explicit-grid trio is given only partially; or `anchor` is
-            unsupported.
+        The `grid.like` Dataset, a freshly built template Dataset for an explicit
+        grid, or `None` when no grid was requested (``None`` or an empty
+        ``Grid()``).
     """
-    explicit = (crs, resolution, bounds)
-    if like is not None:
-        if any(v is not None for v in explicit):
-            raise ValueError("like= is mutually exclusive with crs/resolution/bounds.")
-        return like
-    if all(v is None for v in explicit):
+    if grid is None or grid.is_empty:
         return None
-    if any(v is None for v in explicit):
-        raise ValueError(
-            "crs, resolution, and bounds must all be given together (or use like=)."
-        )
-    if anchor != "edge":
-        raise ValueError(f"anchor must be 'edge', got {anchor!r}.")
-    # The two guards above already proved none of the trio is None.
+    if grid.like is not None:
+        return grid.like
+    # The trio is complete here (guaranteed by Grid.__post_init__).
+    crs, resolution, bounds = grid.crs, grid.resolution, grid.bounds
     assert crs is not None and resolution is not None and bounds is not None
 
     import math

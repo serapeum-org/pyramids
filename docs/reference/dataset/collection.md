@@ -29,7 +29,7 @@ classDiagram
     class DatasetCollection {
         +from_dataset(dataset, time_length) DatasetCollection
         +from_files(files, glob, date_format, date_regex, start, end, meta, gdal_env, validate) DatasetCollection
-        +from_stac(items, asset, patch_url, bbox, max_items, signer, align, skip_missing, groupby, like, crs, resolution, bounds, anchor) DatasetCollection
+        +from_stac(items, asset, patch_url, bbox, max_items, signer, align, skip_missing, groupby, grid) DatasetCollection
         +from_point(lat, lon, collection, bands, start_date, end_date, edge_size, resolution, units, stac, query, signer, align) DatasetCollection
         +from_zarr(store, storage_options) DatasetCollection
         +from_archive(url_or_path, kind, member_glob, meta) DatasetCollection

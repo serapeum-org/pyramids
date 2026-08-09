@@ -36,6 +36,7 @@ from pyramids.dataset._stac import from_point as _from_point
 from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
 from pyramids.dataset.dataset import Dataset
+from pyramids.dataset.grid import Grid
 from pyramids.dataset.merge import merge_rasters
 from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
@@ -1672,11 +1673,7 @@ class DatasetCollection:
         align: bool = True,
         skip_missing: bool = False,
         groupby: str | None = None,
-        like: Any = None,
-        crs: int | str | None = None,
-        resolution: float | None = None,
-        bounds=None,
-        anchor: str = "edge",
+        grid: Grid | None = None,
     ) -> DatasetCollection:
         """Build a collection from a STAC ItemCollection.
 
@@ -1699,8 +1696,9 @@ class DatasetCollection:
                 **lon/lat** (EPSG:4326). Selects *which STAC items* are read:
                 items whose footprint doesn't intersect it are dropped before
                 their hrefs are resolved. It does **not** clip the output — that
-                is `bounds`. (Note the difference from odc-stac, where `bbox`
-                sets the output extent.)
+                is the `grid`'s bounds (see :class:`~pyramids.dataset.Grid`).
+                (Note the difference from odc-stac, where `bbox` sets the output
+                extent.)
             max_items: M6 — cap the number of items consumed (after
                 bbox filtering). Useful for quick-look workflows.
             signer: Optional signer (e.g. a
@@ -1740,20 +1738,17 @@ class DatasetCollection:
                 stack from tiled imagery over an AOI that spans several tiles.
                 Do **not** use it for non-overpass data (climate model output,
                 already-mosaicked products) — there `groupby=None` is correct.
-            like: Optional target-grid :class:`~pyramids.dataset.Dataset`;
-                every timestep is aligned onto its CRS + grid. Mutually
-                exclusive with `crs`/`resolution`/`bounds`.
-            crs: Target CRS for an explicit grid (with `resolution`+`bounds`).
-            resolution: Target pixel size for an explicit grid.
-            bounds: **Output grid extent** — `(minx, miny, maxx, maxy)` in the
-                **target `crs`** (not lon/lat). Sets the extent every timestep is
-                warped/clipped to for the explicit grid. This is the output
-                window; to instead pre-filter *which items* are read, use `bbox`.
-            anchor: Grid-snap rule for the explicit grid (`"edge"`).
+            grid: Optional :class:`~pyramids.dataset.Grid` describing the target
+                **output grid** every timestep is warped/aligned onto. `None`
+                (default) or an empty `Grid()` keeps each timestep's native grid.
+                Use `Grid(like=<Dataset>)` to match an existing grid, or
+                `Grid(crs=..., resolution=..., bounds=...)` for an explicit one
+                (its `bounds` are the output window, in the target CRS — distinct
+                from `bbox`, which filters input items in lon/lat).
 
         Returns:
             DatasetCollection: File-backed collection (or grid-aligned
-            collection when `like`/`crs` is given).
+            collection when a non-empty `grid` is given).
         """
         return _from_stac(
             items,
@@ -1765,11 +1760,7 @@ class DatasetCollection:
             align=align,
             skip_missing=skip_missing,
             groupby=groupby,
-            like=like,
-            crs=crs,
-            resolution=resolution,
-            bounds=bounds,
-            anchor=anchor,
+            grid=grid,
         )
 
     @classmethod
