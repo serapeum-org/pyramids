@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/tutorials/dataset/">
+        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/how-to/pre-commit-hooks/">
       
       
-        <link rel="prev" href="../../examples/processing/pipeline/">
+        <link rel="prev" href="../parallel-reads/">
       
       
-        <link rel="next" href="../raster-basics/">
+        <link rel="next" href="../recipes/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Overview - pyramids</title>
+        <title>Pre-commit hooks - pyramids</title>
       
     
     
@@ -83,7 +83,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#dataset" class="md-skip">
+        <a href="#pre-commit-hooks" class="md-skip">
           Skip to content
         </a>
       
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Overview
+              Pre-commit hooks
             
           </span>
         </div>
@@ -276,12 +276,10 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
+      <li class="md-tabs__item">
         <a href="../../examples/" class="md-tabs__link">
           
   
@@ -338,11 +336,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../how-to/devcontainer/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../devcontainer/" class="md-tabs__link">
           
   
   
@@ -652,29 +652,24 @@
       
   
   
-    
   
   
-  
     
     
     
     
       
-        
-        
-      
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
@@ -692,7 +687,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -816,7 +811,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/lazy-compute/" class="md-nav__link">
+      <a href="../../tutorials/lazy/lazy-compute/" class="md-nav__link">
         
   
   
@@ -844,7 +839,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/lazy-raster/" class="md-nav__link">
+      <a href="../../tutorials/lazy/lazy-raster/" class="md-nav__link">
         
   
   
@@ -872,7 +867,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/lazy-netcdf/" class="md-nav__link">
+      <a href="../../tutorials/lazy/lazy-netcdf/" class="md-nav__link">
         
   
   
@@ -900,7 +895,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/lazy-collection/" class="md-nav__link">
+      <a href="../../tutorials/lazy/lazy-collection/" class="md-nav__link">
         
   
   
@@ -928,7 +923,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/lazy-vector/" class="md-nav__link">
+      <a href="../../tutorials/lazy/lazy-vector/" class="md-nav__link">
         
   
   
@@ -956,7 +951,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/zarr/" class="md-nav__link">
+      <a href="../../tutorials/lazy/zarr/" class="md-nav__link">
         
   
   
@@ -984,7 +979,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/kerchunk/" class="md-nav__link">
+      <a href="../../tutorials/lazy/kerchunk/" class="md-nav__link">
         
   
   
@@ -1833,8 +1828,6 @@
                 
   
   
-    
-  
   
   
     
@@ -1845,11 +1838,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
         
           
           <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
@@ -1870,7 +1863,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1885,37 +1878,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Overview
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../tutorials/dataset/" class="md-nav__link">
         
   
   
@@ -1931,70 +1897,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#the-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The model
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#a-first-look" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        A first look
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-you-can-do" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What you can do
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#related-classes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Related classes
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2007,7 +1909,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../raster-basics/" class="md-nav__link">
+      <a href="../../tutorials/raster-basics/" class="md-nav__link">
         
   
   
@@ -2035,7 +1937,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../georeferencing/" class="md-nav__link">
+      <a href="../../tutorials/georeferencing/" class="md-nav__link">
         
   
   
@@ -2063,7 +1965,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../datacube-basics/" class="md-nav__link">
+      <a href="../../tutorials/datacube-basics/" class="md-nav__link">
         
   
   
@@ -2175,7 +2077,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dataset_collection/" class="md-nav__link">
+      <a href="../../tutorials/dataset_collection/" class="md-nav__link">
         
   
   
@@ -2343,7 +2245,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../cog/" class="md-nav__link">
+      <a href="../../tutorials/cog/" class="md-nav__link">
         
   
   
@@ -2767,7 +2669,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../feature/" class="md-nav__link">
+      <a href="../../tutorials/feature/" class="md-nav__link">
         
   
   
@@ -2909,7 +2811,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../stac/" class="md-nav__link">
+      <a href="../../tutorials/stac/" class="md-nav__link">
         
   
   
@@ -3137,7 +3039,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../netcdf-plotting/" class="md-nav__link">
+      <a href="../../tutorials/netcdf-plotting/" class="md-nav__link">
         
   
   
@@ -5097,24 +4999,29 @@
       
   
   
+    
   
   
+  
     
     
     
     
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -5132,7 +5039,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -5150,7 +5057,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/devcontainer/" class="md-nav__link">
+      <a href="../devcontainer/" class="md-nav__link">
         
   
   
@@ -5178,7 +5085,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/docker/" class="md-nav__link">
+      <a href="../docker/" class="md-nav__link">
         
   
   
@@ -5206,7 +5113,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/parallel-reads/" class="md-nav__link">
+      <a href="../parallel-reads/" class="md-nav__link">
         
   
   
@@ -5231,10 +5138,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../how-to/pre-commit-hooks/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-commit hooks
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -5250,6 +5184,181 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#install-one-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install (one-time)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#trigger-the-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trigger the hooks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Trigger the hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#automatically-on-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatically, on commit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#manually-on-the-whole-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manually, on the whole tree
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#on-specific-files-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        On specific files only
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-single-specific-hook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A single specific hook
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The hooks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skip-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skip hooks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skip hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skip-specific-hooks-with-skip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skip specific hooks with SKIP
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-ci-skip-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The CI skip set
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skip-every-hook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skip every hook
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gotchas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gotchas
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -5262,7 +5371,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/recipes/" class="md-nav__link">
+      <a href="../recipes/" class="md-nav__link">
         
   
   
@@ -5340,7 +5449,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/testing/" class="md-nav__link">
+      <a href="../testing/" class="md-nav__link">
         
   
   
@@ -5432,7 +5541,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/wheel-build-flow/" class="md-nav__link">
+      <a href="../wheel-build-flow/" class="md-nav__link">
         
   
   
@@ -5460,7 +5569,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/faq/" class="md-nav__link">
+      <a href="../faq/" class="md-nav__link">
         
   
   
@@ -6134,10 +6243,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-model" class="md-nav__link">
+  <a href="#install-one-time" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The model
+        Install (one-time)
       
     </span>
   </a>
@@ -6145,10 +6254,71 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#a-first-look" class="md-nav__link">
+  <a href="#trigger-the-hooks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A first look
+        Trigger the hooks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Trigger the hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#automatically-on-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatically, on commit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#manually-on-the-whole-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manually, on the whole tree
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#on-specific-files-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        On specific files only
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-single-specific-hook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A single specific hook
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The hooks
       
     </span>
   </a>
@@ -6156,10 +6326,60 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-you-can-do" class="md-nav__link">
+  <a href="#skip-hooks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What you can do
+        Skip hooks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skip hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skip-specific-hooks-with-skip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skip specific hooks with SKIP
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-ci-skip-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The CI skip set
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skip-every-hook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skip every hook
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gotchas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gotchas
       
     </span>
   </a>
@@ -6167,10 +6387,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#related-classes" class="md-nav__link">
+  <a href="#see-also" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Related classes
+        See also
       
     </span>
   </a>
@@ -6194,7 +6414,7 @@
 
 
   
-    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/tutorials/dataset.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/how-to/pre-commit-hooks.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -6203,61 +6423,203 @@
     
       
     
-    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/tutorials/dataset.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/how-to/pre-commit-hooks.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
   
 
 
-<h1 id="dataset"><a class="toclink" href="#dataset">Dataset</a><a class="headerlink" href="#dataset" title="Permanent link">#</a></h1>
-<p><code>Dataset</code> is the core raster class. It wraps a GDAL raster (GeoTIFF, NetCDF, ASCII, COG, …) and
-exposes a high-level, Pythonic API for reading, transforming, analysing, and writing geospatial
-rasters. <code>NetCDF</code> and <code>DatasetCollection</code> build on top of it.</p>
-<h2 id="the-model"><a class="toclink" href="#the-model">The model</a><a class="headerlink" href="#the-model" title="Permanent link">#</a></h2>
-<ul>
-<li>A <code>Dataset</code> has one or more <strong>bands</strong> over a regular grid, georeferenced by a <strong>geotransform</strong>
-  (origin + cell size) and a <strong>CRS</strong> (EPSG).</li>
-<li>Reads are <strong>eager by default</strong> (NumPy); pass <code>chunks=</code> to read lazily as a Dask array.</li>
-<li>Cells that don't hold data carry a <strong>no-data</strong> sentinel.</li>
-</ul>
-<h2 id="a-first-look"><a class="toclink" href="#a-first-look">A first look</a><a class="headerlink" href="#a-first-look" title="Permanent link">#</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">&quot;dem.tif&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">ds</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">,</span> <span class="n">ds</span><span class="o">.</span><span class="n">epsg</span><span class="p">,</span> <span class="n">ds</span><span class="o">.</span><span class="n">cell_size</span>   <span class="c1"># grid + georeferencing</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">arr</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>                            <span class="c1"># (bands, rows, cols) NumPy array</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">&quot;copy.tif&quot;</span><span class="p">)</span>                           <span class="c1"># driver inferred from the extension</span>
+<h1 id="pre-commit-hooks"><a class="toclink" href="#pre-commit-hooks">Pre-commit hooks</a><a class="headerlink" href="#pre-commit-hooks" title="Permanent link">#</a></h1>
+<p>This page explains the pyramids <a href="https://pre-commit.com/">pre-commit</a> setup: what the hooks are, how to install them,
+how to trigger them (all, a subset, or one), and how to skip the slow ones. The hook definitions live in
+<a href="../../.pre-commit-config.yaml"><code>.pre-commit-config.yaml</code></a>; the fast checks run in isolated tool environments while a few
+heavier hooks (<code>mypy</code>, <code>pytest-check</code>, <code>doctest</code>, <code>notebook-check</code>, <code>pixi-lock-check</code>) shell out to the pixi <strong>dev</strong>
+environment.</p>
+<p>The same config is the local mirror of CI: the <code>pre-commit</code> job in
+<a href="../../.github/workflows/lint.yml"><code>.github/workflows/lint.yml</code></a> runs <code>pre-commit run --all-files</code> with the slow test
+hooks skipped, so getting a clean local run is the fastest way to keep that job green.</p>
+<h2 id="install-one-time"><a class="toclink" href="#install-one-time">Install (one-time)</a><a class="headerlink" href="#install-one-time" title="Permanent link">#</a></h2>
+<p>Register the git hook so it fires on every <code>git commit</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>pre-commit<span class="w"> </span>install
 </code></pre></div>
-<p>Useful attributes: <code>shape</code>, <code>rows</code>, <code>columns</code>, <code>band_count</code>, <code>band_names</code>, <code>epsg</code>, <code>crs</code>,
-<code>cell_size</code>, <code>geotransform</code>, <code>bbox</code>, <code>bounds</code>, <code>no_data_value</code>, <code>dtype</code>, <code>meta_data</code>. The full,
-always-current list is generated from the source in the <a href="../../reference/dataset/">API reference</a>.</p>
-<h2 id="what-you-can-do"><a class="toclink" href="#what-you-can-do">What you can do</a><a class="headerlink" href="#what-you-can-do" title="Permanent link">#</a></h2>
-<p>The operations are demonstrated as short, runnable notebooks — start from the
-<a href="../../examples/"><strong>"How do I…?" index</strong></a>. In brief:</p>
+<p><code>--frozen</code> makes pixi use <code>pixi.lock</code> as-is instead of re-solving every platform on each run (which is slow and can hang
+on Windows). The first hook run also builds an isolated toolchain per hook repo (a few minutes, needs network) — that is
+expected, not a failure.</p>
+<h2 id="trigger-the-hooks"><a class="toclink" href="#trigger-the-hooks">Trigger the hooks</a><a class="headerlink" href="#trigger-the-hooks" title="Permanent link">#</a></h2>
+<h3 id="automatically-on-commit"><a class="toclink" href="#automatically-on-commit">Automatically, on commit</a><a class="headerlink" href="#automatically-on-commit" title="Permanent link">#</a></h3>
+<p>Once installed, the hooks run against the <strong>staged files</strong> every time you commit:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(dataset): ...&quot;</span>
+</code></pre></div>
+<p><code>fail_fast: true</code> is set, so the first hook that modifies a file (e.g. <code>ruff-format</code>) stops the run — re-stage and commit
+again until it passes.</p>
+<h3 id="manually-on-the-whole-tree"><a class="toclink" href="#manually-on-the-whole-tree">Manually, on the whole tree</a><a class="headerlink" href="#manually-on-the-whole-tree" title="Permanent link">#</a></h3>
+<p>Run every hook against all files without committing (this is what CI does):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>--all-files
+</code></pre></div>
+<h3 id="on-specific-files-only"><a class="toclink" href="#on-specific-files-only">On specific files only</a><a class="headerlink" href="#on-specific-files-only" title="Permanent link">#</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>--files<span class="w"> </span>src/pyramids/dataset/collection.py<span class="w"> </span>tests/dataset/collection/test_meta.py
+</code></pre></div>
+<p>To scope the run to just what your branch changed:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>--files<span class="w"> </span><span class="k">$(</span>git<span class="w"> </span>diff<span class="w"> </span>--name-only<span class="w"> </span>origin/main...HEAD<span class="k">)</span>
+</code></pre></div>
+<h3 id="a-single-specific-hook"><a class="toclink" href="#a-single-specific-hook">A single specific hook</a><a class="headerlink" href="#a-single-specific-hook" title="Permanent link">#</a></h3>
+<p>Pass the hook <strong>id</strong> (the left column in the table below). Combine with <code>--all-files</code> or <code>--files</code> to choose the scope:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>ruff-check<span class="w"> </span>--all-files<span class="w">       </span><span class="c1"># lint only</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>ruff-format<span class="w"> </span>--all-files<span class="w">      </span><span class="c1"># format only</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>--all-files<span class="w">             </span><span class="c1"># type-check only</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>pytest-check<span class="w"> </span>--all-files<span class="w">     </span><span class="c1"># the full test suite</span>
+</code></pre></div>
+<h2 id="the-hooks"><a class="toclink" href="#the-hooks">The hooks</a><a class="headerlink" href="#the-hooks" title="Permanent link">#</a></h2>
+<table>
+<thead>
+<tr>
+<th>id</th>
+<th>What it does</th>
+<th>Speed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>check-toml</code> / <code>check-json</code> / <code>check-yaml</code></td>
+<td>Validate config file syntax</td>
+<td>fast</td>
+</tr>
+<tr>
+<td><code>end-of-file-fixer</code> / <code>trailing-whitespace</code> / <code>mixed-line-ending</code></td>
+<td>Whitespace / newline normalisation</td>
+<td>fast</td>
+</tr>
+<tr>
+<td><code>pretty-format-json</code> / <code>requirements-txt-fixer</code></td>
+<td>Canonicalise JSON and <code>requirements.txt</code></td>
+<td>fast</td>
+</tr>
+<tr>
+<td><code>check-added-large-files</code></td>
+<td>Block files over 2 MB</td>
+<td>fast</td>
+</tr>
+<tr>
+<td><code>check-merge-conflict</code> / <code>detect-private-key</code> / <code>debug-statements</code></td>
+<td>Catch conflict markers, keys, stray <code>breakpoint()</code></td>
+<td>fast</td>
+</tr>
+<tr>
+<td><code>no-commit-to-branch</code></td>
+<td>Refuse a commit made directly on <code>main</code></td>
+<td>fast</td>
+</tr>
+<tr>
+<td><code>ruff-check</code></td>
+<td>Lint Python + notebooks (auto-fix)</td>
+<td>fast</td>
+</tr>
+<tr>
+<td><code>ruff-format</code></td>
+<td>Format Python + notebooks</td>
+<td>fast</td>
+</tr>
+<tr>
+<td><code>nbstripout</code></td>
+<td>Strip notebook outputs / execution counts</td>
+<td>fast</td>
+</tr>
+<tr>
+<td><code>beautysh</code> / <code>shellcheck</code></td>
+<td>Format and lint shell scripts</td>
+<td>fast</td>
+</tr>
+<tr>
+<td><code>check-summary-*</code> / <code>check-description-*</code> / <code>check-second-line-empty</code></td>
+<td>Commit-message conventional-commit checks</td>
+<td>fast</td>
+</tr>
+<tr>
+<td><code>bandit</code></td>
+<td>Python security linter</td>
+<td>medium</td>
+</tr>
+<tr>
+<td><code>gitleaks</code></td>
+<td>Scan staged changes for secrets</td>
+<td>medium</td>
+</tr>
+<tr>
+<td><code>checkov</code></td>
+<td>Infrastructure-as-code security scan</td>
+<td>medium</td>
+</tr>
+<tr>
+<td><code>mypy</code></td>
+<td>Static type-check (in the pixi <code>dev</code> env)</td>
+<td><strong>slow</strong></td>
+</tr>
+<tr>
+<td><code>pytest-check</code></td>
+<td>Full test suite with coverage (<code>-m "not plot"</code>)</td>
+<td><strong>slow</strong></td>
+</tr>
+<tr>
+<td><code>doctest</code></td>
+<td><code>--doctest-modules src</code> under the Agg backend</td>
+<td><strong>slow</strong></td>
+</tr>
+<tr>
+<td><code>notebook-check</code></td>
+<td><code>nbval</code> execution of the example notebooks</td>
+<td><strong>slow</strong></td>
+</tr>
+<tr>
+<td><code>pixi-lock-check</code></td>
+<td>Fail if <code>pixi.lock</code> is stale vs <code>pyproject.toml</code></td>
+<td>medium</td>
+</tr>
+</tbody>
+</table>
+<h2 id="skip-hooks"><a class="toclink" href="#skip-hooks">Skip hooks</a><a class="headerlink" href="#skip-hooks" title="Permanent link">#</a></h2>
+<h3 id="skip-specific-hooks-with-skip"><a class="toclink" href="#skip-specific-hooks-with-skip">Skip specific hooks with <code>SKIP</code></a><a class="headerlink" href="#skip-specific-hooks-with-skip" title="Permanent link">#</a></h3>
+<p>pre-commit reads the <code>SKIP</code> environment variable (a comma-separated list of hook ids) at commit time and at
+<code>pre-commit run</code> time. Everything else still runs. To skip the slow test trio on a commit:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Git Bash — inline, scoped to the single command:</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nv">SKIP</span><span class="o">=</span>pytest-check,doctest,notebook-check<span class="w"> </span>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;docs: ...&quot;</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c"># PowerShell — persists for the rest of the session (clear with: Remove-Item Env:SKIP):</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nv">$env:SKIP</span> <span class="p">=</span> <span class="s1">&#39;pytest-check,doctest,notebook-check&#39;</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">git</span> <span class="n">commit</span> <span class="n">-m</span> <span class="s2">&quot;docs: ...&quot;</span>
+</code></pre></div>
+<p>To make the skip permanent (also applies to commits from the PyCharm/JetBrains commit dialog, which inherits the
+environment it was launched with):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="no">[Environment]</span><span class="p">::</span><span class="n">SetEnvironmentVariable</span><span class="p">(</span><span class="s1">&#39;SKIP&#39;</span><span class="p">,</span> <span class="s1">&#39;pytest-check,doctest,notebook-check&#39;</span><span class="p">,</span> <span class="s1">&#39;User&#39;</span><span class="p">)</span>
+</code></pre></div>
+<p>Restart your shells / IDE afterward. Note that a permanent <code>SKIP</code> also excludes those hooks from
+<code>pre-commit run --all-files</code>, so they never run locally until you clear it — fine if you rely on CI as the backstop.</p>
+<h3 id="the-ci-skip-set"><a class="toclink" href="#the-ci-skip-set">The CI skip set</a><a class="headerlink" href="#the-ci-skip-set" title="Permanent link">#</a></h3>
+<p>The <code>lint.yml</code> job runs everything <strong>except</strong> the hooks it can't or shouldn't run there. To reproduce that job exactly:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">SKIP</span><span class="o">=</span>no-commit-to-branch,gitleaks,pytest-check,doctest,notebook-check,pixi-lock-check<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>dev<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>--all-files
+</code></pre></div>
+<h3 id="skip-every-hook"><a class="toclink" href="#skip-every-hook">Skip every hook</a><a class="headerlink" href="#skip-every-hook" title="Permanent link">#</a></h3>
+<p><code>--no-verify</code> bypasses <strong>all</strong> hooks for a single commit — use it sparingly, since it also skips the fast formatting and
+lint that keep the diff clean:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>git<span class="w"> </span>commit<span class="w"> </span>--no-verify<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;wip&quot;</span>
+</code></pre></div>
+<h2 id="gotchas"><a class="toclink" href="#gotchas">Gotchas</a><a class="headerlink" href="#gotchas" title="Permanent link">#</a></h2>
 <ul>
-<li><strong>Read / write / convert</strong> — <a href="../../examples/dataset/dataset/">Dataset basics</a>,
-  <a href="../../examples/conversions/geotiff-netcdf/">format conversions</a>,
-  <a href="../../examples/operations/windowed-reads/">windowed reads</a>.</li>
-<li><strong>Transform</strong> — <a href="../../examples/operations/reproject-resample-align/">reproject / resample / align</a>,
-  <a href="../../examples/operations/crop-mask/">crop &amp; mask</a>,
-  <a href="../../examples/operations/mosaic-merge/">mosaic &amp; merge</a>,
-  <a href="../../examples/operations/nodata-gap-filling/">no-data &amp; gap filling</a>.</li>
-<li><strong>Analyse</strong> — <a href="../../examples/operations/zonal-statistics/">zonal statistics</a>,
-  <a href="../../examples/operations/extract-at-points/">extract at points</a>,
-  <a href="../../examples/operations/terrain-analysis/">terrain analysis</a>,
-  <a href="../../examples/operations/raster-algebra/">raster algebra</a>.</li>
-<li><strong>Raster ↔ vector</strong> — <a href="../../examples/operations/rasterize-vectorize/">rasterize ↔ vectorize</a>.</li>
-<li><strong>Visualize</strong> — <a href="../../examples/operations/visualization/">visualization gallery</a>,
-  <a href="../../examples/operations/color-tables/">color tables</a>,
-  <a href="../../examples/operations/overviews/">overviews</a>.</li>
-<li><strong>Scale out</strong> — <a href="../../examples/dask/overview/">using pyramids with Dask</a>.</li>
+<li><strong>pixi startup cost.</strong> <code>pixi run</code> has a noticeable cold-start on Windows (~15–25 s). That is env warm-up, not a hung
+  hook.</li>
+<li><strong><code>--frozen</code> always.</strong> Without it, pixi re-solves every platform on each hook invocation, which is slow and can hang.</li>
+<li><strong><code>-p no:cacheprovider</code>.</strong> The pytest-based hooks disable the cache because writing <code>.pytest_cache</code> fails with
+  <code>WinError 183</code> on the Google-Drive-synced tree.</li>
+<li><strong>Agg backend for doctests.</strong> The <code>doctest</code> hook forces <code>matplotlib.use("Agg")</code> so no plotting doctest pops a GUI
+  window that would block the commit.</li>
+<li><strong><code>no-commit-to-branch</code> blocks <code>main</code>.</strong> Commits must be made on a feature branch; this hook refuses a direct commit on
+  <code>main</code>.</li>
 </ul>
-<h2 id="related-classes"><a class="toclink" href="#related-classes">Related classes</a><a class="headerlink" href="#related-classes" title="Permanent link">#</a></h2>
+<h2 id="see-also"><a class="toclink" href="#see-also">See also</a><a class="headerlink" href="#see-also" title="Permanent link">#</a></h2>
 <ul>
-<li><a href="../../examples/dask/collection/"><code>DatasetCollection</code></a> — a time-stack of co-registered rasters.</li>
-<li><a href="../../reference/netcdf/"><code>NetCDF</code></a> — multidimensional / CF rasters.</li>
-<li><a href="../feature/"><code>FeatureCollection</code></a> — the vector counterpart.</li>
+<li><a href="../testing/">Testing &amp; CI</a> — how the test suite is sliced across CI jobs and reproduced locally.</li>
+<li><a href="../../.pre-commit-config.yaml"><code>.pre-commit-config.yaml</code></a> — the source of truth for every hook.</li>
 </ul>
 
 
@@ -6294,7 +6656,7 @@ always-current list is generated from the source in the <a href="../../reference
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../../examples/processing/pipeline/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Declarative geoprocessing pipelines ()">
+          <a href="../parallel-reads/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Parallel windowed reads">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -6304,20 +6666,20 @@ always-current list is generated from the source in the <a href="../../reference
                 Previous
               </span>
               <div class="md-ellipsis">
-                Declarative geoprocessing pipelines ()
+                Parallel windowed reads
               </div>
             </div>
           </a>
         
         
           
-          <a href="../raster-basics/" class="md-footer__link md-footer__link--next" aria-label="Next: Raster basics">
+          <a href="../recipes/" class="md-footer__link md-footer__link--next" aria-label="Next: Recipes">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Raster basics
+                Recipes
               </div>
             </div>
             <div class="md-footer__button md-icon">
