@@ -254,6 +254,41 @@ class TestWriteMultidimNetcdf:
             f"time axis not numeric: {vals!r}"
         )
 
+    def test_coord_length_mismatch_raises_value_error(self, tmp_path):
+        """A coordinate whose length differs from its dimension size raises.
+
+        Test scenario:
+            ``dims={"x": 3}`` but the ``x`` coord array has length 2 — expected:
+            a ``ValueError`` naming the coordinate and the length mismatch.
+        """
+        with pytest.raises(ValueError, match="dimension is length"):
+            write_multidim_netcdf(
+                tmp_path / "badcoord.nc",
+                dims={"x": 3},
+                coords={"x": (np.array([0.0, 1.0]), {})},
+                data_vars={"v": (("x",), np.array([1.0, 2.0, 3.0]), {})},
+                global_attrs={},
+            )
+
+    def test_variable_shape_mismatch_raises_value_error(self, tmp_path):
+        """A variable whose shape differs from its declared dims raises.
+
+        Test scenario:
+            ``dims={"y": 2, "x": 3}`` but ``v`` is shape ``(2, 2)`` — expected: a
+            ``ValueError`` naming the variable and the implied shape.
+        """
+        with pytest.raises(ValueError, match="imply"):
+            write_multidim_netcdf(
+                tmp_path / "badvar.nc",
+                dims={"y": 2, "x": 3},
+                coords={
+                    "y": (np.array([0.0, 1.0]), {}),
+                    "x": (np.array([0.0, 1.0, 2.0]), {}),
+                },
+                data_vars={"v": (("y", "x"), np.zeros((2, 2)), {})},
+                global_attrs={},
+            )
+
     def test_unknown_variable_dimension_raises_value_error(self, tmp_path):
         """A variable over a dimension absent from ``dims`` raises ``ValueError``.
 

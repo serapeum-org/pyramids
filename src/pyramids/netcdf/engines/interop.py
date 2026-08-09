@@ -379,7 +379,8 @@ def _build_multidim(
         handed to the netCDF driver's `CreateCopy`.
 
     Raises:
-        ValueError: When a variable references a dimension not present in `dims`.
+        ValueError: When a variable references an unknown dimension, or a
+            coordinate/variable array shape does not match its dimension sizes.
     """
     src = gdal.GetDriverByName("MEM").CreateMultiDimensional("pyramids")
     root = src.GetRootGroup()
@@ -393,6 +394,11 @@ def _build_multidim(
         if coord_name not in gdal_dims:
             continue
         values, cf_attrs = _encode_temporal_array(np.asarray(coord_values))
+        if values.shape != (dims[coord_name],):
+            raise ValueError(
+                f"coordinate {coord_name!r} has shape {values.shape} but its "
+                f"dimension is length {dims[coord_name]}"
+            )
         ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
         md_arr = root.CreateMDArray(coord_name, [gdal_dims[coord_name]], ext)
         md_arr.Write(np.ascontiguousarray(values))
@@ -408,6 +414,12 @@ def _build_multidim(
                 f"{unknown} not in dims {sorted(gdal_dims)}"
             )
         values, cf_attrs = _encode_temporal_array(np.asarray(var_values))
+        expected = tuple(dims[d] for d in var_dims)
+        if values.shape != expected:
+            raise ValueError(
+                f"variable {var_name!r} has shape {values.shape} but its "
+                f"dimensions {tuple(var_dims)} imply {expected}"
+            )
         ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
         md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
         md_arr.Write(np.ascontiguousarray(values))
@@ -492,7 +504,8 @@ def write_multidim_netcdf(
         global_attrs: Root-group (global) attributes.
 
     Raises:
-        ValueError: When a variable references a dimension not present in `dims`.
+        ValueError: When a variable references an unknown dimension, or a
+            coordinate/variable array shape does not match its dimension sizes.
         RuntimeError: When the GDAL netCDF writer fails to create the file.
     """
     mem_src = _build_multidim(dims, coords, data_vars, global_attrs)
