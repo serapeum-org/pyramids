@@ -28,7 +28,9 @@ class TestGrid:
         assert grid.crs is None, f"crs should default None, got {grid.crs!r}"
         assert grid.resolution is None, f"resolution default: {grid.resolution!r}"
         assert grid.bounds is None, f"bounds should default None, got {grid.bounds!r}"
-        assert grid.anchor == "edge", f"anchor should default 'edge', got {grid.anchor!r}"
+        assert grid.anchor == "edge", (
+            f"anchor should default 'edge', got {grid.anchor!r}"
+        )
         assert grid.is_empty is True, "default Grid should be empty"
 
     def test_like_only_valid_and_not_empty(self):

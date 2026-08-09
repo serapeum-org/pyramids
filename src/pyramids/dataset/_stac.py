@@ -679,9 +679,7 @@ def _point_aoi_bbox(
     edge_size: int,
     resolution: float,
     units: str,
-) -> tuple[
-    int, tuple[float, float, float, float], tuple[float, float, float, float]
-]:
+) -> tuple[int, tuple[float, float, float, float], tuple[float, float, float, float]]:
     """Compute the local-UTM EPSG, the UTM AOI, and the 4326 search bbox.
 
     The center `(lat, lon)` is reprojected to its local UTM, snapped to the
