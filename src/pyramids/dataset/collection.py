@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import fnmatch
 import numbers
 import re
@@ -10,6 +9,7 @@ import tempfile
 import textwrap
 import warnings
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -1839,8 +1839,8 @@ class DatasetCollection:
         glob: str = _DEFAULT_GLOB,
         date_format: str | None = None,
         date_regex: str = r"\d{4}.\d{2}.\d{2}",
-        start: dt.datetime | None = None,
-        end: dt.datetime | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
         validate: bool = False,
@@ -1911,7 +1911,7 @@ class DatasetCollection:
               ```
         """
         resolved = cls._resolve_files(files, glob)
-        time_axis: list[dt.datetime] | None = None
+        time_axis: list[datetime] | None = None
         if date_format is not None:
             dates = [
                 cls._parse_date(Path(f).name, date_regex, date_format) for f in resolved
@@ -1942,7 +1942,7 @@ class DatasetCollection:
     def _build(
         cls,
         files: list[str],
-        time_axis: list[dt.datetime] | list[int] | None,
+        time_axis: list[datetime] | list[int] | None,
         *,
         meta: RasterMeta | None,
         gdal_env: dict[str, str] | None,
@@ -2004,12 +2004,12 @@ class DatasetCollection:
         return resolved
 
     @staticmethod
-    def _parse_date(name: str, regex: str, fmt: str) -> dt.datetime:
+    def _parse_date(name: str, regex: str, fmt: str) -> datetime:
         """Return the date in ``name`` — the ``regex`` match parsed with ``fmt``."""
         match = re.search(regex, name)
         if match is None:
             raise ValueError(f"date pattern {regex!r} matched no date in {name!r}")
-        return dt.datetime.strptime(match.group(), fmt)
+        return datetime.strptime(match.group(), fmt)
 
     @staticmethod
     def _parse_number(name: str, regex: str) -> int:
@@ -2261,8 +2261,8 @@ class DatasetCollection:
                 order = sorted(range(len(resolved)), key=dates.__getitem__)
                 resolved = [resolved[i] for i in order]
                 dates = [dates[i] for i in order]
-            start_dt = dt.datetime.strptime(start, fmt) if start is not None else None
-            end_dt = dt.datetime.strptime(end, fmt) if end is not None else None
+            start_dt = datetime.strptime(start, fmt) if start is not None else None
+            end_dt = datetime.strptime(end, fmt) if end is not None else None
             if start_dt is not None or end_dt is not None:
                 kept = [
                     (f, d)
