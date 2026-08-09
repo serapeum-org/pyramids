@@ -29,11 +29,11 @@ from pyproj import Transformer
 
 from pyramids.base._artifacts import artifact_dir
 from pyramids.base._errors import StacAssetError
+from pyramids.dataset.grid import Grid
 from pyramids.utm import utm_epsg
 
 if TYPE_CHECKING:
     from pyramids.dataset.collection import DatasetCollection
-    from pyramids.dataset.grid import Grid
 
 
 def _iter_items(items: Any) -> list[Any]:
@@ -679,8 +679,10 @@ def _point_aoi_bbox(
     edge_size: int,
     resolution: float,
     units: str,
-) -> tuple[int, tuple[float, float, float, float]]:
-    """Compute the local-UTM EPSG and the 4326 search bbox for a point cube.
+) -> tuple[
+    int, tuple[float, float, float, float], tuple[float, float, float, float]
+]:
+    """Compute the local-UTM EPSG, the UTM AOI, and the 4326 search bbox.
 
     The center `(lat, lon)` is reprojected to its local UTM, snapped to the
     `resolution` grid, and expanded to a square AOI of `edge_size` pixels
@@ -696,7 +698,10 @@ def _point_aoi_bbox(
         units: `"px"` or `"m"`.
 
     Returns:
-        A `(utm_epsg, bbox_4326)` tuple, with `bbox_4326` = `(w, s, e, n)`.
+        A `(utm_epsg, utm_bbox, bbox_4326)` tuple: the local UTM EPSG code, the
+        resolution-snapped AOI square `(minx, miny, maxx, maxy)` in that UTM CRS
+        (the exact target grid), and the same square reprojected to EPSG:4326
+        `(w, s, e, n)` for the STAC search.
 
     Raises:
         ValueError: When `units` is not `"px"` or `"m"`.
@@ -719,7 +724,7 @@ def _point_aoi_bbox(
         clon, clat = to_wgs.transform(x, y)
         lons.append(clon)
         lats.append(clat)
-    return epsg, (min(lons), min(lats), max(lons), max(lats))
+    return epsg, utm_bbox, (min(lons), min(lats), max(lons), max(lats))
 
 
 def from_point(
@@ -746,12 +751,12 @@ def from_point(
     `resolution` grid, and expanded to a square AOI of `edge_size` pixels (or
     metres); that AOI (reprojected to EPSG:4326) drives the STAC search.
 
-    .. note::
-        The returned cube is on the matched assets' native grid clipped to the
-        AOI — it is **not yet** resampled to an exact `edge_size`×`edge_size`
-        local-UTM grid. Exact target-grid resampling arrives with the
-        `geobox=`/`like=` grid match (PC-2). For now `from_point` is the
-        convenience AOI + search + stack wrapper.
+    The returned cube is resampled onto the exact `edge_size`×`edge_size`
+    local-UTM target grid the AOI defines: `from_point` builds a
+    :class:`~pyramids.dataset.Grid` (`crs` = the local UTM zone, `resolution`,
+    `bounds` = the snapped UTM square) and forwards it to :func:`from_stac`, so
+    every timestep is co-registered on that grid regardless of the assets'
+    native CRS.
 
     Args:
         lat: Center latitude in degrees (EPSG:4326).
@@ -773,7 +778,8 @@ def from_point(
         align: Multi-asset resolution policy, forwarded to :func:`from_stac`.
 
     Returns:
-        DatasetCollection: A time-stacked cube over the point AOI.
+        DatasetCollection: A time-stacked cube over the point AOI, resampled
+        onto the exact `edge_size`×`edge_size` local-UTM grid.
 
     Raises:
         ValueError: When `units` is invalid, or the search yields no items.
@@ -797,7 +803,9 @@ def from_point(
 
             ```
     """
-    _utm_epsg_code, bbox_4326 = _point_aoi_bbox(lat, lon, edge_size, resolution, units)
+    utm_epsg, utm_bbox, bbox_4326 = _point_aoi_bbox(
+        lat, lon, edge_size, resolution, units
+    )
 
     from pyramids.stac.search import search
 
@@ -809,7 +817,10 @@ def from_point(
         query=query,
         signer=signer,
     )
-    return from_stac(items, bands, signer=signer, align=align)
+    # Resample every timestep onto the exact edge_size x edge_size local-UTM
+    # target grid the AOI defines (PC-2), so the point cube is co-registered.
+    grid = Grid(crs=utm_epsg, resolution=resolution, bounds=utm_bbox)
+    return from_stac(items, bands, signer=signer, align=align, grid=grid)
 
 
 def _bbox_ring(bbox: Sequence[float]) -> dict[str, Any]:

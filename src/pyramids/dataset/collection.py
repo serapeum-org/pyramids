@@ -1786,7 +1786,9 @@ class DatasetCollection:
         Thin forwarder to :func:`pyramids.dataset._stac.from_point`: reprojects
         `(lat, lon)` to its local UTM, snaps to the `resolution` grid, expands to
         an `edge_size`-pixel (or -metre) square AOI, searches `collection` over
-        that AOI + date range, and stacks the `bands` via :meth:`from_stac`.
+        that AOI + date range, and stacks the `bands` via :meth:`from_stac` —
+        resampling every timestep onto that exact local-UTM grid (through an
+        internally built :class:`~pyramids.dataset.Grid`).
 
         Args:
             lat: Center latitude in degrees (EPSG:4326).
@@ -1804,7 +1806,8 @@ class DatasetCollection:
             align: Multi-asset resolution policy (see :meth:`from_stac`).
 
         Returns:
-            DatasetCollection: A time-stacked cube over the point AOI.
+            DatasetCollection: A time-stacked cube over the point AOI, on the
+            exact `edge_size`×`edge_size` local-UTM grid.
         """
         kwargs: dict[str, Any] = {
             "collection": collection,

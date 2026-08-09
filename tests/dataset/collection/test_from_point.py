@@ -7,7 +7,7 @@ import sys
 import pytest
 
 import pyramids.stac.search  # noqa: F401  (ensure the submodule is in sys.modules)
-from pyramids.dataset import DatasetCollection
+from pyramids.dataset import DatasetCollection, Grid
 from pyramids.dataset._stac import _point_aoi_bbox, _utm_epsg, from_point
 
 pytestmark = pytest.mark.core
@@ -54,7 +54,9 @@ class TestPointAoiBbox:
         Test scenario:
             (46N, 11E) selects EPSG:32632.
         """
-        epsg, _ = _point_aoi_bbox(46.0, 11.0, edge_size=64, resolution=10.0, units="px")
+        epsg, _, _ = _point_aoi_bbox(
+            46.0, 11.0, edge_size=64, resolution=10.0, units="px"
+        )
         assert epsg == 32632, f"expected UTM 32632, got {epsg}"
 
     def test_bbox_brackets_the_point(self):
@@ -63,7 +65,7 @@ class TestPointAoiBbox:
         Test scenario:
             (46N, 11E) lies within the returned (w, s, e, n).
         """
-        _, (w, s, e, n) = _point_aoi_bbox(
+        _, _, (w, s, e, n) = _point_aoi_bbox(
             46.0, 11.0, edge_size=64, resolution=10.0, units="px"
         )
         assert w < 11.0 < e and s < 46.0 < n, f"point not bracketed by {(w, s, e, n)}"
@@ -77,7 +79,7 @@ class TestPointAoiBbox:
         """
         import math
 
-        _, (w, _, e, _) = _point_aoi_bbox(
+        _, _, (w, _, e, _) = _point_aoi_bbox(
             46.0, 11.0, edge_size=64, resolution=10.0, units="px"
         )
         expected_deg = 640.0 / (111_320.0 * math.cos(math.radians(46.0)))
@@ -91,15 +93,28 @@ class TestPointAoiBbox:
         Test scenario:
             1000 m square is wider than a 64 px * 10 m = 640 m square.
         """
-        _, m_bbox = _point_aoi_bbox(
+        _, _, m_bbox = _point_aoi_bbox(
             0.0, 0.0, edge_size=1000, resolution=10.0, units="m"
         )
-        _, px_bbox = _point_aoi_bbox(
+        _, _, px_bbox = _point_aoi_bbox(
             0.0, 0.0, edge_size=64, resolution=10.0, units="px"
         )
         assert (m_bbox[2] - m_bbox[0]) > (px_bbox[2] - px_bbox[0]), (
             "metres AOI should be wider"
         )
+
+    def test_utm_bbox_is_snapped_square(self):
+        """The UTM AOI (2nd return value) is a resolution-snapped square.
+
+        Test scenario:
+            64 px * 10 m -> a 640 m UTM square whose edges are multiples of 10.
+        """
+        _, (minx, miny, maxx, maxy), _ = _point_aoi_bbox(
+            46.0, 11.0, edge_size=64, resolution=10.0, units="px"
+        )
+        assert (maxx - minx) == pytest.approx(640.0), f"width: {maxx - minx}"
+        assert (maxy - miny) == pytest.approx(640.0), f"height: {maxy - miny}"
+        assert minx % 10.0 == pytest.approx(0.0), f"minx not snapped: {minx}"
 
     def test_invalid_units_raises(self):
         """An unsupported units value raises ValueError.
@@ -133,6 +148,7 @@ class TestFromPoint:
         def fake_from_stac(items, asset, *, signer=None, align=True, **kw):
             captured["items"] = items
             captured["asset"] = asset
+            captured["grid"] = kw.get("grid")
             return "CUBE"
 
         monkeypatch.setattr(_SEARCH_MOD, "search", fake_search)
@@ -167,6 +183,18 @@ class TestFromPoint:
             "B04",
             "B03",
         ], f"bands should pass through: {captured['asset']}"
+        assert isinstance(captured["grid"], Grid), (
+            f"from_point should forward a Grid to from_stac: {captured['grid']!r}"
+        )
+        assert captured["grid"].crs == 32632, (
+            f"grid crs should be the local UTM zone: {captured['grid'].crs}"
+        )
+        assert captured["grid"].resolution == 10.0, (
+            f"grid resolution: {captured['grid'].resolution}"
+        )
+        assert captured["grid"].bounds is not None, (
+            "grid should carry the UTM AOI bounds"
+        )
 
     def test_classmethod_forwards(self, monkeypatch):
         """DatasetCollection.from_point forwards to the _stac implementation.
