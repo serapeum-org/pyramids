@@ -6460,10 +6460,10 @@ writes.</p>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_zarr</span><span class="p">(</span><span class="s2">&quot;out.zarr&quot;</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">),</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;w&quot;</span><span class="p">)</span>
 </code></pre></div>
-<p>The store metadata follows rioxarray's geobox-attribute convention
+<p>The store metadata follows the standard GeoZarr geobox-attribute convention
 (<code>spatial_ref</code>, <code>GeoTransform</code>, <code>epsg</code>, <code>no_data_value</code>, <code>band_names</code>,
 <code>dtype</code>, <code>shape</code>), so a downstream consumer can open the result with
-plain rioxarray:</p>
+a plain GeoZarr raster reader:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">rioxarray</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">da</span> <span class="o">=</span> <span class="n">rioxarray</span><span class="o">.</span><span class="n">open_rasterio</span><span class="p">(</span><span class="s2">&quot;out.zarr&quot;</span><span class="p">)</span>
 </code></pre></div>

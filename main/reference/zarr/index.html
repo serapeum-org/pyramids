@@ -6472,8 +6472,8 @@
 <p>pyramids reads and writes <strong>Zarr v3</strong> stores for both single rasters
 (<code>Dataset</code>) and time-stacked cubes (<code>DatasetCollection</code>). On disk, the layout
 follows the CF / GeoZarr convention so a pyramids store opens georeferenced in
-any standards-aware reader (rioxarray, odc-geo, <code>xarray.open_zarr</code>, GDAL's
-Zarr driver) without needing pyramids in the loop. Conversely, the reader is
+any standards-aware GeoZarr reader (odc-geo, GDAL's Zarr driver, or a
+labeled-array Zarr reader) without needing pyramids in the loop. Conversely, the reader is
 tolerant: it opens GeoZarr stores written by other tools too.</p>
 <blockquote>
 <p><strong>Requires the <code>[lazy]</code> extra</strong> (<code>zarr&gt;=3</code>, <code>dask</code>, <code>fsspec</code>, plus
@@ -6532,7 +6532,7 @@ tolerant: it opens GeoZarr stores written by other tools too.</p>
 </table>
 <p>…plus the standard attrs:</p>
 <ul>
-<li><code>data.attrs["_ARRAY_DIMENSIONS"]</code> (xarray v2 compatibility attribute) <strong>plus</strong>
+<li><code>data.attrs["_ARRAY_DIMENSIONS"]</code> (labeled-array v2 compatibility attribute) <strong>plus</strong>
   the native zarr v3 <code>dimension_names</code> array property (set via the
   <code>create_array(..., dimension_names=…)</code> kwarg, not on <code>.attrs</code>) — both
   <code>["band","y","x"]</code> for <code>Dataset</code> and <code>["time","band","y","x"]</code> for cubes.</li>
@@ -6633,8 +6633,8 @@ of type <code>scale</code>) so GDAL's Zarr v3 driver also exposes the levels as 
 array with a <code>grid_mapping</code> attr, then the highest-dim non-coordinate array),
 follows the CF <code>grid_mapping</code> link to the CRS variable (defaulting to
 <code>"spatial_ref"</code>), and falls back to deriving the transform from <code>x</code> / <code>y</code>
-coordinates when <code>GeoTransform</code> is absent — so stores written by rioxarray,
-odc-geo, or GDAL's Zarr driver open without pyramids in the loop.</p>
+coordinates when <code>GeoTransform</code> is absent — so stores written by labeled-array
+Zarr writers, odc-geo, or GDAL's Zarr driver open without pyramids in the loop.</p>
 <p>For ambiguous foreign stores you can pin the array explicitly:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">Dataset</span><span class="o">.</span><span class="n">from_zarr</span><span class="p">(</span><span class="s2">&quot;some-foreign.zarr&quot;</span><span class="p">,</span> <span class="n">data_name</span><span class="o">=</span><span class="s2">&quot;elevation&quot;</span><span class="p">)</span>
 </code></pre></div>

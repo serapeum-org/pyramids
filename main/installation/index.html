@@ -6627,9 +6627,10 @@ the macOS and Windows x64 wheels). No <code>gdal-config</code>, no
   (powers <code>Dataset.read_array(chunks=…)</code>, <code>DatasetCollection.data</code>,
   <code>DatasetCollection.to_zarr</code>, and <code>NetCDF.to_kerchunk</code> /
   <code>combine_kerchunk</code> HDF5/NetCDF reference manifests)</li>
-<li>xarray interop (<code>DatasetCollection.to_netcdf</code>, <code>NetCDF.from_xarray</code> /
-  <code>to_xarray</code>) is <strong>not</strong> a pyramids extra — pyramids is GDAL-backed, so
-  xarray is a peer. <code>pip install xarray</code> directly when you want those helpers.</li>
+<li>the optional labeled-array interop (<code>DatasetCollection.to_netcdf</code>,
+  <code>NetCDF.from_xarray</code> / <code>to_xarray</code>) is <strong>not</strong> a pyramids extra — pyramids is
+  GDAL-backed, so the labeled-array library is a peer. Install it directly
+  (<code>pip install xarray</code>) when you want those helpers.</li>
 <li><code>parquet</code>: pyarrow + dask-geopandas + <code>[lazy]</code> (eager GeoParquet I/O
   and the lazy <code>LazyFeatureCollection</code>)</li>
 <li><code>dev</code>: nbval, pre-commit, pytest, coverage, build, twine, etc.</li>
@@ -6638,7 +6639,7 @@ the macOS and Windows x64 wheels). No <code>gdal-config</code>, no
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="go">pip install &quot;pyramids-gis[viz]&quot;                  # plotting</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="go">pip install &quot;pyramids-gis[lazy]&quot;                 # dask-backed chunked I/O</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="go">pip install &quot;pyramids-gis[viz,lazy]&quot;             # combine extras with commas</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="go">pip install xarray                               # xarray / NetCDF4 interop (peer dep, not an extra)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="go">pip install xarray                               # optional interop dependency (peer dep, not an extra)</span>
 </code></pre></div>
 <h3 id="with-conda-forge"><a class="toclink" href="#with-conda-forge">With conda-forge</a><a class="headerlink" href="#with-conda-forge" title="Permanent link">#</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="go">conda install -c conda-forge pyramids</span>
@@ -6859,7 +6860,7 @@ conda-forge for development):</p>
 <tbody>
 <tr>
 <td><code>dev</code></td>
-<td>Default development env (includes viz + xarray + test tooling)</td>
+<td>Default development env (includes viz + interop + test tooling)</td>
 </tr>
 <tr>
 <td><code>docs</code></td>

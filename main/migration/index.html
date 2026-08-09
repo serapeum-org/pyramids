@@ -6645,7 +6645,7 @@ S3 side already had.</p>
 <p><strong><code>Dataset.epsg</code> no longer reports EPSG:4326 for a raster that has no CRS.</strong> It previously substituted WGS 84
 whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that
 claim propagated into <code>to_file</code>, <code>to_crs</code>, <code>bounds</code> and alignment checks. It now returns <code>None</code>, matching GDAL,
-rasterio, rioxarray and geopandas, none of which substitute a default.</p>
+rasterio and geopandas, none of which substitute a default.</p>
 <p>What changed, and what did not:</p>
 <ul>
 <li><strong>No CRS and no evidence</strong> (a GeoTIFF or ASCII grid with an empty projection) → <code>epsg</code> is <code>None</code>. Operations
@@ -7056,8 +7056,9 @@ were renamed. They are internal — use <code>NetCDF.to_kerchunk</code> / <code>
 </ul>
 <h4 id="naming-note"><a class="toclink" href="#naming-note">Naming note</a><a class="headerlink" href="#naming-note" title="Permanent link">#</a></h4>
 <p>The new public types are named <code>Container</code> and <code>Variable</code>. They read cleanly when namespace-qualified
-(<code>pyramids.netcdf.Container</code>). If you <code>from pyramids.netcdf import Variable</code> in a module that also uses <code>xarray</code>,
-the name collides conceptually with <code>xarray.Variable</code> — prefer the namespace-qualified form, or alias on import:</p>
+(<code>pyramids.netcdf.Container</code>). If you <code>from pyramids.netcdf import Variable</code> in a module that also uses a
+labeled-array library, the name collides conceptually with that library's own <code>Variable</code> type — prefer the
+namespace-qualified form, or alias on import:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">Variable</span> <span class="k">as</span> <span class="n">NcVariable</span>
 </code></pre></div>
 <h4 id="migration-checklist"><a class="toclink" href="#migration-checklist">Migration checklist</a><a class="headerlink" href="#migration-checklist" title="Permanent link">#</a></h4>
