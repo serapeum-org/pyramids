@@ -359,8 +359,8 @@ def _build_multidim(
     """Build an in-memory GDAL multidim container from plain arrays and attrs.
 
     The shared core behind `_build_multidim_from_xarray` and the GDAL-native
-    NetCDF writers (e.g. `DatasetCollection.to_netcdf`) — neither needs an
-    `xarray.Dataset` to reach pyramids' own multidimensional writer. Each
+    NetCDF writers (e.g. `DatasetCollection.to_netcdf`) — neither needs a
+    labeled-array dataset to reach pyramids' own multidimensional writer. Each
     coordinate becomes a 1-D indexing MDArray and each variable an N-D MDArray
     whose dimensions are resolved by name; `numpy` datetime/timedelta axes are
     CF-encoded on the way in and attributes go through pyramids' own CF helpers.
@@ -377,6 +377,9 @@ def _build_multidim(
     Returns:
         gdal.Dataset: An in-memory `MEM` multidimensional dataset ready to be
         handed to the netCDF driver's `CreateCopy`.
+
+    Raises:
+        ValueError: When a variable references a dimension not present in `dims`.
     """
     src = gdal.GetDriverByName("MEM").CreateMultiDimensional("pyramids")
     root = src.GetRootGroup()
@@ -468,13 +471,13 @@ def write_multidim_netcdf(
     data_vars: dict[str, tuple[tuple[str, ...], np.ndarray, dict[str, Any]]],
     global_attrs: dict[str, Any],
 ) -> None:
-    """Write a plain multidim spec to a NetCDF file through GDAL (no xarray).
+    """Write a plain multidim spec to a NetCDF file through GDAL.
 
     Assembles the `(dims, coords, data_vars, global_attrs)` spec into an
     in-memory GDAL multidimensional dataset via `_build_multidim` and copies it
     out with the netCDF driver — the same writer `NetCDF.from_xarray` uses, so a
-    caller that already holds `numpy` arrays never has to build an
-    `xarray.Dataset` just to emit a NetCDF.
+    caller that already holds `numpy` arrays never has to build a
+    labeled-array dataset just to emit a NetCDF.
 
     Args:
         path: Output `.nc` path.
@@ -485,6 +488,7 @@ def write_multidim_netcdf(
         global_attrs: Root-group (global) attributes.
 
     Raises:
+        ValueError: When a variable references a dimension not present in `dims`.
         RuntimeError: When the GDAL netCDF writer fails to create the file.
     """
     mem_src = _build_multidim(dims, coords, data_vars, global_attrs)
