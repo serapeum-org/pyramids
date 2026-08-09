@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -2923,10 +2923,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#match-a-target-grid-gridgrid" class="md-nav__link">
+  <a href="#match-a-target-grid-like-crsresolutionbounds" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Match a target grid — grid=Grid(...)
+        Match a target grid — like= / crs+resolution+bounds
       
     </span>
   </a>
@@ -5339,34 +5339,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/pre-commit-hooks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Pre-commit hooks
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../how-to/recipes/" class="md-nav__link">
         
   
@@ -5406,10 +5378,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_5" >
         
           
-          <label class="md-nav__link" for="__nav_6_6" id="__nav_6_6_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_6_5" id="__nav_6_5_label" tabindex="0">
             
   
   
@@ -5427,8 +5399,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -6284,10 +6256,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#match-a-target-grid-gridgrid" class="md-nav__link">
+  <a href="#match-a-target-grid-like-crsresolutionbounds" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Match a target grid — grid=Grid(...)
+        Match a target grid — like= / crs+resolution+bounds
       
     </span>
   </a>
@@ -6489,19 +6461,16 @@ by the bbox-centroid longitude, so an overpass isn't split across UTC midnight)
 into one timestep, mosaicked first-valid:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">daily</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="o">=</span><span class="s2">&quot;visual&quot;</span><span class="p">,</span> <span class="n">groupby</span><span class="o">=</span><span class="s2">&quot;solar_day&quot;</span><span class="p">)</span>
 </code></pre></div>
-<h3 id="match-a-target-grid-gridgrid"><a class="toclink" href="#match-a-target-grid-gridgrid">Match a target grid — <code>grid=Grid(...)</code></a><a class="headerlink" href="#match-a-target-grid-gridgrid" title="Permanent link">#</a></h3>
+<h3 id="match-a-target-grid-like-crsresolutionbounds"><a class="toclink" href="#match-a-target-grid-like-crsresolutionbounds">Match a target grid — <code>like=</code> / <code>crs</code>+<code>resolution</code>+<code>bounds</code></a><a class="headerlink" href="#match-a-target-grid-like-crsresolutionbounds" title="Permanent link">#</a></h3>
 <p>To guarantee pixel co-registration, resample every timestep onto an explicit
-grid with the <code>grid</code> parameter and a <code>Grid</code> — either an existing <code>Dataset</code>
-(<code>Grid(like=...)</code>) or a CRS + resolution + bounds (snapped to the resolution so
-independently-built grids align):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grid</span>
+grid — either an existing <code>Dataset</code> (<code>like=</code>) or a CRS + resolution + bounds
+(snapped to the resolution so independently-built grids align):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="o">=</span><span class="s2">&quot;B04&quot;</span><span class="p">,</span> <span class="n">like</span><span class="o">=</span><span class="n">reference_dataset</span><span class="p">)</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="o">=</span><span class="s2">&quot;B04&quot;</span><span class="p">,</span> <span class="n">grid</span><span class="o">=</span><span class="n">Grid</span><span class="p">(</span><span class="n">like</span><span class="o">=</span><span class="n">reference_dataset</span><span class="p">))</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="o">=</span><span class="s2">&quot;B04&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">grid</span><span class="o">=</span><span class="n">Grid</span><span class="p">(</span><span class="n">crs</span><span class="o">=</span><span class="mi">32633</span><span class="p">,</span> <span class="n">resolution</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">bounds</span><span class="o">=</span><span class="p">(</span><span class="mi">600000</span><span class="p">,</span> <span class="mi">5300000</span><span class="p">,</span> <span class="mi">610000</span><span class="p">,</span> <span class="mi">5310000</span><span class="p">)),</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">)</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="o">=</span><span class="s2">&quot;B04&quot;</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="mi">32633</span><span class="p">,</span> <span class="n">resolution</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">bounds</span><span class="o">=</span><span class="p">(</span><span class="mi">600000</span><span class="p">,</span> <span class="mi">5300000</span><span class="p">,</span> <span class="mi">610000</span><span class="p">,</span> <span class="mi">5310000</span><span class="p">),</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="p">)</span>
 </code></pre></div>
 <h2 id="a-cube-around-a-point-from_point"><a class="toclink" href="#a-cube-around-a-point-from_point">A cube around a point — <code>from_point</code></a><a class="headerlink" href="#a-cube-around-a-point-from_point" title="Permanent link">#</a></h2>
 <p><code>from_point</code> is a cubo-style convenience constructor: give a centre, an edge

@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -5311,34 +5311,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../how-to/pre-commit-hooks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Pre-commit hooks
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../../how-to/recipes/" class="md-nav__link">
         
   
@@ -5378,10 +5350,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_5" >
         
           
-          <label class="md-nav__link" for="__nav_6_6" id="__nav_6_6_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_6_5" id="__nav_6_5_label" tabindex="0">
             
   
   
@@ -5399,8 +5371,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -6579,7 +6551,7 @@ source file list.</p>
 execution; useful when the store-write is one step of a larger
 graph.</p>
 <p><code>collection.to_zarr</code> raises <code>RuntimeError</code> on a collection without a
-<code>files</code> list (e.g. the in-memory <code>from_dataset(src, n)</code> path) — Zarr
+<code>files</code> list (e.g. the legacy <code>create_cube(src, n)</code> path) — Zarr
 writes need a source file per timestep. <code>ImportError</code> raised when
 the <code>[lazy]</code> extra is missing.</p>
 <h2 id="kerchunk-manifest-collectionto_kerchunk"><a class="toclink" href="#kerchunk-manifest-collectionto_kerchunk">Kerchunk manifest — <code>collection.to_kerchunk</code></a><a class="headerlink" href="#kerchunk-manifest-collectionto_kerchunk" title="Permanent link">#</a></h2>
