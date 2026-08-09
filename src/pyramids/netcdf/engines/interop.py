@@ -462,6 +462,10 @@ def _create_copy_to_netcdf(mem_src: gdal.Dataset, path: str) -> None:
     if dst is None:
         raise RuntimeError(f"Failed to write NetCDF to {path}")
     dst.FlushCache()
+    # Release the write handle here rather than relying on scope-exit GC: an
+    # open netCDF write handle can leave the on-disk file unrecognised by a
+    # reader that reopens the same path (e.g. from_xarray's read_file).
+    dst = None
 
 
 def write_multidim_netcdf(
