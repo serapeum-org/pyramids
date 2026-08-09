@@ -82,7 +82,7 @@ Main Features
   `ds.vectorize`, `ds.cog`); same-named facade methods on the Dataset itself keep the
   short form working — `ds.crop(mask)` and `ds.spatial.crop(mask)` are equivalent.
 - **NetCDF** - Extends Dataset for NetCDF files with time/variable dimensions and CF conventions metadata.
-  Optional xarray interoperability. `NetCDF.plot` exposes an xarray-aligned plotting API
+  Optional labeled-array interoperability. `NetCDF.plot` exposes a labeled-array-style plotting API
   (`variable=` + grouped `Selectors` / `ColourOpts` / `FacetSpec` dataclasses, curvilinear `coords=`,
   `kind=`, `animate=`, lazy `chunks=`).
 - **UgridDataset** - Read and visualize UGRID-1.0 unstructured meshes (triangles, quads, mixed).
@@ -189,7 +189,7 @@ from pyramids import Selectors, ColourOpts, FacetSpec   # grouped plot options
 nc = NetCDF.read_file("path/to/data.nc")
 print(nc.variables)
 
-# xarray-aligned plotting (needs the [viz] extra)
+# labeled-array-style plotting (needs the [viz] extra)
 nc.plot("t2m", selectors=Selectors(time="2020-07-01", level=850),
         colour=ColourOpts(cmap="coolwarm", robust=True))
 nc.plot("t2m", facet=FacetSpec(col="time", col_wrap=4))   # small multiples

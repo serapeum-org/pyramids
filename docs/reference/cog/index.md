@@ -28,7 +28,7 @@ classDiagram
 ```
 
 `Dataset.to_cog(...)` is the single owner of write policy; the multi-input
-`write_cog(...)` facade (NumPy array / `xarray.DataArray` / `gdal.Dataset` / path /
+`write_cog(...)` facade (NumPy array / a labeled-array `DataArray` / `gdal.Dataset` / path /
 `Dataset`) normalises its input and delegates to it, so both produce identical output.
 
 ## Public API at a glance

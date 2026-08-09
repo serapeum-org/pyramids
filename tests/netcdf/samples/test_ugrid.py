@@ -28,7 +28,7 @@ def test_ugrid_files_have_unstructured_dimensions(sample_name, sample):
 
 
 def test_ugrid_dataset_reads_mesh(sample):
-    """``UgridDataset.read_file`` loads a UXARRAY-style mesh declared via cf_role connectivity (#589)."""
+    """``UgridDataset.read_file`` loads a UGRID-style mesh declared via cf_role connectivity (#589)."""
     ug = UgridDataset.read_file(sample(MESH))
     assert ug.mesh is not None
     assert ug.mesh.n_node == 16

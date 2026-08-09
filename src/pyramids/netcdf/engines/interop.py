@@ -52,9 +52,8 @@ class Interop(_Engine["NetCDF"]):
 
         The entire conversion goes through GDAL's Multidimensional
         API — the same reader the rest of pyramids' NetCDF code uses.
-        No xarray engine plugin (`netcdf4`, `h5netcdf`,
-        `scipy.io.netcdf`) is involved, so xarray does not need to
-        pull a NetCDF backend: pyramids is the backend.
+        No xarray NetCDF engine plugin is involved — pyramids is the
+        writer, so xarray does not need to pull a NetCDF backend.
 
         With the default `chunks=None` the returned `xr.Dataset` holds
         already-materialised numpy arrays. Pass `chunks` (a dict / int /
@@ -224,9 +223,8 @@ def from_xarray(
     Extracts dimensions, coordinates, data variables, and
     attributes from the `xarray.Dataset` and writes them to a
     NetCDF file through pyramids' own GDAL Multidimensional
-    writer. No xarray engine plugin (`netcdf4`, `h5netcdf`)
-    is invoked — pyramids is the writer, so xarray does not
-    need to pull a NetCDF backend.
+    writer. No xarray NetCDF engine plugin is involved — pyramids
+    is the writer, so xarray does not need to pull a NetCDF backend.
 
     Usage::
 
@@ -281,16 +279,12 @@ def from_xarray(
         cleanup_temp = True
 
     mem_src = _build_multidim_from_xarray(dataset)
-    dst = gdal.GetDriverByName("netCDF").CreateCopy(path, mem_src, 0)
-    if dst is None:
-        raise RuntimeError(f"Failed to write NetCDF to {path}")
-    dst.FlushCache()
-    dst = None
+    _create_copy_to_netcdf(mem_src, path)
     mem_src = None
 
     result = cls.read_file(path, read_only=True)
     if cleanup_temp:
-        result._xarray_temp_path = path
+        result._interop_temp_path = path
         weakref.finalize(result, os.unlink, path)
     return result
 
@@ -335,78 +329,184 @@ def _encode_temporal_array(values: np.ndarray) -> tuple[np.ndarray, dict[str, An
     return values, {}
 
 
+def _apply_md_array_attrs(md_arr: gdal.MDArray, attrs: dict[str, Any]) -> None:
+    """Write MDArray attributes, routing the CF `units` through `SetUnit`.
+
+    GDAL's netCDF writer moves the CF `units` attribute onto the MDArray's own
+    unit slot; if we also write it as a regular attribute it is dropped on the
+    next `CreateCopy`. Split it out so the round trip is lossless.
+
+    Args:
+        md_arr: The target multidimensional array.
+        attrs: Attributes to attach; a `units` key is applied via `SetUnit`.
+    """
+    if not attrs:
+        return
+    remaining = dict(attrs)
+    unit = remaining.pop("units", None)
+    if unit is not None:
+        md_arr.SetUnit(str(unit))
+    if remaining:
+        write_attributes_to_md_array(md_arr, remaining)
+
+
+def _build_multidim(
+    dims: dict[str, int],
+    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
+    data_vars: dict[str, tuple[tuple[str, ...], np.ndarray, dict[str, Any]]],
+    global_attrs: dict[str, Any],
+) -> gdal.Dataset:
+    """Build an in-memory GDAL multidim container from plain arrays and attrs.
+
+    The shared core behind `_build_multidim_from_xarray` and the GDAL-native
+    NetCDF writers (e.g. `DatasetCollection.to_netcdf`) — neither needs a
+    labeled-array dataset to reach pyramids' own multidimensional writer. Each
+    coordinate becomes a 1-D indexing MDArray and each variable an N-D MDArray
+    whose dimensions are resolved by name; `numpy` datetime/timedelta axes are
+    CF-encoded on the way in and attributes go through pyramids' own CF helpers.
+
+    Args:
+        dims: Dimension name to length.
+        coords: Coordinate name (which must also be a dimension) to a
+            `(values, attrs)` pair. Entries whose name is not a dimension are
+            skipped.
+        data_vars: Variable name to a `(dimension-name tuple, values, attrs)`
+            triple.
+        global_attrs: Root-group (global) attributes.
+
+    Returns:
+        gdal.Dataset: An in-memory `MEM` multidimensional dataset ready to be
+        handed to the netCDF driver's `CreateCopy`.
+
+    Raises:
+        ValueError: When a variable references an unknown dimension, or a
+            coordinate/variable array shape does not match its dimension sizes.
+    """
+    src = gdal.GetDriverByName("MEM").CreateMultiDimensional("pyramids")
+    root = src.GetRootGroup()
+
+    gdal_dims: dict[str, gdal.Dimension] = {
+        name: root.CreateDimension(name, "", "", int(size))
+        for name, size in dims.items()
+    }
+
+    for coord_name, (coord_values, coord_attrs) in coords.items():
+        if coord_name not in gdal_dims:
+            continue
+        values, cf_attrs = _encode_temporal_array(np.asarray(coord_values))
+        if values.shape != (dims[coord_name],):
+            raise ValueError(
+                f"coordinate {coord_name!r} has shape {values.shape} but its "
+                f"dimension is length {dims[coord_name]}"
+            )
+        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
+        md_arr = root.CreateMDArray(coord_name, [gdal_dims[coord_name]], ext)
+        md_arr.Write(np.ascontiguousarray(values))
+        merged = dict(coord_attrs)
+        merged.update(cf_attrs)
+        _apply_md_array_attrs(md_arr, merged)
+
+    for var_name, (var_dims, var_values, var_attrs) in data_vars.items():
+        unknown = [d for d in var_dims if d not in gdal_dims]
+        if unknown:
+            raise ValueError(
+                f"variable {var_name!r} references unknown dimension(s) "
+                f"{unknown} not in dims {sorted(gdal_dims)}"
+            )
+        values, cf_attrs = _encode_temporal_array(np.asarray(var_values))
+        expected = tuple(dims[d] for d in var_dims)
+        if values.shape != expected:
+            raise ValueError(
+                f"variable {var_name!r} has shape {values.shape} but its "
+                f"dimensions {tuple(var_dims)} imply {expected}"
+            )
+        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
+        md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
+        md_arr.Write(np.ascontiguousarray(values))
+        merged = dict(var_attrs)
+        merged.update(cf_attrs)
+        _apply_md_array_attrs(md_arr, merged)
+
+    if global_attrs:
+        write_global_attributes(root, dict(global_attrs))
+
+    return src
+
+
 def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from an xarray Dataset.
 
-    Creates dimensions from `dataset.sizes`, writes each
-    coordinate as a 1-D indexing MDArray, writes each data
-    variable as an N-D MDArray whose dimensions are resolved by
-    name. Variable and global attributes are copied via pyramids'
-    own `write_attributes_to_md_array` / `write_global_attributes`
-    helpers so every type the CF layer already handles (str, int,
-    float, bool, list) round-trips without going through xarray's
-    NetCDF writer.
+    Extracts the plain `(dims, coords, data_vars, attrs)` spec from the
+    `xarray.Dataset` and delegates to `_build_multidim`, so the GDAL multidim
+    assembly lives in one place and this adapter only reads `.sizes` /
+    `.coords` / `.data_vars` / `.attrs` off xarray.
+
+    Args:
+        dataset: The source `xarray.Dataset`.
+
+    Returns:
+        gdal.Dataset: The in-memory `MEM` multidimensional dataset.
     """
-    src = gdal.GetDriverByName("MEM").CreateMultiDimensional("from_xarray")
-    root = src.GetRootGroup()
+    dims = {name: int(size) for name, size in dataset.sizes.items()}
+    coords = {
+        name: (np.asarray(coord.values), dict(coord.attrs))
+        for name, coord in dataset.coords.items()
+        if name in dims
+    }
+    data_vars = {
+        name: (tuple(var.dims), np.asarray(var.values), dict(var.attrs))
+        for name, var in dataset.data_vars.items()
+    }
+    return _build_multidim(dims, coords, data_vars, dict(dataset.attrs))
 
-    gdal_dims: dict[str, gdal.Dimension] = {}
-    for dim_name, dim_size in dataset.sizes.items():
-        gdal_dims[dim_name] = root.CreateDimension(
-            dim_name,
-            "",
-            "",
-            int(dim_size),
-        )
 
-    def _apply_attrs(md_arr: gdal.MDArray, attrs: dict[str, Any]) -> None:
-        """Write xarray var attrs, routing `units` through SetUnit.
+def _create_copy_to_netcdf(mem_src: gdal.Dataset, path: str) -> None:
+    """CreateCopy an in-memory multidim dataset to a netCDF file on disk.
 
-        GDAL's netCDF writer moves the CF `units` attribute onto
-        the MDArray's own unit slot; if we also write it as a regular
-        attribute it's dropped on the next CreateCopy. Split it out
-        so the round trip is lossless.
-        """
-        if not attrs:
-            return
-        remaining = dict(attrs)
-        unit = remaining.pop("units", None)
-        if unit is not None:
-            md_arr.SetUnit(str(unit))
-        if remaining:
-            write_attributes_to_md_array(md_arr, remaining)
+    Args:
+        mem_src: The in-memory `MEM` multidimensional source dataset.
+        path: Destination `.nc` path.
 
-    for coord_name, coord in dataset.coords.items():
-        if coord_name not in gdal_dims:
-            continue
-        values = np.asarray(coord.values)
-        values, cf_attrs = _encode_temporal_array(values)
-        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
-        md_arr = root.CreateMDArray(
-            coord_name,
-            [gdal_dims[coord_name]],
-            ext,
-        )
-        md_arr.Write(np.ascontiguousarray(values))
-        attrs = dict(coord.attrs)
-        attrs.update(cf_attrs)
-        _apply_attrs(md_arr, attrs)
+    Raises:
+        RuntimeError: When the GDAL netCDF writer returns no dataset.
+    """
+    dst = gdal.GetDriverByName("netCDF").CreateCopy(path, mem_src, 0)
+    if dst is None:
+        raise RuntimeError(f"Failed to write NetCDF to {path}")
+    dst.FlushCache()
+    # Release the write handle here rather than relying on scope-exit GC: an
+    # open netCDF write handle can leave the on-disk file unrecognised by a
+    # reader that reopens the same path (e.g. from_xarray's read_file).
+    dst = None
 
-    for var_name, var in dataset.data_vars.items():
-        values = np.asarray(var.values)
-        values, cf_attrs = _encode_temporal_array(values)
-        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
-        md_arr = root.CreateMDArray(
-            var_name,
-            [gdal_dims[d] for d in var.dims],
-            ext,
-        )
-        md_arr.Write(np.ascontiguousarray(values))
-        attrs = dict(var.attrs)
-        attrs.update(cf_attrs)
-        _apply_attrs(md_arr, attrs)
 
-    if dataset.attrs:
-        write_global_attributes(root, dict(dataset.attrs))
+def write_multidim_netcdf(
+    path: str | Path,
+    dims: dict[str, int],
+    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
+    data_vars: dict[str, tuple[tuple[str, ...], np.ndarray, dict[str, Any]]],
+    global_attrs: dict[str, Any],
+) -> None:
+    """Write a plain multidim spec to a NetCDF file through GDAL.
 
-    return src
+    Assembles the `(dims, coords, data_vars, global_attrs)` spec into an
+    in-memory GDAL multidimensional dataset via `_build_multidim` and copies it
+    out with the netCDF driver — the same writer `NetCDF.from_xarray` uses, so a
+    caller that already holds `numpy` arrays never has to build a
+    labeled-array dataset just to emit a NetCDF.
+
+    Args:
+        path: Output `.nc` path.
+        dims: Dimension name to length.
+        coords: Coordinate name to a `(values, attrs)` pair.
+        data_vars: Variable name to a `(dimension-name tuple, values, attrs)`
+            triple.
+        global_attrs: Root-group (global) attributes.
+
+    Raises:
+        ValueError: When a variable references an unknown dimension, or a
+            coordinate/variable array shape does not match its dimension sizes.
+        RuntimeError: When the GDAL netCDF writer fails to create the file.
+    """
+    mem_src = _build_multidim(dims, coords, data_vars, global_attrs)
+    _create_copy_to_netcdf(mem_src, str(path))

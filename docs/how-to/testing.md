@@ -38,9 +38,9 @@ pyramids ships a minimal core plus five opt-in extras declared in
 | `lazy` | `dask`, `distributed`, `zarr`, `fsspec`, `kerchunk`, `h5py` | Dask-backed lazy array paths + kerchunk NetCDF manifests |
 | `parquet` | `pyarrow`, `dask-geopandas` (+ `[lazy]`) | Eager GeoParquet I/O **and** the lazy `LazyFeatureCollection` |
 
-`xarray` is **not** an extra: pyramids is GDAL-backed, so xarray is a peer for the
-`to_xarray` / `from_xarray` / `to_netcdf` interop helpers only — `pip install xarray`
-directly. It is still wired as a pixi *feature* (`[tool.pixi.feature.xarray]`) so the
+The labeled-array interop is **not** an extra: pyramids is GDAL-backed, so that library is a
+peer for the `to_xarray` / `from_xarray` methods only — `pip install xarray`
+directly. It is still wired as a pixi *feature* (`[tool.pixi.feature.interop]`) so the
 `dev` / CI environments have it to exercise those code paths.
 
 End-users install exactly what they need:
@@ -58,7 +58,7 @@ so incremental solves stay cheap (~8–15 s when adding one extra on top of `dev
 
 | Pixi env | What it contains |
 | --- | --- |
-| `dev` | Core + `viz` + `xarray` + `lazy`. The "everything except heavy natives" env. |
+| `dev` | Core + `viz` + `interop` + `lazy`. The "everything except heavy natives" env. |
 | `lazy` | `dev` + the Dask/Zarr lazy stack and the HDF5-linking bits from conda-forge (kerchunk, h5py — pinned to hdf5 1.14). |
 | `parquet` | `dev` + `pyarrow` + `dask-geopandas` (conda-forge) + `[lazy]`. Runs both eager and lazy GeoParquet tests. |
 | `py311` / `py312` / `py313` / `py314` | Same as `dev`, pinned Python. What `main-package` CI uses. |
@@ -90,9 +90,9 @@ specific `netcdf4` build string so the HDF5 shared library matches
 | `tests/dataset/test_stac.py` | core (duck-typed, no pystac dep) | ✅ | — | `dev` |
 | `tests/feature/` (excl. `lazy/`) | core + `parquet` (some) | ✅ | — | `dev` |
 | `tests/feature/lazy/` | `parquet` | ✅ (skips) | ✅ `parquet` | `parquet` |
-| `tests/netcdf/` (excl. `lazy/`) | `xarray` | ✅ (xarray-tests step) | — | `dev` |
+| `tests/netcdf/` (excl. `lazy/`) | `interop` | ✅ (interop-tests step) | — | `dev` |
 | `tests/netcdf/lazy/` | `lazy` | ✅ (most skip without kerchunk) | ✅ `lazy` | `lazy` |
-| `tests/ugrid/` | `xarray` | ✅ | — | `dev` |
+| `tests/ugrid/` | `interop` | ✅ | — | `dev` |
 
 "Skips" in the main-package column means the tests are tagged or guarded so
 they self-skip when the extra's headline dep is missing. They *run* fully
@@ -103,9 +103,9 @@ they self-skip when the extra's headline dep is missing. They *run* fully
 ### Full suite in the minimal dev env
 
 ```bash
-pixi run -e dev main                 # "main" task: pytest -m 'not plot and not xarray'
+pixi run -e dev main                 # "main" task: pytest -m 'not plot and not interop'
 pixi run -e dev plot                 # plot tests only
-pixi run -e dev xarray-tests         # xarray-marker tests only
+pixi run -e dev interop-tests        # interop-marker tests only
 pixi run -e dev test-all             # everything in one go
 ```
 
@@ -141,7 +141,7 @@ identifiers):
 | --- | --- |
 | `@pytest.mark.plot` | `viz` (plotting / basemap tests) |
 | `@pytest.mark.lazy` | `lazy` |
-| `@pytest.mark.xarray` | `xarray` (peer dep / pixi feature, not an extra) |
+| `@pytest.mark.interop` | the interop peer dep (pixi feature, not an extra) |
 | `@pytest.mark.netcdf_lazy` | `lazy` (kerchunk + h5py) |
 | `@pytest.mark.parquet` | `parquet` |
 | `@pytest.mark.parquet_lazy` | `parquet` (dask-geopandas) |
@@ -169,7 +169,7 @@ test methods when a full class-level marker is overkill.
 
 ```bash
 pytest -m netcdf_lazy                           # only netcdf-lazy-tagged tests
-pytest -m "not (viz or lazy or xarray or ...)"  # drop every extras-gated test
+pytest -m "not (viz or lazy or interop or ...)"  # drop every extras-gated test
 pytest -m "parquet_lazy and not slow"           # compose with other markers
 ```
 

@@ -4,7 +4,7 @@ The `pyramids.stac` subpackage connects pyramids to the
 [SpatioTemporal Asset Catalog](https://stacspec.org/) ecosystem — searching STAC
 APIs, reading assets as pyramids `Dataset` / `NetCDF` objects, building cubes,
 signing cloud credentials, and writing STAC Items back out. Everything is
-**GDAL-native** (no rasterio, no xarray) and **duck-typed** over the STAC
+**GDAL-native** (no rasterio, no labeled-array stack) and **duck-typed** over the STAC
 Item/Asset contract, so `pystac` is never imported by pyramids itself — raw STAC
 JSON dicts work as well as `pystac.Item` objects.
 

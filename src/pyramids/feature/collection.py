@@ -273,7 +273,7 @@ class FeatureCollection(GeoDataFrame):
         * a list (or iterator) of GeoJSON feature dicts of the form
           `{"type": "Feature", "geometry": {...}, "properties": {...}}`,
         * any object exposing `__geo_interface__` (shapely
-          geometries, fiona records, custom feature classes), or
+          geometries, GeoJSON-like records, custom feature classes), or
         * a bare `FeatureCollection` dict (`{"type":
           "FeatureCollection", "features": [...]}`).
 
@@ -582,12 +582,12 @@ class FeatureCollection(GeoDataFrame):
         Return type varies by `chunksize` (ARC-38): `chunksize=None` yields
         per-feature `dict`s, an `int` yields :class:`FeatureCollection` chunks — a
         single generator type documented in Yields below rather than split into two
-        methods (which would break the fiona-style single entry point).
+        methods (which would break the single entry point).
 
         . Two orthogonal knobs:
 
         * **Chunk shape**. `chunksize=None` yields one GeoJSON-style
-          dict per row (fiona idiom). `chunksize=N` yields
+          dict per row. `chunksize=N` yields
           :class:`FeatureCollection` batches of up to N rows each so
           batched pipelines get a DataFrame-shaped payload.
         * **Tile strategy**. Controls whether the `bbox`
@@ -636,7 +636,7 @@ class FeatureCollection(GeoDataFrame):
                 drops some rows — only the surviving features are
                 yielded, and their ids match the positions they had
                 in the source file. Defaults to `False` for
-                back-compat with the fiona idiom.
+                back-compat with the per-feature-dict idiom.
 
         Yields:
             dict | FeatureCollection: Per-feature dicts when
@@ -761,7 +761,7 @@ class FeatureCollection(GeoDataFrame):
           locally first or use `CloudConfig` with an explicit
           `/vsizip//vsicurl/...` path.
 
-        filter kwargs are pushed down to fiona/pyogrio so the
+        filter kwargs are pushed down to the pyogrio engine so the
         dataset never fully materializes when only a subset is needed.
 
         Args:
@@ -1040,11 +1040,10 @@ class FeatureCollection(GeoDataFrame):
 
     @property
     def schema(self) -> dict:
-        """Fiona-style schema: geometry type + field-type dict.
+        """OGR-style schema: geometry type + field-type dict.
 
-        Returns a dict shaped like fiona's `schema` attribute so
-        callers migrating from `fiona.open(path).schema` can consume
-        this without rewriting. The dict has three keys:
+        Returns a plain schema dict (geometry type + field-type
+        mapping) that callers can consume directly. The dict has three keys:
 
         * `"geometry"`: single string (`"Point"`, `"Polygon"`,
           …) when every row has the same geom type, otherwise
@@ -1052,9 +1051,8 @@ class FeatureCollection(GeoDataFrame):
         * `"properties"`: `{column_name: dtype_string}` for every
           non-geometry column.
         * `"crs"`: the :attr:`crs` as a :class:`pyproj.CRS` object,
-          or `None` when the FC has no CRS set. Matches
-          fiona's convention — callers migrating from
-          `fiona.open(path).schema['crs']` can consume it directly.
+          or `None` when the FC has no CRS set. Provided as a
+          plain value callers can consume directly.
 
         Empty FeatureCollections (`len(self) == 0`) report
         `"Unknown"` for the geometry type.
@@ -1845,7 +1843,7 @@ class FeatureCollection(GeoDataFrame):
                 — GPKG and Shapefile accept it, GeoJSON does not.
             **creation_options:
                 Driver-specific creation options, forwarded to the
-                underlying engine (pyogrio / fiona). Examples:
+                underlying engine (pyogrio). Examples:
 
                 * GPKG: `SPATIAL_INDEX="YES"`, `FID="id"`.
                 * Shapefile: `ENCODING="UTF-8"`.

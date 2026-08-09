@@ -3,8 +3,8 @@
 Implementation behind :meth:`pyramids.dataset.Dataset.from_wms` and
 :meth:`pyramids.dataset.Dataset.from_wmts`. Both pull an OGC *map* layer into a
 single-raster :class:`~pyramids.dataset.Dataset` using **GDAL's native WMS / WMTS
-drivers** — no ``owslib``, no ``rasterio`` — matching the WCS / WFS / OGC API
-readers.
+drivers** — no third-party OGC or raster-I/O libraries — matching the WCS /
+WFS / OGC API readers.
 
 Unlike WCS (which returns coverage *data values*), a WMS / WMTS layer is a
 **rendered map**: the service styles the data server-side and returns an image, so

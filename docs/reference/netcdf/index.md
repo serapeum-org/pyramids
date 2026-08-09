@@ -27,7 +27,7 @@ flowchart LR
 ```
 
 `NetCDF` inherits `Dataset`'s eight engines and adds three of its own — `interop`, `varops`, and
-`selection` — which back the xarray-interop, variable-mutation, and selection facades on the class:
+`selection` — which back the labeled-array interop, variable-mutation, and selection facades on the class:
 
 ```mermaid
 classDiagram
@@ -92,7 +92,7 @@ flowchart TD
 | `NetCDF.open_mfdataset(paths, variable)` | Many files → single stacked dask array         |
 | `NetCDF.to_kerchunk(path)`               | Emit a JSON index so downstream reads are free |
 | `NetCDF.combine_kerchunk(paths, …)`      | Combine per-file manifests into one cube index |
-| `NetCDF.to_xarray()` / `.from_xarray()`  | Round-trip interop with `xarray.Dataset`       |
+| `NetCDF.to_xarray()` / `.from_xarray()`  | Round-trip interop with a labeled-array dataset |
 
 ```python
 from pyramids.netcdf import NetCDF
@@ -113,7 +113,7 @@ extra) for the `to_xarray` / `from_xarray` round-trip helpers.
 
 ## Plotting
 
-`NetCDF.plot` exposes an xarray-aligned plotting API — `variable=`, the grouped
+`NetCDF.plot` exposes a labeled-array-style plotting API — `variable=`, the grouped
 `selectors=` / `colour=` / `facet=` dataclasses, curvilinear `coords=`, `kind=`,
 `animate=`, and `chunks=` (lazy). It does **not** inherit `Dataset.plot`'s
 GeoTIFF / Sentinel kwargs (`band`, `rgb`, `surface_reflectance`, `cutoff`,

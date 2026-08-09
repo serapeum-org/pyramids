@@ -525,7 +525,7 @@ class RasterBase(ABC):
     ) -> tuple[Any, Any]:
         """Return the map coordinates ``(x, y)`` of array cells.
 
-        The rasterio-style companion of :meth:`rowcol`. Computed from the
+        The array-style companion of :meth:`rowcol`. Computed from the
         exact affine :attr:`transform`, so non-square pixels and rotated
         grids are handled; scalar input returns scalars, sequence input
         returns lists. (For point-table workflows use the cell engine's
@@ -603,7 +603,7 @@ class RasterBase(ABC):
     ) -> tuple[Any, Any]:
         """Return the array indices ``(row, col)`` of map coordinates.
 
-        The rasterio-style companion of :meth:`xy`. Computed from the exact
+        The array-style companion of :meth:`xy`. Computed from the exact
         inverse affine :attr:`transform`, so non-square pixels and rotated
         grids are handled; scalar input returns scalar ints, sequence input
         returns index arrays. (For point-table workflows use the cell
@@ -664,7 +664,7 @@ class RasterBase(ABC):
         if scalar:
             result = (int(rows_idx[0]), int(cols_idx[0]))
         else:
-            # Return Python lists for sequence input, matching xy() (and rasterio)
+            # Return Python lists for sequence input, matching xy()
             # so the two companions have a symmetric container contract.
             result = (
                 [int(value) for value in rows_idx],

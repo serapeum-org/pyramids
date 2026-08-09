@@ -940,7 +940,8 @@ class Selection(_Engine["NetCDF"]):
         `pressure_level`, `depth`, an ensemble member, …) of every variable
         that has it, leaving variables without `dim` and all other dimensions,
         coordinates, CRS, and the grid untouched. The result is a new
-        :class:`NetCDF` container — no xarray involved. Only gridded variables
+        :class:`NetCDF` container — no third-party labeled-array library
+        involved. Only gridded variables
         are reduced; non-spatial auxiliary variables (no ``y`` / ``x`` axes,
         e.g. ERA5's ``number``) are carried through unchanged rather than
         crashing the fan-out (#513) — except an auxiliary variable that itself

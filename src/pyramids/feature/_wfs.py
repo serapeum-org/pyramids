@@ -4,7 +4,8 @@ Implementation behind :meth:`pyramids.feature.FeatureCollection.from_wfs`. It
 fetches a feature-type subset from an OGC WFS server and returns a
 :class:`~pyramids.feature.FeatureCollection`.
 
-The transport is **GDAL's native OGR WFS driver** — no ``owslib``. GDAL performs
+The transport is **GDAL's native OGR WFS driver** — no third-party OGC
+libraries. GDAL performs
 ``GetCapabilities`` / ``DescribeFeatureType``, negotiates the WFS version, and
 issues the version-correct ``GetFeature`` (the ``1.x`` ``typeName`` form versus
 the ``2.0.0`` ``typeNames`` form). The features are decoded through the existing

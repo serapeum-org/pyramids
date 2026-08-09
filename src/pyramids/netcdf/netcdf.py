@@ -473,7 +473,7 @@ class NetCDF(Dataset):
     """
 
     # NetCDF-only instance attributes assigned outside ``__init__``: the
-    # temp-file path tracked for an xarray round-trip (set by the interop
+    # temp-file path tracked for an interop round-trip (set by the interop
     # engine), the 2-D curvilinear coordinate windows carried on a
     # cropped subset (set by the selection engine, read defensively via
     # ``getattr`` in the plot engine), and the weak set of lazy-read file
@@ -481,7 +481,7 @@ class NetCDF(Dataset):
     # latter is a declaration only — no class-level value — so a fresh
     # instance still reports "nothing tracked yet" through the
     # ``getattr(owner, "_lazy_managers", ...)`` lookups that read it.
-    _xarray_temp_path: str
+    _interop_temp_path: str
     _curvilinear_coords: tuple[Any, Any] | None
     _lazy_managers: weakref.WeakSet[Any]
 
@@ -622,8 +622,8 @@ class NetCDF(Dataset):
         # NetCDF-specific engine collaborators (issue #615, STR-1). Distinct
         # attribute names from the eight inherited Dataset engines so they do
         # not clobber `self.io` / `self.spatial` / … . NetCDF exposes thin
-        # façade methods that delegate here (e.g. `nc.to_xarray()` ->
-        # `self.interop.to_xarray()`).
+        # façade methods that delegate here (e.g. `nc.<method>()` ->
+        # `self.interop.<method>()`).
         self.interop = Interop(self)
         # `varops` (not `variables`) because `variables` is an existing read-side
         # property returning the lazy variable dict — the engine must not shadow it.
@@ -901,8 +901,8 @@ class NetCDF(Dataset):
         """CRS from the ``crs_wkt`` / ``epsg`` global attributes, or ``""``.
 
         :meth:`pyramids.dataset.DatasetCollection.to_netcdf` writes the grid's
-        CRS as NetCDF global attributes (it goes through the xarray writer, which
-        has no place to hang a spatial reference), so reading one of our own
+        CRS as NetCDF global attributes (it goes through the GDAL multidim writer,
+        which has no place to hang a spatial reference), so reading one of our own
         files back has to look there. GDAL surfaces them as ``NC_GLOBAL#crs_wkt``
         and ``NC_GLOBAL#epsg``.
 
@@ -1652,7 +1652,7 @@ class NetCDF(Dataset):
         figsize: tuple[float, float] | None = None,
         **kwargs: Any,
     ):
-        """Plot a 2-D slice of a NetCDF variable using xarray-aligned vocabulary.
+        """Plot a 2-D slice of a NetCDF variable using the plot vocabulary.
 
         The public surface is shaped around **variables** and **dimensions** — ``band``
         is not a NetCDF concept and has been removed from the signature. Variable
@@ -1748,7 +1748,7 @@ class NetCDF(Dataset):
                 rendered slice is materialised. Has no effect on the
                 ``animate=`` path. Defaults to None.
             basemap (bool, str, or Basemap, optional):
-                Reference layer, dispatched by type. ``True`` or a named contextily
+                Reference layer, dispatched by type. ``True`` or a named basemap
                 tile provider overlays a pyramids web-tile basemap; a
                 ``pyramids.plot.Basemap`` (cleopatra >= 0.28) draws a relief/features
                 layer instead (not supported on the faceted path). Defaults to None.
@@ -1787,7 +1787,7 @@ class NetCDF(Dataset):
             TypeError: If any of the Sentinel-only kwargs (``rgb``,
                 ``surface_reflectance``, ``cutoff``, ``percentile``,
                 ``overview``, ``overview_index``) is passed. Each
-                rejection message names the xarray-aligned replacement.
+                rejection message names the aligned replacement.
             ValueError: If called on a root MDIM container without
                 ``variable=``, if ``variable=`` is passed on a subset and
                 does not match the pinned variable name, if the resolved
@@ -1858,7 +1858,7 @@ class NetCDF(Dataset):
               ```
 
             - All six Sentinel-only kwargs are rejected with a hint at
-              the xarray-aligned replacement. These doctests run because
+              the aligned replacement. These doctests run because
               the gate fires before any cleopatra import:
 
               ```python
@@ -2879,7 +2879,7 @@ class NetCDF(Dataset):
     def _is_file_backed(var: NetCDF) -> bool:
         """True when the variable's data lives in a reopenable file, so a lazy chunk read is possible.
 
-        An in-memory container (`create_from_array` / `from_xarray`) has no file for the lazy chunk
+        An in-memory container (e.g. built by `create_from_array`) has no file for the lazy chunk
         graph to reopen; streaming it saves nothing and the reopen would fail.
 
         Args:

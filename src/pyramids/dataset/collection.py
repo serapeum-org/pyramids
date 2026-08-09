@@ -1181,7 +1181,7 @@ class DatasetCollection:
 
         Produces a single JSON sidecar that points at every timestep's
         source file — downstream consumers open the entire cube as a
-        lazy Zarr-backed xarray with zero data rewrite.
+        lazy Zarr-backed cube with zero data rewrite.
 
         Currently routes through
         :func:`pyramids.netcdf._kerchunk_facade.combine_kerchunk`, which
@@ -1245,8 +1245,8 @@ class DatasetCollection:
         offers. Geobox metadata (epsg, geotransform, nodata, band_names,
         time_length) is written as attributes on the root group + the
         `data` array following the standard `crs_wkt` / `GeoTransform`
-        attribute convention, so downstream `xr.open_zarr(store)` consumers
-        can reconstruct the geobox without pyramids.
+        attribute convention, so downstream GeoZarr readers can
+        reconstruct the geobox without pyramids.
 
         Args:
             store: Target store (path, fsspec URL, or zarr.Store).
@@ -1289,8 +1289,8 @@ class DatasetCollection:
         )
         if mode == "a" and append_dim is None and region is None:
             raise ValueError(
-                "mode='a' requires append_dim='time' or region=... (xarray-style "
-                "incremental write); use mode='w' to (over)write the whole cube."
+                "mode='a' requires append_dim='time' or region=... (append_dim / "
+                "region semantics); use mode='w' to (over)write the whole cube."
             )
         data = self.data
         resolved_store = _resolve_store(store, storage_options)
@@ -1400,18 +1400,16 @@ class DatasetCollection:
     ) -> None:
         """Write the collection's ``(T, B, Y, X)`` cube to a single NetCDF.
 
-        Materialises every timestep in memory, builds an
-        :class:`xarray.Dataset`, and hands it to
-        :meth:`pyramids.netcdf.NetCDF.from_xarray` (which routes through
-        pyramids' own GDAL multidimensional NetCDF writer — no
-        ``netcdf4`` / ``h5netcdf`` engine plug-in needed). The result is
-        a self-describing NetCDF with one variable per band (``CF-1.8``
-        ``Conventions`` attr; geobox attached as ``crs_wkt`` /
-        ``GeoTransform`` root attrs).
+        Materialises every timestep in memory, assembles a GDAL
+        multidimensional container straight from the ``numpy`` arrays,
+        and writes it with pyramids' own GDAL NetCDF writer — and
+        needs no third-party NetCDF engine plug-in. The
+        result is a self-describing NetCDF with one variable per band
+        (``CF-1.8`` ``Conventions`` attr; geobox attached as ``crs_wkt``
+        / ``GeoTransform`` root attrs).
 
-        For huge cubes prefer :meth:`to_zarr` — this writer is
-        eager (materialises the full T×B×Y×X array) since
-        ``NetCDF.from_xarray`` itself materialises.
+        For huge cubes prefer :meth:`to_zarr` — this writer is eager (it
+        materialises the full T×B×Y×X array before writing).
 
         No-data values are written as a ``nodata`` attribute on the root
         group and on each data variable. GDAL's multidim NetCDF writer
@@ -1436,13 +1434,9 @@ class DatasetCollection:
                 — saner for hyperspectral cubes with hundreds of bands.
 
         Raises:
-            OptionalPackageDoesNotExist: When ``xarray`` is not
-                installed. Install with one of: PyPI
-                ``pip install xarray`` or conda-forge
-                ``conda install -c conda-forge xarray``.
             ValueError: When ``len(time_coords) != self.time_length``.
-            RuntimeError: When :meth:`NetCDF.from_xarray` fails to write
-                the file.
+            RuntimeError: When the GDAL NetCDF writer fails to write the
+                file.
 
         Examples:
             - Stack two single-band rasters into one NetCDF and reopen it:
@@ -1477,19 +1471,9 @@ class DatasetCollection:
               for very large cubes.
             - :meth:`to_kerchunk`: emit a sidecar that points back at
               the source files without rewriting data.
-            - :meth:`pyramids.netcdf.NetCDF.from_xarray`: the underlying
-              writer.
+            - :meth:`pyramids.netcdf.NetCDF.read_file`: reopen the
+              written file as a pyramids NetCDF.
         """
-        try:
-            import xarray as xr
-        except ImportError as exc:
-            raise OptionalPackageDoesNotExist(
-                "DatasetCollection.to_netcdf requires the optional 'xarray' "
-                "dependency. Install with one of:\n"
-                "  - PyPI:        pip install xarray\n"
-                "  - conda-forge: conda install -c conda-forge xarray"
-            ) from exc
-
         if time_coords is None and self.time is not None:
             # A dated collection (time axis parsed from the file names) exports
             # with its own calendar axis by default; an explicit time_coords
@@ -1522,8 +1506,7 @@ class DatasetCollection:
                 if not np.array_equal(time_values, ordered):
                     warnings.warn(
                         "time_coords is not monotonically increasing; some "
-                        "downstream tools (xr.open_dataset, aggregate_netcdf) "
-                        "may reorder or refuse the axis",
+                        "downstream CF readers may reorder or refuse the axis",
                         stacklevel=2,
                     )
                 if np.unique(time_values).size != time_values.size:
@@ -1534,7 +1517,7 @@ class DatasetCollection:
                     )
             if time_values.dtype.kind == "M":
                 # GDAL's multidim writer has no native datetime64 type; encode
-                # as an int64 offset with CF `units` so xr.open_dataset can
+                # as an int64 offset with CF `units` so a CF-aware reader can
                 # decode it back to a calendar axis on read. Use nanosecond
                 # resolution so the round-trip is lossless for the full
                 # datetime64[ns] range (the CF "nanoseconds since …" time
@@ -1560,18 +1543,18 @@ class DatasetCollection:
             else [f"band_{i + 1}" for i in range(band_count)]
         )
 
-        # ARC-46: this writer stacks the whole (T, B, Y, X) cube in RAM and xarray
-        # copies it again. Warn (pointing at the streaming to_zarr writer) when that
-        # allocation would be large, rather than OOM without explanation.
+        # ARC-46: this writer stacks the whole (T, B, Y, X) cube in RAM. Warn
+        # (pointing at the streaming to_zarr writer) when that allocation would
+        # be large, rather than OOM without explanation.
         est_bytes = (
             self.time_length * int(np.prod(meta.shape)) * np.dtype(meta.dtype).itemsize
         )
         if est_bytes > _TO_NETCDF_WARN_BYTES:
             warnings.warn(
-                f"DatasetCollection.to_netcdf materialises the full (T, B, Y, X) cube "
-                f"in memory (~{est_bytes / 1024**3:.1f} GiB here, then copied again by "
-                f"xarray). For large cubes prefer DatasetCollection.to_zarr, which "
-                f"streams the cube chunk-by-chunk.",
+                f"DatasetCollection.to_netcdf materialises the full (T, B, Y, X) "
+                f"cube in memory (~{est_bytes / 1024**3:.1f} GiB here). For large "
+                f"cubes prefer DatasetCollection.to_zarr, which streams the cube "
+                f"chunk-by-chunk.",
                 stacklevel=2,
             )
         # Per-timestep read_array() returns (rows, cols) for a single-band
@@ -1586,32 +1569,43 @@ class DatasetCollection:
         y_coord = np.asarray(self._base.y)
         x_coord = np.asarray(self._base.x)
 
-        data_vars: dict[str, tuple[tuple[str, ...], np.ndarray]]
+        # GDAL's multidim NetCDF writer rejects ``_FillValue`` as an attribute
+        # (libnetcdf wants it via the dedicated typed-fill API the writer does
+        # not expose), so surface the no-data value under a ``nodata`` attribute
+        # instead — on the root group (matches what ``to_zarr`` writes) and on
+        # every data variable, so consumers can recover it.
+        var_attrs: dict[str, Any] = {}
+        typed_nodata = None
+        if nodata is not None:
+            typed_nodata = np.asarray(nodata, dtype=cube.dtype).item()
+            var_attrs["nodata"] = typed_nodata
+
+        dims: dict[str, int] = {time_dim: int(time_values.shape[0])}
+        coords: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
+            time_dim: (time_values, time_attrs),
+        }
+        data_vars: dict[str, tuple[tuple[str, ...], np.ndarray, dict[str, Any]]]
         if var_per_band:
             data_vars = {
-                names[i]: ((time_dim, "y", "x"), cube[:, i, :, :])
+                names[i]: ((time_dim, "y", "x"), cube[:, i, :, :], dict(var_attrs))
                 for i in range(band_count)
-            }
-            coords = {
-                time_dim: (time_dim, time_values, time_attrs),
-                "y": ("y", y_coord),
-                "x": ("x", x_coord),
             }
         else:
             # GDAL's multidim NetCDF writer can't write a string coord, so the
             # band axis carries an integer index and the human names ride along
-            # on the root group as a ``band_names`` attribute. Round-trips are
-            # lossless via ``xr.open_dataset``: caller reads
-            # ``ds.attrs["band_names"]`` to recover the labels.
-            data_vars = {"data": ((time_dim, "band", "y", "x"), cube)}
-            coords = {
-                time_dim: (time_dim, time_values, time_attrs),
-                "band": ("band", np.arange(band_count)),
-                "y": ("y", y_coord),
-                "x": ("x", x_coord),
+            # on the root group as a ``band_names`` attribute; a reader recovers
+            # the labels from that root attribute.
+            dims["band"] = band_count
+            coords["band"] = (np.arange(band_count), {})
+            data_vars = {
+                "data": ((time_dim, "band", "y", "x"), cube, dict(var_attrs)),
             }
+        dims["y"] = int(y_coord.shape[0])
+        dims["x"] = int(x_coord.shape[0])
+        coords["y"] = (y_coord, {})
+        coords["x"] = (x_coord, {})
 
-        root_attrs: dict = {"Conventions": "CF-1.8"}
+        root_attrs: dict[str, Any] = {"Conventions": "CF-1.8"}
         try:
             crs_wkt = meta.crs.to_wkt() if meta.crs is not None else None
         except AttributeError:
@@ -1623,31 +1617,16 @@ class DatasetCollection:
         root_attrs["GeoTransform"] = " ".join(str(v) for v in meta.geotransform)
         if not var_per_band:
             root_attrs["band_names"] = ",".join(names)
-
-        if nodata is not None:
-            typed_nodata = np.asarray(nodata, dtype=cube.dtype).item()
-            # GDAL's multidim NetCDF writer rejects ``_FillValue`` as an
-            # attribute (libnetcdf wants it set via the dedicated typed-fill
-            # API the writer doesn't expose) and silently drops anything set
-            # through ``xr.encoding``. Surface the no-data value under a
-            # ``nodata`` attribute instead — both on the root group (matches
-            # the root attrs ``to_zarr`` writes) and on every
-            # data variable, so consumers can recover it.
+        if typed_nodata is not None:
             root_attrs["nodata"] = typed_nodata
-        ds = xr.Dataset(data_vars=data_vars, coords=coords, attrs=root_attrs)
-        if nodata is not None:
-            target_vars = names if var_per_band else ["data"]
-            for v_name in target_vars:
-                ds[v_name].attrs["nodata"] = typed_nodata
 
-        # Inline import: pyramids.netcdf depends on pyramids.dataset.Dataset,
-        # so hoisting this to the module top would form a circular import
-        # through pyramids.dataset.__init__. Matches the to_kerchunk pattern
-        # (see ``to_kerchunk`` above) and CLAUDE.md's circular-import
-        # carveout in "Code Style".
-        from pyramids.netcdf import NetCDF  # noqa: E402
+        # Inline import: pyramids.netcdf depends on pyramids.dataset.Dataset, so
+        # hoisting this to the module top would form a circular import through
+        # pyramids.dataset.__init__. Matches the to_kerchunk pattern (see
+        # ``to_kerchunk`` above) and CLAUDE.md's circular-import carveout.
+        from pyramids.netcdf.engines.interop import write_multidim_netcdf
 
-        NetCDF.from_xarray(ds, path)
+        write_multidim_netcdf(path, dims, coords, data_vars, root_attrs)
 
     @classmethod
     def from_stac(

@@ -6,12 +6,13 @@ non-spatial auxiliary variable — e.g. an ERA5 cube with ``t2m(valid_time,
 y, x)`` plus a 1-D ``expver(valid_time)`` / ``number(valid_time)`` that has no
 ``y`` / ``x`` axes. The fan-out now crops only the gridded variables (detected
 per variable) and **carries the non-spatial auxiliary variables through
-unchanged** into the result, the way ``rioxarray.clip`` leaves them alone.
+unchanged** into the result, leaving them alone.
 
 The cubes are built with pyramids' own writers: the gridded variable through
 ``NetCDF.create_from_array``, and the non-spatial / non-gridded auxiliaries —
 which ``create_from_array`` cannot express — straight through the GDAL
-multidim API (``_attach``), so the module needs no xarray. ERA5's real
+multidim API (``_attach``), so the module needs no third-party NetCDF
+engine. ERA5's real
 ``expver`` is a string variable; the defect is dtype-agnostic (it is about a
 1-D non-spatial variable in the fan-out), so a numeric ``number`` aux
 reproduces it faithfully.
@@ -38,8 +39,8 @@ def _attach(nc, name, dims, values, gdal_dtype):
 
     Existing dimensions are reused by name+size (so an aux variable shares the
     gridded variable's ``valid_time``), missing ones are created. This builds the
-    non-gridded auxiliaries that ``create_from_array`` cannot express — without
-    any xarray.
+    non-gridded auxiliaries that ``create_from_array`` cannot express — using
+    only GDAL.
 
     Args:
         nc: The in-memory container to attach the variable to.

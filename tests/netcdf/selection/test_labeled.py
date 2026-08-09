@@ -2,11 +2,12 @@
 
 Builds a tiny ``feature_id x time`` streamflow store — the shape of an NWM
 ``channel_rt`` table — and checks :class:`LabeledDataset` opens it through GDAL's
-multidimensional API (no xarray/dask) and exposes its dims, coords, and variables
-without forcing a raster interpretation.
+multidimensional API (no third-party array engine) and exposes its dims, coords,
+and variables without forcing a raster interpretation.
 
-Fixtures are written with xarray purely as test scaffolding (the production class
-reads them via GDAL); they are gated on the optional ``xarray`` dependency.
+Fixtures are written with the optional interop engine purely as test scaffolding
+(the production class reads them via GDAL); they are gated on that optional
+dependency.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from pyramids.netcdf.labeled import _is_remote_url, _is_zarr_store
 
 xr = pytest.importorskip("xarray")
 
-pytestmark = pytest.mark.xarray
+pytestmark = pytest.mark.interop
 
 N_TIME, N_FEAT = 4, 3
 

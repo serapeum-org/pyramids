@@ -6,7 +6,7 @@ NetCDF files and stacks a single named variable into a single lazy
 `(n_files, *variable_shape)` — the canonical shape for a set of
 daily / hourly gridded files.
 
-Unlike :func:`xarray.open_mfdataset`, this helper is deliberately
+This helper is deliberately
 narrow: one variable at a time, no "by_coords" inference, no combine
 strategies. For the common hydrology / meteorology case (open 365
 noah_YYYYMMDD.nc files, stack the `precipitation` variable, reduce

@@ -1,6 +1,6 @@
 # Plotting NetCDF data
 
-`NetCDF.plot` is a dedicated, **xarray-aligned** plotting surface — it does *not* inherit
+`NetCDF.plot` is a dedicated, **labeled-array-style** plotting surface — it does *not* inherit
 `Dataset.plot`'s GeoTIFF / Sentinel-imagery semantics. Instead of `band=<int>` you pick a
 *variable*; instead of loose keyword soup you pass small, frozen option dataclasses; and you get
 first-class support for selecting along non-spatial dimensions, curvilinear grids, contour/pcolormesh
@@ -58,7 +58,7 @@ nc.plot("tp")            # total precipitation
 A NetCDF variable is often 3-D (`time, lat, lon`) or 4-D (`time, level, lat, lon`). Use
 `Selectors` to reduce it to a 2-D slice — `time=` / `level=` / `member=` are convenience aliases for
 the common CF dimensions, and `sel=` / `isel=` are the generic label- and integer-based escape
-hatches (mirroring `xarray.Dataset.sel` / `.isel`):
+hatches (mirroring a labeled-array dataset's `.sel` / `.isel`):
 
 ```python
 from pyramids.netcdf import Selectors
@@ -78,7 +78,7 @@ it becomes the frame axis — see below).
 
 ## 3. Colour mapping
 
-Group all colour options under `ColourOpts` — these mirror xarray's plotting kwargs:
+Group all colour options under `ColourOpts` — these mirror the labeled-array plotting kwargs:
 
 ```python
 from pyramids.netcdf import ColourOpts

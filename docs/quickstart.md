@@ -125,4 +125,4 @@ cube.to_zarr("cube.zarr")  # parallel, chunked write
   [DatasetCollection](tutorials/datacube-basics.md), [COG](tutorials/cog.md), [STAC](tutorials/stac.md),
   [Lazy / Dask](tutorials/lazy/lazy-compute.md).
 - **Look things up** — the [API Reference](reference/dataset/index.md).
-- **Compare** — [pyramids vs rasterio / xarray / rioxarray](comparison-other-gis-packages.md).
+- **Compare** — [pyramids vs the general-purpose geospatial stack](comparison-other-gis-packages.md).

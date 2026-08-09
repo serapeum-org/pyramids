@@ -4,8 +4,9 @@ Implementation behind :meth:`pyramids.dataset.Dataset.from_wcs`. It fetches a
 coverage subset from an OGC WCS server and returns a single-raster
 :class:`~pyramids.dataset.Dataset`.
 
-The default transport is **GDAL's native WCS driver** — no ``owslib``, no
-``rasterio``. GDAL performs ``GetCapabilities`` / ``DescribeCoverage``, negotiates
+The default transport is **GDAL's native WCS driver** — no third-party OGC
+or raster-I/O libraries. GDAL performs ``GetCapabilities`` /
+``DescribeCoverage``, negotiates
 the WCS version, and issues the version-correct ``GetCoverage`` (the ``1.0.0``
 ``bbox`` + ``resx/resy`` form versus the ``2.0.x`` ``subsets`` + ``scaling``
 form). pyramids adds the two things the driver does *not* handle on its own:

@@ -9,7 +9,8 @@ table, or a station time series). Reading those as if they were rasters is wrong
 :class:`LabeledDataset` reads such a store through GDAL's **multidimensional**
 API (`gdal.OpenEx(..., OF_MULTIDIM_RASTER)` — the same engine pyramids uses for
 gridded cloud reads), exposing the store's dimensions, coordinates, and variables
-without forcing a raster interpretation, and without xarray / dask. Reading is
+without forcing a raster interpretation, and without a heavy labeled-array
+stack. Reading is
 lazy: opening a store reads only metadata; a data array is materialised only when
 a slice is realised (`__getitem__` / `to_dataframe` / a write). Selections are
 index bookkeeping applied at read time, so `select` / `select_time` /

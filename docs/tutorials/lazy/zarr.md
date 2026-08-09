@@ -76,7 +76,7 @@ print(rt.band_names)    # ['red', 'nir']
 ```
 
 The store follows the CF / **GeoZarr** convention, so it also opens georeferenced in other standards-aware
-readers (GDAL's Zarr driver, `xarray.open_zarr`, rioxarray) without pyramids in the loop.
+readers (GDAL's Zarr driver or a labeled-array Zarr reader) without pyramids in the loop.
 
 ### Time-stacked cube — `DatasetCollection.to_zarr` / `from_zarr`
 
@@ -101,7 +101,7 @@ cube_jan.to_zarr("series.zarr")
 # append later timesteps along the time axis (no full rewrite)
 cube_feb.to_zarr("series.zarr", mode="a", append_dim="time")
 
-# overwrite one existing time slice (e.g. fix a bad month) — an xarray-style region write
+# overwrite one existing time slice (e.g. fix a bad month) — a labeled-array-style region write
 cube_fixed.to_zarr("series.zarr", mode="a", region={"time": slice(1, 2)})
 ```
 

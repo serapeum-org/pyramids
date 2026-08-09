@@ -9,7 +9,7 @@ matching pyramids/pandas reader and returns the most natural object:
 - vector (`.shp` / `.gpkg` / GeoJSON) -> :class:`~pyramids.feature.FeatureCollection`
 - tabular CSV -> :class:`pandas.DataFrame`
 - raster GeoTIFF / GRIB -> :class:`~pyramids.dataset.Dataset`
-- NetCDF -> :class:`~pyramids.netcdf.NetCDF` (no xarray)
+- NetCDF -> :class:`~pyramids.netcdf.NetCDF`
 - Parquet -> :class:`~pyramids.feature.FeatureCollection` when it carries a GeoParquet
   `geo` key, otherwise a :class:`pandas.DataFrame`
 - ZIP -> the single contained data file (re-dispatched), or the extraction dir

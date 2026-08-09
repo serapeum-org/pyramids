@@ -6,7 +6,7 @@ three concern-aligned containers:
 - :class:`Selectors` — label / positional selectors that pin a multi-dim
   variable down to a single 2-D slice (or to the residual stack the
   facet / animate paths walk).
-- :class:`ColorOpts` — xarray-aligned colour controls forwarded
+- :class:`ColorOpts` — colour controls forwarded
   verbatim to cleopatra's :class:`~cleopatra.array_glyph.ArrayGlyph`
   constructor.
 - :class:`FacetSpec` — multi-panel facet layout description forwarded
@@ -117,9 +117,9 @@ class Selectors:
 
 @dataclass(frozen=True)
 class ColorOpts:
-    """Xarray-aligned colour controls for :meth:`NetCDF.plot`.
+    """Colour controls for :meth:`NetCDF.plot`.
 
-    Mirrors the kwargs xarray's plotting accessor accepts. All fields
+    Mirrors common plotting colour kwargs. All fields
     are optional. Non-``None`` values are forwarded verbatim to
     cleopatra's :class:`~cleopatra.array_glyph.ArrayGlyph`; the
     ``add_colorbar`` switch is applied post-render on the pyramids

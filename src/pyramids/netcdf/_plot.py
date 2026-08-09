@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 # Size threshold (bytes) above which `NetCDF.plot` logs a hint
 # suggesting the caller pass an explicit `chunks=` spec to switch
-# the static-plot read path to dask. 100 MB matches xarray's default
-# rule of thumb for "this should be lazy".
+# the static-plot read path to dask. 100 MB is a conservative
+# default for "this should be lazy".
 _LAZY_HINT_THRESHOLD_BYTES = 100 * 1024 * 1024
 
 # GeoTIFF/Sentinel-imagery kwargs that `NetCDF.plot` rejects up-front
@@ -91,7 +91,7 @@ def _reject_forbidden_kwargs(kwargs: dict[str, Any]) -> None:
 # cleopatra's ``ArrayGlyph.animate`` cannot accept (it re-validates every
 # kwarg against ``DEFAULT_OPTIONS`` and would raise "Unknown option"): the
 # `kind=` dispatch hint, the curvilinear `coords` pair, the `aspect`
-# figure hint, and the xarray colour-norm trio that the animate render
+# figure hint, and the colour-norm trio that the animate render
 # loop doesn't consult. Plus the pyramids-internal injection keys
 # (`_facet_stack` / `facet_kwargs` / `_chunks` / `_extent`) which never
 # make sense for an animation. ``_render_animate`` strips these before
@@ -542,7 +542,7 @@ class NetCDFPlot:
     def _remove_colorbar(result: Any) -> None:
         """Drop the colorbar from a rendered cleopatra result.
 
-        Honours the xarray-aligned ``add_colorbar=False`` switch on
+        Honours the ``add_colorbar=False`` switch on
         :meth:`NetCDF.plot`. Cleopatra always attaches a colorbar to its
         :class:`~cleopatra.array_glyph.ArrayGlyph` /
         :class:`~cleopatra.array_glyph.FacetGrid` results, so pyramids
@@ -932,8 +932,7 @@ class NetCDFPlot:
                     f"or `None`. Got {animate!r}."
                 )
             if animate not in nc._band_dim_names:
-                # Unknown *dim name* — KeyError, mirroring xarray's
-                # convention for `ds.sel(unknown_dim=...)`. (Pin
+                # Unknown *dim name* — raised as a KeyError. (Pin
                 # conflicts and disambiguation failures below stay
                 # ValueError — those are invalid *combinations*, not
                 # missing names.)

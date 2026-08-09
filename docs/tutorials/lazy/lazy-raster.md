@@ -94,10 +94,10 @@ ds = Dataset.read_file("large.tif")
 ds.to_zarr("out.zarr", chunks=(1, 1024, 1024), mode="w")
 ```
 
-The store metadata follows rioxarray's geobox-attribute convention
+The store metadata follows the standard GeoZarr geobox-attribute convention
 (`spatial_ref`, `GeoTransform`, `epsg`, `no_data_value`, `band_names`,
 `dtype`, `shape`), so a downstream consumer can open the result with
-plain rioxarray:
+a plain GeoZarr raster reader:
 
 ```python
 import rioxarray

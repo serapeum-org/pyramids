@@ -17,9 +17,9 @@ plus the spatial primitives that operate on them (reproject, crop, align, mosaic
 vectorize, zonal stats, focal/terrain analysis, interpolation) and the cloud/lazy I/O needed to do that
 at scale.
 
-Its peer group is **rasterio / rioxarray / fiona / geopandas** — the general-purpose Python geospatial
-stack. pyramids competes in that niche: it is the GDAL-backed engine, not a domain application built on
-top of one.
+Its peer group is **rasterio / fiona / geopandas** and the labeled-array raster bridges — the
+general-purpose Python geospatial stack. pyramids competes in that niche: it is the GDAL-backed engine,
+not a domain application built on top of one.
 
 **Guiding principle:** pyramids owns *generic geospatial primitives and format support*. Anything whose
 correctness depends on knowing the scientific domain, the sensor, the data provider, or the downstream

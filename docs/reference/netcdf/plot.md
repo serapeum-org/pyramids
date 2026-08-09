@@ -4,7 +4,7 @@
 > [**Plotting NetCDF data**](../../tutorials/netcdf-plotting.md) tutorial. This page is the API
 > reference (signature table + the auto-generated `Selectors` / `ColourOpts` / `FacetSpec` docs).
 
-`NetCDF.plot` has its own, xarray-aligned plotting surface — it does **not** inherit the
+`NetCDF.plot` has its own, labeled-array-style plotting surface — it does **not** inherit the
 GeoTIFF / Sentinel-imagery semantics of `Dataset.plot`. You pick a *variable*, slice along the
 non-spatial dimensions, and pass colour / faceting / coordinate options through small grouped,
 frozen dataclasses (`Selectors`, `ColourOpts`, `FacetSpec`) re-exported from `pyramids.netcdf`.
@@ -36,7 +36,7 @@ from pyramids.netcdf import NetCDF, Selectors, ColourOpts, FacetSpec
 
 nc = NetCDF.read_file("era5.nc")
 
-# pick a variable, select along non-spatial dims, xarray-style colour kwargs
+# pick a variable, select along non-spatial dims, labeled-array-style colour kwargs
 nc.plot("t2m", selectors=Selectors(time="2020-01-01", level=850),
         colour=ColourOpts(cmap="coolwarm", robust=True))
 

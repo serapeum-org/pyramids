@@ -1,7 +1,7 @@
-"""Tests for xarray interop — to_xarray() and from_xarray().
+"""Tests for the NetCDF interop bridge — export and import round-trips.
 
-Validates that pyramids NetCDF containers can be converted to/from
-xarray.Dataset with correct variables, coordinates, dimensions,
+Validates that pyramids NetCDF containers can be converted to and from
+a labeled dataset with correct variables, coordinates, dimensions,
 attributes, and data integrity through round-trips.
 """
 
@@ -16,7 +16,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 
 xr = pytest.importorskip("xarray")
 
-pytestmark = pytest.mark.xarray
+pytestmark = pytest.mark.interop
 
 from pyramids.dataset import Dataset
 from pyramids.netcdf.engines.interop import _encode_temporal_array
@@ -58,9 +58,8 @@ class TestEncodeTemporalArray:
         vals = np.array(["2020-01-01", "NaT", "2020-01-03"], dtype="datetime64[ns]")
         encoded, _ = _encode_temporal_array(vals)
         assert np.isnan(encoded[1]), f"NaT must encode to NaN, got {encoded[1]}"
-        assert np.isfinite(encoded[0]) and np.isfinite(encoded[2]), (
-            "real instants must stay finite"
-        )
+        assert np.isfinite(encoded[0]), "real instant [0] must stay finite"
+        assert np.isfinite(encoded[2]), "real instant [2] must stay finite"
 
     def test_timedelta64_nat_encodes_to_nan(self):
         """A NaT in a timedelta64 array encodes to NaN, not the int64-sentinel value (review M2)."""
@@ -156,13 +155,13 @@ def _make_multi_var_nc():
 
 
 class TestToXarrayInMemory3D:
-    """to_xarray() on in-memory 3D containers."""
+    """The interop export on in-memory 3D containers."""
 
     def test_returns_xarray_dataset(self):
-        """to_xarray() returns an xarray.Dataset instance.
+        """The interop export returns a labeled dataset instance.
 
         Test scenario:
-            The return type must be xr.Dataset for xarray compatibility.
+            The return type must be a labeled dataset for interop compatibility.
         """
         nc = _make_3d_nc()
         ds = nc.to_xarray()
@@ -171,10 +170,10 @@ class TestToXarrayInMemory3D:
         )
 
     def test_contains_variable(self):
-        """to_xarray() includes the data variable.
+        """The interop export includes the data variable.
 
         Test scenario:
-            The xr.Dataset should contain 'temperature' as a data_var.
+            The result should contain 'temperature' as a data_var.
         """
         nc = _make_3d_nc()
         ds = nc.to_xarray()
@@ -183,7 +182,7 @@ class TestToXarrayInMemory3D:
         )
 
     def test_variable_shape(self):
-        """to_xarray() produces a variable with the correct shape.
+        """The interop export produces a variable with the correct shape.
 
         Test scenario:
             The 'temperature' variable should be (3, 4, 6) matching
@@ -198,10 +197,10 @@ class TestToXarrayInMemory3D:
         ), f"Expected shape (3, 4, 6), got {ds['temperature'].shape}"
 
     def test_variable_data_matches(self):
-        """to_xarray() preserves the numeric values of the variable.
+        """The interop export preserves the numeric values of the variable.
 
         Test scenario:
-            The data read from xr.Dataset should match the original
+            The data read from the result should match the original
             numpy array written to the pyramids container.
         """
         nc = _make_3d_nc()
@@ -214,10 +213,10 @@ class TestToXarrayInMemory3D:
         )
 
     def test_contains_time_coordinate(self):
-        """to_xarray() includes the time coordinate.
+        """The interop export includes the time coordinate.
 
         Test scenario:
-            The xr.Dataset should have 'time' as a coordinate with
+            The result should have 'time' as a coordinate with
             values [0, 6, 12].
         """
         nc = _make_3d_nc()
@@ -232,10 +231,10 @@ class TestToXarrayInMemory3D:
         )
 
     def test_contains_spatial_coordinates(self):
-        """to_xarray() includes x and y spatial coordinates.
+        """The interop export includes x and y spatial coordinates.
 
         Test scenario:
-            The xr.Dataset should have 'x' and 'y' as coordinates.
+            The result should have 'x' and 'y' as coordinates.
         """
         nc = _make_3d_nc()
         ds = nc.to_xarray()
@@ -243,7 +242,7 @@ class TestToXarrayInMemory3D:
         assert "y" in ds.coords, f"Expected 'y' in coords, got {list(ds.coords)}"
 
     def test_x_coordinate_values(self):
-        """to_xarray() produces correct x coordinate values.
+        """The interop export produces correct x coordinate values.
 
         Test scenario:
             With geo=(10.0, 1.0, ...), 6 columns, x coords should be
@@ -260,7 +259,7 @@ class TestToXarrayInMemory3D:
         )
 
     def test_dimension_names(self):
-        """to_xarray() uses the correct dimension names.
+        """The interop export uses the correct dimension names.
 
         Test scenario:
             The 'temperature' variable should have dimensions
@@ -276,10 +275,10 @@ class TestToXarrayInMemory3D:
 
 
 class TestToXarrayInMemory2D:
-    """to_xarray() on in-memory 2D containers."""
+    """The interop export on in-memory 2D containers."""
 
     def test_2d_variable_shape(self):
-        """to_xarray() on a 2D container produces the correct shape.
+        """The interop export on a 2D container produces the correct shape.
 
         Test scenario:
             The 'elevation' variable should be (4, 6) matching (y, x).
@@ -292,7 +291,7 @@ class TestToXarrayInMemory2D:
         ), f"Expected shape (4, 6), got {ds['elevation'].shape}"
 
     def test_2d_variable_data(self):
-        """to_xarray() preserves 2D variable data.
+        """The interop export preserves 2D variable data.
 
         Test scenario:
             Data values should match the original np.arange(24).
@@ -307,7 +306,7 @@ class TestToXarrayInMemory2D:
         )
 
     def test_2d_has_spatial_coords_only(self):
-        """to_xarray() on a 2D container has x and y coords only.
+        """The interop export on a 2D container has x and y coords only.
 
         Test scenario:
             No 'time' coordinate should exist for a 2D variable.
@@ -320,14 +319,14 @@ class TestToXarrayInMemory2D:
 
 
 class TestToXarrayMultiVariable:
-    """to_xarray() on containers with multiple variables."""
+    """The interop export on containers with multiple variables."""
 
     def test_multi_variable_both_present(self):
-        """to_xarray() includes all data variables.
+        """The interop export includes all data variables.
 
         Test scenario:
             A container with 'temperature' and 'pressure' should
-            produce an xr.Dataset with both variables.
+            produce a result with both variables.
         """
         nc = _make_multi_var_nc()
         ds = nc.to_xarray()
@@ -335,7 +334,7 @@ class TestToXarrayMultiVariable:
         assert "pressure" in ds.data_vars, "'pressure' should be in data_vars"
 
     def test_multi_variable_shapes(self):
-        """to_xarray() preserves shapes for all variables.
+        """The interop export preserves shapes for all variables.
 
         Test scenario:
             Both variables should have shape (3, 4, 6).
@@ -355,15 +354,15 @@ class TestToXarrayMultiVariable:
 
 
 class TestToXarrayFileBacked:
-    """to_xarray() on file-backed NetCDF containers."""
+    """The interop export on file-backed NetCDF containers."""
 
     def test_file_backed_returns_xr_dataset(self, pyramids_created_nc_3d):
-        """to_xarray() on a file-backed container returns xr.Dataset.
+        """The interop export on a file-backed container returns a labeled dataset.
 
         Test scenario:
-            Opening a real .nc file and calling to_xarray() should
-            use the xr.open_dataset fast path and return a valid
-            xr.Dataset.
+            Opening a real .nc file and exporting should
+            use the fast open path and return a valid
+            labeled dataset.
         """
         nc = NetCDF.read_file(pyramids_created_nc_3d)
         ds = nc.to_xarray()
@@ -372,22 +371,22 @@ class TestToXarrayFileBacked:
         )
 
     def test_file_backed_has_variables(self, pyramids_created_nc_3d):
-        """to_xarray() on a file-backed container includes variables.
+        """The interop export on a file-backed container includes variables.
 
         Test scenario:
-            The xr.Dataset from a real file should have at least one
+            The result from a real file should have at least one
             data variable.
         """
         nc = NetCDF.read_file(pyramids_created_nc_3d)
         ds = nc.to_xarray()
-        assert len(ds.data_vars) > 0, "File-backed to_xarray should have data variables"
+        assert len(ds.data_vars) > 0, "File-backed export should have data variables"
 
     def test_two_var_file(self, two_variable_nc):
-        """to_xarray() on a two-variable file includes both.
+        """The interop export on a two-variable file includes both.
 
         Test scenario:
             The coards__4v__1d2-2d2__scaleoffset__y-asc.nc file contains 'z' and 'q';
-            both should appear in the xr.Dataset.
+            both should appear in the result.
         """
         nc = NetCDF.read_file(two_variable_nc)
         ds = nc.to_xarray()
@@ -396,15 +395,16 @@ class TestToXarrayFileBacked:
 
 
 class TestFromXarrayDatetimeCoord:
-    """from_xarray() handles a CF-decoded datetime64 time coordinate (ARC-17)."""
+    """The interop import handles a CF-decoded datetime64 time coordinate (ARC-17)."""
 
     def test_datetime64_time_coord_does_not_crash(self):
         """A Dataset with a datetime64[ns] `time` coord builds without raising, preserving the data.
 
         Test scenario:
-            The default `decode_cf=True` yields a datetime64 time axis, which numpy_to_gdal_dtype
-            cannot map — from_xarray used to raise. The time axis is now encoded to CF-numeric seconds,
-            so the container is created and the data variable round-trips unchanged.
+            The default `decode_cf=True` yields a datetime64 time axis, which
+            numpy_to_gdal_dtype cannot map — the interop import used to raise. The
+            time axis is now encoded to CF-numeric seconds, so the container is
+            created and the data variable round-trips unchanged.
         """
         times = np.array(
             ["2020-01-01", "2020-01-02", "2020-01-03"], dtype="datetime64[ns]"
@@ -421,15 +421,15 @@ class TestFromXarrayDatetimeCoord:
         assert_allclose(
             got,
             data,
-            err_msg="t2m data should survive from_xarray with a datetime64 time coord",
+            err_msg="t2m must survive the interop import with a datetime64 time coord",
         )
 
 
 class TestFromXarrayRoundTrip:
-    """from_xarray() round-trip data integrity."""
+    """The interop import round-trip data integrity."""
 
     def test_round_trip_preserves_variable_names(self):
-        """from_xarray(to_xarray()) preserves variable names.
+        """An export/import round-trip preserves variable names.
 
         Test scenario:
             A 3D container with 'temperature' should survive the
@@ -443,11 +443,11 @@ class TestFromXarrayRoundTrip:
         )
 
     def test_round_trip_preserves_data(self):
-        """from_xarray(to_xarray()) preserves numeric data.
+        """An export/import round-trip preserves numeric data.
 
         Test scenario:
             The array data should be identical after a full
-            to_xarray -> from_xarray round-trip.
+            export -> import round-trip.
         """
         nc = _make_3d_nc()
         ds = nc.to_xarray()
@@ -459,7 +459,7 @@ class TestFromXarrayRoundTrip:
             result,
             expected,
             rtol=1e-10,
-            err_msg="Data should survive to_xarray -> from_xarray",
+            err_msg="Data should survive the export -> import round-trip",
         )
 
     def test_round_trip_preserves_variable_count(self):
@@ -495,7 +495,7 @@ class TestFromXarrayRoundTrip:
 
         Test scenario:
             A 2D container should produce the same data after
-            to_xarray -> from_xarray.
+            an export -> import round-trip.
         """
         nc = _make_2d_nc()
         ds = nc.to_xarray()
@@ -512,10 +512,10 @@ class TestFromXarrayRoundTrip:
 
 
 class TestFromXarrayWithPath:
-    """from_xarray() with an explicit output path."""
+    """The interop import with an explicit output path."""
 
     def test_explicit_path_creates_file(self, tmp_path):
-        """from_xarray(path=...) writes to the specified file.
+        """The interop import with path=... writes to the specified file.
 
         Test scenario:
             The specified .nc file should exist on disk after the call.
@@ -527,7 +527,7 @@ class TestFromXarrayWithPath:
         assert out_path.exists(), f"Expected file at {out_path} to exist"
 
     def test_explicit_path_data_integrity(self, tmp_path):
-        """from_xarray(path=...) preserves data on disk.
+        """The interop import with path=... preserves data on disk.
 
         Test scenario:
             Data read from the explicitly-written file should match
@@ -548,7 +548,7 @@ class TestFromXarrayWithPath:
         )
 
     def test_explicit_path_string(self, tmp_path):
-        """from_xarray accepts a string path.
+        """The interop import accepts a string path.
 
         Test scenario:
             Passing a string instead of a Path should also work.
@@ -558,32 +558,32 @@ class TestFromXarrayWithPath:
         out_path = str(tmp_path / "string_path.nc")
         nc2 = NetCDF.from_xarray(ds, path=out_path)
         assert "temperature" in nc2.variable_names, (
-            "String path should work for from_xarray"
+            "String path should work for the interop import"
         )
 
 
 class TestFromXarrayTempFile:
-    """from_xarray() with no path — uses temp file."""
+    """The interop import with no path — uses temp file."""
 
     def test_temp_path_stored(self):
-        """from_xarray(path=None) stores a temp path attribute.
+        """The interop import with path=None stores a temp path attribute.
 
         Test scenario:
             When no path is given, the result should have
-            _xarray_temp_path set to a real file.
+            _interop_temp_path set to a real file.
         """
         nc = _make_3d_nc()
         ds = nc.to_xarray()
         nc2 = NetCDF.from_xarray(ds)
-        assert hasattr(nc2, "_xarray_temp_path"), (
-            "Result should have _xarray_temp_path attribute"
+        assert hasattr(nc2, "_interop_temp_path"), (
+            "Result should have _interop_temp_path attribute"
         )
-        assert os.path.exists(nc2._xarray_temp_path), (
-            f"Temp file should exist: {nc2._xarray_temp_path}"
+        assert os.path.exists(nc2._interop_temp_path), (
+            f"Temp file should exist: {nc2._interop_temp_path}"
         )
 
     def test_temp_file_is_readable(self):
-        """from_xarray temp file can be read by the result NetCDF.
+        """The interop import temp file can be read by the result NetCDF.
 
         Test scenario:
             The returned NetCDF should be able to extract variables
@@ -596,10 +596,10 @@ class TestFromXarrayTempFile:
 
 
 class TestFromXarrayErrors:
-    """from_xarray() error handling."""
+    """The interop import error handling."""
 
     def test_raises_type_error_for_non_dataset(self):
-        """from_xarray raises TypeError for non-xr.Dataset input.
+        """The interop import raises TypeError for a non-dataset input.
 
         Test scenario:
             Passing a string, dict, or DataArray should raise
@@ -609,10 +609,10 @@ class TestFromXarrayErrors:
             NetCDF.from_xarray("not_a_dataset")
 
     def test_raises_type_error_for_dataarray(self):
-        """from_xarray raises TypeError for xr.DataArray.
+        """The interop import raises TypeError for a DataArray.
 
         Test scenario:
-            An xr.DataArray is not an xr.Dataset — should raise.
+            A DataArray is not a labeled dataset — should raise.
         """
         da = xr.DataArray(
             np.zeros((3, 4)),
@@ -622,29 +622,29 @@ class TestFromXarrayErrors:
             NetCDF.from_xarray(da)
 
     def test_raises_type_error_for_dict(self):
-        """from_xarray raises TypeError for a plain dict.
+        """The interop import raises TypeError for a plain dict.
 
         Test scenario:
-            A dict is not an xr.Dataset.
+            A dict is not a labeled dataset.
         """
         with pytest.raises(TypeError, match="Expected xarray.Dataset"):
             NetCDF.from_xarray({"temperature": [1, 2, 3]})
 
     def test_raises_type_error_for_none(self):
-        """from_xarray raises TypeError for None.
+        """The interop import raises TypeError for None.
 
         Test scenario:
-            None is not an xr.Dataset.
+            None is not a labeled dataset.
         """
         with pytest.raises(TypeError, match="Expected xarray.Dataset"):
             NetCDF.from_xarray(None)
 
 
 class TestToXarrayErrors:
-    """to_xarray() error handling."""
+    """The interop export error handling."""
 
     def test_raises_on_classic_mode_without_root_group(self):
-        """to_xarray raises ValueError for classic-mode containers.
+        """The interop export raises ValueError for classic-mode containers.
 
         Test scenario:
             A NetCDF opened in classic mode (no root group) and
@@ -665,12 +665,12 @@ class TestGlobalAttributes:
     """Round-trip preservation of global attributes."""
 
     def test_global_attrs_round_trip(self):
-        """Global attributes survive a to_xarray -> from_xarray trip.
+        """Global attributes survive an export -> import trip.
 
         Test scenario:
-            Set a global attribute on the container, convert to
-            xarray, convert back, and verify the attribute is present
-            in the xarray Dataset.
+            Set a global attribute on the container, run the interop
+            export, convert back, and verify the attribute is present
+            in the result.
         """
         nc = _make_3d_nc()
         nc.set_global_attribute("history", "created by test")
@@ -684,7 +684,7 @@ class TestGlobalAttributes:
         )
 
     def test_numeric_global_attr(self):
-        """Numeric global attributes are preserved in xarray.
+        """Numeric global attributes are preserved through interop.
 
         Test scenario:
             A float global attribute should survive conversion.
@@ -708,11 +708,11 @@ class TestFileBacked3DRoundTrip:
         """File-backed NetCDF data variables survive the round-trip.
 
         Test scenario:
-            Open a real .nc file, convert to xarray, convert back
+            Open a real .nc file, run the interop export, convert back
             to pyramids, and verify all original data variables are
             present. The round-trip may include extra metadata
-            variables (e.g. CRS grid-mapping) that xarray preserves
-            but pyramids filters out — so we check containment.
+            variables (e.g. CRS grid-mapping) that the interop layer
+            preserves but pyramids filters out — so we check containment.
         """
         nc = NetCDF.read_file(pyramids_created_nc_3d)
         orig_names = set(nc.variable_names)
@@ -727,7 +727,7 @@ class TestFileBacked3DRoundTrip:
 
 
 class TestInteropEngineBranches:
-    """Engine-level ``from_xarray`` / ``to_xarray`` behaviour (moved from
+    """Engine-level interop import / export behaviour (moved from
     ``test_netcdf_engines.py`` — these genuinely exercise the two interop
     methods, so they belong with the rest of the interop suite)."""
 
@@ -735,7 +735,7 @@ class TestInteropEngineBranches:
         """A coordinate that is not also a dimension is skipped on write.
 
         Test scenario:
-            ``_build_multidim_from_xarray`` only writes coords whose name matches
+            The interop import only writes coords whose name matches
             a dimension; a scalar/auxiliary coord is silently skipped, so the
             round-trip drops it rather than crashing.
         """
@@ -752,7 +752,7 @@ class TestInteropEngineBranches:
         assert "scalar_meta" not in nc.variable_names, "non-dim coord should be skipped"
 
     def test_units_survive_from_xarray_to_xarray_roundtrip(self):
-        """A variable's ``units`` survive ``from_xarray`` → ``to_xarray``.
+        """A variable's ``units`` survive an interop import → export.
 
         Test scenario:
             GDAL's netCDF layer moves the CF ``units`` attribute onto the MDArray
@@ -774,7 +774,7 @@ class TestInteropEngineBranches:
         )
 
     def test_to_xarray_roundtrip_through_engine(self):
-        """``nc.interop.to_xarray()`` and ``nc.to_xarray()`` agree.
+        """The engine export and the façade export agree.
 
         Test scenario:
             Calling the engine directly and through the façade produce datasets
@@ -789,15 +789,15 @@ class TestInteropEngineBranches:
 
 
 class TestToXarrayLazy:
-    """to_xarray(chunks=...) builds dask-backed data variables in native order (ARC-48)."""
+    """Chunked interop export builds dask-backed variables in native order (ARC-48)."""
 
     @requires_dask
     def test_numeric_var_is_dask_backed(self):
         """A numeric data variable is dask-backed when chunks= is given.
 
         Test scenario:
-            to_xarray(chunks="auto") on a file-backed container returns the numeric ``t2m`` as a dask
-            array rather than an eagerly-materialised numpy array.
+            The chunked interop export on a file-backed container returns the
+            numeric ``t2m`` as a dask array rather than an eager numpy array.
         """
         nc = NetCDF.read_file(GEOG_3D_NC)
         try:
@@ -810,7 +810,7 @@ class TestToXarrayLazy:
 
     @requires_dask
     def test_lazy_values_match_eager(self):
-        """Computed lazy values equal the eager to_xarray values (raw orientation preserved).
+        """Computed lazy values equal the eager interop values (raw order kept).
 
         Test scenario:
             The lazy read uses ``orient=False``, so it must not be flipped relative to the raw
@@ -833,8 +833,9 @@ class TestToXarrayLazy:
         """A non-chunkable string variable is read eagerly, not as dask, and still matches.
 
         Test scenario:
-            ``expver`` is a string MDArray a chunked read cannot represent; to_xarray(chunks=) must
-            fall back to the eager read for it instead of failing the whole conversion.
+            ``expver`` is a string MDArray a chunked read cannot represent; the
+            chunked interop export must fall back to the eager read for it
+            instead of failing the whole conversion.
         """
         nc = NetCDF.read_file(GEOG_3D_NC)
         try:
@@ -854,9 +855,7 @@ class TestToXarrayLazy:
         nc = NetCDF.read_file(GEOG_3D_NC)
         try:
             eager = nc.to_xarray()
-            assert not hasattr(eager["t2m"].data, "dask"), (
-                "default to_xarray stays eager"
-            )
+            assert not hasattr(eager["t2m"].data, "dask"), "default export stays eager"
         finally:
             nc.close()
 
@@ -865,8 +864,9 @@ class TestToXarrayLazy:
         """An in-memory container has no file to reopen, so chunks= falls back to eager.
 
         Test scenario:
-            A ``create_from_array`` container's data is already resident; to_xarray(chunks="auto")
-            returns eager numpy arrays rather than raising or attempting a lazy reopen.
+            A ``create_from_array`` container's data is already resident; the
+            chunked interop export returns eager numpy arrays rather than raising
+            or attempting a lazy reopen.
         """
         nc = _make_3d_nc(variable_name="temperature")
         ds = nc.to_xarray(chunks="auto")
@@ -903,5 +903,5 @@ class TestToXarrayLazy:
             f"container gdal_env must be threaded into the lazy read, got {captured}"
         )
         assert captured["orient"] is False, (
-            "lazy to_xarray read must be raw (orient=False)"
+            "lazy interop read must be raw (orient=False)"
         )

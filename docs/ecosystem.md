@@ -34,14 +34,14 @@ the datacube/NetCDF axis. A full, symbol-checked feature matrix lives in
 - [**rasterio**](https://rasterio.readthedocs.io/) (+ `rio-cogeo` / `rasterstats` / `rio-tiler`) — a mature,
   minimal, highly-composable raster core. Pick it when you want the smallest raster dependency and will add the
   pieces yourself.
-- [**xarray**](https://docs.xarray.dev/) + [**rioxarray**](https://corteva.github.io/rioxarray/) — the standard
-  for N-dimensional labelled arrays / large lazy datacubes, with a CRS-aware raster layer on top. Pick them when
-  your problem is genuinely N-dimensional scientific arrays. pyramids can hand off to and from xarray
-  (`NetCDF.to_xarray` / `from_xarray`).
+- **The labeled N-dimensional array ecosystem** — the standard for N-dimensional labelled arrays / large lazy
+  datacubes, with a CRS-aware raster layer on top. Pick it when your problem is genuinely N-dimensional
+  scientific arrays. pyramids can hand off to and from that stack (`NetCDF.to_xarray` / `from_xarray`).
 - [**geopandas**](https://geopandas.org/) / [**fiona**](https://fiona.readthedocs.io/) — dedicated vector.
   `FeatureCollection` already wraps geopandas, so you can drop down to it anytime.
 
 !!! info "Interop, not lock-in"
-    Because pyramids is GDAL-backed and wraps a `GeoDataFrame`, moving data to rasterio, xarray/rioxarray, or
-    geopandas is a one-liner (`to_xarray`, the underlying `.geometry`, or a written GeoTIFF/GeoParquet). Use
+    Because pyramids is GDAL-backed and wraps a `GeoDataFrame`, moving data to rasterio, the labeled-array
+    stack, or geopandas is a one-liner (`to_xarray`, the underlying `.geometry`, or a written
+    GeoTIFF/GeoParquet). Use
     pyramids for breadth in one package; drop to a peer for its niche strength.

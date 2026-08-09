@@ -47,7 +47,7 @@ HAS_DASK = _has("dask")
 HAS_DASK_ARRAY = _has("dask.array")
 HAS_DASK_GEOPANDAS = _has("dask_geopandas")
 HAS_ZARR = _has("zarr")
-HAS_XARRAY = _has("xarray")
+HAS_INTEROP = _has("xarray")
 HAS_NETCDF4 = _has("netCDF4")
 HAS_H5NETCDF = _has("h5netcdf")
 HAS_CFTIME = _has("cftime")
@@ -64,7 +64,7 @@ HAS_PYSTAC_CLIENT = _has("pystac_client")
 # `pip install pyramids-gis[lazy]`.
 _HAS_VIZ = HAS_CLEOPATRA
 _HAS_LAZY = HAS_DASK_ARRAY and HAS_ZARR
-_HAS_XARRAY = HAS_XARRAY
+_HAS_INTEROP = HAS_INTEROP
 _HAS_NETCDF_LAZY = _HAS_LAZY and HAS_KERCHUNK and HAS_H5PY
 _HAS_PARQUET = HAS_PYARROW
 _HAS_PARQUET_LAZY = _HAS_LAZY and _HAS_PARQUET and HAS_DASK_GEOPANDAS
@@ -77,8 +77,8 @@ requires_plot = pytest.mark.skipif(
 requires_lazy = pytest.mark.skipif(
     not _HAS_LAZY, reason="pyramids-gis[lazy] not installed"
 )
-requires_xarray = pytest.mark.skipif(
-    not _HAS_XARRAY, reason="xarray not installed (pip install xarray)"
+requires_interop = pytest.mark.skipif(
+    not _HAS_INTEROP, reason="the optional interop dependency is not installed"
 )
 requires_netcdf_lazy = pytest.mark.skipif(
     not _HAS_NETCDF_LAZY, reason="kerchunk + h5py (pyramids-gis[lazy]) not installed"
@@ -119,7 +119,7 @@ EXTRA_MARKERS: dict[str, pytest.MarkDecorator] = {
     # `viz` marker is registered to avoid duplicate surface.
     "plot": requires_plot,
     "lazy": requires_lazy,
-    "xarray": requires_xarray,
+    "interop": requires_interop,
     "netcdf_lazy": requires_netcdf_lazy,
     "parquet": requires_parquet,
     "parquet_lazy": requires_parquet_lazy,

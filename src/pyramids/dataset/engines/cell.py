@@ -470,7 +470,7 @@ class Cell(_Engine["Dataset"]):
             - :meth:`map_to_array_coordinates`: The inverse direction
               (map coordinates to the nearest array indices).
             - :meth:`pyramids.dataset.abstract_dataset.RasterBase.xy`: The
-              scalar/array affine companion used by the rasterio-style API.
+              scalar/array affine companion used by the affine-style API.
         """
         # Materialise to 1-D float arrays first. Going through ``list`` accepts
         # any finite iterable of indices (lists, tuples, ndarrays, generators)

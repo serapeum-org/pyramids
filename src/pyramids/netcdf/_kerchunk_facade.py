@@ -2,7 +2,7 @@
 
 serialise a NetCDF (or a list of NetCDFs) into a kerchunk
 JSON reference manifest so downstream consumers can open the archive
-as a lazy Zarr-backed xarray cube with **zero rewrite**. The manifest
+as a lazy Zarr-backed cube with **zero rewrite**. The manifest
 is a small JSON document containing byte-range pointers into each
 source file; no pixel data is moved.
 
