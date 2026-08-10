@@ -451,6 +451,7 @@ class TestOpenStreamingMultidimNetcdf:
                 {},
             ):
                 pass
+        assert not out.exists(), "a setup-phase error must leave no partial file"
 
     def test_unknown_variable_dimension_raises_value_error(self, tmp_path):
         """A variable over a dimension absent from ``dims`` raises ``ValueError``.
@@ -469,6 +470,7 @@ class TestOpenStreamingMultidimNetcdf:
                 {},
             ):
                 pass
+        assert not out.exists(), "a setup-phase error must leave no partial file"
 
     def test_create_failure_raises_runtime_error(self, tmp_path, monkeypatch):
         """A ``None`` from ``CreateMultiDimensional`` raises ``RuntimeError``.
@@ -492,23 +494,26 @@ class TestOpenStreamingMultidimNetcdf:
             "GetDriverByName",
             lambda name: _NullCreateDriver() if name == "netCDF" else real(name),
         )
+        out = tmp_path / "boom.nc"
         with pytest.raises(RuntimeError, match="Failed to create NetCDF"):
             with open_streaming_multidim_netcdf(
-                tmp_path / "boom.nc",
+                out,
                 {"x": 1},
                 {"x": (np.array([0.0]), {})},
                 {"v": (("x",), np.dtype("float64"), {})},
                 {},
             ):
                 pass
+        assert not out.exists(), "no file should exist when creation fails"
 
-    def test_context_manager_finalizes_on_exception(self, tmp_path):
-        """An exception raised mid-stream still finalizes (closes) the file.
+    def test_partial_file_removed_on_mid_stream_exception(self, tmp_path):
+        """A mid-stream exception removes the partial file (atomic write).
 
         Test scenario:
             Write one slab, then raise inside the ``with`` block — expected: the
-            error propagates and the file is still created (the ``finally`` close
-            ran), not left with an open write handle.
+            error propagates and the partially written file is cleaned up, so a
+            surviving file always means a complete write (no silently truncated
+            NetCDF left behind).
         """
         out = tmp_path / "err.nc"
         dims = {"time": 2, "y": 1, "x": 1}
@@ -524,7 +529,7 @@ class TestOpenStreamingMultidimNetcdf:
             ) as writer:
                 writer.write_slab("v", 0, np.array([[1]], dtype="int16"))
                 raise RuntimeError("boom")
-        assert out.exists(), "file should be finalized even when the block raises"
+        assert not out.exists(), "a mid-stream error must leave no partial file"
 
 
 class TestApplyMdArrayAttrs:

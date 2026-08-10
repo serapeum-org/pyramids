@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import os
 import tempfile
+import traceback
 import weakref
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -549,51 +550,39 @@ class _StreamingMultidimWriter:
         )
 
 
-@contextmanager
-def open_streaming_multidim_netcdf(
-    path: str | Path,
+def _build_streaming_multidim(
+    dataset: gdal.Dataset,
     dims: dict[str, int],
     coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
     var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
     global_attrs: dict[str, Any],
-):
-    """Create a netCDF multidim file and yield a per-hyperslab writer.
+) -> dict[str, gdal.MDArray]:
+    """Create dims, coord arrays, empty data vars, and global attrs on `dataset`.
 
-    The streaming counterpart of :func:`write_multidim_netcdf`: instead of
-    receiving fully materialised variable arrays, it creates the dimensions,
-    writes the (small, 1-D) coordinate arrays whole, creates each data variable
-    at its full shape with **no data**, then hands back a
-    :class:`_StreamingMultidimWriter` so the caller can fill each variable one
-    leading-dimension slab at a time. The file is flushed and closed on exit, so
-    the whole ``(T, …)`` cube never has to be resident. Used by
-    :meth:`pyramids.dataset.collection.DatasetCollection.to_netcdf`.
+    Split out from :func:`open_streaming_multidim_netcdf` so all the transient
+    GDAL setup handles (the root group, dimensions, and coordinate MDArrays) live
+    in this frame and are released when it returns or raises — leaving the context
+    manager only the data-variable MDArrays to drop before `Close()`, which is
+    what lets the netCDF driver flush and unlock the file.
 
     Args:
-        path: Output ``.nc`` path.
-        dims: Dimension name to length (the full shape, including the streamed
-            leading dimension).
-        coords: Coordinate name (also a dimension) to a ``(values, attrs)`` pair;
-            written whole up front. Entries whose name is not a dimension are
-            skipped.
+        dataset: A freshly created netCDF multidim dataset.
+        dims: Dimension name to length.
+        coords: Coordinate name to a ``(values, attrs)`` pair; entries whose name
+            is not a dimension are skipped.
         var_specs: Variable name to a ``(dimension-name tuple, numpy dtype,
-            attrs)`` triple. The first entry of the dimension tuple is the
-            streamed (leading) dimension.
+            attrs)`` triple.
         global_attrs: Root-group (global) attributes.
 
-    Yields:
-        _StreamingMultidimWriter: Call :meth:`~_StreamingMultidimWriter.write_slab`
-        once per leading-dimension index.
+    Returns:
+        dict[str, gdal.MDArray]: The created (empty, full-shape) data-variable
+        MDArrays, keyed by name, for the caller to fill by slab.
 
     Raises:
-        RuntimeError: When the GDAL netCDF driver fails to create the file.
         ValueError: When a variable references an unknown dimension, or a
             coordinate array shape does not match its dimension size.
     """
-    dataset = gdal.GetDriverByName("netCDF").CreateMultiDimensional(str(path))
-    if dataset is None:
-        raise RuntimeError(f"Failed to create NetCDF at {path}")
     root = dataset.GetRootGroup()
-
     gdal_dims: dict[str, gdal.Dimension] = {
         name: root.CreateDimension(name, "", "", int(size))
         for name, size in dims.items()
@@ -631,12 +620,77 @@ def open_streaming_multidim_netcdf(
     if global_attrs:
         write_global_attributes(root, dict(global_attrs))
 
+    return arrays
+
+
+@contextmanager
+def open_streaming_multidim_netcdf(
+    path: str | Path,
+    dims: dict[str, int],
+    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
+    var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
+    global_attrs: dict[str, Any],
+):
+    """Create a netCDF multidim file and yield a per-hyperslab writer.
+
+    The streaming counterpart of :func:`write_multidim_netcdf`: instead of
+    receiving fully materialised variable arrays, it creates the dimensions,
+    writes the (small, 1-D) coordinate arrays whole, creates each data variable
+    at its full shape with **no data**, then hands back a
+    :class:`_StreamingMultidimWriter` so the caller can fill each variable one
+    leading-dimension slab at a time. The file is flushed and closed on exit, so
+    the whole ``(T, …)`` cube never has to be resident. The write is
+    all-or-nothing: if setup or any slab write raises, the partially written file
+    is removed, so a surviving file always means a complete write. Used by
+    :meth:`pyramids.dataset.collection.DatasetCollection.to_netcdf`.
+
+    Args:
+        path: Output ``.nc`` path.
+        dims: Dimension name to length (the full shape, including the streamed
+            leading dimension).
+        coords: Coordinate name (also a dimension) to a ``(values, attrs)`` pair;
+            written whole up front. Entries whose name is not a dimension are
+            skipped.
+        var_specs: Variable name to a ``(dimension-name tuple, numpy dtype,
+            attrs)`` triple. The first entry of the dimension tuple is the
+            streamed (leading) dimension.
+        global_attrs: Root-group (global) attributes.
+
+    Yields:
+        _StreamingMultidimWriter: Call :meth:`~_StreamingMultidimWriter.write_slab`
+        once per leading-dimension index.
+
+    Raises:
+        RuntimeError: When the GDAL netCDF driver fails to create the file.
+        ValueError: When a variable references an unknown dimension, or a
+            coordinate array shape does not match its dimension size.
+    """
+    dataset = gdal.GetDriverByName("netCDF").CreateMultiDimensional(str(path))
+    if dataset is None:
+        raise RuntimeError(f"Failed to create NetCDF at {path}")
+    completed = False
+    arrays: dict[str, gdal.MDArray] = {}
     try:
+        arrays = _build_streaming_multidim(
+            dataset, dims, coords, var_specs, global_attrs
+        )
         yield _StreamingMultidimWriter(arrays)
+        completed = True
+    except BaseException as exc:
+        # A raising body leaves its traceback pinning the helper/loop frames that
+        # still hold the transient GDAL dim/coord handles; clear those frames so
+        # Close() can release the file and the partial write can be removed below
+        # (the executing frame this runs in is skipped by clear_frames).
+        traceback.clear_frames(exc.__traceback__)
+        raise
     finally:
-        # Drop the MDArray / root references before closing so the netCDF write
-        # handle is fully released and the on-disk file is recognised by a reader
-        # that reopens the same path (mirrors _create_copy_to_netcdf's note).
+        # Drop the data-variable MDArrays, then Close(): the netCDF driver only
+        # flushes and unlocks the file once every child handle is released.
         arrays.clear()
-        del root
         dataset.Close()
+        if not completed:
+            # Keep the write all-or-nothing: on any setup or mid-stream failure,
+            # drop the partial/stray file so a surviving file always means a
+            # complete write (matching the old eager CreateCopy path).
+            with suppress(OSError):
+                Path(path).unlink()
