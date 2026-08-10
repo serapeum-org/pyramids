@@ -350,3 +350,169 @@ class TestPalettePlot:
         assert got[:3] == (1.0, 0.0, 0.0), (
             f"band-1 value 1 should be red, got {got[:3]}"
         )
+
+
+class TestColorRamp:
+    """`set_color_ramp` (#911): generate a palette from a continuous ramp."""
+
+    @staticmethod
+    def _dataset() -> Dataset:
+        """A single-band 10x10 raster with values 1..5."""
+        rng = np.random.default_rng(0)
+        arr = rng.integers(1, 6, size=(10, 10))
+        return Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+    def test_two_color_ramp_interpolates_the_intermediate_stops(self):
+        """A two-colour ramp fills the values between the endpoints via CreateColorRamp.
+
+        Test scenario:
+            Ramp #709959 -> #F2CE85 across 1..5 -> the midpoint value 3 is GDAL's
+            interpolated (177, 179, 111, 255), the endpoints are exact, and the band ends
+            up paletted.
+        """
+        dataset = self._dataset()
+        dataset.set_color_ramp(
+            band=1,
+            start_value=1,
+            end_value=5,
+            start_color="#709959",
+            end_color="#F2CE85",
+        )
+        table = dataset.color_table.set_index("values")
+        assert tuple(table.loc[1, ["red", "green", "blue", "alpha"]]) == (
+            112,
+            153,
+            89,
+            255,
+        ), "value 1 must be the start colour"
+        assert tuple(table.loc[3, ["red", "green", "blue", "alpha"]]) == (
+            177,
+            179,
+            111,
+            255,
+        ), "value 3 must be the interpolated midpoint"
+        assert tuple(table.loc[5, ["red", "green", "blue", "alpha"]]) == (
+            242,
+            206,
+            133,
+            255,
+        ), "value 5 must be the end colour"
+        assert dataset.raster.GetRasterBand(1).GetColorTable() is not None, (
+            "the band must end up paletted"
+        )
+
+    def test_named_colormap_ramp_samples_the_endpoints(self):
+        """A named colormap is sampled across the range through the same path.
+
+        Test scenario:
+            colormap='viridis' across 1..5 -> value 1 is viridis' dark-purple start and
+            value 5 its yellow end, and the band is paletted.
+        """
+        dataset = self._dataset()
+        dataset.set_color_ramp(band=1, start_value=1, end_value=5, colormap="viridis")
+        table = dataset.color_table.set_index("values")
+        assert tuple(table.loc[1, ["red", "green", "blue"]]) == (68, 1, 84), (
+            "value 1 must be viridis' start"
+        )
+        assert tuple(table.loc[5, ["red", "green", "blue"]]) == (253, 231, 37), (
+            "value 5 must be viridis' end"
+        )
+        assert dataset.raster.GetRasterBand(1).GetColorTable() is not None, (
+            "the band must end up paletted"
+        )
+
+    def test_named_colormap_samples_the_midpoint_evenly(self):
+        """The intermediate value is `cmap(0.5)`, pinning the even-spacing contract.
+
+        Test scenario:
+            colormap='viridis' across 1..5 -> value 3 is the exact midpoint sample
+            `round(viridis(0.5) * 255)`, computed independently from matplotlib.
+        """
+        from matplotlib import colormaps
+
+        dataset = self._dataset()
+        dataset.set_color_ramp(band=1, start_value=1, end_value=5, colormap="viridis")
+        table = dataset.color_table.set_index("values")
+        red, green, blue, _ = colormaps["viridis"](0.5)
+        assert tuple(table.loc[3, ["red", "green", "blue"]]) == (
+            round(red * 255),
+            round(green * 255),
+            round(blue * 255),
+        ), "value 3 must be the evenly-sampled midpoint of the colormap"
+
+    def test_start_value_zero_is_the_ramp_start_not_a_spurious_entry(self):
+        """`start_value=0` is accepted and value 0 becomes the ramp start colour."""
+        dataset = self._dataset()
+        dataset.set_color_ramp(
+            band=1,
+            start_value=0,
+            end_value=4,
+            start_color="#000000",
+            end_color="#ffffff",
+        )
+        table = dataset.color_table.set_index("values")
+        assert tuple(table.loc[0, ["red", "green", "blue", "alpha"]]) == (
+            0,
+            0,
+            0,
+            255,
+        ), "value 0 must be the black ramp start, not a transparent (0,0,0,0) fill"
+        assert tuple(table.loc[4, ["red", "green", "blue", "alpha"]]) == (
+            255,
+            255,
+            255,
+            255,
+        ), "value 4 must be the white ramp end"
+
+    def test_ramp_matches_the_enumerated_setter_for_the_same_stops(self):
+        """The ramp path produces the same palette as enumerating those stops by hand.
+
+        Test scenario:
+            Compute the five expected stops independently from the interpolation formula
+            (GDAL truncates towards zero), feed them through the plain `color_table` setter,
+            and assert `set_color_ramp` over the same endpoints yields an equal table. The
+            oracle is derived from the formula, not copied from the ramp's own output.
+        """
+        start_rgb, end_rgb = (112, 153, 89), (242, 206, 133)
+        span = 4
+        stops = [
+            "#{:02x}{:02x}{:02x}".format(
+                *(int(s + (e - s) * i / span) for s, e in zip(start_rgb, end_rgb))
+            )
+            for i in range(span + 1)
+        ]
+        enumerated = self._dataset()
+        enumerated.color_table = pd.DataFrame(
+            {"band": [1] * 5, "values": [1, 2, 3, 4, 5], "color": stops}
+        )
+        ramped = self._dataset()
+        ramped.set_color_ramp(
+            band=1,
+            start_value=1,
+            end_value=5,
+            start_color="#709959",
+            end_color="#f2ce85",
+        )
+        pd.testing.assert_frame_equal(enumerated.color_table, ramped.color_table)
+
+    def test_an_integral_float_value_is_accepted(self):
+        """An integer-valued float (5.0) is coerced and builds the full range."""
+        dataset = self._dataset()
+        dataset.set_color_ramp(
+            band=1,
+            start_value=1,
+            end_value=5.0,
+            start_color="#000000",
+            end_color="#ffffff",
+        )
+        assert {1, 2, 3, 4, 5}.issubset(set(dataset.color_table["values"]))
+
+    def test_an_unknown_colormap_raises(self):
+        """A colormap name absent from matplotlib's registry is rejected clearly."""
+        dataset = self._dataset()
+        with pytest.raises(ValueError, match="unknown colormap"):
+            dataset.set_color_ramp(
+                band=1, start_value=1, end_value=5, colormap="not-a-real-cmap"
+            )
