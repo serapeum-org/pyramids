@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import tempfile
 import weakref
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -510,3 +511,132 @@ def write_multidim_netcdf(
     """
     mem_src = _build_multidim(dims, coords, data_vars, global_attrs)
     _create_copy_to_netcdf(mem_src, str(path))
+
+
+class _StreamingMultidimWriter:
+    """Fills a netCDF multidim file's data variables one hyperslab at a time.
+
+    Created by :func:`open_streaming_multidim_netcdf`. Each data variable is
+    created at its full shape but written incrementally: :meth:`write_slab` writes
+    a single index of the leading (streamed) dimension, so the whole cube is never
+    resident in memory. The owning context manager finalizes the file on exit.
+    """
+
+    def __init__(self, arrays: dict[str, gdal.MDArray]) -> None:
+        """Store the per-variable MDArrays to stream into.
+
+        Args:
+            arrays: Variable name to its (empty, full-shape) MDArray.
+        """
+        self._arrays = arrays
+
+    def write_slab(self, var_name: str, index: int, block: np.ndarray) -> None:
+        """Write one leading-dimension index of a variable.
+
+        Args:
+            var_name: Target data variable.
+            index: Position along the leading (streamed) dimension to write at.
+            block: The array for this index, i.e. the variable's shape with the
+                leading dimension dropped. A length-1 leading axis is prepended
+                before the hyperslab write.
+        """
+        md_arr = self._arrays[var_name]
+        block = np.ascontiguousarray(block)
+        md_arr.Write(
+            block[np.newaxis, ...],
+            array_start_idx=[int(index)] + [0] * block.ndim,
+            count=[1] + list(block.shape),
+        )
+
+
+@contextmanager
+def open_streaming_multidim_netcdf(
+    path: str | Path,
+    dims: dict[str, int],
+    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
+    var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
+    global_attrs: dict[str, Any],
+):
+    """Create a netCDF multidim file and yield a per-hyperslab writer.
+
+    The streaming counterpart of :func:`write_multidim_netcdf`: instead of
+    receiving fully materialised variable arrays, it creates the dimensions,
+    writes the (small, 1-D) coordinate arrays whole, creates each data variable
+    at its full shape with **no data**, then hands back a
+    :class:`_StreamingMultidimWriter` so the caller can fill each variable one
+    leading-dimension slab at a time. The file is flushed and closed on exit, so
+    the whole ``(T, …)`` cube never has to be resident. Used by
+    :meth:`pyramids.dataset.collection.DatasetCollection.to_netcdf`.
+
+    Args:
+        path: Output ``.nc`` path.
+        dims: Dimension name to length (the full shape, including the streamed
+            leading dimension).
+        coords: Coordinate name (also a dimension) to a ``(values, attrs)`` pair;
+            written whole up front. Entries whose name is not a dimension are
+            skipped.
+        var_specs: Variable name to a ``(dimension-name tuple, numpy dtype,
+            attrs)`` triple. The first entry of the dimension tuple is the
+            streamed (leading) dimension.
+        global_attrs: Root-group (global) attributes.
+
+    Yields:
+        _StreamingMultidimWriter: Call :meth:`~_StreamingMultidimWriter.write_slab`
+        once per leading-dimension index.
+
+    Raises:
+        RuntimeError: When the GDAL netCDF driver fails to create the file.
+        ValueError: When a variable references an unknown dimension, or a
+            coordinate array shape does not match its dimension size.
+    """
+    dataset = gdal.GetDriverByName("netCDF").CreateMultiDimensional(str(path))
+    if dataset is None:
+        raise RuntimeError(f"Failed to create NetCDF at {path}")
+    root = dataset.GetRootGroup()
+
+    gdal_dims: dict[str, gdal.Dimension] = {
+        name: root.CreateDimension(name, "", "", int(size))
+        for name, size in dims.items()
+    }
+
+    for coord_name, (coord_values, coord_attrs) in coords.items():
+        if coord_name not in gdal_dims:
+            continue
+        values, cf_attrs = _encode_temporal_array(np.asarray(coord_values))
+        if values.shape != (dims[coord_name],):
+            raise ValueError(
+                f"coordinate {coord_name!r} has shape {values.shape} but its "
+                f"dimension is length {dims[coord_name]}"
+            )
+        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
+        coord_arr = root.CreateMDArray(coord_name, [gdal_dims[coord_name]], ext)
+        coord_arr.Write(np.ascontiguousarray(values))
+        merged = dict(coord_attrs)
+        merged.update(cf_attrs)
+        _apply_md_array_attrs(coord_arr, merged)
+
+    arrays: dict[str, gdal.MDArray] = {}
+    for var_name, (var_dims, var_dtype, var_attrs) in var_specs.items():
+        unknown = [d for d in var_dims if d not in gdal_dims]
+        if unknown:
+            raise ValueError(
+                f"variable {var_name!r} references unknown dimension(s) "
+                f"{unknown} not in dims {sorted(gdal_dims)}"
+            )
+        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(np.dtype(var_dtype)))
+        md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
+        _apply_md_array_attrs(md_arr, dict(var_attrs))
+        arrays[var_name] = md_arr
+
+    if global_attrs:
+        write_global_attributes(root, dict(global_attrs))
+
+    try:
+        yield _StreamingMultidimWriter(arrays)
+    finally:
+        # Drop the MDArray / root references before closing so the netCDF write
+        # handle is fully released and the on-disk file is recognised by a reader
+        # that reopens the same path (mirrors _create_copy_to_netcdf's note).
+        arrays.clear()
+        del root
+        dataset.Close()

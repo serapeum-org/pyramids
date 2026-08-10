@@ -702,42 +702,71 @@ class TestToNetcdfNoFilesPath:
         assert values.shape == (3, 4, 5), f"unexpected shape: {values.shape}"
 
 
-class TestToNetcdfLargeCubeWarning:
-    """ARC-46: ``to_netcdf`` warns (pointing at ``to_zarr``) for an oversized cube."""
+class TestToNetcdfStreaming:
+    """ARC-46: ``to_netcdf`` streams timestep-by-timestep, never the full cube."""
 
-    def test_warns_when_estimate_exceeds_threshold(self, tmp_path, monkeypatch):
-        """A cube above ``_TO_NETCDF_WARN_BYTES`` emits a UserWarning naming to_zarr.
+    def test_does_not_stack_the_full_cube(self, tmp_path, monkeypatch):
+        """``to_netcdf`` must not materialise the whole cube via ``np.stack``.
 
         Args:
             tmp_path: pytest temp directory.
             monkeypatch: pytest monkeypatch fixture.
 
         Test scenario:
-            Shrink the module warn-threshold to 1 byte so the tiny fixture cube
-            trips it — expected: a UserWarning steering the caller at ``to_zarr``.
+            Patch ``np.stack`` in the collection module to raise, then write.
+            The eager implementation stacked every timestep and would trip it;
+            the streaming implementation writes one slab per timestep, so the
+            file is produced correctly with ``np.stack`` disabled.
         """
-        col, _ = _make_int16_collection(tmp_path, count=2)
-        monkeypatch.setattr("pyramids.dataset.collection._TO_NETCDF_WARN_BYTES", 1)
-        with pytest.warns(UserWarning, match="to_zarr"):
-            col.to_netcdf(str(tmp_path / "warn.nc"))
+        col, _ = _make_int16_collection(tmp_path, count=3)
+        import pyramids.dataset.collection as _collection
 
-    def test_no_warning_for_small_cube(self, tmp_path):
-        """A small cube (default 2 GiB threshold) emits no size warning.
+        def _no_stack(*_args, **_kwargs):
+            raise AssertionError("to_netcdf must not materialise the full cube")
+
+        monkeypatch.setattr(_collection.np, "stack", _no_stack)
+        out = tmp_path / "streamed.nc"
+        col.to_netcdf(str(out))
+        assert out.exists(), "streaming write produced no file"
+        values = _array_values(str(out), "Band_1")
+        assert values.shape == (3, 4, 5), f"unexpected shape: {values.shape}"
+
+    def test_multi_band_multi_timestep_streams_var_per_band_false(self, tmp_path):
+        """A multi-band cube streams into the 4-D ``data`` variable correctly.
 
         Args:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            Default threshold, tiny fixture cube — expected: none of the emitted
-            warnings mention the streaming ``to_zarr`` guidance.
+            Three 2-band timesteps written with ``var_per_band=False`` round-trip
+            to a ``(T, band, y, x)`` array equal to the source, exercising the
+            per-timestep ``(B, Y, X)`` slab path.
         """
-        col, _ = _make_int16_collection(tmp_path, count=2)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            col.to_netcdf(str(tmp_path / "ok.nc"))
-        assert not any("streams the cube" in str(w.message) for w in caught), (
-            f"unexpected size warning: {[str(w.message) for w in caught]}"
-        )
+        arrays = []
+        paths = []
+        for t in range(3):
+            arr = np.stack(
+                [
+                    np.full((4, 5), t + 1, dtype="int16"),
+                    np.full((4, 5), 100 + t, dtype="int16"),
+                ],
+                axis=0,
+            )
+            p = str(tmp_path / f"mb_{t}.tif")
+            Dataset.create_from_array(
+                arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326, path=p
+            ).close()
+            arrays.append(arr)
+            paths.append(p)
+        col = DatasetCollection.from_files(paths)
+        out = tmp_path / "mb.nc"
+        col.to_netcdf(str(out), var_per_band=False)
+        values = _array_values(str(out), "data")
+        assert values.shape == (3, 2, 4, 5), f"unexpected shape: {values.shape}"
+        for t in range(3):
+            np.testing.assert_array_equal(
+                values[t], arrays[t], err_msg=f"timestep {t} mismatch"
+            )
 
 
 class TestToNetcdfRoundTrip:
