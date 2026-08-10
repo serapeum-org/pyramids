@@ -47,7 +47,6 @@ from typing import TYPE_CHECKING, cast
 from xml.etree import ElementTree as ET  # nosec B405 - server XML; DoS accepted, no XXE
 
 from osgeo import gdal
-from pyproj import CRS as _PyprojCRS
 from pyproj.exceptions import CRSError as _PyprojCRSError
 
 from pyramids.base._coverage import native_projwin as _native_projwin
@@ -61,6 +60,7 @@ from pyramids.base._ogc_api import HTTP_RETRY_ATTEMPTS
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import http_get_with_retry as _http_get_with_retry
 from pyramids.base._ogc_api import read_http_error as _read_http_error
+from pyramids.base.crs import crs_from_user_input
 
 # Cap on how much of an HTTP-error body is inlined into a WCSError message; the
 # full body is still carried on WCSError.response_body. Keeps a multi-KB HTML
@@ -413,7 +413,9 @@ def _default_subset_axes(crs: str) -> tuple[str, str]:
     ``subset_axes`` override.
     """
     try:
-        is_geographic = _PyprojCRS.from_user_input(crs).is_geographic
+        # `crs_from_user_input` heals a code only GDAL's PROJ database knows, so a
+        # coverage in such a CRS still gets its real axis labels (issue #943).
+        is_geographic = crs_from_user_input(crs).is_geographic
     except (_PyprojCRSError, ValueError, TypeError):
         text = str(crs).strip().upper()
         is_geographic = text.endswith(":4326") or "CRS84" in text

@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from osgeo import osr
+from osgeo import gdal, osr
 from pyproj import CRS, Transformer
 
 from pyramids.base._errors import CRSError
 from pyramids.base.crs import (
+    crs_from_user_input,
     epsg_from_user_input,
     epsg_from_wkt,
     get_epsg_from_prj,
     reproject_coordinates,
     sr_from_user_input,
 )
+from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
@@ -377,3 +379,216 @@ class TestReprojectCoordinatesRoundingParity:
         assert got_x[0] == round(2.675, 2), (
             f"expected built-in rounding {round(2.675, 2)}, got {got_x[0]}"
         )
+
+
+# Codes observed to live in GDAL's vendored PROJ database but not in the one pyproj
+# bundles. The list is a *search space*, not an assertion: whichever entry still shows
+# the skew on the installed pair is the one the tests use, and if pyproj catches up on
+# all of them the suite skips rather than fails. EPSG:10857 (SIRGAS 2000 / Brazil
+# Albers, the Brazil Data Cube grid) is the code that produced issue #943.
+_SKEW_CANDIDATE_CODES = (10857, 10634, 10688, 10723, 11043)
+
+# A *deprecated* code both databases carry, but read differently: GDAL's
+# ImportFromEPSG silently substitutes the non-deprecated replacement (EPSG:4087),
+# pyproj returns the code as asked. Pins the ordering choice in `crs_from_user_input`.
+_DEPRECATED_CODE = 32663
+_DEPRECATED_REPLACEMENT = 4087
+
+
+@pytest.fixture(scope="module")
+def skew_code() -> int:
+    """An EPSG code GDAL's PROJ database resolves but pyproj's cannot.
+
+    Skips the whole class when the installed GDAL / pyproj pair happens to agree on
+    every candidate — the defect is a property of the *pair*, so there is nothing to
+    regress against once the databases line up.
+    """
+    found = None
+    for code in _SKEW_CANDIDATE_CODES:
+        srs = osr.SpatialReference()
+        try:
+            srs.ImportFromEPSG(code)
+        except RuntimeError:
+            continue
+        try:
+            CRS.from_epsg(code)
+        except Exception:
+            found = code
+            break
+    if found is None:
+        pytest.skip(
+            "installed GDAL and pyproj agree on every candidate code; the "
+            "PROJ-database skew of issue #943 cannot be reproduced here"
+        )
+    return found
+
+
+class TestProjDatabaseSkew:
+    """CRSes GDAL's PROJ database knows and pyproj's does not (issue #943).
+
+    pyramids *resolves* a raster's CRS with GDAL (`FindMatches`, `ImportFromEPSG`) but
+    consumes it with pyproj, and the two ship different PROJ databases. A code GDAL
+    hands out but pyproj cannot look up used to crash every downstream read.
+    """
+
+    def test_premise_pyproj_alone_cannot_build_the_code(self, skew_code):
+        """The defect's precondition, asserted rather than assumed.
+
+        Test scenario:
+            Bare `pyproj.CRS.from_epsg` fails on the code while GDAL builds it
+            happily. Without this the rest of the class could pass vacuously.
+        """
+        with pytest.raises(Exception):
+            CRS.from_epsg(skew_code)
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(skew_code)
+        assert srs.GetName(), "GDAL must resolve the code for the skew to exist"
+
+    def test_crs_from_user_input_heals_int_code(self, skew_code):
+        """An EPSG int only GDAL knows still yields a usable pyproj CRS.
+
+        Test scenario:
+            `crs_from_user_input(<code>)` falls back to GDAL's database and returns
+            the same CRS GDAL names, instead of raising "crs not found".
+        """
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(skew_code)
+        got = crs_from_user_input(skew_code)
+        assert got.name == srs.GetName(), (
+            f"expected the CRS GDAL names ({srs.GetName()!r}), got {got.name!r}"
+        )
+
+    @pytest.mark.parametrize("spelling", ["EPSG:{}", "{}"])
+    def test_crs_from_user_input_heals_string_spellings(self, skew_code, spelling):
+        """Both string spellings are healed, not just the bare int.
+
+        Test scenario:
+            STAC `proj:code` carries the `"EPSG:<code>"` authority form, and pyproj
+            also accepts a bare numeric string — GDAL accepts only the prefixed one,
+            so the rescue must normalise before delegating.
+        """
+        got = crs_from_user_input(spelling.format(skew_code))
+        assert got.name == crs_from_user_input(skew_code).name, (
+            f"{spelling.format(skew_code)!r} must resolve to the same CRS as the int"
+        )
+
+    def test_sr_from_user_input_builds_the_code(self, skew_code):
+        """`sr_from_user_input` no longer raises on a GDAL-only code.
+
+        Test scenario:
+            This is the exact call that raised `CRSError: could not interpret
+            10857 as a CRS` in the original report.
+        """
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(skew_code)
+        assert sr_from_user_input(skew_code).GetName() == srs.GetName()
+
+    def test_epsg_from_user_input_recovers_the_code(self, skew_code):
+        """The EPSG integer survives the round trip through the rescue path.
+
+        Test scenario:
+            A CRS rebuilt from WKT has no pyproj catalogue entry, so `to_epsg()`
+            alone returns None; the helper must ask GDAL and recover the code.
+        """
+        assert epsg_from_user_input(f"EPSG:{skew_code}") == skew_code
+
+    def test_reproject_coordinates_accepts_the_code(self, skew_code):
+        """Coordinates reproject out of a CRS only GDAL's database names.
+
+        Test scenario:
+            `reproject_coordinates` builds its transformer through the healing
+            helper, so a GDAL-only source CRS transforms rather than raising.
+        """
+        xs, ys = reproject_coordinates(
+            [5_000_000.0], [10_000_000.0], from_crs=skew_code, to_crs=4326
+        )
+        assert len(xs) == len(ys) == 1
+        assert all(np.isfinite([xs[0], ys[0]])), (
+            f"expected finite lon/lat, got ({xs[0]}, {ys[0]})"
+        )
+
+    def test_deprecated_code_keeps_pyprojs_reading(self):
+        """The rescue must not fire when pyproj already has an answer.
+
+        Test scenario:
+            GDAL's `ImportFromEPSG(32663)` silently substitutes the non-deprecated
+            EPSG:4087. Since pyproj resolves 32663 itself, the GDAL path must never
+            run — otherwise the fix would quietly change the meaning of every
+            deprecated code that works today.
+        """
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(_DEPRECATED_CODE)
+        assert srs.GetAuthorityCode(None) == str(_DEPRECATED_REPLACEMENT), (
+            "precondition: GDAL must actually substitute the replacement code"
+        )
+        assert crs_from_user_input(_DEPRECATED_CODE).to_epsg() == _DEPRECATED_CODE, (
+            "pyproj resolved the code, so its reading must be kept unchanged"
+        )
+
+    def test_genuinely_bad_input_still_raises(self):
+        """Healing must not turn nonsense into a CRS.
+
+        Test scenario:
+            A string that names no CRS, and a numeric code neither database
+            carries, both still raise the documented `CRSError`.
+        """
+        with pytest.raises(CRSError, match="could not interpret"):
+            crs_from_user_input("not-a-crs")
+        with pytest.raises(CRSError, match="could not interpret"):
+            crs_from_user_input(999_999)
+
+    def test_bool_still_rejected(self):
+        """`True` is an int but not a CRS.
+
+        Test scenario:
+            The bool guard must sit ahead of the rescue, so `True` never becomes
+            "EPSG:1".
+        """
+        with pytest.raises(CRSError, match="not a valid CRS"):
+            crs_from_user_input(True)
+
+    def test_non_epsg_authority_not_passed_off_as_epsg(self):
+        """An ESRI code must not be reported as an EPSG code.
+
+        Test scenario:
+            Robinson (`ESRI:54030`) has no EPSG code. The GDAL fallback reads its
+            authority, so it must check the authority *name* and refuse rather
+            than return 54030.
+        """
+        with pytest.raises(CRSError, match="no corresponding EPSG code"):
+            epsg_from_user_input("ESRI:54030")
+
+    def test_crop_on_a_raster_in_such_a_crs(self, skew_code):
+        """The end-to-end failure from the report: reading and cropping the raster.
+
+        Test scenario:
+            An in-memory raster carrying the GDAL-only CRS is opened and cropped to
+            a lon/lat bbox. This is the `Dataset.crop(...)` call that raised
+            `CRSError` against the Brazil Data Cube COGs.
+        """
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(skew_code)
+        path = f"/vsimem/proj_db_skew_{skew_code}.tif"
+        raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 1, gdal.GDT_Float32)
+        try:
+            raster.SetProjection(srs.ExportToWkt())
+            raster.SetGeoTransform(
+                [5_000_000.0, 1000.0, 0.0, 10_000_000.0, 0.0, -1000.0]
+            )
+            raster.GetRasterBand(1).WriteArray(
+                np.arange(64 * 64, dtype="float32").reshape(64, 64)
+            )
+            raster.FlushCache()
+            raster = None
+
+            dataset = Dataset.read_file(path)
+            assert dataset.epsg == skew_code, (
+                f"the raster should report EPSG:{skew_code}, got {dataset.epsg}"
+            )
+            cropped = dataset.crop(
+                bbox=[-46.8, -23.7, -46.3, -23.2], epsg=4326, touch=True
+            )
+            assert cropped.shape[0] >= 1, "crop must return a raster, not raise"
+        finally:
+            raster = None
+            gdal.Unlink(path)

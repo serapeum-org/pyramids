@@ -11,6 +11,9 @@ Public surface:
 * :func:`sr_from_user_input` — build one from any CRS form
   :meth:`pyproj.CRS.from_user_input` accepts (EPSG int, authority
   string, proj4, WKT, ESRI WKT, :class:`pyproj.CRS`).
+* :func:`crs_from_user_input` — the :class:`pyproj.CRS` counterpart, and what
+  every site taking a caller-supplied or dataset-derived CRS must go through:
+  it heals codes GDAL's PROJ database knows but pyproj's does not (issue #943).
 * :func:`create_sr_from_proj` — build one from a WKT / ESRI WKT /
   Proj4 string with auto-detect.
 * :func:`get_epsg_from_prj` — resolve the EPSG code identified by a
@@ -958,6 +961,201 @@ def epsg_from_wkt(wkt: str | None, default: int = 4326) -> int:
     return result
 
 
+def _pyproj_crs_via_gdal(crs: int | str | Any) -> CRS | None:
+    """Rebuild a CRS through GDAL's PROJ database, or ``None`` if that fails too.
+
+    The rescue path behind :func:`crs_from_user_input`. pyramids resolves CRSes with
+    GDAL (:meth:`osr.SpatialReference.FindMatches` in :func:`_epsg_from_db_match`,
+    ``ImportFromEPSG`` in :func:`sr_from_epsg`) but consumes them with pyproj, and the
+    two ship *different* PROJ databases. GDAL's is routinely newer, so a code GDAL
+    resolves happily — ``EPSG:10857`` (*SIRGAS 2000 / Brazil Albers*), added after
+    pyproj's bundled PROJ 9.5.1 — makes ``pyproj.CRS.from_epsg`` raise "crs not found".
+
+    The projection itself is never the problem: pyproj parses the very same CRS without
+    complaint when it arrives as **WKT** rather than as a *code*, because only the
+    catalogue lookup is missing. So the repair is to let GDAL turn the code into WKT and
+    hand pyproj that instead.
+
+    Args:
+        crs: The specification pyproj already refused — an EPSG ``int``, an authority
+            string, or any other text :meth:`osr.SpatialReference.SetFromUserInput`
+            understands. Non-textual inputs yield ``None``: a value pyproj could not
+            read and GDAL cannot be handed is simply unresolvable.
+
+    Returns:
+        CRS | None: The rebuilt CRS, or ``None`` when GDAL cannot resolve it either —
+        which keeps a genuinely bad input reported as a bad input.
+    """
+    srs = _gdal_srs_from_user_input(crs)
+    result: CRS | None = None
+    if srs is not None:
+        try:
+            result = CRS.from_wkt(srs.ExportToWkt())
+        except (pyproj.exceptions.CRSError, TypeError, ValueError):
+            # GDAL produced a WKT pyproj rejects. The caller reports the *original*
+            # pyproj failure, which is the more useful one.
+            result = None
+    return result
+
+
+def _epsg_via_gdal(crs: int | str | Any) -> int | None:
+    """EPSG code GDAL's PROJ database assigns to ``crs``, or ``None``.
+
+    The :func:`epsg_from_user_input` counterpart of :func:`_pyproj_crs_via_gdal`, needed
+    because the rescue is lossy in one direction: a CRS pyproj rebuilt from WKT has no
+    catalogue entry, so its :meth:`pyproj.CRS.to_epsg` returns ``None`` even though the
+    code is known — and perfectly valid — on GDAL's side. Asking GDAL directly recovers
+    it. This matters for the ``"EPSG:10857"`` *string* form that STAC ``proj:code``
+    carries, which cannot take the plain-``int`` fast path.
+
+    Only an ``EPSG`` authority is accepted. A CRS whose authority is something else
+    (``ESRI:54030`` for Robinson) yields ``None`` rather than passing ``54030`` off as
+    an EPSG code it is not.
+
+    Args:
+        crs: An EPSG ``int``, authority string, or other text GDAL understands.
+
+    Returns:
+        int | None: The EPSG code, or ``None`` when GDAL cannot resolve one.
+    """
+    srs = _gdal_srs_from_user_input(crs)
+    result: int | None = None
+    if srs is not None:
+        try:
+            authority = srs.GetAuthorityName(None)
+            code = srs.GetAuthorityCode(None)
+        except RuntimeError:
+            authority, code = None, None
+        if authority == "EPSG" and code and str(code).isdigit():
+            result = int(code)
+    return result
+
+
+def _gdal_srs_from_user_input(crs: int | str | Any) -> osr.SpatialReference | None:
+    """Parse ``crs`` with GDAL, or return ``None`` when GDAL cannot read it either.
+
+    Shared primitive under :func:`_pyproj_crs_via_gdal` and :func:`_epsg_via_gdal`.
+    Only ``int`` and ``str`` inputs can be handed to GDAL at all — an EPSG ``int``
+    becomes the ``"EPSG:<code>"`` spelling :meth:`osr.SpatialReference.SetFromUserInput`
+    expects; a ``bool`` is not a CRS despite being an ``int``; anything else (a
+    :class:`pyproj.CRS`, an arbitrary object) has no text form to pass along, and a
+    value pyproj itself could not read is then simply unresolvable.
+
+    Args:
+        crs: The specification to parse.
+
+    Returns:
+        osr.SpatialReference | None: The parsed reference, or ``None``.
+    """
+    if isinstance(crs, bool):
+        text = None
+    elif isinstance(crs, int):
+        text = f"EPSG:{crs}"
+    elif isinstance(crs, str):
+        # A bare numeric string is an EPSG code to pyproj but not to GDAL, which
+        # wants the authority prefix -- so give it one rather than lose the rescue
+        # on the `"10857"` spelling.
+        text = f"EPSG:{crs.strip()}" if crs.strip().isdigit() else crs
+    else:
+        text = None
+    result: osr.SpatialReference | None = None
+    if text is not None:
+        try:
+            srs = osr.SpatialReference()
+            srs.SetFromUserInput(text)
+            result = srs
+        except (RuntimeError, TypeError, ValueError):
+            result = None
+    return result
+
+
+def crs_from_user_input(crs: int | str | Any) -> CRS:
+    """Build a :class:`pyproj.CRS` from any CRS form, healing PROJ-database skew.
+
+    Use this instead of :meth:`pyproj.CRS.from_user_input` at every site that takes a
+    caller-supplied or dataset-derived CRS. (Internally *computed* codes — the UTM zone
+    :func:`pyramids.dataset._stac._utm_epsg` derives, say — are exempt: those are
+    long-established codes that both databases carry.)
+
+    A bare ``CRS.from_user_input`` consults only pyproj's bundled PROJ database, which
+    is frequently older than the one GDAL vendors; every EPSG code that exists in
+    GDAL's but not pyproj's then raises "crs not found" even though pyramids itself
+    produced that code moments earlier by asking GDAL. On the current stack 187 of the
+    7723 codes GDAL can build are unknown to pyproj, and 149 of those are codes
+    :func:`get_epsg_from_prj` will actively derive from a raster's own WKT — so this is
+    a routine failure, not an exotic one. See issue #943.
+
+    When pyproj resolves the input, its answer is used unchanged; the GDAL rescue runs
+    only on failure. That ordering matters: an unconditional GDAL path would silently
+    substitute *replacement* codes for deprecated ones (``ImportFromEPSG(32663)`` yields
+    EPSG:4087), changing the meaning of codes that work today.
+
+    Args:
+        crs: Any CRS form :meth:`pyproj.CRS.from_user_input` accepts — an EPSG ``int``,
+            an authority string (``"EPSG:3857"``), a bare numeric string, WKT, proj4, or
+            a :class:`pyproj.CRS`.
+
+    Returns:
+        CRS: The parsed CRS.
+
+    Raises:
+        CRSError: ``crs`` is a ``bool``, or neither pyproj nor GDAL can interpret it.
+
+    Examples:
+        - Ordinary input resolves through pyproj as before:
+            ```python
+            >>> from pyramids.base.crs import crs_from_user_input
+            >>> crs_from_user_input(3857).to_epsg()
+            3857
+            >>> crs_from_user_input("EPSG:4326").to_epsg()
+            4326
+
+            ```
+        - A code only GDAL's database knows still resolves, via the rescue path —
+          pyproj cannot look up ``EPSG:10857``, but reads it fine as WKT:
+            ```python
+            >>> from pyramids.base.crs import crs_from_user_input
+            >>> crs_from_user_input(10857).name
+            'SIRGAS 2000 / Brazil Albers'
+
+            ```
+        - A deprecated code keeps pyproj's reading rather than GDAL's replacement:
+            ```python
+            >>> from pyramids.base.crs import crs_from_user_input
+            >>> crs_from_user_input(32663).to_epsg()
+            32663
+
+            ```
+        - Something that is not a CRS at all is still rejected:
+            ```python
+            >>> from pyramids.base.crs import crs_from_user_input
+            >>> try:
+            ...     crs_from_user_input("not-a-crs")
+            ... except ValueError as exc:
+            ...     print("could not interpret" in str(exc))
+            True
+
+            ```
+
+    See Also:
+        - :func:`sr_from_user_input`: the :class:`osr.SpatialReference` counterpart.
+        - :func:`epsg_from_user_input`: resolve to an EPSG ``int`` instead.
+    """
+    if isinstance(crs, bool):
+        raise CRSError(
+            f"{crs!r} is not a valid CRS; pass an EPSG int, string, WKT, "
+            "proj4, or pyproj.CRS."
+        )
+    try:
+        parsed = CRS.from_user_input(crs)
+    except (pyproj.exceptions.CRSError, TypeError, ValueError) as exc:
+        rescued = _pyproj_crs_via_gdal(crs)
+        if rescued is None:
+            raise CRSError(f"could not interpret {crs!r} as a CRS: {exc}") from exc
+        parsed = rescued
+    return parsed
+
+
 def epsg_from_user_input(crs: int | str | Any) -> int:
     """Resolve a CRS given in any common form to an EPSG integer code.
 
@@ -1018,11 +1216,12 @@ def epsg_from_user_input(crs: int | str | Any) -> int:
         raise CRSError(f"{crs!r} is not a valid CRS; pass an EPSG int, string, or CRS.")
     if isinstance(crs, int):
         return crs
-    try:
-        parsed = CRS.from_user_input(crs)
-    except (pyproj.exceptions.CRSError, TypeError, ValueError) as exc:
-        raise CRSError(f"could not interpret {crs!r} as a CRS: {exc}") from exc
+    parsed = crs_from_user_input(crs)
     epsg = parsed.to_epsg()
+    if epsg is None:
+        # A CRS rescued from GDAL's database carries no pyproj catalogue entry, so
+        # `to_epsg()` reports None for a code that does exist -- ask GDAL for it.
+        epsg = _epsg_via_gdal(crs)
     if epsg is None:
         raise CRSError(
             f"the CRS {crs!r} has no corresponding EPSG code; pass an EPSG integer."
@@ -1121,10 +1320,7 @@ def sr_from_user_input(crs: int | str | Any) -> osr.SpatialReference:
             f"{crs!r} is not a valid CRS; pass an EPSG int, string, WKT, "
             "proj4, or pyproj.CRS."
         )
-    try:
-        wkt = CRS.from_user_input(crs).to_wkt()
-    except (pyproj.exceptions.CRSError, TypeError, ValueError) as exc:
-        raise CRSError(f"could not interpret {crs!r} as a CRS: {exc}") from exc
+    wkt = crs_from_user_input(crs).to_wkt()
     sr = osr.SpatialReference()
     sr.ImportFromWkt(wkt)
     sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
@@ -1203,7 +1399,11 @@ def reproject_coordinates(
             f"x and y must have equal length; got len(x)={len(x)} vs. len(y)={len(y)}."
         )
     try:
-        transformer = Transformer.from_crs(from_crs, to_crs, always_xy=True)
+        # Through `crs_from_user_input`, not `Transformer.from_crs` directly, so a code
+        # only GDAL's PROJ database knows still builds a transformer. See issue #943.
+        transformer = Transformer.from_crs(
+            crs_from_user_input(from_crs), crs_from_user_input(to_crs), always_xy=True
+        )
     except (pyproj.exceptions.CRSError, TypeError, ValueError) as exc:
         raise CRSError(
             f"reproject_coordinates failed to parse CRS "
@@ -1240,6 +1440,7 @@ __all__ = [
     "cf_geographic_wkt",
     "create_sr_from_proj",
     "crs_equal",
+    "crs_from_user_input",
     "crs_spec",
     "epsg_from_user_input",
     "epsg_from_wkt",

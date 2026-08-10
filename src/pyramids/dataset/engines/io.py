@@ -27,7 +27,6 @@ from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal
 from osgeo_utils import gdal2xyz
 from pandas import DataFrame
-from pyproj import CRS
 
 from pyramids._io import new_vsimem_path, read_vsi_bytes
 from pyramids.base._domain import is_no_data
@@ -44,7 +43,7 @@ from pyramids.base._file_manager import (
 )
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import resolve_resampling
-from pyramids.base.crs import crs_spec, reproject_coordinates
+from pyramids.base.crs import crs_from_user_input, crs_spec, reproject_coordinates
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_network_backed
 from pyramids.dataset.abstract_dataset import (
@@ -1640,7 +1639,9 @@ class IO(_Engine["Dataset"]):
         raster_crs, poly_crs = self._ds.crs, poly.crs
         if not raster_crs or poly_crs is None:
             return False
-        return not CRS.from_user_input(poly_crs).equals(CRS.from_user_input(raster_crs))
+        # `crs_from_user_input` on both sides so a CRS whose code only GDAL's PROJ
+        # database carries still compares instead of raising (issue #943).
+        return not crs_from_user_input(poly_crs).equals(crs_from_user_input(raster_crs))
 
     def read_windows(
         self,

@@ -24,10 +24,12 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 
-from pyproj import CRS, Transformer
+from pyproj import Transformer
 from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon, box
 from shapely.ops import unary_union
+
+from pyramids.base.crs import crs_from_user_input
 
 Bbox = tuple[float, float, float, float]
 """A `(west, south, east, north)` bounding box in degrees."""
@@ -197,8 +199,8 @@ def transform(
 
             ```
     """
-    src = CRS.from_user_input(src_crs)
-    dst = CRS.from_user_input(dst_crs)
+    src = crs_from_user_input(src_crs)
+    dst = crs_from_user_input(dst_crs)
     transformer = Transformer.from_crs(src, dst, always_xy=True)
     west, south, east, north = bbox
     minx, miny, maxx, maxy = transformer.transform_bounds(

@@ -28,7 +28,7 @@ from pyramids.base._utils import (
     import_zarr,
     lazy_extra_hint,
 )
-from pyramids.base.crs import crs_spec
+from pyramids.base.crs import crs_spec, epsg_from_user_input
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
@@ -449,7 +449,9 @@ def _target_epsg(to_epsg: int | str | Any) -> int | None:
     if isinstance(to_epsg, int):
         return to_epsg
     try:
-        return CRS.from_user_input(to_epsg).to_epsg()
+        # `epsg_from_user_input` also heals codes only GDAL's PROJ database
+        # carries, which pyproj alone cannot look up (issue #943).
+        return epsg_from_user_input(to_epsg)
     except Exception:  # pragma: no cover - defensive against odd CRS inputs
         return None
 

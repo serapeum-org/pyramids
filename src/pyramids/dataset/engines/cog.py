@@ -27,7 +27,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
     resolve_cog_predictor,
 )
-from pyramids.base.crs import crs_equal, require_crs_spec
+from pyramids.base.crs import crs_equal, crs_from_user_input, require_crs_spec
 from pyramids.dataset.abstract_dataset import under_gdal_env
 from pyramids.dataset.cog import (
     COGInfo,
@@ -170,7 +170,11 @@ def _cached_transformer(src_crs: Any, dst_crs: Any) -> Transformer:
         Transformer: A shared, reusable transformer. `pyproj` transformers are
         safe to reuse; only construction is costly.
     """
-    return Transformer.from_crs(src_crs, dst_crs, always_xy=True)
+    # Both sides go through `crs_from_user_input` so a code that lives in GDAL's PROJ
+    # database but not pyproj's still builds a transformer (issue #943).
+    return Transformer.from_crs(
+        crs_from_user_input(src_crs), crs_from_user_input(dst_crs), always_xy=True
+    )
 
 
 class COG(_Engine["Dataset"]):
