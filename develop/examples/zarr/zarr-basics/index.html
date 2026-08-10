@@ -7120,7 +7120,7 @@ ds.shape, ds.cell_size, ds.epsg</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>workspace: /tmp/pyramids-zarr-basics-2gcxnvlg
+<pre>workspace: /tmp/pyramids-zarr-basics-o52klr_j
 </pre>
 </div>
 </div>
@@ -7263,7 +7263,7 @@ rt.plot(
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f7054e81d30&gt;</pre>
+<pre>&lt;cleopatra.array_glyph.ArrayGlyph at 0x7f5270c91a90&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7346,7 +7346,13 @@ print("crs_wkt? :", "crs_wkt" in dict(g["spatial_ref"].attrs))</div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>arrays   : ['data', 'spatial_ref', 'x', 'y']
 data     : (2, 32, 48) float32
-x        : [0.5 1.5 2.5 3.5 4.5] ...
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>x        : [0.5 1.5 2.5 3.5 4.5] ...
 y        : [31.5 30.5 29.5 28.5 27.5] ...
 grid_map : spatial_ref
 dim_names: ['band', 'y', 'x']
@@ -7461,20 +7467,8 @@ for target in (
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>      default -&gt;    17797 bytes
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre> uncompressed -&gt;    22116 bytes
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>       zstd-5 -&gt;    11643 bytes
+ uncompressed -&gt;    22116 bytes
+       zstd-5 -&gt;    11643 bytes
 </pre>
 </div>
 </div>
