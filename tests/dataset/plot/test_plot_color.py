@@ -350,3 +350,110 @@ class TestPalettePlot:
         assert got[:3] == (1.0, 0.0, 0.0), (
             f"band-1 value 1 should be red, got {got[:3]}"
         )
+
+
+class TestColorRamp:
+    """`set_color_ramp` (#911): generate a palette from a continuous ramp."""
+
+    @staticmethod
+    def _dataset() -> Dataset:
+        """A single-band 10x10 raster with values 1..5."""
+        rng = np.random.default_rng(0)
+        arr = rng.integers(1, 6, size=(10, 10))
+        return Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+    def test_two_color_ramp_interpolates_the_intermediate_stops(self):
+        """A two-colour ramp fills the values between the endpoints via CreateColorRamp.
+
+        Test scenario:
+            Ramp #709959 -> #F2CE85 across 1..5 -> the midpoint value 3 is GDAL's
+            interpolated (177, 179, 111, 255), the endpoints are exact, and the band ends
+            up paletted.
+        """
+        dataset = self._dataset()
+        dataset.set_color_ramp(
+            band=1, start_value=1, end_value=5,
+            start_color="#709959", end_color="#F2CE85",
+        )
+        table = dataset.color_table.set_index("values")
+        assert tuple(table.loc[1, ["red", "green", "blue", "alpha"]]) == (112, 153, 89, 255), (
+            "value 1 must be the start colour"
+        )
+        assert tuple(table.loc[3, ["red", "green", "blue", "alpha"]]) == (177, 179, 111, 255), (
+            "value 3 must be the interpolated midpoint"
+        )
+        assert tuple(table.loc[5, ["red", "green", "blue", "alpha"]]) == (242, 206, 133, 255), (
+            "value 5 must be the end colour"
+        )
+        assert dataset.raster.GetRasterBand(1).GetColorTable() is not None, (
+            "the band must end up paletted"
+        )
+
+    def test_named_colormap_ramp_samples_the_endpoints(self):
+        """A named colormap is sampled across the range through the same path.
+
+        Test scenario:
+            colormap='viridis' across 1..5 -> value 1 is viridis' dark-purple start and
+            value 5 its yellow end, and the band is paletted.
+        """
+        dataset = self._dataset()
+        dataset.set_color_ramp(band=1, start_value=1, end_value=5, colormap="viridis")
+        table = dataset.color_table.set_index("values")
+        assert tuple(table.loc[1, ["red", "green", "blue"]]) == (68, 1, 84), (
+            "value 1 must be viridis' start"
+        )
+        assert tuple(table.loc[5, ["red", "green", "blue"]]) == (253, 231, 37), (
+            "value 5 must be viridis' end"
+        )
+        assert dataset.raster.GetRasterBand(1).GetColorTable() is not None, (
+            "the band must end up paletted"
+        )
+
+    def test_ramp_matches_the_enumerated_setter_for_the_same_stops(self):
+        """The ramp path produces the same palette as enumerating those stops by hand.
+
+        Test scenario:
+            Build the identical five stops through the plain `color_table` setter and
+            through `set_color_ramp`; the retrieved tables must be equal.
+        """
+        stops = ["#709959", "#90a664", "#b1b36f", "#d1c07a", "#f2ce85"]
+        enumerated = self._dataset()
+        enumerated.color_table = pd.DataFrame(
+            {"band": [1] * 5, "values": [1, 2, 3, 4, 5], "color": stops}
+        )
+        ramped = self._dataset()
+        ramped.set_color_ramp(
+            band=1, start_value=1, end_value=5,
+            start_color="#709959", end_color="#f2ce85",
+        )
+        pd.testing.assert_frame_equal(enumerated.color_table, ramped.color_table)
+
+    def test_end_not_greater_than_start_raises(self):
+        """A non-increasing range is rejected before any GDAL call."""
+        with pytest.raises(ValueError, match="must be greater than start_value"):
+            self._dataset().set_color_ramp(
+                band=1, start_value=5, end_value=5,
+                start_color="#000000", end_color="#ffffff",
+            )
+
+    def test_a_partial_colour_pair_raises(self):
+        """Giving only one of start_color / end_color is rejected."""
+        with pytest.raises(ValueError, match="given together"):
+            self._dataset().set_color_ramp(
+                band=1, start_value=1, end_value=5, start_color="#000000"
+            )
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"start_color": "#000000", "end_color": "#ffffff", "colormap": "viridis"},
+            {},
+        ],
+        ids=["both-modes", "neither-mode"],
+    )
+    def test_ambiguous_mode_raises(self, kwargs):
+        """Supplying both a colour pair and a colormap, or neither, is rejected."""
+        with pytest.raises(ValueError, match="exactly one"):
+            self._dataset().set_color_ramp(band=1, start_value=1, end_value=5, **kwargs)

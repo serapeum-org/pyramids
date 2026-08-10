@@ -812,6 +812,126 @@ class Bands(_Engine["Dataset"]):
 
         self._set_color_table(df, overwrite=True)
 
+    def set_color_ramp(
+        self,
+        band: int = 1,
+        *,
+        start_value: int,
+        end_value: int,
+        start_color: str | None = None,
+        end_color: str | None = None,
+        colormap: str | None = None,
+    ) -> None:
+        """Attach a colour table interpolated across a value range.
+
+        Fills every integer value in `[start_value, end_value]` with a colour, so a
+        continuous raster does not need every stop enumerated by hand the way the plain
+        `color_table` setter demands. Exactly one of two modes must be given:
+
+        - a **two-colour linear ramp** between `start_color` and `end_color`, built with
+          `gdal.ColorTable.CreateColorRamp`;
+        - a named matplotlib **`colormap`** (e.g. `"viridis"`), sampled evenly across the
+          range.
+
+        The generated entries flow through the same `_set_color_table` path the enumerated
+        setter uses, so the attached palette matches it in form. Needs the `[viz]` extra
+        (the `colormap` mode also uses its matplotlib).
+
+        Args:
+            band (int):
+                1-based band to colour. Defaults to 1.
+            start_value (int):
+                First value in the ramp (keyword-only).
+            end_value (int):
+                Last value in the ramp; must exceed `start_value` (keyword-only).
+            start_color (str, optional):
+                Hex colour at `start_value`. Give together with `end_color`, and not with
+                `colormap`.
+            end_color (str, optional):
+                Hex colour at `end_value`. Give together with `start_color`.
+            colormap (str, optional):
+                Named matplotlib colormap sampled across the range. Give instead of the
+                `start_color` / `end_color` pair.
+
+        Raises:
+            ValueError:
+                `end_value` is not greater than `start_value`; only one of
+                `start_color` / `end_color` is given; or the mode is ambiguous (neither a
+                colour pair nor a colormap, or both).
+
+        Examples:
+            - A two-colour ramp green -> tan across values 1..5 fills the three
+              intermediate stops for you:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.random.randint(1, 6, size=(10, 10))
+              >>> ds = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ... )
+              >>> ds.set_color_ramp(
+              ...     band=1, start_value=1, end_value=5,
+              ...     start_color="#709959", end_color="#F2CE85",
+              ... )
+              >>> print(ds.color_table)
+                band values  red green blue alpha
+              0    1      0    0     0    0     0
+              1    1      1  112   153   89   255
+              2    1      2  144   166  100   255
+              3    1      3  177   179  111   255
+              4    1      4  209   192  122   255
+              5    1      5  242   206  133   255
+
+              ```
+        """
+        if end_value <= start_value:
+            raise ValueError(
+                f"end_value ({end_value}) must be greater than start_value "
+                f"({start_value})"
+            )
+        if (start_color is None) != (end_color is None):
+            raise ValueError("start_color and end_color must be given together")
+        pair_given = start_color is not None
+        if pair_given == (colormap is not None):
+            raise ValueError(
+                "provide exactly one of a (start_color, end_color) pair or a colormap="
+            )
+
+        require_cleopatra()
+        from cleopatra.colors import Colors
+
+        ramp = gdal.ColorTable()
+        if colormap is not None:
+            from matplotlib import colormaps
+
+            cmap = colormaps[colormap]
+            span = end_value - start_value
+            for offset in range(span + 1):
+                red, green, blue, _ = cmap(offset / span)
+                ramp.SetColorEntry(
+                    start_value + offset,
+                    (round(red * 255), round(green * 255), round(blue * 255), 255),
+                )
+        else:
+            start_rgb, end_rgb = Colors([start_color, end_color]).to_rgb(
+                normalized=False
+            )
+            ramp.CreateColorRamp(
+                start_value, (*start_rgb, 255), end_value, (*end_rgb, 255)
+            )
+
+        rows = [
+            {
+                "band": band,
+                "values": value,
+                "color": "#{:02x}{:02x}{:02x}".format(*ramp.GetColorEntry(value)[:3]),
+                "alpha": ramp.GetColorEntry(value)[3],
+            }
+            for value in range(start_value, end_value + 1)
+        ]
+        self._set_color_table(DataFrame(rows), overwrite=True)
+
     def _set_color_table(self, color_df: DataFrame, overwrite: bool = False) -> None:
         """_set_color_table.
 
