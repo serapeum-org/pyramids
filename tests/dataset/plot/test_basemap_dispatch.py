@@ -229,7 +229,7 @@ class TestBasemapDispatch:
         class-level uniformity the base `plot`/`animate` API promises: a web-tile
         basemap works on `DatasetCollection` exactly as it does on `Dataset`.
         """
-        cube = DatasetCollection.create_cube(self._dataset(), 3)
+        cube = DatasetCollection.from_dataset(self._dataset(), 3)
         with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
             cube.plot(band=0, basemap="CartoDB.Positron")
         assert mock_add.called, "collection animate path must draw the web-tile basemap"

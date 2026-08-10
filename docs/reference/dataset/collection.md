@@ -16,6 +16,57 @@ flowchart LR
     DC --> WR["<b>write</b><br/>to_file · to_cog_stack<br/>to_zarr · to_netcdf · to_kerchunk"]
 ```
 
+## API at a glance
+
+Two `classDiagram` views of the public surface: the **constructors** (every `@classmethod`, all returning a
+`DatasetCollection`) and the **properties**. Exact parameter types and defaults live in the auto-generated
+reference below; the diagrams show parameters by name to stay readable.
+
+### Constructors (classmethods)
+
+```mermaid
+classDiagram
+    class DatasetCollection {
+        +from_dataset(dataset, time_length) DatasetCollection
+        +from_files(files, glob, date_format, date_regex, start, end, meta, gdal_env, validate) DatasetCollection
+        +from_stac(items, asset, patch_url, bbox, max_items, signer, align, skip_missing, groupby, grid) DatasetCollection
+        +from_point(lat, lon, collection, bands, start_date, end_date, edge_size, resolution, units, stac, query, signer, align) DatasetCollection
+        +from_zarr(store, storage_options) DatasetCollection
+        +from_archive(url_or_path, kind, member_glob, meta) DatasetCollection
+        +read_multiple_files(path, with_order, regex_string, date, file_name_data_fmt, start, end, fmt, glob) DatasetCollection
+    }
+```
+
+`from_dataset` builds an in-memory scaffold from a template `Dataset`; the other constructors read from a data
+source — a folder or explicit list (`from_files`), a STAC search (`from_stac`), a single STAC point query
+(`from_point`), a Zarr store (`from_zarr`), or a zip/tar archive (`from_archive`). Every constructor after
+`from_dataset` takes its non-`self` extras as keyword-only arguments (see the reference for the exact `*`
+boundary). `read_multiple_files` is **deprecated** — use `from_files`.
+
+### Properties
+
+```mermaid
+classDiagram
+    class DatasetCollection {
+        +list~Dataset~ datasets
+        +Dataset base
+        +list~str~ files
+        +int time_length
+        +list time
+        +int rows
+        +int columns
+        +tuple shape
+        +Array data
+        +RasterMeta meta
+        +NDArray values
+    }
+```
+
+`time` and `values` are settable; every other property is read-only. `files` is `None` for an in-memory
+collection and `time` is `None` until a time axis is assigned. `data` is the Dask array over
+`(time, bands, rows, cols)` (Path B) and requires a file-backed collection; `values` materialises the cube
+eagerly through Path A.
+
 ## The two paths
 
 The class operates through **two distinct backing paths**, each serving a

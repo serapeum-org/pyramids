@@ -87,18 +87,21 @@ into one timestep, mosaicked first-valid:
 daily = DatasetCollection.from_stac(items, asset="visual", groupby="solar_day")
 ```
 
-### Match a target grid — `like=` / `crs`+`resolution`+`bounds`
+### Match a target grid — `grid=Grid(...)`
 
 To guarantee pixel co-registration, resample every timestep onto an explicit
-grid — either an existing `Dataset` (`like=`) or a CRS + resolution + bounds
-(snapped to the resolution so independently-built grids align):
+grid with the `grid` parameter and a `Grid` — either an existing `Dataset`
+(`Grid(like=...)`) or a CRS + resolution + bounds (snapped to the resolution so
+independently-built grids align):
 
 ```python
-cube = DatasetCollection.from_stac(items, asset="B04", like=reference_dataset)
+from pyramids.dataset import Grid
+
+cube = DatasetCollection.from_stac(items, asset="B04", grid=Grid(like=reference_dataset))
 
 cube = DatasetCollection.from_stac(
-    items, asset="B04", crs=32633, resolution=10,
-    bounds=(600000, 5300000, 610000, 5310000),
+    items, asset="B04",
+    grid=Grid(crs=32633, resolution=10, bounds=(600000, 5300000, 610000, 5310000)),
 )
 ```
 

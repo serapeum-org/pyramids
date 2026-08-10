@@ -670,16 +670,16 @@ class TestToNetcdfNoData:
 
 
 class TestToNetcdfNoFilesPath:
-    """Support for collections that have no ``_files`` (e.g. ``create_cube``)."""
+    """Support for collections that have no ``_files`` (e.g. ``create``)."""
 
-    def test_create_cube_collection_writes_successfully(self, tmp_path):
-        """A ``create_cube``-backed collection (no file list) can still be written.
+    def test_create_collection_writes_successfully(self, tmp_path):
+        """A ``create``-backed collection (no file list) can still be written.
 
         Args:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            Build via :meth:`DatasetCollection.create_cube` (legacy path
+            Build via :meth:`DatasetCollection.create` (legacy path
             that stamps a single ``Dataset`` repeated T times) — expected:
             the writer materialises from ``self.datasets`` and produces a
             real file.
@@ -694,7 +694,7 @@ class TestToNetcdfNoFilesPath:
             path=src_path,
         ).close()
         src = Dataset.read_file(src_path)
-        col = DatasetCollection.create_cube(src, 3)
+        col = DatasetCollection.from_dataset(src, 3)
         out = tmp_path / "nf.nc"
         col.to_netcdf(str(out))
         assert out.exists(), "no-files write did not produce a file"

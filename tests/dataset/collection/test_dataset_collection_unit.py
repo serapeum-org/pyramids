@@ -2,7 +2,7 @@
 
 Targets untested / low-coverage code paths in
 ``pyramids.dataset.collection``, including:
-- ``create_cube`` classmethod
+- ``create`` classmethod
 - ``merge`` static method (via a temp-file round-trip)
 - ``apply`` method with ufunc
 - ``overlay`` with classes
@@ -64,36 +64,36 @@ def base_dataset() -> Dataset:
 @pytest.fixture()
 def cube_with_values(base_dataset: Dataset) -> DatasetCollection:
     """A DatasetCollection with 3 time steps and pre-set values."""
-    md = DatasetCollection.create_cube(base_dataset, dataset_length=3)
+    md = DatasetCollection.from_dataset(base_dataset, time_length=3)
     values = np.arange(3 * 5 * 6, dtype=np.float64).reshape(3, 5, 6)
     md.values = values
     return md
 
 
 class TestCreateCube:
-    """Tests for the ``create_cube`` classmethod."""
+    """Tests for the ``create`` classmethod."""
 
     def test_returns_dataset_collection(self, base_dataset: Dataset):
-        """create_cube should return a DatasetCollection instance."""
-        md = DatasetCollection.create_cube(base_dataset, dataset_length=4)
+        """create should return a DatasetCollection instance."""
+        md = DatasetCollection.from_dataset(base_dataset, time_length=4)
         assert isinstance(md, DatasetCollection), (
             f"Expected DatasetCollection, got {type(md)}"
         )
 
     def test_time_length_matches(self, base_dataset: Dataset):
-        """The time_length should match the given dataset_length."""
-        md = DatasetCollection.create_cube(base_dataset, dataset_length=7)
+        """The time_length should match the given time_length."""
+        md = DatasetCollection.from_dataset(base_dataset, time_length=7)
         assert md.time_length == 7, f"Expected time_length=7, got {md.time_length}"
 
     def test_base_is_same_dataset(self, base_dataset: Dataset):
         """The base property should reference the provided Dataset."""
-        md = DatasetCollection.create_cube(base_dataset, dataset_length=1)
+        md = DatasetCollection.from_dataset(base_dataset, time_length=1)
         assert md.base is base_dataset, "base should be the original Dataset"
 
     def test_files_is_none(self, base_dataset: Dataset):
-        """create_cube does not set files so it should be None."""
-        md = DatasetCollection.create_cube(base_dataset, dataset_length=2)
-        assert md.files is None, "files should be None for create_cube"
+        """create does not set files so it should be None."""
+        md = DatasetCollection.from_dataset(base_dataset, time_length=2)
+        assert md.files is None, "files should be None for create"
 
 
 class TestStringRepresentation:
@@ -562,7 +562,7 @@ class TestApply:
         new ``DatasetCollection`` instead of mutating ``self``. The
         assertion runs against the returned collection's ``values``.
         """
-        md = DatasetCollection.create_cube(base_dataset, dataset_length=2)
+        md = DatasetCollection.from_dataset(base_dataset, time_length=2)
         values = np.full((2, 5, 6), -5.0)
         values[:, 0, -1] = -9999.0  # set nodata in one cell
         md.values = values
@@ -579,7 +579,7 @@ class TestApply:
         After the L-3 refactor ``apply`` is out-of-place — see
         :meth:`test_apply_numpy_ufunc`.
         """
-        md = DatasetCollection.create_cube(base_dataset, dataset_length=2)
+        md = DatasetCollection.from_dataset(base_dataset, time_length=2)
         values = np.full((2, 5, 6), 10.0)
         values[:, 0, 0] = -9999.0
         md.values = values
@@ -732,10 +732,10 @@ class TestToFile:
         """A one-timestep collection writes exactly one file with the base pixels.
 
         Test scenario:
-            ``create_cube(base, 1)`` written to a directory yields a single
+            ``create(base, 1)`` written to a directory yields a single
             ``0.tif`` whose pixels equal the base template.
         """
-        cube = DatasetCollection.create_cube(base_dataset, dataset_length=1)
+        cube = DatasetCollection.from_dataset(base_dataset, time_length=1)
         tmp_dir = Path(tempfile.mkdtemp())
         out_dir = tmp_dir / "single"
         try:
@@ -757,7 +757,7 @@ class TestToFile:
         driver is ``geotiff`` — the pre-streaming extension-inference contract.
         Guards against silently writing GeoTIFF bytes into ``.asc``-named files.
         """
-        cube = DatasetCollection.create_cube(base_dataset, dataset_length=2)
+        cube = DatasetCollection.from_dataset(base_dataset, time_length=2)
         tmp_dir = Path(tempfile.mkdtemp())
         paths = [tmp_dir / f"grid_{i}.asc" for i in range(2)]
         try:
@@ -796,7 +796,7 @@ class TestToFile:
         ct.SetColorEntry(2, (0, 255, 0, 255))
         band.SetRasterColorTable(ct)
         band.WriteArray(np.array([[1, 2, 1], [2, 1, 2], [1, 2, 1]], dtype=np.uint8))
-        cube = DatasetCollection.create_cube(src, dataset_length=1)
+        cube = DatasetCollection.from_dataset(src, time_length=1)
         tmp_dir = Path(tempfile.mkdtemp())
         try:
             cube.to_file(tmp_dir / "paletted")

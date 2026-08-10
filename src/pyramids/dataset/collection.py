@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import fnmatch
 import numbers
 import re
@@ -10,6 +9,7 @@ import tempfile
 import textwrap
 import warnings
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -36,6 +36,7 @@ from pyramids.dataset._stac import from_point as _from_point
 from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
 from pyramids.dataset.dataset import Dataset
+from pyramids.dataset.grid import Grid
 from pyramids.dataset.merge import merge_rasters
 from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
@@ -865,21 +866,52 @@ class DatasetCollection:
         return self._base.columns
 
     @classmethod
-    def create_cube(cls, src: Dataset, dataset_length: int) -> DatasetCollection:
-        """Create DatasetCollection.
+    def from_dataset(cls, dataset: Dataset, time_length: int) -> DatasetCollection:
+        """Build an in-memory collection from a template Dataset.
 
-            - Create DatasetCollection from a sample raster and
+        Creates a scaffold of ``time_length`` timesteps that all share
+        ``dataset``'s geobox (CRS, geotransform, dtype) and has no backing
+        files — the values are filled in memory. Contrast with the data-source
+        readers :meth:`from_files`, :meth:`from_stac`, and :meth:`from_zarr`.
 
         Args:
-            src (Dataset):
-                Raster object.
-            dataset_length (int):
-                Length of the dataset.
+            dataset: Template :class:`~pyramids.dataset.Dataset` supplying the
+                geobox; it also serves as the single timestep until values are
+                set.
+            time_length: Number of timesteps in the collection.
 
         Returns:
-            DatasetCollection: DatasetCollection object.
+            DatasetCollection: An in-memory collection whose ``files`` is
+            ``None``.
+
+        Examples:
+            - Scaffold a 3-timestep collection from a template raster:
+
+              ```python
+              >>> from pyramids.dataset import Dataset, DatasetCollection
+              >>> template = Dataset.read_file("dem.tif")  # doctest: +SKIP
+              >>> cube = DatasetCollection.from_dataset(template, 3)  # doctest: +SKIP
+              >>> cube.time_length  # doctest: +SKIP
+              3
+
+              ```
+            - The scaffold is in memory, so it has no backing files:
+
+              ```python
+              >>> from pyramids.dataset import Dataset, DatasetCollection
+              >>> template = Dataset.read_file("dem.tif")  # doctest: +SKIP
+              >>> cube = DatasetCollection.from_dataset(template, 5)  # doctest: +SKIP
+              >>> cube.files is None  # doctest: +SKIP
+              True
+
+              ```
+
+        See Also:
+            from_files: Build a collection from rasters on disk.
+            from_zarr: Build a collection from a Zarr store.
+            from_stac: Build a collection from a STAC query.
         """
-        return cls(src, dataset_length)
+        return cls(dataset, time_length)
 
     def groupby(self, time_labels) -> _GroupedCollection:
         """Group time steps by per-timestep label.
@@ -1112,7 +1144,7 @@ class DatasetCollection:
             ImportError: If the optional `dask` extra is not
                 installed.
             RuntimeError: If the collection was constructed without a
-                `files` list (legacy `create_cube` path).
+                `files` list (the in-memory `from_dataset` path).
         """
         if self._zarr_store is None and (self._files is None or len(self._files) == 0):
             raise RuntimeError(
@@ -1641,11 +1673,7 @@ class DatasetCollection:
         align: bool = True,
         skip_missing: bool = False,
         groupby: str | None = None,
-        like: Any = None,
-        crs: int | str | None = None,
-        resolution: float | None = None,
-        bounds=None,
-        anchor: str = "edge",
+        grid: Grid | None = None,
     ) -> DatasetCollection:
         """Build a collection from a STAC ItemCollection.
 
@@ -1664,9 +1692,13 @@ class DatasetCollection:
                 order).
             patch_url: Optional low-level callable rewriting each href
                 (runs before `signer`).
-            bbox: M6 — optional `(minx, miny, maxx, maxy)` filter in
-                lon/lat; items whose `bbox` doesn't intersect are
-                dropped before hrefs are resolved.
+            bbox: M6 — **input filter**, `(minx, miny, maxx, maxy)` in
+                **lon/lat** (EPSG:4326). Selects *which STAC items* are read:
+                items whose footprint doesn't intersect it are dropped before
+                their hrefs are resolved. It does **not** clip the output — that
+                is the `grid`'s bounds (see :class:`~pyramids.dataset.Grid`).
+                (Note the difference from odc-stac, where `bbox` sets the output
+                extent.)
             max_items: M6 — cap the number of items consumed (after
                 bbox filtering). Useful for quick-look workflows.
             signer: Optional signer (e.g. a
@@ -1706,17 +1738,17 @@ class DatasetCollection:
                 stack from tiled imagery over an AOI that spans several tiles.
                 Do **not** use it for non-overpass data (climate model output,
                 already-mosaicked products) — there `groupby=None` is correct.
-            like: Optional target-grid :class:`~pyramids.dataset.Dataset`;
-                every timestep is aligned onto its CRS + grid. Mutually
-                exclusive with `crs`/`resolution`/`bounds`.
-            crs: Target CRS for an explicit grid (with `resolution`+`bounds`).
-            resolution: Target pixel size for an explicit grid.
-            bounds: Target `(minx, miny, maxx, maxy)` for an explicit grid.
-            anchor: Grid-snap rule for the explicit grid (`"edge"`).
+            grid: Optional :class:`~pyramids.dataset.Grid` describing the target
+                **output grid** every timestep is warped/aligned onto. `None`
+                (default) or an empty `Grid()` keeps each timestep's native grid.
+                Use `Grid(like=<Dataset>)` to match an existing grid, or
+                `Grid(crs=..., resolution=..., bounds=...)` for an explicit one
+                (its `bounds` are the output window, in the target CRS — distinct
+                from `bbox`, which filters input items in lon/lat).
 
         Returns:
             DatasetCollection: File-backed collection (or grid-aligned
-            collection when `like`/`crs` is given).
+            collection when a non-empty `grid` is given).
         """
         return _from_stac(
             items,
@@ -1728,11 +1760,7 @@ class DatasetCollection:
             align=align,
             skip_missing=skip_missing,
             groupby=groupby,
-            like=like,
-            crs=crs,
-            resolution=resolution,
-            bounds=bounds,
-            anchor=anchor,
+            grid=grid,
         )
 
     @classmethod
@@ -1758,7 +1786,9 @@ class DatasetCollection:
         Thin forwarder to :func:`pyramids.dataset._stac.from_point`: reprojects
         `(lat, lon)` to its local UTM, snaps to the `resolution` grid, expands to
         an `edge_size`-pixel (or -metre) square AOI, searches `collection` over
-        that AOI + date range, and stacks the `bands` via :meth:`from_stac`.
+        that AOI + date range, and stacks the `bands` via :meth:`from_stac` —
+        resampling every timestep onto that exact local-UTM grid (through an
+        internally built :class:`~pyramids.dataset.Grid`).
 
         Args:
             lat: Center latitude in degrees (EPSG:4326).
@@ -1776,7 +1806,8 @@ class DatasetCollection:
             align: Multi-asset resolution policy (see :meth:`from_stac`).
 
         Returns:
-            DatasetCollection: A time-stacked cube over the point AOI.
+            DatasetCollection: A time-stacked cube over the point AOI, on the
+            exact `edge_size`×`edge_size` local-UTM grid.
         """
         kwargs: dict[str, Any] = {
             "collection": collection,
@@ -1802,8 +1833,8 @@ class DatasetCollection:
         glob: str = _DEFAULT_GLOB,
         date_format: str | None = None,
         date_regex: str = r"\d{4}.\d{2}.\d{2}",
-        start: dt.datetime | None = None,
-        end: dt.datetime | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
         validate: bool = False,
@@ -1874,7 +1905,7 @@ class DatasetCollection:
               ```
         """
         resolved = cls._resolve_files(files, glob)
-        time_axis: list[dt.datetime] | None = None
+        time_axis: list[datetime] | None = None
         if date_format is not None:
             dates = [
                 cls._parse_date(Path(f).name, date_regex, date_format) for f in resolved
@@ -1905,7 +1936,7 @@ class DatasetCollection:
     def _build(
         cls,
         files: list[str],
-        time_axis: list[dt.datetime] | list[int] | None,
+        time_axis: list[datetime] | list[int] | None,
         *,
         meta: RasterMeta | None,
         gdal_env: dict[str, str] | None,
@@ -1967,12 +1998,12 @@ class DatasetCollection:
         return resolved
 
     @staticmethod
-    def _parse_date(name: str, regex: str, fmt: str) -> dt.datetime:
+    def _parse_date(name: str, regex: str, fmt: str) -> datetime:
         """Return the date in ``name`` — the ``regex`` match parsed with ``fmt``."""
         match = re.search(regex, name)
         if match is None:
             raise ValueError(f"date pattern {regex!r} matched no date in {name!r}")
-        return dt.datetime.strptime(match.group(), fmt)
+        return datetime.strptime(match.group(), fmt)
 
     @staticmethod
     def _parse_number(name: str, regex: str) -> int:
@@ -2224,8 +2255,8 @@ class DatasetCollection:
                 order = sorted(range(len(resolved)), key=dates.__getitem__)
                 resolved = [resolved[i] for i in order]
                 dates = [dates[i] for i in order]
-            start_dt = dt.datetime.strptime(start, fmt) if start is not None else None
-            end_dt = dt.datetime.strptime(end, fmt) if end is not None else None
+            start_dt = datetime.strptime(start, fmt) if start is not None else None
+            end_dt = datetime.strptime(end, fmt) if end is not None else None
             if start_dt is not None or end_dt is not None:
                 kept = [
                     (f, d)
@@ -2842,7 +2873,7 @@ class DatasetCollection:
               >>> src = Dataset.create_from_array(
               ...     np.ones((5, 5), dtype="float32"), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
               ... )
-              >>> collection = DatasetCollection.create_cube(src, 3)
+              >>> collection = DatasetCollection.from_dataset(src, 3)
               >>> out_dir = tempfile.mkdtemp()
               >>> collection.to_file(out_dir)
               >>> sorted(os.listdir(out_dir))
@@ -2858,7 +2889,7 @@ class DatasetCollection:
               >>> src = Dataset.create_from_array(
               ...     np.full((4, 4), 7.0, dtype="float32"), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
               ... )
-              >>> collection = DatasetCollection.create_cube(src, 2)
+              >>> collection = DatasetCollection.from_dataset(src, 2)
               >>> out_dir = tempfile.mkdtemp()
               >>> paths = [os.path.join(out_dir, f"slice_{i}.tif") for i in range(2)]
               >>> collection.to_file(paths)
@@ -3161,7 +3192,7 @@ class DatasetCollection:
               >>> mask = Dataset.create_from_array(
               ...     np.ones((10, 10), dtype="int16"), top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
               ... )
-              >>> collection = DatasetCollection.create_cube(mask, 3)
+              >>> collection = DatasetCollection.from_dataset(mask, 3)
               >>> cropped = collection.crop(mask=mask)
               >>> cropped.time_length
               3
