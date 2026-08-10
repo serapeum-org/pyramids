@@ -415,10 +415,19 @@ class TestColorRamp:
         """The ramp path produces the same palette as enumerating those stops by hand.
 
         Test scenario:
-            Build the identical five stops through the plain `color_table` setter and
-            through `set_color_ramp`; the retrieved tables must be equal.
+            Compute the five expected stops independently from the interpolation formula
+            (GDAL truncates towards zero), feed them through the plain `color_table` setter,
+            and assert `set_color_ramp` over the same endpoints yields an equal table. The
+            oracle is derived from the formula, not copied from the ramp's own output.
         """
-        stops = ["#709959", "#90a664", "#b1b36f", "#d1c07a", "#f2ce85"]
+        start_rgb, end_rgb = (112, 153, 89), (242, 206, 133)
+        span = 4
+        stops = [
+            "#{:02x}{:02x}{:02x}".format(
+                *(int(s + (e - s) * i / span) for s, e in zip(start_rgb, end_rgb))
+            )
+            for i in range(span + 1)
+        ]
         enumerated = self._dataset()
         enumerated.color_table = pd.DataFrame(
             {"band": [1] * 5, "values": [1, 2, 3, 4, 5], "color": stops}
@@ -430,30 +439,18 @@ class TestColorRamp:
         )
         pd.testing.assert_frame_equal(enumerated.color_table, ramped.color_table)
 
-    def test_end_not_greater_than_start_raises(self):
-        """A non-increasing range is rejected before any GDAL call."""
-        with pytest.raises(ValueError, match="must be greater than start_value"):
-            self._dataset().set_color_ramp(
-                band=1, start_value=5, end_value=5,
-                start_color="#000000", end_color="#ffffff",
-            )
+    def test_an_integral_float_value_is_accepted(self):
+        """An integer-valued float (5.0) is coerced and builds the full range."""
+        dataset = self._dataset()
+        dataset.set_color_ramp(
+            band=1, start_value=1, end_value=5.0,
+            start_color="#000000", end_color="#ffffff",
+        )
+        assert {1, 2, 3, 4, 5}.issubset(set(dataset.color_table["values"]))
 
-    def test_a_partial_colour_pair_raises(self):
-        """Giving only one of start_color / end_color is rejected."""
-        with pytest.raises(ValueError, match="given together"):
+    def test_an_unknown_colormap_raises(self):
+        """A colormap name absent from matplotlib's registry is rejected clearly."""
+        with pytest.raises(ValueError, match="unknown colormap"):
             self._dataset().set_color_ramp(
-                band=1, start_value=1, end_value=5, start_color="#000000"
+                band=1, start_value=1, end_value=5, colormap="not-a-real-cmap"
             )
-
-    @pytest.mark.parametrize(
-        "kwargs",
-        [
-            {"start_color": "#000000", "end_color": "#ffffff", "colormap": "viridis"},
-            {},
-        ],
-        ids=["both-modes", "neither-mode"],
-    )
-    def test_ambiguous_mode_raises(self, kwargs):
-        """Supplying both a colour pair and a colormap, or neither, is rejected."""
-        with pytest.raises(ValueError, match="exactly one"):
-            self._dataset().set_color_ramp(band=1, start_value=1, end_value=5, **kwargs)

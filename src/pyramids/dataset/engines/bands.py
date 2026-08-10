@@ -841,9 +841,14 @@ class Bands(_Engine["Dataset"]):
             band (int):
                 1-based band to colour. Defaults to 1.
             start_value (int):
-                First value in the ramp (keyword-only).
+                First value in the ramp; must be `>= 0` (GDAL colour indices are
+                non-negative). Keyword-only.
             end_value (int):
-                Last value in the ramp; must exceed `start_value` (keyword-only).
+                Last value in the ramp; must exceed `start_value` (keyword-only). One
+                colour entry is written per integer in `[start_value, end_value]`, so a
+                very wide range (e.g. every UInt16 value, 0..65535) builds a
+                correspondingly large table — keep the range to the classes you actually
+                need.
             start_color (str, optional):
                 Hex colour at `start_value`. Give together with `end_color`, and not with
                 `colormap`.
@@ -854,10 +859,13 @@ class Bands(_Engine["Dataset"]):
                 `start_color` / `end_color` pair.
 
         Raises:
+            TypeError:
+                `start_value` or `end_value` is not an integer.
             ValueError:
-                `end_value` is not greater than `start_value`; only one of
-                `start_color` / `end_color` is given; or the mode is ambiguous (neither a
-                colour pair nor a colormap, or both).
+                `band` is outside `1..band_count`; `start_value` is negative; `end_value`
+                is not greater than `start_value`; only one of `start_color` / `end_color`
+                is given (or one is blank); the mode is ambiguous (neither a colour pair
+                nor a colormap, or both); or `colormap` is not a known matplotlib name.
 
         Examples:
             - A two-colour ramp green -> tan across values 1..5 fills the three
@@ -885,15 +893,30 @@ class Bands(_Engine["Dataset"]):
 
               ```
         """
+        if not 1 <= band <= self._ds.band_count:
+            raise ValueError(
+                f"band {band} is out of range for a {self._ds.band_count}-band "
+                "dataset (bands are 1-based)"
+            )
+        if int(start_value) != start_value or int(end_value) != end_value:
+            raise TypeError("start_value and end_value must be integers")
+        start_value, end_value = int(start_value), int(end_value)
+        if start_value < 0:
+            raise ValueError(
+                f"start_value ({start_value}) must be >= 0: GDAL colour indices are "
+                "non-negative"
+            )
         if end_value <= start_value:
             raise ValueError(
                 f"end_value ({end_value}) must be greater than start_value "
                 f"({start_value})"
             )
-        if (start_color is None) != (end_color is None):
-            raise ValueError("start_color and end_color must be given together")
-        pair_given = start_color is not None
-        if pair_given == (colormap is not None):
+        # Treat an empty/blank string as "not given", so the mode guards reject it with a
+        # clear message instead of letting it reach cleopatra/matplotlib as a cryptic one.
+        has_pair = bool(start_color) and bool(end_color)
+        if bool(start_color) != bool(end_color):
+            raise ValueError("start_color and end_color must both be given")
+        if has_pair == bool(colormap):
             raise ValueError(
                 "provide exactly one of a (start_color, end_color) pair or a colormap="
             )
@@ -902,9 +925,17 @@ class Bands(_Engine["Dataset"]):
         from cleopatra.colors import Colors
 
         ramp = gdal.ColorTable()
-        if colormap is not None:
+        if colormap:
+            # matplotlib is a hard cleopatra dependency, so it is importable once
+            # require_cleopatra() has passed; imported here for the same reason
+            # _set_color_table imports cleopatra lazily (optional viz extra).
             from matplotlib import colormaps
 
+            if colormap not in colormaps:
+                raise ValueError(
+                    f"unknown colormap {colormap!r}; pass a name from matplotlib's "
+                    "registry (e.g. 'viridis', 'terrain')"
+                )
             cmap = colormaps[colormap]
             span = end_value - start_value
             for offset in range(span + 1):
