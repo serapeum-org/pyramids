@@ -26,8 +26,9 @@ class TestSetColorRampValidation:
 
     def test_band_out_of_range_raises(self):
         """A 1-based band beyond the count is a clear ValueError, not a raw GDAL error."""
+        dataset = _dataset()
         with pytest.raises(ValueError, match="band 99 is out of range"):
-            _dataset().set_color_ramp(
+            dataset.set_color_ramp(
                 band=99,
                 start_value=1,
                 end_value=5,
@@ -37,8 +38,9 @@ class TestSetColorRampValidation:
 
     def test_band_zero_raises(self):
         """Band 0 is rejected because bands are 1-based."""
+        dataset = _dataset()
         with pytest.raises(ValueError, match="out of range"):
-            _dataset().set_color_ramp(
+            dataset.set_color_ramp(
                 band=0,
                 start_value=1,
                 end_value=5,
@@ -48,8 +50,9 @@ class TestSetColorRampValidation:
 
     def test_negative_start_value_raises(self):
         """A negative start_value is rejected — GDAL colour indices are non-negative."""
+        dataset = _dataset()
         with pytest.raises(ValueError, match="must be >= 0"):
-            _dataset().set_color_ramp(
+            dataset.set_color_ramp(
                 band=1,
                 start_value=-1,
                 end_value=5,
@@ -59,8 +62,9 @@ class TestSetColorRampValidation:
 
     def test_non_integer_value_raises(self):
         """A fractional value is a TypeError before any range is built."""
+        dataset = _dataset()
         with pytest.raises(TypeError, match="whole number"):
-            _dataset().set_color_ramp(
+            dataset.set_color_ramp(
                 band=1,
                 start_value=1.5,
                 end_value=5,
@@ -70,8 +74,9 @@ class TestSetColorRampValidation:
 
     def test_non_numeric_value_raises_type_error(self):
         """A non-numeric value gets the documented TypeError, not a cryptic int() error."""
+        dataset = _dataset()
         with pytest.raises(TypeError, match="must be an integer"):
-            _dataset().set_color_ramp(
+            dataset.set_color_ramp(
                 band=1,
                 start_value="1",
                 end_value=5,
@@ -81,8 +86,9 @@ class TestSetColorRampValidation:
 
     def test_boolean_value_raises_type_error(self):
         """A bool is not a meaningful colour index and is rejected."""
+        dataset = _dataset()
         with pytest.raises(TypeError, match="must be an integer"):
-            _dataset().set_color_ramp(
+            dataset.set_color_ramp(
                 band=1,
                 start_value=True,
                 end_value=5,
@@ -92,8 +98,9 @@ class TestSetColorRampValidation:
 
     def test_end_not_greater_than_start_raises(self):
         """A non-increasing range is rejected."""
+        dataset = _dataset()
         with pytest.raises(ValueError, match="must be greater than start_value"):
-            _dataset().set_color_ramp(
+            dataset.set_color_ramp(
                 band=1,
                 start_value=5,
                 end_value=5,
@@ -103,15 +110,17 @@ class TestSetColorRampValidation:
 
     def test_a_partial_colour_pair_raises(self):
         """Only one of start_color / end_color is rejected."""
+        dataset = _dataset()
         with pytest.raises(ValueError, match="both be given"):
-            _dataset().set_color_ramp(
+            dataset.set_color_ramp(
                 band=1, start_value=1, end_value=5, start_color="#000000"
             )
 
     def test_a_blank_colour_raises(self):
         """A blank colour string is treated as missing, not passed to cleopatra."""
+        dataset = _dataset()
         with pytest.raises(ValueError, match="both be given"):
-            _dataset().set_color_ramp(
+            dataset.set_color_ramp(
                 band=1, start_value=1, end_value=5, start_color="", end_color="#ffffff"
             )
 
@@ -126,8 +135,9 @@ class TestSetColorRampValidation:
     )
     def test_ambiguous_mode_raises(self, kwargs):
         """Both a colour pair and a colormap, a blank colormap, or neither, is rejected."""
+        dataset = _dataset()
         with pytest.raises(ValueError, match="exactly one"):
-            _dataset().set_color_ramp(band=1, start_value=1, end_value=5, **kwargs)
+            dataset.set_color_ramp(band=1, start_value=1, end_value=5, **kwargs)
 
     def test_read_only_on_disk_dataset_raises(self, tmp_path):
         """The facade guard rejects a read-only on-disk raster before spilling a sidecar."""

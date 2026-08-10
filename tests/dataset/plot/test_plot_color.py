@@ -511,7 +511,8 @@ class TestColorRamp:
 
     def test_an_unknown_colormap_raises(self):
         """A colormap name absent from matplotlib's registry is rejected clearly."""
+        dataset = self._dataset()
         with pytest.raises(ValueError, match="unknown colormap"):
-            self._dataset().set_color_ramp(
+            dataset.set_color_ramp(
                 band=1, start_value=1, end_value=5, colormap="not-a-real-cmap"
             )
