@@ -895,6 +895,28 @@ class Bands(_Engine["Dataset"]):
               5    1      5  242   206  133   255
 
               ```
+
+            - A named matplotlib colormap is sampled evenly across the range instead of a
+              two-colour pair; value 1 is viridis' dark-purple start:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.random.randint(1, 6, size=(10, 10))
+              >>> ds = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ... )
+              >>> ds.set_color_ramp(band=1, start_value=1, end_value=5, colormap="viridis")
+              >>> row = ds.color_table.set_index("values").loc[1, ["red", "green", "blue"]]
+              >>> [int(component) for component in row]
+              [68, 1, 84]
+
+              ```
+
+        See Also:
+            color_table: The lower-level setter that takes an explicit per-value colour
+                table; `set_color_ramp` generates that table from a ramp and forwards it
+                through the same path.
         """
         if not 1 <= band <= self._ds.band_count:
             raise ValueError(
