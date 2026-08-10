@@ -374,19 +374,31 @@ class TestColorRamp:
         """
         dataset = self._dataset()
         dataset.set_color_ramp(
-            band=1, start_value=1, end_value=5,
-            start_color="#709959", end_color="#F2CE85",
+            band=1,
+            start_value=1,
+            end_value=5,
+            start_color="#709959",
+            end_color="#F2CE85",
         )
         table = dataset.color_table.set_index("values")
-        assert tuple(table.loc[1, ["red", "green", "blue", "alpha"]]) == (112, 153, 89, 255), (
-            "value 1 must be the start colour"
-        )
-        assert tuple(table.loc[3, ["red", "green", "blue", "alpha"]]) == (177, 179, 111, 255), (
-            "value 3 must be the interpolated midpoint"
-        )
-        assert tuple(table.loc[5, ["red", "green", "blue", "alpha"]]) == (242, 206, 133, 255), (
-            "value 5 must be the end colour"
-        )
+        assert tuple(table.loc[1, ["red", "green", "blue", "alpha"]]) == (
+            112,
+            153,
+            89,
+            255,
+        ), "value 1 must be the start colour"
+        assert tuple(table.loc[3, ["red", "green", "blue", "alpha"]]) == (
+            177,
+            179,
+            111,
+            255,
+        ), "value 3 must be the interpolated midpoint"
+        assert tuple(table.loc[5, ["red", "green", "blue", "alpha"]]) == (
+            242,
+            206,
+            133,
+            255,
+        ), "value 5 must be the end colour"
         assert dataset.raster.GetRasterBand(1).GetColorTable() is not None, (
             "the band must end up paletted"
         )
@@ -425,22 +437,33 @@ class TestColorRamp:
         table = dataset.color_table.set_index("values")
         red, green, blue, _ = colormaps["viridis"](0.5)
         assert tuple(table.loc[3, ["red", "green", "blue"]]) == (
-            round(red * 255), round(green * 255), round(blue * 255)
+            round(red * 255),
+            round(green * 255),
+            round(blue * 255),
         ), "value 3 must be the evenly-sampled midpoint of the colormap"
 
     def test_start_value_zero_is_the_ramp_start_not_a_spurious_entry(self):
         """`start_value=0` is accepted and value 0 becomes the ramp start colour."""
         dataset = self._dataset()
         dataset.set_color_ramp(
-            band=1, start_value=0, end_value=4,
-            start_color="#000000", end_color="#ffffff",
+            band=1,
+            start_value=0,
+            end_value=4,
+            start_color="#000000",
+            end_color="#ffffff",
         )
         table = dataset.color_table.set_index("values")
-        assert tuple(table.loc[0, ["red", "green", "blue", "alpha"]]) == (0, 0, 0, 255), (
-            "value 0 must be the black ramp start, not a transparent (0,0,0,0) fill"
-        )
+        assert tuple(table.loc[0, ["red", "green", "blue", "alpha"]]) == (
+            0,
+            0,
+            0,
+            255,
+        ), "value 0 must be the black ramp start, not a transparent (0,0,0,0) fill"
         assert tuple(table.loc[4, ["red", "green", "blue", "alpha"]]) == (
-            255, 255, 255, 255
+            255,
+            255,
+            255,
+            255,
         ), "value 4 must be the white ramp end"
 
     def test_ramp_matches_the_enumerated_setter_for_the_same_stops(self):
@@ -466,8 +489,11 @@ class TestColorRamp:
         )
         ramped = self._dataset()
         ramped.set_color_ramp(
-            band=1, start_value=1, end_value=5,
-            start_color="#709959", end_color="#f2ce85",
+            band=1,
+            start_value=1,
+            end_value=5,
+            start_color="#709959",
+            end_color="#f2ce85",
         )
         pd.testing.assert_frame_equal(enumerated.color_table, ramped.color_table)
 
@@ -475,8 +501,11 @@ class TestColorRamp:
         """An integer-valued float (5.0) is coerced and builds the full range."""
         dataset = self._dataset()
         dataset.set_color_ramp(
-            band=1, start_value=1, end_value=5.0,
-            start_color="#000000", end_color="#ffffff",
+            band=1,
+            start_value=1,
+            end_value=5.0,
+            start_color="#000000",
+            end_color="#ffffff",
         )
         assert {1, 2, 3, 4, 5}.issubset(set(dataset.color_table["values"]))
 

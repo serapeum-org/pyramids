@@ -28,56 +28,77 @@ class TestSetColorRampValidation:
         """A 1-based band beyond the count is a clear ValueError, not a raw GDAL error."""
         with pytest.raises(ValueError, match="band 99 is out of range"):
             _dataset().set_color_ramp(
-                band=99, start_value=1, end_value=5,
-                start_color="#000000", end_color="#ffffff",
+                band=99,
+                start_value=1,
+                end_value=5,
+                start_color="#000000",
+                end_color="#ffffff",
             )
 
     def test_band_zero_raises(self):
         """Band 0 is rejected because bands are 1-based."""
         with pytest.raises(ValueError, match="out of range"):
             _dataset().set_color_ramp(
-                band=0, start_value=1, end_value=5,
-                start_color="#000000", end_color="#ffffff",
+                band=0,
+                start_value=1,
+                end_value=5,
+                start_color="#000000",
+                end_color="#ffffff",
             )
 
     def test_negative_start_value_raises(self):
         """A negative start_value is rejected — GDAL colour indices are non-negative."""
         with pytest.raises(ValueError, match="must be >= 0"):
             _dataset().set_color_ramp(
-                band=1, start_value=-1, end_value=5,
-                start_color="#000000", end_color="#ffffff",
+                band=1,
+                start_value=-1,
+                end_value=5,
+                start_color="#000000",
+                end_color="#ffffff",
             )
 
     def test_non_integer_value_raises(self):
         """A fractional value is a TypeError before any range is built."""
         with pytest.raises(TypeError, match="whole number"):
             _dataset().set_color_ramp(
-                band=1, start_value=1.5, end_value=5,
-                start_color="#000000", end_color="#ffffff",
+                band=1,
+                start_value=1.5,
+                end_value=5,
+                start_color="#000000",
+                end_color="#ffffff",
             )
 
     def test_non_numeric_value_raises_type_error(self):
         """A non-numeric value gets the documented TypeError, not a cryptic int() error."""
         with pytest.raises(TypeError, match="must be an integer"):
             _dataset().set_color_ramp(
-                band=1, start_value="1", end_value=5,
-                start_color="#000000", end_color="#ffffff",
+                band=1,
+                start_value="1",
+                end_value=5,
+                start_color="#000000",
+                end_color="#ffffff",
             )
 
     def test_boolean_value_raises_type_error(self):
         """A bool is not a meaningful colour index and is rejected."""
         with pytest.raises(TypeError, match="must be an integer"):
             _dataset().set_color_ramp(
-                band=1, start_value=True, end_value=5,
-                start_color="#000000", end_color="#ffffff",
+                band=1,
+                start_value=True,
+                end_value=5,
+                start_color="#000000",
+                end_color="#ffffff",
             )
 
     def test_end_not_greater_than_start_raises(self):
         """A non-increasing range is rejected."""
         with pytest.raises(ValueError, match="must be greater than start_value"):
             _dataset().set_color_ramp(
-                band=1, start_value=5, end_value=5,
-                start_color="#000000", end_color="#ffffff",
+                band=1,
+                start_value=5,
+                end_value=5,
+                start_color="#000000",
+                end_color="#ffffff",
             )
 
     def test_a_partial_colour_pair_raises(self):
@@ -113,11 +134,17 @@ class TestSetColorRampValidation:
         path = tmp_path / "ro.tif"
         Dataset.create_from_array(
             np.ones((3, 3), dtype="float32"),
-            top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326, path=str(path),
+            top_left_corner=(0.0, 3.0),
+            cell_size=1.0,
+            epsg=4326,
+            path=str(path),
         )
         ro_ds = Dataset.read_file(str(path), read_only=True)
         with pytest.raises(ReadOnlyError, match="read-only"):
             ro_ds.set_color_ramp(
-                band=1, start_value=1, end_value=5,
-                start_color="#000000", end_color="#ffffff",
+                band=1,
+                start_value=1,
+                end_value=5,
+                start_color="#000000",
+                end_color="#ffffff",
             )

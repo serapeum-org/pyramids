@@ -931,7 +931,9 @@ class Bands(_Engine["Dataset"]):
             if isinstance(value, bool) or not isinstance(
                 value, (int, np.integer, float, np.floating)
             ):
-                raise TypeError(f"{name} must be an integer, not {type(value).__name__}")
+                raise TypeError(
+                    f"{name} must be an integer, not {type(value).__name__}"
+                )
             if not float(value).is_integer():
                 raise TypeError(f"{name} must be a whole number, got {value!r}")
         start_value, end_value = int(start_value), int(end_value)
