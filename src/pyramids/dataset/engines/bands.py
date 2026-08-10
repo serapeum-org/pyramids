@@ -848,7 +848,10 @@ class Bands(_Engine["Dataset"]):
                 colour entry is written per integer in `[start_value, end_value]`, so a
                 very wide range (e.g. every UInt16 value, 0..65535) builds a
                 correspondingly large table — keep the range to the classes you actually
-                need.
+                need. The GDAL palette is dense from index 0, so the table always spans
+                `0..end_value`: a narrow ramp at a high `start_value` still allocates every
+                lower index, and values below `start_value` are left transparent
+                `(0, 0, 0, 0)`. Cost therefore scales with `end_value`, not the range width.
             start_color (str, optional):
                 Hex colour at `start_value`. Give together with `end_color`, and not with
                 `colormap`.
@@ -898,8 +901,17 @@ class Bands(_Engine["Dataset"]):
                 f"band {band} is out of range for a {self._ds.band_count}-band "
                 "dataset (bands are 1-based)"
             )
-        if int(start_value) != start_value or int(end_value) != end_value:
-            raise TypeError("start_value and end_value must be integers")
+        for name, value in (("start_value", start_value), ("end_value", end_value)):
+            # bool is an int subclass but not a meaningful colour index; reject it
+            # (and any non-numeric type) with the documented TypeError rather than a
+            # cryptic downstream one. float('inf').is_integer() is False, so a
+            # non-finite float lands here too instead of raising OverflowError.
+            if isinstance(value, bool) or not isinstance(
+                value, (int, np.integer, float, np.floating)
+            ):
+                raise TypeError(f"{name} must be an integer, not {type(value).__name__}")
+            if not float(value).is_integer():
+                raise TypeError(f"{name} must be a whole number, got {value!r}")
         start_value, end_value = int(start_value), int(end_value)
         if start_value < 0:
             raise ValueError(
@@ -952,15 +964,17 @@ class Bands(_Engine["Dataset"]):
                 start_value, (*start_rgb, 255), end_value, (*end_rgb, 255)
             )
 
-        rows = [
-            {
-                "band": band,
-                "values": value,
-                "color": "#{:02x}{:02x}{:02x}".format(*ramp.GetColorEntry(value)[:3]),
-                "alpha": ramp.GetColorEntry(value)[3],
-            }
-            for value in range(start_value, end_value + 1)
-        ]
+        rows = []
+        for value in range(start_value, end_value + 1):
+            entry = ramp.GetColorEntry(value)
+            rows.append(
+                {
+                    "band": band,
+                    "values": value,
+                    "color": "#{:02x}{:02x}{:02x}".format(*entry[:3]),
+                    "alpha": entry[3],
+                }
+            )
         self._set_color_table(DataFrame(rows), overwrite=True)
 
     def _set_color_table(self, color_df: DataFrame, overwrite: bool = False) -> None:

@@ -7,6 +7,7 @@ matplotlib; the palette-building tests that do live in `tests/dataset/plot/test_
 import numpy as np
 import pytest
 
+from pyramids.base._errors import ReadOnlyError
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
@@ -49,9 +50,25 @@ class TestSetColorRampValidation:
 
     def test_non_integer_value_raises(self):
         """A fractional value is a TypeError before any range is built."""
-        with pytest.raises(TypeError, match="must be integers"):
+        with pytest.raises(TypeError, match="whole number"):
             _dataset().set_color_ramp(
                 band=1, start_value=1.5, end_value=5,
+                start_color="#000000", end_color="#ffffff",
+            )
+
+    def test_non_numeric_value_raises_type_error(self):
+        """A non-numeric value gets the documented TypeError, not a cryptic int() error."""
+        with pytest.raises(TypeError, match="must be an integer"):
+            _dataset().set_color_ramp(
+                band=1, start_value="1", end_value=5,
+                start_color="#000000", end_color="#ffffff",
+            )
+
+    def test_boolean_value_raises_type_error(self):
+        """A bool is not a meaningful colour index and is rejected."""
+        with pytest.raises(TypeError, match="must be an integer"):
+            _dataset().set_color_ramp(
+                band=1, start_value=True, end_value=5,
                 start_color="#000000", end_color="#ffffff",
             )
 
@@ -90,3 +107,17 @@ class TestSetColorRampValidation:
         """Both a colour pair and a colormap, a blank colormap, or neither, is rejected."""
         with pytest.raises(ValueError, match="exactly one"):
             _dataset().set_color_ramp(band=1, start_value=1, end_value=5, **kwargs)
+
+    def test_read_only_on_disk_dataset_raises(self, tmp_path):
+        """The facade guard rejects a read-only on-disk raster before spilling a sidecar."""
+        path = tmp_path / "ro.tif"
+        Dataset.create_from_array(
+            np.ones((3, 3), dtype="float32"),
+            top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326, path=str(path),
+        )
+        ro_ds = Dataset.read_file(str(path), read_only=True)
+        with pytest.raises(ReadOnlyError, match="read-only"):
+            ro_ds.set_color_ramp(
+                band=1, start_value=1, end_value=5,
+                start_color="#000000", end_color="#ffffff",
+            )

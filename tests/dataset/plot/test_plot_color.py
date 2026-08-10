@@ -411,6 +411,38 @@ class TestColorRamp:
             "the band must end up paletted"
         )
 
+    def test_named_colormap_samples_the_midpoint_evenly(self):
+        """The intermediate value is `cmap(0.5)`, pinning the even-spacing contract.
+
+        Test scenario:
+            colormap='viridis' across 1..5 -> value 3 is the exact midpoint sample
+            `round(viridis(0.5) * 255)`, computed independently from matplotlib.
+        """
+        from matplotlib import colormaps
+
+        dataset = self._dataset()
+        dataset.set_color_ramp(band=1, start_value=1, end_value=5, colormap="viridis")
+        table = dataset.color_table.set_index("values")
+        red, green, blue, _ = colormaps["viridis"](0.5)
+        assert tuple(table.loc[3, ["red", "green", "blue"]]) == (
+            round(red * 255), round(green * 255), round(blue * 255)
+        ), "value 3 must be the evenly-sampled midpoint of the colormap"
+
+    def test_start_value_zero_is_the_ramp_start_not_a_spurious_entry(self):
+        """`start_value=0` is accepted and value 0 becomes the ramp start colour."""
+        dataset = self._dataset()
+        dataset.set_color_ramp(
+            band=1, start_value=0, end_value=4,
+            start_color="#000000", end_color="#ffffff",
+        )
+        table = dataset.color_table.set_index("values")
+        assert tuple(table.loc[0, ["red", "green", "blue", "alpha"]]) == (0, 0, 0, 255), (
+            "value 0 must be the black ramp start, not a transparent (0,0,0,0) fill"
+        )
+        assert tuple(table.loc[4, ["red", "green", "blue", "alpha"]]) == (
+            255, 255, 255, 255
+        ), "value 4 must be the white ramp end"
+
     def test_ramp_matches_the_enumerated_setter_for_the_same_stops(self):
         """The ramp path produces the same palette as enumerating those stops by hand.
 
