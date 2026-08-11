@@ -381,6 +381,93 @@ class TestWindowedBboxCropFastPath:
             "a rotated grid must fall back to the warp path"
         )
 
+    @pytest.mark.parametrize(
+        "geo",
+        [
+            (0.0, 0.05, 0.0, -0.5, 0.0, 0.05),  # south-up: dy > 0
+            (0.5, -0.05, 0.0, 0.0, 0.0, -0.05),  # flipped x: dx < 0
+        ],
+        ids=["south-up", "negative-dx"],
+    )
+    def test_flipped_grid_skips_the_fast_path(self, geo):
+        """A south-up (`dy > 0`) or negative-`dx` grid is not eligible for the fast path.
+
+        Test scenario:
+            ``_crop_bbox_windowed`` must return ``None`` for a non-north-up grid so the
+            crop falls back to the warp path, which orients the axes correctly.
+        """
+        ds = Dataset.create_from_array(
+            np.arange(100, dtype="int16").reshape(10, 10), geo=geo, epsg=4326
+        )
+        assert ds.spatial._crop_bbox_windowed((0.1, -0.2, 0.2, -0.1), 4326) is None, (
+            "a flipped/non-north-up grid must fall back to the warp path"
+        )
+
+    @pytest.mark.parametrize(
+        "bbox",
+        [
+            (0.125, -0.375, 0.375, -0.125),  # edges on pixel centres, not boundaries
+            (0.11, -0.19, 0.19, -0.11),  # arbitrary sub-pixel edges
+            (0.13, -0.14, 0.14, -0.13),  # tiny box covering no pixel centre
+            (0.07, -0.33, 0.28, -0.02),  # wider, off-grid on every side
+        ],
+    )
+    def test_fast_path_matches_the_all_touched_warp_fallback(self, dataset, bbox, mocker):
+        """The windowed fast path returns the same crop as the all-touched warp fallback.
+
+        Test scenario:
+            For non-pixel-aligned boxes, compute the crop via the fast path, then patch
+            ``_crop_bbox_windowed`` to ``None`` so the same bbox crop takes the
+            (all-touched) warp fallback; the two must agree in shape, geotransform and
+            pixels. This pins the overlap-semantics equivalence the fast path relies on.
+        """
+        fast = dataset.crop(bbox=bbox)
+        mocker.patch(
+            "pyramids.dataset.engines.spatial.Spatial._crop_bbox_windowed",
+            return_value=None,
+        )
+        warp = dataset.crop(bbox=bbox)
+        assert fast.shape == warp.shape, (
+            f"shape differs for {bbox}: fast={fast.shape}, warp={warp.shape}"
+        )
+        assert fast.geotransform == warp.geotransform, (
+            f"geotransform differs for {bbox}"
+        )
+        assert np.array_equal(fast.read_array(), warp.read_array()), (
+            f"pixels differ for {bbox}"
+        )
+
+    def test_overlap_semantics_keep_every_touched_pixel(self, dataset):
+        """A box straddling pixel boundaries keeps every pixel it overlaps (floor/ceil).
+
+        Test scenario:
+            ``bbox=(0.125,-0.375,0.375,-0.125)`` on the 0.05 deg grid spans cols 2..7 and
+            rows 2..7, so the crop is 6x6 with its origin at the box's floored top-left —
+            the documented all-touched overlap result, wider than a centre-containment crop.
+        """
+        out = dataset.crop(bbox=(0.125, -0.375, 0.375, -0.125))
+        assert out.shape == (1, 6, 6), f"expected 6x6 overlap crop, got {out.shape}"
+        assert out.geotransform[0] == pytest.approx(0.10), "origin x must be the floored west edge"
+        assert out.geotransform[3] == pytest.approx(-0.10), "origin y must be the floored north edge"
+
+    def test_no_nodata_raster_crops_to_the_tight_overlap_window(self):
+        """A raster with no no-data marker crops to the tight AOI, not an untrimmable border.
+
+        Test scenario:
+            With ``no_data_value=None`` the warp path leaves a border it cannot trim, but
+            the fast path reads exactly the overlap window; an aligned 2x2 bbox must return
+            a 2x2 crop.
+        """
+        ds = Dataset.create_from_array(
+            np.arange(100, dtype="int16").reshape(10, 10),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=None,
+        )
+        out = ds.crop(bbox=(0.1, -0.2, 0.2, -0.1))
+        assert out.shape == (1, 2, 2), f"expected tight 2x2 crop, got {out.shape}"
+
 
 class TestAntimeridianCrop:
     """Tests for crop with a geographic ``west > east`` (antimeridian) bbox."""
