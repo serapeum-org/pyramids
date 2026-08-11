@@ -169,8 +169,9 @@ class TestNetCDFFacetPointsContract:
             raises ``ValueError`` naming the offending keyword.
         """
         nc = make_plot_3d_nc(n_times=4)
+        facet, pts = FacetSpec(col="time"), _points()
         with pytest.raises(ValueError, match="points") as exc_info:
-            nc.plot(variable="t2m", facet=FacetSpec(col="time"), points=_points())
+            nc.plot(variable="t2m", facet=facet, points=pts)
         assert "points" in str(exc_info.value), f"unexpected error: {exc_info.value}"
 
 
