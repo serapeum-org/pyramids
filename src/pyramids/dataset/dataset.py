@@ -858,10 +858,10 @@ class Dataset(RasterBase):
                 is ``None``. Requires the ``[viz]`` extra.
             colorbar (bool or ColorBar, optional):
                 Colour-bar spec. A ``pyramids.plot.ColorBar(label=…, length=…,
-                orientation=…, …)`` (cleopatra >= 0.28) draws a configured bar; the loose
-                ``cbar_*`` / ``ticks_spacing`` kwargs it replaces are deprecated (still
-                accepted, but they emit a :class:`DeprecationWarning`). ``False`` hides the
-                bar, ``None`` uses cleopatra's default. Default is ``None``.
+                orientation=…, …)`` draws a configured bar. The loose ``cbar_*`` /
+                ``ticks_spacing`` kwargs it replaces were removed — passing one now raises a
+                :class:`ValueError` pointing here. ``False`` hides the bar, ``None`` uses
+                cleopatra's default. Default is ``None``.
             points (np.ndarray or PointOverlay, optional):
                 Point overlay. A 3-column array ``(value, row, col)`` draws unstyled
                 points; pass a ``pyramids.plot.PointOverlay(points, color=…, size=…, …)``

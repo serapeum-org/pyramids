@@ -1101,33 +1101,22 @@ class RasterBase(ABC):
                     Title size. The default is 15.
                 colorbar (bool | ColorBar, optional):
                     Colour-bar spec ``pyramids.plot.ColorBar(label=..., length=..., orientation=...,
-                    label_size=..., label_rotation=..., label_location=..., ticks_spacing=...)``
-                    (cleopatra >= 0.28) — the complete, preferred replacement for the loose ``cbar_*`` /
-                    ``ticks_spacing`` kwargs, which are deprecated (still accepted, but they emit a
-                    ``DeprecationWarning``). ``False`` hides the bar, ``None`` uses the default.
-                color_scale (str, optional):
-                    Color-scale mode. One of "linear", "power", "sym-lognorm", "boundary-norm", "midpoint"
-                    (case-insensitive), or a ``cleopatra.styling.styles.ColorScale`` member. Integer codes are no
-                    longer accepted. The default is "linear".
-                gamma (float, optional):
-                    Exponent for the "power" color scale. The default is 1./2.
-                line_threshold (float, optional):
-                    ``linthresh`` for the "sym-lognorm" color scale. The default is 0.0001.
-                line_scale (float, optional):
-                    ``linscale`` for the "sym-lognorm" color scale. The default is 0.001.
-                bounds (List, optional):
-                    A list of numbers used as discrete bounds for the "boundary-norm" color scale. Default is None.
-                midpoint (float, optional):
-                    Midpoint value for the "midpoint" color scale. The default is 0.
+                    label_size=..., label_rotation=..., label_location=..., ticks_spacing=...)``.
+                    The loose ``cbar_*`` / ``ticks_spacing`` kwargs it replaces were removed —
+                    passing one now raises a ``ValueError``. ``False`` hides the bar, ``None``
+                    uses the default.
                 cmap (str, optional):
                     Color style. The default is 'coolwarm_r'.
-                display_cell_value (bool, optional):
-                    True if you want to display the values of the cells as text.
-                num_size (int, optional):
-                    Size of the numbers plotted on top of each cell. The default is 8.
-                background_color_threshold (float | int, optional):
-                    Threshold value. If the value of the cell is greater, the plotted numbers will be black; if smaller,
-                     the plotted number will be white. If None, maxvalue/2 will be considered. The default is None.
+
+                Colour-scale, contour, cell-value and data-style options moved onto the typed
+                render groups (all re-exported from ``pyramids.plot``): pass
+                ``color=ColorScaling(...)`` (linear / power / sym-log / boundary / midpoint
+                norm), ``contour=Contour(levels=..., ...)``, ``cells=CellValues(show=...,
+                size=..., background_threshold=...)`` and ``data_style=DataStyle(style=...,
+                hillshade=...)``. The loose forms they replace (``color_scale`` / ``gamma`` /
+                ``line_threshold`` / ``line_scale`` / ``bounds`` / ``midpoint`` / ``levels`` /
+                ``display_cell_value`` / ``num_size`` / ``background_color_threshold`` /
+                ``style`` / ``hillshade``) were removed and now raise a ``ValueError``.
 
         Returns:
             Tuple[Axes, Any]:

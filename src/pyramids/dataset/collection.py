@@ -2501,10 +2501,9 @@ class DatasetCollection:
             colorbar (bool or ColorBar, optional):
                 Colour-bar spec ``pyramids.plot.ColorBar(label=…, length=…,
                 orientation=…, label_size=…, label_rotation=…, label_location=…,
-                ticks_spacing=…)`` (cleopatra >= 0.28). The loose ``cbar_*`` /
-                ``ticks_spacing`` kwargs it replaces are deprecated — still accepted,
-                but they emit a :class:`DeprecationWarning`. ``False`` hides it,
-                ``None`` uses the default. Default ``None``.
+                ticks_spacing=…)``. The loose ``cbar_*`` / ``ticks_spacing`` kwargs it
+                replaces were removed — passing one now raises a :class:`ValueError`.
+                ``False`` hides it, ``None`` uses the default. Default ``None``.
             points (np.ndarray or PointOverlay, optional):
                 Point overlay. A 3-column array ``(value, row, col)`` draws unstyled
                 points; to style them pass a ``pyramids.plot.PointOverlay(points,
