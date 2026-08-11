@@ -676,10 +676,9 @@ class TestProjDatabaseSkew:
             # shape is (bands, rows, cols): assert the *spatial* axes, since shape[0]
             # is the band count and would be 1 whatever crop returned.
             _, rows, cols = cropped.shape
-            assert 0 < rows < size and 0 < cols < size, (
-                f"crop should return a strict, non-empty subset of {size}x{size}, "
-                f"got {rows}x{cols}"
-            )
+            subset = f"a strict, non-empty subset of {size}x{size}"
+            assert 0 < rows < size, f"rows should be {subset}, got {rows}"
+            assert 0 < cols < size, f"cols should be {subset}, got {cols}"
         finally:
             raster = None
             # Only after every handle above is dropped: unlinking a /vsimem path that
