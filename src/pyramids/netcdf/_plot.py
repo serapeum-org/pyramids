@@ -106,7 +106,6 @@ _ANIMATE_DROP_KWARGS = frozenset(
         "extend",
         "cbar_kwargs",
         "aspect",
-        "levels",
         "center",
         "norm",
         "robust",
