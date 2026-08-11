@@ -38,6 +38,7 @@ Public surface:
 
 from __future__ import annotations
 
+import numbers
 from functools import lru_cache
 from typing import Any, cast
 
@@ -1024,6 +1025,31 @@ def epsg_from_wkt(wkt: str | None, default: int = 4326) -> int:
     return result
 
 
+def _integer_code(crs: Any) -> int | None:
+    """The EPSG integer `crs` stands for, or ``None`` when it is not an integer code.
+
+    Tests :class:`numbers.Integral` rather than ``int`` so a NumPy scalar counts. Codes
+    routinely arrive as ``np.int32`` / ``np.int64`` — read out of an array, a pandas
+    column, or a raster's own metadata — and an ``isinstance(crs, int)`` check silently
+    says no to every one of them, which sent them down the wrong path entirely.
+
+    ``bool`` is excluded even though it is integral: `True` is not EPSG:1.
+
+    Args:
+        crs: Any candidate CRS specification.
+
+    Returns:
+        int | None: The code as a plain ``int``, or ``None``.
+    """
+    if isinstance(crs, bool):
+        code = None
+    elif isinstance(crs, numbers.Integral):
+        code = int(crs)
+    else:
+        code = None
+    return code
+
+
 def _pyproj_crs_via_gdal(crs: int | str | Any) -> CRS | None:
     """Rebuild a CRS through GDAL's PROJ database, or ``None`` if that fails too.
 
@@ -1053,10 +1079,14 @@ def _pyproj_crs_via_gdal(crs: int | str | Any) -> CRS | None:
     result: CRS | None = None
     if srs is not None:
         try:
-            result = CRS.from_wkt(srs.ExportToWkt())
-        except (pyproj.exceptions.CRSError, TypeError, ValueError):
-            # GDAL produced a WKT pyproj rejects. The caller reports the *original*
-            # pyproj failure, which is the more useful one.
+            # WKT2_2019, not the WKT1 default: the codes this rescue exists for are
+            # recent ones, and WKT1 cannot express several constructs they use (a
+            # dynamic datum's frame epoch, a geodetic ensemble, non-degree angular
+            # units on some frames), so a WKT1 export can quietly degrade the CRS.
+            result = CRS.from_wkt(srs.ExportToWkt(["FORMAT=WKT2_2019"]))
+        except (RuntimeError, pyproj.exceptions.CRSError, TypeError, ValueError):
+            # GDAL produced a WKT pyproj rejects, or failed to export at all. The
+            # caller reports the *original* pyproj failure, which is more useful.
             result = None
     return result
 
@@ -1127,12 +1157,8 @@ def _requested_epsg(crs: int | str | Any) -> int | None:
         string; ``None`` for a WKT, a proj4 string, or anything else that describes a
         CRS without naming a code.
     """
-    requested: int | None = None
-    if isinstance(crs, bool):
-        requested = None
-    elif isinstance(crs, int):
-        requested = int(crs)
-    elif isinstance(crs, str):
+    requested = _integer_code(crs)
+    if requested is None and isinstance(crs, str):
         text = crs.strip()
         if text.upper().startswith("EPSG:"):
             text = text[5:].strip()
@@ -1188,15 +1214,20 @@ def _gdal_srs_from_user_input(crs: int | str | Any) -> osr.SpatialReference | No
     Returns:
         osr.SpatialReference | None: The parsed reference, or ``None``.
     """
-    if isinstance(crs, bool):
-        text = None
-    elif isinstance(crs, int):
-        text = f"EPSG:{crs}"
+    code = _integer_code(crs)
+    if code is not None:
+        text = f"EPSG:{code}"
     elif isinstance(crs, str):
         # A bare numeric string is an EPSG code to pyproj but not to GDAL, which
         # wants the authority prefix -- so give it one rather than lose the rescue
-        # on the `"10857"` spelling.
-        text = f"EPSG:{crs.strip()}" if crs.strip().isdigit() else crs
+        # on the `"10857"` spelling. `isascii` guards `isdigit`, which is True for
+        # Arabic-Indic and other non-ASCII digits that `int()` would then reject.
+        stripped = crs.strip()
+        text = (
+            f"EPSG:{stripped}"
+            if stripped.isascii() and stripped.isdigit()
+            else crs
+        )
     else:
         text = None
     result: osr.SpatialReference | None = None
@@ -1361,8 +1392,9 @@ def epsg_from_user_input(crs: int | str | Any) -> int:
     """
     if isinstance(crs, bool):
         raise CRSError(f"{crs!r} is not a valid CRS; pass an EPSG int, string, or CRS.")
-    if isinstance(crs, int):
-        return crs
+    code = _integer_code(crs)
+    if code is not None:
+        return code
     parsed = crs_from_user_input(crs)
     epsg = parsed.to_epsg()
     if epsg is None:
