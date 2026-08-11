@@ -1771,7 +1771,9 @@ class Spatial(_Engine["Dataset"]):
                 xRes=abs(gt[1]) if gt else None,
                 yRes=abs(gt[5]) if gt else None,
                 warpOptions=(
-                    ["CUTLINE_ALL_TOUCHED=TRUE"] if touch and cutline_all_touched else None
+                    ["CUTLINE_ALL_TOUCHED=TRUE"]
+                    if touch and cutline_all_touched
+                    else None
                 ),
             )
             # base_cls is a dynamic MRO walk that always resolves to Dataset itself

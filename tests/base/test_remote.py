@@ -522,7 +522,12 @@ class TestHttpCogRead:
         """
         from pyramids.dataset import Dataset
 
-        bbox = (0.1, -0.11, 0.15, -0.06)  # cols 100:150, rows 60:110 -> window [100,60,50,50]
+        bbox = (
+            0.1,
+            -0.11,
+            0.15,
+            -0.06,
+        )  # cols 100:150, rows 60:110 -> window [100,60,50,50]
         remote_ds = Dataset.read_file(f"{http_server}/valid.tif")
         spy = mocker.spy(Dataset, "read_array")
         remote = remote_ds.crop(bbox=bbox)
