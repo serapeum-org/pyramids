@@ -662,3 +662,83 @@ class TestDatasetCollectionCropBbox:
         """
         with pytest.raises(TypeError, match=r"mask.*bbox|bbox.*mask"):
             collection.crop()
+
+
+class TestCrossCrsBboxCrop:
+    """A bbox given in a CRS other than the raster's must still crop the raster."""
+
+    @staticmethod
+    def _utm_raster(tmp_path, no_data_value):
+        """Write a 64x64 EPSG:32636 raster, optionally declaring a no-data value."""
+        from osgeo import gdal, osr
+
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(32636)
+        path = os.path.join(tmp_path, f"utm_{no_data_value}.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 1, gdal.GDT_Float32)
+        raster.SetProjection(srs.ExportToWkt())
+        raster.SetGeoTransform([400000.0, 1000.0, 0.0, 3300000.0, 0.0, -1000.0])
+        raster.GetRasterBand(1).WriteArray(np.ones((64, 64), dtype="float32"))
+        if no_data_value is not None:
+            raster.GetRasterBand(1).SetNoDataValue(no_data_value)
+        raster.FlushCache()
+        raster = None
+        return path
+
+    @staticmethod
+    def _lonlat_bbox_inset(dataset):
+        """A lon/lat bbox covering the middle half of `dataset`'s own extent."""
+        from pyramids.base.crs import reproject_coordinates
+
+        min_x, min_y, max_x, max_y = dataset.bounds.total_bounds
+        (west, east), (south, north) = reproject_coordinates(
+            [min_x, max_x], [min_y, max_y], from_crs=32636, to_crs=4326, precision=None
+        )
+        inset_x, inset_y = (east - west) / 4, (north - south) / 4
+        return [west + inset_x, south + inset_y, east - inset_x, north - inset_y]
+
+    @pytest.mark.parametrize("no_data_value", [-9999.0, None], ids=["nodata", "none"])
+    def test_crops_regardless_of_no_data(self, tmp_path, no_data_value):
+        """A cross-CRS bbox crops whether or not the band declares a no-data value.
+
+        Test scenario:
+            With `touch=True` the cutline window optimisation is skipped for a
+            differing CRS, and the crop used to fall back on trimming an all-no-data
+            border. A raster with no no-data value has no border to trim, so the call
+            returned the source *uncropped* and silently — while the identical call on
+            a raster that declared no-data cropped correctly.
+        """
+        path = self._utm_raster(str(tmp_path), no_data_value)
+        dataset = Dataset.read_file(path)
+        bbox = self._lonlat_bbox_inset(dataset)
+
+        cropped = Dataset.read_file(path).crop(bbox=bbox, epsg=4326, touch=True)
+
+        _, rows, cols = cropped.shape
+        assert 0 < rows < 64 and 0 < cols < 64, (
+            f"a bbox covering the middle half should crop 64x64 down, got {rows}x{cols}"
+        )
+
+    def test_matches_the_same_crs_crop(self, tmp_path):
+        """The same window expressed in the raster's own CRS gives the same crop.
+
+        Test scenario:
+            Reprojecting the bbox is the caller's alternative to passing `epsg=`; both
+            routes must agree to within the extra cell `touch=True` may include.
+        """
+        path = self._utm_raster(str(tmp_path), None)
+        dataset = Dataset.read_file(path)
+        min_x, min_y, max_x, max_y = dataset.bounds.total_bounds
+        inset_x, inset_y = (max_x - min_x) / 4, (max_y - min_y) / 4
+
+        via_lonlat = Dataset.read_file(path).crop(
+            bbox=self._lonlat_bbox_inset(dataset), epsg=4326, touch=True
+        )
+        via_native = Dataset.read_file(path).crop(
+            bbox=[min_x + inset_x, min_y + inset_y, max_x - inset_x, max_y - inset_y],
+            epsg=32636,
+            touch=True,
+        )
+
+        assert abs(via_lonlat.shape[1] - via_native.shape[1]) <= 2
+        assert abs(via_lonlat.shape[2] - via_native.shape[2]) <= 2

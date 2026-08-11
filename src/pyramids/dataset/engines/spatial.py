@@ -20,6 +20,7 @@ from pyramids.base._domain import is_no_data
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
     crs_equal,
+    crs_from_user_input,
     crs_spec,
     epsg_of_crs,
     reproject_coordinates,
@@ -1601,6 +1602,58 @@ class Spatial(_Engine["Dataset"]):
                     window = (west, south, east, north)
         return window
 
+    @staticmethod
+    def _cutline_in_source_crs(
+        src: RasterBase, feature: FeatureCollection
+    ) -> FeatureCollection:
+        """Reproject a cutline into the raster's own CRS, densifying it first.
+
+        A cutline in a different CRS used to be handed to GDAL as-is. That silently
+        broke `touch=True` crops: :meth:`_cutline_window_bounds` refuses a differing
+        CRS, so no `outputBounds` was set and `cropToCutline` is false under `touch`,
+        leaving the whole source grid in place. The crop then depended entirely on
+        :meth:`_correct_wrap_cutline_error` trimming an all-no-data border — and a
+        raster that declares **no no-data value** has no border to detect, so
+        `crop(bbox=..., epsg=<other CRS>)` returned the raster *uncropped*, with no
+        error. Setting a no-data value on the same raster made the identical call crop
+        correctly, which is what made the bug so easy to miss.
+
+        Bringing the cutline into the source CRS here fixes it at the root: the window
+        optimisation applies again, GDAL needs no cutline transform, and the result no
+        longer depends on whether the band happens to declare a no-data value.
+
+        The edges are densified before reprojecting. A straight edge in one CRS is
+        generally a *curve* in another, so reprojecting only the four corners of a bbox
+        would cut inside the requested area wherever the true edge bows outward.
+        Segmentising to a fraction of the envelope keeps the reprojected outline within
+        a fraction of a pixel of the real one.
+
+        Args:
+            src: The raster being cropped.
+            feature: The cutline, in any CRS.
+
+        Returns:
+            FeatureCollection: The cutline in `src`'s CRS, or `feature` unchanged when
+            either side has no CRS or they already agree.
+        """
+        source_crs = src.crs
+        result = feature
+        needs_reprojection = (
+            bool(source_crs)
+            and feature.crs is not None
+            and not crs_equal(source_crs, feature.crs.to_wkt())
+        )
+        if needs_reprojection:
+            minx, miny, maxx, maxy = (float(v) for v in feature.total_bounds)
+            span = max(maxx - minx, maxy - miny)
+            densified = feature.copy()
+            if math.isfinite(span) and span > 0:
+                # 64 segments across the envelope: well under a pixel of error for a
+                # crop window, and cheap for the handful of vertices a cutline has.
+                densified.geometry = densified.geometry.segmentize(span / 64.0)
+            result = densified.to_crs(crs_from_user_input(source_crs))
+        return result
+
     def _crop_with_polygon_warp(
         self, feature: FeatureCollection | GeoDataFrame, touch: bool = True
     ) -> Dataset:
@@ -1648,6 +1701,7 @@ class Spatial(_Engine["Dataset"]):
         # warp to the cutline's own window first: the trimmed result is identical
         # because every non-no-data cell lives inside that window, but the read shrinks
         # from the source to the crop. cropToCutline already bounds the touch=False path.
+        feature = self._cutline_in_source_crs(self._ds, feature)
         window = self._cutline_window_bounds(self._ds, feature) if touch else None
         # Pin the resolution to the source's own so the windowed warp is a pixel-exact
         # subset and cannot resample; only needed when a window is set.
