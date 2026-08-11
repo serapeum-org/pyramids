@@ -16,6 +16,7 @@ from pyramids.base._raster_meta import RasterMeta
 from pyramids.base.crs import (
     _integer_code,
     _pyproj_can_resolve_epsg,
+    clear_crs_caches,
     crs_from_user_input,
     crs_spec,
     epsg_from_user_input,
@@ -590,14 +591,16 @@ class TestProjDatabaseSkew:
         # projection's valid domain. Deriving it from the area of use instead can
         # land on a latitude the projection rejects, and GDAL's cutline transform
         # then fails for reasons that have nothing to do with the CRS lookup.
-        centre_x = srs.GetProjParm("false_easting")
-        centre_y = srs.GetProjParm("false_northing")
-        if not (centre_x and centre_y):
-            pytest.skip(
-                f"EPSG:{skew_code} has no false easting/northing to anchor a raster on"
-            )
-
-        size, pixel = 64, 1000.0
+        # Anchor on the projection's origin, which for a projected CRS is its false
+        # easting/northing and for a geographic one is 0/0 -- both well inside the
+        # valid domain. Requiring a *non-zero* false easting silently skipped this
+        # whole test for every geographic candidate, so it would have stopped running
+        # entirely the day pyproj picked up EPSG:10857.
+        centre_x = srs.GetProjParm("false_easting") or 0.0
+        centre_y = srs.GetProjParm("false_northing") or 0.0
+        projected = bool(srs.IsProjected())
+        size = 64
+        pixel = 1000.0 if projected else 0.01
         # `uuid` rather than the code alone: a fixed /vsimem path collides when the
         # suite runs distributed (`pytest -n`), where two workers share the process's
         # virtual filesystem namespace.
@@ -810,9 +813,9 @@ class TestRescueDefensiveBranches:
         monkeypatch.setattr(crs_module.CRS, "from_wkt", staticmethod(_reject))
         # The rescue memoises on the normalised text, so a value cached by an earlier
         # test would answer before the patched call is ever reached.
-        crs_module._pyproj_crs_from_gdal_text.cache_clear()
+        clear_crs_caches()
         assert crs_module._pyproj_crs_via_gdal(skew_code) is None
-        crs_module._pyproj_crs_from_gdal_text.cache_clear()
+        clear_crs_caches()
 
     def test_epsg_via_gdal_survives_an_authority_lookup_failure(self, monkeypatch):
         """A `RuntimeError` reading the authority yields `None`.
@@ -828,9 +831,9 @@ class TestRescueDefensiveBranches:
         monkeypatch.setattr(osr.SpatialReference, "GetAuthorityName", _boom)
         # `_epsg_via_gdal` memoises on the normalised text, so a value cached by an
         # earlier call would answer before the patched accessor is reached.
-        crs_module._epsg_from_gdal_text.cache_clear()
+        clear_crs_caches()
         assert crs_module._epsg_via_gdal("EPSG:4326") is None
-        crs_module._epsg_from_gdal_text.cache_clear()
+        clear_crs_caches()
 
     def test_epsg_matches_definition_is_false_for_an_unbuildable_code(self):
         """A code that cannot be built cannot be shown to match.
@@ -848,8 +851,8 @@ class TestRescueDefensiveBranches:
         Test scenario:
             Covers the non-zero-return / raise path of `SetFromUserInput`.
         """
-        assert crs_module._gdal_srs_from_user_input("definitely-not-a-crs") is None
-        assert crs_module._gdal_srs_from_user_input(object()) is None
+        assert crs_module._gdal_srs_from_text("definitely-not-a-crs") is None
+        assert crs_module._gdal_input_text(object()) is None
 
     def test_non_zero_return_from_gdal_is_treated_as_failure(self, monkeypatch):
         """A non-zero `SetFromUserInput` return yields `None`, not a half-built SRS.
@@ -863,9 +866,9 @@ class TestRescueDefensiveBranches:
         monkeypatch.setattr(
             osr.SpatialReference, "SetFromUserInput", lambda self, *_a, **_k: 1
         )
-        crs_module._gdal_srs_from_text.cache_clear()
-        assert crs_module._gdal_srs_from_user_input("EPSG:4326") is None
-        crs_module._gdal_srs_from_text.cache_clear()
+        clear_crs_caches()
+        assert crs_module._gdal_srs_from_text("EPSG:4326") is None
+        clear_crs_caches()
 
 
 class TestReprojectCoordinatesCrsErrors:

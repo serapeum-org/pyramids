@@ -800,9 +800,9 @@ class TestCropCrsWithoutEpsgCode:
 
         path = self._raster(str(tmp_path), name, crs_text)
         dataset = Dataset.read_file(path)
-        # The precondition is "no EPSG authority", not "no code": Robinson carries an
-        # ESRI code, which `Dataset.epsg` reports as-is, so asserting `epsg is None`
-        # would be asserting the wrong thing.
+        # The precondition is "no EPSG authority". Checking the authority name rather
+        # than `Dataset.epsg` keeps the test honest regardless of how `epsg` chooses
+        # to report a non-EPSG authority.
         authority = osr.SpatialReference(wkt=dataset.crs).GetAuthorityName(None)
         assert authority != "EPSG", (
             f"precondition: this CRS must carry no EPSG authority, got {authority}"
