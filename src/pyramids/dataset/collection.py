@@ -2645,8 +2645,7 @@ class DatasetCollection:
         if frame_label is not None:
             animate_extras["frame_label"] = frame_label
         # Fold the explicitly-set cleopatra render groups in; unset ones are dropped so
-        # they neither override the backend default nor block the loose-kwarg translation
-        # in render_array (an explicit group still wins there).
+        # they do not override cleopatra's backend default for that group.
         animate_extras.update(
             nonnull_group_kwargs(
                 color=color, contour=contour, cells=cells, data_style=data_style

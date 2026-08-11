@@ -914,8 +914,8 @@ class UgridDataset:
         # but have no meaning for a mesh (no point overlay; the renderer is fixed to
         # tripcolor/tricontour), so they are accepted and ignored. ``colorbar`` and the
         # typed render groups (``color`` / ``contour`` / ``data_style``) map onto the mesh
-        # backend and are forwarded only when set (so cleopatra's defaults and the
-        # loose-kwarg translation are preserved otherwise).
+        # backend and are forwarded only when set (so cleopatra's backend defaults are
+        # preserved otherwise).
         if colorbar is not None:
             kwargs["colorbar"] = colorbar
         kwargs.update(

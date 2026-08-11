@@ -2156,8 +2156,8 @@ class NetCDF(Dataset):
         # ``Dataset.plot`` / ``DatasetCollection.plot``; forward them through the same
         # ``**kwargs`` channel the multi-mode render path already consumes. Only inject
         # when set — the facet path rejects ``points`` outright, so a default ``None``
-        # must not reach it, and an unset group must not block render_array's loose-kwarg
-        # translation (an explicit group still wins there).
+        # must not reach it, and an unset group must not override cleopatra's backend
+        # default for that group.
         if colorbar is not None:
             kwargs["colorbar"] = colorbar
         if points is not None:

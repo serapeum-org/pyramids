@@ -964,8 +964,8 @@ class Dataset(RasterBase):
         resolved_band, resolved_rgb = self._resolve_plot_band(band, rgb)
         # Spread the explicitly-set cleopatra render groups as their own ``**`` (not merged
         # into the typed ``**kwargs``, whose PlotKwargs TypedDict has no group keys); the
-        # unset ones are dropped so they neither override the backend default nor block the
-        # loose-kwarg translation in render_array (an explicit group still wins there).
+        # unset ones are dropped so they do not override cleopatra's backend default for
+        # that group.
         group_kwargs = nonnull_group_kwargs(
             color=color, contour=contour, cells=cells, data_style=data_style
         )
