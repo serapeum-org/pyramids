@@ -742,3 +742,61 @@ class TestCrossCrsBboxCrop:
 
         assert abs(via_lonlat.shape[1] - via_native.shape[1]) <= 2
         assert abs(via_lonlat.shape[2] - via_native.shape[2]) <= 2
+
+
+class TestCropCrsWithoutEpsgCode:
+    """`crop` must work for a CRS the EPSG register does not name (issue #964)."""
+
+    @staticmethod
+    def _raster(tmp_path, name, crs_text):
+        """Write a 64x64 raster centred on the origin of `crs_text`."""
+        from osgeo import gdal, osr
+
+        srs = osr.SpatialReference()
+        srs.SetFromUserInput(crs_text)
+        path = os.path.join(tmp_path, f"{name}.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 1, gdal.GDT_Float32)
+        raster.SetProjection(srs.ExportToWkt())
+        raster.SetGeoTransform([-32000.0, 1000.0, 0.0, 32000.0, 0.0, -1000.0])
+        raster.GetRasterBand(1).WriteArray(np.ones((64, 64), dtype="float32"))
+        raster.GetRasterBand(1).SetNoDataValue(-9999.0)
+        raster.FlushCache()
+        raster = None
+        return path
+
+    @pytest.mark.parametrize(
+        ("name", "crs_text"),
+        [
+            ("ortho", "+proj=ortho +lat_0=39 +lon_0=-9 +datum=WGS84 +units=m +no_defs"),
+            ("robinson", "ESRI:54030"),
+        ],
+    )
+    def test_crops_a_raster_whose_crs_has_no_epsg_code(self, tmp_path, name, crs_text):
+        """A raster in an EPSG-less CRS crops in its own CRS.
+
+        Test scenario:
+            The cutline is staged as GeoJSON, which can name a CRS only as an OGC
+            URN. A CRS with no authority code was therefore written with no CRS at
+            all, GDAL assumed the GeoJSON default of CRS84, and transforming metre
+            coordinates as lon/lat failed with "Invalid latitude".
+        """
+        from osgeo import osr
+
+        path = self._raster(str(tmp_path), name, crs_text)
+        dataset = Dataset.read_file(path)
+        # The precondition is "no EPSG authority", not "no code": Robinson carries an
+        # ESRI code, which `Dataset.epsg` reports as-is, so asserting `epsg is None`
+        # would be asserting the wrong thing.
+        authority = osr.SpatialReference(wkt=dataset.crs).GetAuthorityName(None)
+        assert authority != "EPSG", (
+            f"precondition: this CRS must carry no EPSG authority, got {authority}"
+        )
+
+        cropped = dataset.crop(
+            bbox=[-16000.0, -16000.0, 16000.0, 16000.0], epsg=dataset.crs, touch=True
+        )
+
+        _, rows, cols = cropped.shape
+        assert 0 < rows < 64 and 0 < cols < 64, (
+            f"a half-width bbox should crop 64x64 down, got {rows}x{cols}"
+        )

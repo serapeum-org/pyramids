@@ -651,11 +651,29 @@ class TestProjDatabaseSkew:
             assert RasterMeta.from_dataset(dataset).crs is not None, (
                 "RasterMeta should describe the raster's CRS"
             )
-            # NOTE: `Dataset.crop` on a raster in one of these CRSes is deliberately
-            # not asserted here. It no longer fails on the CRS lookup, but GDAL's
-            # cutline transform still rejects the rescued CRS ("Cutline transformation
-            # failed"), which is a separate GDAL-side limitation rather than the
-            # pyproj/GDAL database skew this class covers.
+            # And the operation from the original report. A rescued CRS reports
+            # `to_epsg() is None`, which used to strip it out of the staged cutline
+            # and fail the warp ("Cutline transformation failed", issue #964); the
+            # cutline CRS is now stated explicitly, so this works too.
+            min_x, min_y, max_x, max_y = dataset.bounds.total_bounds
+            inset_x, inset_y = (max_x - min_x) / 4, (max_y - min_y) / 4
+            cropped = dataset.crop(
+                bbox=[
+                    min_x + inset_x,
+                    min_y + inset_y,
+                    max_x - inset_x,
+                    max_y - inset_y,
+                ],
+                epsg=skew_code,
+                touch=True,
+            )
+            # shape is (bands, rows, cols): assert the *spatial* axes, since shape[0]
+            # is the band count and would be 1 whatever crop returned.
+            _, rows, cols = cropped.shape
+            assert 0 < rows < size and 0 < cols < size, (
+                f"crop should return a strict, non-empty subset of {size}x{size}, "
+                f"got {rows}x{cols}"
+            )
         finally:
             raster = None
             # Only after every handle above is dropped: unlinking a /vsimem path that

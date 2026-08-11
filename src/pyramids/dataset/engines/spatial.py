@@ -1603,6 +1603,19 @@ class Spatial(_Engine["Dataset"]):
         return window
 
     @staticmethod
+    def _cutline_srs(feature: FeatureCollection) -> str | None:
+        """The cutline's CRS as WKT, for `gdal.Warp`'s ``cutlineSRS``, or ``None``.
+
+        Args:
+            feature: The cutline about to be staged.
+
+        Returns:
+            str | None: The WKT, or ``None`` when the cutline declares no CRS (GDAL
+            then keeps its existing behaviour of reading whatever the file carries).
+        """
+        return None if feature.crs is None else feature.crs.to_wkt()
+
+    @staticmethod
     def _cutline_in_source_crs(
         src: RasterBase, feature: FeatureCollection
     ) -> FeatureCollection:
@@ -1711,6 +1724,14 @@ class Spatial(_Engine["Dataset"]):
                 format="VRT",
                 cropToCutline=not touch,
                 cutlineDSName=cutline_path,
+                # State the cutline's CRS rather than letting GDAL read it back from
+                # the staged file. The cutline is staged as GeoJSON, which can name a
+                # CRS only as an OGC URN, so a CRS with no authority code -- an
+                # orthographic or Robinson grid, or one rescued from GDAL's PROJ
+                # database -- is written with no CRS at all. GDAL then assumes the
+                # GeoJSON default of CRS84 and transforms metre coordinates as
+                # lon/lat, failing with "Invalid latitude" (issue #964).
+                cutlineSRS=self._cutline_srs(feature),
                 multithread=True,
                 outputBounds=window,
                 xRes=abs(gt[1]) if gt else None,
