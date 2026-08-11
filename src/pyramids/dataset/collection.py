@@ -1444,6 +1444,13 @@ class DatasetCollection:
         rejects CF's standard ``_FillValue`` attribute via this code
         path, so the round-trip uses ``nodata`` for compatibility.
 
+        Every variable is written at the collection's own dtype
+        (:attr:`meta.dtype`, the template raster's), and each timestep is
+        cast to it; on a co-registered stack (all timesteps sharing the
+        template's dtype — what :meth:`from_files` with ``validate=True``
+        enforces) this is a no-op. A timestep whose grid or band count
+        differs from the template raises :class:`AlignmentError`.
+
         Args:
             path: Output ``.nc`` path.
             time_dim: Name of the time dimension. Default ``"time"``.
