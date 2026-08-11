@@ -823,7 +823,11 @@ class TestRescueDefensiveBranches:
             raise RuntimeError("simulated GDAL failure")
 
         monkeypatch.setattr(osr.SpatialReference, "GetAuthorityName", _boom)
+        # `_epsg_via_gdal` memoises on the normalised text, so a value cached by an
+        # earlier call would answer before the patched accessor is reached.
+        crs_module._epsg_from_gdal_text.cache_clear()
         assert crs_module._epsg_via_gdal("EPSG:4326") is None
+        crs_module._epsg_from_gdal_text.cache_clear()
 
     def test_epsg_matches_definition_is_false_for_an_unbuildable_code(self):
         """A code that cannot be built cannot be shown to match.
@@ -968,3 +972,15 @@ class TestResolutionIsCached:
         """
         with pytest.raises(CRSError):
             crs_from_user_input([1, 2])
+
+
+    def test_unhashable_input_reaches_epsg_resolution_uncached(self):
+        """An unhashable value cannot key the cache and is still rejected cleanly.
+
+        Test scenario:
+            `epsg_from_user_input` mirrors `crs_from_user_input`'s cache dispatch, so
+            it needs the same escape hatch: a list must raise `CRSError` rather than
+            the `TypeError` a cache lookup would produce.
+        """
+        with pytest.raises(CRSError):
+            epsg_from_user_input([1, 2])
