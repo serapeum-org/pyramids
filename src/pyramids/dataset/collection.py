@@ -18,7 +18,11 @@ import pandas as pd
 from pyproj import CRS
 
 from pyramids import _io
-from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
+from pyramids.base._errors import (
+    AlignmentError,
+    CRSError,
+    OptionalPackageDoesNotExist,
+)
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._locks import default_lock
 from pyramids.base._raster_meta import RasterMeta
@@ -452,7 +456,11 @@ def _target_epsg(to_epsg: int | str | Any) -> int | None:
         # `epsg_from_user_input` also heals codes only GDAL's PROJ database
         # carries, which pyproj alone cannot look up (issue #943).
         return epsg_from_user_input(to_epsg)
-    except Exception:  # pragma: no cover - defensive against odd CRS inputs
+    except CRSError:
+        # Not an exceptional case: a target CRS with no EPSG code (orthographic,
+        # Robinson, a bespoke proj4) is exactly what this function reports `None`
+        # for, and it now arrives as a raise rather than as a `None` return. This
+        # branch is the documented no-EPSG path, so it carries no `no cover` pragma.
         return None
 
 

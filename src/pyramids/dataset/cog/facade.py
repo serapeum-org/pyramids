@@ -101,8 +101,13 @@ def _coerce_epsg(crs: Any) -> int:
         # Via `epsg_from_user_input`, which heals codes present in GDAL's PROJ
         # database but absent from pyproj's (issue #943).
         epsg = epsg_from_user_input(crs)
-    except CRSError:
-        epsg = None
+    except CRSError as exc:
+        # Chain, so the underlying "no EPSG code" / "could not interpret" reason
+        # stays visible instead of being replaced by the generic message.
+        raise ValueError(
+            f"Could not resolve an EPSG code from crs={crs!r}; pass an "
+            "integer EPSG code explicitly."
+        ) from exc
     if epsg is None:
         raise ValueError(
             f"Could not resolve an EPSG code from crs={crs!r}; pass an "
