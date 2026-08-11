@@ -1282,26 +1282,6 @@ def _epsg_matches_definition(epsg: int, srs: osr.SpatialReference) -> bool:
     return matches
 
 
-def _gdal_srs_from_user_input(crs: int | str | Any) -> osr.SpatialReference | None:
-    """Parse ``crs`` with GDAL, or return ``None`` when GDAL cannot read it either.
-
-    Shared primitive under :func:`_pyproj_crs_via_gdal` and :func:`_epsg_via_gdal`.
-    Only ``int`` and ``str`` inputs can be handed to GDAL at all — an EPSG ``int``
-    becomes the ``"EPSG:<code>"`` spelling :meth:`osr.SpatialReference.SetFromUserInput`
-    expects; a ``bool`` is not a CRS despite being an ``int``; anything else (a
-    :class:`pyproj.CRS`, an arbitrary object) has no text form to pass along, and a
-    value pyproj itself could not read is then simply unresolvable.
-
-    Args:
-        crs: The specification to parse.
-
-    Returns:
-        osr.SpatialReference | None: The parsed reference, or ``None``.
-    """
-    text = _gdal_input_text(crs)
-    return None if text is None else _gdal_srs_from_text(text)
-
-
 def _gdal_input_text(crs: int | str | Any) -> str | None:
     """Normalise `crs` into the text GDAL takes, or ``None`` when it has no text form.
 
@@ -1334,7 +1314,6 @@ def _gdal_input_text(crs: int | str | Any) -> str | None:
     return text
 
 
-@lru_cache(maxsize=512)
 def _gdal_srs_from_text(text: str) -> osr.SpatialReference | None:
     """Parse normalised CRS text with GDAL, or ``None`` when GDAL cannot read it.
 
@@ -1344,10 +1323,25 @@ def _gdal_srs_from_text(text: str) -> osr.SpatialReference | None:
     Returns:
         osr.SpatialReference | None: The parsed reference, or ``None``.
 
-    Warning:
-        The returned reference is **shared** between callers by the cache. Everything
-        in this module only reads from it; a caller that needs to mutate one must
-        :meth:`osr.SpatialReference.Clone` it first.
+    The caller gets its own copy. The PROJ-database lookup behind it is what is
+    cached; handing out the cached reference itself would make every caller share one
+    mutable object, where a single `SetAxisMappingStrategy` in unrelated code would
+    silently change the CRS everyone else sees. `Clone` is trivial next to the lookup.
+    """
+    cached = _gdal_srs_cached(text)
+    return None if cached is None else cached.Clone()
+
+
+@lru_cache(maxsize=512)
+def _gdal_srs_cached(text: str) -> osr.SpatialReference | None:
+    """Memoised PROJ-database lookup behind :func:`_gdal_srs_from_text`.
+
+    Args:
+        text: The normalised specification.
+
+    Returns:
+        osr.SpatialReference | None: The parsed reference, or ``None``. Never handed
+        to callers directly -- :func:`_gdal_srs_from_text` copies it first.
     """
     result: osr.SpatialReference | None = None
     try:
@@ -1704,6 +1698,38 @@ def sr_from_user_input(crs: int | str | Any) -> osr.SpatialReference:
     return sr
 
 
+def clear_crs_caches() -> None:
+    """Drop every memoised CRS resolution in this module.
+
+    The caches key on the installed GDAL and pyproj, which do not change while the
+    process runs, so nothing here needs invalidating in normal use. They do need
+    clearing when something *makes* them change — a test that patches an underlying
+    GDAL or pyproj call would otherwise be answered from the cache and silently test
+    nothing. Exposing one hook keeps callers from reaching into private
+    `cache_clear` attributes and having to know which ones exist.
+
+    Examples:
+        - Clearing is always safe; the next call simply re-resolves:
+            ```python
+            >>> from pyramids.base.crs import clear_crs_caches, crs_from_user_input
+            >>> clear_crs_caches()
+            >>> crs_from_user_input(4326).to_epsg()
+            4326
+
+            ```
+    """
+    for cached in (
+        _pyproj_can_resolve_epsg,
+        _resolve_crs_cached,
+        _resolve_epsg_cached,
+        _pyproj_crs_from_gdal_text,
+        _epsg_from_gdal_text,
+        _gdal_srs_cached,
+        crs_equal,
+    ):
+        cached.cache_clear()
+
+
 def reproject_coordinates(
     x: list[float],
     y: list[float],
@@ -1815,6 +1841,7 @@ __all__ = [
     "VERTICAL_AXIS_NAMES",
     "VERTICAL_STANDARD_NAMES",
     "cf_geographic_wkt",
+    "clear_crs_caches",
     "create_sr_from_proj",
     "crs_equal",
     "crs_from_user_input",

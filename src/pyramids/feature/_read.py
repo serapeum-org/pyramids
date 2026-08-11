@@ -395,11 +395,11 @@ def _pyproj_resolving_through_gdal() -> Iterator[None]:
             return rescued
 
     with _CRS_HEALING_LOCK:
-        pyproj.CRS.from_user_input = _healed
+        pyproj.CRS.from_user_input = _healed  # type: ignore[method-assign]
         try:
             yield
         finally:
-            pyproj.CRS.from_user_input = original
+            pyproj.CRS.from_user_input = original  # type: ignore[method-assign]
 
 
 def _validate_iter_features_args(
@@ -458,7 +458,6 @@ def iter_features(
         include_index=include_index,
     )
 
-    
     resolved = str(_pyramids_io._parse_path(path))
 
     # pyogrio's read_info is O(1); use it to size the layer so we can
