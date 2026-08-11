@@ -816,3 +816,56 @@ class TestCropCrsWithoutEpsgCode:
         expected = "roughly 32x32 for a half-width bbox on a 64x64 raster"
         assert 28 <= rows <= 40, f"rows should be {expected}, got {rows}"
         assert 28 <= cols <= 40, f"cols should be {expected}, got {cols}"
+
+
+class TestCutlineSegmentLength:
+    """Tests for the cutline densification step (`_cutline_segment_length`)."""
+
+    def test_returns_none_for_a_degenerate_envelope(self):
+        """A zero-extent cutline yields None so the caller skips densification.
+
+        Test scenario:
+            A single point has no span to divide, and dividing by it would be a
+            zero or non-finite step.
+        """
+        from shapely.geometry import Point
+
+        from pyramids.dataset.engines.spatial import Spatial
+        from pyramids.feature import FeatureCollection
+
+        cutline = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[Point(0.0, 0.0)], crs="EPSG:4326")
+        )
+        assert Spatial._cutline_segment_length(None, cutline) is None
+
+    def test_returns_none_when_the_scale_cannot_be_measured(self, dataset):
+        """An unmeasurable scale falls back to an undensified reprojection.
+
+        Test scenario:
+            Passing a source with no usable geotransform exercises the give-up
+            branch, which must answer None rather than propagate.
+        """
+        from pyramids.dataset.engines.spatial import Spatial
+        from pyramids.feature import FeatureCollection
+
+        cutline = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[box(0.0, 0.0, 1.0, 1.0)], crs="EPSG:4326")
+        )
+        assert Spatial._cutline_segment_length(object(), cutline) is None
+
+    def test_scales_with_the_source_pixel(self, dataset):
+        """The step tracks the raster's cell size, not a fixed slice of the envelope.
+
+        Test scenario:
+            A fixed `span/64` was scale-free: the same step for a 1 km grid and a
+            30 m one. The measured step must be positive and no larger than the
+            envelope it densifies.
+        """
+        from pyramids.dataset.engines.spatial import Spatial
+        from pyramids.feature import FeatureCollection
+
+        cutline = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[box(0.1, -0.2, 0.4, -0.05)], crs="EPSG:3857")
+        )
+        step = Spatial._cutline_segment_length(dataset, cutline)
+        assert step is None or step > 0, f"a measured step must be positive, got {step}"
