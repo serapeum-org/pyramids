@@ -15,6 +15,7 @@ from xml.sax.saxutils import escape  # nosec B406 - output escaping only
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
+from pyproj import Transformer
 
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
@@ -1603,17 +1604,53 @@ class Spatial(_Engine["Dataset"]):
         return window
 
     @staticmethod
-    def _cutline_srs(feature: FeatureCollection) -> str | None:
-        """The cutline's CRS as WKT, for `gdal.Warp`'s ``cutlineSRS``, or ``None``.
+    def _cutline_segment_length(
+        src: RasterBase, feature: FeatureCollection
+    ) -> float | None:
+        """Densification step for the cutline, about one source pixel wide.
+
+        Dividing the cutline's envelope into a fixed number of parts is scale-free and
+        therefore wrong in general: 64 segments across a 64 km window is a 1 km chord,
+        fine against 1 km pixels, but 64 segments across a continental lon/lat bbox is
+        a ~50 km chord whose sagitta swallows many cells of a 30 m grid. Since the
+        reprojected envelope becomes `outputBounds`, that under-coverage truncates the
+        crop.
+
+        The step is therefore measured, not assumed: one source pixel is transformed
+        into the cutline's own CRS, which converts between their units without either
+        being named. The result is floored at 1/4096 of the envelope so a very fine
+        raster under a very large window cannot explode the vertex count.
 
         Args:
-            feature: The cutline about to be staged.
+            src: The raster being cropped.
+            feature: The cutline, in its own CRS.
 
         Returns:
-            str | None: The WKT, or ``None`` when the cutline declares no CRS (GDAL
-            then keeps its existing behaviour of reading whatever the file carries).
+            float | None: The segment length in the cutline's units, or ``None`` when
+            the envelope is degenerate or the scale cannot be measured — in which case
+            the caller reprojects the outline undensified, as it did before.
         """
-        return None if feature.crs is None else feature.crs.to_wkt()
+        minx, miny, maxx, maxy = (float(v) for v in feature.total_bounds)
+        span = max(maxx - minx, maxy - miny)
+        if not (math.isfinite(span) and span > 0):
+            return None
+        length: float | None = None
+        try:
+            x0, dx, _, y0, _, dy = src._raster.GetGeoTransform()
+            pixel = min(abs(dx), abs(dy))
+            to_cutline = Transformer.from_crs(
+                crs_from_user_input(src.crs), feature.crs, always_xy=True
+            )
+            ax, ay = to_cutline.transform(x0, y0)
+            bx, by = to_cutline.transform(x0 + pixel, y0)
+            step = math.hypot(bx - ax, by - ay)
+            if math.isfinite(step) and step > 0:
+                length = max(step, span / 4096.0)
+        except Exception:
+            # Any failure to measure the scale leaves `length` None; an undensified
+            # reprojection is the previous behaviour, not a new hazard.
+            length = None
+        return length
 
     @staticmethod
     def _cutline_in_source_crs(
@@ -1632,14 +1669,21 @@ class Spatial(_Engine["Dataset"]):
         correctly, which is what made the bug so easy to miss.
 
         Bringing the cutline into the source CRS here fixes it at the root: the window
-        optimisation applies again, GDAL needs no cutline transform, and the result no
-        longer depends on whether the band happens to declare a no-data value.
+        optimisation applies again and GDAL needs no cutline transform, so the crop is
+        bounded by the cutline's own window rather than by an incidental no-data
+        border. The two cases are not made identical — with a no-data value the
+        subsequent trim still tightens the result by the touch margin and the
+        reprojection slack, so a band that declares one crops a few cells closer —
+        but neither case can any longer return the raster uncropped.
 
         The edges are densified before reprojecting. A straight edge in one CRS is
         generally a *curve* in another, so reprojecting only the four corners of a bbox
-        would cut inside the requested area wherever the true edge bows outward.
-        Segmentising to a fraction of the envelope keeps the reprojected outline within
-        a fraction of a pixel of the real one.
+        would cut inside the requested area wherever the true edge bows outward — and
+        because the reprojected envelope becomes `outputBounds`, an under-covered edge
+        truncates the crop rather than merely blurring it. The segment length comes
+        from :meth:`_cutline_segment_length`, which measures one source pixel in the
+        cutline's own units, so the density follows the raster's resolution instead of
+        a fixed division of the envelope.
 
         Args:
             src: The raster being cropped.
@@ -1657,13 +1701,10 @@ class Spatial(_Engine["Dataset"]):
             and not crs_equal(source_crs, feature.crs.to_wkt())
         )
         if needs_reprojection:
-            minx, miny, maxx, maxy = (float(v) for v in feature.total_bounds)
-            span = max(maxx - minx, maxy - miny)
             densified = feature.copy()
-            if math.isfinite(span) and span > 0:
-                # 64 segments across the envelope: well under a pixel of error for a
-                # crop window, and cheap for the handful of vertices a cutline has.
-                densified.geometry = densified.geometry.segmentize(span / 64.0)
+            step = Spatial._cutline_segment_length(src, feature)
+            if step is not None:
+                densified.geometry = densified.geometry.segmentize(step)
             result = densified.to_crs(crs_from_user_input(source_crs))
         return result
 
@@ -1731,7 +1772,7 @@ class Spatial(_Engine["Dataset"]):
                 # database -- is written with no CRS at all. GDAL then assumes the
                 # GeoJSON default of CRS84 and transforms metre coordinates as
                 # lon/lat, failing with "Invalid latitude" (issue #964).
-                cutlineSRS=self._cutline_srs(feature),
+                cutlineSRS=(None if feature.crs is None else feature.crs.to_wkt()),
                 multithread=True,
                 outputBounds=window,
                 xRes=abs(gt[1]) if gt else None,
