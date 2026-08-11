@@ -108,11 +108,6 @@ def _coerce_epsg(crs: Any) -> int:
             f"Could not resolve an EPSG code from crs={crs!r}; pass an "
             "integer EPSG code explicitly."
         ) from exc
-    if epsg is None:
-        raise ValueError(
-            f"Could not resolve an EPSG code from crs={crs!r}; pass an "
-            "integer EPSG code explicitly."
-        )
     return epsg
 
 

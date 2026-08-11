@@ -291,7 +291,9 @@ def _read_geojson_bytes(data: bytes, ds: ogr.DataSource | gdal.Dataset) -> GeoDa
         if not wkt:
             # Nothing authoritative to substitute, so the original failure stands.
             raise
-        document = json.loads(bytes(data))
+        # `json.loads` takes the buffer as-is; `bytes(data)` would force the same
+        # full copy the comment above `VSIFReadL` exists to avoid.
+        document = json.loads(data)
         document.pop("crs", None)
         gdf = gpd.read_file(io.BytesIO(json.dumps(document).encode("utf-8")))
         gdf = gdf.set_crs(crs_from_user_input(wkt), allow_override=True)

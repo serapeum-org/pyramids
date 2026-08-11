@@ -456,11 +456,14 @@ def _target_epsg(to_epsg: int | str | Any) -> int | None:
         # `epsg_from_user_input` also heals codes only GDAL's PROJ database
         # carries, which pyproj alone cannot look up (issue #943).
         return epsg_from_user_input(to_epsg)
-    except CRSError:
-        # Not an exceptional case: a target CRS with no EPSG code (orthographic,
-        # Robinson, a bespoke proj4) is exactly what this function reports `None`
-        # for, and it now arrives as a raise rather than as a `None` return. This
-        # branch is the documented no-EPSG path, so it carries no `no cover` pragma.
+    except (CRSError, TypeError, ValueError):
+        # `CRSError` is the documented no-EPSG path -- a target CRS with no EPSG code
+        # (orthographic, Robinson, a bespoke proj4) is exactly what this function
+        # reports `None` for, and it now arrives as a raise rather than a `None`
+        # return, so that branch carries no `no cover` pragma. `TypeError` /
+        # `ValueError` keep the original defensive breadth for an input that is not
+        # CRS-like at all, which this helper has always answered `None` for rather
+        # than propagating.
         return None
 
 
