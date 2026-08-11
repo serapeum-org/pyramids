@@ -353,3 +353,77 @@ class TestMeshStyleHillshade:
         assert result.style == "flow_accumulation"
         result.apply_style("bathymetry")
         assert result.style == "bathymetry", "apply_style must restyle in place"
+
+
+class TestUgridPlotAlignment:
+    """The raster-family plot params (colorbar/points/kind) on ``UgridDataset.plot``.
+
+    ``UgridDataset.plot`` shares the raster plot signature; ``colorbar`` maps onto the
+    mesh backend while ``points`` / ``kind`` have no mesh meaning and are accepted but
+    ignored.
+    """
+
+    @staticmethod
+    def _dataset(location="face"):
+        """Build a single-face UgridDataset carrying a ``depth`` variable."""
+        data = np.array([5.0]) if location == "face" else np.array([0.0, 1.0, 2.0])
+        return UgridDataset.create_from_arrays(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2]]),
+            data={"depth": data},
+            data_locations={"depth": location},
+        )
+
+    def test_colorbar_spec_reaches_mesh_glyph_plot(self):
+        """An explicit ``colorbar`` forwards through to ``MeshGlyph.plot``.
+
+        Test scenario:
+            ``UgridDataset.plot(colorbar=ColorBar(...))`` must forward the spec down
+            the facade -> mesh_render -> plot_mesh_data -> ``MeshGlyph.plot`` chain.
+        """
+        from cleopatra.styling.colorbar import ColorBar
+
+        bar = ColorBar(label="depth")
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            self._dataset("face").plot("depth", colorbar=bar)
+        assert mock_plot.call_args.kwargs.get("colorbar") is bar, (
+            "an explicit colorbar must reach MeshGlyph.plot"
+        )
+
+    def test_default_colorbar_preserves_mesh_default(self):
+        """A default ``colorbar=None`` leaves the mesh back-end default in place.
+
+        Test scenario:
+            Omitting ``colorbar`` must not override ``plot_mesh_data``'s default (which
+            draws the bar), so ``MeshGlyph.plot`` still receives the drawn-bar default
+            rather than a pyramids-injected ``None``.
+        """
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            self._dataset("face").plot("depth")
+        assert mock_plot.call_args.kwargs.get("colorbar") is True, (
+            "the mesh default (bar drawn) must survive an omitted colorbar"
+        )
+
+    def test_explicit_false_colorbar_reaches_mesh_glyph_plot(self):
+        """An explicit ``colorbar=False`` hides the bar via ``MeshGlyph.plot``."""
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            self._dataset("face").plot("depth", colorbar=False)
+        assert mock_plot.call_args.kwargs.get("colorbar") is False, (
+            "colorbar=False must reach MeshGlyph.plot"
+        )
+
+    def test_points_and_kind_are_accepted_noops(self):
+        """``points`` / ``kind`` are accepted for symmetry and ignored for a mesh.
+
+        Test scenario:
+            Passing the raster-only ``points`` / ``kind`` must neither raise nor reach
+            ``MeshGlyph.plot`` (the mesh has no point overlay and a fixed renderer).
+        """
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            self._dataset("face").plot(
+                "depth", points=np.array([[1.0, 0, 0]]), kind="contourf"
+            )
+        kw = mock_plot.call_args.kwargs
+        assert "points" not in kw, "points must not reach MeshGlyph.plot"
+        assert "kind" not in kw, "kind must not reach MeshGlyph.plot"

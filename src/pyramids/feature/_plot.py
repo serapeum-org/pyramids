@@ -26,18 +26,35 @@ def plot(
     column: str | None = None,
     basemap: Any = None,
     engine: str = "geopandas",
+    colorbar: Any = None,
+    title: str | None = None,
     **kwargs: Any,
 ) -> Any:
-    """Render `fc` via geopandas or cleopatra, optionally over a web-tile basemap."""
+    """Render `fc` via geopandas or cleopatra, optionally over a web-tile basemap.
+
+    ``colorbar`` / ``title`` are the two raster-family plot params that map onto the
+    vector back-ends: on geopandas ``colorbar`` toggles the ``legend`` and ``title`` is
+    set on the returned Axes; on cleopatra both forward to the glyph's ``plot`` call.
+    Each is only applied when set, so an untouched call keeps the back-end default.
+    """
     if engine == "geopandas":
         # geopandas' `.plot` is a CachedAccessor: `GeoDataFrame.plot` is the accessor
         # class, so construct it bound to `fc` and then call it. This reaches geopandas'
         # implementation while bypassing FeatureCollection's `plot` facade override —
         # equivalent to the original in-class `super().plot(...)`.
-        result = gpd.GeoDataFrame.plot(fc)(column=column, **kwargs)
+        gp_kwargs = dict(kwargs)
+        if colorbar is not None:
+            # geopandas has no ColorBar object; its `legend` draws the bar, so a
+            # ColorBar spec (or True) shows it and False hides it.
+            gp_kwargs["legend"] = bool(colorbar)
+        result = gpd.GeoDataFrame.plot(fc)(column=column, **gp_kwargs)
         ax = result
+        if title is not None:
+            ax.set_title(title)
     elif engine == "cleopatra":
-        result, ax = plot_cleopatra(fc, column=column, **kwargs)
+        result, ax = plot_cleopatra(
+            fc, column=column, colorbar=colorbar, title=title, **kwargs
+        )
     else:
         raise ValueError(
             f"Unsupported engine {engine!r}; choose 'geopandas' or 'cleopatra'."
@@ -50,8 +67,19 @@ def plot(
     return result
 
 
-def plot_cleopatra(fc: Any, column: str | None = None, **kwargs: Any) -> Any:
-    """Build and draw the cleopatra glyph for `fc`, returning ``(glyph, ax)``."""
+def plot_cleopatra(
+    fc: Any,
+    column: str | None = None,
+    colorbar: Any = None,
+    title: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Build and draw the cleopatra glyph for `fc`, returning ``(glyph, ax)``.
+
+    ``colorbar`` / ``title`` are forwarded to the glyph's ``plot`` call (both
+    ``ScatterGlyph.plot`` and ``PolygonGlyph.plot`` accept them), each only when set so
+    the glyph default is preserved otherwise.
+    """
     require_cleopatra()
     if column is not None and column not in fc.columns:
         raise ValueError(
@@ -74,7 +102,12 @@ def plot_cleopatra(fc: Any, column: str | None = None, **kwargs: Any) -> Any:
             "engine='cleopatra' supports single Point or Polygon/MultiPolygon geometries; got "
             f"{sorted(geom_types, key=str)} (MultiPoint is not supported)."
         )
-    _fig, ax, _coll = glyph.plot()
+    plot_call: dict[str, Any] = {}
+    if colorbar is not None:
+        plot_call["colorbar"] = colorbar
+    if title is not None:
+        plot_call["title"] = title
+    _fig, ax, _coll = glyph.plot(**plot_call)
     return glyph, ax
 
 

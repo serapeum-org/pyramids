@@ -30,6 +30,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 if TYPE_CHECKING:
+    from cleopatra.glyphs.gridded.array_glyph import PointOverlay
+    from cleopatra.styling.colorbar import ColorBar
+
     from pyramids.dataset import Dataset
     from pyramids.feature._lazy_collection import LazyFeatureCollection
 
@@ -2192,6 +2195,10 @@ class FeatureCollection(GeoDataFrame):
         column: str | None = None,
         basemap: bool | str | None = None,
         engine: str = "geopandas",
+        colorbar: bool | ColorBar | None = None,
+        points: np.ndarray | PointOverlay | None = None,
+        kind: str = "auto",
+        title: str | None = None,
         **kwargs: Any,
     ) -> Any:
         """Plot features, optionally on a web-tile basemap.
@@ -2215,6 +2222,21 @@ class FeatureCollection(GeoDataFrame):
                 renders a single flat colour.
             basemap: ``True`` for OpenStreetMap, or a provider name string.
             engine: ``"geopandas"`` (default) or ``"cleopatra"``.
+            colorbar (bool or ColorBar, optional): Colour-bar spec, part of the
+                shared plot signature. On ``engine="geopandas"`` it toggles the
+                geopandas ``legend`` (a ``ColorBar`` object counts as "show"); on
+                ``engine="cleopatra"`` a ``pyramids.plot.ColorBar(label=…, …)`` styles
+                the glyph's bar. ``None`` (default) leaves each back-end's default.
+            points (np.ndarray or PointOverlay, optional): Accepted for signature
+                symmetry with the raster plot family, but a **no-op here** — a vector
+                layer has no separate point overlay (the geometry is the data).
+                Ignored.
+            kind (str, optional): Accepted for signature symmetry with the raster
+                plot family, but a **no-op here** — ``kind`` selects a raster renderer
+                (``imshow``/``pcolormesh``), which has no vector equivalent. Ignored.
+            title (str, optional): Axes/glyph title. Set on the returned Axes
+                (``engine="geopandas"``) or forwarded to the glyph
+                (``engine="cleopatra"``). Default ``None``.
             **kwargs: Forwarded to the chosen back-end. For ``"cleopatra"``
                 they are filtered to the glyph's accepted options via
                 ``filter_kwargs``.
@@ -2256,7 +2278,18 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        return _plot.plot(self, column=column, basemap=basemap, engine=engine, **kwargs)
+        # ``points`` / ``kind`` are part of the shared raster-family plot signature
+        # but have no meaning for vector geometry, so they are accepted and ignored.
+        # ``colorbar`` / ``title`` map onto both back-ends and are forwarded.
+        return _plot.plot(
+            self,
+            column=column,
+            basemap=basemap,
+            engine=engine,
+            colorbar=colorbar,
+            title=title,
+            **kwargs,
+        )
 
     def _plot_cleopatra(self, column: str | None = None, **kwargs: Any):
         """Render via cleopatra ``PolygonGlyph``/``ScatterGlyph``.

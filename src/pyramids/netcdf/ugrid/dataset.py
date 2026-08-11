@@ -9,11 +9,15 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import geopandas as gpd
 import numpy as np
 import shapely
+
+if TYPE_CHECKING:
+    from cleopatra.glyphs.gridded.array_glyph import PointOverlay
+    from cleopatra.styling.colorbar import ColorBar
 from osgeo import gdal
 from pyproj import CRS, Transformer
 from shapely.geometry import LineString, box
@@ -819,6 +823,9 @@ class UgridDataset:
         cmap: str = "viridis",
         title: str | None = None,
         basemap: bool | str | None = None,
+        colorbar: bool | ColorBar | None = None,
+        points: np.ndarray | PointOverlay | None = None,
+        kind: str = "auto",
         **kwargs: Any,
     ) -> Any:
         """Plot a mesh data variable.
@@ -838,6 +845,17 @@ class UgridDataset:
             basemap: If True, add an OpenStreetMap basemap. If a string,
                 use it as the tile provider name (e.g. "CartoDB.Positron").
                 Default is None (no basemap). Requires the [viz] extra.
+            colorbar (bool or ColorBar, optional): Colour-bar spec, part of the
+                shared plot signature. A ``pyramids.plot.ColorBar(label=…, …)``
+                configures the bar; ``False`` hides it and ``None`` (default) uses
+                cleopatra's default (a bar is drawn). Only forwarded when set.
+            points (np.ndarray or PointOverlay, optional): Accepted for signature
+                symmetry with the raster plot family, but a **no-op here** — a mesh
+                has no point-overlay layer (the mesh geometry is the data). Ignored.
+            kind (str, optional): Accepted for signature symmetry with the raster
+                plot family, but a **no-op here** — ``kind`` selects a raster
+                renderer (``imshow``/``pcolormesh``); the mesh always renders via
+                ``tripcolor``/``tricontour``. Ignored.
             **kwargs: Additional arguments passed to mesh_render
                 (forwarded to plot_mesh_data). Notably ``colorbar``
                 (``bool``, default ``True``): pass ``colorbar=False`` to
@@ -878,6 +896,13 @@ class UgridDataset:
             title = variable_name
         if basemap and self.epsg is None:
             raise ValueError("UgridDataset must have a CRS (epsg) to use basemap.")
+        # ``points`` / ``kind`` are part of the shared raster-family plot signature
+        # but have no meaning for a mesh (no point overlay; the renderer is fixed to
+        # tripcolor/tricontour), so they are accepted and ignored. Only ``colorbar``
+        # maps onto the mesh backend, and only when explicitly set (so cleopatra's
+        # default drawn bar is preserved).
+        if colorbar is not None:
+            kwargs["colorbar"] = colorbar
         result = _mesh_render(
             mesh=self._mesh,
             data=data,
