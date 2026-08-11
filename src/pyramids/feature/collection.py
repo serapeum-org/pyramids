@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 if TYPE_CHECKING:
     from cleopatra.glyphs.gridded.array_glyph import PointOverlay
     from cleopatra.styling.colorbar import ColorBar
+    from cleopatra.styling.params import Classify, Contour
+    from cleopatra.styling.scaling import ColorScaling
 
     from pyramids.dataset import Dataset
     from pyramids.feature._lazy_collection import LazyFeatureCollection
@@ -2199,6 +2201,9 @@ class FeatureCollection(GeoDataFrame):
         points: np.ndarray | PointOverlay | None = None,
         kind: str = "auto",
         title: str | None = None,
+        color: ColorScaling | None = None,
+        contour: Contour | None = None,
+        classify: Classify | None = None,
         **kwargs: Any,
     ) -> Any:
         """Plot features, optionally on a web-tile basemap.
@@ -2237,6 +2242,18 @@ class FeatureCollection(GeoDataFrame):
             title (str, optional): Axes/glyph title. Set on the returned Axes
                 (``engine="geopandas"``) or forwarded to the glyph
                 (``engine="cleopatra"``). Default ``None``.
+            color (ColorScaling, optional): Typed colour-scale spec
+                ``pyramids.plot.ColorScaling``, forwarded to the glyph on
+                ``engine="cleopatra"``. **Ignored on ``engine="geopandas"``** (no
+                geopandas equivalent). Default ``None``.
+            contour (Contour, optional): Typed contour-line spec
+                ``pyramids.plot.Contour``, forwarded to the glyph on
+                ``engine="cleopatra"``. Ignored on ``engine="geopandas"``. Default
+                ``None``.
+            classify (Classify, optional): Typed value-classification spec
+                ``pyramids.plot.Classify`` (``scheme`` / ``k``), forwarded to the glyph on
+                ``engine="cleopatra"``. Ignored on ``engine="geopandas"``. Default
+                ``None``.
             **kwargs: Forwarded to the chosen back-end. For ``"cleopatra"``
                 they are filtered to the glyph's accepted options via
                 ``filter_kwargs``.
@@ -2280,7 +2297,9 @@ class FeatureCollection(GeoDataFrame):
         """
         # ``points`` / ``kind`` are part of the shared raster-family plot signature
         # but have no meaning for vector geometry, so they are accepted and ignored.
-        # ``colorbar`` / ``title`` map onto both back-ends and are forwarded.
+        # ``colorbar`` / ``title`` map onto both back-ends; ``color`` / ``contour`` /
+        # ``classify`` are cleopatra-glyph groups forwarded on that engine (and ignored on
+        # geopandas). All are forwarded and applied only when set.
         return _plot.plot(
             self,
             column=column,
@@ -2288,6 +2307,9 @@ class FeatureCollection(GeoDataFrame):
             engine=engine,
             colorbar=colorbar,
             title=title,
+            color=color,
+            contour=contour,
+            classify=classify,
             **kwargs,
         )
 

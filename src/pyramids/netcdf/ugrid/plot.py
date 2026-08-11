@@ -160,7 +160,12 @@ def plot_mesh_data(
     # objects; translate pyramids' loose color_scale / gamma / bounds / midpoint / levels /
     # style / hillshade into cleopatra's ColorScaling / Contour / DataStyle groups. MeshGlyph
     # has no cell-value overlay, so the cell-value keys are left untouched (include_cells).
+    # ``setdefault`` — so an explicitly-passed group object already in plot_kwargs (e.g.
+    # ``color=ColorScaling(...)`` from UgridDataset.plot) wins over the loose translation
+    # and the two never collide on the same keyword.
     group_specs = _build_grouped_render_specs(plot_kwargs, include_cells=False)
+    for _spec_key, _spec_val in group_specs.items():
+        plot_kwargs.setdefault(_spec_key, _spec_val)
 
     glyph.plot(
         data,
@@ -169,7 +174,6 @@ def plot_mesh_data(
         edgecolor=edgecolor,
         colorbar=colorbar,
         title=title,
-        **group_specs,
         **plot_kwargs,
     )
     return glyph

@@ -956,3 +956,88 @@ class TestFrameLabel:
             frame_label=FrameLabel(location=(1, 3)),
         )
         assert isinstance(glyph, ArrayGlyph)
+
+
+class TestRenderArrayGroupParams:
+    """Explicit cleopatra render-group objects and their precedence in render_array.
+
+    The typed groups (``color`` / ``contour`` / ``cells`` / ``data_style``) reach the
+    render call, and an explicitly-passed group wins over the one built from the loose
+    kwargs (``color_scale`` / ``style`` / ...).
+    """
+
+    def test_explicit_color_group_wins_over_loose_color_scale(self):
+        """An explicit ``color=ColorScaling`` overrides a loose ``color_scale``.
+
+        Test scenario:
+            Passing both the typed ``color`` and the loose ``color_scale`` must forward
+            the explicit spec (the loose translation only fills an unset group).
+        """
+        from pyramids.plot import ColorScaling
+
+        fake_cls, _ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
+        rng = np.random.default_rng(11)
+        arr = rng.random((4, 4)).astype("float32")
+        explicit = ColorScaling.power(gamma=0.9)
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                color=explicit,
+                color_scale="linear",
+            )
+        assert plot.get("color") is explicit, "explicit color must win over color_scale"
+
+    def test_loose_kwargs_build_group_when_no_explicit(self):
+        """Loose ``color_scale`` / ``style`` still build the groups when unset explicitly.
+
+        Test scenario:
+            With no explicit ``color`` / ``data_style``, the loose kwargs must translate
+            into ``ColorScaling`` / ``DataStyle`` on the render call (backward compat).
+        """
+        from cleopatra.styling.params import DataStyle
+        from cleopatra.styling.scaling import ColorScaling
+
+        fake_cls, _ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
+        rng = np.random.default_rng(12)
+        arr = rng.random((4, 4)).astype("float32")
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                color_scale="power",
+                gamma=0.5,
+                style="flow_accumulation",
+            )
+        assert isinstance(plot.get("color"), ColorScaling), "color_scale must build color"
+        assert isinstance(plot.get("data_style"), DataStyle), "style must build data_style"
+
+    def test_explicit_groups_reach_render_call(self):
+        """Explicit ``contour`` / ``cells`` / ``data_style`` reach the render call.
+
+        Test scenario:
+            The typed groups other than ``color`` also forward verbatim to
+            ``ArrayGlyph.plot``.
+        """
+        from cleopatra.styling.params import CellValues, Contour, DataStyle
+
+        fake_cls, _ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
+        rng = np.random.default_rng(13)
+        arr = rng.random((4, 4)).astype("float32")
+        contour, cells, data_style = Contour(levels=4), CellValues(show=True), DataStyle(
+            style="flow_accumulation"
+        )
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                contour=contour,
+                cells=cells,
+                data_style=data_style,
+            )
+        assert plot.get("contour") is contour, "explicit contour must reach the render call"
+        assert plot.get("cells") is cells, "explicit cells must reach the render call"
+        assert plot.get("data_style") is data_style, "explicit data_style must reach it"

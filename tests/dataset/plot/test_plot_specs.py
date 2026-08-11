@@ -18,8 +18,20 @@ class TestPlotSpecReExports:
     """`pyramids.plot` lazily re-exports cleopatra's plot spec classes."""
 
     def test_all_and_dir_list_the_specs(self):
-        """`__all__` / `dir()` advertise the five specs, sorted."""
-        expected = ["Basemap", "ColorBar", "Feature", "FrameLabel", "PointOverlay"]
+        """`__all__` / `dir()` advertise every re-exported spec, sorted."""
+        expected = [
+            "Basemap",
+            "CellValues",
+            "Classify",
+            "ColorBar",
+            "ColorScaling",
+            "Contour",
+            "DataStyle",
+            "Feature",
+            "FrameLabel",
+            "PanelLabels",
+            "PointOverlay",
+        ]
         assert plot_specs.__all__ == expected
         assert dir(plot_specs) == expected
 
@@ -29,8 +41,14 @@ class TestPlotSpecReExports:
             ("ColorBar", "cleopatra.styling.colorbar", "ColorBar"),
             ("FrameLabel", "cleopatra.glyphs.gridded.array_glyph", "FrameLabel"),
             ("PointOverlay", "cleopatra.glyphs.gridded.array_glyph", "PointOverlay"),
+            ("PanelLabels", "cleopatra.glyphs.gridded.array_glyph", "PanelLabels"),
             ("Basemap", "cleopatra.basemap.geo", "Basemap"),
             ("Feature", "cleopatra.basemap.geo", "Feature"),
+            ("ColorScaling", "cleopatra.styling.scaling", "ColorScaling"),
+            ("Contour", "cleopatra.styling.params", "Contour"),
+            ("CellValues", "cleopatra.styling.params", "CellValues"),
+            ("DataStyle", "cleopatra.styling.params", "DataStyle"),
+            ("Classify", "cleopatra.styling.params", "Classify"),
         ],
     )
     def test_spec_resolves_to_cleopatra_class(self, name, module_name, attribute):

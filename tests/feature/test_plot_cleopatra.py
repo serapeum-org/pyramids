@@ -303,3 +303,58 @@ class TestFeatureCollectionPlotAlignment:
         assert len(ax_on.figure.axes) == 2, "colorbar=True must draw a legend Axes"
         ax_off = self._points_fc().plot(column="v", colorbar=False)
         assert len(ax_off.figure.axes) == 1, "colorbar=False must draw no legend Axes"
+
+
+class TestFeatureCollectionGroupParams:
+    """Typed render groups (color/contour/classify) on ``FeatureCollection.plot``.
+
+    ``ScatterGlyph`` / ``PolygonGlyph`` accept ``color`` / ``contour`` / ``classify``; the
+    facade forwards them on ``engine="cleopatra"`` and ignores them on
+    ``engine="geopandas"`` (no geopandas equivalent).
+    """
+
+    @staticmethod
+    def _points_fc():
+        """A two-point FeatureCollection carrying a numeric column."""
+        return FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1.0, 2.0]},
+                geometry=[Point(0, 0), Point(1, 1)],
+                crs="EPSG:4326",
+            )
+        )
+
+    def test_cleopatra_forwards_color_contour_classify(self):
+        """``color`` / ``contour`` / ``classify`` reach the glyph on the cleopatra engine."""
+        from cleopatra.styling.params import Classify, Contour
+        from cleopatra.styling.scaling import ColorScaling
+
+        color = ColorScaling.linear()
+        contour = Contour(levels=3)
+        classify = Classify(scheme="quantiles", k=3)
+        with patch.object(
+            ScatterGlyph, "plot", return_value=(MagicMock(), MagicMock(), MagicMock())
+        ) as mock_plot:
+            self._points_fc().plot(
+                column="v",
+                engine="cleopatra",
+                color=color,
+                contour=contour,
+                classify=classify,
+            )
+        kw = mock_plot.call_args.kwargs
+        assert kw.get("color") is color, "color must reach the glyph plot call"
+        assert kw.get("contour") is contour, "contour must reach the glyph plot call"
+        assert kw.get("classify") is classify, "classify must reach the glyph plot call"
+
+    def test_geopandas_ignores_group_objects(self):
+        """A cleopatra group on the geopandas engine is ignored, not forwarded/erroring.
+
+        Test scenario:
+            geopandas has no ``color`` kwarg, so passing a ``ColorScaling`` on the default
+            engine must render a plain Axes rather than raising an unexpected-kwarg error.
+        """
+        from cleopatra.styling.scaling import ColorScaling
+
+        result = self._points_fc().plot(column="v", color=ColorScaling.power(gamma=0.7))
+        assert isinstance(result, Axes), f"expected Axes, got {type(result)}"

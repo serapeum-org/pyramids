@@ -427,3 +427,47 @@ class TestUgridPlotAlignment:
         kw = mock_plot.call_args.kwargs
         assert "points" not in kw, "points must not reach MeshGlyph.plot"
         assert "kind" not in kw, "kind must not reach MeshGlyph.plot"
+
+
+class TestUgridGroupParams:
+    """Typed render groups (color/contour/data_style) on ``UgridDataset.plot``.
+
+    ``MeshGlyph.plot`` accepts ``color`` / ``contour`` / ``data_style`` (no ``cells``);
+    the facade forwards them when set, and an explicit group wins over the loose kwargs.
+    """
+
+    @staticmethod
+    def _dataset(location="face"):
+        """Build a single-face UgridDataset carrying a ``depth`` variable."""
+        data = np.array([5.0]) if location == "face" else np.array([0.0, 1.0, 2.0])
+        return UgridDataset.create_from_arrays(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2]]),
+            data={"depth": data},
+            data_locations={"depth": location},
+        )
+
+    def test_color_and_data_style_reach_mesh_glyph_plot(self):
+        """Explicit ``color`` / ``data_style`` forward to ``MeshGlyph.plot``."""
+        from cleopatra.styling.params import DataStyle
+        from cleopatra.styling.scaling import ColorScaling
+
+        color = ColorScaling.power(gamma=0.8)
+        data_style = DataStyle(style="flow_accumulation")
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            self._dataset("face").plot("depth", color=color, data_style=data_style)
+        kw = mock_plot.call_args.kwargs
+        assert kw.get("color") is color, "explicit color must reach MeshGlyph.plot"
+        assert kw.get("data_style") is data_style, "explicit data_style must reach it"
+
+    def test_explicit_color_wins_over_loose_color_scale(self):
+        """An explicit ``color`` overrides the loose ``color_scale`` on the mesh path."""
+        from cleopatra.styling.scaling import ColorScaling
+
+        color = ColorScaling.power(gamma=0.6)
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            self._dataset("face").plot("depth", color=color, color_scale="linear")
+        assert mock_plot.call_args.kwargs.get("color") is color, (
+            "explicit color must win over loose color_scale"
+        )

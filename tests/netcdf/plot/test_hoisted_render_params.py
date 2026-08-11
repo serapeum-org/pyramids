@@ -172,3 +172,37 @@ class TestNetCDFFacetPointsContract:
         with pytest.raises(ValueError, match="points") as exc_info:
             nc.plot(variable="t2m", facet=FacetSpec(col="time"), points=_points())
         assert "points" in str(exc_info.value), f"unexpected error: {exc_info.value}"
+
+
+class TestNetCDFGroupParams:
+    """Typed render groups (color/contour/cells/data_style) on ``NetCDF.plot``."""
+
+    def test_group_reaches_the_render_call(self):
+        """An explicit ``color`` forwards through to ``Analysis.plot``.
+
+        Test scenario:
+            ``nc.plot(variable="t2m", color=ColorScaling(...))`` forwards the spec down
+            the facade -> NetCDFPlot.run -> Analysis.plot chain.
+        """
+        from cleopatra.styling.scaling import ColorScaling
+
+        nc = make_plot_3d_nc()
+        var = nc.get_variable("t2m")
+        color = ColorScaling.power(gamma=0.8)
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "ok"
+            nc.plot(variable="t2m", color=color)
+        assert mock_plot.call_args.kwargs.get("color") is color, (
+            "explicit color must reach Analysis.plot"
+        )
+
+    def test_unset_groups_not_forwarded(self):
+        """A bare plot forwards none of the typed render groups."""
+        nc = make_plot_3d_nc()
+        var = nc.get_variable("t2m")
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "ok"
+            nc.plot(variable="t2m")
+        forwarded = mock_plot.call_args.kwargs
+        for name in ("color", "contour", "cells", "data_style"):
+            assert name not in forwarded, f"unset {name} must not be forwarded"

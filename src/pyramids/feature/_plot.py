@@ -28,14 +28,19 @@ def plot(
     engine: str = "geopandas",
     colorbar: Any = None,
     title: str | None = None,
+    color: Any = None,
+    contour: Any = None,
+    classify: Any = None,
     **kwargs: Any,
 ) -> Any:
     """Render `fc` via geopandas or cleopatra, optionally over a web-tile basemap.
 
-    ``colorbar`` / ``title`` are the two raster-family plot params that map onto the
-    vector back-ends: on geopandas ``colorbar`` toggles the ``legend`` and ``title`` is
-    set on the returned Axes; on cleopatra both forward to the glyph's ``plot`` call.
-    Each is only applied when set, so an untouched call keeps the back-end default.
+    ``colorbar`` / ``title`` are the raster-family plot params that map onto both vector
+    back-ends: on geopandas ``colorbar`` toggles the ``legend`` and ``title`` is set on the
+    returned Axes; on cleopatra both forward to the glyph's ``plot`` call. The typed render
+    groups ``color`` / ``contour`` / ``classify`` are cleopatra-glyph concepts with no
+    geopandas equivalent, so they forward to the glyph on ``engine="cleopatra"`` and are
+    ignored on ``engine="geopandas"``. Each is only applied when set.
     """
     if engine == "geopandas":
         # geopandas' `.plot` is a CachedAccessor: `GeoDataFrame.plot` is the accessor
@@ -53,7 +58,14 @@ def plot(
             ax.set_title(title)
     elif engine == "cleopatra":
         result, ax = plot_cleopatra(
-            fc, column=column, colorbar=colorbar, title=title, **kwargs
+            fc,
+            column=column,
+            colorbar=colorbar,
+            title=title,
+            color=color,
+            contour=contour,
+            classify=classify,
+            **kwargs,
         )
     else:
         raise ValueError(
@@ -72,13 +84,17 @@ def plot_cleopatra(
     column: str | None = None,
     colorbar: Any = None,
     title: str | None = None,
+    color: Any = None,
+    contour: Any = None,
+    classify: Any = None,
     **kwargs: Any,
 ) -> Any:
     """Build and draw the cleopatra glyph for `fc`, returning ``(glyph, ax)``.
 
-    ``colorbar`` / ``title`` are forwarded to the glyph's ``plot`` call (both
-    ``ScatterGlyph.plot`` and ``PolygonGlyph.plot`` accept them), each only when set so
-    the glyph default is preserved otherwise.
+    ``colorbar`` / ``title`` and the typed render groups ``color`` / ``contour`` /
+    ``classify`` are forwarded to the glyph's ``plot`` call (both ``ScatterGlyph.plot`` and
+    ``PolygonGlyph.plot`` accept them), each only when set so the glyph default is
+    preserved otherwise.
     """
     require_cleopatra()
     if column is not None and column not in fc.columns:
@@ -107,6 +123,12 @@ def plot_cleopatra(
         plot_call["colorbar"] = colorbar
     if title is not None:
         plot_call["title"] = title
+    if color is not None:
+        plot_call["color"] = color
+    if contour is not None:
+        plot_call["contour"] = contour
+    if classify is not None:
+        plot_call["classify"] = classify
     _fig, ax, _coll = glyph.plot(**plot_call)
     return glyph, ax
 

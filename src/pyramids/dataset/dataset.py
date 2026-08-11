@@ -38,6 +38,7 @@ from pyramids.base.crs import (
 )
 from pyramids.base.remote import cloud_config_from_env, redact_credentials
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
+from pyramids.dataset._plot_helpers import nonnull_group_kwargs
 from pyramids.dataset._wcs import from_wcs as _from_wcs
 from pyramids.dataset._wms import from_wms as _from_wms
 from pyramids.dataset._wms import from_wmts as _from_wmts
@@ -235,6 +236,8 @@ if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
     from cleopatra.glyphs.gridded.array_glyph import PlotKwargs, PointOverlay
     from cleopatra.styling.colorbar import ColorBar
+    from cleopatra.styling.params import CellValues, Contour, DataStyle
+    from cleopatra.styling.scaling import ColorScaling
     from geopandas import GeoDataFrame
 
 
@@ -815,6 +818,10 @@ class Dataset(RasterBase):
         points: np.ndarray | PointOverlay | None = None,
         kind: str = "auto",
         title: str | None = None,
+        color: ColorScaling | None = None,
+        contour: Contour | None = None,
+        cells: CellValues | None = None,
+        data_style: DataStyle | None = None,
         rgb_options: dict | None = None,
         **kwargs: Unpack[PlotKwargs],
     ):
@@ -888,6 +895,25 @@ class Dataset(RasterBase):
                 ``"imshow"`` / ``"pcolormesh"`` / ``"contour"`` / ``"contourf"``.
             title (str, optional):
                 Axes title. Default is ``None`` (cleopatra's default title).
+            color (ColorScaling, optional):
+                Typed colour-scale spec ``pyramids.plot.ColorScaling`` (linear / power /
+                sym-log / boundary / midpoint norm), e.g.
+                ``ColorScaling.power(gamma=0.7)``. The typed equivalent of the loose
+                ``color_scale`` / ``gamma`` / ``bounds`` / ``midpoint`` kwargs; when both
+                are given the explicit ``color`` wins. Default ``None``.
+            contour (Contour, optional):
+                Typed contour-line spec ``pyramids.plot.Contour(levels=…, labels=…,
+                label_kw=…)``. The typed equivalent of the loose ``levels`` / ``labels`` /
+                ``label_kw`` kwargs; the explicit spec wins. Default ``None``.
+            cells (CellValues, optional):
+                Typed per-cell value annotation ``pyramids.plot.CellValues(show=…, size=…,
+                background_threshold=…)``. The typed equivalent of the loose
+                ``display_cell_value`` / ``num_size`` / ``background_color_threshold``
+                kwargs; the explicit spec wins. Default ``None``.
+            data_style (DataStyle, optional):
+                Typed data-style / relief spec ``pyramids.plot.DataStyle(style=…,
+                hillshade=…)``. The typed equivalent of the loose ``style`` / ``hillshade``
+                kwargs; the explicit spec wins. Default ``None``.
             rgb_options (dict, optional):
                 Grouped Sentinel-imagery kwargs. Accepted keys:
                 ``"rgb"``, ``"surface_reflectance"``, ``"cutoff"``,
@@ -981,6 +1007,13 @@ class Dataset(RasterBase):
             percentile=percentile,
         )
         resolved_band, resolved_rgb = self._resolve_plot_band(band, rgb)
+        # Spread the explicitly-set cleopatra render groups as their own ``**`` (not merged
+        # into the typed ``**kwargs``, whose PlotKwargs TypedDict has no group keys); the
+        # unset ones are dropped so they neither override the backend default nor block the
+        # loose-kwarg translation in render_array (an explicit group still wins there).
+        group_kwargs = nonnull_group_kwargs(
+            color=color, contour=contour, cells=cells, data_style=data_style
+        )
         return self.analysis.plot(
             band=resolved_band,
             exclude_value=exclude_value,
@@ -995,6 +1028,7 @@ class Dataset(RasterBase):
             points=points,
             kind=kind,
             title=title,
+            **group_kwargs,
             **kwargs,
         )
 

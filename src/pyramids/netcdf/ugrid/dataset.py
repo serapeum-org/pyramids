@@ -18,6 +18,8 @@ import shapely
 if TYPE_CHECKING:
     from cleopatra.glyphs.gridded.array_glyph import PointOverlay
     from cleopatra.styling.colorbar import ColorBar
+    from cleopatra.styling.params import Contour, DataStyle
+    from cleopatra.styling.scaling import ColorScaling
 from osgeo import gdal
 from pyproj import CRS, Transformer
 from shapely.geometry import LineString, box
@@ -25,6 +27,7 @@ from shapely.geometry import LineString, box
 from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import mesh_render as _mesh_render
+from pyramids.dataset._plot_helpers import nonnull_group_kwargs as _nonnull_group_kwargs
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf._mdim import open_mdarray
 from pyramids.netcdf.cf import write_global_attributes
@@ -826,6 +829,9 @@ class UgridDataset:
         colorbar: bool | ColorBar | None = None,
         points: np.ndarray | PointOverlay | None = None,
         kind: str = "auto",
+        color: ColorScaling | None = None,
+        contour: Contour | None = None,
+        data_style: DataStyle | None = None,
         **kwargs: Any,
     ) -> Any:
         """Plot a mesh data variable.
@@ -856,6 +862,17 @@ class UgridDataset:
                 plot family, but a **no-op here** — ``kind`` selects a raster
                 renderer (``imshow``/``pcolormesh``); the mesh always renders via
                 ``tripcolor``/``tricontour``. Ignored.
+            color (ColorScaling, optional): Typed colour-scale spec
+                ``pyramids.plot.ColorScaling`` — the typed equivalent of the loose
+                ``color_scale`` / ``gamma`` / ``bounds`` / ``midpoint`` kwargs; the
+                explicit spec wins. Default ``None``.
+            contour (Contour, optional): Typed contour-line spec
+                ``pyramids.plot.Contour`` — the typed equivalent of the loose ``levels``
+                / ``label_kw`` kwargs. Default ``None``.
+            data_style (DataStyle, optional): Typed data-style / relief spec
+                ``pyramids.plot.DataStyle`` — the typed equivalent of the loose ``style``
+                / ``hillshade`` kwargs. (A mesh has no cell-value overlay, so there is no
+                ``cells`` param here.) Default ``None``.
             **kwargs: Additional arguments passed to mesh_render
                 (forwarded to plot_mesh_data). Notably ``colorbar``
                 (``bool``, default ``True``): pass ``colorbar=False`` to
@@ -898,11 +915,15 @@ class UgridDataset:
             raise ValueError("UgridDataset must have a CRS (epsg) to use basemap.")
         # ``points`` / ``kind`` are part of the shared raster-family plot signature
         # but have no meaning for a mesh (no point overlay; the renderer is fixed to
-        # tripcolor/tricontour), so they are accepted and ignored. Only ``colorbar``
-        # maps onto the mesh backend, and only when explicitly set (so cleopatra's
-        # default drawn bar is preserved).
+        # tripcolor/tricontour), so they are accepted and ignored. ``colorbar`` and the
+        # typed render groups (``color`` / ``contour`` / ``data_style``) map onto the mesh
+        # backend and are forwarded only when set (so cleopatra's defaults and the
+        # loose-kwarg translation are preserved otherwise).
         if colorbar is not None:
             kwargs["colorbar"] = colorbar
+        kwargs.update(
+            _nonnull_group_kwargs(color=color, contour=contour, data_style=data_style)
+        )
         result = _mesh_render(
             mesh=self._mesh,
             data=data,

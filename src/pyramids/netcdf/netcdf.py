@@ -34,6 +34,7 @@ from pyramids.base.crs import (
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset
+from pyramids.dataset._plot_helpers import nonnull_group_kwargs
 from pyramids.dataset.dataset import _COLLABORATOR_ATTRS
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf._axis import detect_axis_indices
@@ -74,6 +75,8 @@ if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
     from cleopatra.glyphs.gridded.array_glyph import PointOverlay
     from cleopatra.styling.colorbar import ColorBar
+    from cleopatra.styling.params import CellValues, Contour, DataStyle
+    from cleopatra.styling.scaling import ColorScaling
 
 # Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
 # and `close()` (which snapshots) on the same container from different threads.
@@ -1654,6 +1657,10 @@ class NetCDF(Dataset):
         figsize: tuple[float, float] | None = None,
         colorbar: bool | ColorBar | None = None,
         points: np.ndarray | PointOverlay | None = None,
+        color: ColorScaling | None = None,
+        contour: Contour | None = None,
+        cells: CellValues | None = None,
+        data_style: DataStyle | None = None,
         **kwargs: Any,
     ):
         """Plot a 2-D slice of a NetCDF variable using xarray-aligned vocabulary.
@@ -1775,6 +1782,21 @@ class NetCDF(Dataset):
                 ``pyramids.plot.PointOverlay(...)`` to style them. Only forwarded
                 when set — the multi-panel ``facet`` path has no ``points``
                 parameter and raises if one is supplied. Default is ``None``.
+            color (ColorScaling, optional):
+                Typed colour-scale spec ``pyramids.plot.ColorScaling`` — the typed
+                equivalent of the loose ``color_scale`` / ``gamma`` / ``bounds`` /
+                ``midpoint`` kwargs; the explicit spec wins. Default ``None``.
+            contour (Contour, optional):
+                Typed contour-line spec ``pyramids.plot.Contour`` — the typed equivalent
+                of the loose ``levels`` / ``labels`` / ``label_kw`` kwargs. Default
+                ``None``.
+            cells (CellValues, optional):
+                Typed per-cell annotation ``pyramids.plot.CellValues`` — the typed
+                equivalent of the loose ``display_cell_value`` / ``num_size`` /
+                ``background_color_threshold`` kwargs. Default ``None``.
+            data_style (DataStyle, optional):
+                Typed data-style / relief spec ``pyramids.plot.DataStyle`` — the typed
+                equivalent of the loose ``style`` / ``hillshade`` kwargs. Default ``None``.
             **kwargs:
                 Additional keyword arguments forwarded to
                 :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`.
@@ -2131,15 +2153,22 @@ class NetCDF(Dataset):
 
               ```
         """
-        # ``colorbar``/``points`` are hoisted to explicit params for parity with
-        # ``Dataset.plot`` / ``DatasetCollection.plot``; forward them through the
-        # same ``**kwargs`` channel the multi-mode render path already consumes.
-        # Only inject when set — the facet path rejects ``points`` outright, so a
-        # default ``None`` must not reach it.
+        # ``colorbar``/``points`` and the typed render groups (``color`` / ``contour`` /
+        # ``cells`` / ``data_style``) are hoisted to explicit params for parity with
+        # ``Dataset.plot`` / ``DatasetCollection.plot``; forward them through the same
+        # ``**kwargs`` channel the multi-mode render path already consumes. Only inject
+        # when set — the facet path rejects ``points`` outright, so a default ``None``
+        # must not reach it, and an unset group must not block render_array's loose-kwarg
+        # translation (an explicit group still wins there).
         if colorbar is not None:
             kwargs["colorbar"] = colorbar
         if points is not None:
             kwargs["points"] = points
+        kwargs.update(
+            nonnull_group_kwargs(
+                color=color, contour=contour, cells=cells, data_style=data_style
+            )
+        )
         return NetCDFPlot(self).run(
             variable,
             selectors=selectors,

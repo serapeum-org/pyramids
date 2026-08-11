@@ -27,7 +27,7 @@ from pyramids.base._utils import (
 )
 from pyramids.base.crs import crs_spec
 from pyramids.base.remote import cloud_config_from_env
-from pyramids.dataset._plot_helpers import render_array
+from pyramids.dataset._plot_helpers import nonnull_group_kwargs, render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
 from pyramids.dataset._stac import from_point as _from_point
 from pyramids.dataset._stac import from_stac as _from_stac
@@ -54,6 +54,8 @@ if TYPE_CHECKING:
         PointOverlay,
     )
     from cleopatra.styling.colorbar import ColorBar
+    from cleopatra.styling.params import CellValues, Contour, DataStyle
+    from cleopatra.styling.scaling import ColorScaling
     from dask.delayed import Delayed
 
 
@@ -2436,6 +2438,10 @@ class DatasetCollection:
         frame_label: FrameLabel | None = None,
         colorbar: bool | ColorBar | None = None,
         points: np.ndarray | PointOverlay | None = None,
+        color: ColorScaling | None = None,
+        contour: Contour | None = None,
+        cells: CellValues | None = None,
+        data_style: DataStyle | None = None,
         animation_axis_values: Any = None,
         **kwargs: Unpack[AnimateKwargs],
     ) -> ArrayGlyph:
@@ -2530,6 +2536,21 @@ class DatasetCollection:
                 color=…, size=…, label_color=…, label_size=…)`` instead (on cleopatra
                 >= 0.26 the loose ``point_color`` / ``point_size`` / ``pid_color`` /
                 ``pid_size`` kwargs are deprecated). Default ``None``.
+            color (ColorScaling, optional):
+                Typed colour-scale spec ``pyramids.plot.ColorScaling`` — the typed
+                equivalent of the loose ``color_scale`` / ``gamma`` / ``bounds`` /
+                ``midpoint`` kwargs; the explicit spec wins. Default ``None``.
+            contour (Contour, optional):
+                Typed contour-line spec ``pyramids.plot.Contour`` — the typed equivalent
+                of the loose ``levels`` / ``labels`` / ``label_kw`` kwargs. Default
+                ``None``.
+            cells (CellValues, optional):
+                Typed per-cell annotation ``pyramids.plot.CellValues`` — the typed
+                equivalent of the loose ``display_cell_value`` / ``num_size`` /
+                ``background_color_threshold`` kwargs. Default ``None``.
+            data_style (DataStyle, optional):
+                Typed data-style / relief spec ``pyramids.plot.DataStyle`` — the typed
+                equivalent of the loose ``style`` / ``hillshade`` kwargs. Default ``None``.
             animation_axis_values (sequence, optional):
                 Per-frame labels for the animation, one per timestep. Defaults to the
                 collection's ``time`` axis when set (e.g. dates parsed by
@@ -2663,6 +2684,14 @@ class DatasetCollection:
         }
         if frame_label is not None:
             animate_extras["frame_label"] = frame_label
+        # Fold the explicitly-set cleopatra render groups in; unset ones are dropped so
+        # they neither override the backend default nor block the loose-kwarg translation
+        # in render_array (an explicit group still wins there).
+        animate_extras.update(
+            nonnull_group_kwargs(
+                color=color, contour=contour, cells=cells, data_style=data_style
+            )
+        )
         # Materialise the cube on demand for plotting. The render helper
         # expects a single (time, rows, cols) numpy array; reading each
         # Dataset's band into one stacked array is fine for a plot call

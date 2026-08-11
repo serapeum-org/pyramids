@@ -360,7 +360,9 @@ def _build_grouped_render_specs(
         if "num_size" in kwargs:
             cell_params["size"] = kwargs.pop("num_size")
         if "background_color_threshold" in kwargs:
-            cell_params["background_threshold"] = kwargs.pop("background_color_threshold")
+            cell_params["background_threshold"] = kwargs.pop(
+                "background_color_threshold"
+            )
         specs["cells"] = CellValues(**cell_params)
 
     # style/hillshade -> DataStyle, honouring the historical no-op semantics: an explicit
@@ -380,6 +382,27 @@ def _build_grouped_render_specs(
         specs["data_style"] = DataStyle(**style_params)
 
     return specs
+
+
+def nonnull_group_kwargs(**groups: Any) -> dict[str, Any]:
+    """Return the cleopatra render-group kwargs that were actually set (not ``None``).
+
+    Shared by the ``.plot`` facades: they expose the cleopatra render groups
+    (``color`` / ``contour`` / ``cells`` / ``data_style`` / ``classify``) as explicit
+    typed params and fold the set ones into the kwargs forwarded to the render backend.
+    Dropping the unset (``None``) groups keeps them off the render call, so an untouched
+    group never overrides the backend default and an explicitly-set one is routed straight
+    through (winning over the loose-kwarg translation — see :func:`render_array`).
+
+    Args:
+        **groups: Candidate group objects keyed by their cleopatra render-method
+            parameter name (``color`` / ``contour`` / ``cells`` / ``data_style`` /
+            ``classify``).
+
+    Returns:
+        A dict of only the groups whose value is not ``None``.
+    """
+    return {name: value for name, value in groups.items() if value is not None}
 
 
 def render_array(
@@ -743,8 +766,12 @@ def render_array(
     # The cleopatra group objects translated from pyramids' loose kwargs
     # (``color`` / ``contour`` / ``cells`` / ``data_style``) are render-method params on
     # ``plot`` / ``animate`` / ``facet``, not constructor options, so fold them into the
-    # render bucket (the animate merge below then picks them up too).
-    render_kwargs.update(group_specs)
+    # render bucket (the animate merge below then picks them up too). ``setdefault`` — not
+    # ``update`` — so an explicitly-passed group object (already routed to render_kwargs by
+    # the split above, e.g. ``color=ColorScaling(...)``) wins over the one built from the
+    # loose kwargs; the loose translation only fills a group the caller did not set.
+    for _spec_key, _spec_val in group_specs.items():
+        render_kwargs.setdefault(_spec_key, _spec_val)
     # The ``"animate"`` path only flows kwargs into ``cleo.animate(...)``,
     # not the constructor — keys like ``interval`` are valid for animate
     # but not in cleopatra's ``DEFAULT_OPTIONS`` and would trigger an
