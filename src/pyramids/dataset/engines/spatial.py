@@ -1615,10 +1615,13 @@ class Spatial(_Engine["Dataset"]):
         source and rebuilds the geotransform, so a small crop out of a very large
         remote raster never triggers a full read.
 
-        The result is byte-identical to the cutline-warp path: for an axis-aligned
-        box in the source CRS the cells the box touches are exactly
-        ``floor``/``ceil`` of the box edges in pixel space — the same window the
-        warp keeps — and the windowed read is passed through the identical
+        Semantics: the crop keeps **every pixel the box overlaps** — the cells from
+        ``floor`` of the west/north edges to ``ceil`` of the east/south edges in
+        pixel space — the same all-touched convention :meth:`Dataset.read_array`
+        uses for its ``bbox=`` argument. The ``bbox=`` crop's warp fallback
+        (reprojection / rotated grids) is run with an all-touched cutline so it
+        keeps the same cells; only a user-supplied polygon ``mask=`` keeps GDAL's
+        centre-containment default. The windowed read is passed through the same
         :meth:`_correct_wrap_cutline_error` trim, so an all-no-data crop raises the
         same "no valid pixels" error and interior all-no-data rows/cols drop the
         same way.
@@ -1690,7 +1693,10 @@ class Spatial(_Engine["Dataset"]):
         return Spatial._correct_wrap_cutline_error(dst)
 
     def _crop_with_polygon_warp(
-        self, feature: FeatureCollection | GeoDataFrame, touch: bool = True
+        self,
+        feature: FeatureCollection | GeoDataFrame,
+        touch: bool = True,
+        cutline_all_touched: bool = False,
     ) -> Dataset:
         """Crop raster with polygon.
 
@@ -1702,6 +1708,11 @@ class Spatial(_Engine["Dataset"]):
                 Vector mask.
             touch (bool):
                 Include cells that touch the polygon, not only those entirely inside the polygon mask. Defaults to True.
+            cutline_all_touched (bool):
+                Rasterize the cutline with `CUTLINE_ALL_TOUCHED=TRUE`, keeping every cell the cutline overlaps
+                rather than only cells whose centre it contains. Set by the `bbox=` crop so its reprojection /
+                rotated-grid fallback matches the windowed fast path's overlap semantics. Defaults to False (the
+                GDAL centre-containment default) for a user-supplied polygon mask. Ignored when `touch` is False.
 
         Returns:
             Dataset:
@@ -1749,6 +1760,9 @@ class Spatial(_Engine["Dataset"]):
                 outputBounds=window,
                 xRes=abs(gt[1]) if gt else None,
                 yRes=abs(gt[5]) if gt else None,
+                warpOptions=(
+                    ["CUTLINE_ALL_TOUCHED=TRUE"] if touch and cutline_all_touched else None
+                ),
             )
             # base_cls is a dynamic MRO walk that always resolves to Dataset itself
             # (the class directly above RasterBase; see the comment above), never a
@@ -1983,14 +1997,17 @@ class Spatial(_Engine["Dataset"]):
             - If the mask is a dataset with multi-bands, the `crop` method will use the first band as the mask.
 
         Note:
-            A ``bbox`` that is axis-aligned in the dataset's own CRS (no ``epsg``
-            reprojection, no antimeridian split, a north-up grid, ``touch=True``) is
-            cropped by reading only that pixel window straight from the source, rather
-            than warping a cutline over the whole raster. A small crop out of a very
-            large or ``/vsicurl`` raster therefore reads only the AOI instead of the
-            full source; the result is identical to the cutline path. Any case that is
-            not eligible (a reprojecting bbox, a rotated grid, ``touch=False``) falls
-            back to the cutline warp unchanged.
+            A ``bbox`` crop keeps **every pixel the box overlaps** (the all-touched
+            convention :meth:`read_array` uses for ``bbox=``), which for a box not
+            aligned to pixel edges can be up to one pixel wider per side than a
+            polygon ``mask=`` crop (GDAL's centre-containment default). When the box
+            is axis-aligned in the dataset's own CRS (no ``epsg`` reprojection, no
+            antimeridian split, a north-up grid, ``touch=True``) it is cropped by
+            reading only that pixel window straight from the source, so a small crop
+            out of a very large or ``/vsicurl`` raster reads only the AOI instead of
+            the full source. Ineligible cases (a reprojecting bbox, a rotated grid)
+            fall back to the cutline warp, run all-touched so the result matches the
+            windowed path; ``touch=False`` keeps the entirely-inside cutline crop.
 
         Examples:
             - Crop the raster using a polygon mask.
@@ -2130,6 +2147,7 @@ class Spatial(_Engine["Dataset"]):
               ```
 
         """
+        bbox_mask = False
         if bbox is not None:
             if mask is not None:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
@@ -2163,13 +2181,19 @@ class Spatial(_Engine["Dataset"]):
                 if windowed is not None:
                     return windowed
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
+            bbox_mask = True
         if mask is None:
             raise TypeError(
                 "crop requires a `mask` (GeoDataFrame / FeatureCollection / "
                 "Dataset) or a `bbox` (west, south, east, north) tuple"
             )
         if isinstance(mask, GeoDataFrame):
-            dst = self._crop_with_polygon_warp(mask, touch=touch)
+            # A bbox that fell through the fast path (reprojection / rotated grid) still
+            # crops by overlap, so its warp uses the all-touched cutline to match the fast
+            # path; a user-supplied polygon mask keeps GDAL's centre-containment default.
+            dst = self._crop_with_polygon_warp(
+                mask, touch=touch, cutline_all_touched=bbox_mask
+            )
         elif isinstance(mask, RasterBase):
             dst = self._crop_with_raster(mask)
         else:
