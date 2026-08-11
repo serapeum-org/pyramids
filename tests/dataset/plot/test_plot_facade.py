@@ -85,14 +85,13 @@ class TestDatasetPlotFacade:
         """Legacy integer ``color_scale`` codes raise a clear ``ValueError``.
 
         Args:
-            color_scale: A legacy integer code that older releases
-                accepted but cleopatra's ``ColorScale`` enum rejects.
+            color_scale: A legacy integer code that older releases accepted.
 
         Test scenario:
-            cleopatra now validates ``color_scale`` against the
-            ``ColorScale`` StrEnum and raises ``ValueError`` for anything
-            that is not one of the documented aliases (or a ``ColorScale``
-            member). Confirm pyramids surfaces that error unchanged.
+            cleopatra 0.30 moved the colour scale onto the ``color=ColorScaling`` group
+            and rejects the loose ``color_scale`` *key* regardless of its value (an
+            integer code, a string alias, or anything else), so pyramids surfaces that
+            ``ValueError`` unchanged.
         """
         rng = np.random.default_rng(7)
         arr = rng.random((5, 5)).astype("float32")

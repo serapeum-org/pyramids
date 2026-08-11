@@ -141,12 +141,13 @@ class TestPlotDataSet:
 
     @pytest.mark.plot
     def test_invalid_color_scale_raises(self, src: Dataset):
-        """An unsupported ``color_scale`` fails fast with a clear message.
+        """A loose ``color_scale`` kwarg is rejected with a clear ``ValueError``.
 
         Test scenario:
-            ``color_scale="bogus"`` is rejected before any rendering work,
-            with a pyramids-side ``ValueError`` that names the offending
-            value (and lists the valid options).
+            cleopatra 0.30 moved the colour scale onto the ``color=ColorScaling`` group
+            and rejects the ``color_scale`` *key* itself (regardless of value), so
+            ``color_scale="bogus"`` raises a ``ValueError`` naming ``color_scale``, which
+            pyramids surfaces unchanged.
         """
         dataset = Dataset(src)
         with pytest.raises(ValueError, match=r"color_scale"):
@@ -585,7 +586,7 @@ class TestPlotDatasetCollection:
 
     @pytest.mark.plot
     def test_rgb_options_unknown_key_raises(self, tmp_path):
-        """An unknown `rgb_options` key raises (delegated to `_merge_rgb_options`)."""
+        """An unknown `rgb_options` key raises (delegated to `_unpack_rgb_options`)."""
         cube = self._rgb_cube(tmp_path, n_times=2)
         with pytest.raises(ValueError, match=r"Unknown keys in `rgb_options`"):
             cube.plot(rgb_options={"bogus": 1})
