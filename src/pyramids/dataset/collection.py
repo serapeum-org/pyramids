@@ -1641,10 +1641,18 @@ class DatasetCollection:
         with open_streaming_multidim_netcdf(
             path, dims, coords, var_specs, root_attrs
         ) as writer:
+            expected = (band_count, dims["y"], dims["x"])
             for t, ds in enumerate(self.datasets):
                 block = np.asarray(ds.read_array()).astype(var_dtype, copy=False)
                 if block.ndim == 2:
                     block = block[np.newaxis, :, :]
+                if block.shape != expected:
+                    where = self.files[t] if self.files else f"timestep {t}"
+                    raise AlignmentError(
+                        f"to_netcdf: {where} has shape {block.shape}, but the "
+                        f"collection template is {expected} (band, rows, cols); "
+                        f"every timestep must share the base grid and band count."
+                    )
                 if var_per_band:
                     for i in range(band_count):
                         writer.write_slab(names[i], t, block[i])

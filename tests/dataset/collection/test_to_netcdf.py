@@ -21,6 +21,7 @@ import pandas as pd
 import pytest
 from osgeo import gdal
 
+from pyramids.base._errors import AlignmentError
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.netcdf import NetCDF
 from tests.dataset.collection._helpers import (
@@ -767,6 +768,34 @@ class TestToNetcdfStreaming:
             np.testing.assert_array_equal(
                 values[t], arrays[t], err_msg=f"timestep {t} mismatch"
             )
+
+    def test_mismatched_timestep_shape_raises_alignment_error(self, tmp_path):
+        """A timestep whose grid differs from the template raises AlignmentError.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            A 4x5 template followed by a 3x3 raster (``from_files`` does not
+            validate headers by default) — expected: a clear AlignmentError
+            naming the offending file, and no partial file left on disk.
+        """
+        paths = []
+        for t, shape in enumerate([(4, 5), (3, 3)]):
+            p = str(tmp_path / f"h_{t}.tif")
+            Dataset.create_from_array(
+                np.zeros(shape, dtype="int16"),
+                top_left_corner=(0, 0),
+                cell_size=0.05,
+                epsg=4326,
+                path=p,
+            ).close()
+            paths.append(p)
+        col = DatasetCollection.from_files(paths)
+        out = tmp_path / "bad.nc"
+        with pytest.raises(AlignmentError, match="must share the base grid"):
+            col.to_netcdf(str(out))
+        assert not out.exists(), "a mismatched timestep must leave no partial file"
 
 
 class TestToNetcdfRoundTrip:
