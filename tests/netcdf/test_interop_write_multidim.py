@@ -105,6 +105,24 @@ def _root_attrs(path: str) -> dict:
     return {a.GetName(): a.Read() for a in _root(path).GetAttributes()}
 
 
+def _stream_one_slab_then_raise(path, dims, coords, var_specs) -> None:
+    """Enter the streaming writer, write one slab, then raise mid-stream.
+
+    Args:
+        path: Output ``.nc`` path.
+        dims: Dimension name to length.
+        coords: Coordinate spec.
+        var_specs: Variable spec.
+
+    Raises:
+        RuntimeError: Always, after one slab is written, to exercise the
+            mid-stream cleanup path with a single throwing call at the call site.
+    """
+    with open_streaming_multidim_netcdf(path, dims, coords, var_specs, {}) as writer:
+        writer.write_slab("v", 0, np.array([[1]], dtype="int16"))
+        raise RuntimeError("boom")
+
+
 class TestWriteMultidimNetcdf:
     """Tests for :func:`write_multidim_netcdf`."""
 
@@ -524,11 +542,7 @@ class TestOpenStreamingMultidimNetcdf:
         }
         var_specs = {"v": (("time", "y", "x"), np.dtype("int16"), {})}
         with pytest.raises(RuntimeError, match="boom"):
-            with open_streaming_multidim_netcdf(
-                out, dims, coords, var_specs, {}
-            ) as writer:
-                writer.write_slab("v", 0, np.array([[1]], dtype="int16"))
-                raise RuntimeError("boom")
+            _stream_one_slab_then_raise(out, dims, coords, var_specs)
         assert not out.exists(), "a mid-stream error must leave no partial file"
 
 
