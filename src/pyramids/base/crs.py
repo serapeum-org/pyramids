@@ -791,14 +791,13 @@ def crs_spec(epsg: int | None, wkt: str | None) -> int | str | None:
         require_crs_spec: The variant that raises when there is no CRS.
     """
     result: int | str | None = None
+    # `not wkt` keeps the code when there is no WKT to fall back to: half a
+    # specification beats none, and the caller can still route it through
+    # `crs_from_user_input`, which heals it.
     if epsg is not None and (not wkt or _pyproj_can_resolve_epsg(epsg)):
         result = epsg
     elif wkt:
         result = wkt
-    elif epsg is not None:
-        # No WKT to fall back to. Returning the code beats returning nothing: the
-        # caller may still route it through `crs_from_user_input`, which can heal it.
-        result = epsg
     return result
 
 

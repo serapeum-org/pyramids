@@ -10,16 +10,21 @@ from osgeo import gdal, osr
 from pyproj import CRS, Transformer
 from pyproj.exceptions import CRSError as PyprojCRSError
 
+import pyramids.base.crs as crs_module
 from pyramids.base._errors import CRSError
+from pyramids.base._raster_meta import RasterMeta
 from pyramids.base.crs import (
+    _integer_code,
+    _pyproj_can_resolve_epsg,
     crs_from_user_input,
+    crs_spec,
     epsg_from_user_input,
     epsg_from_wkt,
     get_epsg_from_prj,
     reproject_coordinates,
+    sr_from_epsg,
     sr_from_user_input,
 )
-from pyramids.base._raster_meta import RasterMeta
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
@@ -680,3 +685,213 @@ class TestProjDatabaseSkew:
             # still has an open dataset leaves GDAL holding a freed file.
             dataset = None
             gdal.Unlink(path)
+
+
+class TestPyprojCanResolveEpsg:
+    """Tests for the cached probe behind `crs_spec`'s code-vs-WKT choice."""
+
+    def test_true_for_a_code_pyproj_carries(self):
+        """A code in pyproj's own database is resolvable.
+
+        Test scenario:
+            EPSG:4326 is in every PROJ database, so the probe must say yes.
+        """
+        assert _pyproj_can_resolve_epsg(4326) is True
+
+    def test_false_for_a_code_pyproj_lacks(self, skew_code):
+        """A code only GDAL carries is not resolvable by pyproj.
+
+        Test scenario:
+            This is the condition that makes `crs_spec` prefer the WKT.
+        """
+        assert _pyproj_can_resolve_epsg(skew_code) is False
+
+    def test_false_for_a_nonexistent_code(self):
+        """A code no database carries is not resolvable.
+
+        Test scenario:
+            The probe must answer rather than propagate pyproj's exception.
+        """
+        assert _pyproj_can_resolve_epsg(999_999) is False
+
+
+class TestCrsSpecResolvability:
+    """`crs_spec` must return a specification downstream libraries can consume."""
+
+    def test_prefers_a_resolvable_code_over_the_wkt(self):
+        """An ordinary code is still preferred, so nothing changes for normal CRSes.
+
+        Test scenario:
+            EPSG:4326 resolves everywhere, so the int wins over the WKT.
+        """
+        wkt = sr_from_epsg(4326).ExportToWkt()
+        assert crs_spec(4326, wkt) == 4326
+
+    def test_falls_back_to_the_wkt_for_an_unresolvable_code(self, skew_code):
+        """A code pyproj cannot look up yields the WKT instead.
+
+        Test scenario:
+            Returning the code would hand every consumer a specification that
+            raises; the WKT describes the same CRS and parses everywhere.
+        """
+        wkt = sr_from_epsg(skew_code).ExportToWkt()
+        assert crs_spec(skew_code, wkt) == wkt
+
+    def test_returns_the_code_when_there_is_no_wkt_to_fall_back_to(self, skew_code):
+        """With no WKT available the code is returned anyway.
+
+        Test scenario:
+            Half a specification beats none: the caller can still route it through
+            `crs_from_user_input`, which heals it.
+        """
+        assert crs_spec(skew_code, "") == skew_code
+        assert crs_spec(skew_code, None) == skew_code
+
+    def test_no_crs_at_all_is_none(self):
+        """Absence is still reported as `None`, not an empty string.
+
+        Test scenario:
+            The pre-existing contract must survive the resolvability change.
+        """
+        assert crs_spec(None, "") is None
+
+
+class TestIntegerCode:
+    """Tests for the NumPy-aware integer-code helper."""
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (4326, 4326),
+            (np.int64(4326), 4326),
+            (np.int32(4326), 4326),
+            (True, None),
+            (False, None),
+            ("4326", None),
+            (4326.0, None),
+            (None, None),
+        ],
+    )
+    def test_recognises_integers_but_not_bools_or_text(self, value, expected):
+        """Integral values become plain ints; bools and non-integers do not.
+
+        Args:
+            value: The candidate specification.
+            expected: The code it should reduce to, or None.
+
+        Test scenario:
+            NumPy scalars must count (they arrive from arrays and raster metadata),
+            while `True` must never become EPSG:1.
+        """
+        assert _integer_code(value) == expected
+
+    def test_returns_a_plain_python_int(self):
+        """A NumPy scalar is converted, not passed through.
+
+        Test scenario:
+            Downstream string formatting (`f"EPSG:{code}"`) must not embed a NumPy
+            repr, so the helper returns a built-in `int`.
+        """
+        assert type(_integer_code(np.int64(4326))) is int
+
+
+class TestRescueDefensiveBranches:
+    """The rescue path's failure branches must degrade, never escape."""
+
+    def test_returns_none_when_pyproj_rejects_gdals_wkt(self, monkeypatch, skew_code):
+        """A WKT that GDAL exports but pyproj refuses yields `None`, not a crash.
+
+        Test scenario:
+            Forcing `CRS.from_wkt` to raise simulates an export pyproj cannot read;
+            the caller then reports the original pyproj failure instead.
+        """
+
+        def _reject(*_args, **_kwargs):
+            raise PyprojCRSError("simulated rejection")
+
+        monkeypatch.setattr(crs_module.CRS, "from_wkt", staticmethod(_reject))
+        assert crs_module._pyproj_crs_via_gdal(skew_code) is None
+
+    def test_epsg_via_gdal_survives_an_authority_lookup_failure(self, monkeypatch):
+        """A `RuntimeError` reading the authority yields `None`.
+
+        Test scenario:
+            GDAL's accessors raise under `UseExceptions`; the helper must answer
+            `None` rather than propagate.
+        """
+
+        def _boom(self, _target):
+            raise RuntimeError("simulated GDAL failure")
+
+        monkeypatch.setattr(osr.SpatialReference, "GetAuthorityName", _boom)
+        assert crs_module._epsg_via_gdal("EPSG:4326") is None
+
+    def test_epsg_matches_definition_is_false_for_an_unbuildable_code(self):
+        """A code that cannot be built cannot be shown to match.
+
+        Test scenario:
+            `_epsg_matches_definition` must answer False rather than let
+            `sr_from_epsg`'s failure escape.
+        """
+        srs = sr_from_epsg(4326)
+        assert crs_module._epsg_matches_definition(999_999, srs) is False
+
+    def test_gdal_parse_failure_returns_none(self):
+        """Text GDAL cannot read yields `None` from the shared parse primitive.
+
+        Test scenario:
+            Covers the non-zero-return / raise path of `SetFromUserInput`.
+        """
+        assert crs_module._gdal_srs_from_user_input("definitely-not-a-crs") is None
+        assert crs_module._gdal_srs_from_user_input(object()) is None
+
+    def test_non_zero_return_from_gdal_is_treated_as_failure(self, monkeypatch):
+        """A non-zero `SetFromUserInput` return yields `None`, not a half-built SRS.
+
+        Test scenario:
+            pyramids installs `gdal.UseExceptions()`, so GDAL normally raises rather
+            than returning a code — this pins the safety net for a caller that has
+            disabled exceptions, where ignoring the return would hand back an empty
+            spatial reference that silently claims to be a CRS.
+        """
+        monkeypatch.setattr(
+            osr.SpatialReference, "SetFromUserInput", lambda self, *_a, **_k: 1
+        )
+        assert crs_module._gdal_srs_from_user_input("EPSG:4326") is None
+
+
+class TestReprojectCoordinatesCrsErrors:
+    """`reproject_coordinates` wraps CRS-parsing failures in pyramids' CRSError."""
+
+    def test_unparseable_source_crs_raises_crs_error(self):
+        """A source CRS that names nothing raises `CRSError` naming both CRSes.
+
+        Test scenario:
+            The wrapper exists so callers need not import pyproj to catch a bad-CRS
+            failure; the message must identify which pair failed.
+        """
+        with pytest.raises(CRSError, match="reproject_coordinates failed to parse CRS"):
+            reproject_coordinates([1.0], [1.0], from_crs="not-a-crs", to_crs=4326)
+
+    def test_unparseable_target_crs_raises_crs_error(self):
+        """The same applies to the target CRS.
+
+        Test scenario:
+            Both ends go through the healing helper, so both must surface the same
+            wrapped error rather than a raw pyproj exception.
+        """
+        with pytest.raises(CRSError, match="reproject_coordinates failed to parse CRS"):
+            reproject_coordinates([1.0], [1.0], from_crs=4326, to_crs="not-a-crs")
+
+    def test_a_code_only_gdal_knows_still_transforms(self, skew_code):
+        """A GDAL-only code builds a transformer instead of raising.
+
+        Test scenario:
+            This is the `reproject_coordinates` half of issue #943.
+        """
+        xs, ys = reproject_coordinates(
+            [5_000_000.0], [10_000_000.0], from_crs=skew_code, to_crs=4326
+        )
+        assert np.isfinite([xs[0], ys[0]]).all(), (
+            f"expected finite lon/lat, got ({xs[0]}, {ys[0]})"
+        )
