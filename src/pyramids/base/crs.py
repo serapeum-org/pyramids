@@ -965,6 +965,13 @@ def epsg_from_wkt(wkt: str | None, default: int = 4326) -> int:
     EPSG authority — e.g. a spherical-earth GRIB GEOGCS); otherwise
     delegates to :func:`get_epsg_from_prj`.
 
+    A CRS whose authority is not EPSG — Robinson is `ESRI:54030` — resolves to no
+    EPSG code at all (issue #965), so it takes the `default` here just as an empty
+    projection does. That is this function's contract, but it means the default can
+    stand in for a real, named projection rather than only for a missing one. When
+    that distinction matters, use :func:`epsg_of_crs`, which reports `None`, and read
+    the CRS itself from `.crs`.
+
     Use this in places where an empty projection should be treated as
     a soft "unknown CRS, assume WGS84" rather than a hard error — for
     example the `Dataset.epsg` property on a freshly-built
