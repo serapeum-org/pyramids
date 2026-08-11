@@ -44,6 +44,7 @@ from pyramids.base._errors import (
     CRSError,
     InvalidGeometryError,
 )
+from pyramids.base.crs import crs_from_user_input
 from pyramids.feature import _analysis, _plot, _read, _write
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
@@ -119,6 +120,12 @@ class FeatureCollection(GeoDataFrame):
                 "detail. Use FeatureCollection.read_file(path) to load a "
                 "file, or pass a GeoDataFrame."
             )
+        # geopandas resolves `crs` with pyproj, whose PROJ database is often older
+        # than GDAL's; an EPSG code pyramids itself produced can therefore be one
+        # geopandas cannot look up (issue #943). Resolve it here, where the healed
+        # CRS object needs no further lookup.
+        if kwargs.get("crs") is not None:
+            kwargs["crs"] = crs_from_user_input(kwargs["crs"])
         super().__init__(data, *args, **kwargs)
 
     def __enter__(self) -> FeatureCollection:

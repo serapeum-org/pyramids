@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import uuid
+
 import numpy as np
 import pytest
 from osgeo import gdal, osr
 from pyproj import CRS, Transformer
+from pyproj.exceptions import CRSError as PyprojCRSError
 
 from pyramids.base._errors import CRSError
 from pyramids.base.crs import (
@@ -412,7 +415,7 @@ def skew_code() -> int:
             continue
         try:
             CRS.from_epsg(code)
-        except Exception:
+        except PyprojCRSError:
             found = code
             break
     if found is None:
@@ -438,7 +441,7 @@ class TestProjDatabaseSkew:
             Bare `pyproj.CRS.from_epsg` fails on the code while GDAL builds it
             happily. Without this the rest of the class could pass vacuously.
         """
-        with pytest.raises(Exception):
+        with pytest.raises(PyprojCRSError):
             CRS.from_epsg(skew_code)
         srs = osr.SpatialReference()
         srs.ImportFromEPSG(skew_code)
@@ -516,8 +519,11 @@ class TestProjDatabaseSkew:
             run — otherwise the fix would quietly change the meaning of every
             deprecated code that works today.
         """
+        # Assert the precondition through the same entry point the code under test
+        # uses (`SetFromUserInput`), not `ImportFromEPSG` -- otherwise the guard can
+        # hold while the path that matters behaves differently.
         srs = osr.SpatialReference()
-        srs.ImportFromEPSG(_DEPRECATED_CODE)
+        srs.SetFromUserInput(f"EPSG:{_DEPRECATED_CODE}")
         assert srs.GetAuthorityCode(None) == str(_DEPRECATED_REPLACEMENT), (
             "precondition: GDAL must actually substitute the replacement code"
         )
@@ -568,15 +574,41 @@ class TestProjDatabaseSkew:
         """
         srs = osr.SpatialReference()
         srs.ImportFromEPSG(skew_code)
-        path = f"/vsimem/proj_db_skew_{skew_code}.tif"
-        raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 1, gdal.GDT_Float32)
+        area = srs.GetAreaOfUse()
+        if area is None:
+            pytest.skip(f"EPSG:{skew_code} declares no area of use to place a raster in")
+        # Place the raster on the projection's own origin (its false easting /
+        # northing), which is the one point guaranteed to be well inside the
+        # projection's valid domain. Deriving it from the area of use instead can
+        # land on a latitude the projection rejects, and GDAL's cutline transform
+        # then fails for reasons that have nothing to do with the CRS lookup.
+        centre_x = srs.GetProjParm("false_easting")
+        centre_y = srs.GetProjParm("false_northing")
+        if not (centre_x and centre_y):
+            pytest.skip(
+                f"EPSG:{skew_code} has no false easting/northing to anchor a raster on"
+            )
+
+        size, pixel = 64, 1000.0
+        # `uuid` rather than the code alone: a fixed /vsimem path collides when the
+        # suite runs distributed (`pytest -n`), where two workers share the process's
+        # virtual filesystem namespace.
+        path = f"/vsimem/proj_db_skew_{skew_code}_{uuid.uuid4().hex}.tif"
+        raster = gdal.GetDriverByName("GTiff").Create(path, size, size, 1, gdal.GDT_Float32)
         try:
             raster.SetProjection(srs.ExportToWkt())
             raster.SetGeoTransform(
-                [5_000_000.0, 1000.0, 0.0, 10_000_000.0, 0.0, -1000.0]
+                [
+                    centre_x - (size / 2) * pixel,
+                    pixel,
+                    0.0,
+                    centre_y + (size / 2) * pixel,
+                    0.0,
+                    -pixel,
+                ]
             )
             raster.GetRasterBand(1).WriteArray(
-                np.arange(64 * 64, dtype="float32").reshape(64, 64)
+                np.arange(size * size, dtype="float32").reshape(size, size)
             )
             raster.FlushCache()
             raster = None
@@ -585,10 +617,42 @@ class TestProjDatabaseSkew:
             assert dataset.epsg == skew_code, (
                 f"the raster should report EPSG:{skew_code}, got {dataset.epsg}"
             )
-            cropped = dataset.crop(
-                bbox=[-46.8, -23.7, -46.3, -23.2], epsg=4326, touch=True
+            # Derive the crop window from the raster's own extent rather than naming
+            # fixed coordinates: a bbox that misses the raster still "succeeds", so a
+            # fixed one would pass just as well if crop silently returned nothing.
+            # The bbox is given in the raster's own CRS, which is itself the code
+            # pyproj cannot resolve -- so this exercises the `epsg=<skew code>` path
+            # through FeatureCollection as well as the raster's own CRS.
+            # Derive the window from the raster's own extent rather than naming fixed
+            # degrees: a bbox that misses the raster would "succeed" just as well.
+            min_x, min_y, max_x, max_y = dataset.bounds.total_bounds
+            (west, east), (south, north) = reproject_coordinates(
+                [min_x, max_x],
+                [min_y, max_y],
+                from_crs=skew_code,
+                to_crs=4326,
+                precision=None,
             )
-            assert cropped.shape[0] >= 1, "crop must return a raster, not raise"
+            cropped = dataset.crop(
+                bbox=[west, south, east, north], epsg=4326, touch=True
+            )
+            # What #943 broke was reaching this line at all -- the call raised before
+            # returning anything. Assert the result is a real, georeferenced raster in
+            # the original CRS, on the spatial axes (`shape[0]` is the band count and
+            # would be 1 whatever crop returned).
+            _, rows, cols = cropped.shape
+            assert rows > 0 and cols > 0, (
+                f"crop must return a non-empty raster, got {rows}x{cols}"
+            )
+            assert cropped.epsg == skew_code, (
+                f"the crop should stay in EPSG:{skew_code}, got {cropped.epsg}"
+            )
+            assert np.isfinite(cropped.bounds.total_bounds).all(), (
+                "the cropped raster should carry a finite, georeferenced extent"
+            )
         finally:
             raster = None
+            # Only after every handle above is dropped: unlinking a /vsimem path that
+            # still has an open dataset leaves GDAL holding a freed file.
+            dataset = None
             gdal.Unlink(path)
