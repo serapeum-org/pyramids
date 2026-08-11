@@ -7342,7 +7342,7 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/tmp/ipykernel_3280/942131265.py:1: UserWarning: reduce() dropped auxiliary variable(s) ['time_bnds'] that span the reduced dimension 'time'; carrying them unchanged would leave an inconsistent 'time' length in the result.
+<pre>/tmp/ipykernel_3452/942131265.py:1: UserWarning: reduce() dropped auxiliary variable(s) ['time_bnds'] that span the reduced dimension 'time'; carrying them unchanged would leave an inconsistent 'time' length in the result.
   time_mean = nc.reduce('time', how='mean')
 </pre>
 </div>
@@ -7572,8 +7572,8 @@ glyph.add_features("coastline", "50m", zorder=5)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13418: RuntimeWarning: the input vector layer has a SRS, but the source raster dataset does not. Cutline results may be incorrect.
-  return _gdal.wrapper_GDALWarpDestName(*args)
+<pre>Warning 1: the input vector layer has a SRS, but the source raster dataset does not.
+Cutline results may be incorrect.
 </pre>
 </div>
 </div>
@@ -7887,8 +7887,7 @@ print(meta)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:8299: RuntimeWarning: Cannot find variable corresponding to coordinate height
-  return _gdal.MDArray_GetCoordinateVariables(self, *args)
+<pre>Warning 1: Cannot find variable corresponding to coordinate height
 </pre>
 </div>
 </div>
