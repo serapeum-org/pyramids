@@ -265,6 +265,98 @@ class TestDatasetCropBbox:
             ds.crop(bbox=(6.0, 0.0, 9.0, 4.0))  # bottom-right: all no-data
 
 
+class TestWindowedBboxCropFastPath:
+    """#957: an axis-aligned same-CRS bbox crop reads only its window, not the whole source."""
+
+    def test_windowed_crop_avoids_the_full_source_warp(self, dataset, small_bbox, mocker):
+        """A same-CRS bbox crop never calls the cutline warp.
+
+        Test scenario:
+            Patch ``warp_to_dataset`` to blow up if reached, then crop a bbox in the
+            dataset's own CRS — the windowed fast path must satisfy it without the
+            warp, proving no full-source warp is issued.
+        """
+        boom = mocker.patch(
+            "pyramids.dataset.engines.spatial.warp_to_dataset",
+            side_effect=AssertionError("warp path should not run for a same-CRS bbox"),
+        )
+        out = dataset.crop(bbox=small_bbox)
+        assert out.shape == (1, 2, 2), f"unexpected crop shape {out.shape}"
+        assert boom.call_count == 0, "the cutline warp was invoked for a same-CRS bbox"
+
+    def test_windowed_crop_reads_only_the_aoi_window(self, dataset, small_bbox, mocker):
+        """The crop issues a bounded windowed read of just the AOI, never a full read.
+
+        Test scenario:
+            Spy on ``Dataset.read_array``; the crop of a 2×2 bbox must read with the
+            resolved ``[xoff, yoff, xsize, ysize]`` window (here ``[2, 2, 2, 2]``) and
+            never a windowless (full-source) read. This bounded read is what makes a
+            ``/vsicurl`` crop range-read only the AOI.
+        """
+        spy = mocker.spy(Dataset, "read_array")
+        dataset.crop(bbox=small_bbox)
+        # Spying the unbound method, a[0] is the receiver: keep only reads of the
+        # source raster (later windowless reads land on the tiny derived crop, which
+        # is fine — the point is the *source* is never read in full).
+        source_windows = [
+            kw.get("window", (a[1] if len(a) > 1 else None))
+            for a, kw in spy.call_args_list
+            if a and a[0] is dataset
+        ]
+        assert source_windows == [[2, 2, 2, 2]], (
+            f"source must be read once, windowed to the AOI; saw {source_windows}"
+        )
+
+    def test_windowed_crop_matches_a_direct_windowed_read(self, dataset, small_bbox):
+        """The crop equals a hand-rolled ``read_array(window=)`` + geotransform.
+
+        Test scenario:
+            The old hand-rolled recipe (``read_array(window=[2, 2, 2, 2])`` plus origin
+            math) must equal ``crop(bbox=...)`` in both pixels and geotransform — the
+            exact consolidation #957 asks for.
+        """
+        cropped = dataset.crop(bbox=small_bbox)
+        gt = dataset.geotransform
+        window_array = dataset.read_array(window=[2, 2, 2, 2])
+        assert np.array_equal(cropped.read_array(), window_array), (
+            "crop pixels differ from the direct windowed read"
+        )
+        expected_gt = (gt[0] + 2 * gt[1], gt[1], 0.0, gt[3] + 2 * gt[5], 0.0, gt[5])
+        assert cropped.geotransform == expected_gt, (
+            f"crop geotransform {cropped.geotransform} != expected {expected_gt}"
+        )
+
+    def test_reprojecting_bbox_skips_the_fast_path(self, dataset, small_bbox):
+        """A bbox in a different CRS is not eligible for the windowed fast path.
+
+        Test scenario:
+            ``_crop_bbox_windowed`` must return ``None`` for a bbox declared in
+            EPSG:3857 on a 4326 dataset, so ``crop`` falls back to the reprojecting
+            warp path instead of reading a mis-projected window.
+        """
+        bbox_3857 = _bbox_in_3857(small_bbox)
+        assert dataset.spatial._crop_bbox_windowed(bbox_3857, 3857) is None, (
+            "a different-CRS bbox must fall back to the warp path"
+        )
+
+    def test_rotated_grid_skips_the_fast_path(self, tmp_path):
+        """A rotated (non-north-up) geotransform is not eligible for the fast path.
+
+        Test scenario:
+            Build a dataset whose geotransform carries a rotation term;
+            ``_crop_bbox_windowed`` must return ``None`` so the crop uses the warp
+            path, which handles the rotation correctly.
+        """
+        ds = Dataset.create_from_array(
+            np.arange(100, dtype="int16").reshape(10, 10),
+            geo=(0.0, 0.05, 0.01, 0.0, 0.0, -0.05),  # non-zero row-skew -> rotated
+            epsg=4326,
+        )
+        assert ds.spatial._crop_bbox_windowed((0.1, -0.2, 0.2, -0.1), 4326) is None, (
+            "a rotated grid must fall back to the warp path"
+        )
+
+
 class TestAntimeridianCrop:
     """Tests for crop with a geographic ``west > east`` (antimeridian) bbox."""
 

@@ -509,6 +509,29 @@ class TestHttpCogRead:
         expected = np.arange(256 * 256, dtype=np.float32).reshape(256, 256)
         assert np.array_equal(arr, expected)
 
+    def test_windowed_bbox_crop_over_http_matches_local(self, http_server, http_cog_dir):
+        """#957: a windowed bbox crop over /vsicurl equals the same crop of the local file.
+
+        The 256x256 COG spans x in [0, 0.256], y in [-0.256, 0] at 0.001 deg cells.
+        Cropping a small sub-bbox straight from the /vsicurl URL must return the same
+        shape, geotransform and pixels as cropping the local file — proving the
+        windowed crop reads the AOI correctly over a range-read URL, not just locally.
+        """
+        from pyramids.dataset import Dataset
+
+        bbox = (0.1, -0.11, 0.15, -0.06)  # cols 100:150, rows 60:110
+        remote = Dataset.read_file(f"{http_server}/valid.tif").crop(bbox=bbox)
+        local = Dataset.read_file(str(http_cog_dir / "valid.tif")).crop(bbox=bbox)
+        assert remote.shape == local.shape, (
+            f"remote crop shape {remote.shape} != local {local.shape}"
+        )
+        assert remote.geotransform == local.geotransform, (
+            "remote crop geotransform differs from the local crop"
+        )
+        assert np.array_equal(remote.read_array(), local.read_array()), (
+            "remote crop pixels differ from the local crop"
+        )
+
     def test_read_plain_gtiff_over_http_may_require_range(self, http_server):
         """Plain (stripped) GTiff needs byte-range requests.
 

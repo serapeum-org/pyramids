@@ -1601,6 +1601,94 @@ class Spatial(_Engine["Dataset"]):
                     window = (west, south, east, north)
         return window
 
+    def _crop_bbox_windowed(
+        self,
+        bbox: tuple[float, float, float, float] | list[float],
+        crs: Any,
+    ) -> Dataset | None:
+        """Crop an axis-aligned bbox by reading only its pixel window.
+
+        The default bbox crop wraps the box in a one-row cutline and runs
+        ``gdal.Warp``; over a huge or ``/vsicurl`` source that is far heavier than
+        a plain windowed read (#957). When the crop needs neither reprojection nor
+        antimeridian handling, this reads just the AOI window straight from the
+        source and rebuilds the geotransform, so a small crop out of a very large
+        remote raster never triggers a full read.
+
+        The result is byte-identical to the cutline-warp path: for an axis-aligned
+        box in the source CRS the cells the box touches are exactly
+        ``floor``/``ceil`` of the box edges in pixel space — the same window the
+        warp keeps — and the windowed read is passed through the identical
+        :meth:`_correct_wrap_cutline_error` trim, so an all-no-data crop raises the
+        same "no valid pixels" error and interior all-no-data rows/cols drop the
+        same way.
+
+        Eligibility (returns ``None`` to fall back to the warp path otherwise):
+
+        - the source is north-up (no rotation/shear, ``dx > 0``, ``dy < 0``);
+        - the bbox CRS equals the source CRS, so no reprojection is needed;
+        - the box is a normal ``west < east``, ``south < north`` quadruple that
+          overlaps the source (a transposed or non-overlapping box is left to the
+          warp path, which reports it with a clear error).
+
+        Args:
+            bbox (tuple[float, float, float, float] | list[float]):
+                ``(west, south, east, north)`` in the CRS named by ``crs``.
+            crs (Any):
+                CRS of ``bbox`` — anything :func:`crs_equal` accepts (EPSG code,
+                WKT/authority string).
+
+        Returns:
+            Dataset | None:
+                The windowed crop, or ``None`` when the fast path does not apply.
+        """
+        x0, dx, row_skew, y0, col_skew, dy = self._ds._raster.GetGeoTransform()
+        if row_skew or col_skew or dx <= 0 or dy >= 0:
+            return None
+        source_crs = self._ds.crs
+        if not source_crs or not crs_equal(source_crs, crs):
+            return None
+        west, south, east, north = (float(v) for v in bbox)
+        if not (west < east and south < north):
+            return None
+        columns, rows = self._ds.columns, self._ds.rows
+        # Cells whose extent intersects the box (touch semantics), snapped outward
+        # to whole pixels, then clipped to the source grid.
+        xoff = min(max(math.floor((west - x0) / dx), 0), columns)
+        x_far = min(max(math.ceil((east - x0) / dx), 0), columns)
+        yoff = min(max(math.floor((y0 - north) / -dy), 0), rows)
+        y_far = min(max(math.ceil((y0 - south) / -dy), 0), rows)
+        x_size, y_size = x_far - xoff, y_far - yoff
+        if x_size <= 0 or y_size <= 0:
+            return None
+        array = self._ds.read_array(window=[xoff, yoff, x_size, y_size])
+        new_gt = (x0 + xoff * dx, dx, 0.0, y0 + yoff * dy, 0.0, dy)
+        # Rebuild on the base Dataset class (never a subclass like NetCDF), whose
+        # create_from_array has the plain array->raster behaviour this path needs;
+        # mirrors _crop_with_polygon_warp's base-class walk.
+        base_cls = cast(
+            "type[Dataset]",
+            next(
+                c
+                for c in self._ds.__class__.__mro__
+                if RasterBase in getattr(c, "__bases__", ())
+            ),
+        )
+        dst = cast(
+            "Dataset",
+            base_cls.create_from_array(
+                array, geo=new_gt, no_data_value=self._ds.no_data_value
+            ),
+        )
+        # Preserve the source CRS from its WKT so _correct_wrap_cutline_error carries
+        # it onto the trimmed result (and a custom CRS with no EPSG code survives).
+        if source_crs:
+            dst.crs = source_crs
+        # Same trim the warp path applies with touch=True: drop all-no-data rows/cols
+        # and raise "no valid pixels" when the whole window is no-data. The read above
+        # already covered only the AOI window, so this stays off the full source.
+        return Spatial._correct_wrap_cutline_error(dst)
+
     def _crop_with_polygon_warp(
         self, feature: FeatureCollection | GeoDataFrame, touch: bool = True
     ) -> Dataset:
@@ -2056,6 +2144,14 @@ class Spatial(_Engine["Dataset"]):
                 bbox_4 = cast(tuple[float, float, float, float], tuple(bbox))
                 _require_antimeridian_seam(self._ds, bbox_4)
                 return self._crop_antimeridian(bbox_4, crs, touch)
+            # Fast path: an axis-aligned box in the source CRS is just a window, so
+            # read only that window instead of warping a cutline over the whole
+            # source (#957). Falls through to the warp path when it does not apply
+            # (reprojection, a rotated grid, or a degenerate/off-grid box).
+            if touch:
+                windowed = self._crop_bbox_windowed(bbox, crs)
+                if windowed is not None:
+                    return windowed
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
         if mask is None:
             raise TypeError(
