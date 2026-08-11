@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import itertools
+import json
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -24,8 +25,10 @@ from contextlib import contextmanager
 import geopandas as gpd
 from geopandas import GeoDataFrame
 from osgeo import gdal, ogr
+from pyproj.exceptions import CRSError as _PyprojCRSError
 
 from pyramids.base._errors import VectorDriverError
+from pyramids.base.crs import crs_from_user_input
 
 # Process-wide monotonic counter guaranteeing `/vsimem/` path uniqueness;
 # see the note in `pyramids._io`. `next()` on an itertools.count is atomic
@@ -239,6 +242,62 @@ def as_vsimem_path(gdf: GeoDataFrame) -> Iterator[str]:
         gdal.Unlink(mem_path)
 
 
+def _source_layer_wkt(ds: ogr.DataSource | gdal.Dataset) -> str:
+    """WKT of the datasource's first layer, or ``""`` when it declares none.
+
+    Args:
+        ds: The datasource being materialized.
+
+    Returns:
+        str: The layer's spatial reference as WKT, or ``""``.
+    """
+    wkt = ""
+    try:
+        layer = ds.GetLayer(0)
+        srs = None if layer is None else layer.GetSpatialRef()
+        wkt = "" if srs is None else srs.ExportToWkt()
+    except (RuntimeError, AttributeError):
+        wkt = ""
+    return wkt
+
+
+def _read_geojson_bytes(data: bytes, ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
+    """Parse GDAL's GeoJSON output, surviving a CRS pyproj cannot look up.
+
+    GDAL names the CRS in the GeoJSON as an authority URN
+    (``urn:ogc:def:crs:EPSG::10857``), and geopandas resolves that URN through pyproj.
+    When the code lives in GDAL's PROJ database but not pyproj's, the read raises
+    before any geometry is returned — so `to_polygons` and `footprint` failed on
+    exactly the rasters issue #943 is about, even though the CRS is fine and GDAL
+    just wrote it.
+
+    The normal path is untouched: parse the bytes as they are. Only when that fails
+    on the CRS is the ``crs`` member dropped and the geometry re-read, with the
+    authoritative WKT taken straight from the source layer and attached afterwards.
+    That fallback costs a JSON round trip, which is why it is not the default.
+
+    Args:
+        data: The GeoJSON bytes GDAL wrote.
+        ds: The source datasource, consulted only for its layer's WKT on the
+            fallback path.
+
+    Returns:
+        GeoDataFrame: The parsed features, carrying the source CRS.
+    """
+    try:
+        gdf = gpd.read_file(io.BytesIO(data))
+    except _PyprojCRSError:
+        wkt = _source_layer_wkt(ds)
+        if not wkt:
+            # Nothing authoritative to substitute, so the original failure stands.
+            raise
+        document = json.loads(bytes(data))
+        document.pop("crs", None)
+        gdf = gpd.read_file(io.BytesIO(json.dumps(document).encode("utf-8")))
+        gdf = gdf.set_crs(crs_from_user_input(wkt), allow_override=True)
+    return gdf
+
+
 def datasource_to_gdf(ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
     """Materialize an OGR `DataSource` into a `GeoDataFrame`.
 
@@ -337,7 +396,7 @@ def datasource_to_gdf(ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
             data = gdal.VSIFReadL(1, size, vsi_file)
         finally:
             gdal.VSIFCloseL(vsi_file)
-        gdf = gpd.read_file(io.BytesIO(data))
+        gdf = _read_geojson_bytes(data, ds)
     finally:
         # Under gdal.UseExceptions(), Unlink on a non-existent path
         # raises RuntimeError and would mask whatever exception we

@@ -685,6 +685,36 @@ def cf_geographic_wkt(units: set[str], axis_units: set[str] | None = None) -> st
     return sr_from_epsg(4326).ExportToWkt() if geographic else ""
 
 
+@lru_cache(maxsize=1024)
+def _pyproj_can_resolve_epsg(epsg: int) -> bool:
+    """Whether pyproj's bundled PROJ database can build this EPSG code.
+
+    The guard behind :func:`crs_spec`'s preference for the code over the WKT. Consumers
+    that resolve a CRS with pyproj — directly, or through geopandas — cannot be reached
+    by :func:`crs_from_user_input`, so the only way to keep them working on a code
+    pyproj does not carry is to not hand them the code in the first place.
+
+    Cached because it is asked on hot paths (`Dataset.bounds`, every
+    `DatasetCollection` member) and the answer is a property of the installed
+    pyproj, fixed for the life of the process.
+
+    Args:
+        epsg: The EPSG code to probe.
+
+    Returns:
+        bool: True when :meth:`pyproj.CRS.from_epsg` succeeds for `epsg`.
+    """
+    try:
+        CRS.from_epsg(epsg)
+        resolvable = True
+    except Exception:
+        # Any failure means "do not hand this code downstream" -- the exact
+        # exception type is pyproj's business, and a broad catch keeps a future
+        # pyproj error type from turning a fallback into a crash.
+        resolvable = False
+    return resolvable
+
+
 def crs_spec(epsg: int | None, wkt: str | None) -> int | str | None:
     """Best usable CRS specification for a dataset, or `None` when it has none.
 
@@ -696,13 +726,26 @@ def crs_spec(epsg: int | None, wkt: str | None) -> int | str | None:
     (producing an ungeoreferenced result) or reject it deliberately via
     :func:`require_crs_spec`.
 
+    The word *usable* is load-bearing, and it is why the EPSG code is not blindly
+    preferred. Most of this function's consumers hand the result to a library that
+    resolves it with **pyproj** — `geopandas.GeoDataFrame.set_crs` is the common one —
+    and pyproj's bundled PROJ database is routinely older than the one GDAL vendors.
+    An EPSG code pyramids obtained from GDAL can therefore be one pyproj cannot look
+    up, and returning it would hand every consumer a specification that raises
+    "crs not found" (issue #943). When that is the case and a WKT is available, the
+    WKT is returned instead: it describes the same CRS, and pyproj parses it happily —
+    only the *catalogue lookup* is missing, never the projection itself. The code is
+    still preferred whenever it works, which is the overwhelming majority of the time
+    and is checked once per code and cached.
+
     Args:
         epsg: EPSG code, or `None` for a CRS that carries no EPSG authority.
         wkt: Projection WKT, or an empty string / `None` when there is no CRS.
 
     Returns:
-        int | str | None: The EPSG code when there is one, else the WKT, else
-        `None`.
+        int | str | None: The EPSG code when there is one and it is resolvable
+        downstream, else the WKT, else the code anyway when there is no WKT to fall
+        back to, else `None`.
 
     Examples:
         - An EPSG code is preferred when present:
@@ -719,6 +762,15 @@ def crs_spec(epsg: int | None, wkt: str | None) -> int | str | None:
             'GEOGCS["custom"]'
 
             ```
+        - A code the downstream CRS library cannot resolve yields the WKT, so the
+          specification stays usable:
+            ```python
+            >>> from pyramids.base.crs import crs_spec, sr_from_epsg
+            >>> wkt = sr_from_epsg(10857).ExportToWkt()  # doctest: +SKIP
+            >>> crs_spec(10857, wkt) is wkt  # doctest: +SKIP
+            True
+
+            ```
         - No CRS at all is reported as `None`, not as an empty string:
             ```python
             >>> from pyramids.base.crs import crs_spec
@@ -731,10 +783,14 @@ def crs_spec(epsg: int | None, wkt: str | None) -> int | str | None:
         require_crs_spec: The variant that raises when there is no CRS.
     """
     result: int | str | None = None
-    if epsg is not None:
+    if epsg is not None and (not wkt or _pyproj_can_resolve_epsg(epsg)):
         result = epsg
     elif wkt:
         result = wkt
+    elif epsg is not None:
+        # No WKT to fall back to. Returning the code beats returning nothing: the
+        # caller may still route it through `crs_from_user_input`, which can heal it.
+        result = epsg
     return result
 
 
