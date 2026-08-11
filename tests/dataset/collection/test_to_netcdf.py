@@ -830,6 +830,24 @@ class TestToNetcdfStreaming:
         assert out.exists(), "existing file must survive a failed overwrite"
         assert out.read_bytes() == original, "existing file was modified"
 
+    def test_no_temp_file_left_after_success(self, tmp_path):
+        """A successful write leaves no temporary sibling file behind.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            After a normal ``to_netcdf`` the atomic temp has been ``os.replace``-d
+            onto the destination — expected: only the ``.nc`` output remains, no
+            leftover ``.tmp`` file.
+        """
+        col, _ = _make_int16_collection(tmp_path, count=2)
+        out = tmp_path / "clean.nc"
+        col.to_netcdf(str(out))
+        assert out.exists(), "output not written"
+        strays = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+        assert not strays, f"stray temp file(s) left: {strays}"
+
     def test_empty_collection_raises_value_error(self, tmp_path):
         """An empty collection (``time_length == 0``) raises a clear ValueError.
 
