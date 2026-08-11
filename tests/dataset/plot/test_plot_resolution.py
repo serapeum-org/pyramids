@@ -461,19 +461,6 @@ class TestResolvePlotBandPolicy:
 class TestRasterBasePlotSignatureContract:
     """M-1 regression: align abstract signature with concrete override."""
 
-    def test_surface_reflectance_default_is_none(self):
-        """``RasterBase.plot.surface_reflectance`` defaults to ``None``.
-
-        Test scenario:
-            Pre-PR-1 the abstract default was ``10000`` (Sentinel
-            reflectance constant). PR-1 changed it to ``None`` to mirror
-            the concrete ``Dataset.plot`` override and avoid a confusing
-            cross-class default mismatch.
-        """
-        sig = inspect.signature(RasterBase.plot)
-        param = sig.parameters["surface_reflectance"]
-        assert param.default is None, f"Expected None default, got {param.default!r}"
-
     def test_band_default_is_none(self):
         """``RasterBase.plot.band`` defaults to ``None``.
 
@@ -485,17 +472,28 @@ class TestRasterBasePlotSignatureContract:
         param = sig.parameters["band"]
         assert param.default is None, f"Expected None default, got {param.default!r}"
 
-    def test_rgb_default_is_none(self):
-        """``RasterBase.plot.rgb`` defaults to ``None``.
+    def test_rgb_options_default_is_none(self):
+        """``RasterBase.plot.rgb_options`` defaults to ``None``.
 
         Test scenario:
-            ``rgb=None`` lets the per-class facade decide whether to
-            apply an RGB heuristic — a concrete default would short-
-            circuit that decision on the abstract layer.
+            The loose ``rgb`` / ``surface_reflectance`` / ``cutoff`` kwargs were dropped
+            from the plot facades in favour of a single grouped ``rgb_options=`` dict; the
+            ABC declares it too, defaulting to ``None`` (no true-colour composite).
         """
         sig = inspect.signature(RasterBase.plot)
-        param = sig.parameters["rgb"]
+        param = sig.parameters["rgb_options"]
         assert param.default is None, f"Expected None default, got {param.default!r}"
+
+    def test_loose_rgb_params_removed_from_signature(self):
+        """The deprecated loose Sentinel kwargs are gone from the ABC signature.
+
+        Test scenario:
+            ``rgb`` / ``surface_reflectance`` / ``cutoff`` must no longer appear as
+            parameters — they are folded into ``rgb_options``.
+        """
+        params = inspect.signature(RasterBase.plot).parameters
+        for name in ("rgb", "surface_reflectance", "cutoff"):
+            assert name not in params, f"{name!r} should have been removed from the ABC"
 
 
 class TestNetCDFPlotPolicy:

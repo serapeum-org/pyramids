@@ -1062,11 +1062,9 @@ class RasterBase(ABC):
         self,
         band: int | None = None,
         exclude_value: Any | None = None,
-        rgb: list[int] | None = None,
-        surface_reflectance: int | None = None,
-        cutoff: list | None = None,
         overview: bool = False,
         overview_index: int = 0,
+        rgb_options: dict | None = None,
         **kwargs,
     ):
         """Plot.
@@ -1078,19 +1076,14 @@ class RasterBase(ABC):
                 The band you want to get its data. Default is 0.
             exclude_value (Any, optional):
                 Value to exclude from the plot. Default is None.
-            rgb (List[int], optional):
-                RGB band indices. Default is [3, 2, 1].
-            surface_reflectance (int | None, optional):
-                Surface reflectance value used to normalise satellite reflectance bands
-                (typically ``10000`` for Sentinel-2). Default is ``None`` — concrete
-                subclasses are responsible for picking a meaningful default when relevant.
-            cutoff (List, optional):
-                Clip the range of pixel values for each band (take only the pixel values from 0 to the value of
-                the cutoff and scale them back to between 0 and 1). Default is None.
             overview (bool, optional):
                 True if you want to plot the overview. Default is False.
             overview_index (int, optional):
                 Index of the overview. Default is 0.
+            rgb_options (dict, optional):
+                Grouped Sentinel-imagery options for a true-colour composite. Accepted
+                keys: ``"rgb"`` (band indices), ``"surface_reflectance"``, ``"cutoff"``,
+                ``"percentile"``. Default is ``None``.
             **kwargs: Additional plotting options.
                 points (array | PointOverlay):
                     Point overlay. A 3 column array with the first column as the value you want to display for
