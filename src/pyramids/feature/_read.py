@@ -24,8 +24,10 @@ from __future__ import annotations
 
 import math
 import os
+import threading
 import warnings
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -34,7 +36,7 @@ from urllib.parse import urlencode
 import geopandas as gpd
 import pandas as pd
 import pyogrio
-import shapely
+import pyproj
 from geopandas import GeoDataFrame
 from pyproj.exceptions import CRSError as _PyprojCRSError
 from shapely.geometry import box
@@ -42,7 +44,7 @@ from shapely.geometry import box
 from pyramids import _io as _pyramids_io
 from pyramids.base._errors import FeatureError
 from pyramids.base._utils import import_pyarrow
-from pyramids.base.crs import crs_from_user_input
+from pyramids.base.crs import _pyproj_crs_via_gdal
 from pyramids.base.remote import is_remote, to_fsspec_url
 
 if TYPE_CHECKING:
@@ -56,8 +58,6 @@ _LAZY_TARGET_BYTES_PER_PARTITION: int = 128 * 1024 * 1024
 @lru_cache(maxsize=128)
 def _list_layers_cached(resolved_path: str) -> tuple[str, ...]:
     """Return a tuple of layer names for a resolved path (memoised)."""
-    import pyogrio
-
     arr = pyogrio.list_layers(resolved_path)
     return tuple(str(row[0]) for row in arr)
 
@@ -324,13 +324,8 @@ def read_file(
     return fc_cls(gdf)
 
 
-_RAW_READ_KWARGS = frozenset({"bbox", "mask", "columns", "where"})
-"""Read options :func:`pyogrio.raw.read` accepts, for the CRS-healing fallback.
-
-`rows` is a geopandas-level convenience the raw reader does not take, so a filtered
-read of a file in such a CRS keeps its spatial and attribute filters but would lose a
-row slice — hence the explicit allow-list rather than forwarding everything.
-"""
+_CRS_HEALING_LOCK = threading.Lock()
+"""Serialises the process-wide pyproj patch in :func:`_pyproj_resolving_through_gdal`."""
 
 
 def _read_file_healing_crs(resolved: Any, passthrough: dict[str, Any]) -> GeoDataFrame:
@@ -356,26 +351,55 @@ def _read_file_healing_crs(resolved: Any, passthrough: dict[str, Any]) -> GeoDat
     try:
         gdf = gpd.read_file(resolved, **passthrough)
     except _PyprojCRSError:
-        declared = pyogrio.read_info(resolved).get("crs")
-        if not declared:
-            raise
-        # `read_dataframe` assigns the CRS itself and so hits the same wall. The raw
-        # reader returns geometry and fields without building a GeoDataFrame, which
-        # leaves the CRS for us to attach from `crs_from_user_input`.
-        supported = {
-            name: value
-            for name, value in passthrough.items()
-            if value is not None and name in _RAW_READ_KWARGS
-        }
-        meta, _index, geometry, field_data = pyogrio.raw.read(resolved, **supported)
-        frame = pd.DataFrame(
-            {name: values for name, values in zip(meta["fields"], field_data)}
-        )
-        frame["geometry"] = shapely.from_wkb(geometry)
-        gdf = gpd.GeoDataFrame(
-            frame, geometry="geometry", crs=crs_from_user_input(declared)
-        )
+        with _pyproj_resolving_through_gdal():
+            gdf = gpd.read_file(resolved, **passthrough)
     return gdf
+
+
+@contextmanager
+def _pyproj_resolving_through_gdal() -> Iterator[None]:
+    """Let :meth:`pyproj.CRS.from_user_input` fall back to GDAL's PROJ database.
+
+    The obvious repair — read the layer with a lower-level reader and attach the
+    resolved CRS afterwards — means rebuilding the GeoDataFrame by hand, and a
+    hand-built frame is a second implementation of `read_file` that has to keep pace
+    with the real one. The first attempt at exactly that silently dropped `layer=`
+    and `rows=`, discarded datetime offsets, left JSON columns as strings and could
+    not take the `GeoDataFrame` form of `bbox=` — none of which is *about* CRSes.
+
+    So the read is left entirely to geopandas, and only the single call that fails is
+    widened: pyproj keeps its own answer whenever it has one, and falls back to the
+    same GDAL rescue used everywhere else when it does not. Everything about the frame
+    — layer and row selection, spatial filters, dtypes, timezones, column labels —
+    stays whatever `read_file` already produces.
+
+    The patch is process-wide for its duration, so it is serialised and only entered
+    after an unpatched read has already failed. It is deliberately narrow: it adds a
+    fallback to a call that would otherwise raise, and never changes an answer pyproj
+    was able to give.
+
+    Yields:
+        None: for the duration of the widened resolution.
+    """
+    original = pyproj.CRS.from_user_input
+
+    def _healed(value, **kwargs):
+        try:
+            return original(value, **kwargs)
+        except _PyprojCRSError:
+            # `_pyproj_crs_via_gdal`, not `crs_from_user_input`: the latter routes
+            # back through the patched `from_user_input` and would recurse.
+            rescued = _pyproj_crs_via_gdal(value)
+            if rescued is None:
+                raise
+            return rescued
+
+    with _CRS_HEALING_LOCK:
+        pyproj.CRS.from_user_input = _healed
+        try:
+            yield
+        finally:
+            pyproj.CRS.from_user_input = original
 
 
 def _validate_iter_features_args(
@@ -434,8 +458,7 @@ def iter_features(
         include_index=include_index,
     )
 
-    import pyogrio
-
+    
     resolved = str(_pyramids_io._parse_path(path))
 
     # pyogrio's read_info is O(1); use it to size the layer so we can
