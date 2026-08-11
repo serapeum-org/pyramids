@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import os
 import tempfile
+import traceback
 import weakref
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -510,3 +512,202 @@ def write_multidim_netcdf(
     """
     mem_src = _build_multidim(dims, coords, data_vars, global_attrs)
     _create_copy_to_netcdf(mem_src, str(path))
+
+
+class _StreamingMultidimWriter:
+    """Fills a netCDF multidim file's data variables one hyperslab at a time.
+
+    Created by :func:`open_streaming_multidim_netcdf`. Each data variable is
+    created at its full shape but written incrementally: :meth:`write_slab` writes
+    a single index of the leading (streamed) dimension, so the whole cube is never
+    resident in memory. The owning context manager finalizes the file on exit.
+    """
+
+    def __init__(self, arrays: dict[str, gdal.MDArray]) -> None:
+        """Store the per-variable MDArrays to stream into.
+
+        Args:
+            arrays: Variable name to its (empty, full-shape) MDArray.
+        """
+        self._arrays = arrays
+
+    def write_slab(self, var_name: str, index: int, block: np.ndarray) -> None:
+        """Write one leading-dimension index of a variable.
+
+        Args:
+            var_name: Target data variable.
+            index: Position along the leading (streamed) dimension to write at.
+            block: The array for this index, i.e. the variable's shape with the
+                leading dimension dropped. A length-1 leading axis is prepended
+                before the hyperslab write.
+        """
+        md_arr = self._arrays[var_name]
+        block = np.ascontiguousarray(block)
+        md_arr.Write(
+            block[np.newaxis, ...],
+            array_start_idx=[int(index)] + [0] * block.ndim,
+            count=[1] + list(block.shape),
+        )
+
+
+def _build_streaming_multidim(
+    dataset: gdal.Dataset,
+    dims: dict[str, int],
+    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
+    var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
+    global_attrs: dict[str, Any],
+) -> dict[str, gdal.MDArray]:
+    """Create dims, coord arrays, empty data vars, and global attrs on `dataset`.
+
+    Split out from :func:`open_streaming_multidim_netcdf` so all the transient
+    GDAL setup handles (the root group, dimensions, and coordinate MDArrays) live
+    in this frame and are released when it returns or raises — leaving the context
+    manager only the data-variable MDArrays to drop before `Close()`, which is
+    what lets the netCDF driver flush and unlock the file.
+
+    Args:
+        dataset: A freshly created netCDF multidim dataset.
+        dims: Dimension name to length.
+        coords: Coordinate name to a ``(values, attrs)`` pair; entries whose name
+            is not a dimension are skipped.
+        var_specs: Variable name to a ``(dimension-name tuple, numpy dtype,
+            attrs)`` triple.
+        global_attrs: Root-group (global) attributes.
+
+    Returns:
+        dict[str, gdal.MDArray]: The created (empty, full-shape) data-variable
+        MDArrays, keyed by name, for the caller to fill by slab.
+
+    Raises:
+        ValueError: When a variable references an unknown dimension, or a
+            coordinate array shape does not match its dimension size.
+    """
+    root = dataset.GetRootGroup()
+    gdal_dims: dict[str, gdal.Dimension] = {
+        name: root.CreateDimension(name, "", "", int(size))
+        for name, size in dims.items()
+    }
+
+    for coord_name, (coord_values, coord_attrs) in coords.items():
+        if coord_name not in gdal_dims:
+            continue
+        values, cf_attrs = _encode_temporal_array(np.asarray(coord_values))
+        if values.shape != (dims[coord_name],):
+            raise ValueError(
+                f"coordinate {coord_name!r} has shape {values.shape} but its "
+                f"dimension is length {dims[coord_name]}"
+            )
+        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
+        coord_arr = root.CreateMDArray(coord_name, [gdal_dims[coord_name]], ext)
+        coord_arr.Write(np.ascontiguousarray(values))
+        merged = dict(coord_attrs)
+        merged.update(cf_attrs)
+        _apply_md_array_attrs(coord_arr, merged)
+
+    arrays: dict[str, gdal.MDArray] = {}
+    for var_name, (var_dims, var_dtype, var_attrs) in var_specs.items():
+        unknown = [d for d in var_dims if d not in gdal_dims]
+        if unknown:
+            raise ValueError(
+                f"variable {var_name!r} references unknown dimension(s) "
+                f"{unknown} not in dims {sorted(gdal_dims)}"
+            )
+        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(np.dtype(var_dtype)))
+        md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
+        _apply_md_array_attrs(md_arr, dict(var_attrs))
+        arrays[var_name] = md_arr
+
+    if global_attrs:
+        write_global_attributes(root, dict(global_attrs))
+
+    return arrays
+
+
+@contextmanager
+def open_streaming_multidim_netcdf(
+    path: str | Path,
+    dims: dict[str, int],
+    coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
+    var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
+    global_attrs: dict[str, Any],
+):
+    """Create a netCDF multidim file and yield a per-hyperslab writer.
+
+    The streaming counterpart of :func:`write_multidim_netcdf`: instead of
+    receiving fully materialised variable arrays, it creates the dimensions,
+    writes the (small, 1-D) coordinate arrays whole, creates each data variable
+    at its full shape with **no data**, then hands back a
+    :class:`_StreamingMultidimWriter` so the caller can fill each variable one
+    leading-dimension slab at a time, so the whole ``(T, …)`` cube never has to
+    be resident. The write is atomic: the file is created at a temporary sibling
+    path and only ``os.replace``-d onto ``path`` after a clean close, so ``path``
+    only ever holds a complete file and an existing file there survives a failed
+    write. Variable data is written raw at its declared dtype — unlike
+    :func:`write_multidim_netcdf`, ``datetime64`` / ``timedelta64`` *variable*
+    data is not CF-encoded here (coordinates still are), so variable dtypes must
+    be GDAL-mappable numerics (the sole caller streams numeric raster bands).
+    Used by :meth:`pyramids.dataset.collection.DatasetCollection.to_netcdf`.
+
+    Args:
+        path: Output ``.nc`` path.
+        dims: Dimension name to length (the full shape, including the streamed
+            leading dimension).
+        coords: Coordinate name (also a dimension) to a ``(values, attrs)`` pair;
+            written whole up front. Entries whose name is not a dimension are
+            skipped.
+        var_specs: Variable name to a ``(dimension-name tuple, numpy dtype,
+            attrs)`` triple. The first entry of the dimension tuple is the
+            streamed (leading) dimension.
+        global_attrs: Root-group (global) attributes.
+
+    Yields:
+        _StreamingMultidimWriter: Call :meth:`~_StreamingMultidimWriter.write_slab`
+        once per leading-dimension index.
+
+    Raises:
+        RuntimeError: When the GDAL netCDF driver fails to create the file.
+        ValueError: When a variable references an unknown dimension, or a
+            coordinate array shape does not match its dimension size.
+    """
+    final_path = Path(path)
+    tmp_path = final_path.with_name(f".{final_path.name}.{os.getpid()}.tmp")
+    with suppress(OSError):
+        tmp_path.unlink()  # drop any stale temp left by a crashed prior run
+    dataset = gdal.GetDriverByName("netCDF").CreateMultiDimensional(str(tmp_path))
+    if dataset is None:
+        raise RuntimeError(f"Failed to create NetCDF at {path}")
+    completed = False
+    arrays: dict[str, gdal.MDArray] = {}
+    try:
+        arrays = _build_streaming_multidim(
+            dataset, dims, coords, var_specs, global_attrs
+        )
+        yield _StreamingMultidimWriter(arrays)
+        completed = True
+    except BaseException as exc:
+        # The in-flight exception's traceback also pins the caller's `writer`
+        # (holding the same MDArrays); clear the failure frames so those handles
+        # release and the temp can be removed below (the executing generator
+        # frame is skipped by clear_frames). Deliberate trade-off: this empties
+        # the failure frames' locals, so a post-mortem sees none here — do not
+        # "restore" them or the file lock on Windows returns.
+        traceback.clear_frames(exc.__traceback__)
+        raise
+    finally:
+        # `arrays` is the writer's own dict, so clearing it drops the last refs to
+        # the data-variable MDArrays; GDAL only flushes and unlocks the file once
+        # those child handles are gone (needed for os.replace / unlink on Windows).
+        arrays.clear()
+        if completed:
+            # Close() drives the flush; let a flush error surface (the write did
+            # not truly succeed). Then atomically promote the temp onto `path`.
+            dataset.Close()
+            os.replace(tmp_path, final_path)
+        else:
+            # Best-effort cleanup that never masks the in-flight exception and
+            # never touches an existing file at `path`: release the handle, then
+            # drop the temp.
+            with suppress(Exception):
+                dataset.Close()
+            with suppress(OSError):
+                tmp_path.unlink()

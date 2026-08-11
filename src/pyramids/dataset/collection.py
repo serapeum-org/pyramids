@@ -438,11 +438,6 @@ def _lazy_timestep(
     )
 
 
-# Above this in-RAM (T, B, Y, X) size, DatasetCollection.to_netcdf warns and points
-# the caller at the streaming to_zarr writer (ARC-46). Default 2 GiB.
-_TO_NETCDF_WARN_BYTES = 2 * 1024**3
-
-
 def _target_epsg(to_epsg: int | str | Any) -> int | None:
     """Return the integer EPSG for ``to_epsg``, or ``None`` for a non-EPSG CRS.
 
@@ -1445,21 +1440,29 @@ class DatasetCollection:
     ) -> None:
         """Write the collection's ``(T, B, Y, X)`` cube to a single NetCDF.
 
-        Materialises every timestep in memory, assembles a GDAL
-        multidimensional container straight from the ``numpy`` arrays,
-        and writes it with pyramids' own GDAL NetCDF writer — and
-        needs no third-party NetCDF engine plug-in. The
-        result is a self-describing NetCDF with one variable per band
-        (``CF-1.8`` ``Conventions`` attr; geobox attached as ``crs_wkt``
-        / ``GeoTransform`` root attrs).
+        Streams the cube one timestep at a time into a GDAL
+        multidimensional NetCDF written by pyramids' own GDAL writer — no
+        third-party NetCDF engine plug-in, and the full T×B×Y×X array is
+        never held in memory (peak is a single timestep plus the
+        coordinate axes). The result is a self-describing NetCDF with one
+        variable per band (``CF-1.8`` ``Conventions`` attr; geobox attached
+        as ``crs_wkt`` / ``GeoTransform`` root attrs).
 
-        For huge cubes prefer :meth:`to_zarr` — this writer is eager (it
-        materialises the full T×B×Y×X array before writing).
+        For very large cubes :meth:`to_zarr` is still preferred (chunked +
+        compressed, resumable), but ``to_netcdf`` no longer materialises
+        the whole cube up front.
 
         No-data values are written as a ``nodata`` attribute on the root
         group and on each data variable. GDAL's multidim NetCDF writer
         rejects CF's standard ``_FillValue`` attribute via this code
         path, so the round-trip uses ``nodata`` for compatibility.
+
+        Every variable is written at the collection's own dtype
+        (:attr:`meta.dtype`, the template raster's), and each timestep is
+        cast to it; on a co-registered stack (all timesteps sharing the
+        template's dtype — what :meth:`from_files` with ``validate=True``
+        enforces) this is a no-op. A timestep whose grid or band count
+        differs from the template raises :class:`AlignmentError`.
 
         Args:
             path: Output ``.nc`` path.
@@ -1479,7 +1482,10 @@ class DatasetCollection:
                 — saner for hyperspectral cubes with hundreds of bands.
 
         Raises:
-            ValueError: When ``len(time_coords) != self.time_length``.
+            ValueError: When ``len(time_coords) != self.time_length``, or the
+                collection is empty (``time_length == 0``).
+            AlignmentError: When a timestep's shape or band count differs from
+                the collection template.
             RuntimeError: When the GDAL NetCDF writer fails to write the
                 file.
 
@@ -1519,6 +1525,10 @@ class DatasetCollection:
             - :meth:`pyramids.netcdf.NetCDF.read_file`: reopen the
               written file as a pyramids NetCDF.
         """
+        if self.time_length == 0:
+            raise ValueError(
+                "to_netcdf: cannot write an empty collection (time_length == 0)."
+            )
         if time_coords is None and self.time is not None:
             # A dated collection (time axis parsed from the file names) exports
             # with its own calendar axis by default; an explicit time_coords
@@ -1588,31 +1598,9 @@ class DatasetCollection:
             else [f"band_{i + 1}" for i in range(band_count)]
         )
 
-        # ARC-46: this writer stacks the whole (T, B, Y, X) cube in RAM. Warn
-        # (pointing at the streaming to_zarr writer) when that allocation would
-        # be large, rather than OOM without explanation.
-        est_bytes = (
-            self.time_length * int(np.prod(meta.shape)) * np.dtype(meta.dtype).itemsize
-        )
-        if est_bytes > _TO_NETCDF_WARN_BYTES:
-            warnings.warn(
-                f"DatasetCollection.to_netcdf materialises the full (T, B, Y, X) "
-                f"cube in memory (~{est_bytes / 1024**3:.1f} GiB here). For large "
-                f"cubes prefer DatasetCollection.to_zarr, which streams the cube "
-                f"chunk-by-chunk.",
-                stacklevel=2,
-            )
-        # Per-timestep read_array() returns (rows, cols) for a single-band
-        # dataset and (bands, rows, cols) for multi-band, so np.stack gives
-        # (T, rows, cols) or (T, bands, rows, cols). Insert a length-1 band
-        # axis on the single-band path so the rest of this method can treat
-        # the cube uniformly as (T, B, Y, X).
-        cube = np.stack([np.asarray(ds.read_array()) for ds in self.datasets], axis=0)
-        if cube.ndim == 3:
-            cube = cube[:, np.newaxis, :, :]
-
         y_coord = np.asarray(self._base.y)
         x_coord = np.asarray(self._base.x)
+        var_dtype = np.dtype(meta.dtype)
 
         # GDAL's multidim NetCDF writer rejects ``_FillValue`` as an attribute
         # (libnetcdf wants it via the dedicated typed-fill API the writer does
@@ -1622,17 +1610,20 @@ class DatasetCollection:
         var_attrs: dict[str, Any] = {}
         typed_nodata = None
         if nodata is not None:
-            typed_nodata = np.asarray(nodata, dtype=cube.dtype).item()
+            typed_nodata = np.asarray(nodata, dtype=var_dtype).item()
             var_attrs["nodata"] = typed_nodata
 
         dims: dict[str, int] = {time_dim: int(time_values.shape[0])}
         coords: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
             time_dim: (time_values, time_attrs),
         }
-        data_vars: dict[str, tuple[tuple[str, ...], np.ndarray, dict[str, Any]]]
+        # Each data variable is created at full shape but written one timestep
+        # slab at a time below, so the whole (T, B, Y, X) cube is never resident
+        # in memory (ARC-46).
+        var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]]
         if var_per_band:
-            data_vars = {
-                names[i]: ((time_dim, "y", "x"), cube[:, i, :, :], dict(var_attrs))
+            var_specs = {
+                names[i]: ((time_dim, "y", "x"), var_dtype, dict(var_attrs))
                 for i in range(band_count)
             }
         else:
@@ -1642,8 +1633,8 @@ class DatasetCollection:
             # the labels from that root attribute.
             dims["band"] = band_count
             coords["band"] = (np.arange(band_count), {})
-            data_vars = {
-                "data": ((time_dim, "band", "y", "x"), cube, dict(var_attrs)),
+            var_specs = {
+                "data": ((time_dim, "band", "y", "x"), var_dtype, dict(var_attrs)),
             }
         dims["y"] = int(y_coord.shape[0])
         dims["x"] = int(x_coord.shape[0])
@@ -1669,9 +1660,35 @@ class DatasetCollection:
         # hoisting this to the module top would form a circular import through
         # pyramids.dataset.__init__. Matches the to_kerchunk pattern (see
         # ``to_kerchunk`` above) and CLAUDE.md's circular-import carveout.
-        from pyramids.netcdf.engines.interop import write_multidim_netcdf
+        from pyramids.netcdf.engines.interop import open_streaming_multidim_netcdf
 
-        write_multidim_netcdf(path, dims, coords, data_vars, root_attrs)
+        # Stream one timestep at a time. read_array() returns (rows, cols) for a
+        # single-band dataset and (bands, rows, cols) for multi-band; normalise
+        # each timestep to (B, rows, cols) so the slab write is uniform.
+        with open_streaming_multidim_netcdf(
+            path, dims, coords, var_specs, root_attrs
+        ) as writer:
+            expected = (band_count, dims["y"], dims["x"])
+            for t, ds in enumerate(self.datasets):
+                block = np.asarray(ds.read_array()).astype(var_dtype, copy=False)
+                if block.ndim == 2:
+                    block = block[np.newaxis, :, :]
+                if block.shape != expected:
+                    where = (
+                        self.files[t]
+                        if self.files and t < len(self.files)
+                        else f"timestep {t}"
+                    )
+                    raise AlignmentError(
+                        f"to_netcdf: {where} has shape {block.shape}, but the "
+                        f"collection template is {expected} (band, rows, cols); "
+                        f"every timestep must share the base grid and band count."
+                    )
+                if var_per_band:
+                    for i in range(band_count):
+                        writer.write_slab(names[i], t, block[i])
+                else:
+                    writer.write_slab("data", t, block)
 
     @classmethod
     def from_stac(
