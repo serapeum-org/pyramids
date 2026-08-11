@@ -261,6 +261,87 @@ def _source_layer_wkt(ds: ogr.DataSource | gdal.Dataset) -> str:
     return wkt
 
 
+_GEOJSON_HEADER_SCAN = 4096
+"""Bytes of a GeoJSON document searched for the top-level ``crs`` member.
+
+GDAL writes `type`, `name` then `crs` before the first feature, so the member is
+always within the first few hundred bytes. Bounding the scan keeps the cost independent
+of the document's size — the whole point of not parsing it.
+"""
+
+
+def _strip_geojson_crs(data: bytes) -> bytes | None:
+    """Drop the top-level ``crs`` member from GDAL's GeoJSON without parsing it.
+
+    Decoding and re-encoding the document to remove one key costs a full parse, a full
+    re-serialisation and several times the document in peak memory — on a polygonize
+    output that is the largest allocation in the pipeline, and the read path a few
+    lines above deliberately avoids even *one* extra copy of the same buffer.
+
+    The member sits in the header, so it can be excised by locating it and copying the
+    two surrounding slices. The scan tracks quoted strings so a brace inside a CRS name
+    cannot unbalance it, and gives up (returning ``None``) on anything it does not
+    recognise rather than guessing at a malformed document.
+
+    Args:
+        data: The GeoJSON bytes GDAL wrote.
+
+    Returns:
+        bytes | None: The document without its ``crs`` member, or ``None`` when the
+        member is absent or not laid out as expected.
+    """
+    head = bytes(data[:_GEOJSON_HEADER_SCAN])
+    key = head.find(b'"crs"')
+    if key == -1:
+        return None
+    colon = head.find(b":", key + 5)
+    if colon == -1:
+        return None
+    start_of_value = colon + 1
+    while start_of_value < len(head) and head[start_of_value : start_of_value + 1].isspace():
+        start_of_value += 1
+    if head[start_of_value : start_of_value + 1] != b"{":
+        return None
+
+    depth, in_string, escaped, end = 0, False, False, -1
+    for index in range(start_of_value, len(head)):
+        char = head[index : index + 1]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == b"\\":
+                escaped = True
+            elif char == b'"':
+                in_string = False
+            continue
+        if char == b'"':
+            in_string = True
+        elif char == b"{":
+            depth += 1
+        elif char == b"}":
+            depth -= 1
+            if depth == 0:
+                end = index + 1
+                break
+    if end == -1:
+        return None
+
+    # Absorb one separating comma so what remains is still valid JSON: the one after
+    # the member, or -- if `crs` was last -- the one before it.
+    cut_start, cut_end = key, end
+    while cut_end < len(head) and head[cut_end : cut_end + 1].isspace():
+        cut_end += 1
+    if head[cut_end : cut_end + 1] == b",":
+        cut_end += 1
+    else:
+        preceding = cut_start - 1
+        while preceding >= 0 and head[preceding : preceding + 1].isspace():
+            preceding -= 1
+        if preceding >= 0 and head[preceding : preceding + 1] == b",":
+            cut_start = preceding
+    return bytes(data[:cut_start]) + bytes(data[cut_end:])
+
+
 def _read_geojson_bytes(data: bytes, ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
     """Parse GDAL's GeoJSON output, surviving a CRS pyproj cannot look up.
 
@@ -291,11 +372,14 @@ def _read_geojson_bytes(data: bytes, ds: ogr.DataSource | gdal.Dataset) -> GeoDa
         if not wkt:
             # Nothing authoritative to substitute, so the original failure stands.
             raise
-        # `json.loads` takes the buffer as-is; `bytes(data)` would force the same
-        # full copy the comment above `VSIFReadL` exists to avoid.
-        document = json.loads(data)
-        document.pop("crs", None)
-        gdf = gpd.read_file(io.BytesIO(json.dumps(document).encode("utf-8")))
+        stripped = _strip_geojson_crs(data)
+        if stripped is None:
+            # The member is not where GDAL puts it. Fall back to a full parse, which
+            # is slow but cannot be confused by an unexpected layout.
+            document = json.loads(data)
+            document.pop("crs", None)
+            stripped = json.dumps(document).encode("utf-8")
+        gdf = gpd.read_file(io.BytesIO(stripped))
         gdf = gdf.set_crs(crs_from_user_input(wkt), allow_override=True)
     return gdf
 

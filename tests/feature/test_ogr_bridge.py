@@ -21,6 +21,7 @@ style OGR DataSource for ``datasource_to_gdf``.
 
 from __future__ import annotations
 
+import json
 import re
 
 import geopandas as gpd
@@ -33,6 +34,7 @@ from shapely.geometry import Point, Polygon
 from pyramids.feature import FeatureCollection
 from pyramids.feature._ogr import (
     _new_vsimem_path,
+    _strip_geojson_crs,
     as_datasource,
     as_vsimem_path,
     datasource_to_gdf,
@@ -635,3 +637,68 @@ class TestDatasourceToGdf:
         with as_datasource(empty) as ds:
             back = datasource_to_gdf(ds)
         assert len(back) == 0
+
+
+class TestStripGeojsonCrs:
+    """Tests for the byte-level `crs` removal used when a CRS has no URN form."""
+
+    def test_removes_the_member_and_leaves_valid_json(self):
+        """The `crs` member is dropped and the rest of the document survives.
+
+        Test scenario:
+            GDAL's own layout — `type`, `name`, `crs`, `features`.
+        """
+        doc = (
+            b'{"type":"FeatureCollection","name":"x",'
+            b'"crs":{"type":"name","properties":{"name":"urn:ogc:def:crs:EPSG::10857"}},'
+            b'"features":[]}'
+        )
+        parsed = json.loads(_strip_geojson_crs(doc))
+        assert "crs" not in parsed, "the crs member should be gone"
+        assert list(parsed) == ["type", "name", "features"], (
+            f"the other members should survive in order, got {list(parsed)}"
+        )
+
+    def test_handles_the_member_last_and_braces_inside_strings(self):
+        """A trailing `crs`, and braces inside its name, do not break the scan.
+
+        Test scenario:
+            The preceding comma must be absorbed instead of the following one, and a
+            brace inside a quoted string must not unbalance the depth count.
+        """
+        doc = (
+            b'{"type":"FeatureCollection","features":[],'
+            b'"crs":{"properties":{"name":"a{b}c"}}}'
+        )
+        parsed = json.loads(_strip_geojson_crs(doc))
+        assert "crs" not in parsed, "the crs member should be gone"
+        assert list(parsed) == ["type", "features"], f"unexpected members: {list(parsed)}"
+
+    def test_returns_none_when_there_is_no_crs_member(self):
+        """A document with no `crs` yields None so the caller can fall back.
+
+        Test scenario:
+            Returning the document unchanged would hide the difference between
+            "nothing to remove" and "removed".
+        """
+        assert _strip_geojson_crs(b'{"type":"FeatureCollection","features":[]}') is None
+
+    def test_returns_none_for_an_unexpected_layout(self):
+        """A non-object `crs` value is not guessed at.
+
+        Test scenario:
+            The helper refuses anything it does not recognise rather than corrupting
+            the document; the caller then does a full parse.
+        """
+        assert _strip_geojson_crs(b'{"crs":"EPSG:4326","features":[]}') is None
+
+    def test_does_not_scan_past_the_header_bound(self):
+        """A `crs` member beyond the header window is not removed.
+
+        Test scenario:
+            The scan is bounded so its cost cannot grow with the document; a member
+            past that bound must return None rather than be missed silently.
+        """
+        filler = b'"pad":"' + b"x" * 5000 + b'",'
+        doc = b"{" + filler + b'"crs":{"properties":{}},"features":[]}'
+        assert _strip_geojson_crs(doc) is None

@@ -33,11 +33,16 @@ from urllib.parse import urlencode
 
 import geopandas as gpd
 import pandas as pd
+import pyogrio
+import shapely
+from geopandas import GeoDataFrame
+from pyproj.exceptions import CRSError as _PyprojCRSError
 from shapely.geometry import box
 
 from pyramids import _io as _pyramids_io
 from pyramids.base._errors import FeatureError
 from pyramids.base._utils import import_pyarrow
+from pyramids.base.crs import crs_from_user_input
 from pyramids.base.remote import is_remote, to_fsspec_url
 
 if TYPE_CHECKING:
@@ -315,8 +320,62 @@ def read_file(
         }
     )
     passthrough.update(kwargs)
-    gdf = gpd.read_file(resolved, **passthrough)
+    gdf = _read_file_healing_crs(resolved, passthrough)
     return fc_cls(gdf)
+
+
+_RAW_READ_KWARGS = frozenset({"bbox", "mask", "columns", "where"})
+"""Read options :func:`pyogrio.raw.read` accepts, for the CRS-healing fallback.
+
+`rows` is a geopandas-level convenience the raw reader does not take, so a filtered
+read of a file in such a CRS keeps its spatial and attribute filters but would lose a
+row slice — hence the explicit allow-list rather than forwarding everything.
+"""
+
+
+def _read_file_healing_crs(resolved: Any, passthrough: dict[str, Any]) -> GeoDataFrame:
+    """Read a vector file, resolving a CRS the reader's PROJ database cannot look up.
+
+    The reader reports a layer's CRS as an authority string (``"EPSG:10857"``) and
+    geopandas resolves it with pyproj, so a file written in a CRS whose code lives in
+    GDAL's PROJ database but not pyproj's fails to open at all — before a single
+    feature is returned. That is issue #943 arriving through the vector reader instead
+    of the raster one.
+
+    Only the *lookup* is missing, never the projection: the same code resolves through
+    :func:`crs_from_user_input`. So on that specific failure the geometry is re-read
+    with the CRS suppressed and the resolved CRS attached afterwards.
+
+    Args:
+        resolved: The path or file-like object to read.
+        passthrough: Keyword arguments for :func:`geopandas.read_file`.
+
+    Returns:
+        GeoDataFrame: The features, carrying their CRS.
+    """
+    try:
+        gdf = gpd.read_file(resolved, **passthrough)
+    except _PyprojCRSError:
+        declared = pyogrio.read_info(resolved).get("crs")
+        if not declared:
+            raise
+        # `read_dataframe` assigns the CRS itself and so hits the same wall. The raw
+        # reader returns geometry and fields without building a GeoDataFrame, which
+        # leaves the CRS for us to attach from `crs_from_user_input`.
+        supported = {
+            name: value
+            for name, value in passthrough.items()
+            if value is not None and name in _RAW_READ_KWARGS
+        }
+        meta, _index, geometry, field_data = pyogrio.raw.read(resolved, **supported)
+        frame = pd.DataFrame(
+            {name: values for name, values in zip(meta["fields"], field_data)}
+        )
+        frame["geometry"] = shapely.from_wkb(geometry)
+        gdf = gpd.GeoDataFrame(
+            frame, geometry="geometry", crs=crs_from_user_input(declared)
+        )
+    return gdf
 
 
 def _validate_iter_features_args(
