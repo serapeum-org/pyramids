@@ -1645,52 +1645,61 @@ class Spatial(_Engine["Dataset"]):
             Dataset | None:
                 The windowed crop, or ``None`` when the fast path does not apply.
         """
+        result: Dataset | None = None
         x0, dx, row_skew, y0, col_skew, dy = self._ds._raster.GetGeoTransform()
-        if row_skew or col_skew or dx <= 0 or dy >= 0:
-            return None
+        north_up = not row_skew and not col_skew and dx > 0 and dy < 0
         source_crs = self._ds.crs
-        if not source_crs or not crs_equal(source_crs, crs):
-            return None
         west, south, east, north = (float(v) for v in bbox)
-        if not (west < east and south < north):
-            return None
-        columns, rows = self._ds.columns, self._ds.rows
-        # Cells whose extent intersects the box (touch semantics), snapped outward
-        # to whole pixels, then clipped to the source grid.
-        xoff = min(max(math.floor((west - x0) / dx), 0), columns)
-        x_far = min(max(math.ceil((east - x0) / dx), 0), columns)
-        yoff = min(max(math.floor((y0 - north) / -dy), 0), rows)
-        y_far = min(max(math.ceil((y0 - south) / -dy), 0), rows)
-        x_size, y_size = x_far - xoff, y_far - yoff
-        if x_size <= 0 or y_size <= 0:
-            return None
-        array = self._ds.read_array(window=[xoff, yoff, x_size, y_size])
-        new_gt = (x0 + xoff * dx, dx, 0.0, y0 + yoff * dy, 0.0, dy)
-        # Rebuild on the base Dataset class (never a subclass like NetCDF), whose
-        # create_from_array has the plain array->raster behaviour this path needs;
-        # mirrors _crop_with_polygon_warp's base-class walk.
-        base_cls = cast(
-            "type[Dataset]",
-            next(
-                c
-                for c in self._ds.__class__.__mro__
-                if RasterBase in getattr(c, "__bases__", ())
-            ),
+        eligible = (
+            north_up
+            and bool(source_crs)
+            and crs_equal(source_crs, crs)
+            and west < east
+            and south < north
         )
-        dst = cast(
-            "Dataset",
-            base_cls.create_from_array(
-                array, geo=new_gt, no_data_value=self._ds.no_data_value
-            ),
-        )
-        # Preserve the source CRS from its WKT so _correct_wrap_cutline_error carries
-        # it onto the trimmed result (and a custom CRS with no EPSG code survives).
-        if source_crs:
-            dst.crs = source_crs
-        # Same trim the warp path applies with touch=True: drop all-no-data rows/cols
-        # and raise "no valid pixels" when the whole window is no-data. The read above
-        # already covered only the AOI window, so this stays off the full source.
-        return Spatial._correct_wrap_cutline_error(dst)
+        if eligible:
+            columns, rows = self._ds.columns, self._ds.rows
+            # Cells whose extent intersects the box (overlap / all-touched), snapped
+            # outward to whole pixels, then clipped to the source grid. A tiny epsilon
+            # (in pixel units) absorbs binary-float noise so an edge that is
+            # mathematically on a pixel boundary does not flip floor/ceil by one pixel;
+            # it is applied in the snap direction (floor edges up, ceil edges down) so
+            # it only removes noise, never a genuine fractional-pixel overlap.
+            eps = 1e-9
+            xoff = min(max(math.floor((west - x0) / dx + eps), 0), columns)
+            x_far = min(max(math.ceil((east - x0) / dx - eps), 0), columns)
+            yoff = min(max(math.floor((y0 - north) / -dy + eps), 0), rows)
+            y_far = min(max(math.ceil((y0 - south) / -dy - eps), 0), rows)
+            x_size, y_size = x_far - xoff, y_far - yoff
+            if x_size > 0 and y_size > 0:
+                array = self._ds.read_array(window=[xoff, yoff, x_size, y_size])
+                new_gt = (x0 + xoff * dx, dx, 0.0, y0 + yoff * dy, 0.0, dy)
+                # Rebuild on the base Dataset class (never a subclass like NetCDF),
+                # whose create_from_array has the plain array->raster behaviour this
+                # path needs; mirrors _crop_with_polygon_warp's base-class walk.
+                base_cls = cast(
+                    "type[Dataset]",
+                    next(
+                        c
+                        for c in self._ds.__class__.__mro__
+                        if RasterBase in getattr(c, "__bases__", ())
+                    ),
+                )
+                dst = cast(
+                    "Dataset",
+                    base_cls.create_from_array(
+                        array, geo=new_gt, no_data_value=self._ds.no_data_value
+                    ),
+                )
+                # Preserve the source CRS from its WKT so _correct_wrap_cutline_error
+                # carries it onto the trimmed result (a custom CRS with no EPSG survives).
+                dst.crs = source_crs
+                # Same trim the warp path applies with touch=True: drop all-no-data
+                # rows/cols and raise "no valid pixels" when the whole window is
+                # no-data. The read above covered only the AOI, so this stays off the
+                # full source.
+                result = Spatial._correct_wrap_cutline_error(dst)
+        return result
 
     def _crop_with_polygon_warp(
         self,
