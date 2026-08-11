@@ -143,6 +143,17 @@ def install_gdal_python_bindings() -> None:
 
     env = os.environ.copy()
 
+    # Cap build-time setuptools (see ci/gdal-build-constraints.txt): 84.0.0
+    # lets GDAL's setup.py `-std=c++11` reach the C compile of
+    # gdalconst_wrap.c, which Apple clang rejects and breaks the macOS
+    # wheels. PIP_CONSTRAINT covers the direct install on every path
+    # (including the arm64 --no-build-isolation setuptools install below).
+    # PIP_BUILD_CONSTRAINT — the build-isolation-specific var pip 26.2 will
+    # require — is set later, ONLY when build isolation is used: pip errors
+    # if it is passed together with --no-build-isolation.
+    _gdal_build_constraints = str(REPO_ROOT / "ci" / "gdal-build-constraints.txt")
+    env.setdefault("PIP_CONSTRAINT", _gdal_build_constraints)
+
     if is_windows:
         bin_dir, _, lib_dir = _data_layout_roots(prefix)
         include_dir = prefix / "Library" / "include"
@@ -258,6 +269,15 @@ def install_gdal_python_bindings() -> None:
             check=True,
         )
         extra_pip_args.append("--no-build-isolation")
+
+    # PIP_BUILD_CONSTRAINT constrains the ISOLATED build env; pip errors out
+    # if it is set together with --no-build-isolation. Set it only when the
+    # GDAL build uses isolation (x86_64 / Linux) — the arm64
+    # --no-build-isolation path pre-installs a PIP_CONSTRAINT-capped
+    # setuptools and is already covered. This future-proofs isolation builds
+    # for pip 26.2, which stops honoring PIP_CONSTRAINT for build deps.
+    if "--no-build-isolation" not in extra_pip_args:
+        env.setdefault("PIP_BUILD_CONSTRAINT", _gdal_build_constraints)
 
     cmd = [
         sys.executable,

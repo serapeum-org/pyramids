@@ -148,8 +148,8 @@ print(json.loads(refs["values/.zattrs"]))             # {'_ARRAY_DIMENSIONS': ['
 ## Consuming a manifest
 
 The manifest is a *Zarr reference store*, so it is opened by any Zarr-aware reader pointed at it through an
-fsspec "reference" filesystem. The canonical consumer in the scientific-Python stack is xarray
-(`xr.open_dataset(manifest, engine="kerchunk")`), but the manifest is just data — anything that speaks the
+fsspec "reference" filesystem. The canonical consumer in the scientific-Python stack is the labeled-array
+library (`open_dataset(manifest, engine="kerchunk")`), but the manifest is just data — anything that speaks the
 Zarr v2 reference spec can read it. pyramids' role is to **produce** correct manifests; reading the underlying
 arrays directly (rather than through a manifest) is what `NetCDF.read_file` / `NetCDF.read_array` already do.
 

@@ -27,7 +27,7 @@ Config.set_matplotlib_backend("Agg")
 
 
 class TestNetCDFPlotColourForwarding:
-    """Tests that the xarray-aligned colour kwargs forward to cleopatra."""
+    """Tests that the colour kwargs forward to cleopatra."""
 
     def test_robust_forwarded(self):
         """`robust=True` reaches `Analysis.plot` as `robust=True`."""
@@ -267,7 +267,7 @@ class TestNetCDFPlotAddColorbar:
         """``add_colorbar=False`` removes the colorbar from the rendered result.
 
         Test scenario:
-            The xarray-aligned contract: a user who passes
+            The plot contract: a user who passes
             ``add_colorbar=False`` expects no colorbar in the output.
             Cleopatra always attaches one; the pyramids facade must
             remove it post-render. We assert the ``.cbar`` attribute

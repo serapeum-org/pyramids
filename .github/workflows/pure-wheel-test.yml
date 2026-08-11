@@ -123,7 +123,7 @@ jobs:
         shell: bash -el {0}
         # ``core`` is an explicit ``pytestmark = pytest.mark.core`` on every
         # extras-free test module. Tests that need an optional dependency carry
-        # the matching extras marker instead (``xarray`` / ``lazy`` / …), and
+        # the matching extras marker instead (``interop`` / ``lazy`` / …), and
         # tests/conftest.py's ``pytest_collection_modifyitems`` auto-applies the
         # corresponding ``requires_<extra>`` skip to those — so ``-m core`` here
         # selects only the bare-install tests and never collects an extras test.
@@ -152,11 +152,11 @@ jobs:
         python-version: ["3.13"]
         extra:
           - { name: viz,          pip_extra: "viz",          marker: "plot",         dir: "tests/" }
-          # xarray is not a pyramids extra (it's a peer interop dep) — install it
-          # directly via `extra_pip`. The xarray-marked tests also include the
+          # The interop peer dep is not a pyramids extra — install it directly via
+          # `extra_pip`. The interop-marked tests also include the
           # LabeledDataset reader, which needs the lazy data stack (zarr / dask /
           # s3fs) to open Zarr stores, chunk, and read remote URLs — hence [lazy].
-          - { name: xarray,       pip_extra: "lazy",         extra_pip: "xarray",    marker: "xarray",       dir: "tests/" }
+          - { name: interop,      pip_extra: "lazy",         extra_pip: "xarray",    marker: "interop",      dir: "tests/" }
           - { name: lazy,         pip_extra: "lazy",         marker: "lazy",         dir: "tests/" }
           - { name: netcdf_lazy,  pip_extra: "lazy",         marker: "netcdf_lazy",  dir: "tests/netcdf/lazy" }
           - { name: parquet,      pip_extra: "parquet",      marker: "parquet",      dir: "tests/feature" }
@@ -203,7 +203,7 @@ jobs:
         run: |
           WHEEL=$(ls dist/*.whl)
           pip install "${WHEEL}[${{ matrix.extra.pip_extra }}]" --only-binary=:all:
-          # Peer interop deps that are not pyramids extras (e.g. xarray).
+          # Peer interop deps that are not pyramids extras, installed by name.
           if [ -n "${{ matrix.extra.extra_pip }}" ]; then
             pip install "${{ matrix.extra.extra_pip }}" --only-binary=:all:
           fi

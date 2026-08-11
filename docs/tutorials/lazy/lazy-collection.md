@@ -99,8 +99,8 @@ cube.data.chunks     # ((1, 1, ...), (bands,), (rows,), (cols,))
 Each per-file read is scheduled as a `dask.delayed` task that opens
 the file via `CachingFileManager` and reads its full array. Workers
 therefore never serialise a `gdal.Dataset` — only the file path
-crosses the pickle boundary, matching the pattern xarray / stackstac
-/ odc-stac use for `dask.distributed` safety.
+crosses the pickle boundary, matching the pattern the labeled-array and
+STAC datacube tools use for `dask.distributed` safety.
 
 Access the whole graph the same way you'd access any dask array:
 
@@ -191,8 +191,8 @@ The snapshot is derived eagerly at construction so:
 
 Zarr is the only output where pyramids can do truly parallel writes:
 each dask chunk in `collection.data` lands in an independent Zarr
-chunk file. A rioxarray-compatible attribute schema is written so
-downstream `xr.open_zarr(store)` consumers can reconstruct the geobox
+chunk file. A geobox-attribute schema (the standard GeoZarr convention) is
+written so downstream Zarr consumers can reconstruct the geobox
 without pyramids:
 
 ```python
@@ -218,7 +218,7 @@ execution; useful when the store-write is one step of a larger
 graph.
 
 `collection.to_zarr` raises `RuntimeError` on a collection without a
-`files` list (e.g. the legacy `create_cube(src, n)` path) — Zarr
+`files` list (e.g. the in-memory `from_dataset(src, n)` path) — Zarr
 writes need a source file per timestep. `ImportError` raised when
 the `[lazy]` extra is missing.
 
@@ -226,7 +226,7 @@ the `[lazy]` extra is missing.
 
 For **NetCDF / HDF5**-backed collections, emit a single JSON manifest
 that points at every timestep's source file. Downstream consumers
-open the entire cube as a lazy Zarr-backed xarray with **zero data
+open the entire cube as a lazy Zarr-backed dataset with **zero data
 rewrite**:
 
 ```python
@@ -234,7 +234,7 @@ cube = DatasetCollection.from_files(netcdf_files)
 cube.to_kerchunk("cube.kerchunk.json", concat_dim="time")
 ```
 
-Consume with fsspec + xarray:
+Consume with fsspec and a labeled-array Zarr reader:
 
 ```python
 import fsspec, xarray as xr

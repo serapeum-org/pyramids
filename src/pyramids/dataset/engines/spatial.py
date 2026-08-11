@@ -1601,8 +1601,112 @@ class Spatial(_Engine["Dataset"]):
                     window = (west, south, east, north)
         return window
 
+    def _crop_bbox_windowed(
+        self,
+        bbox: tuple[float, float, float, float] | list[float],
+        crs: Any,
+    ) -> Dataset | None:
+        """Crop an axis-aligned bbox by reading only its pixel window.
+
+        The default bbox crop wraps the box in a one-row cutline and runs
+        ``gdal.Warp``; over a huge or ``/vsicurl`` source that is far heavier than
+        a plain windowed read (#957). When the crop needs neither reprojection nor
+        antimeridian handling, this reads just the AOI window straight from the
+        source and rebuilds the geotransform, so a small crop out of a very large
+        remote raster never triggers a full read.
+
+        Semantics: the crop keeps **every pixel the box overlaps** — the cells from
+        ``floor`` of the west/north edges to ``ceil`` of the east/south edges in
+        pixel space — the same all-touched convention :meth:`Dataset.read_array`
+        uses for its ``bbox=`` argument. The ``bbox=`` crop's warp fallback
+        (reprojection / rotated grids) is run with an all-touched cutline so it
+        keeps the same cells; only a user-supplied polygon ``mask=`` keeps GDAL's
+        centre-containment default. The windowed read is passed through the same
+        :meth:`_correct_wrap_cutline_error` trim, so an all-no-data crop raises the
+        same "no valid pixels" error and interior all-no-data rows/cols drop the
+        same way.
+
+        Eligibility (returns ``None`` to fall back to the warp path otherwise):
+
+        - the source is north-up (no rotation/shear, ``dx > 0``, ``dy < 0``);
+        - the bbox CRS equals the source CRS, so no reprojection is needed;
+        - the box is a normal ``west < east``, ``south < north`` quadruple that
+          overlaps the source (a transposed or non-overlapping box is left to the
+          warp path, which reports it with a clear error).
+
+        Args:
+            bbox (tuple[float, float, float, float] | list[float]):
+                ``(west, south, east, north)`` in the CRS named by ``crs``.
+            crs (Any):
+                CRS of ``bbox`` — anything :func:`crs_equal` accepts (EPSG code,
+                WKT/authority string).
+
+        Returns:
+            Dataset | None:
+                The windowed crop, or ``None`` when the fast path does not apply.
+        """
+        result: Dataset | None = None
+        x0, dx, row_skew, y0, col_skew, dy = self._ds._raster.GetGeoTransform()
+        north_up = not row_skew and not col_skew and dx > 0 and dy < 0
+        source_crs = self._ds.crs
+        west, south, east, north = (float(v) for v in bbox)
+        eligible = (
+            north_up
+            and bool(source_crs)
+            and crs_equal(source_crs, crs)
+            and west < east
+            and south < north
+        )
+        if eligible:
+            columns, rows = self._ds.columns, self._ds.rows
+            # Cells whose extent intersects the box (overlap / all-touched), snapped
+            # outward to whole pixels, then clipped to the source grid. A tiny epsilon
+            # (in pixel units) absorbs binary-float noise so an edge that is
+            # mathematically on a pixel boundary does not flip floor/ceil by one pixel;
+            # it is applied in the snap direction (floor edges up, ceil edges down) so
+            # it drops nothing but noise-scale (< ~1e-9 px) overlaps, which are
+            # sub-nanometre at any realistic cell size.
+            eps = 1e-9
+            xoff = min(max(math.floor((west - x0) / dx + eps), 0), columns)
+            x_far = min(max(math.ceil((east - x0) / dx - eps), 0), columns)
+            yoff = min(max(math.floor((y0 - north) / -dy + eps), 0), rows)
+            y_far = min(max(math.ceil((y0 - south) / -dy - eps), 0), rows)
+            x_size, y_size = x_far - xoff, y_far - yoff
+            if x_size > 0 and y_size > 0:
+                array = self._ds.read_array(window=[xoff, yoff, x_size, y_size])
+                new_gt = (x0 + xoff * dx, dx, 0.0, y0 + yoff * dy, 0.0, dy)
+                # Rebuild on the base Dataset class (never a subclass like NetCDF),
+                # whose create_from_array has the plain array->raster behaviour this
+                # path needs; mirrors _crop_with_polygon_warp's base-class walk.
+                base_cls = cast(
+                    "type[Dataset]",
+                    next(
+                        c
+                        for c in self._ds.__class__.__mro__
+                        if RasterBase in getattr(c, "__bases__", ())
+                    ),
+                )
+                dst = cast(
+                    "Dataset",
+                    base_cls.create_from_array(
+                        array, geo=new_gt, no_data_value=self._ds.no_data_value
+                    ),
+                )
+                # Preserve the source CRS from its WKT so _correct_wrap_cutline_error
+                # carries it onto the trimmed result (a custom CRS with no EPSG survives).
+                dst.crs = source_crs
+                # Same trim the warp path applies with touch=True: drop all-no-data
+                # rows/cols and raise "no valid pixels" when the whole window is
+                # no-data. The read above covered only the AOI, so this stays off the
+                # full source.
+                result = Spatial._correct_wrap_cutline_error(dst)
+        return result
+
     def _crop_with_polygon_warp(
-        self, feature: FeatureCollection | GeoDataFrame, touch: bool = True
+        self,
+        feature: FeatureCollection | GeoDataFrame,
+        touch: bool = True,
+        cutline_all_touched: bool = False,
     ) -> Dataset:
         """Crop raster with polygon.
 
@@ -1614,6 +1718,11 @@ class Spatial(_Engine["Dataset"]):
                 Vector mask.
             touch (bool):
                 Include cells that touch the polygon, not only those entirely inside the polygon mask. Defaults to True.
+            cutline_all_touched (bool):
+                Rasterize the cutline with `CUTLINE_ALL_TOUCHED=TRUE`, keeping every cell the cutline overlaps
+                rather than only cells whose centre it contains. Set by the `bbox=` crop so its reprojection /
+                rotated-grid fallback matches the windowed fast path's overlap semantics. Defaults to False (the
+                GDAL centre-containment default) for a user-supplied polygon mask. Ignored when `touch` is False.
 
         Returns:
             Dataset:
@@ -1661,6 +1770,11 @@ class Spatial(_Engine["Dataset"]):
                 outputBounds=window,
                 xRes=abs(gt[1]) if gt else None,
                 yRes=abs(gt[5]) if gt else None,
+                warpOptions=(
+                    ["CUTLINE_ALL_TOUCHED=TRUE"]
+                    if touch and cutline_all_touched
+                    else None
+                ),
             )
             # base_cls is a dynamic MRO walk that always resolves to Dataset itself
             # (the class directly above RasterBase; see the comment above), never a
@@ -1837,6 +1951,69 @@ class Spatial(_Engine["Dataset"]):
         """
         return _stitch_lon_halves(self._ds, west_part, east_part)
 
+    def _crop_from_bbox(
+        self,
+        bbox: tuple[float, float, float, float] | list[float],
+        mask: GeoDataFrame | FeatureCollection | None,
+        epsg: Any,
+        touch: bool,
+    ) -> Dataset | FeatureCollection:
+        """Resolve a `crop(bbox=...)` request to a finished crop or a cutline mask.
+
+        Handles the three bbox outcomes so :meth:`crop` stays flat: an
+        antimeridian-crossing geographic box is split and cropped, an eligible
+        axis-aligned box is cropped by the windowed fast path, and anything else is
+        wrapped in a one-row :class:`FeatureCollection` for the cutline warp.
+
+        Args:
+            bbox (tuple[float, float, float, float] | list[float]):
+                ``(west, south, east, north)`` in the CRS named by ``epsg``.
+            mask (GeoDataFrame | FeatureCollection | None):
+                The caller's ``mask`` argument, rejected here if also supplied.
+            epsg (Any):
+                CRS for ``bbox``; defaults to the dataset's own CRS when ``None``.
+            touch (bool):
+                Forwarded to the fast path / warp (``True`` enables the fast path).
+
+        Returns:
+            Dataset | FeatureCollection:
+                A finished :class:`Dataset` crop (antimeridian or fast path), or a
+                :class:`FeatureCollection` for the caller to warp.
+
+        Raises:
+            ValueError: Both ``mask`` and ``bbox`` were supplied.
+        """
+        if mask is not None:
+            raise ValueError("crop accepts either `mask` or `bbox`, not both")
+        # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to the WKT
+        # so a bbox in the grid's own CRS is still honoured (#706).
+        crs = (
+            epsg
+            if epsg is not None
+            else require_crs_spec(
+                self._ds.epsg, self._ds.crs, "crop by a bbox without an explicit epsg="
+            )
+        )
+        west, _, east, _ = bbox
+        crs_geo = bool(crs) and sr_from_user_input(crs).IsGeographic()
+        ds_epsg = self._ds.epsg
+        ds_geo = ds_epsg is not None and sr_from_user_input(ds_epsg).IsGeographic()
+        if west > east and crs_geo and ds_geo:
+            # bbox is validated 4-long above; tuple(bbox) loses that fixed arity
+            # statically (it may start as a list), so restore it.
+            bbox_4 = cast(tuple[float, float, float, float], tuple(bbox))
+            _require_antimeridian_seam(self._ds, bbox_4)
+            return self._crop_antimeridian(bbox_4, crs, touch)
+        # Fast path: an axis-aligned box in the source CRS is just a window, so read
+        # only that window instead of warping a cutline over the whole source (#957).
+        # Falls through to the warp path when it does not apply (reprojection, a rotated
+        # grid, or a degenerate/off-grid box).
+        if touch:
+            windowed = self._crop_bbox_windowed(bbox, crs)
+            if windowed is not None:
+                return windowed
+        return FeatureCollection.from_bbox(bbox, epsg=crs)
+
     def crop(
         self,
         mask: GeoDataFrame | FeatureCollection | None = None,
@@ -1893,6 +2070,19 @@ class Spatial(_Engine["Dataset"]):
 
         Hint:
             - If the mask is a dataset with multi-bands, the `crop` method will use the first band as the mask.
+
+        Note:
+            A ``bbox`` crop keeps **every pixel the box overlaps** (the all-touched
+            convention :meth:`read_array` uses for ``bbox=``), which for a box not
+            aligned to pixel edges can be up to one pixel wider per side than a
+            polygon ``mask=`` crop (GDAL's centre-containment default). When the box
+            is axis-aligned in the dataset's own CRS (no ``epsg`` reprojection, no
+            antimeridian split, a north-up grid, ``touch=True``) it is cropped by
+            reading only that pixel window straight from the source, so a small crop
+            out of a very large or ``/vsicurl`` raster reads only the AOI instead of
+            the full source. Ineligible cases (a reprojecting bbox, a rotated grid)
+            fall back to the cutline warp, run all-touched so the result matches the
+            windowed path; ``touch=False`` keeps the entirely-inside cutline crop.
 
         Examples:
             - Crop the raster using a polygon mask.
@@ -2032,38 +2222,27 @@ class Spatial(_Engine["Dataset"]):
               ```
 
         """
+        bbox_mask = False
         if bbox is not None:
-            if mask is not None:
-                raise ValueError("crop accepts either `mask` or `bbox`, not both")
-            # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to
-            # the WKT so a bbox in the grid's own CRS is still honoured (#706).
-            crs = (
-                epsg
-                if epsg is not None
-                else require_crs_spec(
-                    self._ds.epsg,
-                    self._ds.crs,
-                    "crop by a bbox without an explicit epsg=",
-                )
-            )
-            west, _, east, _ = bbox
-            crs_geo = bool(crs) and sr_from_user_input(crs).IsGeographic()
-            ds_epsg = self._ds.epsg
-            ds_geo = ds_epsg is not None and sr_from_user_input(ds_epsg).IsGeographic()
-            if west > east and crs_geo and ds_geo:
-                # bbox is validated 4-long above; tuple(bbox) loses that fixed
-                # arity statically (it may start as a list), so restore it.
-                bbox_4 = cast(tuple[float, float, float, float], tuple(bbox))
-                _require_antimeridian_seam(self._ds, bbox_4)
-                return self._crop_antimeridian(bbox_4, crs, touch)
-            mask = FeatureCollection.from_bbox(bbox, epsg=crs)
+            # Resolve the bbox: a completed crop (antimeridian split or windowed fast
+            # path) is returned as-is; otherwise it yields a FeatureCollection to warp.
+            resolved = self._crop_from_bbox(bbox, mask, epsg, touch)
+            if isinstance(resolved, RasterBase):
+                return cast("Dataset", resolved)
+            mask = resolved
+            bbox_mask = True
         if mask is None:
             raise TypeError(
                 "crop requires a `mask` (GeoDataFrame / FeatureCollection / "
                 "Dataset) or a `bbox` (west, south, east, north) tuple"
             )
         if isinstance(mask, GeoDataFrame):
-            dst = self._crop_with_polygon_warp(mask, touch=touch)
+            # A bbox that fell through the fast path (reprojection / rotated grid) still
+            # crops by overlap, so its warp uses the all-touched cutline to match the fast
+            # path; a user-supplied polygon mask keeps GDAL's centre-containment default.
+            dst = self._crop_with_polygon_warp(
+                mask, touch=touch, cutline_all_touched=bbox_mask
+            )
         elif isinstance(mask, RasterBase):
             dst = self._crop_with_raster(mask)
         else:

@@ -7,8 +7,8 @@ seams where one task feeds another:
    as Zarr and re-opened with :mod:`zarr` to validate metadata.
 2. `to_zarr` + :meth:`Dataset.from_zarr` — single-timestep
    extraction via the Phase 1 reader.
-3. `to_kerchunk` + `xr.open_dataset(engine="kerchunk")` — the
-   canonical consumer shape.
+3. `to_kerchunk` opened via `fsspec` reference filesystem + `zarr` —
+   the native kerchunk consumer shape.
 4. Pickle a :class:`DatasetCollection` + write to Zarr in a spawn
    subprocess — the canonical `dask.distributed` shape.
 """
@@ -32,9 +32,9 @@ except ImportError:  # pragma: no cover
     zarr = None
 
 try:
-    import xarray as xr
-except ImportError:  # pragma: no cover - tests using xr are @pytest.mark.xarray gated
-    xr = None
+    import fsspec
+except ImportError:  # pragma: no cover - gated on the kerchunk extra
+    fsspec = None
 
 pytestmark = pytest.mark.lazy
 
@@ -91,22 +91,25 @@ class TestCollectionIOE2E:
         assert data.shape == (1, 3, 4)
         assert np.allclose(data, 1.0)
 
-    @pytest.mark.xarray
     @requires_kerchunk
-    def test_to_kerchunk_consumer_via_xarray(self, tmp_path):
-        """`collection.to_kerchunk` → `xr.open_dataset(engine="kerchunk")`.
+    def test_to_kerchunk_consumer_via_fsspec_zarr(self, tmp_path):
+        """`collection.to_kerchunk` opens through fsspec + zarr.
 
-        xarray is the canonical downstream consumer for kerchunk
-        manifests; this test pins that pyramids-emitted cube manifests
-        conform to that contract. Gated `@pytest.mark.xarray` so the
-        default `main` pixi task skips it; the `xarray-tests` task
-        runs it in the env where xarray is installed.
+        Validates that a pyramids-emitted cube manifest conforms to the
+        standard kerchunk consumer contract by opening it through
+        fsspec's reference filesystem and zarr — the native kerchunk
+        consumption path — and confirming an array reads back.
         """
         collection = DatasetCollection.from_files([NC_FIXTURE, NC_FIXTURE])
         manifest = tmp_path / "cube_refs.json"
         collection.to_kerchunk(manifest)
-        ds = xr.open_dataset(str(manifest), engine="kerchunk")
-        assert len(ds.data_vars) >= 1
+
+        mapper = fsspec.get_mapper("reference://", fo=str(manifest))
+        group = zarr.open(mapper, mode="r")
+        arrays = dict(group.arrays())
+        assert arrays, f"expected at least one array, got {sorted(arrays)}"
+        first = next(iter(arrays.values()))
+        assert np.asarray(first[:]).size > 0
 
     @requires_zarr
     def test_pickle_collection_write_on_subprocess(self, three_files_ramp, tmp_path):

@@ -57,7 +57,7 @@ class TestToZarrCubeRoundtrip:
 
 
 class TestMetadataAttrs:
-    """Root group + data array carry pyramids/rioxarray-style attributes."""
+    """Root group + data array carry pyramids GeoZarr-style attributes."""
 
     @requires_zarr
     def test_root_attrs_include_file_list(self, three_files_ramp, tmp_path):

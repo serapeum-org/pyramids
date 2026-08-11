@@ -33,8 +33,8 @@ pytestmark = pytest.mark.core
 def _write_multidim(path, data_vars, coords):
     """Write a multidimensional NetCDF from plain dicts — pyramids' own GDAL writer.
 
-    Mirrors ``NetCDF.from_xarray``'s internal builder (MEM multidim ->
-    ``CreateCopy`` to netCDF -> reopen) without any xarray. Dimensions are
+    Builds the container straight through the GDAL multidim API (MEM multidim
+    -> ``CreateCopy`` to netCDF -> reopen), using only GDAL. Dimensions are
     inferred from the data variables' shapes; each coordinate becomes a 1-D
     indexing MDArray named after its dimension, so ``subset``'s name-based axis
     detection works exactly as it does for a real CF cube.
@@ -72,7 +72,7 @@ def _write_multidim(path, data_vars, coords):
         raise RuntimeError(f"Failed to write NetCDF to {path}")
     dst.FlushCache()
     # Release the write handles before reopening — an open netCDF handle leaves the
-    # on-disk file unrecognised by the reader (mirrors NetCDF.from_xarray).
+    # on-disk file unrecognised by the reader.
     dst = None
     src = None
     return NetCDF.read_file(str(path), read_only=True)
@@ -614,7 +614,7 @@ class TestSubsetOffline:
         assert (ds.rows, ds.columns) == (4, 5)
         assert ds.band_count == 1
         # y ascends [10..13]; north-up output row 0 is the northernmost (y=13),
-        # i.e. xarray y-index 3 -> values [15, 16, 17, 18, 19].
+        # i.e. y-index 3 -> values [15, 16, 17, 18, 19].
         row0 = np.asarray(ds.read_array())[0]
         assert list(row0) == [15.0, 16.0, 17.0, 18.0, 19.0]
         # North-up geotransform: negative dy, top-left y at the upper edge.

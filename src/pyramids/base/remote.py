@@ -1289,7 +1289,7 @@ def requester_pays_kwargs() -> dict[str, str]:
 def s3fs_requester_pays_kwargs(region: str | None = None) -> dict[str, Any]:
     """Return fsspec/s3fs constructor kwargs for Requester-Pays reads.
 
-    Use for ``xarray.open_zarr(..., storage_options=...)`` or a direct
+    Use for cloud Zarr readers that take ``storage_options=...``, or a direct
     :class:`s3fs.S3FileSystem` whose bucket is Requester-Pays. Anonymous access
     is disabled (AWS rejects anonymous Requester-Pays requests).
 

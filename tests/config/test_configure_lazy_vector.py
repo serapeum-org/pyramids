@@ -24,7 +24,7 @@ from pyramids.feature import _read as _fc_mod
 # The whole module exercises dask internals. The ``lazy`` marker gates
 # the tests to the env where dask is installed; we therefore cannot
 # ``import dask`` at module scope because pytest collects every test
-# file in every env (core, xarray, parquet, ...) before it evaluates
+# file in every env (core, interop, parquet, ...) before it evaluates
 # markers, and a missing-dask ImportError at that point fails
 # collection outright. Every function / fixture that touches dask
 # imports it locally — no skip, no global import, just deferred

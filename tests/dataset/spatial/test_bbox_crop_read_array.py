@@ -105,6 +105,38 @@ def _bbox_in_3857(
     return (w3, s3, e3, n3)
 
 
+def _ds_multiband() -> Dataset:
+    """A 3-band 10x10 square-pixel EPSG:4326 raster."""
+    return Dataset.create_from_array(
+        np.arange(3 * 10 * 10, dtype="int16").reshape(3, 10, 10),
+        top_left_corner=(0.0, 0.0),
+        cell_size=0.05,
+        epsg=4326,
+    )
+
+
+def _ds_non_square() -> Dataset:
+    """A 10x10 raster with 0.1 deg columns and 0.05 deg rows (dx != -dy)."""
+    return Dataset.create_from_array(
+        np.arange(100, dtype="int16").reshape(10, 10),
+        geo=(0.0, 0.1, 0.0, 0.0, 0.0, -0.05),
+        epsg=4326,
+    )
+
+
+def _ds_nodata_edge() -> Dataset:
+    """A raster with a full no-data row at index 3 (an all-no-data edge to trim)."""
+    arr = np.arange(100, dtype="float32").reshape(10, 10)
+    arr[3, :] = -9999.0
+    return Dataset.create_from_array(
+        arr,
+        top_left_corner=(0.0, 0.0),
+        cell_size=0.05,
+        epsg=4326,
+        no_data_value=-9999.0,
+    )
+
+
 class TestDatasetCropBbox:
     """Tests for ``Dataset.crop(bbox=..., epsg=...)``."""
 
@@ -263,6 +295,256 @@ class TestDatasetCropBbox:
         )
         with pytest.raises(ValueError, match="no valid pixels"):
             ds.crop(bbox=(6.0, 0.0, 9.0, 4.0))  # bottom-right: all no-data
+
+
+class TestWindowedBboxCropFastPath:
+    """#957: an axis-aligned same-CRS bbox crop reads only its window, not the whole source."""
+
+    def test_windowed_crop_avoids_the_full_source_warp(
+        self, dataset, small_bbox, mocker
+    ):
+        """A same-CRS bbox crop never calls the cutline warp.
+
+        Test scenario:
+            Patch ``warp_to_dataset`` to blow up if reached, then crop a bbox in the
+            dataset's own CRS — the windowed fast path must satisfy it without the
+            warp, proving no full-source warp is issued.
+        """
+        boom = mocker.patch(
+            "pyramids.dataset.engines.spatial.warp_to_dataset",
+            side_effect=AssertionError("warp path should not run for a same-CRS bbox"),
+        )
+        out = dataset.crop(bbox=small_bbox)
+        assert out.shape == (1, 2, 2), f"unexpected crop shape {out.shape}"
+        assert boom.call_count == 0, "the cutline warp was invoked for a same-CRS bbox"
+
+    def test_windowed_crop_reads_only_the_aoi_window(self, dataset, small_bbox, mocker):
+        """The crop issues a bounded windowed read of just the AOI, never a full read.
+
+        Test scenario:
+            Spy on ``Dataset.read_array``; the crop of a 2×2 bbox must read with the
+            resolved ``[xoff, yoff, xsize, ysize]`` window (here ``[2, 2, 2, 2]``) and
+            never a windowless (full-source) read. This bounded read is what makes a
+            ``/vsicurl`` crop range-read only the AOI.
+        """
+        spy = mocker.spy(Dataset, "read_array")
+        dataset.crop(bbox=small_bbox)
+        # Spying the unbound method, a[0] is the receiver: keep only reads of the
+        # source raster (later windowless reads land on the tiny derived crop, which
+        # is fine — the point is the *source* is never read in full).
+        source_windows = [
+            kw.get("window", (a[1] if len(a) > 1 else None))
+            for a, kw in spy.call_args_list
+            if a and a[0] is dataset
+        ]
+        assert source_windows == [[2, 2, 2, 2]], (
+            f"source must be read once, windowed to the AOI; saw {source_windows}"
+        )
+
+    def test_windowed_crop_matches_a_direct_windowed_read(self, dataset, small_bbox):
+        """The crop equals a hand-rolled ``read_array(window=)`` + geotransform.
+
+        Test scenario:
+            The old hand-rolled recipe (``read_array(window=[2, 2, 2, 2])`` plus origin
+            math) must equal ``crop(bbox=...)`` in both pixels and geotransform — the
+            exact consolidation #957 asks for.
+        """
+        cropped = dataset.crop(bbox=small_bbox)
+        gt = dataset.geotransform
+        window_array = dataset.read_array(window=[2, 2, 2, 2])
+        assert np.array_equal(cropped.read_array(), window_array), (
+            "crop pixels differ from the direct windowed read"
+        )
+        expected_gt = (gt[0] + 2 * gt[1], gt[1], 0.0, gt[3] + 2 * gt[5], 0.0, gt[5])
+        assert cropped.geotransform == expected_gt, (
+            f"crop geotransform {cropped.geotransform} != expected {expected_gt}"
+        )
+
+    def test_reprojecting_bbox_skips_the_fast_path(self, dataset, small_bbox):
+        """A bbox in a different CRS is not eligible for the windowed fast path.
+
+        Test scenario:
+            ``_crop_bbox_windowed`` must return ``None`` for a bbox declared in
+            EPSG:3857 on a 4326 dataset, so ``crop`` falls back to the reprojecting
+            warp path instead of reading a mis-projected window.
+        """
+        bbox_3857 = _bbox_in_3857(small_bbox)
+        assert dataset.spatial._crop_bbox_windowed(bbox_3857, 3857) is None, (
+            "a different-CRS bbox must fall back to the warp path"
+        )
+
+    def test_transposed_same_crs_bbox_skips_the_fast_path(self, dataset):
+        """A transposed (west >= east) box in the source CRS is not eligible.
+
+        Test scenario:
+            ``_crop_bbox_windowed`` must return ``None`` for a ``west > east``,
+            ``south > north`` box so ``crop`` falls through to
+            :meth:`FeatureCollection.from_bbox`, which raises the clear
+            ``west < east`` validation error rather than reading a negative window.
+        """
+        assert (
+            dataset.spatial._crop_bbox_windowed((0.2, -0.1, 0.1, -0.2), 4326) is None
+        ), "a transposed bbox must fall back to the warp/validation path"
+
+    def test_bbox_outside_source_skips_the_fast_path(self, dataset):
+        """A box that does not overlap the source is not eligible for the fast path.
+
+        Test scenario:
+            A bbox entirely east of the 10×10 fixture clips to a zero-width window;
+            ``_crop_bbox_windowed`` must return ``None`` so the warp path reports the
+            non-overlap with its usual error instead of building an empty array.
+        """
+        assert (
+            dataset.spatial._crop_bbox_windowed((1.0, -0.2, 1.1, -0.1), 4326) is None
+        ), "a non-overlapping bbox must fall back to the warp path"
+
+    def test_rotated_grid_skips_the_fast_path(self, tmp_path):
+        """A rotated (non-north-up) geotransform is not eligible for the fast path.
+
+        Test scenario:
+            Build a dataset whose geotransform carries a rotation term;
+            ``_crop_bbox_windowed`` must return ``None`` so the crop uses the warp
+            path, which handles the rotation correctly.
+        """
+        ds = Dataset.create_from_array(
+            np.arange(100, dtype="int16").reshape(10, 10),
+            geo=(0.0, 0.05, 0.01, 0.0, 0.0, -0.05),  # non-zero row-skew -> rotated
+            epsg=4326,
+        )
+        assert ds.spatial._crop_bbox_windowed((0.1, -0.2, 0.2, -0.1), 4326) is None, (
+            "a rotated grid must fall back to the warp path"
+        )
+
+    @pytest.mark.parametrize(
+        "geo",
+        [
+            (0.0, 0.05, 0.0, -0.5, 0.0, 0.05),  # south-up: dy > 0
+            (0.5, -0.05, 0.0, 0.0, 0.0, -0.05),  # flipped x: dx < 0
+        ],
+        ids=["south-up", "negative-dx"],
+    )
+    def test_flipped_grid_skips_the_fast_path(self, geo):
+        """A south-up (`dy > 0`) or negative-`dx` grid is not eligible for the fast path.
+
+        Test scenario:
+            ``_crop_bbox_windowed`` must return ``None`` for a non-north-up grid so the
+            crop falls back to the warp path, which orients the axes correctly.
+        """
+        ds = Dataset.create_from_array(
+            np.arange(100, dtype="int16").reshape(10, 10), geo=geo, epsg=4326
+        )
+        assert ds.spatial._crop_bbox_windowed((0.1, -0.2, 0.2, -0.1), 4326) is None, (
+            "a flipped/non-north-up grid must fall back to the warp path"
+        )
+
+    @pytest.mark.parametrize(
+        "bbox",
+        [
+            (0.125, -0.375, 0.375, -0.125),  # edges on pixel centres, not boundaries
+            (0.11, -0.19, 0.19, -0.11),  # arbitrary sub-pixel edges
+            (0.13, -0.14, 0.14, -0.13),  # tiny box covering no pixel centre
+            (0.07, -0.33, 0.28, -0.02),  # wider, off-grid on every side
+        ],
+    )
+    def test_fast_path_matches_the_all_touched_warp_fallback(
+        self, dataset, bbox, mocker
+    ):
+        """The windowed fast path returns the same crop as the all-touched warp fallback.
+
+        Test scenario:
+            For non-pixel-aligned boxes, compute the crop via the fast path, then patch
+            ``_crop_bbox_windowed`` to ``None`` so the same bbox crop takes the
+            (all-touched) warp fallback; the two must agree in shape, geotransform and
+            pixels. This pins the overlap-semantics equivalence the fast path relies on.
+        """
+        fast = dataset.crop(bbox=bbox)
+        mocker.patch(
+            "pyramids.dataset.engines.spatial.Spatial._crop_bbox_windowed",
+            return_value=None,
+        )
+        warp = dataset.crop(bbox=bbox)
+        assert fast.shape == warp.shape, (
+            f"shape differs for {bbox}: fast={fast.shape}, warp={warp.shape}"
+        )
+        assert fast.geotransform == warp.geotransform, (
+            f"geotransform differs for {bbox}"
+        )
+        assert np.array_equal(fast.read_array(), warp.read_array()), (
+            f"pixels differ for {bbox}"
+        )
+
+    @pytest.mark.parametrize(
+        "make_ds, bbox",
+        [
+            (_ds_multiband, (0.11, -0.19, 0.19, -0.11)),  # multi-band, non-aligned
+            (
+                _ds_non_square,
+                (0.15, -0.28, 0.63, -0.07),
+            ),  # non-square pixels, non-aligned
+            (_ds_multiband, (0.1, -0.2, 0.2, -0.1)),  # boundary-aligned
+            (
+                _ds_nodata_edge,
+                (0.1, -0.35, 0.3, -0.1),
+            ),  # AOI spans the all-no-data row 3
+        ],
+        ids=["multi-band", "non-square", "boundary-aligned", "no-data-edge"],
+    )
+    def test_fast_path_matches_warp_across_dataset_shapes(self, make_ds, bbox, mocker):
+        """Fast path == all-touched warp fallback for multi-band, non-square, aligned and no-data-edge crops.
+
+        Test scenario:
+            Beyond the single-band square case, the fast path and the all-touched warp
+            fallback must still agree in shape, geotransform and pixels for a multi-band
+            raster, a non-square-pixel grid, a pixel-boundary-aligned box, and a box whose
+            AOI contains an all-no-data row that both paths trim identically.
+        """
+        ds = make_ds()
+        fast = ds.crop(bbox=bbox)
+        mocker.patch(
+            "pyramids.dataset.engines.spatial.Spatial._crop_bbox_windowed",
+            return_value=None,
+        )
+        warp = make_ds().crop(bbox=bbox)
+        assert fast.shape == warp.shape, (
+            f"shape differs: fast={fast.shape}, warp={warp.shape}"
+        )
+        assert fast.geotransform == warp.geotransform, "geotransform differs"
+        assert np.array_equal(fast.read_array(), warp.read_array()), "pixels differ"
+
+    def test_overlap_semantics_keep_every_touched_pixel(self, dataset):
+        """A box straddling pixel boundaries keeps every pixel it overlaps (floor/ceil).
+
+        Test scenario:
+            ``bbox=(0.125,-0.375,0.375,-0.125)`` on the 0.05 deg grid spans cols 2..7 and
+            rows 2..7, so the crop is 6x6 with its origin at the box's floored top-left —
+            the documented all-touched overlap result, wider than a centre-containment crop.
+        """
+        out = dataset.crop(bbox=(0.125, -0.375, 0.375, -0.125))
+        assert out.shape == (1, 6, 6), f"expected 6x6 overlap crop, got {out.shape}"
+        assert out.geotransform[0] == pytest.approx(0.10), (
+            "origin x must be the floored west edge"
+        )
+        assert out.geotransform[3] == pytest.approx(-0.10), (
+            "origin y must be the floored north edge"
+        )
+
+    def test_no_nodata_raster_crops_to_the_tight_overlap_window(self):
+        """A raster with no no-data marker crops to the tight AOI, not an untrimmable border.
+
+        Test scenario:
+            With ``no_data_value=None`` the warp path leaves a border it cannot trim, but
+            the fast path reads exactly the overlap window; an aligned 2x2 bbox must return
+            a 2x2 crop.
+        """
+        ds = Dataset.create_from_array(
+            np.arange(100, dtype="int16").reshape(10, 10),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=None,
+        )
+        out = ds.crop(bbox=(0.1, -0.2, 0.2, -0.1))
+        assert out.shape == (1, 2, 2), f"expected tight 2x2 crop, got {out.shape}"
 
 
 class TestAntimeridianCrop:

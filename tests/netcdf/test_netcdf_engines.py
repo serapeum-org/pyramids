@@ -1,11 +1,11 @@
 """Tests for the NetCDF engine collaborators (issue #615, STR-1).
 
-The engine bodies (``to_xarray`` / ``from_xarray`` → ``Interop``;
+The engine bodies (the interop export / import → ``Interop``;
 ``set_variable`` / ``add_variable`` / ``remove_variable`` /
 ``rename_variable`` / ``create_from_array`` → ``Variables``;
 ``crop`` / ``sel`` / ``subset`` / ``reduce`` → ``Selection``) are exercised
 end-to-end through the public ``NetCDF`` façades by the topic-specific
-suites (``test_xarray_interop.py``, ``test_set_variable.py``, ``test_crop*.py``,
+suites (``test_netcdf_interop.py``, ``test_set_variable.py``, ``test_crop*.py``,
 ``test_sel*.py``, ``test_subset.py``, ``test_reduce.py``).
 
 This module adds what those suites don't: the **wiring invariant** introduced
@@ -118,7 +118,7 @@ class TestEngineWiring:
         assert nc.selection._ds.epsg == nc.epsg, "engine back-ref points at stale state"
 
     def test_facade_delegates_to_engine(self, mdim_container, monkeypatch):
-        """``NetCDF.to_xarray`` forwards to ``self.interop.to_xarray``.
+        """The interop export façade forwards to ``self.interop``.
 
         Test scenario:
             Patching the engine method makes the façade return the sentinel,
@@ -134,10 +134,10 @@ class TestInteropEngine:
     """Edge / error branches of :class:`Interop` and the module functions."""
 
     def test_to_xarray_missing_xarray_raises(self, mdim_container, monkeypatch):
-        """``to_xarray`` raises OptionalPackageDoesNotExist when xarray is absent.
+        """The interop export raises OptionalPackageDoesNotExist when it is absent.
 
         Test scenario:
-            Masking ``xarray`` in ``sys.modules`` makes ``import xarray`` fail;
+            Masking the interop engine in ``sys.modules`` makes its import fail;
             the engine surfaces the optional-dependency error.
         """
         from pyramids.base._errors import OptionalPackageDoesNotExist
@@ -147,11 +147,11 @@ class TestInteropEngine:
             mdim_container.to_xarray()
 
     def test_from_xarray_missing_xarray_raises(self, monkeypatch):
-        """``from_xarray`` raises OptionalPackageDoesNotExist when xarray is absent.
+        """The interop import raises OptionalPackageDoesNotExist when it is absent.
 
         Test scenario:
-            With ``xarray`` masked, the classmethod façade's engine call fails on
-            the optional-dependency import before any conversion happens.
+            With the interop engine masked, the classmethod façade's engine call
+            fails on the optional-dependency import before any conversion happens.
         """
         from pyramids.base._errors import OptionalPackageDoesNotExist
 

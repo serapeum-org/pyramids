@@ -297,7 +297,7 @@ def render_array(
         ax: Optional pre-existing matplotlib Axes.
         fig: Optional pre-existing matplotlib Figure.
         basemap: Reference layer, dispatched by type. ``True`` or a
-            non-empty contextily provider string adds a pyramids web-tile
+            non-empty web-tile / basemap provider string adds a pyramids web-tile
             basemap underneath the rendered plot (tile mode is applied on
             ``"plot"`` and per-panel on ``"facet"``). A
             :class:`cleopatra.basemap.geo.Basemap` is cleopatra's relief/features
@@ -756,7 +756,7 @@ def mesh_render(
             ``location='node'``.
         location: Mesh element location for the data — ``"face"`` or
             ``"node"``. Defaults to ``"face"``.
-        basemap: ``True`` or a contextily provider string; overlays a
+        basemap: ``True`` or a web-tile / basemap provider string; overlays a
             web-tile basemap underneath the rendered mesh. ``None``
             (default) skips the basemap.
         basemap_epsg: CRS code passed to

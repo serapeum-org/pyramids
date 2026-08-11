@@ -256,6 +256,7 @@ nav:
       - Dev Container: how-to/devcontainer.md
       - Docker & GHCR: how-to/docker.md
       - Parallel windowed reads: how-to/parallel-reads.md
+      - Pre-commit hooks: how-to/pre-commit-hooks.md
       - Recipes: how-to/recipes.md
       - Testing & CI:
           - Overview: how-to/testing.md

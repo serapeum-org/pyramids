@@ -1250,6 +1250,32 @@ class Dataset(RasterBase):
         self._require_writable("set band colors")
         self.bands.band_color = values
 
+    def set_color_ramp(
+        self,
+        band: int = 1,
+        *,
+        start_value: int,
+        end_value: int,
+        start_color: str | None = None,
+        end_color: str | None = None,
+        colormap: str | None = None,
+    ) -> None:
+        """Facade — delegates to :meth:`Bands.set_color_ramp <pyramids.dataset.engines.Bands.set_color_ramp>`.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only on-disk (writing the palette
+                would otherwise silently spill a PAM sidecar).
+        """
+        self._require_writable("set a color ramp")
+        return self.bands.set_color_ramp(
+            band,
+            start_value=start_value,
+            end_value=end_value,
+            start_color=start_color,
+            end_color=end_color,
+            colormap=colormap,
+        )
+
     @property
     def color_table(self):
         """Facade — delegates to :attr:`Bands.color_table <pyramids.dataset.engines.Bands.color_table>`."""

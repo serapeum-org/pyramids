@@ -7,7 +7,7 @@ collection (an unguarded ``import``) or silently skips (a module-level
 ``importorskip``), so its coverage is lost in the bare-wheel build and reads as green.
 
 Rule: if a test module pulls an optional dependency at MODULE scope, it MUST carry a
-matching extras marker (``lazy`` / ``xarray`` / ``netcdf_lazy`` / ``parquet`` /
+matching extras marker (``lazy`` / ``interop`` / ``netcdf_lazy`` / ``parquet`` /
 ``parquet_lazy`` / ``plot`` / ``stac`` / ``vfs``) so it is routed off the core
 selection. Collection-safe forms are intentionally NOT flagged:
 

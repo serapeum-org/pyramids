@@ -1,8 +1,9 @@
 """Tests for which NetCDF dimensions may veto the CRS inference (ARC-26).
 
 Separate from `test_crs_less_semantics.py` because writing the fixtures needs
-xarray: that module is `core` and must import in an extras-free wheel run, so it
-cannot carry a module-level optional-dependency import.
+the optional interop engine: that module is `core` and must import in an
+extras-free wheel run, so it cannot carry a module-level optional-dependency
+import.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from pyramids.netcdf import NetCDF
 
 xr = pytest.importorskip("xarray")
 
-pytestmark = [pytest.mark.xarray]
+pytestmark = [pytest.mark.interop]
 
 
 class TestNetCDFAxisClassification:

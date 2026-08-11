@@ -10,9 +10,9 @@ likely under future refactors:
    ``read_array`` for the same single file (sanity of the stacking).
 2. Pickle a lazy NetCDF variable subset across a spawn subprocess + do
    the compute on the worker (dask.distributed shape).
-3. ``to_kerchunk`` manifest consumed via xarray ``engine="kerchunk"``
-   — gated on the optional ``xarray`` dependency since xarray is the
-   canonical downstream kerchunk consumer, not a pyramids dependency.
+3. ``to_kerchunk`` manifest opened back through ``fsspec``'s reference
+   filesystem + ``zarr`` (the native kerchunk consumption path) and its
+   arrays read back — gated on the ``kerchunk`` extra.
 """
 
 from __future__ import annotations
@@ -30,12 +30,15 @@ from tests.netcdf.lazy.conftest import THREE_D_NC_FIXTURE as FIXTURE
 pytestmark = pytest.mark.netcdf_lazy
 
 try:
-    import xarray as xr
-except ImportError:  # pragma: no cover - tests using xr are @pytest.mark.xarray gated
-    xr = None
+    import fsspec
+    import zarr
+except (
+    ImportError
+):  # pragma: no cover - the kerchunk consumer test is @requires_kerchunk gated
+    fsspec = zarr = None
 
 # #530: the deadlock was in manifest *generation* (kerchunk.hdf -> zarr-v3 sync()),
-# not the xarray read. NetCDF.to_kerchunk now builds the manifest natively with h5py
+# not the read back. NetCDF.to_kerchunk now builds the manifest natively with h5py
 # (no live zarr group), so generation can no longer deadlock and this runs on CI again.
 # The global pytest-timeout remains as a backstop.
 
@@ -71,20 +74,25 @@ class TestNetCDFLazyPipelines:
             got = pool.apply(_compute_variable_sum, (payload,))
         assert got == pytest.approx(expected)
 
-    @pytest.mark.xarray
     @requires_kerchunk
-    def test_kerchunk_roundtrip_via_xarray(self, tmp_path):
-        """to_kerchunk manifest opens with xarray engine="kerchunk".
+    def test_kerchunk_roundtrip_via_fsspec_zarr(self, tmp_path):
+        """to_kerchunk manifest opens through fsspec + zarr and reads back.
 
-        xarray is the canonical downstream consumer for kerchunk
-        manifests; this test validates that pyramids-emitted manifests
-        conform to that consumer's contract. Gated ``@pytest.mark.xarray``
-        so the default ``main`` pixi task (``-m "not xarray"``) skips
-        it; the ``xarray-tests`` task runs it in the env where xarray
-        is installed.
+        Validates that a pyramids-emitted kerchunk manifest conforms to
+        the standard consumer contract by opening it through fsspec's
+        reference filesystem and zarr — the native kerchunk consumption
+        path — and confirming its byte-range references resolve to real
+        array data.
         """
         manifest = tmp_path / "refs.json"
         nc = NetCDF.read_file(FIXTURE, open_as_multi_dimensional=False)
         nc.to_kerchunk(manifest)
-        ds = xr.open_dataset(str(manifest), engine="kerchunk")
-        assert len(ds.data_vars) >= 1
+
+        mapper = fsspec.get_mapper("reference://", fo=str(manifest))
+        group = zarr.open(mapper, mode="r")
+        arrays = dict(group.arrays())
+        assert "values" in arrays, f"expected 'values' array, got {sorted(arrays)}"
+
+        data = np.asarray(arrays["values"][:])
+        assert data.ndim == 3, f"expected a 3-D array, got {data.ndim}-D"
+        assert data.size > 0, "values array is empty"

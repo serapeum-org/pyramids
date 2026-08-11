@@ -46,7 +46,7 @@ class TestPlotOptionDataclasses:
 
         Test scenario:
             Every colour control is ``None`` except ``robust`` (``False``)
-            and ``add_colorbar`` (``True``), matching the xarray-aligned
+            and ``add_colorbar`` (``True``), matching the
             defaults the old loose signature exposed.
         """
         colour = ColourOpts()

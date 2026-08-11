@@ -282,7 +282,7 @@ def grib_to_cog(
 
     Chains :func:`open_grib` → select the `variable` band → write with
     :meth:`~pyramids.dataset.Dataset.to_cog`. Everything is in-repo (GDAL's GRIB
-    driver + pyramids' COG writer) — no `rasterio` / `rio-cogeo` / `cfgrib`. The
+    driver + pyramids' COG writer) — no third-party GRIB or COG libraries. The
     written COG carries the GRIB band's CRS and its `GRIB_*` band metadata, and
     passes the COG validator (:func:`pyramids.dataset.cog.cog_info` `.is_cog`).
 

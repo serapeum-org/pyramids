@@ -1,7 +1,7 @@
 """Tests for :class:`DatasetCollection` RasterMeta refactor.
 
 Backwards-compatible refactor: existing ``DatasetCollection(src,
-time_length)` + `create_cube`` paths are unchanged. Two additions
+time_length)` + `create`` paths are unchanged. Two additions
 under test:
 
 * `.meta` property returns a :class:`RasterMeta` snapshot derived
@@ -84,9 +84,9 @@ class TestMetaPickleable:
 
 
 class TestBackwardsCompat:
-    def test_create_cube_still_works(self, template_file):
+    def test_create_still_works(self, template_file):
         src = Dataset.read_file(template_file)
-        collection = DatasetCollection.create_cube(src, dataset_length=5)
+        collection = DatasetCollection.from_dataset(src, time_length=5)
         assert collection.time_length == 5
         assert collection.meta.rows == 4
 

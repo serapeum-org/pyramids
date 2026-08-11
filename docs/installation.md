@@ -31,9 +31,10 @@ the macOS and Windows x64 wheels). No `gdal-config`, no
   (powers `Dataset.read_array(chunks=…)`, `DatasetCollection.data`,
   `DatasetCollection.to_zarr`, and `NetCDF.to_kerchunk` /
   `combine_kerchunk` HDF5/NetCDF reference manifests)
-- xarray interop (`DatasetCollection.to_netcdf`, `NetCDF.from_xarray` /
-  `to_xarray`) is **not** a pyramids extra — pyramids is GDAL-backed, so
-  xarray is a peer. `pip install xarray` directly when you want those helpers.
+- the optional labeled-array interop (`DatasetCollection.to_netcdf`,
+  `NetCDF.from_xarray` / `to_xarray`) is **not** a pyramids extra — pyramids is
+  GDAL-backed, so the labeled-array library is a peer. Install it directly
+  (`pip install xarray`) when you want those helpers.
 - `parquet`: pyarrow + dask-geopandas + `[lazy]` (eager GeoParquet I/O
   and the lazy `LazyFeatureCollection`)
 - `dev`: nbval, pre-commit, pytest, coverage, build, twine, etc.
@@ -43,7 +44,7 @@ the macOS and Windows x64 wheels). No `gdal-config`, no
 pip install "pyramids-gis[viz]"                  # plotting
 pip install "pyramids-gis[lazy]"                 # dask-backed chunked I/O
 pip install "pyramids-gis[viz,lazy]"             # combine extras with commas
-pip install xarray                               # xarray / NetCDF4 interop (peer dep, not an extra)
+pip install xarray                               # optional interop dependency (peer dep, not an extra)
 ```
 
 ### With conda-forge
@@ -200,7 +201,7 @@ Pixi environments available:
 
 | Environment | Purpose |
 |-------------|---------|
-| `dev` | Default development env (includes viz + xarray + test tooling) |
+| `dev` | Default development env (includes viz + interop + test tooling) |
 | `docs` | Documentation toolchain (mkdocs + plugins) |
 | `py311`, `py312`, `py313`, `py314` | Single-Python-version test envs |
 | `wheel-build` | Minimal env used by cibuildwheel to obtain native GDAL |

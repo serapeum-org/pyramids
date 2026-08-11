@@ -812,6 +812,260 @@ class Bands(_Engine["Dataset"]):
 
         self._set_color_table(df, overwrite=True)
 
+    def set_color_ramp(
+        self,
+        band: int = 1,
+        *,
+        start_value: int,
+        end_value: int,
+        start_color: str | None = None,
+        end_color: str | None = None,
+        colormap: str | None = None,
+    ) -> None:
+        """Attach a colour table interpolated across a value range.
+
+        Fills every integer value in `[start_value, end_value]` with a colour, so a
+        continuous raster does not need every stop enumerated by hand the way the plain
+        `color_table` setter demands. Exactly one of two modes must be given:
+
+        - a **two-colour linear ramp** between `start_color` and `end_color`, built with
+          `gdal.ColorTable.CreateColorRamp`;
+        - a named matplotlib **`colormap`** (e.g. `"viridis"`), sampled evenly across the
+          range.
+
+        The generated entries flow through the same `_set_color_table` path the enumerated
+        setter uses, so the attached palette matches it in form. Needs the `[viz]` extra
+        (the `colormap` mode also uses its matplotlib).
+
+        Args:
+            band (int):
+                1-based band to colour. Defaults to 1.
+            start_value (int):
+                First value in the ramp; must be `>= 0` (GDAL colour indices are
+                non-negative). Keyword-only.
+            end_value (int):
+                Last value in the ramp; must exceed `start_value` (keyword-only). One
+                colour entry is written per integer in `[start_value, end_value]`, so a
+                very wide range (e.g. every UInt16 value, 0..65535) builds a
+                correspondingly large table — keep the range to the classes you actually
+                need. The GDAL palette is dense from index 0, so the table always spans
+                `0..end_value`: a narrow ramp at a high `start_value` still allocates every
+                lower index, and values below `start_value` are left transparent
+                `(0, 0, 0, 0)`. Cost therefore scales with `end_value`, not the range width.
+            start_color (str, optional):
+                Hex colour at `start_value`. Give together with `end_color`, and not with
+                `colormap`.
+            end_color (str, optional):
+                Hex colour at `end_value`. Give together with `start_color`.
+            colormap (str, optional):
+                Named matplotlib colormap sampled across the range. Give instead of the
+                `start_color` / `end_color` pair.
+
+        Raises:
+            TypeError:
+                `start_value` or `end_value` is not an integer.
+            ValueError:
+                `band` is outside `1..band_count`; `start_value` is negative; `end_value`
+                is not greater than `start_value`; only one of `start_color` / `end_color`
+                is given (or one is blank); the mode is ambiguous (neither a colour pair
+                nor a colormap, or both); or `colormap` is not a known matplotlib name.
+
+        Examples:
+            - A two-colour ramp green -> tan across values 1..5 fills the three
+              intermediate stops for you:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.random.randint(1, 6, size=(10, 10))
+              >>> ds = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ... )
+              >>> ds.set_color_ramp(
+              ...     band=1, start_value=1, end_value=5,
+              ...     start_color="#709959", end_color="#F2CE85",
+              ... )
+              >>> print(ds.color_table)
+                band values  red green blue alpha
+              0    1      0    0     0    0     0
+              1    1      1  112   153   89   255
+              2    1      2  144   166  100   255
+              3    1      3  177   179  111   255
+              4    1      4  209   192  122   255
+              5    1      5  242   206  133   255
+
+              ```
+
+            - A named matplotlib colormap is sampled evenly across the range instead of a
+              two-colour pair; value 1 is viridis' dark-purple start:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.random.randint(1, 6, size=(10, 10))
+              >>> ds = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ... )
+              >>> ds.set_color_ramp(band=1, start_value=1, end_value=5, colormap="viridis")
+              >>> row = ds.color_table.set_index("values").loc[1, ["red", "green", "blue"]]
+              >>> [int(component) for component in row]
+              [68, 1, 84]
+
+              ```
+
+        See Also:
+            color_table: The lower-level setter that takes an explicit per-value colour
+                table; `set_color_ramp` generates that table from a ramp and forwards it
+                through the same path.
+        """
+        start_value, end_value = self._validate_color_ramp_args(
+            band, start_value, end_value, start_color, end_color, colormap
+        )
+
+        require_cleopatra()
+        from cleopatra.styling.colors import Colors
+
+        if colormap:
+            ramp = self._ramp_from_colormap(colormap, start_value, end_value)
+        else:
+            # ``_validate_color_ramp_args`` guarantees the colour pair is present when
+            # ``colormap`` is unset (exactly one of the pair / colormap is given), but mypy
+            # can't follow that cross-method narrowing — now that the mypy override reads
+            # cleopatra's inline types, ``Colors`` needs concrete ``str`` colours.
+            assert start_color is not None
+            assert end_color is not None
+            start_rgb, end_rgb = Colors([start_color, end_color]).to_rgb(
+                normalized=False
+            )
+            ramp = gdal.ColorTable()
+            ramp.CreateColorRamp(
+                start_value, (*start_rgb, 255), end_value, (*end_rgb, 255)
+            )
+
+        rows = []
+        for value in range(start_value, end_value + 1):
+            entry = ramp.GetColorEntry(value)
+            rows.append(
+                {
+                    "band": band,
+                    "values": value,
+                    "color": "#{:02x}{:02x}{:02x}".format(*entry[:3]),
+                    "alpha": entry[3],
+                }
+            )
+        self._set_color_table(DataFrame(rows), overwrite=True)
+
+    def _validate_color_ramp_args(
+        self,
+        band: int,
+        start_value: int,
+        end_value: int,
+        start_color: str | None,
+        end_color: str | None,
+        colormap: str | None,
+    ) -> tuple[int, int]:
+        """Validate `set_color_ramp` inputs and return the coerced integer range.
+
+        Raises the same `TypeError` / `ValueError` documented on `set_color_ramp`.
+        Extracted to keep the public method's cognitive complexity low.
+
+        Args:
+            band (int):
+                1-based band index to colour.
+            start_value (int):
+                First value in the ramp.
+            end_value (int):
+                Last value in the ramp.
+            start_color (str, optional):
+                Hex colour at `start_value`, paired with `end_color`.
+            end_color (str, optional):
+                Hex colour at `end_value`, paired with `start_color`.
+            colormap (str, optional):
+                Named matplotlib colormap, given instead of the colour pair.
+
+        Returns:
+            tuple[int, int]:
+                The coerced `(start_value, end_value)` integers.
+        """
+        if not 1 <= band <= self._ds.band_count:
+            raise ValueError(
+                f"band {band} is out of range for a {self._ds.band_count}-band "
+                "dataset (bands are 1-based)"
+            )
+        for name, value in (("start_value", start_value), ("end_value", end_value)):
+            # bool is an int subclass but not a meaningful colour index; reject it
+            # (and any non-numeric type) with the documented TypeError rather than a
+            # cryptic downstream one. float('inf').is_integer() is False, so a
+            # non-finite float lands here too instead of raising OverflowError.
+            if isinstance(value, bool) or not isinstance(
+                value, (int, np.integer, float, np.floating)
+            ):
+                raise TypeError(
+                    f"{name} must be an integer, not {type(value).__name__}"
+                )
+            if not float(value).is_integer():
+                raise TypeError(f"{name} must be a whole number, got {value!r}")
+        start_value, end_value = int(start_value), int(end_value)
+        if start_value < 0:
+            raise ValueError(
+                f"start_value ({start_value}) must be >= 0: GDAL colour indices are "
+                "non-negative"
+            )
+        if end_value <= start_value:
+            raise ValueError(
+                f"end_value ({end_value}) must be greater than start_value "
+                f"({start_value})"
+            )
+        # Treat an empty/blank string as "not given", so the mode guards reject it with a
+        # clear message instead of letting it reach cleopatra/matplotlib as a cryptic one.
+        has_pair = bool(start_color) and bool(end_color)
+        if bool(start_color) != bool(end_color):
+            raise ValueError("start_color and end_color must both be given")
+        if has_pair == bool(colormap):
+            raise ValueError(
+                "provide exactly one of a (start_color, end_color) pair or a colormap="
+            )
+        return start_value, end_value
+
+    @staticmethod
+    def _ramp_from_colormap(
+        colormap: str, start_value: int, end_value: int
+    ) -> gdal.ColorTable:
+        """Sample a named matplotlib colormap evenly across `[start_value, end_value]`.
+
+        Args:
+            colormap (str):
+                Named matplotlib colormap (e.g. `"viridis"`).
+            start_value (int):
+                First value in the ramp.
+            end_value (int):
+                Last value in the ramp.
+
+        Returns:
+            gdal.ColorTable:
+                A colour table with one opaque entry per value in the range.
+        """
+        # matplotlib is a hard cleopatra dependency, so it is importable once
+        # require_cleopatra() has passed (the caller enforces that); imported here for
+        # the same reason _set_color_table imports cleopatra lazily (optional viz extra).
+        from matplotlib import colormaps
+
+        if colormap not in colormaps:
+            raise ValueError(
+                f"unknown colormap {colormap!r}; pass a name from matplotlib's "
+                "registry (e.g. 'viridis', 'terrain')"
+            )
+        cmap = colormaps[colormap]
+        span = end_value - start_value
+        ramp = gdal.ColorTable()
+        for offset in range(span + 1):
+            red, green, blue, _ = cmap(offset / span)
+            ramp.SetColorEntry(
+                start_value + offset,
+                (round(red * 255), round(green * 255), round(blue * 255), 255),
+            )
+        return ramp
+
     def _set_color_table(self, color_df: DataFrame, overwrite: bool = False) -> None:
         """_set_color_table.
 

@@ -6,12 +6,12 @@ without instantiating a live zarr group, avoiding the kerchunk->zarr-v3 `sync()`
 deadlock. These tests pin:
 
 * byte-parity of chunk references against the legacy kerchunk translator,
-* functional round-trip through `xr.open_dataset(engine="kerchunk")`,
+* functional round-trip through `fsspec` reference filesystem + `zarr`,
 * the chunked + deflate + shuffle path,
 * dimension-name and fill-value semantics.
 
 The builder needs only h5py; parity tests additionally need kerchunk, and
-round-trip tests need xarray. Each is gated independently.
+round-trip tests need fsspec + zarr. Each is gated independently.
 """
 
 from __future__ import annotations
@@ -30,9 +30,10 @@ pytestmark = pytest.mark.netcdf_lazy
 h5py = pytest.importorskip("h5py")
 
 try:
-    import xarray as xr
-except ImportError:  # pragma: no cover - tests using xr are @pytest.mark.xarray gated
-    xr = None
+    import fsspec
+    import zarr
+except ImportError:  # pragma: no cover - gated on the kerchunk extra
+    fsspec = zarr = None
 
 
 def _make_chunked_file(path: str) -> np.ndarray:
@@ -126,30 +127,31 @@ class TestParityWithKerchunk:
 
 
 class TestRoundTrip:
-    """Native manifest opens correctly through xarray's kerchunk engine."""
+    """Native manifest opens correctly through fsspec's reference fs + zarr."""
 
-    @pytest.mark.xarray
     @requires_kerchunk
     def test_fixture_values_match_direct_read(self, tmp_path):
-        """Non-fill data round-trips; fill cells decode to NaN."""
+        """Non-fill data round-trips; fill cells keep the fill sentinel."""
         from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         manifest = tmp_path / "native.json"
         manifest.write_text(json.dumps(build_single_manifest(FIXTURE)))
-        ds = xr.open_dataset(str(manifest), engine="kerchunk")
-        try:
-            got = np.asarray(ds["values"].values)
-            with h5py.File(FIXTURE, "r") as f:
-                truth = f["values"][...]
-                fill = np.asarray(f["values"].attrs["_FillValue"]).reshape(-1)[0]
-            mask = truth != fill
-            np.testing.assert_allclose(got[mask], truth[mask])
-            assert np.isnan(got[~mask]).all(), "fill cells must decode to NaN"
-            assert list(ds["values"].dims) == ["bands", "y", "x"]
-        finally:
-            ds.close()
+        mapper = fsspec.get_mapper("reference://", fo=str(manifest))
+        group = zarr.open(mapper, mode="r")
+        arrays = dict(group.arrays())
+        got = np.asarray(arrays["values"][:])
+        with h5py.File(FIXTURE, "r") as f:
+            truth = f["values"][...]
+            fill = np.asarray(f["values"].attrs["_FillValue"]).reshape(-1)[0]
+        mask = truth != fill
+        np.testing.assert_allclose(got[mask], truth[mask])
+        # Raw fsspec + zarr read does no CF masking, so fill cells keep the raw
+        # sentinel (an intentional swap from the CF-decoded fill->NaN semantics
+        # the old labeled-array reader applied).
+        assert (got[~mask] == fill).all(), "fill cells keep the fill sentinel"
+        dims = list(arrays["values"].attrs["_ARRAY_DIMENSIONS"])
+        assert dims == ["bands", "y", "x"]
 
-    @pytest.mark.xarray
     @requires_kerchunk
     def test_chunked_compressed_roundtrip(self, tmp_path):
         """A chunked + gzip + shuffle dataset round-trips bit-for-bit."""
@@ -159,11 +161,10 @@ class TestRoundTrip:
         data = _make_chunked_file(src)
         manifest = tmp_path / "native.json"
         manifest.write_text(json.dumps(build_single_manifest(src)))
-        ds = xr.open_dataset(str(manifest), engine="kerchunk")
-        try:
-            np.testing.assert_array_equal(np.asarray(ds["temp"].values), data)
-        finally:
-            ds.close()
+        mapper = fsspec.get_mapper("reference://", fo=str(manifest))
+        group = zarr.open(mapper, mode="r")
+        arrays = dict(group.arrays())
+        np.testing.assert_array_equal(np.asarray(arrays["temp"][:]), data)
 
 
 class TestMetadataSemantics:
@@ -261,7 +262,6 @@ class TestCombine:
         assert json.loads(combined["time/.zarray"])["shape"] == [6]
         assert json.loads(combined["lat/.zarray"])["shape"] == [5], "lat not stacked"
 
-    @pytest.mark.xarray
     @requires_kerchunk
     def test_combined_data_equals_real_stack(self, tmp_path):
         """Round-trip: the combined cube equals np.concatenate of the inputs."""
@@ -276,14 +276,13 @@ class TestCombine:
         manifest = tmp_path / "combined.json"
         manifest.write_text(json.dumps(combine_manifests(per_file, concat_dim="time")))
 
-        ds = xr.open_dataset(str(manifest), engine="kerchunk")
-        try:
-            np.testing.assert_array_equal(
-                np.asarray(ds["v"].values), np.concatenate(datas, axis=0)
-            )
-            np.testing.assert_array_equal(ds["time"].values, np.arange(6))
-        finally:
-            ds.close()
+        mapper = fsspec.get_mapper("reference://", fo=str(manifest))
+        group = zarr.open(mapper, mode="r")
+        arrays = dict(group.arrays())
+        np.testing.assert_array_equal(
+            np.asarray(arrays["v"][:]), np.concatenate(datas, axis=0)
+        )
+        np.testing.assert_array_equal(np.asarray(arrays["time"][:]), np.arange(6))
 
     def test_subgroup_metadata_preserved(self, tmp_path):
         """Combine keeps sub-group `.zgroup`/`.zattrs`, not just root + variables."""

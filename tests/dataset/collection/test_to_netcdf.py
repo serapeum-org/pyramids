@@ -1,13 +1,13 @@
 """Tests for :meth:`pyramids.dataset.DatasetCollection.to_netcdf` (PY-4).
 
-``to_netcdf`` requires xarray, so the whole module is ``xarray``-marked and runs
-only in the xarray CI job. The *missing*-xarray branch (the
-``OptionalPackageDoesNotExist`` path) lives in ``test_to_netcdf_missing_xarray.py``
-as a ``core`` test so it still runs in the extras-free suite.
+``to_netcdf`` writes through pyramids' own GDAL multidimensional NetCDF writer
+and needs no third-party NetCDF engine, so the whole
+module is ``core`` and runs in the extras-free suite. The companion
+``test_to_netcdf_no_engine.py`` pins that contract by masking the engine
+and asserting the write still succeeds.
 
 Inspection round-trip is done with :func:`osgeo.gdal.OpenEx` in
-``OF_MULTIDIM_RASTER`` mode so the assertions don't require an xarray
-NetCDF engine (xarray in CI may not pull ``netcdf4``).
+``OF_MULTIDIM_RASTER`` mode so the assertions never require a NetCDF engine.
 """
 
 from __future__ import annotations
@@ -21,13 +21,14 @@ import pandas as pd
 import pytest
 from osgeo import gdal
 
+from pyramids.base._errors import AlignmentError
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.netcdf import NetCDF
 from tests.dataset.collection._helpers import (
     make_int16_collection as _make_int16_collection,
 )
 
-pytestmark = pytest.mark.xarray
+pytestmark = pytest.mark.core
 
 
 def _root_attrs(path: str) -> dict:
@@ -72,7 +73,6 @@ def _array_values(path: str, name: str) -> np.ndarray:
     return np.asarray(g.OpenMDArray(name).ReadAsArray())
 
 
-@pytest.mark.xarray
 class TestToNetcdfDefaults:
     """Default-path tests (positional time index, var-per-band, CF root attrs)."""
 
@@ -193,7 +193,6 @@ class TestToNetcdfDefaults:
             )
 
 
-@pytest.mark.xarray
 class TestToNetcdfTimeCoords:
     """``time_coords`` plumbing: explicit values, datetime coercion, warnings, errors."""
 
@@ -460,7 +459,6 @@ class TestToNetcdfTimeCoords:
         assert "time" not in names, f"default 'time' should not appear: {names}"
 
 
-@pytest.mark.xarray
 class TestToNetcdfVarPerBand:
     """``var_per_band`` branch behaviour."""
 
@@ -522,7 +520,6 @@ class TestToNetcdfVarPerBand:
         )
 
 
-@pytest.mark.xarray
 class TestToNetcdfNoData:
     """No-data propagation through the writer (the ``_FillValue`` workaround)."""
 
@@ -673,18 +670,17 @@ class TestToNetcdfNoData:
         )
 
 
-@pytest.mark.xarray
 class TestToNetcdfNoFilesPath:
-    """Support for collections that have no ``_files`` (e.g. ``create_cube``)."""
+    """Support for collections that have no ``_files`` (e.g. ``create``)."""
 
-    def test_create_cube_collection_writes_successfully(self, tmp_path):
-        """A ``create_cube``-backed collection (no file list) can still be written.
+    def test_create_collection_writes_successfully(self, tmp_path):
+        """A ``create``-backed collection (no file list) can still be written.
 
         Args:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            Build via :meth:`DatasetCollection.create_cube` (legacy path
+            Build via :meth:`DatasetCollection.create` (legacy path
             that stamps a single ``Dataset`` repeated T times) — expected:
             the writer materialises from ``self.datasets`` and produces a
             real file.
@@ -699,7 +695,7 @@ class TestToNetcdfNoFilesPath:
             path=src_path,
         ).close()
         src = Dataset.read_file(src_path)
-        col = DatasetCollection.create_cube(src, 3)
+        col = DatasetCollection.from_dataset(src, 3)
         out = tmp_path / "nf.nc"
         col.to_netcdf(str(out))
         assert out.exists(), "no-files write did not produce a file"
@@ -707,46 +703,214 @@ class TestToNetcdfNoFilesPath:
         assert values.shape == (3, 4, 5), f"unexpected shape: {values.shape}"
 
 
-@pytest.mark.xarray
-class TestToNetcdfLargeCubeWarning:
-    """ARC-46: ``to_netcdf`` warns (pointing at ``to_zarr``) for an oversized cube."""
+class TestToNetcdfStreaming:
+    """ARC-46: ``to_netcdf`` streams timestep-by-timestep, never the full cube."""
 
-    def test_warns_when_estimate_exceeds_threshold(self, tmp_path, monkeypatch):
-        """A cube above ``_TO_NETCDF_WARN_BYTES`` emits a UserWarning naming to_zarr.
+    def test_does_not_stack_the_full_cube(self, tmp_path, monkeypatch):
+        """``to_netcdf`` must not materialise the whole cube via ``np.stack``.
 
         Args:
             tmp_path: pytest temp directory.
             monkeypatch: pytest monkeypatch fixture.
 
         Test scenario:
-            Shrink the module warn-threshold to 1 byte so the tiny fixture cube
-            trips it — expected: a UserWarning steering the caller at ``to_zarr``.
+            Patch ``np.stack`` in the collection module to raise, then write.
+            The eager implementation stacked every timestep and would trip it;
+            the streaming implementation writes one slab per timestep, so the
+            file is produced correctly with ``np.stack`` disabled.
         """
-        col, _ = _make_int16_collection(tmp_path, count=2)
-        monkeypatch.setattr("pyramids.dataset.collection._TO_NETCDF_WARN_BYTES", 1)
-        with pytest.warns(UserWarning, match="to_zarr"):
-            col.to_netcdf(str(tmp_path / "warn.nc"))
+        col, _ = _make_int16_collection(tmp_path, count=3)
+        import pyramids.dataset.collection as _collection
 
-    def test_no_warning_for_small_cube(self, tmp_path):
-        """A small cube (default 2 GiB threshold) emits no size warning.
+        def _no_stack(*_args, **_kwargs):
+            raise AssertionError("to_netcdf must not materialise the full cube")
+
+        monkeypatch.setattr(_collection.np, "stack", _no_stack)
+        out = tmp_path / "streamed.nc"
+        col.to_netcdf(str(out))
+        assert out.exists(), "streaming write produced no file"
+        values = _array_values(str(out), "Band_1")
+        assert values.shape == (3, 4, 5), f"unexpected shape: {values.shape}"
+
+    def test_multi_band_multi_timestep_streams_var_per_band_false(self, tmp_path):
+        """A multi-band cube streams into the 4-D ``data`` variable correctly.
 
         Args:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            Default threshold, tiny fixture cube — expected: none of the emitted
-            warnings mention the streaming ``to_zarr`` guidance.
+            Three 2-band timesteps written with ``var_per_band=False`` round-trip
+            to a ``(T, band, y, x)`` array equal to the source, exercising the
+            per-timestep ``(B, Y, X)`` slab path.
+        """
+        arrays = []
+        paths = []
+        for t in range(3):
+            arr = np.stack(
+                [
+                    np.full((4, 5), t + 1, dtype="int16"),
+                    np.full((4, 5), 100 + t, dtype="int16"),
+                ],
+                axis=0,
+            )
+            p = str(tmp_path / f"mb_{t}.tif")
+            Dataset.create_from_array(
+                arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326, path=p
+            ).close()
+            arrays.append(arr)
+            paths.append(p)
+        col = DatasetCollection.from_files(paths)
+        out = tmp_path / "mb.nc"
+        col.to_netcdf(str(out), var_per_band=False)
+        values = _array_values(str(out), "data")
+        assert values.shape == (3, 2, 4, 5), f"unexpected shape: {values.shape}"
+        for t in range(3):
+            np.testing.assert_array_equal(
+                values[t], arrays[t], err_msg=f"timestep {t} mismatch"
+            )
+
+    def test_mismatched_timestep_shape_raises_alignment_error(self, tmp_path):
+        """A timestep whose grid differs from the template raises AlignmentError.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            A 4x5 template followed by a 3x3 raster (``from_files`` does not
+            validate headers by default) — expected: a clear AlignmentError
+            naming the offending file, and no partial file left on disk.
+        """
+        paths = []
+        for t, shape in enumerate([(4, 5), (3, 3)]):
+            p = str(tmp_path / f"h_{t}.tif")
+            Dataset.create_from_array(
+                np.zeros(shape, dtype="int16"),
+                top_left_corner=(0, 0),
+                cell_size=0.05,
+                epsg=4326,
+                path=p,
+            ).close()
+            paths.append(p)
+        col = DatasetCollection.from_files(paths)
+        out = tmp_path / "bad.nc"
+        with pytest.raises(AlignmentError, match="must share the base grid"):
+            col.to_netcdf(str(out))
+        assert not out.exists(), "a mismatched timestep must leave no partial file"
+
+    def test_failed_overwrite_preserves_existing_file(self, tmp_path):
+        """A failed overwrite leaves the pre-existing file untouched (atomic).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Write a valid cube, then overwrite the same path from a collection
+            whose 2nd timestep mismatches — expected: AlignmentError, and the
+            original file's bytes are unchanged (temp write + os.replace).
+        """
+        out = tmp_path / "cube.nc"
+        good, _ = _make_int16_collection(tmp_path, count=2)
+        good.to_netcdf(str(out))
+        original = out.read_bytes()
+
+        paths = []
+        for i, shape in enumerate([(4, 5), (3, 3)]):
+            p = str(tmp_path / f"ov_{i}.tif")
+            Dataset.create_from_array(
+                np.zeros(shape, dtype="int16"),
+                top_left_corner=(0, 0),
+                cell_size=0.05,
+                epsg=4326,
+                path=p,
+            ).close()
+            paths.append(p)
+        bad = DatasetCollection.from_files(paths)
+        with pytest.raises(AlignmentError):
+            bad.to_netcdf(str(out))
+        assert out.exists(), "existing file must survive a failed overwrite"
+        assert out.read_bytes() == original, "existing file was modified"
+
+    def test_no_temp_file_left_after_success(self, tmp_path):
+        """A successful write leaves no temporary sibling file behind.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            After a normal ``to_netcdf`` the atomic temp has been ``os.replace``-d
+            onto the destination — expected: only the ``.nc`` output remains, no
+            leftover ``.tmp`` file.
         """
         col, _ = _make_int16_collection(tmp_path, count=2)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            col.to_netcdf(str(tmp_path / "ok.nc"))
-        assert not any("streams the cube" in str(w.message) for w in caught), (
-            f"unexpected size warning: {[str(w.message) for w in caught]}"
+        out = tmp_path / "clean.nc"
+        col.to_netcdf(str(out))
+        assert out.exists(), "output not written"
+        strays = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+        assert not strays, f"stray temp file(s) left: {strays}"
+
+    def test_empty_collection_raises_value_error(self, tmp_path):
+        """An empty collection (``time_length == 0``) raises a clear ValueError.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            ``from_dataset(base, 0)`` builds a zero-timestep collection — expected:
+            ``to_netcdf`` raises a ValueError naming the empty collection and
+            writes no file.
+        """
+        base = Dataset.create_from_array(
+            np.zeros((4, 5), dtype="int16"),
+            top_left_corner=(0, 0),
+            cell_size=0.05,
+            epsg=4326,
         )
+        col = DatasetCollection.from_dataset(base, 0)
+        out = tmp_path / "empty.nc"
+        with pytest.raises(ValueError, match="empty collection"):
+            col.to_netcdf(str(out))
+        assert not out.exists(), "no file should be written for an empty collection"
+
+    def test_var_per_band_true_multi_timestep_streams_each_band(self, tmp_path):
+        """``var_per_band=True`` streams each band into its own variable per step.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Three 2-band timesteps written with ``var_per_band=True`` — expected:
+            each band becomes a ``(T, y, x)`` variable equal to that band across
+            timesteps, exercising the per-band-per-timestep slab loop.
+        """
+        band0, band1, paths = [], [], []
+        for t in range(3):
+            b0 = np.full((4, 5), t + 1, dtype="int16")
+            b1 = np.full((4, 5), 100 + t, dtype="int16")
+            p = str(tmp_path / f"vb_{t}.tif")
+            Dataset.create_from_array(
+                np.stack([b0, b1], axis=0),
+                top_left_corner=(0, 0),
+                cell_size=0.05,
+                epsg=4326,
+                path=p,
+            ).close()
+            band0.append(b0)
+            band1.append(b1)
+            paths.append(p)
+        col = DatasetCollection.from_files(paths)
+        names = (
+            list(col.meta.band_names) if col.meta.band_names else ["band_1", "band_2"]
+        )
+        out = tmp_path / "vb.nc"
+        col.to_netcdf(str(out), var_per_band=True)
+        v0 = _array_values(str(out), names[0])
+        v1 = _array_values(str(out), names[1])
+        assert v0.shape == (3, 4, 5), f"{names[0]} shape: {v0.shape}"
+        for t in range(3):
+            np.testing.assert_array_equal(v0[t], band0[t], err_msg=f"{names[0]} t={t}")
+            np.testing.assert_array_equal(v1[t], band1[t], err_msg=f"{names[1]} t={t}")
 
 
-@pytest.mark.xarray
 class TestToNetcdfRoundTrip:
     """End-to-end: re-open the written file via :class:`NetCDF` and compare."""
 

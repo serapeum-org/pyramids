@@ -53,8 +53,9 @@ class _Engine(Generic[_DatasetT]):
     (`ds -> ds.spatial -> ds`) that the cycle collector eventually
     breaks but that delays GDAL handle release long enough to fail
     Windows file-unlink in tests (and to leak file descriptors in
-    long-running processes). xarray uses the same pattern for
-    accessors. `weakref.proxy` is transparent — `self._ds.crs`
+    long-running processes). This weak back-reference is the common
+    pattern for accessor objects. `weakref.proxy` is
+    transparent — `self._ds.crs`
     works as if `_ds` were a real reference — so collaborator
     method bodies don't need to know the back-reference is weak.
 

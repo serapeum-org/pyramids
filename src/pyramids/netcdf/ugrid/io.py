@@ -120,7 +120,7 @@ def parse_ugrid_topology(rg: gdal.Group) -> list[MeshTopologyInfo]:
         if topo is not None:
             topologies.append(topo)
 
-    # Fallback: UXARRAY-style files declare topology purely via cf_role on the connectivity variable
+    # Fallback: UGRID-style files declare topology purely via cf_role on the connectivity variable
     # (no central mesh_topology variable). Infer a face/node mesh from it (#589).
     if not topologies:
         inferred = _infer_topology_from_connectivity(scan)
@@ -225,7 +225,7 @@ def _detect_face_dim(scan: _MeshArrayScan, conn_dims: list[str]) -> str:
 def _infer_topology_from_connectivity(scan: _MeshArrayScan) -> MeshTopologyInfo | None:
     """Infer a 2-D face/node mesh when no central ``mesh_topology`` variable exists.
 
-    Used for UGRID files (e.g. UXARRAY meshes) that mark roles with ``cf_role`` on the connectivity
+    Used for UGRID files (e.g. UGRID meshes) that mark roles with ``cf_role`` on the connectivity
     variable rather than on a dummy topology variable. ``face_node_connectivity`` is 2-D
     ``(face, max_nodes_per_face)``; the face dimension is detected via :func:`_detect_face_dim` (a
     face-located data variable or face coordinate variable shares the face dimension), falling back to

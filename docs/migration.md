@@ -68,7 +68,7 @@ S3 side already had.
 **`Dataset.epsg` no longer reports EPSG:4326 for a raster that has no CRS.** It previously substituted WGS 84
 whenever the projection was empty, so an ungeoreferenced grid claimed a georeference it did not have — and that
 claim propagated into `to_file`, `to_crs`, `bounds` and alignment checks. It now returns `None`, matching GDAL,
-rasterio, rioxarray and geopandas, none of which substitute a default.
+rasterio and geopandas, none of which substitute a default.
 
 What changed, and what did not:
 
@@ -457,8 +457,9 @@ were renamed. They are internal — use `NetCDF.to_kerchunk` / `NetCDF.combine_k
 #### Naming note
 
 The new public types are named `Container` and `Variable`. They read cleanly when namespace-qualified
-(`pyramids.netcdf.Container`). If you `from pyramids.netcdf import Variable` in a module that also uses `xarray`,
-the name collides conceptually with `xarray.Variable` — prefer the namespace-qualified form, or alias on import:
+(`pyramids.netcdf.Container`). If you `from pyramids.netcdf import Variable` in a module that also uses a
+labeled-array library, the name collides conceptually with that library's own `Variable` type — prefer the
+namespace-qualified form, or alias on import:
 
 ```python
 from pyramids.netcdf import Variable as NcVariable

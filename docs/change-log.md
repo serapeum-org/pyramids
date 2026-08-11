@@ -1,6 +1,25 @@
 ﻿# Change log
 
 
+## 0.50.0 (2026-08-09)
+
+### BREAKING CHANGE
+
+- read_multiple_files' `extension` parameter is replaced by a `glob` fnmatch filter
+(e.g. `extension="tif"` becomes `glob="*.tif"`).
+
+### Feat
+
+- **collection**: consolidate the DatasetCollection readers into from_files and harden the dunders (#942)
+
+### Fix
+
+- **ci**: pin build-time setuptools <84 for the GDAL bindings build (#950)
+
+### Refactor
+
+- **netcdf**: write to_netcdf through GDAL, no xarray outside the interop methods (#945)
+
 ## 0.49.0 (2026-08-05)
 
 ### BREAKING CHANGE
