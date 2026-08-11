@@ -478,13 +478,3 @@ class TestUgridGroupParams:
         assert kw.get("color") is color, "explicit color must reach MeshGlyph.plot"
         assert kw.get("data_style") is data_style, "explicit data_style must reach it"
 
-    def test_explicit_color_wins_over_loose_color_scale(self):
-        """An explicit ``color`` overrides the loose ``color_scale`` on the mesh path."""
-        from cleopatra.styling.scaling import ColorScaling
-
-        color = ColorScaling.power(gamma=0.6)
-        with patch.object(MeshGlyph, "plot") as mock_plot:
-            self._dataset("face").plot("depth", color=color, color_scale="linear")
-        assert mock_plot.call_args.kwargs.get("color") is color, (
-            "explicit color must win over loose color_scale"
-        )

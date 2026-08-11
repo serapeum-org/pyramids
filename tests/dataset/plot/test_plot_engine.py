@@ -775,12 +775,12 @@ class TestRenderArrayGroupParams:
     kwargs (``color_scale`` / ``style`` / ...).
     """
 
-    def test_explicit_color_group_wins_over_loose_color_scale(self):
-        """An explicit ``color=ColorScaling`` overrides a loose ``color_scale``.
+    def test_explicit_color_group_reaches_render_call(self):
+        """An explicit ``color=ColorScaling`` is forwarded to the render call.
 
         Test scenario:
-            Passing both the typed ``color`` and the loose ``color_scale`` must forward
-            the explicit spec (the loose translation only fills an unset group).
+            The typed ``color`` group must reach ``ArrayGlyph.plot`` verbatim (the loose
+            ``color_scale`` kwarg it replaces was removed and now raises).
         """
         from pyramids.plot import ColorScaling
 
@@ -794,9 +794,8 @@ class TestRenderArrayGroupParams:
                 extent=[0.0, 0.0, 1.0, 1.0],
                 mode="plot",
                 color=explicit,
-                color_scale="linear",
             )
-        assert plot.get("color") is explicit, "explicit color must win over color_scale"
+        assert plot.get("color") is explicit, "explicit color must reach the render call"
 
     def test_explicit_groups_reach_render_call(self):
         """Explicit ``contour`` / ``cells`` / ``data_style`` reach the render call.
