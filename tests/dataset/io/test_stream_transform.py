@@ -6,6 +6,7 @@ import tracemalloc
 
 import numpy as np
 import pytest
+from hpc.indexing import get_pixels2
 
 from pyramids.dataset import Dataset
 
@@ -354,6 +355,73 @@ class TestStreamedConsumers:
         } == reference, (
             "overlay class lists diverged from the whole-array row-major reference"
         )
+
+    def test_extract_single_band_matches_the_eager_whole_array(self):
+        """Streamed `extract` equals the eager `get_pixels2` over the whole array.
+
+        Test scenario:
+            A 7x5 single-band raster spanning several strips; the streamed extract must
+            equal `get_pixels2(read_array(), [nodata])` element-for-element in order.
+        """
+        ds = _raster(rows=7, cols=5)
+        got = ds.extract()
+        reference = get_pixels2(ds.read_array(), [ds.no_data_value[0]])
+        assert np.array_equal(got, reference), "streamed extract diverged (single band)"
+
+    def test_extract_multiband_excludes_from_the_first_band_in_order(self):
+        """Streamed multi-band `extract` reproduces the band-0-driven row-major selection.
+
+        Test scenario:
+            A 2-band raster with a no-data value only in band 0; extract selects columns
+            from band 0's mask and takes both bands, in row-major order — byte-identical
+            to the eager whole-array `get_pixels2`.
+        """
+        band0 = np.arange(35, dtype="float32").reshape(7, 5)
+        band0[2, 3] = -9999.0
+        band0[5, 1] = -9999.0
+        band1 = np.arange(35, dtype="float32").reshape(7, 5) + 100.0
+        ds = Dataset.create_from_array(
+            np.stack([band0, band1]),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        got = ds.extract()
+        reference = get_pixels2(ds.read_array(), [ds.no_data_value[0]])
+        assert np.array_equal(got, reference), "streamed multi-band extract diverged"
+
+    def test_extract_with_exclude_value_matches_the_eager(self):
+        """`exclude_value` filtering is byte-identical under streaming.
+
+        Test scenario:
+            Extracting with `exclude_value` excludes both the no-data value and that
+            value, matching the eager `get_pixels2` with the same exclude list.
+        """
+        ds = _raster(rows=7, cols=5)
+        got = ds.extract(exclude_value=3)
+        reference = get_pixels2(ds.read_array(), [ds.no_data_value[0], 3])
+        assert np.array_equal(got, reference), "exclude_value streaming diverged"
+
+    def test_extract_reads_only_full_width_strips(self, mocker):
+        """`extract` reads the source only through full-width strips, never in full.
+
+        Test scenario:
+            Spy `Dataset.read_array`; every source read during a maskless extract must
+            be a full-width strip (`xoff == 0`, `xsize == columns`), so a `/vsicurl`
+            source is range-read strip by strip.
+        """
+        ds = _raster(rows=7, cols=5)
+        spy = mocker.spy(Dataset, "read_array")
+        ds.extract()
+        windows = [
+            kw.get("window", (a[1] if len(a) > 1 else None))
+            for a, kw in spy.call_args_list
+            if a and a[0] is ds
+        ]
+        assert windows and all(
+            w is not None and w[0] == 0 and w[2] == 5 for w in windows
+        ), f"extract did not read full-width strips: {windows}"
 
     def test_count_domain_cells_is_byte_identical_and_bounded(self, tmp_path):
         """`count_domain_cells` matches the eager count and never reads the band whole.

@@ -545,9 +545,6 @@ class Analysis(_Engine["Dataset"]):
 
                 ```
         """
-        # Optimize: make the read_array return only the array for inside the mask feature, and not to read the whole
-        #  raster
-        arr = self._ds.read_array(band=band)
         no_data_value = (
             self._ds.no_data_value[0]
             if self._ds.no_data_value[0] is not None
@@ -559,8 +556,29 @@ class Analysis(_Engine["Dataset"]):
                 if exclude_value is not None
                 else [no_data_value]
             )
-            values = get_pixels2(arr, exclude_list)
+
+            def _collect(
+                acc: list[np.ndarray], strip: np.ndarray, _window: list[int]
+            ) -> list[np.ndarray]:
+                acc.append(get_pixels2(strip, exclude_list))
+                return acc
+
+            # Stream in row strips so the source is never read whole (#967).
+            # get_pixels2 selects from band 0 in row-major order within each strip;
+            # full-width top-to-bottom strips keep that order across the raster, so
+            # concatenating the strips reproduces the whole-array selection exactly.
+            parts = [
+                part
+                for part in self._ds.io.stream_reduce(_collect, [], band=band)
+                if part.size
+            ]
+            multiband = band is None and self._ds.band_count > 1
+            if parts:
+                values = np.concatenate(parts, axis=1 if multiband else 0)
+            else:
+                values = np.asarray([])
         else:
+            arr = self._ds.read_array(band=band)
             geom_types = set(getattr(mask, "geom_type", []))
             # map(str, ...) — missing geometries yield float nan, which is not
             # orderable against the str type names.
