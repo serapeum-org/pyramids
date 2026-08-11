@@ -2425,6 +2425,42 @@ class DatasetCollection:
         """
         return self._dataset_at(i)
 
+    def _validate_rgb_animation(
+        self, rgb: list[int], exclude_value: Any | None
+    ) -> None:
+        """Validate the ``rgb`` band layout for an RGB time-lapse (issue #538).
+
+        Args:
+            rgb: The band indices requested for the true-colour composite.
+            exclude_value: The caller's ``exclude_value`` (ignored for RGB frames;
+                a non-``None`` value warns because true-colour frames are not masked).
+
+        Raises:
+            ValueError: If ``rgb`` is not 3 or 4 indices, has a negative index, or asks
+                for more bands than the collection's datasets carry.
+        """
+        if len(rgb) not in (3, 4):
+            raise ValueError(
+                f"rgb must list 3 band indices (RGB) or 4 (RGBA), got "
+                f"{rgb!r} with {len(rgb)} entries."
+            )
+        if min(rgb) < 0:
+            raise ValueError(f"rgb band indices must be non-negative, got {rgb!r}.")
+        if exclude_value is not None:
+            warnings.warn(
+                "exclude_value is ignored for RGB animations; true-colour "
+                "frames are not masked. Drop exclude_value, or render a "
+                "single band to mask by no-data.",
+                UserWarning,
+                stacklevel=3,
+            )
+        needed = max(rgb) + 1
+        if self.base.band_count < needed:
+            raise ValueError(
+                f"rgb={rgb} needs at least {needed} bands, but the "
+                f"collection's datasets have {self.base.band_count}."
+            )
+
     def plot(
         self,
         band: int = 0,
@@ -2659,30 +2695,10 @@ class DatasetCollection:
         if rgb is not None:
             # RGB time-lapse: read the FULL multi-band array per timestep and
             # stack to (time, bands, rows, cols); render_array composites the
-            # true-colour frames. Guard the band layout here so a misshapen
-            # ``rgb`` raises a clear error instead of cleopatra silently
+            # true-colour frames. The band layout is validated in a helper so a
+            # misshapen ``rgb`` raises a clear error instead of cleopatra silently
             # collapsing the time axis into the colour channels (issue #538).
-            if len(rgb) not in (3, 4):
-                raise ValueError(
-                    f"rgb must list 3 band indices (RGB) or 4 (RGBA), got "
-                    f"{rgb!r} with {len(rgb)} entries."
-                )
-            if min(rgb) < 0:
-                raise ValueError(f"rgb band indices must be non-negative, got {rgb!r}.")
-            if exclude_value is not None:
-                warnings.warn(
-                    "exclude_value is ignored for RGB animations; true-colour "
-                    "frames are not masked. Drop exclude_value, or render a "
-                    "single band to mask by no-data.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            needed = max(rgb) + 1
-            if self.base.band_count < needed:
-                raise ValueError(
-                    f"rgb={rgb} needs at least {needed} bands, but the "
-                    f"collection's datasets have {self.base.band_count}."
-                )
+            self._validate_rgb_animation(rgb, exclude_value)
             data = np.stack([ds.read_array(band=None) for ds in self.datasets], axis=0)
             return render_array(
                 arr=data,
