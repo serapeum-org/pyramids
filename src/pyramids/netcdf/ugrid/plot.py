@@ -117,8 +117,8 @@ def plot_mesh_data(
             Defaults to `"none"`.
         colorbar: Colour-bar control. `True` (default) draws the default bar,
             `False`/`None` hides it, or pass a `pyramids.plot.ColorBar(...)` to
-            style it (caption / placement / sizing) — cleopatra >= 0.29 renders
-            the typed spec on `MeshGlyph` just like `ArrayGlyph`.
+            style it (caption / placement / sizing) — cleopatra renders the typed
+            spec on `MeshGlyph` just like `ArrayGlyph`.
         title: Plot title string. Defaults to None (no title).
         **kwargs: Additional keyword arguments forwarded to
             `MeshGlyph.plot`. Common options include

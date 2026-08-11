@@ -2003,7 +2003,7 @@ class Analysis(_Engine["Dataset"]):
             basemap (bool, str, or Basemap, optional):
                 Reference layer under the plot, dispatched by type. ``True`` or a tile-provider
                 string (e.g. "CartoDB.Positron") draws a pyramids web-tile basemap. A
-                ``pyramids.plot.Basemap(relief=..., features=...)`` (cleopatra >= 0.28) draws a
+                ``pyramids.plot.Basemap(relief=..., features=...)`` draws a
                 shaded-relief / coastline reference layer instead. Default is None (no basemap).
                 Requires the [viz] extra (mercantile, xyzservices, Pillow). A ``Basemap`` is not
                 supported on the faceted path.

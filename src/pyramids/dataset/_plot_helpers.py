@@ -312,8 +312,8 @@ def render_array(
             ``basemap`` is truthy and this is ``None`` the helper
             raises :class:`ValueError`.
         **kwargs: Forwarded to the cleopatra entry point selected by
-            ``mode`` (including cleopatra >= 0.28 render params such as
-            ``colorbar=`` / ``full_bleed=``).
+            ``mode`` (including render params such as ``colorbar=`` /
+            ``full_bleed=``).
 
     Returns:
         The result object cleopatra returns for that mode — typically a
@@ -567,8 +567,8 @@ def render_array(
     # ``title`` arg is not ``None``, so a constructor-set title survives and
     # routing it to the constructor (via ``option_keys()``) is correct.
     # ``kind`` is force-routed to the render call. The loose cbar_* kwargs no longer
-    # need force-routing: every mode (incl. facet, on cleopatra >= 0.29) folds them
-    # into ``colorbar=ColorBar(...)`` above, so they never reach the split.
+    # need force-routing: they are rejected up front by ``_reject_replaced_cbar_kwargs``
+    # (``colorbar=ColorBar`` is the only colour-bar surface), so they never reach the split.
     RENDER_ONLY_OVERRIDES = {"kind"}
     # Reuse the option set resolved for the style/hillshade guard above — it is
     # cleopatra's declared constructor options and does not change within a call.

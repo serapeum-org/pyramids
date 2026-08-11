@@ -2488,13 +2488,13 @@ class DatasetCollection:
                 Reference layer under the animation, dispatched by type. ``True``
                 or a tile-provider string (e.g. ``"CartoDB.Positron"``) overlays a
                 pyramids web-tile basemap; a ``pyramids.plot.Basemap(relief=...,
-                features=...)`` (cleopatra >= 0.28) draws a shaded-relief /
+                features=...)`` draws a shaded-relief /
                 coastline layer instead. The base raster's CRS is supplied
                 automatically. Default ``None`` (no basemap). Requires the
                 ``[viz]`` extra.
             frame_label (FrameLabel, optional):
                 Typed per-frame label spec ``pyramids.plot.FrameLabel(...)``
-                (cleopatra >= 0.28) that styles the animation's frame caption
+                that styles the animation's frame caption
                 (colour, size, placement). ``animation_axis_values`` sets the
                 label *text* per frame; ``frame_label`` styles it. Default
                 ``None`` (cleopatra's default frame label).

@@ -1,7 +1,7 @@
 """Typed cleopatra plot specs, re-exported for pyramids.
 
 pyramids' ``plot`` and ``animate`` methods accept and forward the cleopatra
-plotting spec objects (the ``[viz]`` extra requires cleopatra >= 0.29, which
+plotting spec objects (the ``[viz]`` extra requires cleopatra >= 0.30, which
 carries the complete spec API). Import them from here so a call site never has
 to reach into ``cleopatra`` directly:
 
@@ -107,7 +107,7 @@ def __getattr__(name: str) -> Any:
         # branded upgrade hint instead of a bare AttributeError.
         raise OptionalPackageDoesNotExist(
             f"cleopatra is installed but too old to provide `{attribute}`. The "
-            "pyramids plotting specs require cleopatra >= 0.29; upgrade with: "
+            "pyramids plotting specs require cleopatra >= 0.30; upgrade with: "
             "pip install -U 'pyramids-gis[viz]'."
         ) from exc
     return spec

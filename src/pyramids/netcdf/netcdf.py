@@ -1761,7 +1761,7 @@ class NetCDF(Dataset):
             basemap (bool, str, or Basemap, optional):
                 Reference layer, dispatched by type. ``True`` or a named contextily
                 tile provider overlays a pyramids web-tile basemap; a
-                ``pyramids.plot.Basemap`` (cleopatra >= 0.28) draws a relief/features
+                ``pyramids.plot.Basemap`` draws a relief/features
                 layer instead (not supported on the faceted path). Defaults to None.
             exclude_value (Any, optional):
                 Pixel value to mask out before plotting. Defaults to None.
@@ -1773,7 +1773,7 @@ class NetCDF(Dataset):
                 Figure size in inches. Defaults to None.
             colorbar (bool or ColorBar, optional):
                 Colour-bar spec. A ``pyramids.plot.ColorBar(label=…, …)``
-                (cleopatra >= 0.28) draws a configured bar; ``False`` hides it and
+                draws a configured bar; ``False`` hides it and
                 ``None`` uses cleopatra's default. Only forwarded when set. Default
                 is ``None``.
             points (np.ndarray or PointOverlay, optional):
