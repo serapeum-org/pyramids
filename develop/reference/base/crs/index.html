@@ -7536,7 +7536,8 @@ when its CRS cannot be resolved to an EPSG. Defaults to
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/base/crs.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-946"> 946</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-945"> 945</a></span>
+<span class="normal"><a href="#__codelineno-0-946"> 946</a></span>
 <span class="normal"><a href="#__codelineno-0-947"> 947</a></span>
 <span class="normal"><a href="#__codelineno-0-948"> 948</a></span>
 <span class="normal"><a href="#__codelineno-0-949"> 949</a></span>
@@ -7614,87 +7615,86 @@ when its CRS cannot be resolved to an EPSG. Defaults to
 <span class="normal"><a href="#__codelineno-0-1021">1021</a></span>
 <span class="normal"><a href="#__codelineno-0-1022">1022</a></span>
 <span class="normal"><a href="#__codelineno-0-1023">1023</a></span>
-<span class="normal"><a href="#__codelineno-0-1024">1024</a></span>
-<span class="normal"><a href="#__codelineno-0-1025">1025</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-946" name="__codelineno-0-946"></a><span class="k">def</span><span class="w"> </span><span class="nf">epsg_from_wkt</span><span class="p">(</span><span class="n">wkt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4326</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-947" name="__codelineno-0-947"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve an EPSG code from a WKT / Proj string with a fallback.</span>
-<a id="__codelineno-0-948" name="__codelineno-0-948"></a>
-<a id="__codelineno-0-949" name="__codelineno-0-949"></a><span class="sd">    Wraps :func:`get_epsg_from_prj` to absorb the</span>
-<a id="__codelineno-0-950" name="__codelineno-0-950"></a><span class="sd">    `get_epsg_from_prj(wkt) if wkt else default` idiom that was</span>
-<a id="__codelineno-0-951" name="__codelineno-0-951"></a><span class="sd">    previously open-coded in four places across the dataset stack.</span>
-<a id="__codelineno-0-952" name="__codelineno-0-952"></a><span class="sd">    Returns `default` when `wkt` is empty (or `None`), and also when</span>
-<a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="sd">    `get_epsg_from_prj` cannot resolve an EPSG from a non-empty `wkt`</span>
-<a id="__codelineno-0-954" name="__codelineno-0-954"></a><span class="sd">    (it raises :class:`CRSError` for a custom CRS whose root carries no</span>
-<a id="__codelineno-0-955" name="__codelineno-0-955"></a><span class="sd">    EPSG authority — e.g. a spherical-earth GRIB GEOGCS); otherwise</span>
-<a id="__codelineno-0-956" name="__codelineno-0-956"></a><span class="sd">    delegates to :func:`get_epsg_from_prj`.</span>
-<a id="__codelineno-0-957" name="__codelineno-0-957"></a>
-<a id="__codelineno-0-958" name="__codelineno-0-958"></a><span class="sd">    Use this in places where an empty projection should be treated as</span>
-<a id="__codelineno-0-959" name="__codelineno-0-959"></a><span class="sd">    a soft &quot;unknown CRS, assume WGS84&quot; rather than a hard error — for</span>
-<a id="__codelineno-0-960" name="__codelineno-0-960"></a><span class="sd">    example the `Dataset.epsg` property on a freshly-built</span>
-<a id="__codelineno-0-961" name="__codelineno-0-961"></a><span class="sd">    in-memory raster that has no projection metadata yet. Use</span>
-<a id="__codelineno-0-962" name="__codelineno-0-962"></a><span class="sd">    :func:`get_epsg_from_prj` directly when you want the strict</span>
-<a id="__codelineno-0-963" name="__codelineno-0-963"></a><span class="sd">    behaviour where an empty projection raises.</span>
-<a id="__codelineno-0-964" name="__codelineno-0-964"></a>
-<a id="__codelineno-0-965" name="__codelineno-0-965"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-966" name="__codelineno-0-966"></a><span class="sd">        wkt: Projection string (WKT, ESRI WKT, or Proj4). An empty</span>
-<a id="__codelineno-0-967" name="__codelineno-0-967"></a><span class="sd">            string or `None` returns `default`.</span>
-<a id="__codelineno-0-968" name="__codelineno-0-968"></a><span class="sd">        default: EPSG code to return when `wkt` is empty / `None`, or</span>
-<a id="__codelineno-0-969" name="__codelineno-0-969"></a><span class="sd">            when its CRS cannot be resolved to an EPSG. Defaults to</span>
-<a id="__codelineno-0-970" name="__codelineno-0-970"></a><span class="sd">            `4326` (the historical pyramids default).</span>
-<a id="__codelineno-0-971" name="__codelineno-0-971"></a>
-<a id="__codelineno-0-972" name="__codelineno-0-972"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-973" name="__codelineno-0-973"></a><span class="sd">        int: EPSG code resolved from `wkt`, or `default` when `wkt` is</span>
-<a id="__codelineno-0-974" name="__codelineno-0-974"></a><span class="sd">        empty or its CRS carries no resolvable EPSG.</span>
-<a id="__codelineno-0-975" name="__codelineno-0-975"></a>
-<a id="__codelineno-0-976" name="__codelineno-0-976"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-977" name="__codelineno-0-977"></a><span class="sd">        - Empty input falls back to the supplied default:</span>
-<a id="__codelineno-0-978" name="__codelineno-0-978"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-979" name="__codelineno-0-979"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import epsg_from_wkt</span>
-<a id="__codelineno-0-980" name="__codelineno-0-980"></a><span class="sd">            &gt;&gt;&gt; epsg_from_wkt(&quot;&quot;)</span>
-<a id="__codelineno-0-981" name="__codelineno-0-981"></a><span class="sd">            4326</span>
-<a id="__codelineno-0-982" name="__codelineno-0-982"></a><span class="sd">            &gt;&gt;&gt; epsg_from_wkt(&quot;&quot;, default=3857)</span>
-<a id="__codelineno-0-983" name="__codelineno-0-983"></a><span class="sd">            3857</span>
-<a id="__codelineno-0-984" name="__codelineno-0-984"></a>
-<a id="__codelineno-0-985" name="__codelineno-0-985"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-986" name="__codelineno-0-986"></a><span class="sd">        - Non-empty WKT delegates to :func:`get_epsg_from_prj`:</span>
-<a id="__codelineno-0-987" name="__codelineno-0-987"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-988" name="__codelineno-0-988"></a><span class="sd">            &gt;&gt;&gt; from osgeo import osr</span>
-<a id="__codelineno-0-989" name="__codelineno-0-989"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import epsg_from_wkt</span>
-<a id="__codelineno-0-990" name="__codelineno-0-990"></a><span class="sd">            &gt;&gt;&gt; ref = osr.SpatialReference()</span>
-<a id="__codelineno-0-991" name="__codelineno-0-991"></a><span class="sd">            &gt;&gt;&gt; _ = ref.ImportFromEPSG(3857)</span>
-<a id="__codelineno-0-992" name="__codelineno-0-992"></a><span class="sd">            &gt;&gt;&gt; epsg_from_wkt(ref.ExportToWkt())</span>
-<a id="__codelineno-0-993" name="__codelineno-0-993"></a><span class="sd">            3857</span>
-<a id="__codelineno-0-994" name="__codelineno-0-994"></a>
-<a id="__codelineno-0-995" name="__codelineno-0-995"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-996" name="__codelineno-0-996"></a><span class="sd">        - An unresolvable custom CRS falls back to `default` instead of</span>
-<a id="__codelineno-0-997" name="__codelineno-0-997"></a><span class="sd">          raising (here GDAL&#39;s spherical-earth GRIB GEOGCS):</span>
-<a id="__codelineno-0-998" name="__codelineno-0-998"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-999" name="__codelineno-0-999"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import epsg_from_wkt</span>
-<a id="__codelineno-0-1000" name="__codelineno-0-1000"></a><span class="sd">            &gt;&gt;&gt; grib_wkt = (</span>
-<a id="__codelineno-0-1001" name="__codelineno-0-1001"></a><span class="sd">            ...     &#39;GEOGCS[&quot;Coordinate System imported from GRIB file&quot;,&#39;</span>
-<a id="__codelineno-0-1002" name="__codelineno-0-1002"></a><span class="sd">            ...     &#39;DATUM[&quot;unnamed&quot;,SPHEROID[&quot;Sphere&quot;,6371229,0]],&#39;</span>
-<a id="__codelineno-0-1003" name="__codelineno-0-1003"></a><span class="sd">            ...     &#39;PRIMEM[&quot;Greenwich&quot;,0],&#39;</span>
-<a id="__codelineno-0-1004" name="__codelineno-0-1004"></a><span class="sd">            ...     &#39;UNIT[&quot;degree&quot;,0.0174532925199433,AUTHORITY[&quot;EPSG&quot;,&quot;9122&quot;]],&#39;</span>
-<a id="__codelineno-0-1005" name="__codelineno-0-1005"></a><span class="sd">            ...     &#39;AXIS[&quot;Latitude&quot;,NORTH],AXIS[&quot;Longitude&quot;,EAST]]&#39;</span>
-<a id="__codelineno-0-1006" name="__codelineno-0-1006"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-1007" name="__codelineno-0-1007"></a><span class="sd">            &gt;&gt;&gt; epsg_from_wkt(grib_wkt)</span>
-<a id="__codelineno-0-1008" name="__codelineno-0-1008"></a><span class="sd">            4326</span>
-<a id="__codelineno-0-1009" name="__codelineno-0-1009"></a><span class="sd">            &gt;&gt;&gt; epsg_from_wkt(grib_wkt, default=3857)</span>
-<a id="__codelineno-0-1010" name="__codelineno-0-1010"></a><span class="sd">            3857</span>
-<a id="__codelineno-0-1011" name="__codelineno-0-1011"></a>
-<a id="__codelineno-0-1012" name="__codelineno-0-1012"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-1013" name="__codelineno-0-1013"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1014" name="__codelineno-0-1014"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">wkt</span><span class="p">:</span>
-<a id="__codelineno-0-1015" name="__codelineno-0-1015"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">default</span>
-<a id="__codelineno-0-1016" name="__codelineno-0-1016"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a>        <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">get_epsg_from_prj</span><span class="p">(</span><span class="n">wkt</span><span class="p">)</span>
-<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a>        <span class="k">except</span> <span class="n">CRSError</span><span class="p">:</span>
-<a id="__codelineno-0-1020" name="__codelineno-0-1020"></a>            <span class="c1"># Non-empty but unresolvable CRS (e.g. a custom spherical-earth</span>
-<a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>            <span class="c1"># GRIB GEOGCS that carries no root EPSG authority). Treat it as</span>
-<a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>            <span class="c1"># the same soft &quot;unknown CRS&quot; case as empty input rather than</span>
-<a id="__codelineno-0-1023" name="__codelineno-0-1023"></a>            <span class="c1"># propagating the hard error to property reads like Dataset.epsg.</span>
-<a id="__codelineno-0-1024" name="__codelineno-0-1024"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">default</span>
-<a id="__codelineno-0-1025" name="__codelineno-0-1025"></a>    <span class="k">return</span> <span class="n">result</span>
+<span class="normal"><a href="#__codelineno-0-1024">1024</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-945" name="__codelineno-0-945"></a><span class="k">def</span><span class="w"> </span><span class="nf">epsg_from_wkt</span><span class="p">(</span><span class="n">wkt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4326</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<a id="__codelineno-0-946" name="__codelineno-0-946"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve an EPSG code from a WKT / Proj string with a fallback.</span>
+<a id="__codelineno-0-947" name="__codelineno-0-947"></a>
+<a id="__codelineno-0-948" name="__codelineno-0-948"></a><span class="sd">    Wraps :func:`get_epsg_from_prj` to absorb the</span>
+<a id="__codelineno-0-949" name="__codelineno-0-949"></a><span class="sd">    `get_epsg_from_prj(wkt) if wkt else default` idiom that was</span>
+<a id="__codelineno-0-950" name="__codelineno-0-950"></a><span class="sd">    previously open-coded in four places across the dataset stack.</span>
+<a id="__codelineno-0-951" name="__codelineno-0-951"></a><span class="sd">    Returns `default` when `wkt` is empty (or `None`), and also when</span>
+<a id="__codelineno-0-952" name="__codelineno-0-952"></a><span class="sd">    `get_epsg_from_prj` cannot resolve an EPSG from a non-empty `wkt`</span>
+<a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="sd">    (it raises :class:`CRSError` for a custom CRS whose root carries no</span>
+<a id="__codelineno-0-954" name="__codelineno-0-954"></a><span class="sd">    EPSG authority — e.g. a spherical-earth GRIB GEOGCS); otherwise</span>
+<a id="__codelineno-0-955" name="__codelineno-0-955"></a><span class="sd">    delegates to :func:`get_epsg_from_prj`.</span>
+<a id="__codelineno-0-956" name="__codelineno-0-956"></a>
+<a id="__codelineno-0-957" name="__codelineno-0-957"></a><span class="sd">    Use this in places where an empty projection should be treated as</span>
+<a id="__codelineno-0-958" name="__codelineno-0-958"></a><span class="sd">    a soft &quot;unknown CRS, assume WGS84&quot; rather than a hard error — for</span>
+<a id="__codelineno-0-959" name="__codelineno-0-959"></a><span class="sd">    example the `Dataset.epsg` property on a freshly-built</span>
+<a id="__codelineno-0-960" name="__codelineno-0-960"></a><span class="sd">    in-memory raster that has no projection metadata yet. Use</span>
+<a id="__codelineno-0-961" name="__codelineno-0-961"></a><span class="sd">    :func:`get_epsg_from_prj` directly when you want the strict</span>
+<a id="__codelineno-0-962" name="__codelineno-0-962"></a><span class="sd">    behaviour where an empty projection raises.</span>
+<a id="__codelineno-0-963" name="__codelineno-0-963"></a>
+<a id="__codelineno-0-964" name="__codelineno-0-964"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-965" name="__codelineno-0-965"></a><span class="sd">        wkt: Projection string (WKT, ESRI WKT, or Proj4). An empty</span>
+<a id="__codelineno-0-966" name="__codelineno-0-966"></a><span class="sd">            string or `None` returns `default`.</span>
+<a id="__codelineno-0-967" name="__codelineno-0-967"></a><span class="sd">        default: EPSG code to return when `wkt` is empty / `None`, or</span>
+<a id="__codelineno-0-968" name="__codelineno-0-968"></a><span class="sd">            when its CRS cannot be resolved to an EPSG. Defaults to</span>
+<a id="__codelineno-0-969" name="__codelineno-0-969"></a><span class="sd">            `4326` (the historical pyramids default).</span>
+<a id="__codelineno-0-970" name="__codelineno-0-970"></a>
+<a id="__codelineno-0-971" name="__codelineno-0-971"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-972" name="__codelineno-0-972"></a><span class="sd">        int: EPSG code resolved from `wkt`, or `default` when `wkt` is</span>
+<a id="__codelineno-0-973" name="__codelineno-0-973"></a><span class="sd">        empty or its CRS carries no resolvable EPSG.</span>
+<a id="__codelineno-0-974" name="__codelineno-0-974"></a>
+<a id="__codelineno-0-975" name="__codelineno-0-975"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-976" name="__codelineno-0-976"></a><span class="sd">        - Empty input falls back to the supplied default:</span>
+<a id="__codelineno-0-977" name="__codelineno-0-977"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-978" name="__codelineno-0-978"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import epsg_from_wkt</span>
+<a id="__codelineno-0-979" name="__codelineno-0-979"></a><span class="sd">            &gt;&gt;&gt; epsg_from_wkt(&quot;&quot;)</span>
+<a id="__codelineno-0-980" name="__codelineno-0-980"></a><span class="sd">            4326</span>
+<a id="__codelineno-0-981" name="__codelineno-0-981"></a><span class="sd">            &gt;&gt;&gt; epsg_from_wkt(&quot;&quot;, default=3857)</span>
+<a id="__codelineno-0-982" name="__codelineno-0-982"></a><span class="sd">            3857</span>
+<a id="__codelineno-0-983" name="__codelineno-0-983"></a>
+<a id="__codelineno-0-984" name="__codelineno-0-984"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-985" name="__codelineno-0-985"></a><span class="sd">        - Non-empty WKT delegates to :func:`get_epsg_from_prj`:</span>
+<a id="__codelineno-0-986" name="__codelineno-0-986"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-987" name="__codelineno-0-987"></a><span class="sd">            &gt;&gt;&gt; from osgeo import osr</span>
+<a id="__codelineno-0-988" name="__codelineno-0-988"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import epsg_from_wkt</span>
+<a id="__codelineno-0-989" name="__codelineno-0-989"></a><span class="sd">            &gt;&gt;&gt; ref = osr.SpatialReference()</span>
+<a id="__codelineno-0-990" name="__codelineno-0-990"></a><span class="sd">            &gt;&gt;&gt; _ = ref.ImportFromEPSG(3857)</span>
+<a id="__codelineno-0-991" name="__codelineno-0-991"></a><span class="sd">            &gt;&gt;&gt; epsg_from_wkt(ref.ExportToWkt())</span>
+<a id="__codelineno-0-992" name="__codelineno-0-992"></a><span class="sd">            3857</span>
+<a id="__codelineno-0-993" name="__codelineno-0-993"></a>
+<a id="__codelineno-0-994" name="__codelineno-0-994"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-995" name="__codelineno-0-995"></a><span class="sd">        - An unresolvable custom CRS falls back to `default` instead of</span>
+<a id="__codelineno-0-996" name="__codelineno-0-996"></a><span class="sd">          raising (here GDAL&#39;s spherical-earth GRIB GEOGCS):</span>
+<a id="__codelineno-0-997" name="__codelineno-0-997"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-998" name="__codelineno-0-998"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import epsg_from_wkt</span>
+<a id="__codelineno-0-999" name="__codelineno-0-999"></a><span class="sd">            &gt;&gt;&gt; grib_wkt = (</span>
+<a id="__codelineno-0-1000" name="__codelineno-0-1000"></a><span class="sd">            ...     &#39;GEOGCS[&quot;Coordinate System imported from GRIB file&quot;,&#39;</span>
+<a id="__codelineno-0-1001" name="__codelineno-0-1001"></a><span class="sd">            ...     &#39;DATUM[&quot;unnamed&quot;,SPHEROID[&quot;Sphere&quot;,6371229,0]],&#39;</span>
+<a id="__codelineno-0-1002" name="__codelineno-0-1002"></a><span class="sd">            ...     &#39;PRIMEM[&quot;Greenwich&quot;,0],&#39;</span>
+<a id="__codelineno-0-1003" name="__codelineno-0-1003"></a><span class="sd">            ...     &#39;UNIT[&quot;degree&quot;,0.0174532925199433,AUTHORITY[&quot;EPSG&quot;,&quot;9122&quot;]],&#39;</span>
+<a id="__codelineno-0-1004" name="__codelineno-0-1004"></a><span class="sd">            ...     &#39;AXIS[&quot;Latitude&quot;,NORTH],AXIS[&quot;Longitude&quot;,EAST]]&#39;</span>
+<a id="__codelineno-0-1005" name="__codelineno-0-1005"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-1006" name="__codelineno-0-1006"></a><span class="sd">            &gt;&gt;&gt; epsg_from_wkt(grib_wkt)</span>
+<a id="__codelineno-0-1007" name="__codelineno-0-1007"></a><span class="sd">            4326</span>
+<a id="__codelineno-0-1008" name="__codelineno-0-1008"></a><span class="sd">            &gt;&gt;&gt; epsg_from_wkt(grib_wkt, default=3857)</span>
+<a id="__codelineno-0-1009" name="__codelineno-0-1009"></a><span class="sd">            3857</span>
+<a id="__codelineno-0-1010" name="__codelineno-0-1010"></a>
+<a id="__codelineno-0-1011" name="__codelineno-0-1011"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-1012" name="__codelineno-0-1012"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1013" name="__codelineno-0-1013"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">wkt</span><span class="p">:</span>
+<a id="__codelineno-0-1014" name="__codelineno-0-1014"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">default</span>
+<a id="__codelineno-0-1015" name="__codelineno-0-1015"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-1016" name="__codelineno-0-1016"></a>        <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">get_epsg_from_prj</span><span class="p">(</span><span class="n">wkt</span><span class="p">)</span>
+<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a>        <span class="k">except</span> <span class="n">CRSError</span><span class="p">:</span>
+<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a>            <span class="c1"># Non-empty but unresolvable CRS (e.g. a custom spherical-earth</span>
+<a id="__codelineno-0-1020" name="__codelineno-0-1020"></a>            <span class="c1"># GRIB GEOGCS that carries no root EPSG authority). Treat it as</span>
+<a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>            <span class="c1"># the same soft &quot;unknown CRS&quot; case as empty input rather than</span>
+<a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>            <span class="c1"># propagating the hard error to property reads like Dataset.epsg.</span>
+<a id="__codelineno-0-1023" name="__codelineno-0-1023"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">default</span>
+<a id="__codelineno-0-1024" name="__codelineno-0-1024"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8217,8 +8217,7 @@ and is checked once per code and cached.</p>
 <span class="normal"><a href="#__codelineno-0-798">798</a></span>
 <span class="normal"><a href="#__codelineno-0-799">799</a></span>
 <span class="normal"><a href="#__codelineno-0-800">800</a></span>
-<span class="normal"><a href="#__codelineno-0-801">801</a></span>
-<span class="normal"><a href="#__codelineno-0-802">802</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-726" name="__codelineno-0-726"></a><span class="k">def</span><span class="w"> </span><span class="nf">crs_spec</span><span class="p">(</span><span class="n">epsg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">wkt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="normal"><a href="#__codelineno-0-801">801</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-726" name="__codelineno-0-726"></a><span class="k">def</span><span class="w"> </span><span class="nf">crs_spec</span><span class="p">(</span><span class="n">epsg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">wkt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-727" name="__codelineno-0-727"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Best usable CRS specification for a dataset, or `None` when it has none.</span>
 <a id="__codelineno-0-728" name="__codelineno-0-728"></a>
 <a id="__codelineno-0-729" name="__codelineno-0-729"></a><span class="sd">    Replaces the `dataset.epsg or dataset.crs` idiom. That expression looks</span>
@@ -8286,15 +8285,14 @@ and is checked once per code and cached.</p>
 <a id="__codelineno-0-791" name="__codelineno-0-791"></a><span class="sd">        require_crs_spec: The variant that raises when there is no CRS.</span>
 <a id="__codelineno-0-792" name="__codelineno-0-792"></a><span class="sd">    &quot;&quot;&quot;</span>
 <a id="__codelineno-0-793" name="__codelineno-0-793"></a>    <span class="n">result</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-794" name="__codelineno-0-794"></a>    <span class="k">if</span> <span class="n">epsg</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="ow">not</span> <span class="n">wkt</span> <span class="ow">or</span> <span class="n">_pyproj_can_resolve_epsg</span><span class="p">(</span><span class="n">epsg</span><span class="p">)):</span>
-<a id="__codelineno-0-795" name="__codelineno-0-795"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">epsg</span>
-<a id="__codelineno-0-796" name="__codelineno-0-796"></a>    <span class="k">elif</span> <span class="n">wkt</span><span class="p">:</span>
-<a id="__codelineno-0-797" name="__codelineno-0-797"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">wkt</span>
-<a id="__codelineno-0-798" name="__codelineno-0-798"></a>    <span class="k">elif</span> <span class="n">epsg</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-799" name="__codelineno-0-799"></a>        <span class="c1"># No WKT to fall back to. Returning the code beats returning nothing: the</span>
-<a id="__codelineno-0-800" name="__codelineno-0-800"></a>        <span class="c1"># caller may still route it through `crs_from_user_input`, which can heal it.</span>
-<a id="__codelineno-0-801" name="__codelineno-0-801"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">epsg</span>
-<a id="__codelineno-0-802" name="__codelineno-0-802"></a>    <span class="k">return</span> <span class="n">result</span>
+<a id="__codelineno-0-794" name="__codelineno-0-794"></a>    <span class="c1"># `not wkt` keeps the code when there is no WKT to fall back to: half a</span>
+<a id="__codelineno-0-795" name="__codelineno-0-795"></a>    <span class="c1"># specification beats none, and the caller can still route it through</span>
+<a id="__codelineno-0-796" name="__codelineno-0-796"></a>    <span class="c1"># `crs_from_user_input`, which heals it.</span>
+<a id="__codelineno-0-797" name="__codelineno-0-797"></a>    <span class="k">if</span> <span class="n">epsg</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="ow">not</span> <span class="n">wkt</span> <span class="ow">or</span> <span class="n">_pyproj_can_resolve_epsg</span><span class="p">(</span><span class="n">epsg</span><span class="p">)):</span>
+<a id="__codelineno-0-798" name="__codelineno-0-798"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">epsg</span>
+<a id="__codelineno-0-799" name="__codelineno-0-799"></a>    <span class="k">elif</span> <span class="n">wkt</span><span class="p">:</span>
+<a id="__codelineno-0-800" name="__codelineno-0-800"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">wkt</span>
+<a id="__codelineno-0-801" name="__codelineno-0-801"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8449,7 +8447,8 @@ with a message naming the fix.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/base/crs.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-805">805</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-804">804</a></span>
+<span class="normal"><a href="#__codelineno-0-805">805</a></span>
 <span class="normal"><a href="#__codelineno-0-806">806</a></span>
 <span class="normal"><a href="#__codelineno-0-807">807</a></span>
 <span class="normal"><a href="#__codelineno-0-808">808</a></span>
@@ -8496,56 +8495,55 @@ with a message naming the fix.</p>
 <span class="normal"><a href="#__codelineno-0-849">849</a></span>
 <span class="normal"><a href="#__codelineno-0-850">850</a></span>
 <span class="normal"><a href="#__codelineno-0-851">851</a></span>
-<span class="normal"><a href="#__codelineno-0-852">852</a></span>
-<span class="normal"><a href="#__codelineno-0-853">853</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-805" name="__codelineno-0-805"></a><span class="k">def</span><span class="w"> </span><span class="nf">require_crs_spec</span><span class="p">(</span><span class="n">epsg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">wkt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">operation</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-806" name="__codelineno-0-806"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Like :func:`crs_spec`, but raise when the dataset has no CRS.</span>
-<a id="__codelineno-0-807" name="__codelineno-0-807"></a>
-<a id="__codelineno-0-808" name="__codelineno-0-808"></a><span class="sd">    Use at the point of an operation that genuinely cannot proceed without a</span>
-<a id="__codelineno-0-809" name="__codelineno-0-809"></a><span class="sd">    CRS — reprojection, a coordinate transform, a spatial join against a vector.</span>
-<a id="__codelineno-0-810" name="__codelineno-0-810"></a><span class="sd">    Mirrors standard CRS-handling behaviour: a missing</span>
-<a id="__codelineno-0-811" name="__codelineno-0-811"></a><span class="sd">    CRS propagates quietly until something actually needs it, and then fails</span>
-<a id="__codelineno-0-812" name="__codelineno-0-812"></a><span class="sd">    with a message naming the fix.</span>
-<a id="__codelineno-0-813" name="__codelineno-0-813"></a>
-<a id="__codelineno-0-814" name="__codelineno-0-814"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-815" name="__codelineno-0-815"></a><span class="sd">        epsg: EPSG code, or `None`.</span>
-<a id="__codelineno-0-816" name="__codelineno-0-816"></a><span class="sd">        wkt: Projection WKT, or an empty string / `None`.</span>
-<a id="__codelineno-0-817" name="__codelineno-0-817"></a><span class="sd">        operation: Short description of what needs the CRS, used in the error.</span>
-<a id="__codelineno-0-818" name="__codelineno-0-818"></a>
-<a id="__codelineno-0-819" name="__codelineno-0-819"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-820" name="__codelineno-0-820"></a><span class="sd">        int | str: The EPSG code when there is one, else the WKT.</span>
-<a id="__codelineno-0-821" name="__codelineno-0-821"></a>
-<a id="__codelineno-0-822" name="__codelineno-0-822"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-823" name="__codelineno-0-823"></a><span class="sd">        CRSError: Neither an EPSG code nor a WKT is available.</span>
-<a id="__codelineno-0-824" name="__codelineno-0-824"></a>
-<a id="__codelineno-0-825" name="__codelineno-0-825"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-826" name="__codelineno-0-826"></a><span class="sd">        - Resolves exactly as :func:`crs_spec` when a CRS is present:</span>
-<a id="__codelineno-0-827" name="__codelineno-0-827"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-828" name="__codelineno-0-828"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import require_crs_spec</span>
-<a id="__codelineno-0-829" name="__codelineno-0-829"></a><span class="sd">            &gt;&gt;&gt; require_crs_spec(3857, &quot;&quot;, &quot;reproject&quot;)</span>
-<a id="__codelineno-0-830" name="__codelineno-0-830"></a><span class="sd">            3857</span>
-<a id="__codelineno-0-831" name="__codelineno-0-831"></a>
-<a id="__codelineno-0-832" name="__codelineno-0-832"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-833" name="__codelineno-0-833"></a><span class="sd">        - Refuses, naming the operation, when there is none:</span>
-<a id="__codelineno-0-834" name="__codelineno-0-834"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-835" name="__codelineno-0-835"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import require_crs_spec</span>
-<a id="__codelineno-0-836" name="__codelineno-0-836"></a><span class="sd">            &gt;&gt;&gt; try:</span>
-<a id="__codelineno-0-837" name="__codelineno-0-837"></a><span class="sd">            ...     require_crs_spec(None, &quot;&quot;, &quot;reproject&quot;)</span>
-<a id="__codelineno-0-838" name="__codelineno-0-838"></a><span class="sd">            ... except ValueError as exc:</span>
-<a id="__codelineno-0-839" name="__codelineno-0-839"></a><span class="sd">            ...     print(&quot;reproject&quot; in str(exc))</span>
-<a id="__codelineno-0-840" name="__codelineno-0-840"></a><span class="sd">            True</span>
-<a id="__codelineno-0-841" name="__codelineno-0-841"></a>
-<a id="__codelineno-0-842" name="__codelineno-0-842"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-843" name="__codelineno-0-843"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-844" name="__codelineno-0-844"></a>    <span class="n">spec</span> <span class="o">=</span> <span class="n">crs_spec</span><span class="p">(</span><span class="n">epsg</span><span class="p">,</span> <span class="n">wkt</span><span class="p">)</span>
-<a id="__codelineno-0-845" name="__codelineno-0-845"></a>    <span class="k">if</span> <span class="n">spec</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-846" name="__codelineno-0-846"></a>        <span class="k">raise</span> <span class="n">CRSError</span><span class="p">(</span>
-<a id="__codelineno-0-847" name="__codelineno-0-847"></a>            <span class="sa">f</span><span class="s2">&quot;cannot </span><span class="si">{</span><span class="n">operation</span><span class="si">}</span><span class="s2">: the raster involved has no CRS. Set one first &quot;</span>
-<a id="__codelineno-0-848" name="__codelineno-0-848"></a>            <span class="sa">f</span><span class="s2">&quot;(e.g. &quot;</span>
-<a id="__codelineno-0-849" name="__codelineno-0-849"></a>            <span class="s2">&quot;`dataset.epsg = &lt;code&gt;`, or `gdal_edit.py -a_srs EPSG:&lt;code&gt; &quot;</span>
-<a id="__codelineno-0-850" name="__codelineno-0-850"></a>            <span class="s2">&quot;&lt;file&gt;` on disk); pyramids does not assume WGS 84 for an &quot;</span>
-<a id="__codelineno-0-851" name="__codelineno-0-851"></a>            <span class="s2">&quot;ungeoreferenced raster.&quot;</span>
-<a id="__codelineno-0-852" name="__codelineno-0-852"></a>        <span class="p">)</span>
-<a id="__codelineno-0-853" name="__codelineno-0-853"></a>    <span class="k">return</span> <span class="n">spec</span>
+<span class="normal"><a href="#__codelineno-0-852">852</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-804" name="__codelineno-0-804"></a><span class="k">def</span><span class="w"> </span><span class="nf">require_crs_spec</span><span class="p">(</span><span class="n">epsg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">wkt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">operation</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-805" name="__codelineno-0-805"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Like :func:`crs_spec`, but raise when the dataset has no CRS.</span>
+<a id="__codelineno-0-806" name="__codelineno-0-806"></a>
+<a id="__codelineno-0-807" name="__codelineno-0-807"></a><span class="sd">    Use at the point of an operation that genuinely cannot proceed without a</span>
+<a id="__codelineno-0-808" name="__codelineno-0-808"></a><span class="sd">    CRS — reprojection, a coordinate transform, a spatial join against a vector.</span>
+<a id="__codelineno-0-809" name="__codelineno-0-809"></a><span class="sd">    Mirrors standard CRS-handling behaviour: a missing</span>
+<a id="__codelineno-0-810" name="__codelineno-0-810"></a><span class="sd">    CRS propagates quietly until something actually needs it, and then fails</span>
+<a id="__codelineno-0-811" name="__codelineno-0-811"></a><span class="sd">    with a message naming the fix.</span>
+<a id="__codelineno-0-812" name="__codelineno-0-812"></a>
+<a id="__codelineno-0-813" name="__codelineno-0-813"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-814" name="__codelineno-0-814"></a><span class="sd">        epsg: EPSG code, or `None`.</span>
+<a id="__codelineno-0-815" name="__codelineno-0-815"></a><span class="sd">        wkt: Projection WKT, or an empty string / `None`.</span>
+<a id="__codelineno-0-816" name="__codelineno-0-816"></a><span class="sd">        operation: Short description of what needs the CRS, used in the error.</span>
+<a id="__codelineno-0-817" name="__codelineno-0-817"></a>
+<a id="__codelineno-0-818" name="__codelineno-0-818"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-819" name="__codelineno-0-819"></a><span class="sd">        int | str: The EPSG code when there is one, else the WKT.</span>
+<a id="__codelineno-0-820" name="__codelineno-0-820"></a>
+<a id="__codelineno-0-821" name="__codelineno-0-821"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-822" name="__codelineno-0-822"></a><span class="sd">        CRSError: Neither an EPSG code nor a WKT is available.</span>
+<a id="__codelineno-0-823" name="__codelineno-0-823"></a>
+<a id="__codelineno-0-824" name="__codelineno-0-824"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-825" name="__codelineno-0-825"></a><span class="sd">        - Resolves exactly as :func:`crs_spec` when a CRS is present:</span>
+<a id="__codelineno-0-826" name="__codelineno-0-826"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-827" name="__codelineno-0-827"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import require_crs_spec</span>
+<a id="__codelineno-0-828" name="__codelineno-0-828"></a><span class="sd">            &gt;&gt;&gt; require_crs_spec(3857, &quot;&quot;, &quot;reproject&quot;)</span>
+<a id="__codelineno-0-829" name="__codelineno-0-829"></a><span class="sd">            3857</span>
+<a id="__codelineno-0-830" name="__codelineno-0-830"></a>
+<a id="__codelineno-0-831" name="__codelineno-0-831"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-832" name="__codelineno-0-832"></a><span class="sd">        - Refuses, naming the operation, when there is none:</span>
+<a id="__codelineno-0-833" name="__codelineno-0-833"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-834" name="__codelineno-0-834"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import require_crs_spec</span>
+<a id="__codelineno-0-835" name="__codelineno-0-835"></a><span class="sd">            &gt;&gt;&gt; try:</span>
+<a id="__codelineno-0-836" name="__codelineno-0-836"></a><span class="sd">            ...     require_crs_spec(None, &quot;&quot;, &quot;reproject&quot;)</span>
+<a id="__codelineno-0-837" name="__codelineno-0-837"></a><span class="sd">            ... except ValueError as exc:</span>
+<a id="__codelineno-0-838" name="__codelineno-0-838"></a><span class="sd">            ...     print(&quot;reproject&quot; in str(exc))</span>
+<a id="__codelineno-0-839" name="__codelineno-0-839"></a><span class="sd">            True</span>
+<a id="__codelineno-0-840" name="__codelineno-0-840"></a>
+<a id="__codelineno-0-841" name="__codelineno-0-841"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-842" name="__codelineno-0-842"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-843" name="__codelineno-0-843"></a>    <span class="n">spec</span> <span class="o">=</span> <span class="n">crs_spec</span><span class="p">(</span><span class="n">epsg</span><span class="p">,</span> <span class="n">wkt</span><span class="p">)</span>
+<a id="__codelineno-0-844" name="__codelineno-0-844"></a>    <span class="k">if</span> <span class="n">spec</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-845" name="__codelineno-0-845"></a>        <span class="k">raise</span> <span class="n">CRSError</span><span class="p">(</span>
+<a id="__codelineno-0-846" name="__codelineno-0-846"></a>            <span class="sa">f</span><span class="s2">&quot;cannot </span><span class="si">{</span><span class="n">operation</span><span class="si">}</span><span class="s2">: the raster involved has no CRS. Set one first &quot;</span>
+<a id="__codelineno-0-847" name="__codelineno-0-847"></a>            <span class="sa">f</span><span class="s2">&quot;(e.g. &quot;</span>
+<a id="__codelineno-0-848" name="__codelineno-0-848"></a>            <span class="s2">&quot;`dataset.epsg = &lt;code&gt;`, or `gdal_edit.py -a_srs EPSG:&lt;code&gt; &quot;</span>
+<a id="__codelineno-0-849" name="__codelineno-0-849"></a>            <span class="s2">&quot;&lt;file&gt;` on disk); pyramids does not assume WGS 84 for an &quot;</span>
+<a id="__codelineno-0-850" name="__codelineno-0-850"></a>            <span class="s2">&quot;ungeoreferenced raster.&quot;</span>
+<a id="__codelineno-0-851" name="__codelineno-0-851"></a>        <span class="p">)</span>
+<a id="__codelineno-0-852" name="__codelineno-0-852"></a>    <span class="k">return</span> <span class="n">spec</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -9015,7 +9013,8 @@ user input.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/base/crs.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1509">1509</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1508">1508</a></span>
+<span class="normal"><a href="#__codelineno-0-1509">1509</a></span>
 <span class="normal"><a href="#__codelineno-0-1510">1510</a></span>
 <span class="normal"><a href="#__codelineno-0-1511">1511</a></span>
 <span class="normal"><a href="#__codelineno-0-1512">1512</a></span>
@@ -9115,109 +9114,108 @@ user input.</p>
 <span class="normal"><a href="#__codelineno-0-1606">1606</a></span>
 <span class="normal"><a href="#__codelineno-0-1607">1607</a></span>
 <span class="normal"><a href="#__codelineno-0-1608">1608</a></span>
-<span class="normal"><a href="#__codelineno-0-1609">1609</a></span>
-<span class="normal"><a href="#__codelineno-0-1610">1610</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1509" name="__codelineno-0-1509"></a><span class="k">def</span><span class="w"> </span><span class="nf">reproject_coordinates</span><span class="p">(</span>
-<a id="__codelineno-0-1510" name="__codelineno-0-1510"></a>    <span class="n">x</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
-<a id="__codelineno-0-1511" name="__codelineno-0-1511"></a>    <span class="n">y</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
-<a id="__codelineno-0-1512" name="__codelineno-0-1512"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-1513" name="__codelineno-0-1513"></a>    <span class="n">from_crs</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="mi">4326</span><span class="p">,</span>
-<a id="__codelineno-0-1514" name="__codelineno-0-1514"></a>    <span class="n">to_crs</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="mi">3857</span><span class="p">,</span>
-<a id="__codelineno-0-1515" name="__codelineno-0-1515"></a>    <span class="n">precision</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="mi">6</span><span class="p">,</span>
-<a id="__codelineno-0-1516" name="__codelineno-0-1516"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]:</span>
-<a id="__codelineno-0-1517" name="__codelineno-0-1517"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Reproject parallel x / y coordinate lists between CRSes.</span>
-<a id="__codelineno-0-1518" name="__codelineno-0-1518"></a>
-<a id="__codelineno-0-1519" name="__codelineno-0-1519"></a><span class="sd">    Argument and return order is `(x, y)` throughout; accepts any</span>
-<a id="__codelineno-0-1520" name="__codelineno-0-1520"></a><span class="sd">    CRS form :meth:`pyproj.Transformer.from_crs` understands (EPSG</span>
-<a id="__codelineno-0-1521" name="__codelineno-0-1521"></a><span class="sd">    int, EPSG string, WKT, Proj4, :class:`pyproj.CRS`).</span>
-<a id="__codelineno-0-1522" name="__codelineno-0-1522"></a>
-<a id="__codelineno-0-1523" name="__codelineno-0-1523"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-1524" name="__codelineno-0-1524"></a><span class="sd">        x (list[float]):</span>
-<a id="__codelineno-0-1525" name="__codelineno-0-1525"></a><span class="sd">            X-coordinates in the source CRS (longitudes when</span>
-<a id="__codelineno-0-1526" name="__codelineno-0-1526"></a><span class="sd">            `from_crs` is geographic).</span>
-<a id="__codelineno-0-1527" name="__codelineno-0-1527"></a><span class="sd">        y (list[float]):</span>
-<a id="__codelineno-0-1528" name="__codelineno-0-1528"></a><span class="sd">            Y-coordinates in the source CRS (latitudes when</span>
-<a id="__codelineno-0-1529" name="__codelineno-0-1529"></a><span class="sd">            `from_crs` is geographic).</span>
-<a id="__codelineno-0-1530" name="__codelineno-0-1530"></a><span class="sd">        from_crs:</span>
-<a id="__codelineno-0-1531" name="__codelineno-0-1531"></a><span class="sd">            Source CRS. Accepts anything</span>
-<a id="__codelineno-0-1532" name="__codelineno-0-1532"></a><span class="sd">            :meth:`pyproj.Transformer.from_crs` accepts: EPSG integer</span>
-<a id="__codelineno-0-1533" name="__codelineno-0-1533"></a><span class="sd">            (`4326`), authority string (`&quot;EPSG:4326&quot;`), WKT, Proj4,</span>
-<a id="__codelineno-0-1534" name="__codelineno-0-1534"></a><span class="sd">            or a :class:`pyproj.CRS` instance. Default `4326`.</span>
-<a id="__codelineno-0-1535" name="__codelineno-0-1535"></a><span class="sd">        to_crs:</span>
-<a id="__codelineno-0-1536" name="__codelineno-0-1536"></a><span class="sd">            Target CRS, same forms as `from_crs`. Default `3857`.</span>
-<a id="__codelineno-0-1537" name="__codelineno-0-1537"></a><span class="sd">        precision (int | None):</span>
-<a id="__codelineno-0-1538" name="__codelineno-0-1538"></a><span class="sd">            Decimal places to round each returned coordinate to, using</span>
-<a id="__codelineno-0-1539" name="__codelineno-0-1539"></a><span class="sd">            Python&#39;s built-in `round` — correctly rounded in decimal,</span>
-<a id="__codelineno-0-1540" name="__codelineno-0-1540"></a><span class="sd">            which is *not* the same as `numpy.round` on values that are</span>
-<a id="__codelineno-0-1541" name="__codelineno-0-1541"></a><span class="sd">            not exactly representable (`round(2.675, 2)` is `2.67`,</span>
-<a id="__codelineno-0-1542" name="__codelineno-0-1542"></a><span class="sd">            `numpy.round(2.675, 2)` is `2.68`). Pass `None` to disable</span>
-<a id="__codelineno-0-1543" name="__codelineno-0-1543"></a><span class="sd">            rounding and get the transformer&#39;s full output. Default `6`.</span>
-<a id="__codelineno-0-1544" name="__codelineno-0-1544"></a>
-<a id="__codelineno-0-1545" name="__codelineno-0-1545"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-1546" name="__codelineno-0-1546"></a><span class="sd">        tuple[list[float], list[float]]: `(x, y)` in the target CRS.</span>
-<a id="__codelineno-0-1547" name="__codelineno-0-1547"></a>
-<a id="__codelineno-0-1548" name="__codelineno-0-1548"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-1549" name="__codelineno-0-1549"></a><span class="sd">        ValueError: If `len(x)!= len(y)`.</span>
-<a id="__codelineno-0-1550" name="__codelineno-0-1550"></a><span class="sd">        CRSError: If :meth:`pyproj.Transformer.from_crs` raises one</span>
-<a id="__codelineno-0-1551" name="__codelineno-0-1551"></a><span class="sd">            of `pyproj.exceptions.CRSError` (malformed WKT / proj</span>
-<a id="__codelineno-0-1552" name="__codelineno-0-1552"></a><span class="sd">            string), `TypeError` (input is not CRS-like — e.g. a</span>
-<a id="__codelineno-0-1553" name="__codelineno-0-1553"></a><span class="sd">            bare `object()`), or `ValueError` (out-of-range EPSG</span>
-<a id="__codelineno-0-1554" name="__codelineno-0-1554"></a><span class="sd">            integer). The wrapper converts each into pyramids&#39;</span>
-<a id="__codelineno-0-1555" name="__codelineno-0-1555"></a><span class="sd">            :class:`pyramids.base._errors.CRSError` so callers do not</span>
-<a id="__codelineno-0-1556" name="__codelineno-0-1556"></a><span class="sd">            need to import pyproj to catch bad-CRS failures, and the</span>
-<a id="__codelineno-0-1557" name="__codelineno-0-1557"></a><span class="sd">            message names both CRSes plus the underlying explanation.</span>
-<a id="__codelineno-0-1558" name="__codelineno-0-1558"></a><span class="sd">            Other exception types (`AttributeError`, `ImportError`,</span>
-<a id="__codelineno-0-1559" name="__codelineno-0-1559"></a><span class="sd">            …) propagate unchanged — they signal a real bug, not a bad</span>
-<a id="__codelineno-0-1560" name="__codelineno-0-1560"></a><span class="sd">            user input.</span>
-<a id="__codelineno-0-1561" name="__codelineno-0-1561"></a>
-<a id="__codelineno-0-1562" name="__codelineno-0-1562"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-1563" name="__codelineno-0-1563"></a><span class="sd">        - Reproject a WGS84 point into Web Mercator:</span>
-<a id="__codelineno-0-1564" name="__codelineno-0-1564"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-1565" name="__codelineno-0-1565"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import reproject_coordinates</span>
-<a id="__codelineno-0-1566" name="__codelineno-0-1566"></a><span class="sd">            &gt;&gt;&gt; x, y = reproject_coordinates(</span>
-<a id="__codelineno-0-1567" name="__codelineno-0-1567"></a><span class="sd">            ...     [31.0], [30.0], from_crs=4326, to_crs=3857</span>
-<a id="__codelineno-0-1568" name="__codelineno-0-1568"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-1569" name="__codelineno-0-1569"></a><span class="sd">            &gt;&gt;&gt; round(x[0])</span>
-<a id="__codelineno-0-1570" name="__codelineno-0-1570"></a><span class="sd">            3450904</span>
-<a id="__codelineno-0-1571" name="__codelineno-0-1571"></a><span class="sd">            &gt;&gt;&gt; round(y[0])</span>
-<a id="__codelineno-0-1572" name="__codelineno-0-1572"></a><span class="sd">            3503550</span>
-<a id="__codelineno-0-1573" name="__codelineno-0-1573"></a>
-<a id="__codelineno-0-1574" name="__codelineno-0-1574"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-1575" name="__codelineno-0-1575"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1576" name="__codelineno-0-1576"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">):</span>
-<a id="__codelineno-0-1577" name="__codelineno-0-1577"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-1578" name="__codelineno-0-1578"></a>            <span class="sa">f</span><span class="s2">&quot;x and y must have equal length; got len(x)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="si">}</span><span class="s2"> vs. len(y)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span>
-<a id="__codelineno-0-1579" name="__codelineno-0-1579"></a>        <span class="p">)</span>
-<a id="__codelineno-0-1580" name="__codelineno-0-1580"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-1581" name="__codelineno-0-1581"></a>        <span class="c1"># Through `crs_from_user_input`, not `Transformer.from_crs` directly, so a code</span>
-<a id="__codelineno-0-1582" name="__codelineno-0-1582"></a>        <span class="c1"># only GDAL&#39;s PROJ database knows still builds a transformer. See issue #943.</span>
-<a id="__codelineno-0-1583" name="__codelineno-0-1583"></a>        <span class="n">transformer</span> <span class="o">=</span> <span class="n">Transformer</span><span class="o">.</span><span class="n">from_crs</span><span class="p">(</span>
-<a id="__codelineno-0-1584" name="__codelineno-0-1584"></a>            <span class="n">crs_from_user_input</span><span class="p">(</span><span class="n">from_crs</span><span class="p">),</span> <span class="n">crs_from_user_input</span><span class="p">(</span><span class="n">to_crs</span><span class="p">),</span> <span class="n">always_xy</span><span class="o">=</span><span class="kc">True</span>
-<a id="__codelineno-0-1585" name="__codelineno-0-1585"></a>        <span class="p">)</span>
-<a id="__codelineno-0-1586" name="__codelineno-0-1586"></a>    <span class="k">except</span> <span class="p">(</span><span class="n">pyproj</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CRSError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-<a id="__codelineno-0-1587" name="__codelineno-0-1587"></a>        <span class="k">raise</span> <span class="n">CRSError</span><span class="p">(</span>
-<a id="__codelineno-0-1588" name="__codelineno-0-1588"></a>            <span class="sa">f</span><span class="s2">&quot;reproject_coordinates failed to parse CRS &quot;</span>
-<a id="__codelineno-0-1589" name="__codelineno-0-1589"></a>            <span class="sa">f</span><span class="s2">&quot;(from_crs=</span><span class="si">{</span><span class="n">from_crs</span><span class="si">!r}</span><span class="s2">, to_crs=</span><span class="si">{</span><span class="n">to_crs</span><span class="si">!r}</span><span class="s2">): </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-1590" name="__codelineno-0-1590"></a>        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-<a id="__codelineno-0-1591" name="__codelineno-0-1591"></a>    <span class="c1"># One vectorized call over the whole arrays rather than one call per point:</span>
-<a id="__codelineno-0-1592" name="__codelineno-0-1592"></a>    <span class="c1"># `Transformer.transform` accepts array input and does the loop in PROJ, so a</span>
-<a id="__codelineno-0-1593" name="__codelineno-0-1593"></a>    <span class="c1"># polygon ring with thousands of vertices costs one Python call, not thousands.</span>
-<a id="__codelineno-0-1594" name="__codelineno-0-1594"></a>    <span class="n">xs</span><span class="p">,</span> <span class="n">ys</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span>
-<a id="__codelineno-0-1595" name="__codelineno-0-1595"></a>        <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
-<a id="__codelineno-0-1596" name="__codelineno-0-1596"></a>    <span class="p">)</span>
-<a id="__codelineno-0-1597" name="__codelineno-0-1597"></a>    <span class="n">out_x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">xs</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
-<a id="__codelineno-0-1598" name="__codelineno-0-1598"></a>    <span class="n">out_y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">ys</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
-<a id="__codelineno-0-1599" name="__codelineno-0-1599"></a>    <span class="k">if</span> <span class="n">precision</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1600" name="__codelineno-0-1600"></a>        <span class="c1"># Round with the built-in, NOT `np.round`. They are not interchangeable:</span>
-<a id="__codelineno-0-1601" name="__codelineno-0-1601"></a>        <span class="c1"># `round` is correctly rounded in decimal, while `np.round` scales by</span>
-<a id="__codelineno-0-1602" name="__codelineno-0-1602"></a>        <span class="c1"># `10**precision`, rounds, and divides back, so the two disagree on values</span>
-<a id="__codelineno-0-1603" name="__codelineno-0-1603"></a>        <span class="c1"># that are not exactly representable -- `round(2.675, 2)` is `2.67` but</span>
-<a id="__codelineno-0-1604" name="__codelineno-0-1604"></a>        <span class="c1"># `np.round(2.675, 2)` is `2.68`, and at the default `precision=6` they</span>
-<a id="__codelineno-0-1605" name="__codelineno-0-1605"></a>        <span class="c1"># differ on roughly 1 in 3000 Web-Mercator-magnitude coordinates. Keeping</span>
-<a id="__codelineno-0-1606" name="__codelineno-0-1606"></a>        <span class="c1"># the built-in preserves the per-point implementation&#39;s output exactly;</span>
-<a id="__codelineno-0-1607" name="__codelineno-0-1607"></a>        <span class="c1"># the expensive part was the PROJ round trip, which is already vectorized.</span>
-<a id="__codelineno-0-1608" name="__codelineno-0-1608"></a>        <span class="n">out_x</span> <span class="o">=</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">out_x</span><span class="p">]</span>
-<a id="__codelineno-0-1609" name="__codelineno-0-1609"></a>        <span class="n">out_y</span> <span class="o">=</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">out_y</span><span class="p">]</span>
-<a id="__codelineno-0-1610" name="__codelineno-0-1610"></a>    <span class="k">return</span> <span class="n">out_x</span><span class="p">,</span> <span class="n">out_y</span>
+<span class="normal"><a href="#__codelineno-0-1609">1609</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1508" name="__codelineno-0-1508"></a><span class="k">def</span><span class="w"> </span><span class="nf">reproject_coordinates</span><span class="p">(</span>
+<a id="__codelineno-0-1509" name="__codelineno-0-1509"></a>    <span class="n">x</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
+<a id="__codelineno-0-1510" name="__codelineno-0-1510"></a>    <span class="n">y</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
+<a id="__codelineno-0-1511" name="__codelineno-0-1511"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-1512" name="__codelineno-0-1512"></a>    <span class="n">from_crs</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="mi">4326</span><span class="p">,</span>
+<a id="__codelineno-0-1513" name="__codelineno-0-1513"></a>    <span class="n">to_crs</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="mi">3857</span><span class="p">,</span>
+<a id="__codelineno-0-1514" name="__codelineno-0-1514"></a>    <span class="n">precision</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="mi">6</span><span class="p">,</span>
+<a id="__codelineno-0-1515" name="__codelineno-0-1515"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]:</span>
+<a id="__codelineno-0-1516" name="__codelineno-0-1516"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Reproject parallel x / y coordinate lists between CRSes.</span>
+<a id="__codelineno-0-1517" name="__codelineno-0-1517"></a>
+<a id="__codelineno-0-1518" name="__codelineno-0-1518"></a><span class="sd">    Argument and return order is `(x, y)` throughout; accepts any</span>
+<a id="__codelineno-0-1519" name="__codelineno-0-1519"></a><span class="sd">    CRS form :meth:`pyproj.Transformer.from_crs` understands (EPSG</span>
+<a id="__codelineno-0-1520" name="__codelineno-0-1520"></a><span class="sd">    int, EPSG string, WKT, Proj4, :class:`pyproj.CRS`).</span>
+<a id="__codelineno-0-1521" name="__codelineno-0-1521"></a>
+<a id="__codelineno-0-1522" name="__codelineno-0-1522"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-1523" name="__codelineno-0-1523"></a><span class="sd">        x (list[float]):</span>
+<a id="__codelineno-0-1524" name="__codelineno-0-1524"></a><span class="sd">            X-coordinates in the source CRS (longitudes when</span>
+<a id="__codelineno-0-1525" name="__codelineno-0-1525"></a><span class="sd">            `from_crs` is geographic).</span>
+<a id="__codelineno-0-1526" name="__codelineno-0-1526"></a><span class="sd">        y (list[float]):</span>
+<a id="__codelineno-0-1527" name="__codelineno-0-1527"></a><span class="sd">            Y-coordinates in the source CRS (latitudes when</span>
+<a id="__codelineno-0-1528" name="__codelineno-0-1528"></a><span class="sd">            `from_crs` is geographic).</span>
+<a id="__codelineno-0-1529" name="__codelineno-0-1529"></a><span class="sd">        from_crs:</span>
+<a id="__codelineno-0-1530" name="__codelineno-0-1530"></a><span class="sd">            Source CRS. Accepts anything</span>
+<a id="__codelineno-0-1531" name="__codelineno-0-1531"></a><span class="sd">            :meth:`pyproj.Transformer.from_crs` accepts: EPSG integer</span>
+<a id="__codelineno-0-1532" name="__codelineno-0-1532"></a><span class="sd">            (`4326`), authority string (`&quot;EPSG:4326&quot;`), WKT, Proj4,</span>
+<a id="__codelineno-0-1533" name="__codelineno-0-1533"></a><span class="sd">            or a :class:`pyproj.CRS` instance. Default `4326`.</span>
+<a id="__codelineno-0-1534" name="__codelineno-0-1534"></a><span class="sd">        to_crs:</span>
+<a id="__codelineno-0-1535" name="__codelineno-0-1535"></a><span class="sd">            Target CRS, same forms as `from_crs`. Default `3857`.</span>
+<a id="__codelineno-0-1536" name="__codelineno-0-1536"></a><span class="sd">        precision (int | None):</span>
+<a id="__codelineno-0-1537" name="__codelineno-0-1537"></a><span class="sd">            Decimal places to round each returned coordinate to, using</span>
+<a id="__codelineno-0-1538" name="__codelineno-0-1538"></a><span class="sd">            Python&#39;s built-in `round` — correctly rounded in decimal,</span>
+<a id="__codelineno-0-1539" name="__codelineno-0-1539"></a><span class="sd">            which is *not* the same as `numpy.round` on values that are</span>
+<a id="__codelineno-0-1540" name="__codelineno-0-1540"></a><span class="sd">            not exactly representable (`round(2.675, 2)` is `2.67`,</span>
+<a id="__codelineno-0-1541" name="__codelineno-0-1541"></a><span class="sd">            `numpy.round(2.675, 2)` is `2.68`). Pass `None` to disable</span>
+<a id="__codelineno-0-1542" name="__codelineno-0-1542"></a><span class="sd">            rounding and get the transformer&#39;s full output. Default `6`.</span>
+<a id="__codelineno-0-1543" name="__codelineno-0-1543"></a>
+<a id="__codelineno-0-1544" name="__codelineno-0-1544"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-1545" name="__codelineno-0-1545"></a><span class="sd">        tuple[list[float], list[float]]: `(x, y)` in the target CRS.</span>
+<a id="__codelineno-0-1546" name="__codelineno-0-1546"></a>
+<a id="__codelineno-0-1547" name="__codelineno-0-1547"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-1548" name="__codelineno-0-1548"></a><span class="sd">        ValueError: If `len(x)!= len(y)`.</span>
+<a id="__codelineno-0-1549" name="__codelineno-0-1549"></a><span class="sd">        CRSError: If :meth:`pyproj.Transformer.from_crs` raises one</span>
+<a id="__codelineno-0-1550" name="__codelineno-0-1550"></a><span class="sd">            of `pyproj.exceptions.CRSError` (malformed WKT / proj</span>
+<a id="__codelineno-0-1551" name="__codelineno-0-1551"></a><span class="sd">            string), `TypeError` (input is not CRS-like — e.g. a</span>
+<a id="__codelineno-0-1552" name="__codelineno-0-1552"></a><span class="sd">            bare `object()`), or `ValueError` (out-of-range EPSG</span>
+<a id="__codelineno-0-1553" name="__codelineno-0-1553"></a><span class="sd">            integer). The wrapper converts each into pyramids&#39;</span>
+<a id="__codelineno-0-1554" name="__codelineno-0-1554"></a><span class="sd">            :class:`pyramids.base._errors.CRSError` so callers do not</span>
+<a id="__codelineno-0-1555" name="__codelineno-0-1555"></a><span class="sd">            need to import pyproj to catch bad-CRS failures, and the</span>
+<a id="__codelineno-0-1556" name="__codelineno-0-1556"></a><span class="sd">            message names both CRSes plus the underlying explanation.</span>
+<a id="__codelineno-0-1557" name="__codelineno-0-1557"></a><span class="sd">            Other exception types (`AttributeError`, `ImportError`,</span>
+<a id="__codelineno-0-1558" name="__codelineno-0-1558"></a><span class="sd">            …) propagate unchanged — they signal a real bug, not a bad</span>
+<a id="__codelineno-0-1559" name="__codelineno-0-1559"></a><span class="sd">            user input.</span>
+<a id="__codelineno-0-1560" name="__codelineno-0-1560"></a>
+<a id="__codelineno-0-1561" name="__codelineno-0-1561"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-1562" name="__codelineno-0-1562"></a><span class="sd">        - Reproject a WGS84 point into Web Mercator:</span>
+<a id="__codelineno-0-1563" name="__codelineno-0-1563"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-1564" name="__codelineno-0-1564"></a><span class="sd">            &gt;&gt;&gt; from pyramids.base.crs import reproject_coordinates</span>
+<a id="__codelineno-0-1565" name="__codelineno-0-1565"></a><span class="sd">            &gt;&gt;&gt; x, y = reproject_coordinates(</span>
+<a id="__codelineno-0-1566" name="__codelineno-0-1566"></a><span class="sd">            ...     [31.0], [30.0], from_crs=4326, to_crs=3857</span>
+<a id="__codelineno-0-1567" name="__codelineno-0-1567"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-1568" name="__codelineno-0-1568"></a><span class="sd">            &gt;&gt;&gt; round(x[0])</span>
+<a id="__codelineno-0-1569" name="__codelineno-0-1569"></a><span class="sd">            3450904</span>
+<a id="__codelineno-0-1570" name="__codelineno-0-1570"></a><span class="sd">            &gt;&gt;&gt; round(y[0])</span>
+<a id="__codelineno-0-1571" name="__codelineno-0-1571"></a><span class="sd">            3503550</span>
+<a id="__codelineno-0-1572" name="__codelineno-0-1572"></a>
+<a id="__codelineno-0-1573" name="__codelineno-0-1573"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-1574" name="__codelineno-0-1574"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1575" name="__codelineno-0-1575"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">):</span>
+<a id="__codelineno-0-1576" name="__codelineno-0-1576"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-1577" name="__codelineno-0-1577"></a>            <span class="sa">f</span><span class="s2">&quot;x and y must have equal length; got len(x)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="si">}</span><span class="s2"> vs. len(y)=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span>
+<a id="__codelineno-0-1578" name="__codelineno-0-1578"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1579" name="__codelineno-0-1579"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1580" name="__codelineno-0-1580"></a>        <span class="c1"># Through `crs_from_user_input`, not `Transformer.from_crs` directly, so a code</span>
+<a id="__codelineno-0-1581" name="__codelineno-0-1581"></a>        <span class="c1"># only GDAL&#39;s PROJ database knows still builds a transformer. See issue #943.</span>
+<a id="__codelineno-0-1582" name="__codelineno-0-1582"></a>        <span class="n">transformer</span> <span class="o">=</span> <span class="n">Transformer</span><span class="o">.</span><span class="n">from_crs</span><span class="p">(</span>
+<a id="__codelineno-0-1583" name="__codelineno-0-1583"></a>            <span class="n">crs_from_user_input</span><span class="p">(</span><span class="n">from_crs</span><span class="p">),</span> <span class="n">crs_from_user_input</span><span class="p">(</span><span class="n">to_crs</span><span class="p">),</span> <span class="n">always_xy</span><span class="o">=</span><span class="kc">True</span>
+<a id="__codelineno-0-1584" name="__codelineno-0-1584"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1585" name="__codelineno-0-1585"></a>    <span class="k">except</span> <span class="p">(</span><span class="n">pyproj</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">CRSError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-0-1586" name="__codelineno-0-1586"></a>        <span class="k">raise</span> <span class="n">CRSError</span><span class="p">(</span>
+<a id="__codelineno-0-1587" name="__codelineno-0-1587"></a>            <span class="sa">f</span><span class="s2">&quot;reproject_coordinates failed to parse CRS &quot;</span>
+<a id="__codelineno-0-1588" name="__codelineno-0-1588"></a>            <span class="sa">f</span><span class="s2">&quot;(from_crs=</span><span class="si">{</span><span class="n">from_crs</span><span class="si">!r}</span><span class="s2">, to_crs=</span><span class="si">{</span><span class="n">to_crs</span><span class="si">!r}</span><span class="s2">): </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-1589" name="__codelineno-0-1589"></a>        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+<a id="__codelineno-0-1590" name="__codelineno-0-1590"></a>    <span class="c1"># One vectorized call over the whole arrays rather than one call per point:</span>
+<a id="__codelineno-0-1591" name="__codelineno-0-1591"></a>    <span class="c1"># `Transformer.transform` accepts array input and does the loop in PROJ, so a</span>
+<a id="__codelineno-0-1592" name="__codelineno-0-1592"></a>    <span class="c1"># polygon ring with thousands of vertices costs one Python call, not thousands.</span>
+<a id="__codelineno-0-1593" name="__codelineno-0-1593"></a>    <span class="n">xs</span><span class="p">,</span> <span class="n">ys</span> <span class="o">=</span> <span class="n">transformer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span>
+<a id="__codelineno-0-1594" name="__codelineno-0-1594"></a>        <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+<a id="__codelineno-0-1595" name="__codelineno-0-1595"></a>    <span class="p">)</span>
+<a id="__codelineno-0-1596" name="__codelineno-0-1596"></a>    <span class="n">out_x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">xs</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+<a id="__codelineno-0-1597" name="__codelineno-0-1597"></a>    <span class="n">out_y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">ys</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+<a id="__codelineno-0-1598" name="__codelineno-0-1598"></a>    <span class="k">if</span> <span class="n">precision</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1599" name="__codelineno-0-1599"></a>        <span class="c1"># Round with the built-in, NOT `np.round`. They are not interchangeable:</span>
+<a id="__codelineno-0-1600" name="__codelineno-0-1600"></a>        <span class="c1"># `round` is correctly rounded in decimal, while `np.round` scales by</span>
+<a id="__codelineno-0-1601" name="__codelineno-0-1601"></a>        <span class="c1"># `10**precision`, rounds, and divides back, so the two disagree on values</span>
+<a id="__codelineno-0-1602" name="__codelineno-0-1602"></a>        <span class="c1"># that are not exactly representable -- `round(2.675, 2)` is `2.67` but</span>
+<a id="__codelineno-0-1603" name="__codelineno-0-1603"></a>        <span class="c1"># `np.round(2.675, 2)` is `2.68`, and at the default `precision=6` they</span>
+<a id="__codelineno-0-1604" name="__codelineno-0-1604"></a>        <span class="c1"># differ on roughly 1 in 3000 Web-Mercator-magnitude coordinates. Keeping</span>
+<a id="__codelineno-0-1605" name="__codelineno-0-1605"></a>        <span class="c1"># the built-in preserves the per-point implementation&#39;s output exactly;</span>
+<a id="__codelineno-0-1606" name="__codelineno-0-1606"></a>        <span class="c1"># the expensive part was the PROJ round trip, which is already vectorized.</span>
+<a id="__codelineno-0-1607" name="__codelineno-0-1607"></a>        <span class="n">out_x</span> <span class="o">=</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">out_x</span><span class="p">]</span>
+<a id="__codelineno-0-1608" name="__codelineno-0-1608"></a>        <span class="n">out_y</span> <span class="o">=</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">out_y</span><span class="p">]</span>
+<a id="__codelineno-0-1609" name="__codelineno-0-1609"></a>    <span class="k">return</span> <span class="n">out_x</span><span class="p">,</span> <span class="n">out_y</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
