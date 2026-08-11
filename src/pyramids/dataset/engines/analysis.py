@@ -1962,8 +1962,9 @@ class Analysis(_Engine["Dataset"]):
         ``color=ColorScaling.boundary(bounds=...)`` so each pixel value shows its own colour
         (#913). An explicit ``cmap`` / ``color`` opts out.
 
-        The plot function uses the `cleopatra` as a backend to plot the raster data, for more information check
-        [ArrayGlyph](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/#cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.plot).
+        The plot function uses `cleopatra` as a backend to plot the raster data; for more
+        information see the
+        [ArrayGlyph reference](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/).
 
         Implementation note: this method is a thin caller around the
         shared :func:`pyramids.dataset._plot_helpers.render_array`
