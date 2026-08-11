@@ -251,6 +251,11 @@ def _epsg_from_db_match(srs: osr.SpatialReference) -> str | None:
     best_srs, best_confidence = matches[0]
     if best_confidence < _MIN_EPSG_MATCH_CONFIDENCE:
         return None
+    # As in `get_epsg_from_prj`, the match must be an *EPSG* one: `FindMatches` ranks
+    # entries from every authority, so a Robinson WKT's best match is ESRI:54030 and
+    # returning its code would present 54030 as an EPSG code (issue #965).
+    if best_srs.GetAuthorityName(None) != "EPSG":
+        return None
     best_code = best_srs.GetAuthorityCode(None)
     # Reject ambiguous ties: a runner-up that matches equally well *and*
     # resolves to a different EPSG code means the definition maps to two
@@ -379,7 +384,13 @@ def get_epsg_from_prj(prj: str) -> int:
     # EPSG:9122 inside a GRIB GEOGCS, or the WGS_1984 datum EPSG:6326 inside
     # a UTM PROJCS) — a non-CRS code that breaks every downstream
     # sr_from_epsg() call. See issue #403.
-    code = srs.GetAuthorityCode(None)
+    # The authority must be EPSG, not merely present. `GetAuthorityCode` returns the
+    # root node's code whatever the authority is, so an ESRI-authority CRS (Robinson
+    # is ESRI:54030) otherwise reports 54030 from a property called `epsg` -- a number
+    # that is not an EPSG code, that pyproj cannot resolve, and that GDAL happens to
+    # accept, so it round-trips on one side and fails on the other. See issue #965.
+    authority = srs.GetAuthorityName(None)
+    code = srs.GetAuthorityCode(None) if authority == "EPSG" else None
     if not (code and str(code).isdigit()):
         # No usable root EPSG code: either absent (AutoIdentifyEPSG could not tag
         # the root — e.g. a UTM PROJCS whose WKT lacks an AUTHORITY node), or a
@@ -1074,9 +1085,30 @@ def _pyproj_crs_via_gdal(crs: int | str | Any) -> CRS | None:
         CRS | None: The rebuilt CRS, or ``None`` when GDAL cannot resolve it either —
         which keeps a genuinely bad input reported as a bad input.
     """
-    srs = _gdal_srs_from_user_input(crs)
+    text = _gdal_input_text(crs)
+    return None if text is None else _pyproj_crs_from_gdal_text(text)
+
+
+@lru_cache(maxsize=512)
+def _pyproj_crs_from_gdal_text(text: str) -> CRS | None:
+    """Cached body of :func:`_pyproj_crs_via_gdal`, keyed on the normalised text.
+
+    Cached because the rescue is two orders of magnitude slower than the path it
+    stands in for — a PROJ-database lookup plus a WKT export and re-parse, against a
+    dictionary hit — and it runs on exactly the CRSes that make it run *repeatedly*:
+    the ones every read, transform and comparison has to resolve. The answer depends
+    only on the installed GDAL and pyproj, so it is fixed for the life of the process.
+
+    Args:
+        text: The specification in the ``"EPSG:<n>"``/WKT/proj4 form GDAL takes.
+
+    Returns:
+        CRS | None: The rebuilt CRS, or ``None`` when GDAL cannot resolve it, resolves
+        it to a *different* code than was asked for, or produces a WKT pyproj rejects.
+    """
+    srs = _gdal_srs_from_text(text)
     result: CRS | None = None
-    if srs is not None:
+    if srs is not None and not _substitutes_requested_crs(text, srs):
         try:
             # WKT2_2019, not the WKT1 default: the codes this rescue exists for are
             # recent ones, and WKT1 cannot express several constructs they use (a
@@ -1088,6 +1120,41 @@ def _pyproj_crs_via_gdal(crs: int | str | Any) -> CRS | None:
             # caller reports the *original* pyproj failure, which is more useful.
             result = None
     return result
+
+
+def _substitutes_requested_crs(text: str, srs: osr.SpatialReference) -> bool:
+    """Whether GDAL answered a *code* request with a different CRS than was asked for.
+
+    The rescue exists to resolve a code pyproj lacks — not to accept whatever GDAL
+    offers in its place. Two substitutions are silent and must be refused:
+
+    * a different **authority**: ``SetFromUserInput("EPSG:54030")`` resolves to
+      *ESRI*:54030 (Robinson), so asking for an EPSG code yields a CRS that is not
+      that EPSG code;
+    * a different **code**: a deprecated entry resolves to its non-deprecated
+      successor (``EPSG:32663`` becomes ``EPSG:4087``).
+
+    Both matter only on this path. While pyproj can resolve a code its own answer is
+    used and the rescue never runs, which is why the ordering alone does not prevent
+    them.
+
+    Args:
+        text: The normalised input; only a code request can be substituted.
+        srs: What GDAL resolved it to.
+
+    Returns:
+        bool: True when the request named a code and `srs` is not that code.
+    """
+    requested = _requested_epsg(text)
+    substituted = False
+    if requested is not None:
+        try:
+            authority = srs.GetAuthorityName(None)
+            code = srs.GetAuthorityCode(None)
+        except RuntimeError:
+            authority, code = None, None
+        substituted = authority != "EPSG" or str(code) != str(requested)
+    return substituted
 
 
 def _epsg_via_gdal(crs: int | str | Any) -> int | None:
@@ -1128,7 +1195,25 @@ def _epsg_via_gdal(crs: int | str | Any) -> int | None:
         one that does not match the parsed definition, or substitutes a different code
         for the one that was asked for.
     """
-    srs = _gdal_srs_from_user_input(crs)
+    text = _gdal_input_text(crs)
+    return None if text is None else _epsg_from_gdal_text(text)
+
+
+@lru_cache(maxsize=512)
+def _epsg_from_gdal_text(text: str) -> int | None:
+    """Cached body of :func:`_epsg_via_gdal`, keyed on the normalised text.
+
+    Cached for the same reason as :func:`_pyproj_crs_from_gdal_text`, and separately
+    from it so that resolving a code to an integer does not have to build a pyproj CRS
+    it will throw away.
+
+    Args:
+        text: The specification in the form GDAL takes.
+
+    Returns:
+        int | None: The verified EPSG code, or ``None``.
+    """
+    srs = _gdal_srs_from_text(text)
     result: int | None = None
     if srs is not None:
         try:
@@ -1139,7 +1224,7 @@ def _epsg_via_gdal(crs: int | str | Any) -> int | None:
         if authority == "EPSG" and code and str(code).isdigit():
             candidate = int(code)
             if _epsg_matches_definition(candidate, srs) and not _substitutes_code(
-                crs, candidate
+                text, candidate
             ):
                 result = candidate
     return result
@@ -1213,7 +1298,28 @@ def _gdal_srs_from_user_input(crs: int | str | Any) -> osr.SpatialReference | No
     Returns:
         osr.SpatialReference | None: The parsed reference, or ``None``.
     """
+    text = _gdal_input_text(crs)
+    return None if text is None else _gdal_srs_from_text(text)
+
+
+def _gdal_input_text(crs: int | str | Any) -> str | None:
+    """Normalise `crs` into the text GDAL takes, or ``None`` when it has no text form.
+
+    Split out from the parse so the expensive part can be cached on a hashable key:
+    the caller's value may be an unhashable object, but its normalised form is always
+    a string.
+
+    Args:
+        crs: The specification to normalise.
+
+    Returns:
+        str | None: ``"EPSG:<n>"`` for an integer code or a bare numeric string, the
+        string itself otherwise, and ``None`` for a value with no text form (a
+        :class:`pyproj.CRS`, an arbitrary object) or a ``bool``, which is not a CRS
+        despite being an integer.
+    """
     code = _integer_code(crs)
+    text: str | None
     if code is not None:
         text = f"EPSG:{code}"
     elif isinstance(crs, str):
@@ -1222,27 +1328,40 @@ def _gdal_srs_from_user_input(crs: int | str | Any) -> osr.SpatialReference | No
         # on the `"10857"` spelling. `isascii` guards `isdigit`, which is True for
         # Arabic-Indic and other non-ASCII digits that `int()` would then reject.
         stripped = crs.strip()
-        text = (
-            f"EPSG:{stripped}"
-            if stripped.isascii() and stripped.isdigit()
-            else crs
-        )
+        text = f"EPSG:{stripped}" if stripped.isascii() and stripped.isdigit() else crs
     else:
         text = None
+    return text
+
+
+@lru_cache(maxsize=512)
+def _gdal_srs_from_text(text: str) -> osr.SpatialReference | None:
+    """Parse normalised CRS text with GDAL, or ``None`` when GDAL cannot read it.
+
+    Args:
+        text: The normalised specification from :func:`_gdal_input_text`.
+
+    Returns:
+        osr.SpatialReference | None: The parsed reference, or ``None``.
+
+    Warning:
+        The returned reference is **shared** between callers by the cache. Everything
+        in this module only reads from it; a caller that needs to mutate one must
+        :meth:`osr.SpatialReference.Clone` it first.
+    """
     result: osr.SpatialReference | None = None
-    if text is not None:
-        try:
-            srs = osr.SpatialReference()
-            # SetFromUserInput will otherwise treat the string as a filename or a URL
-            # and go read it -- so a CRS value reaching this rescue path could cause a
-            # local file read or an outbound HTTP request, and a dead host would block
-            # for seconds. pyramids only ever means a CRS here, never a resource to
-            # fetch, so both are refused.
-            if srs.SetFromUserInput(text, _NO_REMOTE_CRS_LOOKUP) != 0:
-                raise ValueError(f"GDAL could not parse {text!r} as a CRS.")
-            result = srs
-        except (RuntimeError, TypeError, ValueError):
-            result = None
+    try:
+        srs = osr.SpatialReference()
+        # SetFromUserInput will otherwise treat the string as a filename or a URL
+        # and go read it -- so a CRS value reaching this rescue path could cause a
+        # local file read or an outbound HTTP request, and a dead host would block
+        # for seconds. pyramids only ever means a CRS here, never a resource to
+        # fetch, so both are refused.
+        if srs.SetFromUserInput(text, _NO_REMOTE_CRS_LOOKUP) != 0:
+            raise ValueError(f"GDAL could not parse {text!r} as a CRS.")
+        result = srs
+    except (RuntimeError, TypeError, ValueError):
+        result = None
     return result
 
 
@@ -1324,6 +1443,27 @@ def crs_from_user_input(crs: int | str | Any) -> CRS:
             "proj4, or pyproj.CRS."
         )
     try:
+        hash(crs)
+    except TypeError:
+        # Unhashable (a list, a dict) cannot key the cache. It is also not a CRS, so
+        # this all but always ends in the CRSError below -- just not via the cache.
+        return _resolve_crs(crs)
+    return _resolve_crs_cached(crs)
+
+
+def _resolve_crs(crs: int | str | Any) -> CRS:
+    """Uncached body of :func:`crs_from_user_input`.
+
+    Args:
+        crs: The specification to resolve.
+
+    Returns:
+        CRS: The parsed CRS.
+
+    Raises:
+        CRSError: Neither pyproj nor GDAL can interpret `crs`.
+    """
+    try:
         parsed = CRS.from_user_input(crs)
     except (pyproj.exceptions.CRSError, TypeError, ValueError) as exc:
         rescued = _pyproj_crs_via_gdal(crs)
@@ -1331,6 +1471,33 @@ def crs_from_user_input(crs: int | str | Any) -> CRS:
             raise CRSError(f"could not interpret {crs!r} as a CRS: {exc}") from exc
         parsed = rescued
     return parsed
+
+
+@lru_cache(maxsize=512)
+def _resolve_crs_cached(crs: int | str | Any) -> CRS:
+    """Memoised :func:`_resolve_crs`.
+
+    The cache has to sit here, at the entry point, rather than around the GDAL rescue
+    alone. For a code pyproj lacks the expensive step is pyproj's own *failed* lookup,
+    which happens before the rescue is reached — measured at ~6 ms against ~0.008 ms
+    for a code it carries, and ~28 ms through :func:`epsg_from_user_input`, which then
+    asks a WKT-built CRS for an EPSG code it has no catalogue entry for. Caching only
+    the rescue left every one of those milliseconds in place.
+
+    That cost lands on exactly the CRSes that pay it repeatedly: a raster in such a
+    CRS resolves it on every read, transform, comparison and tile. The answer depends
+    only on the installed GDAL and pyproj, so it is fixed for the process.
+
+    Failures are deliberately not cached — :class:`functools.lru_cache` stores return
+    values, not exceptions — so a bad input re-raises with its own message each time.
+
+    Args:
+        crs: A hashable specification.
+
+    Returns:
+        CRS: The parsed CRS, shared between callers (pyproj CRS objects are immutable).
+    """
+    return _resolve_crs(crs)
 
 
 def epsg_from_user_input(crs: int | str | Any) -> int:
@@ -1394,6 +1561,25 @@ def epsg_from_user_input(crs: int | str | Any) -> int:
     code = _integer_code(crs)
     if code is not None:
         return code
+    try:
+        hash(crs)
+    except TypeError:
+        return _resolve_epsg(crs)
+    return _resolve_epsg_cached(crs)
+
+
+def _resolve_epsg(crs: int | str | Any) -> int:
+    """Uncached body of :func:`epsg_from_user_input` for a non-integer input.
+
+    Args:
+        crs: The specification to resolve.
+
+    Returns:
+        int: The EPSG code.
+
+    Raises:
+        CRSError: `crs` is uninterpretable or names a CRS with no EPSG code.
+    """
     parsed = crs_from_user_input(crs)
     epsg = parsed.to_epsg()
     if epsg is None:
@@ -1405,6 +1591,19 @@ def epsg_from_user_input(crs: int | str | Any) -> int:
             f"the CRS {crs!r} has no corresponding EPSG code; pass an EPSG integer."
         )
     return epsg
+
+
+@lru_cache(maxsize=512)
+def _resolve_epsg_cached(crs: int | str | Any) -> int:
+    """Memoised :func:`_resolve_epsg`; see :func:`_resolve_crs_cached` for why.
+
+    Args:
+        crs: A hashable, non-integer specification.
+
+    Returns:
+        int: The EPSG code.
+    """
+    return _resolve_epsg(crs)
 
 
 def sr_from_user_input(crs: int | str | Any) -> osr.SpatialReference:

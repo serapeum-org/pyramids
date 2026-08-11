@@ -918,11 +918,16 @@ class TestEpsgFromDbMatch:
     class _FakeCandidate:
         """Minimal stand-in for a matched ``osr.SpatialReference``."""
 
-        def __init__(self, code: str | None):
+        def __init__(self, code: str | None, authority: str | None = "EPSG"):
             self._code = code
+            self._authority = authority
 
         def GetAuthorityCode(self, _target):
             return self._code
+
+        def GetAuthorityName(self, _target):
+            """The matcher accepts EPSG matches only, so candidates declare one."""
+            return self._authority
 
     class _FakeSRS:
         """Stand-in whose ``FindMatches`` returns a canned candidate list."""

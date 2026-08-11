@@ -805,7 +805,11 @@ class TestRescueDefensiveBranches:
             raise PyprojCRSError("simulated rejection")
 
         monkeypatch.setattr(crs_module.CRS, "from_wkt", staticmethod(_reject))
+        # The rescue memoises on the normalised text, so a value cached by an earlier
+        # test would answer before the patched call is ever reached.
+        crs_module._pyproj_crs_from_gdal_text.cache_clear()
         assert crs_module._pyproj_crs_via_gdal(skew_code) is None
+        crs_module._pyproj_crs_from_gdal_text.cache_clear()
 
     def test_epsg_via_gdal_survives_an_authority_lookup_failure(self, monkeypatch):
         """A `RuntimeError` reading the authority yields `None`.
@@ -852,7 +856,9 @@ class TestRescueDefensiveBranches:
         monkeypatch.setattr(
             osr.SpatialReference, "SetFromUserInput", lambda self, *_a, **_k: 1
         )
+        crs_module._gdal_srs_from_text.cache_clear()
         assert crs_module._gdal_srs_from_user_input("EPSG:4326") is None
+        crs_module._gdal_srs_from_text.cache_clear()
 
 
 class TestReprojectCoordinatesCrsErrors:
@@ -890,3 +896,75 @@ class TestReprojectCoordinatesCrsErrors:
         assert np.isfinite([xs[0], ys[0]]).all(), (
             f"expected finite lon/lat, got ({xs[0]}, {ys[0]})"
         )
+
+
+class TestRescueRefusesSubstitutions:
+    """The rescue resolves the code that was asked for, or nothing (issues L1/L2)."""
+
+    def test_an_esri_code_is_not_accepted_for_an_epsg_request(self):
+        """`54030` as an EPSG request must not resolve to ESRI:54030.
+
+        Test scenario:
+            `SetFromUserInput("EPSG:54030")` happily returns Robinson under the ESRI
+            authority. Accepting it would answer a request for one CRS with another,
+            under a different authority, silently.
+        """
+        with pytest.raises(CRSError):
+            crs_from_user_input(54030)
+
+    def test_a_deprecated_code_is_not_replaced_by_its_successor(self):
+        """The rescue refuses GDAL's non-deprecated replacement.
+
+        Test scenario:
+            `SetFromUserInput("EPSG:32663")` resolves to EPSG:4087. The pyproj-first
+            ordering hides this while pyproj carries the code, so the guard is what
+            actually prevents it on the rescue path.
+        """
+        assert crs_module._pyproj_crs_via_gdal(32663) is None
+        assert crs_module._epsg_via_gdal("EPSG:32663") is None
+
+    def test_the_requested_code_is_still_resolved(self, skew_code):
+        """A code GDAL resolves *as itself* is still accepted.
+
+        Test scenario:
+            The guard must reject substitutions without rejecting the whole point of
+            the rescue.
+        """
+        rescued = crs_module._pyproj_crs_via_gdal(skew_code)
+        assert rescued is not None, f"EPSG:{skew_code} should still be rescued"
+
+    def test_a_wkt_request_names_no_code_and_is_not_guarded(self):
+        """A WKT names no code, so there is nothing to substitute.
+
+        Test scenario:
+            The guard keys on a *code* request; a definition-only input must pass
+            through it untouched.
+        """
+        wkt = sr_from_epsg(4326).ExportToWkt()
+        assert crs_module._pyproj_crs_via_gdal(wkt) is not None
+
+
+class TestResolutionIsCached:
+    """The rescue's cost is paid once per specification, not per call."""
+
+    def test_repeated_resolution_returns_the_identical_object(self, skew_code):
+        """A second call is served from the cache.
+
+        Test scenario:
+            The expensive step is pyproj's *failed* lookup, which happens before the
+            GDAL rescue is reached — so the cache has to sit at the entry point.
+            Identity is the observable proof it does.
+        """
+        first = crs_from_user_input(skew_code)
+        second = crs_from_user_input(skew_code)
+        assert first is second, "a repeated resolution should be served from the cache"
+
+    def test_unhashable_input_is_still_rejected_cleanly(self):
+        """An unhashable value cannot key the cache and must not crash on that.
+
+        Test scenario:
+            A list is not a CRS; it must raise `CRSError` rather than the `TypeError`
+            a cache lookup would produce.
+        """
+        with pytest.raises(CRSError):
+            crs_from_user_input([1, 2])
