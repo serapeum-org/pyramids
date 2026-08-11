@@ -797,6 +797,39 @@ class TestToNetcdfStreaming:
             col.to_netcdf(str(out))
         assert not out.exists(), "a mismatched timestep must leave no partial file"
 
+    def test_failed_overwrite_preserves_existing_file(self, tmp_path):
+        """A failed overwrite leaves the pre-existing file untouched (atomic).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Write a valid cube, then overwrite the same path from a collection
+            whose 2nd timestep mismatches — expected: AlignmentError, and the
+            original file's bytes are unchanged (temp write + os.replace).
+        """
+        out = tmp_path / "cube.nc"
+        good, _ = _make_int16_collection(tmp_path, count=2)
+        good.to_netcdf(str(out))
+        original = out.read_bytes()
+
+        paths = []
+        for i, shape in enumerate([(4, 5), (3, 3)]):
+            p = str(tmp_path / f"ov_{i}.tif")
+            Dataset.create_from_array(
+                np.zeros(shape, dtype="int16"),
+                top_left_corner=(0, 0),
+                cell_size=0.05,
+                epsg=4326,
+                path=p,
+            ).close()
+            paths.append(p)
+        bad = DatasetCollection.from_files(paths)
+        with pytest.raises(AlignmentError):
+            bad.to_netcdf(str(out))
+        assert out.exists(), "existing file must survive a failed overwrite"
+        assert out.read_bytes() == original, "existing file was modified"
+
     def test_empty_collection_raises_value_error(self, tmp_path):
         """An empty collection (``time_length == 0``) raises a clear ValueError.
 

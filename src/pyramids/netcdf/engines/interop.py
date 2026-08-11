@@ -638,11 +638,15 @@ def open_streaming_multidim_netcdf(
     writes the (small, 1-D) coordinate arrays whole, creates each data variable
     at its full shape with **no data**, then hands back a
     :class:`_StreamingMultidimWriter` so the caller can fill each variable one
-    leading-dimension slab at a time. The file is flushed and closed on exit, so
-    the whole ``(T, …)`` cube never has to be resident. The write is
-    all-or-nothing: if setup or any slab write raises, the partially written file
-    is removed, so a surviving file always means a complete write. Used by
-    :meth:`pyramids.dataset.collection.DatasetCollection.to_netcdf`.
+    leading-dimension slab at a time, so the whole ``(T, …)`` cube never has to
+    be resident. The write is atomic: the file is created at a temporary sibling
+    path and only ``os.replace``-d onto ``path`` after a clean close, so ``path``
+    only ever holds a complete file and an existing file there survives a failed
+    write. Variable data is written raw at its declared dtype — unlike
+    :func:`write_multidim_netcdf`, ``datetime64`` / ``timedelta64`` *variable*
+    data is not CF-encoded here (coordinates still are), so variable dtypes must
+    be GDAL-mappable numerics (the sole caller streams numeric raster bands).
+    Used by :meth:`pyramids.dataset.collection.DatasetCollection.to_netcdf`.
 
     Args:
         path: Output ``.nc`` path.
@@ -665,7 +669,11 @@ def open_streaming_multidim_netcdf(
         ValueError: When a variable references an unknown dimension, or a
             coordinate array shape does not match its dimension size.
     """
-    dataset = gdal.GetDriverByName("netCDF").CreateMultiDimensional(str(path))
+    final_path = Path(path)
+    tmp_path = final_path.with_name(f".{final_path.name}.{os.getpid()}.tmp")
+    with suppress(OSError):
+        tmp_path.unlink()  # drop any stale temp left by a crashed prior run
+    dataset = gdal.GetDriverByName("netCDF").CreateMultiDimensional(str(tmp_path))
     if dataset is None:
         raise RuntimeError(f"Failed to create NetCDF at {path}")
     completed = False
@@ -677,20 +685,29 @@ def open_streaming_multidim_netcdf(
         yield _StreamingMultidimWriter(arrays)
         completed = True
     except BaseException as exc:
-        # A raising body leaves its traceback pinning the helper/loop frames that
-        # still hold the transient GDAL dim/coord handles; clear those frames so
-        # Close() can release the file and the partial write can be removed below
-        # (the executing frame this runs in is skipped by clear_frames).
+        # The in-flight exception's traceback also pins the caller's `writer`
+        # (holding the same MDArrays); clear the failure frames so those handles
+        # release and the temp can be removed below (the executing generator
+        # frame is skipped by clear_frames). Deliberate trade-off: this empties
+        # the failure frames' locals, so a post-mortem sees none here — do not
+        # "restore" them or the file lock on Windows returns.
         traceback.clear_frames(exc.__traceback__)
         raise
     finally:
-        # Drop the data-variable MDArrays, then Close(): the netCDF driver only
-        # flushes and unlocks the file once every child handle is released.
+        # `arrays` is the writer's own dict, so clearing it drops the last refs to
+        # the data-variable MDArrays; GDAL only flushes and unlocks the file once
+        # those child handles are gone (needed for os.replace / unlink on Windows).
         arrays.clear()
-        dataset.Close()
-        if not completed:
-            # Keep the write all-or-nothing: on any setup or mid-stream failure,
-            # drop the partial/stray file so a surviving file always means a
-            # complete write (matching the old eager CreateCopy path).
+        if completed:
+            # Close() drives the flush; let a flush error surface (the write did
+            # not truly succeed). Then atomically promote the temp onto `path`.
+            dataset.Close()
+            os.replace(tmp_path, final_path)
+        else:
+            # Best-effort cleanup that never masks the in-flight exception and
+            # never touches an existing file at `path`: release the handle, then
+            # drop the temp.
+            with suppress(Exception):
+                dataset.Close()
             with suppress(OSError):
-                Path(path).unlink()
+                tmp_path.unlink()
