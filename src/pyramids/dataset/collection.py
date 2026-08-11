@@ -18,11 +18,7 @@ import pandas as pd
 from pyproj import CRS
 
 from pyramids import _io
-from pyramids.base._errors import (
-    AlignmentError,
-    CRSError,
-    OptionalPackageDoesNotExist,
-)
+from pyramids.base._errors import AlignmentError, OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._locks import default_lock
 from pyramids.base._raster_meta import RasterMeta
@@ -451,14 +447,14 @@ def _target_epsg(to_epsg: int | str | Any) -> int | None:
         # `epsg_from_user_input` also heals codes only GDAL's PROJ database
         # carries, which pyproj alone cannot look up (issue #943).
         return epsg_from_user_input(to_epsg)
-    except (CRSError, TypeError, ValueError):
-        # `CRSError` is the documented no-EPSG path -- a target CRS with no EPSG code
-        # (orthographic, Robinson, a bespoke proj4) is exactly what this function
-        # reports `None` for, and it now arrives as a raise rather than a `None`
-        # return, so that branch carries no `no cover` pragma. `TypeError` /
-        # `ValueError` keep the original defensive breadth for an input that is not
-        # CRS-like at all, which this helper has always answered `None` for rather
-        # than propagating.
+    except (TypeError, ValueError):
+        # `ValueError` already covers `CRSError`, which subclasses it, so naming both
+        # would be redundant. That is the documented no-EPSG path: a target CRS with
+        # no EPSG code (orthographic, Robinson, a bespoke proj4) is exactly what this
+        # function reports `None` for, and it now arrives as a raise rather than a
+        # `None` return, so the branch carries no `no cover` pragma. `TypeError` keeps
+        # the original defensive breadth for an input that is not CRS-like at all,
+        # which this helper has always answered `None` for rather than propagating.
         return None
 
 
