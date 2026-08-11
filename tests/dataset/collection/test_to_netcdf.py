@@ -820,6 +820,45 @@ class TestToNetcdfStreaming:
             col.to_netcdf(str(out))
         assert not out.exists(), "no file should be written for an empty collection"
 
+    def test_var_per_band_true_multi_timestep_streams_each_band(self, tmp_path):
+        """``var_per_band=True`` streams each band into its own variable per step.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Three 2-band timesteps written with ``var_per_band=True`` — expected:
+            each band becomes a ``(T, y, x)`` variable equal to that band across
+            timesteps, exercising the per-band-per-timestep slab loop.
+        """
+        band0, band1, paths = [], [], []
+        for t in range(3):
+            b0 = np.full((4, 5), t + 1, dtype="int16")
+            b1 = np.full((4, 5), 100 + t, dtype="int16")
+            p = str(tmp_path / f"vb_{t}.tif")
+            Dataset.create_from_array(
+                np.stack([b0, b1], axis=0),
+                top_left_corner=(0, 0),
+                cell_size=0.05,
+                epsg=4326,
+                path=p,
+            ).close()
+            band0.append(b0)
+            band1.append(b1)
+            paths.append(p)
+        col = DatasetCollection.from_files(paths)
+        names = (
+            list(col.meta.band_names) if col.meta.band_names else ["band_1", "band_2"]
+        )
+        out = tmp_path / "vb.nc"
+        col.to_netcdf(str(out), var_per_band=True)
+        v0 = _array_values(str(out), names[0])
+        v1 = _array_values(str(out), names[1])
+        assert v0.shape == (3, 4, 5), f"{names[0]} shape: {v0.shape}"
+        for t in range(3):
+            np.testing.assert_array_equal(v0[t], band0[t], err_msg=f"{names[0]} t={t}")
+            np.testing.assert_array_equal(v1[t], band1[t], err_msg=f"{names[1]} t={t}")
+
 
 class TestToNetcdfRoundTrip:
     """End-to-end: re-open the written file via :class:`NetCDF` and compare."""
