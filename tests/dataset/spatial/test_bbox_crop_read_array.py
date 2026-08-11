@@ -105,6 +105,31 @@ def _bbox_in_3857(
     return (w3, s3, e3, n3)
 
 
+def _ds_multiband() -> Dataset:
+    """A 3-band 10x10 square-pixel EPSG:4326 raster."""
+    return Dataset.create_from_array(
+        np.arange(3 * 10 * 10, dtype="int16").reshape(3, 10, 10),
+        top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326,
+    )
+
+
+def _ds_non_square() -> Dataset:
+    """A 10x10 raster with 0.1 deg columns and 0.05 deg rows (dx != -dy)."""
+    return Dataset.create_from_array(
+        np.arange(100, dtype="int16").reshape(10, 10),
+        geo=(0.0, 0.1, 0.0, 0.0, 0.0, -0.05), epsg=4326,
+    )
+
+
+def _ds_nodata_edge() -> Dataset:
+    """A raster with a full no-data row at index 3 (an all-no-data edge to trim)."""
+    arr = np.arange(100, dtype="float32").reshape(10, 10)
+    arr[3, :] = -9999.0
+    return Dataset.create_from_array(
+        arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326, no_data_value=-9999.0
+    )
+
+
 class TestDatasetCropBbox:
     """Tests for ``Dataset.crop(bbox=..., epsg=...)``."""
 
@@ -436,6 +461,38 @@ class TestWindowedBboxCropFastPath:
         assert np.array_equal(fast.read_array(), warp.read_array()), (
             f"pixels differ for {bbox}"
         )
+
+    @pytest.mark.parametrize(
+        "make_ds, bbox",
+        [
+            (_ds_multiband, (0.11, -0.19, 0.19, -0.11)),  # multi-band, non-aligned
+            (_ds_non_square, (0.15, -0.28, 0.63, -0.07)),  # non-square pixels, non-aligned
+            (_ds_multiband, (0.1, -0.2, 0.2, -0.1)),  # boundary-aligned
+            (_ds_nodata_edge, (0.1, -0.35, 0.3, -0.1)),  # AOI spans the all-no-data row 3
+        ],
+        ids=["multi-band", "non-square", "boundary-aligned", "no-data-edge"],
+    )
+    def test_fast_path_matches_warp_across_dataset_shapes(self, make_ds, bbox, mocker):
+        """Fast path == all-touched warp fallback for multi-band, non-square, aligned and no-data-edge crops.
+
+        Test scenario:
+            Beyond the single-band square case, the fast path and the all-touched warp
+            fallback must still agree in shape, geotransform and pixels for a multi-band
+            raster, a non-square-pixel grid, a pixel-boundary-aligned box, and a box whose
+            AOI contains an all-no-data row that both paths trim identically.
+        """
+        ds = make_ds()
+        fast = ds.crop(bbox=bbox)
+        mocker.patch(
+            "pyramids.dataset.engines.spatial.Spatial._crop_bbox_windowed",
+            return_value=None,
+        )
+        warp = make_ds().crop(bbox=bbox)
+        assert fast.shape == warp.shape, (
+            f"shape differs: fast={fast.shape}, warp={warp.shape}"
+        )
+        assert fast.geotransform == warp.geotransform, "geotransform differs"
+        assert np.array_equal(fast.read_array(), warp.read_array()), "pixels differ"
 
     def test_overlap_semantics_keep_every_touched_pixel(self, dataset):
         """A box straddling pixel boundaries keeps every pixel it overlaps (floor/ceil).
