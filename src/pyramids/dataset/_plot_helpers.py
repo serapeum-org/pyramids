@@ -67,7 +67,6 @@ import numpy as np
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import require_cleopatra
 
 # `add_basemap` is imported at top-level so existing test patches that
@@ -160,57 +159,6 @@ def _unwrap_geographic_longitude(
                 offset[..., 1:] = np.cumsum(wraps, axis=-1) * 360.0
                 result = (lon - offset, coords[1])
     return result
-
-
-def _guard_style_hillshade(kwargs: dict[str, Any], option_keys: Any) -> None:
-    """Normalise and version-gate the ``style`` / ``hillshade`` plot presets.
-
-    Shared by the raster (:func:`render_array`, ``ArrayGlyph``) and mesh
-    (:func:`mesh_render`, ``MeshGlyph``) dispatch so both paths handle cleopatra's
-    data-style presets identically.
-
-    ``style`` / ``hillshade`` were added to cleopatra's glyphs in 0.24. On an older
-    cleopatra the kwargs would fall through to a cryptic "Unknown option" error deep
-    in the render call; feature-detect each key against ``option_keys`` and raise a
-    clear upgrade hint instead.
-
-    A ``None`` / ``False`` ``hillshade`` requests no shading, so it is popped from
-    ``kwargs`` in place — making it a true no-op on ANY cleopatra version (a pre-0.24
-    build that rejects the unknown kwarg included). ``{}`` is falsy but is an
-    affirmative "shade with default parameters", so the drop uses identity (only
-    ``None`` / ``False``), not truthiness — an empty-dict ``hillshade`` is still
-    gated/forwarded. An explicit ``style=None`` requests no preset and is likewise
-    popped in place, symmetric with the ``hillshade`` drop. Each remaining key is
-    checked against its own ``option_keys`` membership so a build shipping only one
-    of the two features is handled precisely. An invalid ``style`` *name* is left to
-    cleopatra, which already raises a ``ValueError`` listing the valid ``DATA_STYLES``
-    keys. (issue #737)
-
-    Args:
-        kwargs: The render kwargs; mutated in place to drop a no-op ``style`` /
-            ``hillshade``.
-        option_keys: The glyph's declared option set (``<Glyph>.option_keys()``).
-
-    Raises:
-        OptionalPackageDoesNotExist: A ``style`` / ``hillshade`` preset was
-            requested but the installed cleopatra's glyph does not support it.
-    """
-    if kwargs.get("style") is None:
-        # An explicit ``style=None`` requests no preset — drop it so it never
-        # reaches cleopatra (a true no-op on any version), symmetric with the
-        # ``hillshade`` handling below.
-        kwargs.pop("style", None)
-    hillshade = kwargs.get("hillshade")
-    if hillshade is None or hillshade is False:
-        kwargs.pop("hillshade", None)
-    style_unsupported = "style" in kwargs and "style" not in option_keys
-    hillshade_unsupported = "hillshade" in kwargs and "hillshade" not in option_keys
-    if style_unsupported or hillshade_unsupported:
-        raise OptionalPackageDoesNotExist(
-            "`style=` / `hillshade=` plot presets require cleopatra >= 0.24. "
-            "Upgrade with: pip install -U 'pyramids-gis[viz]' (or "
-            "pip install -U 'cleopatra>=0.24')."
-        )
 
 
 # Loose plot kwargs cleopatra 0.28 deprecated in favour of the typed specs
@@ -315,6 +263,123 @@ def _migrate_deprecated_plot_specs(
                 stacklevel=3,
             )
             kwargs["points"] = point_overlay_cls(points, **style)
+
+
+def _build_grouped_render_specs(
+    kwargs: dict[str, Any], *, include_cells: bool = True
+) -> dict[str, Any]:
+    """Fold pyramids' loose scale / contour / cell / style kwargs into cleopatra groups.
+
+    cleopatra 0.30 replaced the flat styling keywords on ``plot`` / ``animate`` / ``facet``
+    with typed *group objects* and removed the shims that accepted the loose forms, so a
+    loose ``color_scale=`` / ``style=`` / ``levels=`` now raises. pyramids keeps its stable
+    loose-kwarg facade and translates them here, at the single render boundary, mirroring
+    :func:`_migrate_deprecated_plot_specs`. The loose keys are **popped** from ``kwargs`` in
+    place and the built group objects are returned keyed by their cleopatra render-method
+    parameter name (``color`` / ``contour`` / ``cells`` / ``data_style``). Only a group with
+    at least one set field is built, so an untouched call forwards nothing.
+
+    Mapping (loose keyword -> group field):
+
+    * ``color_scale`` / ``gamma`` / ``line_threshold`` / ``line_scale`` / ``bounds`` /
+      ``midpoint`` -> :class:`~cleopatra.styling.scaling.ColorScaling` (``midpoint`` maps to
+      its ``center`` field; ``color_scale`` selects the ``kind`` via ``ColorScale``).
+    * ``levels`` / ``label_kw`` -> :class:`~cleopatra.styling.params.Contour`.
+    * ``display_cell_value`` / ``num_size`` / ``background_color_threshold`` ->
+      :class:`~cleopatra.styling.params.CellValues` (``show`` / ``size`` /
+      ``background_threshold``).
+    * ``style`` / ``hillshade`` -> :class:`~cleopatra.styling.params.DataStyle`. A no-op
+      ``style=None`` or ``hillshade`` of ``None`` / ``False`` is dropped without building a
+      ``DataStyle`` (an empty-dict ``hillshade`` is "shade with defaults" and is kept).
+
+    Args:
+        kwargs: The render kwargs; mutated in place to pop the folded loose keys.
+        include_cells: When ``False`` (the mesh path — ``MeshGlyph.plot`` has no ``cells``
+            parameter) the cell-value keys are left untouched.
+
+    Returns:
+        A dict of the built cleopatra group objects, keyed by render-method parameter name.
+
+    Raises:
+        ValueError: If ``color_scale`` is not a recognised
+            :class:`~cleopatra.styling.styles.ColorScale` value; the message lists the valid
+            options.
+    """
+    from cleopatra.styling.params import CellValues, Contour, DataStyle
+    from cleopatra.styling.scaling import ColorScaling
+    from cleopatra.styling.styles import ColorScale
+
+    specs: dict[str, Any] = {}
+
+    scale_keys = (
+        "color_scale",
+        "gamma",
+        "line_threshold",
+        "line_scale",
+        "bounds",
+        "midpoint",
+    )
+    if any(k in kwargs for k in scale_keys):
+        color_scale = kwargs.pop("color_scale", None)
+        try:
+            kind = (
+                ColorScale(color_scale)
+                if color_scale is not None
+                else ColorScale.LINEAR
+            )
+        except ValueError:
+            valid = [s.value for s in ColorScale]
+            raise ValueError(
+                f"Unsupported color_scale {color_scale!r}; valid options: {valid}."
+            ) from None
+        scale_params: dict[str, Any] = {"kind": kind}
+        for src, dst in (
+            ("gamma", "gamma"),
+            ("line_threshold", "line_threshold"),
+            ("line_scale", "line_scale"),
+            ("bounds", "bounds"),
+            ("midpoint", "center"),
+        ):
+            if src in kwargs:
+                scale_params[dst] = kwargs.pop(src)
+        specs["color"] = ColorScaling(**scale_params)
+
+    if "levels" in kwargs or "label_kw" in kwargs:
+        contour_params: dict[str, Any] = {}
+        if "levels" in kwargs:
+            contour_params["levels"] = kwargs.pop("levels")
+        if "label_kw" in kwargs:
+            contour_params["label_kw"] = kwargs.pop("label_kw")
+        specs["contour"] = Contour(**contour_params)
+
+    cell_keys = ("display_cell_value", "num_size", "background_color_threshold")
+    if include_cells and any(k in kwargs for k in cell_keys):
+        cell_params: dict[str, Any] = {}
+        if "display_cell_value" in kwargs:
+            cell_params["show"] = kwargs.pop("display_cell_value")
+        if "num_size" in kwargs:
+            cell_params["size"] = kwargs.pop("num_size")
+        if "background_color_threshold" in kwargs:
+            cell_params["background_threshold"] = kwargs.pop("background_color_threshold")
+        specs["cells"] = CellValues(**cell_params)
+
+    # style/hillshade -> DataStyle, honouring the historical no-op semantics: an explicit
+    # ``style=None`` requests no preset and a ``hillshade`` of ``None`` / ``False`` requests
+    # no shading, so neither builds a
+    # DataStyle. An empty-dict ``hillshade`` ({}) is falsy but means "shade with defaults",
+    # so identity checks (not truthiness) gate it. Always pop so a no-op never reaches
+    # cleopatra as a now-rejected loose keyword.
+    style = kwargs.pop("style", None)
+    hillshade = kwargs.pop("hillshade", None)
+    style_params: dict[str, Any] = {}
+    if style is not None:
+        style_params["style"] = style
+    if hillshade is not None and hillshade is not False:
+        style_params["hillshade"] = hillshade
+    if style_params:
+        specs["data_style"] = DataStyle(**style_params)
+
+    return specs
 
 
 def render_array(
@@ -533,9 +598,12 @@ def render_array(
     """
     require_cleopatra()
     from cleopatra.basemap.geo import Basemap
-    from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph, PointOverlay
+    from cleopatra.glyphs.gridded.array_glyph import (
+        ArrayGlyph,
+        PanelLabels,
+        PointOverlay,
+    )
     from cleopatra.styling.colorbar import ColorBar
-    from cleopatra.styling.styles import ColorScale
 
     # Deprecate + translate the loose plot kwargs to the typed specs (cbar_* ->
     # ColorBar, point_*/pid_* -> PointOverlay, dict basemap -> Basemap) so every
@@ -596,25 +664,26 @@ def render_array(
         # The stretch parameters have been consumed by ``prepare_array`` above;
         # null them so the constructor call below cannot re-read inert values.
         rgb = surface_reflectance = cutoff = percentile = None
-    # Fail fast on an invalid ``color_scale`` with a pyramids-side message
-    # that lists the valid options, instead of deferring to a less-targeted
-    # cleopatra error deep in the render call. ``ColorScale`` lookup is
-    # case-insensitive, so any-case valid values pass through unchanged.
-    color_scale = kwargs.get("color_scale")
-    if color_scale is not None:
-        try:
-            ColorScale(color_scale)
-        except ValueError:
-            valid = [s.value for s in ColorScale]
-            raise ValueError(
-                f"Unsupported color_scale {color_scale!r}; valid options: {valid}."
-            ) from None
+    # cleopatra 0.30 replaced the flat styling keywords on plot/animate/facet with typed
+    # group objects and removed the loose-kwarg shims, so translate pyramids' loose
+    # color_scale / gamma / bounds / midpoint / levels / display_cell_value / style /
+    # hillshade (etc.) into the cleopatra ColorScaling / Contour / CellValues / DataStyle
+    # groups here, at the single render boundary. ``color_scale`` is validated inside the
+    # helper with a pyramids-side message listing the valid options, and a no-op style /
+    # hillshade is dropped. The built groups are render-method params, so they ride on the
+    # plot / animate / facet call (folded into ``render_kwargs`` below).
+    group_specs = _build_grouped_render_specs(kwargs)
 
-    # Normalise + version-gate the style/hillshade presets (shared with the mesh
-    # path). Mutates kwargs to drop a no-op hillshade; raises a clear upgrade hint
-    # on a cleopatra whose ArrayGlyph lacks the presets. (issue #737)
+    # A bare ``(N, 3)`` points array is no longer auto-wrapped by cleopatra (it raises on
+    # the overlay-drawing kinds, and is silently ignored on contour); wrap it in a
+    # ``PointOverlay`` so pyramids callers can keep passing a plain array. A points value
+    # already migrated to a ``PointOverlay`` by ``_migrate_deprecated_plot_specs`` (loose
+    # ``point_*`` present) is left as-is.
+    points = kwargs.get("points")
+    if points is not None and not isinstance(points, PointOverlay):
+        kwargs["points"] = PointOverlay(np.asarray(points))
+
     option_keys = ArrayGlyph.option_keys()
-    _guard_style_hillshade(kwargs, option_keys)
 
     # Unwrap a wrapping geographic longitude before handing curvilinear coords
     # to cleopatra, so its pcolormesh doesn't smear a ~178-degree quad across
@@ -671,6 +740,11 @@ def render_array(
             ctor_kwargs[key] = value
         else:
             render_kwargs[key] = value
+    # The cleopatra group objects translated from pyramids' loose kwargs
+    # (``color`` / ``contour`` / ``cells`` / ``data_style``) are render-method params on
+    # ``plot`` / ``animate`` / ``facet``, not constructor options, so fold them into the
+    # render bucket (the animate merge below then picks them up too).
+    render_kwargs.update(group_specs)
     # The ``"animate"`` path only flows kwargs into ``cleo.animate(...)``,
     # not the constructor — keys like ``interval`` are valid for animate
     # but not in cleopatra's ``DEFAULT_OPTIONS`` and would trigger an
@@ -791,7 +865,18 @@ def render_array(
                 "(basemap='<provider>') for per-panel tiles, or plot without faceting "
                 "for a relief/features basemap."
             )
-        result = cleo.facet(**facet_kwargs, **render_kwargs)
+        # cleopatra 0.30 renamed facet's ``figsize`` to ``figure_size`` and moved the
+        # per-panel coordinate labels onto a ``PanelLabels`` group (``col`` / ``row``).
+        # Translate the loose facet_kwargs (built by the NetCDF facet path) into the new
+        # names so the NetCDF facet builder can keep emitting the historical spelling.
+        facet_call = dict(facet_kwargs)
+        col_coords = facet_call.pop("col_coords", None)
+        row_coords = facet_call.pop("row_coords", None)
+        if col_coords is not None or row_coords is not None:
+            facet_call["labels"] = PanelLabels(col=col_coords, row=row_coords)
+        if "figsize" in facet_call:
+            facet_call["figure_size"] = facet_call.pop("figsize")
+        result = cleo.facet(**facet_call, **render_kwargs)
         if tile_basemap:
             # Every facet panel renders the same spatial domain (cleopatra
             # reuses the parent extent / curvilinear coords across panels),
@@ -900,18 +985,10 @@ def mesh_render(
     if basemap and basemap_epsg is None:
         raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
     require_cleopatra()
-    from cleopatra.glyphs.gridded.mesh_glyph import MeshGlyph
-
+    # ``plot_mesh_data`` translates the loose style/hillshade (and the other grouped
+    # styling kwargs) into cleopatra's ``DataStyle`` / ``ColorScaling`` / ``Contour``
+    # groups at the MeshGlyph.plot boundary, so no pre-processing is needed here.
     from pyramids.netcdf.ugrid.plot import plot_mesh_data
-
-    # Normalise + version-gate the style/hillshade presets against MeshGlyph, the
-    # same way render_array does against ArrayGlyph, so the mesh path exposes
-    # cleopatra's data-style presets with a clean upgrade hint on older cleopatra.
-    # Note: unlike the raster path (where style is an ArrayGlyph *constructor*
-    # option), plot_mesh_data forwards style/hillshade to MeshGlyph.plot(), not the
-    # constructor. Feature-detecting against option_keys() therefore assumes cleopatra
-    # declares them there in lock-step with .plot() accepting them (true on 0.24).
-    _guard_style_hillshade(kwargs, MeshGlyph.option_keys())
 
     result = plot_mesh_data(mesh, data, location=location, **kwargs)
     if basemap:

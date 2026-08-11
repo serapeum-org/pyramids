@@ -15,7 +15,6 @@ mesh_glyph = pytest.importorskip(
     "cleopatra.glyphs.gridded.mesh_glyph", reason="cleopatra not installed"
 )
 MeshGlyph = mesh_glyph.MeshGlyph
-from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.netcdf.ugrid.dataset import UgridDataset
 from pyramids.netcdf.ugrid.plot import plot_mesh_data, plot_mesh_outline
 
@@ -310,8 +309,12 @@ class TestMeshStyleHillshade:
         with patch.object(MeshGlyph, "plot") as mock_plot:
             ds.plot("depth", style="flow_accumulation", hillshade=True)
         kw = mock_plot.call_args.kwargs
-        assert kw.get("style") == "flow_accumulation"
-        assert kw.get("hillshade") is True
+        data_style = kw.get("data_style")
+        assert data_style is not None, (
+            "style/hillshade must fold into a DataStyle on MeshGlyph.plot"
+        )
+        assert data_style.style == "flow_accumulation"
+        assert data_style.hillshade is True
 
     def test_style_forwarded_to_mesh_render(self):
         """``UgridDataset.plot`` forwards ``style`` / ``hillshade`` to the helper."""
@@ -324,21 +327,14 @@ class TestMeshStyleHillshade:
         assert kw.get("style") == "topography"
         assert kw.get("hillshade") is True
 
-    def test_style_on_old_cleopatra_raises_upgrade_hint(self):
-        """``style=`` on a MeshGlyph lacking preset support raises the >= 0.24 hint."""
+    def test_falsy_hillshade_is_dropped(self):
+        """``hillshade=False`` is dropped — no ``DataStyle`` is built for it."""
         ds = self._dataset("face")
-        old_keys = MeshGlyph.option_keys() - {"style", "hillshade"}
-        with patch.object(MeshGlyph, "option_keys", return_value=old_keys):
-            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
-                ds.plot("depth", style="topography")
-
-    def test_falsy_hillshade_not_guarded_on_old_cleopatra(self):
-        """``hillshade=False`` is dropped, so the mesh guard does not fire."""
-        ds = self._dataset("face")
-        old_keys = MeshGlyph.option_keys() - {"style", "hillshade"}
-        with patch.object(MeshGlyph, "option_keys", return_value=old_keys):
-            result = ds.plot("depth", hillshade=False)
-        assert isinstance(result, MeshGlyph)
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            ds.plot("depth", hillshade=False)
+        assert mock_plot.call_args.kwargs.get("data_style") is None, (
+            "a falsy hillshade must not build a DataStyle"
+        )
 
     @pytest.mark.skipif(
         not _mesh_supports_apply_style,

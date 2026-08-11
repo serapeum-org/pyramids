@@ -5,7 +5,6 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset.engines import Analysis
@@ -145,15 +144,16 @@ class TestRenderArrayKwargRouting:
 
         return _FakeGlyph, ctor_seen, plot_seen, animate_seen, facet_seen, animate_args
 
-    def test_constructor_owns_cmap_vmin_vmax_levels_cbar(self):
-        """Style/scale kwargs all land on the constructor for plot mode.
+    def test_constructor_owns_cmap_vmin_vmax_cbar(self):
+        """Plain style/scale kwargs land on the constructor for plot mode.
 
         Test scenario:
-            ``cmap``, ``vmin``, ``vmax``, ``levels``, ``cbar_kwargs``
-            must reach ``ArrayGlyph.__init__`` so cleopatra's
-            ``default_options`` is set in one place. None of them may
-            also reach ``ArrayGlyph.plot``; otherwise the value would be
-            overwritten twice (the PR-6 D-4 fix).
+            ``cmap``, ``vmin``, ``vmax``, ``cbar_kwargs`` must reach
+            ``ArrayGlyph.__init__`` so cleopatra's ``default_options`` is set in one
+            place. None of them may also reach ``ArrayGlyph.plot``; otherwise the
+            value would be overwritten twice (the PR-6 D-4 fix). ``levels`` is no
+            longer a constructor option — cleopatra 0.30 moved it onto the
+            ``contour=Contour(...)`` render group (asserted separately below).
         """
         fake_cls, ctor, plot, _, _, _ = self._capture_calls()
         rng = np.random.default_rng(101)
@@ -169,11 +169,16 @@ class TestRenderArrayKwargRouting:
                 levels=10,
                 cbar_kwargs={"orientation": "horizontal"},
             )
-        for key in ("cmap", "vmin", "vmax", "levels", "cbar_kwargs"):
+        for key in ("cmap", "vmin", "vmax", "cbar_kwargs"):
             assert key in ctor, f"`{key}` must land on the constructor; ctor={ctor}"
             assert key not in plot, (
                 f"`{key}` must NOT also reach cleo.plot; plot={plot}"
             )
+        assert "levels" not in ctor, "`levels` folds into contour, not the ctor"
+        contour = plot.get("contour")
+        assert contour is not None and contour.levels == 10, (
+            f"`levels` must fold into contour=Contour(levels=10); plot={plot}"
+        )
 
     def test_render_call_only_kwargs_reach_plot(self):
         """Render-call-only kwargs reach ``ArrayGlyph.plot`` and nothing else.
@@ -609,23 +614,6 @@ class TestStyleHillshadePresets:
         )
         assert isinstance(glyph, ArrayGlyph)
 
-    def test_hillshade_only_on_old_cleopatra_raises_upgrade_hint(self):
-        """``hillshade=`` alone on a build lacking it raises the upgrade hint.
-
-        Test scenario:
-            The guard checks each key independently. Simulate a cleopatra that
-            supports ``style`` but not ``hillshade``; a truthy ``hillshade=``
-            with no ``style=`` must still raise the >= 0.24 upgrade error.
-        """
-        rng = np.random.default_rng(744)
-        arr = rng.random((5, 5)).astype("float32")
-        style_only = (ArrayGlyph.option_keys() - {"hillshade"}) | {"style"}
-        with patch.object(ArrayGlyph, "option_keys", return_value=style_only):
-            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
-                render_array(
-                    arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade=True
-                )
-
     @pytest.mark.parametrize("value", [False, None])
     def test_falsy_hillshade_is_dropped_not_forwarded(self, value):
         """A ``None``/``False`` ``hillshade`` is dropped, never reaching cleopatra.
@@ -669,35 +657,20 @@ class TestStyleHillshadePresets:
 
         Test scenario:
             ``{}`` is falsy but documented as "shade with default parameters",
-            so unlike ``False`` it must NOT be dropped — it flows to the glyph
-            constructor like any other affirmative hillshade request.
+            so unlike ``False`` it must NOT be dropped — it is folded into a
+            cleopatra ``DataStyle(hillshade={})`` on the render call (cleopatra
+            0.30 moved ``hillshade`` off the loose kwargs onto ``data_style=``).
         """
-        fake_cls, ctor, _plot, *_ = TestRenderArrayKwargRouting._capture_calls()
+        fake_cls, _ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
         rng = np.random.default_rng(746)
         arr = rng.random((5, 5)).astype("float32")
         with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade={}
             )
-        assert ctor.get("hillshade") == {}, "affirmative hillshade={} must be forwarded"
-
-    def test_empty_dict_hillshade_on_old_cleopatra_raises_upgrade_hint(self):
-        """``hillshade={}`` on a build lacking hillshade raises the upgrade hint.
-
-        Test scenario:
-            The affirmative empty-dict form must be gated exactly like
-            ``hillshade=True`` — an old cleopatra (``hillshade`` absent from
-            ``option_keys()``) yields the clear >= 0.24 error, not the cryptic
-            downstream "Unknown option".
-        """
-        rng = np.random.default_rng(747)
-        arr = rng.random((5, 5)).astype("float32")
-        old_keys = ArrayGlyph.option_keys() - {"style", "hillshade"}
-        with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
-            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
-                render_array(
-                    arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade={}
-                )
+        data_style = plot.get("data_style")
+        assert data_style is not None, "affirmative hillshade={} must build a DataStyle"
+        assert data_style.hillshade == {}, "hillshade={} must reach the DataStyle"
 
     @pytest.mark.skipif(
         not _supports_style, reason="cleopatra < 0.24 has no style presets"
@@ -719,43 +692,6 @@ class TestStyleHillshadePresets:
                 mode="plot",
                 style="definitely_not_a_style",
             )
-
-    def test_style_on_old_cleopatra_raises_upgrade_hint(self):
-        """``style=`` on a cleopatra without preset support raises a clear hint.
-
-        Test scenario:
-            Simulate cleopatra < 0.24 by hiding ``style`` from
-            ``option_keys()``. The scoped guard in ``render_array`` must raise
-            :class:`OptionalPackageDoesNotExist` pointing at the >= 0.24 upgrade
-            instead of letting a cryptic "Unknown option" surface deep in the
-            render call.
-        """
-        rng = np.random.default_rng(740)
-        arr = rng.random((5, 5)).astype("float32")
-        old_keys = ArrayGlyph.option_keys() - {"style", "hillshade"}
-        with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
-            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
-                render_array(
-                    arr=arr,
-                    extent=[0.0, 0.0, 1.0, 1.0],
-                    mode="plot",
-                    style="topography",
-                )
-
-    def test_no_preset_kwargs_unaffected_on_old_cleopatra(self):
-        """Basic plotting is untouched by the guard on an older cleopatra.
-
-        Test scenario:
-            With ``style`` hidden from ``option_keys()`` (simulated old
-            cleopatra) but no ``style`` / ``hillshade`` passed, ``render_array``
-            renders normally — the guard is scoped to preset use only.
-        """
-        rng = np.random.default_rng(741)
-        arr = rng.random((5, 5)).astype("float32")
-        old_keys = ArrayGlyph.option_keys() - {"style", "hillshade"}
-        with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
-            glyph = render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot")
-        assert isinstance(glyph, ArrayGlyph)
 
     @pytest.mark.skipif(
         not _supports_apply_style,

@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from pyramids.base._utils import require_cleopatra
+from pyramids.dataset._plot_helpers import _build_grouped_render_specs
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 
 if TYPE_CHECKING:
@@ -155,6 +156,12 @@ def plot_mesh_data(
         plot_kwargs["vmax"] = vmax
     plot_kwargs.update(kwargs)
 
+    # cleopatra 0.30 replaced MeshGlyph.plot's loose styling keywords with typed group
+    # objects; translate pyramids' loose color_scale / gamma / bounds / midpoint / levels /
+    # style / hillshade into cleopatra's ColorScaling / Contour / DataStyle groups. MeshGlyph
+    # has no cell-value overlay, so the cell-value keys are left untouched (include_cells).
+    group_specs = _build_grouped_render_specs(plot_kwargs, include_cells=False)
+
     glyph.plot(
         data,
         location=location,
@@ -162,6 +169,7 @@ def plot_mesh_data(
         edgecolor=edgecolor,
         colorbar=colorbar,
         title=title,
+        **group_specs,
         **plot_kwargs,
     )
     return glyph
