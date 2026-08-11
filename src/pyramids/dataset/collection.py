@@ -1502,6 +1502,10 @@ class DatasetCollection:
             - :meth:`pyramids.netcdf.NetCDF.read_file`: reopen the
               written file as a pyramids NetCDF.
         """
+        if self.time_length == 0:
+            raise ValueError(
+                "to_netcdf: cannot write an empty collection (time_length == 0)."
+            )
         if time_coords is None and self.time is not None:
             # A dated collection (time axis parsed from the file names) exports
             # with its own calendar axis by default; an explicit time_coords

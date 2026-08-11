@@ -797,6 +797,29 @@ class TestToNetcdfStreaming:
             col.to_netcdf(str(out))
         assert not out.exists(), "a mismatched timestep must leave no partial file"
 
+    def test_empty_collection_raises_value_error(self, tmp_path):
+        """An empty collection (``time_length == 0``) raises a clear ValueError.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            ``from_dataset(base, 0)`` builds a zero-timestep collection — expected:
+            ``to_netcdf`` raises a ValueError naming the empty collection and
+            writes no file.
+        """
+        base = Dataset.create_from_array(
+            np.zeros((4, 5), dtype="int16"),
+            top_left_corner=(0, 0),
+            cell_size=0.05,
+            epsg=4326,
+        )
+        col = DatasetCollection.from_dataset(base, 0)
+        out = tmp_path / "empty.nc"
+        with pytest.raises(ValueError, match="empty collection"):
+            col.to_netcdf(str(out))
+        assert not out.exists(), "no file should be written for an empty collection"
+
 
 class TestToNetcdfRoundTrip:
     """End-to-end: re-open the written file via :class:`NetCDF` and compare."""
