@@ -2338,6 +2338,7 @@ class IO(_Engine["Dataset"]):
         tile_func: Callable[[np.ndarray], np.ndarray],
         *,
         band: int | None = None,
+        out: Dataset | None = None,
         dtype: str | None = None,
         bands: int | None = None,
         no_data_value: Any = _STREAM_INHERIT_NO_DATA,
@@ -2346,13 +2347,13 @@ class IO(_Engine["Dataset"]):
     ) -> Dataset:
         """Map a per-pixel function over the raster one tile at a time, out of core.
 
-        Allocates an output raster with :meth:`Dataset.empty_like` (disk-backed when
-        `path` is given, else in memory), then reads each square `tile_size` window,
-        passes the tile array to `tile_func`, and writes the returned tile back at
-        the same window. Peak memory is bounded by one tile, so a very large or
-        `/vsicurl` source is transformed without ever materialising the whole array
-        — the streaming counterpart to reading the full array and processing it in
-        NumPy.
+        Writes into `out` when given, otherwise allocates an output raster with
+        :meth:`Dataset.empty_like` (disk-backed when `path` is given, else in
+        memory). Reads each square `tile_size` window, passes the tile array to
+        `tile_func`, and writes the returned tile back at the same window. Peak
+        memory is bounded by one tile, so a very large or `/vsicurl` source is
+        transformed without ever materialising the whole array — the streaming
+        counterpart to reading the full array and processing it in NumPy.
 
         `tile_func` must be a **per-pixel / positionally-stable** map: it receives
         the tile array (2D for a single `band`, else 3D `(bands, rows, cols)`) and
@@ -2368,22 +2369,31 @@ class IO(_Engine["Dataset"]):
             band (int, optional):
                 Zero-based band to read and write, or `None` (default) for all bands
                 (the tile is then 3D and `tile_func` sees every band at once).
+            out (Dataset, optional):
+                Pre-allocated, writable output to stream into (e.g. a metadata-
+                preserving `CreateCopy`). When given, the allocation arguments
+                (`dtype`, `bands`, `no_data_value`, `path`) are ignored; the caller
+                owns the output's header. `None` (default) allocates a fresh output.
             dtype (str, optional):
-                Output dtype name. `None` (default) reuses the source dtype.
+                Output dtype name. `None` (default) reuses the source dtype. Ignored
+                when `out` is given.
             bands (int, optional):
                 Output band count. `None` (default) reuses the source band count.
+                Ignored when `out` is given.
             no_data_value (optional):
                 Output no-data sentinel. Defaults to inheriting the source's (via
                 `Dataset.empty_like`); pass a scalar or per-band list to override.
+                Ignored when `out` is given.
             tile_size (int):
                 Square tile edge in pixels. Defaults to 256.
             path (str | Path, optional):
                 Output `.tif` path for a disk-backed (out-of-core) result. `None`
-                (default) keeps the output in memory.
+                (default) keeps the output in memory. Ignored when `out` is given.
 
         Returns:
             Dataset:
-                The transformed raster — a new dataset; the source is untouched.
+                The transformed raster (`out` when supplied, else a new dataset). The
+                source is untouched unless `out` is the source itself.
 
         Examples:
             - Double every pixel of a raster without loading it whole:
@@ -2401,10 +2411,11 @@ class IO(_Engine["Dataset"]):
 
               ```
         """
-        allocate: dict[str, Any] = {"dtype": dtype, "bands": bands, "path": path}
-        if no_data_value is not _STREAM_INHERIT_NO_DATA:
-            allocate["no_data_value"] = no_data_value
-        out = cast("Dataset", self._ds.empty_like(self._ds, **allocate))
+        if out is None:
+            allocate: dict[str, Any] = {"dtype": dtype, "bands": bands, "path": path}
+            if no_data_value is not _STREAM_INHERIT_NO_DATA:
+                allocate["no_data_value"] = no_data_value
+            out = cast("Dataset", self._ds.empty_like(self._ds, **allocate))
         for xoff, yoff, xsize, ysize in self._tile_offsets(size=tile_size):
             tile = self._ds.read_array(band=band, window=[xoff, yoff, xsize, ysize])
             out.write_array(

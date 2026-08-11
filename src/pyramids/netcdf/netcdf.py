@@ -1629,6 +1629,24 @@ class NetCDF(Dataset):
         self._check_not_container("sample")
         return super().sample(*args, **kwargs)
 
+    def change_no_data_value(self, *args, **kwargs):  # type: ignore[override]
+        """Refuse `change_no_data_value` on a NetCDF container or pinned variable view.
+
+        Rewriting a band's no-data sentinel targets a standalone raster; on a NetCDF
+        container it is undefined, and on a view pinned to one variable it cannot be
+        written back to the store coherently. Both raise a clear error instead of
+        producing an incoherent copy. Export the variable to a standalone `Dataset`
+        (e.g. `to_file`) to change its no-data value.
+        """
+        self._check_not_container("change_no_data_value")
+        if self._source_var_name is not None:
+            raise ValueError(
+                "change_no_data_value is not supported on a NetCDF view pinned to "
+                f"variable {self._source_var_name!r}; export the variable to a "
+                "standalone Dataset first."
+            )
+        return super().change_no_data_value(*args, **kwargs)
+
     # NetCDF intentionally exposes a richer, variable/selector-oriented plot
     # signature than the band-oriented Dataset/RasterBase one; the override
     # is deliberate and not Liskov-substitutable.

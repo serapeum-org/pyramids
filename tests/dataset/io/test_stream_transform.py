@@ -142,6 +142,22 @@ class TestStreamTransform:
             Dataset.read_file(str(out_path)).read_array(), ds.read_array() * 2
         ), "reopened file has wrong values"
 
+    def test_writes_into_a_provided_out_dataset(self):
+        """``out=`` streams into a caller-owned dataset instead of allocating one.
+
+        Test scenario:
+            Pass a pre-built writable output (here a copy of the source) as ``out=``;
+            the helper writes the transformed tiles into it and returns that same
+            object, leaving the source untouched.
+        """
+        ds = _raster()
+        out = ds.copy()
+        returned = ds.io.stream_transform(lambda tile: tile + 1, out=out, tile_size=2)
+        assert returned is out, "stream_transform did not return the provided out"
+        assert np.array_equal(out.read_array(), ds.read_array() + 1), (
+            "values were not streamed into the provided out"
+        )
+
     def test_peak_memory_is_bounded_by_the_tile(self, tmp_path):
         """Streaming to disk peaks near one tile, far below the whole-array size.
 
@@ -169,5 +185,39 @@ class TestStreamTransform:
         tracemalloc.stop()
         assert peak < dense_bytes // 4, (
             f"stream_transform peaked at {peak / 1e6:.1f} MB; a whole-array pass "
+            f"would need {dense_bytes / 1e6:.1f} MB — the read was not tiled"
+        )
+
+
+class TestStreamedConsumers:
+    """`fill` and `change_no_data_value` stream through the helper (#967)."""
+
+    def test_change_no_data_value_is_byte_identical_and_bounded(self, tmp_path):
+        """`change_no_data_value` matches the eager result and never reads the source whole.
+
+        Test scenario:
+            On a 1000x1000 disk raster full of the old sentinel, changing it to a new
+            one yields every cell equal to the new sentinel, and the traced Python peak
+            stays far below the dense-array size — proving the per-band swap is tiled.
+        """
+        rows = cols = 1000
+        src_path = tmp_path / "nodata.tif"
+        Dataset.create_from_array(
+            np.full((rows, cols), -9999.0, dtype="float32"),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.01,
+            epsg=4326,
+            no_data_value=-9999.0,
+            path=str(src_path),
+        ).close()
+        ds = Dataset.read_file(str(src_path))
+        dense_bytes = rows * cols * 4  # float32
+        tracemalloc.start()
+        out = ds.change_no_data_value(-1.0, old_value=-9999.0)
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        assert np.all(out.read_array() == -1.0), "sentinel was not fully replaced"
+        assert peak < dense_bytes // 4, (
+            f"change_no_data_value peaked at {peak / 1e6:.1f} MB; a whole-band pass "
             f"would need {dense_bytes / 1e6:.1f} MB — the read was not tiled"
         )

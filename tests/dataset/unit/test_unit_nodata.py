@@ -626,9 +626,13 @@ class TestChangeNoDataValueTypeError:
         )
         original_read = ds.read_array
 
-        def mock_read(band=None):
-            """Return array that raises TypeError on assignment."""
-            result = original_read(band=band)
+        def mock_read(band=None, **kwargs):
+            """Return array that raises TypeError on assignment.
+
+            Accepts ``**kwargs`` so it also serves the windowed reads
+            ``change_no_data_value`` now issues through ``stream_transform``.
+            """
+            result = original_read(band=band, **kwargs)
             mock_arr = MagicMock(wraps=result)
 
             def raise_type_error(key, value):
