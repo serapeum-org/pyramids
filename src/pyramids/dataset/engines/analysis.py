@@ -431,15 +431,18 @@ class Analysis(_Engine["Dataset"]):
               ```
         """
         no_data_value = self._ds.no_data_value[0]
-        src_array = self._ds.raster.ReadAsArray()
 
-        # rtol=1e-6 is intentionally tighter than the package default
-        # (1e-3): `fill` writes user-supplied values into every domain
-        # cell, so a too-loose match would clobber legitimate cells that
-        # happen to lie within ~0.1% of the no-data sentinel.
-        src_array[inside_domain(src_array, no_data_value, rtol=0.000001)] = value
+        def _fill_tile(tile: np.ndarray) -> np.ndarray:
+            # rtol=1e-6 is intentionally tighter than the package default (1e-3):
+            # `fill` writes user-supplied values into every domain cell, so a
+            # too-loose match would clobber legitimate cells that happen to lie
+            # within ~0.1% of the no-data sentinel.
+            tile[inside_domain(tile, no_data_value, rtol=0.000001)] = value
+            return tile
 
-        dst = self._ds.__class__.dataset_like(self._ds, src_array, path=path)
+        # Stream the fill tile-by-tile so a very large or /vsicurl source is never
+        # read whole (#967). The domain mask is per-pixel, so tiling is byte-identical.
+        dst = self._ds.io.stream_transform(_fill_tile, path=path)
         if inplace:
             self._ds._update_inplace(dst.raster)
             return None

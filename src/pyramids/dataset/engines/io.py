@@ -76,6 +76,11 @@ _VSIMEM_PREFIX = "/vsimem/"
 # description is a whole document, so it is cut rather than dumped into the message.
 _DESCRIPTION_EXCERPT = 80
 
+# Local "inherit from the source" sentinel for stream_transform's no_data_value.
+# Kept here (not imported from dataset.py's _INHERIT_NO_DATA) because dataset.py
+# imports this module, so importing back would be a circular import.
+_STREAM_INHERIT_NO_DATA = object()
+
 _GRID_SNAP_TOL = 1e-9
 """Fractional-pixel tolerance for snapping a bbox edge onto an exact cell boundary.
 
@@ -2327,6 +2332,85 @@ class IO(_Engine["Dataset"]):
             for xoff in range(0, cols, size):
                 xsize = size if size + xoff <= cols else cols - xoff
                 yield xoff, yoff, xsize, ysize
+
+    def stream_transform(
+        self,
+        tile_func: Callable[[np.ndarray], np.ndarray],
+        *,
+        band: int | None = None,
+        dtype: str | None = None,
+        bands: int | None = None,
+        no_data_value: Any = _STREAM_INHERIT_NO_DATA,
+        tile_size: int = 256,
+        path: str | Path | None = None,
+    ) -> Dataset:
+        """Map a per-pixel function over the raster one tile at a time, out of core.
+
+        Allocates an output raster with :meth:`Dataset.empty_like` (disk-backed when
+        `path` is given, else in memory), then reads each square `tile_size` window,
+        passes the tile array to `tile_func`, and writes the returned tile back at
+        the same window. Peak memory is bounded by one tile, so a very large or
+        `/vsicurl` source is transformed without ever materialising the whole array
+        — the streaming counterpart to reading the full array and processing it in
+        NumPy.
+
+        `tile_func` must be a **per-pixel / positionally-stable** map: it receives
+        the tile array (2D for a single `band`, else 3D `(bands, rows, cols)`) and
+        must return an array with the same rows/columns. It must not depend on pixels
+        outside the tile — no global reduction or normalisation, and no neighbourhood
+        window that reaches past the tile edge — or the tiled result will differ from
+        a whole-array pass. Reductions and neighbourhood filters are therefore not
+        candidates for this helper.
+
+        Args:
+            tile_func (Callable[[np.ndarray], np.ndarray]):
+                Per-tile transform; see the positional-stability note above.
+            band (int, optional):
+                Zero-based band to read and write, or `None` (default) for all bands
+                (the tile is then 3D and `tile_func` sees every band at once).
+            dtype (str, optional):
+                Output dtype name. `None` (default) reuses the source dtype.
+            bands (int, optional):
+                Output band count. `None` (default) reuses the source band count.
+            no_data_value (optional):
+                Output no-data sentinel. Defaults to inheriting the source's (via
+                `Dataset.empty_like`); pass a scalar or per-band list to override.
+            tile_size (int):
+                Square tile edge in pixels. Defaults to 256.
+            path (str | Path, optional):
+                Output `.tif` path for a disk-backed (out-of-core) result. `None`
+                (default) keeps the output in memory.
+
+        Returns:
+            Dataset:
+                The transformed raster — a new dataset; the source is untouched.
+
+        Examples:
+            - Double every pixel of a raster without loading it whole:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> ds = Dataset.create_from_array(
+              ...     np.arange(25, dtype="int16").reshape(5, 5),
+              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ... )
+              >>> doubled = ds.io.stream_transform(lambda tile: tile * 2, tile_size=2)
+              >>> bool(np.array_equal(doubled.read_array(), ds.read_array() * 2))
+              True
+
+              ```
+        """
+        allocate: dict[str, Any] = {"dtype": dtype, "bands": bands, "path": path}
+        if no_data_value is not _STREAM_INHERIT_NO_DATA:
+            allocate["no_data_value"] = no_data_value
+        out = cast("Dataset", self._ds.empty_like(self._ds, **allocate))
+        for xoff, yoff, xsize, ysize in self._tile_offsets(size=tile_size):
+            tile = self._ds.read_array(band=band, window=[xoff, yoff, xsize, ysize])
+            out.write_array(
+                tile_func(tile), band=band, window=Window(xoff, yoff, xsize, ysize)
+            )
+        return out
 
     def get_tile(self, size=256) -> Generator[np.typing.NDArray]:
         """Get tile.
