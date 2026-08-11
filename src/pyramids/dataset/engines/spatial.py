@@ -1951,6 +1951,69 @@ class Spatial(_Engine["Dataset"]):
         """
         return _stitch_lon_halves(self._ds, west_part, east_part)
 
+    def _crop_from_bbox(
+        self,
+        bbox: tuple[float, float, float, float] | list[float],
+        mask: GeoDataFrame | FeatureCollection | None,
+        epsg: Any,
+        touch: bool,
+    ) -> Dataset | FeatureCollection:
+        """Resolve a `crop(bbox=...)` request to a finished crop or a cutline mask.
+
+        Handles the three bbox outcomes so :meth:`crop` stays flat: an
+        antimeridian-crossing geographic box is split and cropped, an eligible
+        axis-aligned box is cropped by the windowed fast path, and anything else is
+        wrapped in a one-row :class:`FeatureCollection` for the cutline warp.
+
+        Args:
+            bbox (tuple[float, float, float, float] | list[float]):
+                ``(west, south, east, north)`` in the CRS named by ``epsg``.
+            mask (GeoDataFrame | FeatureCollection | None):
+                The caller's ``mask`` argument, rejected here if also supplied.
+            epsg (Any):
+                CRS for ``bbox``; defaults to the dataset's own CRS when ``None``.
+            touch (bool):
+                Forwarded to the fast path / warp (``True`` enables the fast path).
+
+        Returns:
+            Dataset | FeatureCollection:
+                A finished :class:`Dataset` crop (antimeridian or fast path), or a
+                :class:`FeatureCollection` for the caller to warp.
+
+        Raises:
+            ValueError: Both ``mask`` and ``bbox`` were supplied.
+        """
+        if mask is not None:
+            raise ValueError("crop accepts either `mask` or `bbox`, not both")
+        # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to the WKT
+        # so a bbox in the grid's own CRS is still honoured (#706).
+        crs = (
+            epsg
+            if epsg is not None
+            else require_crs_spec(
+                self._ds.epsg, self._ds.crs, "crop by a bbox without an explicit epsg="
+            )
+        )
+        west, _, east, _ = bbox
+        crs_geo = bool(crs) and sr_from_user_input(crs).IsGeographic()
+        ds_epsg = self._ds.epsg
+        ds_geo = ds_epsg is not None and sr_from_user_input(ds_epsg).IsGeographic()
+        if west > east and crs_geo and ds_geo:
+            # bbox is validated 4-long above; tuple(bbox) loses that fixed arity
+            # statically (it may start as a list), so restore it.
+            bbox_4 = cast(tuple[float, float, float, float], tuple(bbox))
+            _require_antimeridian_seam(self._ds, bbox_4)
+            return self._crop_antimeridian(bbox_4, crs, touch)
+        # Fast path: an axis-aligned box in the source CRS is just a window, so read
+        # only that window instead of warping a cutline over the whole source (#957).
+        # Falls through to the warp path when it does not apply (reprojection, a rotated
+        # grid, or a degenerate/off-grid box).
+        if touch:
+            windowed = self._crop_bbox_windowed(bbox, crs)
+            if windowed is not None:
+                return windowed
+        return FeatureCollection.from_bbox(bbox, epsg=crs)
+
     def crop(
         self,
         mask: GeoDataFrame | FeatureCollection | None = None,
@@ -2161,38 +2224,12 @@ class Spatial(_Engine["Dataset"]):
         """
         bbox_mask = False
         if bbox is not None:
-            if mask is not None:
-                raise ValueError("crop accepts either `mask` or `bbox`, not both")
-            # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to
-            # the WKT so a bbox in the grid's own CRS is still honoured (#706).
-            crs = (
-                epsg
-                if epsg is not None
-                else require_crs_spec(
-                    self._ds.epsg,
-                    self._ds.crs,
-                    "crop by a bbox without an explicit epsg=",
-                )
-            )
-            west, _, east, _ = bbox
-            crs_geo = bool(crs) and sr_from_user_input(crs).IsGeographic()
-            ds_epsg = self._ds.epsg
-            ds_geo = ds_epsg is not None and sr_from_user_input(ds_epsg).IsGeographic()
-            if west > east and crs_geo and ds_geo:
-                # bbox is validated 4-long above; tuple(bbox) loses that fixed
-                # arity statically (it may start as a list), so restore it.
-                bbox_4 = cast(tuple[float, float, float, float], tuple(bbox))
-                _require_antimeridian_seam(self._ds, bbox_4)
-                return self._crop_antimeridian(bbox_4, crs, touch)
-            # Fast path: an axis-aligned box in the source CRS is just a window, so
-            # read only that window instead of warping a cutline over the whole
-            # source (#957). Falls through to the warp path when it does not apply
-            # (reprojection, a rotated grid, or a degenerate/off-grid box).
-            if touch:
-                windowed = self._crop_bbox_windowed(bbox, crs)
-                if windowed is not None:
-                    return windowed
-            mask = FeatureCollection.from_bbox(bbox, epsg=crs)
+            # Resolve the bbox: a completed crop (antimeridian split or windowed fast
+            # path) is returned as-is; otherwise it yields a FeatureCollection to warp.
+            resolved = self._crop_from_bbox(bbox, mask, epsg, touch)
+            if isinstance(resolved, RasterBase):
+                return cast("Dataset", resolved)
+            mask = resolved
             bbox_mask = True
         if mask is None:
             raise TypeError(
