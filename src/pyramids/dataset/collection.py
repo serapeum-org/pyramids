@@ -2429,10 +2429,6 @@ class DatasetCollection:
         self,
         band: int = 0,
         exclude_value: Any | None = None,
-        rgb: list[int] | None = None,
-        surface_reflectance: int | None = None,
-        cutoff: list | None = None,
-        percentile: int | None = None,
         rgb_options: dict | None = None,
         basemap: bool | str | dict[str, Any] | Basemap | None = None,
         frame_label: FrameLabel | None = None,
@@ -2478,37 +2474,16 @@ class DatasetCollection:
                 Ignored when ``rgb`` is set (true-colour frames are not
                 masked); passing it together with ``rgb`` emits a
                 :class:`UserWarning`.
-            rgb (list[int], optional):
-                Band indices ``[red, green, blue]`` (or four, with
-                alpha) to composite into a true-colour time-lapse. When
-                set, every timestep is rendered as an RGB frame instead
-                of a single colormapped band, and the result is a
-                ``(time, rows, cols, 3)`` animation with no colorbar.
-                Each ``Dataset`` in the collection must carry at least
-                ``max(rgb) + 1`` bands. Default ``None`` (single-band
-                colormapped animation). **Deprecated**; pass via
-                ``rgb_options={"rgb": [...]}`` instead.
-            surface_reflectance (int, optional):
-                Surface-reflectance scale for normalising RGB bands
-                (e.g. ``10000`` for Sentinel-2, ``255`` for 8-bit).
-                Only used when ``rgb`` is set. Default ``None``.
-                **Deprecated**; pass via
-                ``rgb_options={"surface_reflectance": ...}``.
-            cutoff (list, optional):
-                Per-band clip values for the RGB stretch. Only used when
-                ``rgb`` is set. Default ``None``. **Deprecated**; pass
-                via ``rgb_options={"cutoff": ...}``.
-            percentile (int, optional):
-                Percentile stretch for the RGB bands (takes precedence
-                over ``surface_reflectance``). Only used when ``rgb`` is
-                set. Default ``None``. **Deprecated**; pass via
-                ``rgb_options={"percentile": ...}``.
             rgb_options (dict, optional):
-                Recommended grouped form of the RGB parameters above.
-                Accepted keys: ``"rgb"``, ``"surface_reflectance"``,
-                ``"cutoff"``, ``"percentile"``. Mirrors
-                :meth:`Dataset.plot`. On collision with a loose kwarg the
-                ``rgb_options`` value wins. Default ``None``.
+                Grouped Sentinel-imagery options for a true-colour time-lapse (mirrors
+                :meth:`Dataset.plot`). Accepted keys: ``"rgb"`` (band indices
+                ``[red, green, blue(, alpha)]`` — every timestep renders as an RGB frame,
+                a ``(time, rows, cols, 3)`` animation with no colorbar; each ``Dataset``
+                must carry at least ``max(rgb) + 1`` bands), ``"surface_reflectance"``
+                (scale for normalising RGB bands, e.g. ``10000`` for Sentinel-2),
+                ``"cutoff"`` (per-band clip values), ``"percentile"`` (percentile stretch,
+                takes precedence over ``surface_reflectance``). Default ``None``
+                (single-band colormapped animation).
             basemap (bool, str, or Basemap, optional):
                 Reference layer under the animation, dispatched by type. ``True``
                 or a tile-provider string (e.g. ``"CartoDB.Positron"``) overlays a
@@ -2578,7 +2553,7 @@ class DatasetCollection:
             ValueError: When ``rgb`` does not list exactly 3 (RGB) or 4
                 (RGBA) band indices, when any index is negative, or when the
                 collection's datasets carry fewer than ``max(rgb) + 1`` bands.
-                Also raised (via ``_merge_rgb_options``) for an unknown key
+                Also raised (via ``_unpack_rgb_options``) for an unknown key
                 in ``rgb_options``.
 
         Warns:
@@ -2622,20 +2597,15 @@ class DatasetCollection:
         See Also:
             - :meth:`pyramids.dataset.Dataset.plot`: The single-frame
               renderer (still or RGB still) for one ``Dataset``; shares the
-              ``rgb`` / ``rgb_options`` contract via ``_merge_rgb_options``.
+              ``rgb_options`` contract via ``_unpack_rgb_options``.
             - :func:`pyramids.dataset._plot_helpers.render_array`: The shared
               cleopatra dispatch that composites the true-colour frames for
               the animate path.
         """
-        # Resolve the grouped ``rgb_options`` against the deprecated loose
-        # kwargs exactly as ``Dataset.plot`` does, so both facades share one
-        # RGB-parameter contract (and one deprecation message).
-        rgb, surface_reflectance, cutoff, percentile = Dataset._merge_rgb_options(
-            rgb_options=rgb_options,
-            rgb=rgb,
-            surface_reflectance=surface_reflectance,
-            cutoff=cutoff,
-            percentile=percentile,
+        # Unpack the grouped ``rgb_options`` exactly as ``Dataset.plot`` does, so both
+        # facades share one RGB-parameter contract.
+        rgb, surface_reflectance, cutoff, percentile = Dataset._unpack_rgb_options(
+            rgb_options
         )
         # Frame labels for the animation. Default to the collection's time axis
         # when it has one (e.g. dates parsed from the file names by

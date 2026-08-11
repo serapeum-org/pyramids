@@ -433,7 +433,7 @@ class TestPlotDataSet:
         src_arr: np.ndarray,
     ):
         dataset = Dataset(sentinel_raster)
-        array_glyph = dataset.plot(rgb=[3, 2, 1])
+        array_glyph = dataset.plot(rgb_options={"rgb": [3, 2, 1]})
         assert isinstance(array_glyph, ArrayGlyph)
 
     @pytest.mark.plot
@@ -561,14 +561,6 @@ class TestPlotDatasetCollection:
             cube.plot(rgb_options={"rgb": [0, 1, 2]})
 
     @pytest.mark.plot
-    def test_rgb_loose_kwarg_is_deprecated(self, tmp_path):
-        """The loose top-level `rgb=` still works but warns, mirroring Dataset.plot."""
-        cube = self._rgb_cube(tmp_path, n_times=3)
-        with pytest.warns(DeprecationWarning, match="rgb_options"):
-            glyph = cube.plot(rgb=[0, 1, 2], percentile=2)
-        assert glyph.arr.shape == (3, 8, 8, 3)
-
-    @pytest.mark.plot
     def test_single_band_path_unchanged(self, tmp_path):
         """Without `rgb`, plot() still yields a colormapped single-band animation."""
         cube = self._rgb_cube(tmp_path, n_times=3)
@@ -642,14 +634,6 @@ class TestPlotDatasetCollection:
         with pytest.warns(UserWarning, match="exclude_value is ignored"):
             glyph = cube.plot(exclude_value=0, rgb_options={"rgb": [0, 1, 2]})
         assert glyph.arr.shape == (2, 8, 8, 3), "RGB stack still rendered"
-
-    @pytest.mark.plot
-    def test_rgb_options_wins_over_loose_kwarg(self, tmp_path):
-        """On collision, `rgb_options` wins over the loose kwarg and still warns."""
-        cube = self._rgb_cube(tmp_path, n_times=2, n_bands=4)
-        with pytest.warns(DeprecationWarning, match="rgb_options` wins"):
-            glyph = cube.plot(rgb=[1, 2, 3], rgb_options={"rgb": [0, 1, 2]})
-        assert glyph.arr.shape == (2, 8, 8, 3), "grouped rgb composited every frame"
 
 
 def _make_nc_subset_with_band_count(tmp_path, n_bands: int):
