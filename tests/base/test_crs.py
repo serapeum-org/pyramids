@@ -626,11 +626,6 @@ class TestProjDatabaseSkew:
             # Derive the crop window from the raster's own extent rather than naming
             # fixed coordinates: a bbox that misses the raster still "succeeds", so a
             # fixed one would pass just as well if crop silently returned nothing.
-            # The bbox is given in the raster's own CRS, which is itself the code
-            # pyproj cannot resolve -- so this exercises the `epsg=<skew code>` path
-            # through FeatureCollection as well as the raster's own CRS.
-            # Derive the window from the raster's own extent rather than naming fixed
-            # degrees: a bbox that misses the raster would "succeed" just as well.
             min_x, min_y, max_x, max_y = dataset.bounds.total_bounds
             (west, east), (south, north) = reproject_coordinates(
                 [min_x, max_x],
