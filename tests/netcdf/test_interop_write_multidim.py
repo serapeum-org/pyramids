@@ -22,6 +22,7 @@ from pyramids.netcdf.engines.interop import (
     _apply_md_array_attrs,
     _build_multidim,
     _create_copy_to_netcdf,
+    open_streaming_multidim_netcdf,
     write_multidim_netcdf,
 )
 
@@ -102,6 +103,24 @@ def _root_attrs(path: str) -> dict:
         dict: ``{attr_name: value}`` for the root group.
     """
     return {a.GetName(): a.Read() for a in _root(path).GetAttributes()}
+
+
+def _stream_one_slab_then_raise(path, dims, coords, var_specs) -> None:
+    """Enter the streaming writer, write one slab, then raise mid-stream.
+
+    Args:
+        path: Output ``.nc`` path.
+        dims: Dimension name to length.
+        coords: Coordinate spec.
+        var_specs: Variable spec.
+
+    Raises:
+        RuntimeError: Always, after one slab is written, to exercise the
+            mid-stream cleanup path with a single throwing call at the call site.
+    """
+    with open_streaming_multidim_netcdf(path, dims, coords, var_specs, {}) as writer:
+        writer.write_slab("v", 0, np.array([[1]], dtype="int16"))
+        raise RuntimeError("boom")
 
 
 class TestWriteMultidimNetcdf:
@@ -332,6 +351,199 @@ class TestWriteMultidimNetcdf:
         monkeypatch.setattr(interop.gdal, "GetDriverByName", _fake)
         with pytest.raises(RuntimeError, match="Failed to write NetCDF"):
             write_multidim_netcdf(path, dims, coords, data_vars, {})
+
+
+class TestOpenStreamingMultidimNetcdf:
+    """Tests for :func:`open_streaming_multidim_netcdf` (per-slab streaming)."""
+
+    def test_streams_variable_and_coords_round_trip(self, tmp_path):
+        """A ``(time, y, x)`` variable written one slab per timestep round-trips.
+
+        Test scenario:
+            Two timesteps written via ``write_slab`` — expected: the arrays exist,
+            each timestep reads back its own constant block, and the coords are
+            verbatim.
+        """
+        out = tmp_path / "stream.nc"
+        dims = {"time": 2, "y": 2, "x": 3}
+        coords = {
+            "time": (np.array([0, 1], dtype="int64"), {}),
+            "y": (np.array([10.0, 20.0]), {}),
+            "x": (np.array([1.0, 2.0, 3.0]), {}),
+        }
+        var_specs = {"temp": (("time", "y", "x"), np.dtype("int16"), {})}
+        with open_streaming_multidim_netcdf(
+            out, dims, coords, var_specs, {"Conventions": "CF-1.8"}
+        ) as writer:
+            for t in range(2):
+                writer.write_slab("temp", t, np.full((2, 3), t + 1, dtype="int16"))
+        assert {"temp", "time", "y", "x"}.issubset(_array_names(str(out))), (
+            f"missing arrays: {_array_names(str(out))}"
+        )
+        vals = _values(str(out), "temp")
+        assert vals.shape == (2, 2, 3), f"unexpected shape: {vals.shape}"
+        assert np.array_equal(vals[0], np.full((2, 3), 1)), "timestep 0 wrong"
+        assert np.array_equal(vals[1], np.full((2, 3), 2)), "timestep 1 wrong"
+        assert np.array_equal(_values(str(out), "y"), [10.0, 20.0]), "y coord wrong"
+        assert _root_attrs(str(out)).get("Conventions") == "CF-1.8", "root attr wrong"
+
+    def test_multiple_variables_streamed_with_attrs(self, tmp_path):
+        """Two variables stream in parallel and their attributes round-trip.
+
+        Test scenario:
+            Per-timestep ``write_slab`` for ``b1`` (with a ``nodata`` attr) and
+            ``b2`` — expected: both round-trip and ``b1`` carries ``nodata``.
+        """
+        out = tmp_path / "multi.nc"
+        dims = {"time": 2, "y": 2, "x": 2}
+        coords = {
+            "time": (np.array([0, 1], dtype="int64"), {}),
+            "y": (np.array([0.0, 1.0]), {}),
+            "x": (np.array([0.0, 1.0]), {}),
+        }
+        var_specs = {
+            "b1": (("time", "y", "x"), np.dtype("int16"), {"nodata": -1}),
+            "b2": (("time", "y", "x"), np.dtype("int16"), {}),
+        }
+        with open_streaming_multidim_netcdf(out, dims, coords, var_specs, {}) as writer:
+            for t in range(2):
+                writer.write_slab("b1", t, np.full((2, 2), t, dtype="int16"))
+                writer.write_slab("b2", t, np.full((2, 2), 10 + t, dtype="int16"))
+        assert np.array_equal(_values(str(out), "b1")[1], np.full((2, 2), 1)), (
+            "b1 wrong"
+        )
+        assert np.array_equal(_values(str(out), "b2")[0], np.full((2, 2), 10)), (
+            "b2 wrong"
+        )
+        assert _attrs(str(out), "b1").get("nodata") == -1, "nodata attr not written"
+
+    def test_datetime_coord_is_cf_encoded(self, tmp_path):
+        """A raw ``datetime64`` time coordinate is CF-encoded to a numeric axis.
+
+        Test scenario:
+            ``time`` is ``datetime64[ns]`` — expected: a numeric axis whose unit
+            slot carries a CF ``since`` unit.
+        """
+        out = tmp_path / "dt.nc"
+        time = np.array(["2020-01-01", "2020-01-02"], dtype="datetime64[ns]")
+        dims = {"time": 2, "x": 1}
+        coords = {"time": (time, {}), "x": (np.array([0.0]), {})}
+        var_specs = {"v": (("time", "x"), np.dtype("float32"), {})}
+        with open_streaming_multidim_netcdf(out, dims, coords, var_specs, {}) as writer:
+            for t in range(2):
+                writer.write_slab("v", t, np.array([float(t)], dtype="float32"))
+        assert "since" in _unit(str(out), "time"), "time coord not CF-encoded"
+
+    def test_coord_not_in_dims_is_skipped(self, tmp_path):
+        """A coordinate whose name is not a declared dimension is skipped.
+
+        Test scenario:
+            A ``bogus`` coord absent from ``dims`` — expected: it never becomes an
+            MD-array.
+        """
+        out = tmp_path / "skip.nc"
+        dims = {"time": 1, "x": 2}
+        coords = {
+            "x": (np.array([0.0, 1.0]), {}),
+            "bogus": (np.array([5.0, 6.0]), {}),
+        }
+        var_specs = {"v": (("time", "x"), np.dtype("float64"), {})}
+        with open_streaming_multidim_netcdf(out, dims, coords, var_specs, {}):
+            pass
+        assert "bogus" not in _array_names(str(out)), "non-dim coord was written"
+
+    def test_coord_length_mismatch_raises_value_error(self, tmp_path):
+        """A coordinate length that differs from its dimension size raises.
+
+        Test scenario:
+            ``dims={"x": 3}`` but the ``x`` coord has length 2 — expected: a
+            ``ValueError`` naming the length mismatch, raised on context entry.
+        """
+        out = tmp_path / "badcoord.nc"
+        with pytest.raises(ValueError, match="dimension is length"):
+            with open_streaming_multidim_netcdf(
+                out,
+                {"x": 3},
+                {"x": (np.array([0.0, 1.0]), {})},
+                {"v": (("x",), np.dtype("float64"), {})},
+                {},
+            ):
+                pass
+        assert not out.exists(), "a setup-phase error must leave no partial file"
+
+    def test_unknown_variable_dimension_raises_value_error(self, tmp_path):
+        """A variable over a dimension absent from ``dims`` raises ``ValueError``.
+
+        Test scenario:
+            A variable references dimension ``z`` not in ``dims`` — expected:
+            ``ValueError`` naming the unknown dimension, raised on context entry.
+        """
+        out = tmp_path / "badvar.nc"
+        with pytest.raises(ValueError, match="unknown dimension"):
+            with open_streaming_multidim_netcdf(
+                out,
+                {"x": 2},
+                {"x": (np.array([0.0, 1.0]), {})},
+                {"v": (("z",), np.dtype("float64"), {})},
+                {},
+            ):
+                pass
+        assert not out.exists(), "a setup-phase error must leave no partial file"
+
+    def test_create_failure_raises_runtime_error(self, tmp_path, monkeypatch):
+        """A ``None`` from ``CreateMultiDimensional`` raises ``RuntimeError``.
+
+        Args:
+            tmp_path: pytest temp directory.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            Force the netCDF driver's ``CreateMultiDimensional`` to return ``None``
+            — expected: ``RuntimeError`` naming the target path.
+        """
+        real = gdal.GetDriverByName
+
+        class _NullCreateDriver:
+            def CreateMultiDimensional(self, *args, **kwargs):
+                return None
+
+        monkeypatch.setattr(
+            interop.gdal,
+            "GetDriverByName",
+            lambda name: _NullCreateDriver() if name == "netCDF" else real(name),
+        )
+        out = tmp_path / "boom.nc"
+        with pytest.raises(RuntimeError, match="Failed to create NetCDF"):
+            with open_streaming_multidim_netcdf(
+                out,
+                {"x": 1},
+                {"x": (np.array([0.0]), {})},
+                {"v": (("x",), np.dtype("float64"), {})},
+                {},
+            ):
+                pass
+        assert not out.exists(), "no file should exist when creation fails"
+
+    def test_partial_file_removed_on_mid_stream_exception(self, tmp_path):
+        """A mid-stream exception removes the partial file (atomic write).
+
+        Test scenario:
+            Write one slab, then raise inside the ``with`` block — expected: the
+            error propagates and the partially written file is cleaned up, so a
+            surviving file always means a complete write (no silently truncated
+            NetCDF left behind).
+        """
+        out = tmp_path / "err.nc"
+        dims = {"time": 2, "y": 1, "x": 1}
+        coords = {
+            "time": (np.array([0, 1], dtype="int64"), {}),
+            "y": (np.array([0.0]), {}),
+            "x": (np.array([0.0]), {}),
+        }
+        var_specs = {"v": (("time", "y", "x"), np.dtype("int16"), {})}
+        with pytest.raises(RuntimeError, match="boom"):
+            _stream_one_slab_then_raise(out, dims, coords, var_specs)
+        assert not out.exists(), "a mid-stream error must leave no partial file"
 
 
 class TestApplyMdArrayAttrs:
