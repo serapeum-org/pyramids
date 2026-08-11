@@ -339,6 +339,31 @@ class TestWindowedBboxCropFastPath:
             "a different-CRS bbox must fall back to the warp path"
         )
 
+    def test_transposed_same_crs_bbox_skips_the_fast_path(self, dataset):
+        """A transposed (west >= east) box in the source CRS is not eligible.
+
+        Test scenario:
+            ``_crop_bbox_windowed`` must return ``None`` for a ``west > east``,
+            ``south > north`` box so ``crop`` falls through to
+            :meth:`FeatureCollection.from_bbox`, which raises the clear
+            ``west < east`` validation error rather than reading a negative window.
+        """
+        assert dataset.spatial._crop_bbox_windowed((0.2, -0.1, 0.1, -0.2), 4326) is None, (
+            "a transposed bbox must fall back to the warp/validation path"
+        )
+
+    def test_bbox_outside_source_skips_the_fast_path(self, dataset):
+        """A box that does not overlap the source is not eligible for the fast path.
+
+        Test scenario:
+            A bbox entirely east of the 10×10 fixture clips to a zero-width window;
+            ``_crop_bbox_windowed`` must return ``None`` so the warp path reports the
+            non-overlap with its usual error instead of building an empty array.
+        """
+        assert dataset.spatial._crop_bbox_windowed((1.0, -0.2, 1.1, -0.1), 4326) is None, (
+            "a non-overlapping bbox must fall back to the warp path"
+        )
+
     def test_rotated_grid_skips_the_fast_path(self, tmp_path):
         """A rotated (non-north-up) geotransform is not eligible for the fast path.
 

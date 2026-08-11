@@ -1982,6 +1982,16 @@ class Spatial(_Engine["Dataset"]):
         Hint:
             - If the mask is a dataset with multi-bands, the `crop` method will use the first band as the mask.
 
+        Note:
+            A ``bbox`` that is axis-aligned in the dataset's own CRS (no ``epsg``
+            reprojection, no antimeridian split, a north-up grid, ``touch=True``) is
+            cropped by reading only that pixel window straight from the source, rather
+            than warping a cutline over the whole raster. A small crop out of a very
+            large or ``/vsicurl`` raster therefore reads only the AOI instead of the
+            full source; the result is identical to the cutline path. Any case that is
+            not eligible (a reprojecting bbox, a rotated grid, ``touch=False``) falls
+            back to the cutline warp unchanged.
+
         Examples:
             - Crop the raster using a polygon mask.
 
