@@ -517,8 +517,10 @@ class NetCDFPlot:
         # onto the typed render groups, so build them from the ColorOpts bag here (a no-op
         # ``style=None`` / falsy ``hillshade`` is dropped, matching the render-group rules).
         # The cleopatra import is deferred to the branch that actually builds a group, so a
-        # plain NetCDF plot (no levels/style/hillshade) never imports it.
-        if colour.levels is not None:
+        # plain NetCDF plot (no levels/style/hillshade) never imports it. An explicit hoisted
+        # ``contour=`` / ``data_style=`` (already in ``out`` via ``base_kwargs``) wins — the
+        # ColorOpts-derived group only fills the slot when the caller left it unset.
+        if colour.levels is not None and "contour" not in out:
             from cleopatra.styling.params import Contour
 
             out["contour"] = Contour(levels=colour.levels)
@@ -527,7 +529,7 @@ class NetCDFPlot:
             data_style_fields["style"] = colour.style
         if colour.hillshade is not None and colour.hillshade is not False:
             data_style_fields["hillshade"] = colour.hillshade
-        if data_style_fields:
+        if data_style_fields and "data_style" not in out:
             from cleopatra.styling.params import DataStyle
 
             out["data_style"] = DataStyle(**data_style_fields)

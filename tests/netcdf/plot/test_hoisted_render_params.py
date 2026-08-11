@@ -206,3 +206,26 @@ class TestNetCDFGroupParams:
         forwarded = mock_plot.call_args.kwargs
         for name in ("color", "contour", "cells", "data_style"):
             assert name not in forwarded, f"unset {name} must not be forwarded"
+
+    def test_explicit_contour_wins_over_coloropts_levels(self):
+        """An explicit ``contour=`` beats a ``ColorOpts(levels=...)`` (no silent override).
+
+        Test scenario:
+            ``NetCDF.plot`` exposes both the hoisted ``contour=`` group and the older
+            ``ColorOpts(levels=...)`` bag. When both are given the caller's explicit
+            ``contour`` must win — the ColorOpts-derived one only fills an unset slot.
+        """
+        from cleopatra.styling.params import Contour
+
+        from pyramids.netcdf import ColorOpts
+
+        nc = make_plot_3d_nc()
+        var = nc.get_variable("t2m")
+        explicit = Contour(levels=[1, 2, 3])
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "ok"
+            nc.plot(variable="t2m", contour=explicit, colour=ColorOpts(levels=9))
+        forwarded = mock_plot.call_args.kwargs.get("contour")
+        assert forwarded is explicit and forwarded.levels == [1, 2, 3], (
+            f"explicit contour must win over ColorOpts levels; got {forwarded}"
+        )
