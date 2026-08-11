@@ -284,14 +284,21 @@ class Analysis(_Engine["Dataset"]):
             int:
                 Number of cells.
         """
-        arr = self._ds.read_array(band=band)
+        no_data_value = self._ds.no_data_value[band]
+
         # Count the no-data cells directly rather than counting the *non-zero* values
         # among them. `count_nonzero(arr[mask])` asks "how many no-data cells hold a
         # non-zero value", which equals the no-data count only while the sentinel
         # happens to be non-zero; with `no_data_value == 0` it is always 0, so nothing
         # was subtracted and every cell counted as domain.
-        no_data_count = int(is_no_data(arr, self._ds.no_data_value[band]).sum())
-        domain_count = arr.size - no_data_count
+        def _count(acc: int, strip: np.ndarray, _window: list[int]) -> int:
+            return acc + int(is_no_data(strip, no_data_value).sum())
+
+        # Stream the count in row strips so a very large or /vsicurl source is never
+        # read whole (#967). A summed count is order-independent, so the tiled total
+        # is byte-identical to the whole-band count.
+        no_data_count = self._ds.io.stream_reduce(_count, 0, band=band)
+        domain_count = self._ds.rows * self._ds.columns - no_data_count
         return int(domain_count)
 
     def apply(self, func, band: int = 0, inplace: bool = False) -> Dataset | None:
@@ -1191,7 +1198,6 @@ class Analysis(_Engine["Dataset"]):
                 "The class Dataset is not aligned with the current raster, please use the method "
                 "'align' to align both rasters."
             )
-        arr = self._ds.read_array(band=band)
         no_data_value = (
             self._ds.no_data_value[0]
             if self._ds.no_data_value[0] is not None
@@ -1202,19 +1208,24 @@ class Analysis(_Engine["Dataset"]):
             if exclude_value is not None
             else [no_data_value]
         )
-        ind = get_indices2(arr, mask)
-        classes = classes_map.read_array()
-        values: dict[Any, list[Any]] = {}
 
-        # extract values
-        for i, ind_i in enumerate(ind):
-            # first check if the sub-basin has a list in the dict if not create a list
-            key = classes[ind_i[0], ind_i[1]]
-            if key not in values:
-                values[key] = []
+        def _group(
+            acc: dict[Any, list[Any]], strip: np.ndarray, window: list[int]
+        ) -> dict[Any, list[Any]]:
+            # Read the aligned class strip over the same window; the rasters are
+            # aligned (checked above), so the windows index the same cells.
+            classes = classes_map.read_array(window=window)
+            for ind_i in get_indices2(strip, mask):
+                key = classes[ind_i[0], ind_i[1]]
+                if key not in acc:
+                    acc[key] = []
+                acc[key].append(strip[ind_i[0], ind_i[1]])
+            return acc
 
-            values[key].append(arr[ind_i[0], ind_i[1]])
-
+        # Stream base + class rasters in row strips so neither is read whole (#967).
+        # Full-width top-to-bottom strips keep row-major order, so each class's value
+        # list is byte-identical to the whole-array pass.
+        values: dict[Any, list[Any]] = self._ds.io.stream_reduce(_group, {}, band=band)
         return values
 
     def get_mask(self, band: int = 0) -> np.typing.NDArray:

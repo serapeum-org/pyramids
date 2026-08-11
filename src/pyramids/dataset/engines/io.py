@@ -2423,6 +2423,74 @@ class IO(_Engine["Dataset"]):
             )
         return out
 
+    def stream_reduce(
+        self,
+        fold: Callable[[Any, np.ndarray, list[int]], Any],
+        initial: Any,
+        *,
+        band: int | None = None,
+        strip_rows: int = 256,
+    ) -> Any:
+        """Fold a function over the raster in full-width row strips, out of core.
+
+        Reads the raster top-to-bottom in strips of `strip_rows` rows spanning every
+        column, calling `acc = fold(acc, strip, window)` for each, and returns the
+        final accumulator. Peak read memory is bounded by one strip, so a very large
+        or `/vsicurl` raster is reduced without materialising it — the reduction
+        counterpart to :meth:`stream_transform`.
+
+        Full-width, top-to-bottom strips preserve **row-major pixel order**, so an
+        order-sensitive accumulation (collecting values in raster order, building a
+        per-class value list) matches a whole-array pass exactly, not just as a set.
+
+        `fold` must accumulate per-pixel and order-preservingly: it receives the
+        accumulator, the strip array (2D for a single `band`, else 3D
+        `(bands, rows, cols)`), and the strip's `[xoff, yoff, xsize, ysize]` window
+        (so it can read an aligned second raster over the same window). It must not
+        reach across a strip's top/bottom edge — a vertical neighbourhood filter is
+        not a candidate for this helper.
+
+        Args:
+            fold (Callable[[Any, np.ndarray, list[int]], Any]):
+                `fold(acc, strip, window) -> acc`; see the note above.
+            initial (Any):
+                The starting accumulator (e.g. `0` for a count, `{}` for grouping).
+            band (int, optional):
+                Zero-based band to read, or `None` (default) for all bands (the strip
+                is then 3D).
+            strip_rows (int):
+                Number of rows per strip. Defaults to 256.
+
+        Returns:
+            Any:
+                The final accumulator.
+
+        Examples:
+            - Count the cells over 10 without loading the raster whole:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> ds = Dataset.create_from_array(
+              ...     np.arange(25, dtype="int16").reshape(5, 5),
+              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ... )
+              >>> ds.io.stream_reduce(
+              ...     lambda acc, strip, _w: acc + int((strip > 10).sum()), 0, strip_rows=2
+              ... )
+              14
+
+              ```
+        """
+        acc = initial
+        cols = self._ds.columns
+        for yoff in range(0, self._ds.rows, strip_rows):
+            ysize = min(strip_rows, self._ds.rows - yoff)
+            window = [0, yoff, cols, ysize]
+            strip = self._ds.read_array(band=band, window=window)
+            acc = fold(acc, strip, window)
+        return acc
+
     def get_tile(self, size=256) -> Generator[np.typing.NDArray]:
         """Get tile.
 

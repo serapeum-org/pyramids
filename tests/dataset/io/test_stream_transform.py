@@ -1,4 +1,4 @@
-"""Tests for the block-streaming transform helper ``IO.stream_transform`` (#967)."""
+"""Tests for the block-streaming helpers ``IO.stream_transform`` / ``IO.stream_reduce`` (#967)."""
 
 from __future__ import annotations
 
@@ -189,8 +189,108 @@ class TestStreamTransform:
         )
 
 
+class TestStreamReduce:
+    """``IO.stream_reduce`` folds a function over the raster in row strips, out of core."""
+
+    def test_count_matches_the_whole_array_reduction(self):
+        """A summed reduction over strips equals the whole-array reduction.
+
+        Test scenario:
+            Counting cells > 10 strip-by-strip must equal `(read_array() > 10).sum()`.
+        """
+        ds = _raster()
+        got = ds.io.stream_reduce(
+            lambda acc, strip, _w: acc + int((strip > 10).sum()), 0, strip_rows=2
+        )
+        assert got == int((ds.read_array() > 10).sum()), "strip count diverged"
+
+    def test_row_strips_preserve_row_major_order(self):
+        """Collecting values strip-by-strip yields the whole-array row-major order.
+
+        Test scenario:
+            Extending a list with each strip's row-major values must equal
+            `read_array().ravel()` — the property that makes order-sensitive reductions
+            (extract, per-class value lists) byte-identical.
+        """
+        ds = _raster(rows=7, cols=5)
+
+        def collect(acc, strip, _w):
+            acc.extend(strip.ravel().tolist())
+            return acc
+
+        got = ds.io.stream_reduce(collect, [], strip_rows=2)
+        assert got == ds.read_array().ravel().tolist(), "row-major order not preserved"
+
+    def test_two_source_fold_reads_the_aligned_window(self):
+        """The window lets the fold read a second aligned raster over the same cells.
+
+        Test scenario:
+            A dot-product reduction that reads an aligned raster at each strip's window
+            equals the whole-array dot product.
+        """
+        ds = _raster(rows=7, cols=5)
+        other = ds.io.stream_transform(lambda tile: tile + 100, tile_size=3)
+
+        def dot(acc, strip, window):
+            return acc + int((strip * other.read_array(window=window)).sum())
+
+        got = ds.io.stream_reduce(dot, 0, strip_rows=2)
+        assert got == int((ds.read_array() * other.read_array()).sum()), (
+            "two-source strip reduction diverged"
+        )
+
+    def test_reads_only_full_width_strips(self, mocker):
+        """The reduce reads full-width strips top-to-bottom, never the whole raster.
+
+        Test scenario:
+            Spy `Dataset.read_array`; every source read must be a full-width window
+            (`xoff == 0`, `xsize == columns`), and there must be one per strip.
+        """
+        ds = _raster(rows=7, cols=5)
+        spy = mocker.spy(Dataset, "read_array")
+        ds.io.stream_reduce(lambda acc, strip, _w: acc, None, strip_rows=3)
+        windows = [
+            kw.get("window", (a[1] if len(a) > 1 else None))
+            for a, kw in spy.call_args_list
+            if a and a[0] is ds
+        ]
+        assert windows and all(w[0] == 0 and w[2] == 5 for w in windows), (
+            f"reads were not full-width strips: {windows}"
+        )
+        assert len(windows) == 3, f"expected 3 strips over 7 rows, got {len(windows)}"
+
+    def test_peak_memory_is_bounded_by_the_strip(self, tmp_path):
+        """Reducing a large disk raster peaks near one strip, far below the whole array.
+
+        Test scenario:
+            Count the domain of a 1000x1000 raster with 64-row strips; the traced peak
+            must be a fraction of the dense-array size.
+        """
+        rows = cols = 1000
+        src_path = tmp_path / "big.tif"
+        Dataset.create_from_array(
+            np.arange(rows * cols, dtype="int16").reshape(rows, cols),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.01,
+            epsg=4326,
+            path=str(src_path),
+        ).close()
+        ds = Dataset.read_file(str(src_path))
+        dense_bytes = rows * cols * 2
+        tracemalloc.start()
+        ds.io.stream_reduce(
+            lambda acc, strip, _w: acc + int(strip.sum()), 0, strip_rows=64
+        )
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        assert peak < dense_bytes // 4, (
+            f"stream_reduce peaked at {peak / 1e6:.1f} MB; a whole-array pass would "
+            f"need {dense_bytes / 1e6:.1f} MB — the read was not stripped"
+        )
+
+
 class TestStreamedConsumers:
-    """`fill` and `change_no_data_value` stream through the helper (#967)."""
+    """`fill`, `change_no_data_value`, `count_domain_cells`, `overlay` stream through the helpers (#967)."""
 
     def test_change_no_data_value_is_byte_identical_and_bounded(self, tmp_path):
         """`change_no_data_value` matches the eager result and never reads the source whole.
@@ -220,4 +320,70 @@ class TestStreamedConsumers:
         assert peak < dense_bytes // 4, (
             f"change_no_data_value peaked at {peak / 1e6:.1f} MB; a whole-band pass "
             f"would need {dense_bytes / 1e6:.1f} MB — the read was not tiled"
+        )
+
+    def test_overlay_multi_strip_class_lists_are_byte_identical(self):
+        """`overlay` groups values by class byte-identically across multiple strips.
+
+        Test scenario:
+            On a 7x5 raster spanning several 256-default strips (forced small via the
+            grid) each class's value list — order included — must equal the reference
+            built from the whole arrays in row-major order.
+        """
+        base = Dataset.create_from_array(
+            np.arange(35, dtype="float32").reshape(7, 5),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        class_arr = np.tile(np.array([1, 2, 3, 1, 2], dtype="int32"), (7, 1))
+        classes = Dataset.create_from_array(
+            class_arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        )
+        result = base.overlay(classes)
+        reference: dict[int, list[float]] = {}
+        base_arr = base.read_array()
+        for r in range(7):
+            for c in range(5):
+                reference.setdefault(int(class_arr[r, c]), []).append(
+                    float(base_arr[r, c])
+                )
+        assert {
+            int(k): [float(v) for v in vs] for k, vs in result.items()
+        } == reference, (
+            "overlay class lists diverged from the whole-array row-major reference"
+        )
+
+    def test_count_domain_cells_is_byte_identical_and_bounded(self, tmp_path):
+        """`count_domain_cells` matches the eager count and never reads the band whole.
+
+        Test scenario:
+            A tall 4000x500 raster (so the default 256-row strip is a small fraction)
+            with a no-data quadrant counts the exact domain cells, and the traced peak
+            — a strip plus the `is_no_data` temporaries — stays well below the dense
+            array.
+        """
+        rows, cols = 4000, 500
+        arr = np.ones((rows, cols), dtype="float32")
+        arr[:2000, :250] = -9999.0  # a no-data quadrant -> 500000 no-data cells
+        src_path = tmp_path / "domain.tif"
+        Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.01,
+            epsg=4326,
+            no_data_value=-9999.0,
+            path=str(src_path),
+        ).close()
+        ds = Dataset.read_file(str(src_path))
+        dense_bytes = rows * cols * 4
+        tracemalloc.start()
+        count = ds.count_domain_cells()
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        assert count == rows * cols - 2000 * 250, f"wrong domain count {count}"
+        assert peak < dense_bytes // 4, (
+            f"count_domain_cells peaked at {peak / 1e6:.1f} MB; a whole-band pass "
+            f"would need {dense_bytes / 1e6:.1f} MB — the read was not stripped"
         )
