@@ -283,6 +283,12 @@ def _strip_geojson_crs(data: bytes) -> bytes | None:
     cannot unbalance it, and gives up (returning ``None``) on anything it does not
     recognise rather than guessing at a malformed document.
 
+    This is **not** a general JSON editor, and must not be reused as one: it assumes
+    GDAL's own layout — a top-level ``crs`` member holding an object, within the first
+    :data:`_GEOJSON_HEADER_SCAN` bytes — and it does not distinguish a top-level key
+    from an identically named one nested inside an earlier member. Everything it
+    cannot place, it declines; the caller then does a real parse.
+
     Args:
         data: The GeoJSON bytes GDAL wrote.
 
@@ -355,24 +361,29 @@ def _read_geojson_bytes(data: bytes, ds: ogr.DataSource | gdal.Dataset) -> GeoDa
     exactly the rasters issue #943 is about, even though the CRS is fine and GDAL
     just wrote it.
 
-    The normal path is untouched: parse the bytes as they are. Only when that fails
-    on the CRS is the ``crs`` member dropped and the geometry re-read, with the
-    authoritative WKT taken straight from the source layer and attached afterwards.
-    That fallback costs a JSON round trip, which is why it is not the default.
+    The mirror-image failure is quieter and worse. When GDAL cannot express the CRS
+    as a URN at all — an orthographic or Robinson grid, anything with no authority
+    code — it writes *no* ``crs`` member, and nothing raises: GeoJSON's default is
+    CRS84, so the frame comes back carrying metre coordinates labelled **WGS 84**.
+    A wrong CRS that reads as valid is harder to notice than a crash.
+
+    Both are answered the same way: the source layer's own WKT is authoritative, so
+    it is attached whenever it is available, rather than trusting what survived the
+    GeoJSON round trip. The ``crs``-member removal below remains only for the case
+    where the read raises before returning any geometry at all.
 
     Args:
         data: The GeoJSON bytes GDAL wrote.
-        ds: The source datasource, consulted only for its layer's WKT on the
-            fallback path.
+        ds: The source datasource, consulted for its layer's authoritative WKT.
 
     Returns:
         GeoDataFrame: The parsed features, carrying the source CRS.
     """
+    source_wkt = _source_layer_wkt(ds)
     try:
         gdf = gpd.read_file(io.BytesIO(data))
     except _PyprojCRSError:
-        wkt = _source_layer_wkt(ds)
-        if not wkt:
+        if not source_wkt:
             # Nothing authoritative to substitute, so the original failure stands.
             raise
         stripped = _strip_geojson_crs(data)
@@ -383,7 +394,8 @@ def _read_geojson_bytes(data: bytes, ds: ogr.DataSource | gdal.Dataset) -> GeoDa
             document.pop("crs", None)
             stripped = json.dumps(document).encode("utf-8")
         gdf = gpd.read_file(io.BytesIO(stripped))
-        gdf = gdf.set_crs(crs_from_user_input(wkt), allow_override=True)
+    if source_wkt:
+        gdf = gdf.set_crs(crs_from_user_input(source_wkt), allow_override=True)
     return gdf
 
 

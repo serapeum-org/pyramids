@@ -1646,9 +1646,11 @@ class Spatial(_Engine["Dataset"]):
             step = math.hypot(bx - ax, by - ay)
             if math.isfinite(step) and step > 0:
                 length = max(step, span / 4096.0)
-        except Exception:
-            # Any failure to measure the scale leaves `length` None; an undensified
-            # reprojection is the previous behaviour, not a new hazard.
+        except (RuntimeError, ValueError, TypeError, AttributeError):
+            # Narrow rather than bare: these are what a missing geotransform, an
+            # unparseable CRS or a transform PROJ refuses actually raise. Catching
+            # everything would swallow genuine bugs in the measurement itself and
+            # silently degrade the crop instead of failing.
             length = None
         return length
 
