@@ -326,8 +326,11 @@ def render_array(
             required mode-specific argument is missing, if ``basemap`` is
             truthy and ``basemap_epsg`` is ``None``, if a cleopatra
             ``Basemap`` (or equivalent dict) is passed on the ``"facet"``
-            path, or if ``color_scale`` is not a recognised
-            :class:`~cleopatra.styling.styles.ColorScale` value.
+            path, or if a removed loose colour-bar kwarg (``cbar_*`` /
+            ``ticks_spacing``) is passed. A removed loose styling kwarg
+            (``color_scale`` / ``style`` / ``levels`` / ``point_*`` / ...)
+            surfaces cleopatra's own "moved onto a grouped parameter object"
+            ``ValueError`` from the render call.
 
     Examples:
         - Single-slice plot path. Tagged ``+SKIP`` because the call
