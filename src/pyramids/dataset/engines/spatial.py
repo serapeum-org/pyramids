@@ -1664,7 +1664,8 @@ class Spatial(_Engine["Dataset"]):
             # (in pixel units) absorbs binary-float noise so an edge that is
             # mathematically on a pixel boundary does not flip floor/ceil by one pixel;
             # it is applied in the snap direction (floor edges up, ceil edges down) so
-            # it only removes noise, never a genuine fractional-pixel overlap.
+            # it drops nothing but noise-scale (< ~1e-9 px) overlaps, which are
+            # sub-nanometre at any realistic cell size.
             eps = 1e-9
             xoff = min(max(math.floor((west - x0) / dx + eps), 0), columns)
             x_far = min(max(math.ceil((east - x0) / dx - eps), 0), columns)
