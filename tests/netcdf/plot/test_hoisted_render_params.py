@@ -226,6 +226,7 @@ class TestNetCDFGroupParams:
             mock_plot.return_value = "ok"
             nc.plot(variable="t2m", contour=explicit, colour=ColorOpts(levels=9))
         forwarded = mock_plot.call_args.kwargs.get("contour")
-        assert forwarded is explicit and forwarded.levels == [1, 2, 3], (
-            f"explicit contour must win over ColorOpts levels; got {forwarded}"
+        assert forwarded is explicit, f"explicit contour must win; got {forwarded}"
+        assert forwarded.levels == [1, 2, 3], (
+            f"the winning contour must keep its levels; got {forwarded.levels}"
         )

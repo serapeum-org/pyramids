@@ -298,12 +298,12 @@ class TestRenderArrayKwargRouting:
                 add_colorbar=False,
                 kind="imshow",
             )
-        assert "add_colorbar" in ctor and "add_colorbar" not in plot, (
-            f"`add_colorbar` is an option_keys() ctor option; ctor={ctor}"
+        assert "add_colorbar" in ctor, f"`add_colorbar` is a ctor option; ctor={ctor}"
+        assert "add_colorbar" not in plot, (
+            f"`add_colorbar` must not also reach the render call; plot={plot}"
         )
-        assert "kind" in plot and "kind" not in ctor, (
-            f"`kind` must be force-routed to the render call; plot={plot}"
-        )
+        assert "kind" in plot, f"`kind` must be force-routed to the render call; plot={plot}"
+        assert "kind" not in ctor, f"`kind` must not stay on the ctor; ctor={ctor}"
 
     def test_loose_cbar_kwarg_rejected(self):
         """A loose ``cbar_*`` kwarg is rejected in favour of the typed ``ColorBar`` spec.
