@@ -57,6 +57,13 @@ from pyramids.base._errors import CRSError
 # strict runner-up check in :func:`_epsg_from_db_match`.
 _MIN_EPSG_MATCH_CONFIDENCE = 70
 
+# Options for every `SetFromUserInput` call in this module. Without them GDAL treats an
+# unrecognised string as a path or a URL and reads it, so an attacker-influenced or
+# merely malformed CRS value turns into local file access or an outbound request (and a
+# dead host stalls the call for seconds). A CRS specification is always self-contained
+# text here, never a resource locator.
+_NO_REMOTE_CRS_LOOKUP = ["ALLOW_FILE_ACCESS=NO", "ALLOW_NETWORK_ACCESS=NO"]
+
 
 def sr_from_epsg(epsg: int) -> osr.SpatialReference:
     """Build an :class:`osr.SpatialReference` from an EPSG code.
@@ -1064,6 +1071,22 @@ def _epsg_via_gdal(crs: int | str | Any) -> int | None:
     it. This matters for the ``"EPSG:10857"`` *string* form that STAC ``proj:code``
     carries, which cannot take the plain-``int`` fast path.
 
+    A declared authority is **not** taken at its word. GDAL reports whatever
+    ``AUTHORITY`` node the input carries, and a WKT can carry one that no longer
+    matches its own parameters — a "WGS 84 / UTM zone 36N" citation over a perturbed
+    central meridian, a hand-edited or truncated projection. Returning that code would
+    hand back a CRS the data is not in, silently, where :func:`epsg_from_user_input`
+    previously raised. So the candidate is verified: the CRS built *from* the code must
+    be :meth:`osr.SpatialReference.IsSame` as the CRS actually parsed. This is the same
+    "confident and unambiguous or nothing" policy :func:`_epsg_from_db_match` applies
+    to its own database lookups.
+
+    A code that names itself is also held to identity. ``ImportFromEPSG``/
+    ``SetFromUserInput`` silently substitute the non-deprecated *replacement* for a
+    deprecated code (``EPSG:32663`` resolves as ``EPSG:4087``), so when the input named
+    a code and GDAL answers with a different one, the answer is refused rather than
+    quietly changing which CRS the caller asked for.
+
     Only an ``EPSG`` authority is accepted. A CRS whose authority is something else
     (``ESRI:54030`` for Robinson) yields ``None`` rather than passing ``54030`` off as
     an EPSG code it is not.
@@ -1072,7 +1095,9 @@ def _epsg_via_gdal(crs: int | str | Any) -> int | None:
         crs: An EPSG ``int``, authority string, or other text GDAL understands.
 
     Returns:
-        int | None: The EPSG code, or ``None`` when GDAL cannot resolve one.
+        int | None: The EPSG code, or ``None`` when GDAL cannot resolve one, resolves
+        one that does not match the parsed definition, or substitutes a different code
+        for the one that was asked for.
     """
     srs = _gdal_srs_from_user_input(crs)
     result: int | None = None
@@ -1083,8 +1108,68 @@ def _epsg_via_gdal(crs: int | str | Any) -> int | None:
         except RuntimeError:
             authority, code = None, None
         if authority == "EPSG" and code and str(code).isdigit():
-            result = int(code)
+            candidate = int(code)
+            if _epsg_matches_definition(candidate, srs) and not _substitutes_code(
+                crs, candidate
+            ):
+                result = candidate
     return result
+
+
+def _requested_epsg(crs: int | str | Any) -> int | None:
+    """The EPSG code the input itself names, or ``None`` when it names none.
+
+    Args:
+        crs: The specification handed to the rescue path.
+
+    Returns:
+        int | None: The code named by an ``int`` or an ``"EPSG:<n>"`` / ``"<n>"``
+        string; ``None`` for a WKT, a proj4 string, or anything else that describes a
+        CRS without naming a code.
+    """
+    requested: int | None = None
+    if isinstance(crs, bool):
+        requested = None
+    elif isinstance(crs, int):
+        requested = int(crs)
+    elif isinstance(crs, str):
+        text = crs.strip()
+        if text.upper().startswith("EPSG:"):
+            text = text[5:].strip()
+        if text.isascii() and text.isdigit():
+            requested = int(text)
+    return requested
+
+
+def _substitutes_code(crs: int | str | Any, candidate: int) -> bool:
+    """Whether GDAL answered a code request with a *different* code.
+
+    Args:
+        crs: The original specification.
+        candidate: The code GDAL resolved it to.
+
+    Returns:
+        bool: True when the input named a code and `candidate` is not it.
+    """
+    requested = _requested_epsg(crs)
+    return requested is not None and requested != candidate
+
+
+def _epsg_matches_definition(epsg: int, srs: osr.SpatialReference) -> bool:
+    """Whether EPSG `epsg` really describes the CRS `srs` parses to.
+
+    Args:
+        epsg: The candidate code read off the parsed CRS's authority node.
+        srs: The CRS GDAL actually parsed from the caller's input.
+
+    Returns:
+        bool: True when building `epsg` from the database yields the same CRS.
+    """
+    try:
+        matches = bool(sr_from_epsg(epsg).IsSame(srs))
+    except (RuntimeError, ValueError):
+        matches = False
+    return matches
 
 
 def _gdal_srs_from_user_input(crs: int | str | Any) -> osr.SpatialReference | None:
@@ -1118,7 +1203,13 @@ def _gdal_srs_from_user_input(crs: int | str | Any) -> osr.SpatialReference | No
     if text is not None:
         try:
             srs = osr.SpatialReference()
-            srs.SetFromUserInput(text)
+            # SetFromUserInput will otherwise treat the string as a filename or a URL
+            # and go read it -- so a CRS value reaching this rescue path could cause a
+            # local file read or an outbound HTTP request, and a dead host would block
+            # for seconds. pyramids only ever means a CRS here, never a resource to
+            # fetch, so both are refused.
+            if srs.SetFromUserInput(text, _NO_REMOTE_CRS_LOOKUP) != 0:
+                raise ValueError(f"GDAL could not parse {text!r} as a CRS.")
             result = srs
         except (RuntimeError, TypeError, ValueError):
             result = None
