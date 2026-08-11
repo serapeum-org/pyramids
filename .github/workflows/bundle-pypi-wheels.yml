@@ -142,7 +142,7 @@ jobs:
             hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@4726cd35bb13f7bde50cf2761f2499ac7b3aa32c # v4.1.1
+        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
         env:
           CIBW_ARCHS_LINUX: ${{ matrix.arch }}
           # The before-all script persists the compiled-stack tar through
@@ -215,7 +215,7 @@ jobs:
             hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@4726cd35bb13f7bde50cf2761f2499ac7b3aa32c # v4.1.1
+        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
         env:
           CIBW_ARCHS_LINUX: ${{ matrix.arch }}
           # The before-all script persists the compiled-stack tar through
@@ -294,7 +294,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@4726cd35bb13f7bde50cf2761f2499ac7b3aa32c # v4.1.1
+        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
         env:
           CIBW_ARCHS_MACOS: ${{ matrix.arch }}
 
@@ -334,7 +334,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@4726cd35bb13f7bde50cf2761f2499ac7b3aa32c # v4.1.1
+        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
         env:
           CIBW_ARCHS_WINDOWS: ${{ matrix.arch }}
 
@@ -388,7 +388,7 @@ jobs:
             hashFiles('ci/vcpkg.json', 'ci/setup-gdal-from-vcpkg.ps1') }}
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@4726cd35bb13f7bde50cf2761f2499ac7b3aa32c # v4.1.1
+        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
         env:
           CIBW_ARCHS_WINDOWS: ARM64
           # No cp311: numpy/scipy ship no ARM64 cp311 wheels. The release
