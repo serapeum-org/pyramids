@@ -329,16 +329,21 @@ class TestMeshStyleHillshade:
         assert data_style.style == "flow_accumulation"
         assert data_style.hillshade is True
 
-    def test_style_forwarded_to_mesh_render(self):
-        """``UgridDataset.plot`` forwards ``style`` / ``hillshade`` to the helper."""
+    def test_data_style_forwarded_to_mesh_render(self):
+        """``UgridDataset.plot`` forwards a ``data_style=DataStyle`` to the helper.
+
+        The loose ``style`` / ``hillshade`` kwargs were removed (they now raise); the
+        typed ``data_style`` group is what reaches ``_mesh_render``.
+        """
+        from cleopatra.styling.params import DataStyle
+
         ds = self._dataset("face")
+        data_style = DataStyle(style="topography", hillshade=True)
         with patch(
             "pyramids.netcdf.ugrid.dataset._mesh_render", return_value="sentinel"
         ) as mock_render:
-            ds.plot("depth", style="topography", hillshade=True)
-        kw = mock_render.call_args.kwargs
-        assert kw.get("style") == "topography"
-        assert kw.get("hillshade") is True
+            ds.plot("depth", data_style=data_style)
+        assert mock_render.call_args.kwargs.get("data_style") is data_style
 
     def test_falsy_hillshade_is_dropped(self):
         """``hillshade=False`` is dropped — no ``DataStyle`` is built for it."""
