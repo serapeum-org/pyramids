@@ -773,9 +773,9 @@ def crs_spec(epsg: int | None, wkt: str | None) -> int | str | None:
         - A code the downstream CRS library cannot resolve yields the WKT, so the
           specification stays usable:
             ```python
-            >>> from pyramids.base.crs import crs_spec, sr_from_epsg
-            >>> wkt = sr_from_epsg(10857).ExportToWkt()  # doctest: +SKIP
-            >>> crs_spec(10857, wkt) is wkt  # doctest: +SKIP
+            >>> from pyramids.base.crs import crs_spec
+            >>> wkt = 'GEOGCS["WGS 84"]'
+            >>> crs_spec(999999, wkt) is wkt  # no database carries 999999
             True
 
             ```

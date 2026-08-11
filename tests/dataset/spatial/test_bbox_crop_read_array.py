@@ -740,8 +740,21 @@ class TestCrossCrsBboxCrop:
             touch=True,
         )
 
-        assert abs(via_lonlat.shape[1] - via_native.shape[1]) <= 2
-        assert abs(via_lonlat.shape[2] - via_native.shape[2]) <= 2
+        _, native_rows, native_cols = via_native.shape
+        _, lonlat_rows, lonlat_cols = via_lonlat.shape
+        # Assert the *relationship*, not an absolute cell count. The lon/lat window
+        # is a reprojected quadrilateral, so its axis-aligned envelope is never
+        # smaller than the native rectangle and never much larger. A fixed "within 2
+        # cells" tolerance happens to be met exactly on this PROJ build, so it would
+        # start failing on a PROJ bump for no real reason.
+        assert native_rows <= lonlat_rows <= native_rows * 1.25, (
+            f"lon/lat crop should bracket the native one, got {lonlat_rows} rows "
+            f"against {native_rows}"
+        )
+        assert native_cols <= lonlat_cols <= native_cols * 1.25, (
+            f"lon/lat crop should bracket the native one, got {lonlat_cols} cols "
+            f"against {native_cols}"
+        )
 
 
 class TestCropCrsWithoutEpsgCode:
