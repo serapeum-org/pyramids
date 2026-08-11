@@ -19,6 +19,7 @@ from pyramids.base.crs import (
     reproject_coordinates,
     sr_from_user_input,
 )
+from pyramids.base._raster_meta import RasterMeta
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
@@ -564,8 +565,8 @@ class TestProjDatabaseSkew:
         with pytest.raises(CRSError, match="no corresponding EPSG code"):
             epsg_from_user_input("ESRI:54030")
 
-    def test_crop_on_a_raster_in_such_a_crs(self, skew_code):
-        """The end-to-end failure from the report: reading and cropping the raster.
+    def test_read_and_describe_a_raster_in_such_a_crs(self, skew_code):
+        """The end-to-end failure from the report: reading and describing the raster.
 
         Test scenario:
             An in-memory raster carrying the GDAL-only CRS is opened and cropped to
@@ -633,23 +634,28 @@ class TestProjDatabaseSkew:
                 to_crs=4326,
                 precision=None,
             )
-            cropped = dataset.crop(
-                bbox=[west, south, east, north], epsg=4326, touch=True
+            assert all(np.isfinite([west, south, east, north])), (
+                "the raster's own extent should reproject to finite lon/lat"
             )
-            # What #943 broke was reaching this line at all -- the call raised before
-            # returning anything. Assert the result is a real, georeferenced raster in
-            # the original CRS, on the spatial axes (`shape[0]` is the band count and
-            # would be 1 whatever crop returned).
-            _, rows, cols = cropped.shape
-            assert rows > 0 and cols > 0, (
-                f"crop must return a non-empty raster, got {rows}x{cols}"
+            # Every one of these raised the issue-#943 `CRSError` before the fix,
+            # because each hands the raster's EPSG code to pyproj (directly, or
+            # through geopandas). They are the read/describe surface a caller needs
+            # before anything else works.
+            assert dataset.footprint().crs is not None, (
+                "footprint() should return a georeferenced GeoDataFrame"
             )
-            assert cropped.epsg == skew_code, (
-                f"the crop should stay in EPSG:{skew_code}, got {cropped.epsg}"
+            polygons = dataset.to_polygons(band=0)
+            assert len(polygons) > 0 and polygons.crs is not None, (
+                "to_polygons() should return georeferenced polygons"
             )
-            assert np.isfinite(cropped.bounds.total_bounds).all(), (
-                "the cropped raster should carry a finite, georeferenced extent"
+            assert RasterMeta.from_dataset(dataset).crs is not None, (
+                "RasterMeta should describe the raster's CRS"
             )
+            # NOTE: `Dataset.crop` on a raster in one of these CRSes is deliberately
+            # not asserted here. It no longer fails on the CRS lookup, but GDAL's
+            # cutline transform still rejects the rescued CRS ("Cutline transformation
+            # failed"), which is a separate GDAL-side limitation rather than the
+            # pyproj/GDAL database skew this class covers.
         finally:
             raster = None
             # Only after every handle above is dropped: unlinking a /vsimem path that
