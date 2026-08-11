@@ -1469,7 +1469,10 @@ class DatasetCollection:
                 — saner for hyperspectral cubes with hundreds of bands.
 
         Raises:
-            ValueError: When ``len(time_coords) != self.time_length``.
+            ValueError: When ``len(time_coords) != self.time_length``, or the
+                collection is empty (``time_length == 0``).
+            AlignmentError: When a timestep's shape or band count differs from
+                the collection template.
             RuntimeError: When the GDAL NetCDF writer fails to write the
                 file.
 
@@ -1658,7 +1661,11 @@ class DatasetCollection:
                 if block.ndim == 2:
                     block = block[np.newaxis, :, :]
                 if block.shape != expected:
-                    where = self.files[t] if self.files else f"timestep {t}"
+                    where = (
+                        self.files[t]
+                        if self.files and t < len(self.files)
+                        else f"timestep {t}"
+                    )
                     raise AlignmentError(
                         f"to_netcdf: {where} has shape {block.shape}, but the "
                         f"collection template is {expected} (band, rows, cols); "
