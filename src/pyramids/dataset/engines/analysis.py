@@ -2018,16 +2018,22 @@ class Analysis(_Engine["Dataset"]):
                 ``background_color_threshold`` / ``style`` / ``hillshade`` / ``point_*`` /
                 ``cbar_*`` / ``ticks_spacing`` — are no longer accepted and now raise. The
                 remaining still-loose kwargs pass through to cleopatra:
-                | Parameter                   | Type                | Description |
-                |-----------------------------|---------------------|-------------|
-                | `points`                    | array \\| PointOverlay | Point overlay. A bare 3-column array (value, row, col) draws unstyled points; pass `pyramids.plot.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` to style them. |
-                | `cmap`                      | str, optional       | Color map style. Default is `'coolwarm_r'`. |
-                | `figsize`                   | tuple, optional     | Figure size. Default is `(8, 8)`. |
-                | `title`                     | str, optional       | Title of the plot. Default is `'Total Discharge'`. |
-                | `title_size`                | int, optional       | Title size. Default is `15`. |
-                | `add_colorbar`              | bool, optional      | Whether to draw the colour bar. Default is `True`. When `False`, no colorbar is created and the returned glyph's `cbar` is `None`. |
-                | `colorbar`                  | bool \\| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` — the complete replacement for the removed loose `cbar_*` / `ticks_spacing` kwargs. `False` hides it, `None` uses the default. |
-                | `full_bleed`                | bool \\| str, optional | Chrome-free layout: drop axes/margins so the array fills the figure. Default `False`. |
+
+                - `points` (array | PointOverlay): Point overlay. A bare 3-column array
+                  `(value, row, col)` draws unstyled points; pass a
+                  `pyramids.plot.PointOverlay(points, color=..., size=..., ...)` to style them.
+                - `cmap` (str, optional): Color map style. Default is `'coolwarm_r'`.
+                - `figsize` (tuple, optional): Figure size. Default is `(8, 8)`.
+                - `title` (str, optional): Title of the plot. Default is `'Total Discharge'`.
+                - `title_size` (int, optional): Title size. Default is `15`.
+                - `add_colorbar` (bool, optional): Whether to draw the colour bar. Default is
+                  `True`; when `False` the returned glyph's `cbar` is `None`.
+                - `colorbar` (bool | ColorBar, optional): Colour-bar spec
+                  `pyramids.plot.ColorBar(label=..., orientation=..., ...)` — replaces the
+                  removed loose `cbar_*` / `ticks_spacing` kwargs. `False` hides it, `None`
+                  uses the default.
+                - `full_bleed` (bool | str, optional): Chrome-free layout: drop axes/margins
+                  so the array fills the figure. Default `False`.
         Returns:
             ArrayGlyph:
                 A cleopatra ``ArrayGlyph`` wrapping the rendered figure. The underlying matplotlib
