@@ -672,7 +672,9 @@ class TestStripGeojsonCrs:
         )
         parsed = json.loads(_strip_geojson_crs(doc))
         assert "crs" not in parsed, "the crs member should be gone"
-        assert list(parsed) == ["type", "features"], f"unexpected members: {list(parsed)}"
+        assert list(parsed) == ["type", "features"], (
+            f"unexpected members: {list(parsed)}"
+        )
 
     def test_returns_none_when_there_is_no_crs_member(self):
         """A document with no `crs` yields None so the caller can fall back.

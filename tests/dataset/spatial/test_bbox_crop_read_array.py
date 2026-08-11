@@ -718,11 +718,9 @@ class TestCrossCrsBboxCrop:
         # Asserting only `< 64` would still pass at 63x63 — it would not notice the
         # crop degenerating back towards the whole raster, which is the bug itself.
         _, rows, cols = cropped.shape
-        assert 28 <= rows <= 40 and 28 <= cols <= 40, (
-            f"a bbox over the middle half of a 64x64 raster should crop to roughly "
-            f"32x32 (allowing the touch margin and reprojection slack), got "
-            f"{rows}x{cols}"
-        )
+        expected = "roughly 32x32 (allowing the touch margin and reprojection slack)"
+        assert 28 <= rows <= 40, f"rows should be {expected}, got {rows}"
+        assert 28 <= cols <= 40, f"cols should be {expected}, got {cols}"
 
     def test_matches_the_same_crs_crop(self, tmp_path):
         """The same window expressed in the raster's own CRS gives the same crop.
@@ -815,7 +813,6 @@ class TestCropCrsWithoutEpsgCode:
         )
 
         _, rows, cols = cropped.shape
-        assert 28 <= rows <= 40 and 28 <= cols <= 40, (
-            f"a half-width bbox should crop a 64x64 raster to roughly 32x32, got "
-            f"{rows}x{cols}"
-        )
+        expected = "roughly 32x32 for a half-width bbox on a 64x64 raster"
+        assert 28 <= rows <= 40, f"rows should be {expected}, got {rows}"
+        assert 28 <= cols <= 40, f"cols should be {expected}, got {cols}"

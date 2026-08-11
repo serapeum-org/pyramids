@@ -298,7 +298,10 @@ def _strip_geojson_crs(data: bytes) -> bytes | None:
     if colon == -1:
         return None
     start_of_value = colon + 1
-    while start_of_value < len(head) and head[start_of_value : start_of_value + 1].isspace():
+    while (
+        start_of_value < len(head)
+        and head[start_of_value : start_of_value + 1].isspace()
+    ):
         start_of_value += 1
     if head[start_of_value : start_of_value + 1] != b"{":
         return None

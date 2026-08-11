@@ -582,7 +582,9 @@ class TestProjDatabaseSkew:
         srs.ImportFromEPSG(skew_code)
         area = srs.GetAreaOfUse()
         if area is None:
-            pytest.skip(f"EPSG:{skew_code} declares no area of use to place a raster in")
+            pytest.skip(
+                f"EPSG:{skew_code} declares no area of use to place a raster in"
+            )
         # Place the raster on the projection's own origin (its false easting /
         # northing), which is the one point guaranteed to be well inside the
         # projection's valid domain. Deriving it from the area of use instead can
@@ -600,7 +602,9 @@ class TestProjDatabaseSkew:
         # suite runs distributed (`pytest -n`), where two workers share the process's
         # virtual filesystem namespace.
         path = f"/vsimem/proj_db_skew_{skew_code}_{uuid.uuid4().hex}.tif"
-        raster = gdal.GetDriverByName("GTiff").Create(path, size, size, 1, gdal.GDT_Float32)
+        raster = gdal.GetDriverByName("GTiff").Create(
+            path, size, size, 1, gdal.GDT_Float32
+        )
         try:
             raster.SetProjection(srs.ExportToWkt())
             raster.SetGeoTransform(
@@ -645,9 +649,8 @@ class TestProjDatabaseSkew:
                 "footprint() should return a georeferenced GeoDataFrame"
             )
             polygons = dataset.to_polygons(band=0)
-            assert len(polygons) > 0 and polygons.crs is not None, (
-                "to_polygons() should return georeferenced polygons"
-            )
+            assert len(polygons) > 0, "to_polygons() should return polygons"
+            assert polygons.crs is not None, "to_polygons() output should carry a CRS"
             assert RasterMeta.from_dataset(dataset).crs is not None, (
                 "RasterMeta should describe the raster's CRS"
             )
@@ -972,7 +975,6 @@ class TestResolutionIsCached:
         """
         with pytest.raises(CRSError):
             crs_from_user_input([1, 2])
-
 
     def test_unhashable_input_reaches_epsg_resolution_uncached(self):
         """An unhashable value cannot key the cache and is still rejected cleanly.
