@@ -1783,20 +1783,18 @@ class NetCDF(Dataset):
                 when set — the multi-panel ``facet`` path has no ``points``
                 parameter and raises if one is supplied. Default is ``None``.
             color (ColorScaling, optional):
-                Typed colour-scale spec ``pyramids.plot.ColorScaling`` — the typed
-                equivalent of the loose ``color_scale`` / ``gamma`` / ``bounds`` /
-                ``midpoint`` kwargs; the explicit spec wins. Default ``None``.
-            contour (Contour, optional):
-                Typed contour-line spec ``pyramids.plot.Contour`` — the typed equivalent
-                of the loose ``levels`` / ``labels`` / ``label_kw`` kwargs. Default
+                Colour-scale spec ``pyramids.plot.ColorScaling`` (linear / power / sym-log /
+                boundary / midpoint norm), e.g. ``ColorScaling.power(gamma=0.7)``. Default
                 ``None``.
+            contour (Contour, optional):
+                Contour-line spec ``pyramids.plot.Contour(levels=…, labels=…, label_kw=…)``.
+                Default ``None``.
             cells (CellValues, optional):
-                Typed per-cell annotation ``pyramids.plot.CellValues`` — the typed
-                equivalent of the loose ``display_cell_value`` / ``num_size`` /
-                ``background_color_threshold`` kwargs. Default ``None``.
+                Per-cell value annotation ``pyramids.plot.CellValues(show=…, size=…,
+                background_threshold=…)``. Default ``None``.
             data_style (DataStyle, optional):
-                Typed data-style / relief spec ``pyramids.plot.DataStyle`` — the typed
-                equivalent of the loose ``style`` / ``hillshade`` kwargs. Default ``None``.
+                Data-style / relief spec ``pyramids.plot.DataStyle(style=…, hillshade=…)``.
+                Default ``None``.
             **kwargs:
                 Additional keyword arguments forwarded to
                 :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`.

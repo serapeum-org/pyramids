@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from pyramids.base._utils import require_cleopatra
-from pyramids.dataset._plot_helpers import _build_grouped_render_specs
+from pyramids.dataset._plot_helpers import _reject_replaced_cbar_kwargs
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 
 if TYPE_CHECKING:
@@ -156,16 +156,12 @@ def plot_mesh_data(
         plot_kwargs["vmax"] = vmax
     plot_kwargs.update(kwargs)
 
-    # cleopatra 0.30 replaced MeshGlyph.plot's loose styling keywords with typed group
-    # objects; translate pyramids' loose color_scale / gamma / bounds / midpoint / levels /
-    # style / hillshade into cleopatra's ColorScaling / Contour / DataStyle groups. MeshGlyph
-    # has no cell-value overlay, so the cell-value keys are left untouched (include_cells).
-    # ``setdefault`` — so an explicitly-passed group object already in plot_kwargs (e.g.
-    # ``color=ColorScaling(...)`` from UgridDataset.plot) wins over the loose translation
-    # and the two never collide on the same keyword.
-    group_specs = _build_grouped_render_specs(plot_kwargs, include_cells=False)
-    for _spec_key, _spec_val in group_specs.items():
-        plot_kwargs.setdefault(_spec_key, _spec_val)
+    # cleopatra 0.30's MeshGlyph.plot takes the typed render groups (color / contour /
+    # data_style) directly; the loose styling kwargs are no longer translated. A loose form
+    # cleopatra removed (color_scale / style / levels / ...) surfaces cleopatra's own
+    # "moved onto a grouped parameter object" error, and the loose cbar_* forms are rejected
+    # here so the mesh path shares pyramids' single typed colour-bar surface.
+    _reject_replaced_cbar_kwargs(plot_kwargs)
 
     glyph.plot(
         data,

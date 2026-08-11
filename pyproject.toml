@@ -56,7 +56,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-viz = ["cleopatra[tiles]>=0.28.0"]
+viz = ["cleopatra[tiles]>=0.30.0"]
 lazy = [
     "dask>=2024.1.0",
     "distributed>=2024.1.0",
@@ -314,15 +314,6 @@ platforms = ["win-64", "linux-64", "linux-aarch64", "osx-arm64", "osx-64"]
 
 [tool.pixi.pypi-dependencies]
 pyramids-gis = { path = ".", editable = true }
-# cleopatra's 0.30.0 restructure lands in that release; until then pyramids needs it
-# from git. Pinned to an exact rev (not `branch = "main"`) so the build is reproducible
-# and pixi actually re-fetches on a bump — this commit carries BOTH the subpackage
-# layout AND the grouped render-parameter objects (ColorScaling / Contour / CellValues /
-# DataStyle / PointOverlay / PanelLabels), which removed the loose styling keywords.
-# It still self-reports 0.29.0. Dev/CI track this rev; the published [viz] extra stays a
-# plain version spec so built wheels carry no direct-URL metadata (PyPI rejects it).
-# Remove this and bump the [viz] floor to `>=0.30.0` once cleopatra 0.30.0 releases.
-cleopatra = { git = "https://github.com/serapeum-org/cleopatra.git", rev = "cfa90c3322c4e6c0d8837d54af874172a02c1b50", extras = ["tiles"] }
 
 [tool.pixi.tasks]
 main = { cmd = "pytest -vvv --cov=src/pyramids -sv -m 'not plot and not xarray' --cov-report=xml", description = "Run the main test suite" }

@@ -862,17 +862,14 @@ class UgridDataset:
                 plot family, but a **no-op here** — ``kind`` selects a raster
                 renderer (``imshow``/``pcolormesh``); the mesh always renders via
                 ``tripcolor``/``tricontour``. Ignored.
-            color (ColorScaling, optional): Typed colour-scale spec
-                ``pyramids.plot.ColorScaling`` — the typed equivalent of the loose
-                ``color_scale`` / ``gamma`` / ``bounds`` / ``midpoint`` kwargs; the
-                explicit spec wins. Default ``None``.
-            contour (Contour, optional): Typed contour-line spec
-                ``pyramids.plot.Contour`` — the typed equivalent of the loose ``levels``
-                / ``label_kw`` kwargs. Default ``None``.
-            data_style (DataStyle, optional): Typed data-style / relief spec
-                ``pyramids.plot.DataStyle`` — the typed equivalent of the loose ``style``
-                / ``hillshade`` kwargs. (A mesh has no cell-value overlay, so there is no
-                ``cells`` param here.) Default ``None``.
+            color (ColorScaling, optional): Colour-scale spec
+                ``pyramids.plot.ColorScaling`` (linear / power / sym-log / boundary /
+                midpoint norm), e.g. ``ColorScaling.power(gamma=0.7)``. Default ``None``.
+            contour (Contour, optional): Contour-line spec
+                ``pyramids.plot.Contour(levels=…, label_kw=…)``. Default ``None``.
+            data_style (DataStyle, optional): Data-style / relief spec
+                ``pyramids.plot.DataStyle(style=…, hillshade=…)``. (A mesh has no
+                cell-value overlay, so there is no ``cells`` param here.) Default ``None``.
             **kwargs: Additional arguments passed to mesh_render
                 (forwarded to plot_mesh_data). Notably ``colorbar``
                 (``bool``, default ``True``): pass ``colorbar=False`` to

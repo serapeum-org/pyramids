@@ -1098,10 +1098,8 @@ class RasterBase(ABC):
                     the column index in the array. The second and third columns tell the location of the point
                     in the array. To style the points, pass a
                     ``pyramids.plot.PointOverlay(points, color=..., size=..., label_color=...,
-                    label_size=...)`` instead — pyramids folds the loose ``point_color`` / ``point_size`` /
-                    ``point_label_color`` / ``point_label_size`` / ``pid_color`` / ``pid_size`` kwargs into a
-                    ``PointOverlay`` and emits a ``DeprecationWarning``; set the styling on the
-                    ``PointOverlay`` instead.
+                    label_size=...)`` instead of a bare array; the loose ``point_*`` / ``pid_*``
+                    styling kwargs were removed — set the styling on the ``PointOverlay``.
                 figsize (tuple, optional):
                     Figure size. The default is (8, 8).
                 title (str, optional):

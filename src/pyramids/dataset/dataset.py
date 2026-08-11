@@ -896,24 +896,18 @@ class Dataset(RasterBase):
             title (str, optional):
                 Axes title. Default is ``None`` (cleopatra's default title).
             color (ColorScaling, optional):
-                Typed colour-scale spec ``pyramids.plot.ColorScaling`` (linear / power /
-                sym-log / boundary / midpoint norm), e.g.
-                ``ColorScaling.power(gamma=0.7)``. The typed equivalent of the loose
-                ``color_scale`` / ``gamma`` / ``bounds`` / ``midpoint`` kwargs; when both
-                are given the explicit ``color`` wins. Default ``None``.
+                Colour-scale spec ``pyramids.plot.ColorScaling`` (linear / power / sym-log /
+                boundary / midpoint norm), e.g. ``ColorScaling.power(gamma=0.7)`` or
+                ``ColorScaling.boundary(bounds=[0, 0.5, 1])``. Default ``None``.
             contour (Contour, optional):
-                Typed contour-line spec ``pyramids.plot.Contour(levels=…, labels=…,
-                label_kw=…)``. The typed equivalent of the loose ``levels`` / ``labels`` /
-                ``label_kw`` kwargs; the explicit spec wins. Default ``None``.
+                Contour-line spec ``pyramids.plot.Contour(levels=…, labels=…, label_kw=…)``.
+                Default ``None``.
             cells (CellValues, optional):
-                Typed per-cell value annotation ``pyramids.plot.CellValues(show=…, size=…,
-                background_threshold=…)``. The typed equivalent of the loose
-                ``display_cell_value`` / ``num_size`` / ``background_color_threshold``
-                kwargs; the explicit spec wins. Default ``None``.
+                Per-cell value annotation ``pyramids.plot.CellValues(show=…, size=…,
+                background_threshold=…)``. Default ``None``.
             data_style (DataStyle, optional):
-                Typed data-style / relief spec ``pyramids.plot.DataStyle(style=…,
-                hillshade=…)``. The typed equivalent of the loose ``style`` / ``hillshade``
-                kwargs; the explicit spec wins. Default ``None``.
+                Data-style / relief spec ``pyramids.plot.DataStyle(style=…, hillshade=…)``.
+                Default ``None``.
             rgb_options (dict, optional):
                 Grouped Sentinel-imagery kwargs. Accepted keys:
                 ``"rgb"``, ``"surface_reflectance"``, ``"cutoff"``,

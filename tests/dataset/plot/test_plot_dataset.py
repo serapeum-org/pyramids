@@ -153,15 +153,18 @@ class TestPlotDataSet:
             dataset.plot(band=0, color_scale="bogus")
 
     @pytest.mark.plot
-    def test_valid_color_scale_any_case_passes(self, src: Dataset):
-        """A valid ``color_scale`` passes regardless of case.
+    def test_color_scaling_group_renders(self, src: Dataset):
+        """A ``color=ColorScaling`` spec validates and renders without raising.
 
         Test scenario:
-            ``ColorScale`` lookup is case-insensitive, so a mixed-case
-            ``"Power"`` must validate and render without raising.
+            cleopatra 0.30 moved the colour scale onto the typed ``ColorScaling``
+            group, passed as ``color=``; a ``ColorScaling.power()`` spec must render
+            through ``Dataset.plot`` and return an ``ArrayGlyph``.
         """
+        from pyramids.plot import ColorScaling
+
         dataset = Dataset(src)
-        glyph = dataset.plot(band=0, color_scale="Power")
+        glyph = dataset.plot(band=0, color=ColorScaling.power())
         assert isinstance(glyph, ArrayGlyph)
 
     @pytest.mark.plot

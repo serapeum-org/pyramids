@@ -276,42 +276,55 @@ class TestMeshStyleHillshade:
         not _mesh_supports_style, reason="cleopatra < 0.24 has no MeshGlyph style"
     )
     def test_dataset_plot_style_renders(self):
-        """``UgridDataset.plot(style=...)`` renders a styled MeshGlyph."""
-        result = self._dataset("face").plot("depth", style="flow_accumulation")
+        """``UgridDataset.plot(data_style=DataStyle(style=...))`` renders a styled mesh."""
+        from cleopatra.styling.params import DataStyle
+
+        result = self._dataset("face").plot(
+            "depth", data_style=DataStyle(style="flow_accumulation")
+        )
         assert isinstance(result, MeshGlyph)
 
     @pytest.mark.skipif(
         not _mesh_supports_style, reason="cleopatra < 0.24 has no MeshGlyph hillshade"
     )
     def test_dataset_plot_hillshade_node_renders(self):
-        """``hillshade=`` renders on node-centered mesh data.
+        """``data_style=DataStyle(hillshade=True)`` renders on node-centered mesh data.
 
         cleopatra requires node-centered elevation for hillshade, so a
         node-location variable is used.
         """
-        result = self._dataset("node").plot("depth", hillshade=True)
+        from cleopatra.styling.params import DataStyle
+
+        result = self._dataset("node").plot(
+            "depth", data_style=DataStyle(hillshade=True)
+        )
         assert isinstance(result, MeshGlyph)
 
     @pytest.mark.skipif(
         not _mesh_supports_style, reason="cleopatra < 0.24 has no MeshGlyph style"
     )
     def test_style_and_hillshade_reach_mesh_glyph_plot(self):
-        """The presets are actually applied to ``MeshGlyph.plot`` (not just returned).
+        """The ``data_style`` group is actually applied to ``MeshGlyph.plot``.
 
         Test scenario:
-            ``isinstance(result, MeshGlyph)`` alone would still pass if the preset
+            ``isinstance(result, MeshGlyph)`` alone would still pass if the group
             were silently dropped between ``mesh_render`` and the glyph. Spy on
-            ``MeshGlyph.plot`` and assert ``style`` / ``hillshade`` arrive in its
-            call kwargs, proving the full facade -> mesh_render -> plot_mesh_data
-            -> MeshGlyph.plot leg forwards them.
+            ``MeshGlyph.plot`` and assert the ``data_style`` group arrives in its call
+            kwargs, proving the full facade -> mesh_render -> plot_mesh_data ->
+            MeshGlyph.plot leg forwards it.
         """
+        from cleopatra.styling.params import DataStyle
+
         ds = self._dataset("face")
         with patch.object(MeshGlyph, "plot") as mock_plot:
-            ds.plot("depth", style="flow_accumulation", hillshade=True)
+            ds.plot(
+                "depth",
+                data_style=DataStyle(style="flow_accumulation", hillshade=True),
+            )
         kw = mock_plot.call_args.kwargs
         data_style = kw.get("data_style")
         assert data_style is not None, (
-            "style/hillshade must fold into a DataStyle on MeshGlyph.plot"
+            "the data_style group must reach MeshGlyph.plot"
         )
         assert data_style.style == "flow_accumulation"
         assert data_style.hillshade is True
@@ -349,7 +362,11 @@ class TestMeshStyleHillshade:
             preset by name without rebuilding — verify the round trip through the
             ``UgridDataset.plot`` facade.
         """
-        result = self._dataset("face").plot("depth", style="flow_accumulation")
+        from cleopatra.styling.params import DataStyle
+
+        result = self._dataset("face").plot(
+            "depth", data_style=DataStyle(style="flow_accumulation")
+        )
         assert result.style == "flow_accumulation"
         result.apply_style("bathymetry")
         assert result.style == "bathymetry", "apply_style must restyle in place"

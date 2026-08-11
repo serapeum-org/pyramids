@@ -2533,24 +2533,21 @@ class DatasetCollection:
             points (np.ndarray or PointOverlay, optional):
                 Point overlay. A 3-column array ``(value, row, col)`` draws unstyled
                 points; to style them pass a ``pyramids.plot.PointOverlay(points,
-                color=…, size=…, label_color=…, label_size=…)`` instead (on cleopatra
-                >= 0.26 the loose ``point_color`` / ``point_size`` / ``pid_color`` /
-                ``pid_size`` kwargs are deprecated). Default ``None``.
+                color=…, size=…, label_color=…, label_size=…)`` instead (the loose
+                ``point_*`` / ``pid_*`` styling kwargs were removed). Default ``None``.
             color (ColorScaling, optional):
-                Typed colour-scale spec ``pyramids.plot.ColorScaling`` — the typed
-                equivalent of the loose ``color_scale`` / ``gamma`` / ``bounds`` /
-                ``midpoint`` kwargs; the explicit spec wins. Default ``None``.
-            contour (Contour, optional):
-                Typed contour-line spec ``pyramids.plot.Contour`` — the typed equivalent
-                of the loose ``levels`` / ``labels`` / ``label_kw`` kwargs. Default
+                Colour-scale spec ``pyramids.plot.ColorScaling`` (linear / power / sym-log /
+                boundary / midpoint norm), e.g. ``ColorScaling.power(gamma=0.7)``. Default
                 ``None``.
+            contour (Contour, optional):
+                Contour-line spec ``pyramids.plot.Contour(levels=…, labels=…, label_kw=…)``.
+                Default ``None``.
             cells (CellValues, optional):
-                Typed per-cell annotation ``pyramids.plot.CellValues`` — the typed
-                equivalent of the loose ``display_cell_value`` / ``num_size`` /
-                ``background_color_threshold`` kwargs. Default ``None``.
+                Per-cell value annotation ``pyramids.plot.CellValues(show=…, size=…,
+                background_threshold=…)``. Default ``None``.
             data_style (DataStyle, optional):
-                Typed data-style / relief spec ``pyramids.plot.DataStyle`` — the typed
-                equivalent of the loose ``style`` / ``hillshade`` kwargs. Default ``None``.
+                Data-style / relief spec ``pyramids.plot.DataStyle(style=…, hillshade=…)``.
+                Default ``None``.
             animation_axis_values (sequence, optional):
                 Per-frame labels for the animation, one per timestep. Defaults to the
                 collection's ``time`` axis when set (e.g. dates parsed by
@@ -2559,21 +2556,15 @@ class DatasetCollection:
                 exactly one label per timestep or a :class:`ValueError` is raised.
                 Default ``None``.
             **kwargs:
+                Still-loose cleopatra render kwargs (colour-scale, contour, and cell-value
+                styling moved onto the ``color`` / ``contour`` / ``cells`` params above):
+
                 | Parameter                  | Type                  | Description |
                 |----------------------------|-----------------------|-------------|
                 | figsize                    | tuple, optional       | Figure size. Default is `(8, 8)`. |
                 | title                      | str, optional         | Title of the plot. Default is `'Total Discharge'`. |
                 | title_size                 | int, optional         | Title size. Default is `15`. |
-                | color_scale                | str, optional         | Color-scale mode (default `"linear"`): one of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styling.styles.ColorScale` member. Integer codes are no longer accepted. |
-                | gamma                      | float, optional       | Exponent for `color_scale="power"`. Default is `1/2`. |
-                | line_threshold             | float, optional       | `linthresh` for `color_scale="sym-lognorm"`. Default is `0.0001`. |
-                | line_scale                 | float, optional       | `linscale` for `color_scale="sym-lognorm"`. Default is `0.001`. |
-                | bounds                     | list                  | Discrete bounds for `color_scale="boundary-norm"`. Default is `None`. |
-                | midpoint                   | float, optional       | Midpoint value for `color_scale="midpoint"`. Default is `0`. |
                 | cmap                       | str, optional         | Color map style. Default is `'coolwarm_r'`. |
-                | display_cell_value         | bool                  | Whether to display the values of the cells as text. |
-                | num_size                   | int, optional         | Size of the numbers plotted on top of each cell. Default is `8`. |
-                | background_color_threshold | float \| int, optional| Threshold for deciding number color: if value > threshold -> black; else white. If `None`, uses `max_value/2`. Default is `None`. |
 
 
         Returns:

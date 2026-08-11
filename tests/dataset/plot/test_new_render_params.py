@@ -5,8 +5,6 @@ its `**kwargs` pass-through; cleopatra rejects an unknown kwarg, so a clean rend
 proves the param reached the glyph rather than being dropped.
 """
 
-from unittest.mock import patch
-
 import numpy as np
 import pytest
 
@@ -87,84 +85,13 @@ class TestNewRenderParams:
         )
         assert isinstance(result, ArrayGlyph)
 
-    def test_deprecated_cbar_kwarg_folds_into_colorbar_and_renders(self):
-        """A loose `cbar_*` kwarg is folded into `colorbar=ColorBar(...)` and still renders.
+    def test_loose_cbar_kwarg_rejected(self):
+        """A loose `cbar_*` kwarg is rejected in favour of the typed `ColorBar` spec.
 
-        `render_array` translates the deprecated loose colour-bar kwargs into a typed
-        ColorBar before the cleopatra call (so cleopatra never sees the loose form); the
-        folded spec still renders the label.
+        cleopatra 0.30 removed the loose colour-bar styling keywords; pyramids exposes a
+        single typed colour-bar surface, so passing a loose `cbar_*` through the
+        `Dataset.plot` facade raises a `ValueError` naming `pyramids.plot.ColorBar`
+        instead of being folded or forwarded.
         """
-        captured: dict = {}
-        original = ArrayGlyph.plot
-
-        def spy(self, *args, **kwargs):
-            captured.update(kwargs)
-            return original(self, *args, **kwargs)
-
-        with patch.object(ArrayGlyph, "plot", spy):
-            with pytest.warns(DeprecationWarning, match="cbar_"):
-                glyph = self._dataset().plot(band=0, cbar_label="mm", cbar_length=0.85)
-        assert "cbar_label" not in captured, (
-            "loose cbar_label must be folded away, not passed loose"
-        )
-        assert isinstance(captured.get("colorbar"), ColorBar), (
-            "cbar_* must fold into a ColorBar"
-        )
-        label = glyph.cbar.ax.get_ylabel() or glyph.cbar.ax.get_xlabel()
-        assert label == "mm", f"folded ColorBar label should render, got {label!r}"
-
-    def test_explicit_colorbar_wins_over_loose_cbar(self):
-        """An explicit `colorbar=ColorBar` wins; the loose `cbar_*` are dropped (deprecated)."""
-        with pytest.warns(
-            DeprecationWarning, match="ignored because an explicit colorbar"
-        ):
-            glyph = self._dataset().plot(
-                band=0, colorbar=ColorBar(label="TYPED"), cbar_label="LOOSE"
-            )
-        label = glyph.cbar.ax.get_ylabel() or glyph.cbar.ax.get_xlabel()
-        assert label == "TYPED", f"explicit ColorBar should win, got {label!r}"
-
-    def test_colorbar_false_drops_loose_cbar_and_hides_bar(self):
-        """`colorbar=False` hides the bar and drops the loose `cbar_*` (not folded).
-
-        The suppress half of the conflict contract: an explicit `colorbar=False` wins,
-        so the loose kwarg is dropped with a warning naming the `False` case and no
-        colour bar is drawn.
-        """
-        with pytest.warns(DeprecationWarning, match="ignored because colorbar=False"):
-            glyph = self._dataset().plot(band=0, colorbar=False, cbar_label="x")
-        assert isinstance(glyph, ArrayGlyph)
-        assert getattr(glyph, "cbar", None) is None, "colorbar=False must hide the bar"
-
-    def test_colorbar_true_still_folds_loose_cbar(self):
-        """`colorbar=True` + a loose `cbar_*` folds the styling in (not dropped).
-
-        `True` / `None` carry no caption of their own, so the loose kwargs must still
-        render — only a typed `ColorBar` (or `colorbar=False`) suppresses them.
-        """
-        with pytest.warns(DeprecationWarning, match="cbar_"):
-            glyph = self._dataset().plot(band=0, colorbar=True, cbar_label="DEPTH")
-        label = glyph.cbar.ax.get_ylabel() or glyph.cbar.ax.get_xlabel()
-        assert label == "DEPTH", (
-            f"colorbar=True must keep the loose label, got {label!r}"
-        )
-
-    def test_deprecated_cbar_kwarg_folds_into_colorbar_on_the_facet_path(self):
-        """A loose `cbar_*` kwarg folds into a ColorBar and renders on the facet path.
-
-        cleopatra >= 0.29 accepts `colorbar=ColorBar` on `ArrayGlyph.facet`
-        (serapeum-org/cleopatra#271), so the facet path folds the deprecated loose
-        `cbar_*` into a ColorBar (emitting a DeprecationWarning) like plot/animate; the
-        returned grid's shared colour bar still carries the label.
-        """
-        stack = np.random.default_rng(3).random((3, 6, 6)).astype("float32")
-        with pytest.warns(DeprecationWarning, match="cbar_"):
-            result = render_array(
-                arr=stack,
-                mode="facet",
-                facet_kwargs={"col": "time", "col_coords": [0, 1, 2]},
-                cbar_label="mm",
-                extent=[0.0, 0.0, 1.0, 1.0],
-            )
-        label = result.cbar.ax.get_ylabel() or result.cbar.ax.get_xlabel()
-        assert label == "mm", f"facet colour-bar label should render, got {label!r}"
+        with pytest.raises(ValueError, match="ColorBar"):
+            self._dataset().plot(band=0, cbar_label="mm", cbar_length=0.85)

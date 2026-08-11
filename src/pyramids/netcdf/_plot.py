@@ -501,13 +501,10 @@ class NetCDFPlot:
             ("cmap", colour.cmap),
             ("vmin", colour.vmin),
             ("vmax", colour.vmax),
-            ("levels", colour.levels),
             ("norm", colour.norm),
             ("center", colour.center),
             ("extend", colour.extend),
             ("cbar_kwargs", colour.cbar_kwargs),
-            ("style", colour.style),
-            ("hillshade", colour.hillshade),
             ("ax", ax),
             ("figsize", figsize),
             ("title", title),
@@ -516,6 +513,20 @@ class NetCDFPlot:
                 out[key] = value
         if colour.robust:
             out["robust"] = True
+        # cleopatra 0.30 moved ``levels`` / ``style`` / ``hillshade`` off the loose kwargs
+        # onto the typed render groups, so build them from the ColorOpts bag here (a no-op
+        # ``style=None`` / falsy ``hillshade`` is dropped, matching the render-group rules).
+        from cleopatra.styling.params import Contour, DataStyle
+
+        if colour.levels is not None:
+            out["contour"] = Contour(levels=colour.levels)
+        data_style_fields: dict[str, Any] = {}
+        if colour.style is not None:
+            data_style_fields["style"] = colour.style
+        if colour.hillshade is not None and colour.hillshade is not False:
+            data_style_fields["hillshade"] = colour.hillshade
+        if data_style_fields:
+            out["data_style"] = DataStyle(**data_style_fields)
 
         # Curvilinear coord resolution. Priority (highest first):
         # 1. Explicit user `coords=`.
