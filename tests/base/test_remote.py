@@ -509,18 +509,32 @@ class TestHttpCogRead:
         expected = np.arange(256 * 256, dtype=np.float32).reshape(256, 256)
         assert np.array_equal(arr, expected)
 
-    def test_windowed_bbox_crop_over_http_matches_local(self, http_server, http_cog_dir):
-        """#957: a windowed bbox crop over /vsicurl equals the same crop of the local file.
+    def test_windowed_bbox_crop_over_http_matches_local(
+        self, http_server, http_cog_dir, mocker
+    ):
+        """#957: a windowed bbox crop over /vsicurl reads only the AOI and equals the local crop.
 
         The 256x256 COG spans x in [0, 0.256], y in [-0.256, 0] at 0.001 deg cells.
-        Cropping a small sub-bbox straight from the /vsicurl URL must return the same
-        shape, geotransform and pixels as cropping the local file — proving the
-        windowed crop reads the AOI correctly over a range-read URL, not just locally.
+        Cropping a small sub-bbox straight from the /vsicurl URL must (a) read the remote
+        source with just the AOI pixel window (never a full-source read — that is what makes
+        a range-read URL fetch only the AOI) and (b) return the same shape, geotransform and
+        pixels as cropping the local file.
         """
         from pyramids.dataset import Dataset
 
-        bbox = (0.1, -0.11, 0.15, -0.06)  # cols 100:150, rows 60:110
-        remote = Dataset.read_file(f"{http_server}/valid.tif").crop(bbox=bbox)
+        bbox = (0.1, -0.11, 0.15, -0.06)  # cols 100:150, rows 60:110 -> window [100,60,50,50]
+        remote_ds = Dataset.read_file(f"{http_server}/valid.tif")
+        spy = mocker.spy(Dataset, "read_array")
+        remote = remote_ds.crop(bbox=bbox)
+        source_windows = [
+            kw.get("window", (a[1] if len(a) > 1 else None))
+            for a, kw in spy.call_args_list
+            if a and a[0] is remote_ds
+        ]
+        assert source_windows == [[100, 60, 50, 50]], (
+            f"remote source must be read once, windowed to the AOI; saw {source_windows}"
+        )
+
         local = Dataset.read_file(str(http_cog_dir / "valid.tif")).crop(bbox=bbox)
         assert remote.shape == local.shape, (
             f"remote crop shape {remote.shape} != local {local.shape}"
