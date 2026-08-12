@@ -1383,9 +1383,7 @@ class Bands(_Engine["Dataset"]):
         """
         for band in range(self._ds.band_count):
             band_old_value = old_value[band] if old_value is not None else None
-            self._swap_no_data_tiled(
-                new_dataset, band, band_old_value, new_value[band]
-            )
+            self._swap_no_data_tiled(new_dataset, band, band_old_value, new_value[band])
 
     @staticmethod
     def _discard_partial_output(new_dataset: Dataset, target: str) -> None:
