@@ -269,7 +269,8 @@ class TestStreamReduce:
             for a, kw in spy.call_args_list
             if a and a[0] is ds
         ]
-        assert windows and all(w[0] == 0 and w[2] == 5 for w in windows), (
+        assert windows, "no reads of the source were recorded"
+        assert all(w[0] == 0 and w[2] == 5 for w in windows), (
             f"reads were not full-width strips: {windows}"
         )
         assert len(windows) == 3, f"expected 3 strips over 7 rows, got {len(windows)}"
@@ -416,9 +417,10 @@ class TestStreamedConsumers:
             for a, kw in spy.call_args_list
             if a and a[0] is ds
         ]
-        assert windows and all(
-            w is not None and w[0] == 0 and w[2] == 5 for w in windows
-        ), f"extract did not read full-width strips: {windows}"
+        assert windows, "extract recorded no source reads"
+        assert all(w is not None and w[0] == 0 and w[2] == 5 for w in windows), (
+            f"extract did not read full-width strips: {windows}"
+        )
 
     def test_count_domain_cells_is_byte_identical_and_bounded(self, tmp_path):
         """`count_domain_cells` matches the eager count and never reads the band whole.
