@@ -106,3 +106,30 @@ class TestApplyElementwise:
         np.testing.assert_array_equal(
             ds.read_array(), arr * 2, err_msg="In-place streamed result must be doubled"
         )
+
+    def test_all_nodata_tile_with_vectorize_fallback_func(self):
+        """A fully-no-data tile does not crash the np.vectorize fallback path.
+
+        Test scenario:
+            A raster whose last 256-px tile is entirely no-data, transformed with a scalar
+            conditional func (which forces the np.vectorize fallback on array input), streams
+            without raising and matches the whole-array pass.
+        """
+        arr = (np.random.default_rng(3).random((300, 300)) * 10).astype("float64")
+        arr[256:300, 256:300] = -9999.0
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 15.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        func = lambda v: 1.0 if v > 5 else 0.0  # noqa: E731 - forces vectorize fallback
+        streamed = ds.apply(func, elementwise=True).read_array()
+        whole = ds.apply(func, elementwise=False).read_array()
+        np.testing.assert_array_equal(
+            streamed,
+            whole,
+            err_msg="empty-domain tile must not crash and must match the whole-array pass",
+        )
+        assert streamed[270, 270] == -9999.0, "no-data cell in the empty tile preserved"

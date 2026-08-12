@@ -421,6 +421,13 @@ class Analysis(_Engine["Dataset"]):
         """
         domain_mask = inside_domain(src_array, no_data_value)
         domain_values = src_array[domain_mask]
+        # An empty domain (an all-no-data tile, common when streaming) needs no
+        # write -- out_array is already the no-data fill -- and short-circuiting
+        # here avoids `np.vectorize(func)` raising "cannot call 'vectorize' on
+        # size 0 inputs" on a fully-masked tile, keeping the tiled path
+        # byte-identical to the whole-array pass (#969).
+        if domain_values.size == 0:
+            return
         try:
             out_array[domain_mask] = func(domain_values)
         except (ValueError, TypeError):
