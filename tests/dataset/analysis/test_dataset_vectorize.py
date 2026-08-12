@@ -462,6 +462,29 @@ class TestFootPrint:
             "Decimated footprint area should be roughly the block area"
         )
 
+    def test_max_samples_preserves_extent_on_rotated_non_square_raster(self):
+        """Decimated footprint keeps the exact extent on a rotated, non-square-cell raster.
+
+        Test scenario:
+            A fully-covered raster with non-zero rotation terms and non-square cells
+            footprints to the same total_bounds exact vs decimated, so a regression dropping
+            the geotransform rotation/scale scaling in `_scaled_geotransform` would be caught.
+        """
+        arr = np.ones((100, 100), dtype="float32")
+        geotransform = (0.0, 1.0, 0.2, 50.0, 0.15, -1.0)
+        ds = Dataset.create_from_array(
+            arr, geo=geotransform, epsg=3857, no_data_value=-9999.0
+        )
+        exact = ds.footprint()
+        approx = ds.footprint(max_samples=400)
+        assert exact is not None and approx is not None, "Both footprints must exist"
+        np.testing.assert_allclose(
+            approx.total_bounds,
+            exact.total_bounds,
+            atol=1e-6,
+            err_msg="decimated footprint must preserve the exact extent (rotated/non-square)",
+        )
+
 
 class TestToFeatureCollectionMaskTiling:
     """The mask must be honoured on both the tiled and the non-tiled path."""
