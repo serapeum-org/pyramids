@@ -306,6 +306,18 @@ class TestStreamReduce:
 class TestStreamedConsumers:
     """`fill`, `change_no_data_value`, `count_domain_cells`, `overlay` stream through the helpers (#967)."""
 
+    @pytest.fixture
+    def tiny_strips(self, monkeypatch):
+        """Force `IO.stream_reduce` to 2-row strips so a small raster spans several."""
+        from pyramids.dataset.engines.io import IO
+
+        original = IO.stream_reduce
+
+        def small(self, fold, initial, *, band=None, strip_rows=256):
+            return original(self, fold, initial, band=band, strip_rows=2)
+
+        monkeypatch.setattr(IO, "stream_reduce", small)
+
     def test_change_no_data_value_is_byte_identical_and_bounded(self, tmp_path):
         """`change_no_data_value` matches the eager result and never reads the source whole.
 
@@ -336,12 +348,12 @@ class TestStreamedConsumers:
             f"would need {dense_bytes / 1e6:.1f} MB — the read was not tiled"
         )
 
-    def test_overlay_multi_strip_class_lists_are_byte_identical(self):
+    def test_overlay_multi_strip_class_lists_are_byte_identical(self, tiny_strips):
         """`overlay` groups values by class byte-identically across multiple strips.
 
         Test scenario:
-            On a 7x5 raster spanning several 256-default strips (forced small via the
-            grid) each class's value list — order included — must equal the reference
+            With `stream_reduce` forced to 2-row strips, a 7x5 raster spans four strips;
+            each class's value list — order included — must still equal the reference
             built from the whole arrays in row-major order.
         """
         base = Dataset.create_from_array(
@@ -369,25 +381,27 @@ class TestStreamedConsumers:
             "overlay class lists diverged from the whole-array row-major reference"
         )
 
-    def test_extract_single_band_matches_the_eager_whole_array(self):
+    def test_extract_single_band_matches_the_eager_whole_array(self, tiny_strips):
         """Streamed `extract` equals the eager `get_pixels2` over the whole array.
 
         Test scenario:
-            A 7x5 single-band raster spanning several strips; the streamed extract must
-            equal `get_pixels2(read_array(), [nodata])` element-for-element in order.
+            With `stream_reduce` forced to 2-row strips, a 7x5 single-band raster spans
+            four strips; the streamed extract must still equal
+            `get_pixels2(read_array(), [nodata])` element-for-element in order.
         """
         ds = _raster(rows=7, cols=5)
         got = ds.extract()
         reference = get_pixels2(ds.read_array(), [ds.no_data_value[0]])
         assert np.array_equal(got, reference), "streamed extract diverged (single band)"
 
-    def test_extract_multiband_excludes_from_the_first_band_in_order(self):
+    def test_extract_multiband_excludes_from_the_first_band_in_order(self, tiny_strips):
         """Streamed multi-band `extract` reproduces the band-0-driven row-major selection.
 
         Test scenario:
-            A 2-band raster with a no-data value only in band 0; extract selects columns
-            from band 0's mask and takes both bands, in row-major order — byte-identical
-            to the eager whole-array `get_pixels2`.
+            A 2-band raster with a no-data value only in band 0, `stream_reduce` forced to
+            2-row strips so it spans several; extract selects columns from band 0's mask
+            and takes both bands, in row-major order — byte-identical to the eager
+            whole-array `get_pixels2`.
         """
         band0 = np.arange(35, dtype="float32").reshape(7, 5)
         band0[2, 3] = -9999.0
@@ -404,12 +418,13 @@ class TestStreamedConsumers:
         reference = get_pixels2(ds.read_array(), [ds.no_data_value[0]])
         assert np.array_equal(got, reference), "streamed multi-band extract diverged"
 
-    def test_extract_with_exclude_value_matches_the_eager(self):
-        """`exclude_value` filtering is byte-identical under streaming.
+    def test_extract_with_exclude_value_matches_the_eager(self, tiny_strips):
+        """`exclude_value` filtering is byte-identical under streaming across strips.
 
         Test scenario:
-            Extracting with `exclude_value` excludes both the no-data value and that
-            value, matching the eager `get_pixels2` with the same exclude list.
+            With `stream_reduce` forced to 2-row strips, extracting with `exclude_value`
+            excludes both the no-data value and that value, matching the eager
+            `get_pixels2` with the same exclude list.
         """
         ds = _raster(rows=7, cols=5)
         got = ds.extract(exclude_value=3)
