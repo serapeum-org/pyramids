@@ -381,6 +381,8 @@ class TestRenderArrayKwargRouting:
         assert bands.surface_reflectance == 10000
         assert bands.cutoff == [0.1, 0.2, 0.3]
         assert bands.percentile == 2
+        # cleopatra 0.31 dropped the loose ctor keywords; they must not leak through.
+        assert not ctor.keys() & {"rgb", "surface_reflectance", "cutoff", "percentile"}
 
     def test_non_rgb_paths_pass_rgb_bands_none(self):
         """The single-band and animate paths leave rgb_bands as None on the constructor.
@@ -422,7 +424,7 @@ class TestRenderArrayKwargRouting:
 
         monkeypatch.delattr(cleo_mod, "RgbBands", raising=False)
         arr = np.random.default_rng(204).random((4, 4)).astype("float32")
-        with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.31"):
+        with pytest.raises(OptionalPackageDoesNotExist, match="missing RgbBands"):
             render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot")
 
     @pytest.mark.plot
