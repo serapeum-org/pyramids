@@ -11,6 +11,7 @@ covers the reproject-before-composite behaviour and its ``_prepare_sources`` /
 
 from __future__ import annotations
 
+import tracemalloc
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -110,6 +111,64 @@ class TestMergeMethod:
         )
         assert arr[0, 0] == pytest.approx(10.0), f"A-only column changed: {arr[0, 0]}"
         assert arr[0, 5] == pytest.approx(20.0), f"B-only column changed: {arr[0, 5]}"
+
+    @pytest.mark.parametrize("method", ["min", "max", "sum"])
+    def test_reduction_byte_identical_across_strip_sizes(
+        self, tmp_path, monkeypatch, method
+    ):
+        """Striping the reduction (and its latitude prune) matches a single-pass merge.
+
+        Test scenario:
+            Two vertically-offset sources overlap in a middle row band. Merging with a
+            1-row strip — forcing many strips and skipping each source over the strips
+            it does not cover — must produce a byte-identical raster to the default
+            single-pass merge.
+        """
+        import pyramids.dataset.merge as merge_mod
+
+        top = write_raster(
+            tmp_path / "top.tif", np.full((4, 4), 10.0, dtype="float32"), (0, 6)
+        )
+        bottom = write_raster(
+            tmp_path / "bottom.tif", np.full((4, 4), 20.0, dtype="float32"), (0, 4)
+        )
+        single = tmp_path / f"single_{method}.tif"
+        merge_rasters([top, bottom], single, no_data_value=-9999.0, method=method)
+        monkeypatch.setattr(merge_mod, "_MERGE_STRIP_ROWS", 1)
+        stripped = tmp_path / f"stripped_{method}.tif"
+        merge_rasters([top, bottom], stripped, no_data_value=-9999.0, method=method)
+        assert np.array_equal(
+            Dataset.read_file(str(single)).read_array(),
+            Dataset.read_file(str(stripped)).read_array(),
+        ), f"{method}: 1-row-strip result differs from the single-pass merge"
+
+    def test_reduction_peak_memory_is_bounded_by_the_strip(self, tmp_path, monkeypatch):
+        """The min/max/sum merge peaks near one strip, far below the full union cube.
+
+        Test scenario:
+            Merge two overlapping 4000x250 sources with 128-row strips; the traced
+            Python peak must be a fraction of the dense float64 union, proving the whole
+            output is never accumulated at once.
+        """
+        import pyramids.dataset.merge as merge_mod
+
+        rows, cols = 4000, 250
+        pa = write_raster(
+            tmp_path / "a.tif", np.ones((rows, cols), dtype="float32"), (0, rows)
+        )
+        pb = write_raster(
+            tmp_path / "b.tif", np.full((rows, cols), 2.0, dtype="float32"), (0, rows)
+        )
+        monkeypatch.setattr(merge_mod, "_MERGE_STRIP_ROWS", 128)
+        union_bytes = rows * cols * 8  # float64 union cube
+        tracemalloc.start()
+        merge_rasters([pa, pb], tmp_path / "big.tif", no_data_value=-1.0, method="max")
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        assert peak < union_bytes // 4, (
+            f"merge peaked at {peak / 1e6:.1f} MB; a whole-union pass would need "
+            f"{union_bytes / 1e6:.1f} MB — the reduction was not stripped"
+        )
 
     def test_default_method_is_last(self, overlapping_pair, tmp_path):
         """Omitting method defaults to last-wins (backward compatible).
