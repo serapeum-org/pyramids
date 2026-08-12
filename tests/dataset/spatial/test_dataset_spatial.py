@@ -552,6 +552,83 @@ class TestCrop:
         aligned_raster.spatial._crop_with_raster(mask_obj)
 
 
+class TestCropAlignedTiling:
+    """The tiled raster-mask path (`_crop_aligned_tiled`) is byte-identical across tile seams."""
+
+    @pytest.mark.parametrize("bands", [1, 2])
+    def test_tiled_matches_direct_apply_across_tile_boundaries(self, bands):
+        """A raster larger than one 256-px tile is masked exactly like a direct NumPy apply.
+
+        Args:
+            bands: Number of source bands (1 exercises the 2-D path, 2 the per-band path).
+
+        Test scenario:
+            No-data cells placed in three different 256-px tiles (including one on the column
+            seam) are stamped with the source no-data value identically to a whole-array apply.
+        """
+        rng = np.random.default_rng(0)
+        shape = (bands, 300, 300) if bands > 1 else (300, 300)
+        arr = (rng.random(shape) * 100).astype("float32")
+        src_no_data = -9999.0
+        geotransform = (0.0, 0.05, 0.0, 15.0, 0.0, -0.05)
+        src = Dataset.create_from_array(
+            arr, geo=geotransform, epsg=4326, no_data_value=src_no_data
+        )
+
+        mask_no_data = -1.0
+        mask_arr = np.ones((300, 300), dtype="float32")
+        mask_arr[10, 20] = mask_no_data
+        mask_arr[275, 290] = mask_no_data
+        mask_arr[128, 260] = mask_no_data
+        mask = Dataset.create_from_array(
+            mask_arr, geo=geotransform, epsg=4326, no_data_value=mask_no_data
+        )
+
+        cropped = src.spatial._crop_aligned(mask).read_array()
+
+        expected = arr.copy()
+        holes = mask_arr == mask_no_data
+        if bands > 1:
+            for band in range(bands):
+                expected[band][holes] = src_no_data
+        else:
+            expected[holes] = src_no_data
+        np.testing.assert_array_equal(
+            cropped,
+            expected,
+            err_msg="Tiled mask-apply must match the direct whole-array apply",
+        )
+
+    def test_tiled_and_fill_gaps_paths_agree(self):
+        """The tiled default and the eager fill_gaps=False result are identical on one raster.
+
+        Test scenario:
+            Running `_crop_aligned` (tiled) and forcing the eager whole-array branch via a
+            NumPy mask on the same source yield the same masked array.
+        """
+        rng = np.random.default_rng(1)
+        arr = (rng.random((260, 260)) * 10).astype("float64")
+        src_no_data = -32768.0
+        geotransform = (0.0, 0.05, 0.0, 13.0, 0.0, -0.05)
+        src = Dataset.create_from_array(
+            arr, geo=geotransform, epsg=4326, no_data_value=src_no_data
+        )
+        mask_arr = np.ones((260, 260), dtype="float64")
+        mask_arr[5, 5] = -1.0
+        mask_arr[259, 259] = -1.0
+        mask = Dataset.create_from_array(
+            mask_arr, geo=geotransform, epsg=4326, no_data_value=-1.0
+        )
+
+        tiled = src.spatial._crop_aligned(mask).read_array()
+        eager = src.spatial._crop_aligned(mask_arr, mask_noval=-1.0).read_array()
+        np.testing.assert_array_equal(
+            tiled,
+            eager,
+            err_msg="Tiled raster-mask path must match the eager numpy-mask path",
+        )
+
+
 class TestCropWithPolygon:
     def test_inplace(
         self,

@@ -52,6 +52,13 @@ _NEIGHBOUR_OFFSETS: tuple[tuple[int, int], ...] = (
 # out of order can be restored to row-major before the frame is returned.
 _CELL_ORDER = "_pyramids_cell_order"
 
+# When `to_feature_collection(tile=None)` auto-selects, read the whole array only if
+# it is at most this many bytes; a larger raster is read tile by tile so the full-band
+# ndarray is never allocated (#969) -- the resulting DataFrame still scales with the
+# surviving non-no-data cells. 256 MiB keeps the fast whole-array path for everyday
+# rasters while bounding the pathological case.
+_AUTO_TILE_BYTES = 256 * 1024 * 1024
+
 
 class Vectorize(_Engine["Dataset"]):
     """Mixin providing vectorization, clustering, and translate methods for Dataset."""
@@ -206,7 +213,7 @@ class Vectorize(_Engine["Dataset"]):
         self,
         mask: GeoDataFrame | None = None,
         add_geometry: str | None = None,
-        tile: bool = False,
+        tile: bool | None = None,
         tile_size: int = 256,
         touch: bool = True,
     ) -> DataFrame | GeoDataFrame:
@@ -229,12 +236,16 @@ class Vectorize(_Engine["Dataset"]):
             add_geometry (str):
                 "Polygon" or "Point" if you want to add a polygon geometry of the cells as column in dataframe.
                 Default is None.
-            tile (bool):
-                True to read the raster tile by tile rather than in one pass, which bounds
-                the peak allocation on a large raster. Default is False. The rows are the
-                same cells in the same row-major order either way -- `mask` included -- so
-                the choice is a memory/throughput trade, not a change of result, and
-                `add_geometry` is safe with either.
+            tile (bool | None):
+                Whether to read the raster tile by tile rather than in one pass, which
+                bounds the peak allocation on a large raster. `None` (default)
+                auto-selects: the whole array is read when it is at most ~256 MiB, else
+                the raster is tiled so the full-band ndarray is never allocated (the
+                resulting DataFrame still scales with the surviving non-no-data cells).
+                Pass `True`/`False` to force the choice. The rows are the same cells in
+                the same row-major order either way -- `mask` included -- so it is a
+                memory/throughput trade, not a change of result, and `add_geometry` is
+                safe with either.
             tile_size (int):
                 Tile size in cells, applied to both axes. Default is 256.
             touch (bool):
@@ -366,6 +377,17 @@ class Vectorize(_Engine["Dataset"]):
             src_ds = self._ds.crop(mask=mask, touch=touch)
         else:
             src_ds = self._ds
+
+        # None auto-selects on the array's byte size: keep the fast whole-array read
+        # for everyday rasters, tile a large one so the full-band ndarray is never
+        # allocated (#969). The tiled path is byte-identical (same row-major rows), so
+        # this only trades memory for throughput. An explicit True/False overrides.
+        # Sum the per-band itemsizes rather than assuming band 0's dtype, so a
+        # mixed-dtype stack is estimated correctly.
+        if tile is None:
+            bytes_per_cell = sum(np.dtype(dt).itemsize for dt in src_ds.dtype)
+            full_bytes = src_ds.rows * src_ds.columns * bytes_per_cell
+            tile = full_bytes > _AUTO_TILE_BYTES
 
         # Both branches must read `src_ds` -- the cropped dataset when a mask was
         # given. Reading `self` here silently discarded the mask, so a tiled call

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Iterable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import geopandas as gpd
@@ -1348,8 +1349,69 @@ class Bands(_Engine["Dataset"]):
                 self._ds.raster.GetRasterBand(band + 1).SetNoDataValue(no_data_value)
         self._ds._no_data_value[band] = no_data_value
 
+    def _normalize_no_data_arg(self, value: Any, name: str) -> list:
+        """Normalize a scalar or per-band no-data value to a list of length band_count.
+
+        Args:
+            value: A scalar (broadcast to every band) or a per-band list.
+            name: The argument name, used in the error message.
+
+        Returns:
+            list: A per-band list of length `band_count`.
+
+        Raises:
+            NoDataValueError: `value` is a list whose length is not `band_count`.
+        """
+        if not isinstance(value, list):
+            return [value] * self._ds.band_count
+        if len(value) != self._ds.band_count:
+            raise NoDataValueError(
+                f"{name} must be a scalar or a list of length band_count "
+                f"({self._ds.band_count}); got a list of length {len(value)}."
+            )
+        return value
+
+    def _swap_all_bands(
+        self, new_dataset: Dataset, new_value: Any, old_value: list | None
+    ) -> None:
+        """Swap every band's old no-data cells to the new value, tile by tile.
+
+        Args:
+            new_dataset: The cloned destination written in place.
+            new_value: Per-band new no-data values (already dtype-coerced).
+            old_value: Per-band old no-data values, or `None` to match NaN.
+        """
+        for band in range(self._ds.band_count):
+            band_old_value = old_value[band] if old_value is not None else None
+            self._swap_no_data_tiled(new_dataset, band, band_old_value, new_value[band])
+
+    @staticmethod
+    def _discard_partial_output(new_dataset: Dataset, target: str) -> None:
+        """Release the handle and delete a partially-written disk output (best-effort).
+
+        Closes the wrapper (needed with the caller dropping its own `dst` reference,
+        or GDAL keeps the file locked on Windows) and unlinks the partial file plus
+        its sidecar, swallowing `OSError` so a residual lock never masks the original
+        exception -- the file just lingers.
+
+        Args:
+            new_dataset: The destination wrapper to close.
+            target: The output file path whose partial file/sidecar to remove.
+        """
+        new_dataset.close()
+        for leftover in (target, f"{target}.aux.xml"):
+            try:
+                Path(leftover).unlink()
+            except OSError:
+                pass
+
     def change_no_data_value(
-        self, new_value: Any, old_value: Any | None = None, inplace: bool = False
+        self,
+        new_value: Any,
+        old_value: Any | None = None,
+        inplace: bool = False,
+        *,
+        path: str | Path | None = None,
     ) -> Dataset | None:
         """Change No Data Value.
             - Set the no data value in all raster bands.
@@ -1366,6 +1428,11 @@ class Bands(_Engine["Dataset"]):
             inplace (bool):
                 If True, the original dataset will be modified. If False, a new dataset will be created.
                 Default is False.
+            path (str | Path | None):
+                Output `.tif` path for a disk-backed result. When given, the raster
+                is cloned to that GeoTIFF and the no-data swap is streamed tile by
+                tile, so the whole raster is never held in RAM (genuinely
+                out-of-core). `None` (default) keeps the result in memory.
 
         Returns:
             Dataset | None:
@@ -1381,7 +1448,8 @@ class Bands(_Engine["Dataset"]):
                 match `band_count`.
 
         Warning:
-            The `change_no_data_value` method creates a new dataset in memory in order to change the `no_data_value` in the raster bands.
+            With `path=None` the method clones the raster in memory to change the
+            `no_data_value`; pass `path` for a disk-backed, out-of-core result.
         Examples:
             - Create a Dataset (4 bands, 10 rows, 10 columns) at lon/lat (0, 0):
               ```python
@@ -1412,38 +1480,76 @@ class Bands(_Engine["Dataset"]):
 
               ```
         """
-        if not isinstance(new_value, list):
-            new_value = [new_value] * self._ds.band_count
-        if len(new_value) != self._ds.band_count:
-            raise NoDataValueError(
-                f"new_value must be a scalar or a list of length band_count "
-                f"({self._ds.band_count}); got a list of length {len(new_value)}."
-            )
-        if old_value is not None and not isinstance(old_value, list):
-            old_value = [old_value] * self._ds.band_count
-        if old_value is not None and len(old_value) != self._ds.band_count:
-            raise NoDataValueError(
-                f"old_value must be a scalar or a list of length band_count "
-                f"({self._ds.band_count}); got a list of length {len(old_value)}."
-            )
-        dst = gdal.GetDriverByName("MEM").CreateCopy("", self._ds.raster, 0)
-        # create a new dataset
+        new_value = self._normalize_no_data_arg(new_value, "new_value")
+        if old_value is not None:
+            old_value = self._normalize_no_data_arg(old_value, "old_value")
+        # Clone the full header + pixels with GDAL's block-based CreateCopy so
+        # every band's colour table, description, scale/offset, RAT and metadata
+        # survive exactly (no explicit per-property copy to drift out of sync).
+        # A `path` makes the clone a disk-backed GeoTIFF, so with the tiled swap
+        # below the whole raster is never held in RAM (out-of-core); `None` keeps
+        # it in memory. The old<->new no-data swap is then streamed one tile at a
+        # time, so a full band is never materialised as a NumPy array (#969).
+        driver = "GTiff" if path is not None else "MEM"
+        target = str(path) if path is not None else ""
+        dst = gdal.GetDriverByName(driver).CreateCopy(target, self._ds.raster, 0)
         new_dataset = self._ds.__class__(dst, "write")
-        # the new_value could change inside the _set_no_data_value method before it is used to set the no_data_value
-        # attribute in the gdal object/pyramids object and to fill the band.
-        new_dataset._set_no_data_value(new_value)
-        # now we have to use the no_data_value value in the no_data_value attribute in the Dataset object as it is
-        # updated.
-        new_value = new_dataset.no_data_value
-        for band in range(self._ds.band_count):
-            arr = self._ds.read_array(band)
-            # old_value is normalized to a per-band list above (matching
-            # new_value); index it per-band here too instead of comparing
-            # against the whole list.
-            band_old_value = old_value[band] if old_value is not None else None
+        try:
+            # _set_no_data_value may coerce new_value to each band's dtype; read it
+            # back from the object so the swap below uses the stored values.
+            new_dataset._set_no_data_value(new_value)
+            new_value = new_dataset.no_data_value
+            self._swap_all_bands(new_dataset, new_value, old_value)
+        except Exception:
+            # A mid-stream failure must not leave a half-written GeoTIFF behind:
+            # drop the local handle and let the helper release + delete the partial
+            # file before re-raising (best-effort, so it never masks the error).
+            if path is not None:
+                dst = None
+                self._discard_partial_output(new_dataset, target)
+            raise
+        # Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on
+        # disk before it is reopened (a no-op for the in-memory driver).
+        new_dataset.raster.FlushCache()
+
+        if inplace:
+            self._ds._update_inplace(new_dataset.raster)
+            return None
+        return new_dataset
+
+    def _swap_no_data_tiled(
+        self,
+        new_dataset: Dataset,
+        band: int,
+        band_old_value: Any,
+        new_band_value: Any,
+    ) -> None:
+        """Replace a band's old-no-data cells with the new value, one tile at a time.
+
+        The caller's `_set_no_data_value` fills the destination band with the new
+        no-data value, so every tile is read from the *source*, has its old
+        no-data cells swapped to the new value, and is written back at its offset
+        -- reconstructing the band exactly as the previous whole-band read/swap/
+        write did, but never holding more than one tile as a NumPy array. The swap
+        is attempted on every tile so an invalid `new_band_value` dtype raises just
+        as the whole-band assignment did, even for a band with no matching cells.
+
+        Args:
+            new_dataset: The destination Dataset written in place.
+            band: Zero-based index of the band to swap.
+            band_old_value: The old no-data value to locate (``None`` matches NaN).
+            new_band_value: The new no-data value written into the matched cells.
+
+        Raises:
+            NoDataValueError: `new_band_value` cannot be stored in the band dtype.
+        """
+        dst_band = new_dataset.raster.GetRasterBand(band + 1)
+        for xoff, yoff, xsize, ysize in self._ds.io._tile_offsets():
+            tile = self._ds.read_array(band=band, window=[xoff, yoff, xsize, ysize])
+            mask = is_no_data(tile, band_old_value)
             try:
                 with np.errstate(invalid="raise"):
-                    arr[is_no_data(arr, band_old_value)] = new_value[band]
+                    tile[mask] = new_band_value
             # A dtype mismatch surfaces differently across numpy paths: a None value
             # is not subscriptable (TypeError), a NaN cast into an integer band raises
             # ValueError ("cannot convert float NaN to integer"), and an invalid
@@ -1451,12 +1557,7 @@ class Bands(_Engine["Dataset"]):
             # to the package-level NoDataValueError.
             except (TypeError, ValueError, FloatingPointError):
                 raise NoDataValueError(
-                    f"The dtype of the given no_data_value: {new_value[band]} differs from the dtype of the "
+                    f"The dtype of the given no_data_value: {new_band_value} differs from the dtype of the "
                     f"band: {gdal_to_numpy_dtype(self._ds.gdal_dtype[band])}"
                 )
-            new_dataset.raster.GetRasterBand(band + 1).WriteArray(arr)
-
-        if inplace:
-            self._ds._update_inplace(new_dataset.raster)
-            return None
-        return new_dataset
+            dst_band.WriteArray(tile, xoff, yoff)

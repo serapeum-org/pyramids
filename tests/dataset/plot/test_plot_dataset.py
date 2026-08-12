@@ -140,6 +140,51 @@ class TestPlotDataSet:
         ], f"nodata (-9999) and exclude_value (7.0) must be dropped; got {vals}"
 
     @pytest.mark.plot
+    def test_plot_histogram_max_samples_decimates(self):
+        """``max_samples`` histograms a decimated subsample instead of every pixel.
+
+        Test scenario:
+            A 100x100 raster (10,000 cells) plotted with ``max_samples=400`` hands the glyph
+            far fewer samples than the full band, while the default reads all 10,000.
+        """
+        arr = np.arange(100 * 100, dtype="float32").reshape(100, 100)
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        )
+        captured: dict = {}
+
+        class _FakeSG:
+            @staticmethod
+            def filter_kwargs(kw):
+                return {}
+
+            def __init__(self, values, ax=None, **kwargs):
+                vals = np.asarray(values)
+                captured["n"] = vals.size
+                captured["vals"] = vals
+
+            def histogram(self, bins=15):
+                return ("fig", "ax", {})
+
+        with patch(
+            "cleopatra.glyphs.stats.histogram_glyph.HistogramGlyph", new=_FakeSG
+        ):
+            dataset.plot_histogram(band=0, max_samples=400)
+            decimated = captured["n"]
+            decimated_vals = captured["vals"]
+            dataset.plot_histogram(band=0)
+            full = captured["n"]
+        assert full == 10000, f"Exact read must see every pixel, got {full}"
+        assert decimated <= 500, (
+            f"max_samples=400 must decimate to ~400 samples, got {decimated}"
+        )
+        # nearest-neighbour decimation must hand the glyph real band values, not
+        # interpolated or out-of-range garbage.
+        assert np.isin(decimated_vals, np.arange(10000)).all(), (
+            "every decimated sample must be an actual band value (nearest-neighbour)"
+        )
+
+    @pytest.mark.plot
     def test_invalid_color_scale_raises(self, src: Dataset):
         """A loose ``color_scale`` kwarg is rejected with a clear ``ValueError``.
 

@@ -1277,13 +1277,23 @@ class Spatial(_Engine["Dataset"]):
                 )
 
     def _apply_mask_nodata(
-        self, src_array: np.ndarray, mask_no_data: np.ndarray, band_count: int
+        self,
+        src_array: np.ndarray,
+        mask_no_data: np.ndarray,
+        band_count: int,
+        no_data_value: list | None = None,
     ) -> None:
-        """Write the source no-data value into the masked cells (per band)."""
+        """Write the source no-data value into the masked cells (per band).
+
+        `no_data_value` may be a caller-precomputed, dtype-checked per-band list; the
+        tiled crop passes it so the coercion runs once instead of per tile. When
+        `None` the multi-band path validates it here as before.
+        """
         if band_count > 1:
             # check the no_data_value complies with the src dtype before writing it
             # into cells (a band full of values may never use its no_data_value).
-            no_data_value = self._ds._check_no_data_value(self._ds.no_data_value)
+            if no_data_value is None:
+                no_data_value = self._ds._check_no_data_value(self._ds.no_data_value)
             for band in range(self._ds.band_count):
                 src_array[band, mask_no_data] = no_data_value[band]
         else:
@@ -1327,15 +1337,11 @@ class Spatial(_Engine["Dataset"]):
             row = mask.rows
             col = mask.columns
             mask_noval = mask.no_data_value[0]
-            # read_array() is called with no chunks=, so it always returns a plain
-            # ndarray here (the dask.Array arm of ArrayLike is unreachable).
-            mask_array = cast(np.typing.NDArray, mask.read_array(band=0))
         elif isinstance(mask, np.ndarray):
             if mask_noval is None:
                 raise ValueError(
                     "You have to enter the value of the no_val parameter when the mask is a numpy array"
                 )
-            mask_array = mask.copy()
             row, col = mask.shape
         else:
             raise TypeError(
@@ -1345,17 +1351,8 @@ class Spatial(_Engine["Dataset"]):
 
         band_count = self._ds.band_count
         src_sref = sr_from_wkt(self._ds.crs)
-        # read_array() is called with no chunks=, so it always returns a plain
-        # ndarray here (the dask.Array arm of ArrayLike is unreachable).
-        src_array = cast(np.typing.NDArray, self._ds.read_array())
 
         self._assert_crop_aligned(mask, row, col)
-
-        mask_no_data = is_no_data(mask_array, mask_noval)
-        self._apply_mask_nodata(src_array, mask_no_data, band_count)
-
-        if fill_gaps:
-            src_array = self.fill_gaps(mask, src_array)
 
         dst = self._ds.__class__._create_dataset(
             col, row, band_count, self._ds.gdal_dtype[0], driver="MEM"
@@ -1373,8 +1370,76 @@ class Spatial(_Engine["Dataset"]):
         dst_obj = self._ds.__class__(dst)
         # set the no data value
         dst_obj._set_no_data_value(self._ds.no_data_value)
+
+        # Apply the mask's no-data layout tile by tile for the raster-mask,
+        # no-gap-fill case, so neither the full source (all bands) nor the full
+        # mask is ever materialised at once (#969). The mask-apply is purely
+        # per-pixel, so the tiled result is byte-identical to the whole-array
+        # path. The numpy-array mask (already in memory) and the gap-filling
+        # path (which interpolates across the whole array) stay eager below.
+        if isinstance(mask, RasterBase) and not fill_gaps:
+            self._crop_aligned_tiled(mask, mask_noval, dst_obj, band_count)
+            return dst_obj
+
+        # read_array() is called with no chunks=, so it always returns a plain
+        # ndarray here (the dask.Array arm of ArrayLike is unreachable).
+        if isinstance(mask, RasterBase):
+            mask_array = cast(np.typing.NDArray, mask.read_array(band=0))
+        else:
+            mask_array = mask.copy()
+        src_array = cast(np.typing.NDArray, self._ds.read_array())
+
+        mask_no_data = is_no_data(mask_array, mask_noval)
+        self._apply_mask_nodata(src_array, mask_no_data, band_count)
+
+        if fill_gaps:
+            src_array = self.fill_gaps(mask, src_array)
+
         self._write_bands(dst_obj, src_array, band_count)
         return dst_obj
+
+    def _crop_aligned_tiled(
+        self,
+        mask: RasterBase,
+        mask_noval: int | float | None,
+        dst_obj: Any,
+        band_count: int,
+    ) -> None:
+        """Stamp the mask's no-data layout onto the source one window at a time.
+
+        Reads the source (all bands) and the mask band a square tile at a time,
+        applies the source no-data value where the mask is no-data, and writes
+        each masked block straight into `dst_obj`, so the full arrays are never
+        held together. The operation is purely per-pixel, hence byte-identical
+        to the whole-array path (#969).
+
+        Args:
+            mask: The already-aligned raster mask supplying the no-data layout.
+            mask_noval: The mask's no-data value used to locate masked cells.
+            dst_obj: The destination Dataset the masked blocks are written into.
+            band_count: Number of bands in the source raster.
+        """
+        # Coerce the per-band no-data value once here rather than on every tile.
+        no_data_value = (
+            self._ds._check_no_data_value(self._ds.no_data_value)
+            if band_count > 1
+            else None
+        )
+        for xoff, yoff, xsize, ysize in self._ds.io._tile_offsets():
+            window = [xoff, yoff, xsize, ysize]
+            # read_array() is called with no chunks=, so it always returns a
+            # plain ndarray here (the dask.Array arm of ArrayLike is unreachable).
+            mask_tile = cast(np.typing.NDArray, mask.read_array(band=0, window=window))
+            src_tile = cast(np.typing.NDArray, self._ds.read_array(window=window))
+            mask_no_data = is_no_data(mask_tile, mask_noval)
+            self._apply_mask_nodata(src_tile, mask_no_data, band_count, no_data_value)
+            if band_count > 1:
+                for band in range(band_count):
+                    dst_obj.raster.GetRasterBand(band + 1).WriteArray(
+                        src_tile[band, :, :], xoff, yoff
+                    )
+            else:
+                dst_obj.raster.GetRasterBand(1).WriteArray(src_tile, xoff, yoff)
 
     def _check_alignment(self, mask) -> bool:
         """Check if raster is aligned with a given mask raster."""

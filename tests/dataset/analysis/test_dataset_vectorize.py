@@ -419,6 +419,96 @@ class TestFootPrint:
         # the class should be 2
         assert next(iter(set(extent[dataset.band_names[0]]))) == 2
 
+    def test_max_samples_none_is_exact_full_read(self):
+        """The default `max_samples=None` traces the exact full-resolution footprint.
+
+        Test scenario:
+            A 200x200 raster with a solid covered block footprints to a polygon whose area
+            equals the block's geographic area.
+        """
+        arr = np.zeros((200, 200), dtype="float32")
+        arr[50:150, 60:160] = 5.0
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 200.0), cell_size=1.0, epsg=3857
+        )
+        extent = ds.footprint(exclude_values=[0])
+        assert extent is not None, "A covered block must yield a footprint"
+        assert float(extent.geometry.area.sum()) == pytest.approx(100 * 100), (
+            "Exact footprint area must equal the covered block area"
+        )
+
+    def test_max_samples_decimates_and_keeps_extent(self):
+        """`max_samples` traces an approximate footprint on a coarser grid over the same extent.
+
+        Test scenario:
+            The decimated footprint of a solid block stays inside the raster bounds and
+            covers roughly the block's area (coarser, not exact).
+        """
+        arr = np.zeros((200, 200), dtype="float32")
+        arr[50:150, 60:160] = 5.0
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 200.0), cell_size=1.0, epsg=3857
+        )
+        approx = ds.footprint(exclude_values=[0], max_samples=400)
+        assert approx is not None, "Decimated footprint must still be produced"
+        minx, miny, maxx, maxy = approx.total_bounds
+        # The covered block spans x 60..160, y 50..150; decimation (~10-unit cells)
+        # blurs the edges, so allow a tile-width tolerance but require the footprint
+        # to track the block, not merely stay inside the raster.
+        assert minx == pytest.approx(60, abs=12), f"x-min off block: {minx}"
+        assert maxx == pytest.approx(160, abs=12), f"x-max off block: {maxx}"
+        assert miny == pytest.approx(50, abs=12), f"y-min off block: {miny}"
+        assert maxy == pytest.approx(150, abs=12), f"y-max off block: {maxy}"
+        assert float(approx.geometry.area.sum()) == pytest.approx(10000, rel=0.3), (
+            "Decimated footprint area should be roughly the block area"
+        )
+
+    @pytest.mark.parametrize("bad", [0, -5])
+    def test_max_samples_below_one_raises(self, bad):
+        """A non-positive max_samples is rejected with a clear ValueError.
+
+        Args:
+            bad: An invalid max_samples value (zero or negative).
+
+        Test scenario:
+            footprint(max_samples=0) and (max_samples=-5) raise ValueError instead of a
+            cryptic ZeroDivisionError / complex-round TypeError.
+        """
+        arr = np.ones((8, 8), dtype="float32")
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+            epsg=3857,
+            no_data_value=-9.0,
+        )
+        with pytest.raises(ValueError, match="max_samples must be a positive integer"):
+            ds.footprint(max_samples=bad)
+
+    def test_max_samples_preserves_extent_on_rotated_non_square_raster(self):
+        """Decimated footprint keeps the exact extent on a rotated, non-square-cell raster.
+
+        Test scenario:
+            A fully-covered raster with non-zero rotation terms and non-square cells
+            footprints to the same total_bounds exact vs decimated, so a regression dropping
+            the geotransform rotation/scale scaling in `_scaled_geotransform` would be caught.
+        """
+        arr = np.ones((100, 100), dtype="float32")
+        geotransform = (0.0, 1.0, 0.2, 50.0, 0.15, -1.0)
+        ds = Dataset.create_from_array(
+            arr, geo=geotransform, epsg=3857, no_data_value=-9999.0
+        )
+        exact = ds.footprint()
+        approx = ds.footprint(max_samples=400)
+        assert exact is not None, "exact footprint must exist"
+        assert approx is not None, "decimated footprint must exist"
+        np.testing.assert_allclose(
+            approx.total_bounds,
+            exact.total_bounds,
+            atol=1e-6,
+            err_msg="decimated footprint must preserve the exact extent (rotated/non-square)",
+        )
+
 
 class TestToFeatureCollectionMaskTiling:
     """The mask must be honoured on both the tiled and the non-tiled path."""
@@ -647,3 +737,51 @@ class TestTiledRowOrder:
         assert not (tiled.to_numpy() == -9999.0).any(), (
             "no sentinel may survive into the frame"
         )
+
+    def test_auto_reads_the_whole_array_below_the_threshold(self, uneven, mocker):
+        """`tile=None` reads the whole array when it fits under the byte threshold.
+
+        Test scenario:
+            The 37x53 fixture is far below 256 MiB, so the default call takes the fast
+            whole-array path, not the tiled one.
+        """
+        full_spy = mocker.spy(Vectorize, "_extract_values_full")
+        tiled_spy = mocker.spy(Vectorize, "_extract_values_tiled")
+        uneven.to_feature_collection()
+        assert full_spy.call_count == 1, "small raster should read the whole array"
+        assert tiled_spy.call_count == 0, "small raster should not tile"
+
+    def test_auto_tiles_above_the_threshold_byte_identical(
+        self, uneven, mocker, monkeypatch
+    ):
+        """`tile=None` tiles a raster above the threshold, byte-identical to the full read.
+
+        Test scenario:
+            Drop the auto-tile threshold to 1 byte so the fixture exceeds it; the default
+            call then takes the tiled path and returns exactly the rows the untiled path
+            returns, in the same order.
+        """
+        monkeypatch.setattr("pyramids.dataset.engines.vectorize._AUTO_TILE_BYTES", 1)
+        tiled_spy = mocker.spy(Vectorize, "_extract_values_tiled")
+        auto = uneven.to_feature_collection(tile_size=8)
+        assert tiled_spy.call_count == 1, "large raster should tile"
+        untiled = uneven.to_feature_collection(tile=False)
+        pd.testing.assert_frame_equal(
+            auto.reset_index(drop=True), untiled.reset_index(drop=True)
+        )
+
+    def test_explicit_tile_false_overrides_the_auto_threshold(
+        self, uneven, mocker, monkeypatch
+    ):
+        """An explicit `tile=False` reads the whole array even above the threshold.
+
+        Test scenario:
+            With the threshold dropped to 1 byte (which would auto-tile), passing
+            `tile=False` still takes the whole-array path.
+        """
+        monkeypatch.setattr("pyramids.dataset.engines.vectorize._AUTO_TILE_BYTES", 1)
+        full_spy = mocker.spy(Vectorize, "_extract_values_full")
+        tiled_spy = mocker.spy(Vectorize, "_extract_values_tiled")
+        uneven.to_feature_collection(tile=False)
+        assert full_spy.call_count == 1, "explicit tile=False must read the whole array"
+        assert tiled_spy.call_count == 0, "explicit tile=False must not tile"

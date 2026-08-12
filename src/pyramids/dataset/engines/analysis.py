@@ -301,7 +301,14 @@ class Analysis(_Engine["Dataset"]):
         domain_count = self._ds.rows * self._ds.columns - no_data_count
         return int(domain_count)
 
-    def apply(self, func, band: int = 0, inplace: bool = False) -> Dataset | None:
+    def apply(
+        self,
+        func,
+        band: int = 0,
+        inplace: bool = False,
+        *,
+        elementwise: bool = False,
+    ) -> Dataset | None:
         """Apply a function to all domain cells.
 
         - apply method executes a mathematical operation on the raster array.
@@ -315,6 +322,16 @@ class Analysis(_Engine["Dataset"]):
             inplace (bool):
                 If True, the original dataset will be modified. If False, a new dataset will be created.
                 Default is False.
+            elementwise (bool):
+                Opt-in streaming mode. When `True`, `func` is applied one tile at
+                a time instead of to the whole band at once, so a very large or
+                `/vsicurl` source is never materialised whole. Only pass `True`
+                when `func` is a genuine **per-pixel** map (e.g. `np.abs`,
+                `lambda v: v * 2 + 1`): the tiled result is then byte-identical to
+                the default whole-array pass. A `func` that depends on the whole
+                array -- a min/max normalisation, a rank, any global reduction --
+                would give a different result tiled, so it must keep the default
+                `False`. Default `False` (whole-array, unchanged behaviour).
 
         Returns:
             Dataset | None:
@@ -362,18 +379,7 @@ class Analysis(_Engine["Dataset"]):
             raise TypeError("The second argument should be a function")
 
         no_data_value = self._ds.no_data_value[band]
-        src_array = self._ds.read_array(band)
         dtype = self._ds.gdal_dtype[band]
-
-        new_array = np.full(
-            (self._ds.rows, self._ds.columns), no_data_value, dtype=src_array.dtype
-        )
-        domain_mask = inside_domain(src_array, no_data_value)
-        domain_values = src_array[domain_mask]
-        try:
-            new_array[domain_mask] = func(domain_values)
-        except (ValueError, TypeError):
-            new_array[domain_mask] = np.vectorize(func)(domain_values)
 
         dst_obj = self._ds.__class__._build_dataset(
             self._ds.columns,
@@ -384,12 +390,69 @@ class Analysis(_Engine["Dataset"]):
             self._ds.crs,
             no_data_value,
         )
-        dst_obj.raster.GetRasterBand(1).WriteArray(new_array)
+        if elementwise:
+            self._apply_elementwise_tiled(func, band, no_data_value, dst_obj)
+        else:
+            # `band=` as a keyword, never positional: NetCDF.read_array puts
+            # `variable` first, so read_array(band) mis-binds on a variable view.
+            src_array = self._ds.read_array(band=band)
+            new_array = np.full(
+                (self._ds.rows, self._ds.columns),
+                no_data_value,
+                dtype=src_array.dtype,
+            )
+            self._apply_func_to_domain(func, src_array, new_array, no_data_value)
+            dst_obj.raster.GetRasterBand(1).WriteArray(new_array)
 
         if inplace:
             self._ds._update_inplace(dst_obj.raster)
             return None
         return dst_obj
+
+    @staticmethod
+    def _apply_func_to_domain(func, src_array, out_array, no_data_value) -> None:
+        """Apply `func` to the domain (non-no-data) cells of `src_array` into `out_array`.
+
+        Args:
+            func: The per-domain-values callable to apply.
+            src_array: The source array supplying the domain values.
+            out_array: The pre-filled output array written in place.
+            no_data_value: The value marking cells to exclude from the domain.
+        """
+        domain_mask = inside_domain(src_array, no_data_value)
+        domain_values = src_array[domain_mask]
+        # An empty domain (an all-no-data tile, common when streaming) needs no
+        # write -- out_array is already the no-data fill -- and short-circuiting
+        # here avoids `np.vectorize(func)` raising "cannot call 'vectorize' on
+        # size 0 inputs" on a fully-masked tile, keeping the tiled path
+        # byte-identical to the whole-array pass (#969).
+        if domain_values.size == 0:
+            return
+        try:
+            out_array[domain_mask] = func(domain_values)
+        except (ValueError, TypeError):
+            out_array[domain_mask] = np.vectorize(func)(domain_values)
+
+    def _apply_elementwise_tiled(self, func, band, no_data_value, dst_obj) -> None:
+        """Apply an elementwise `func` over one band tile by tile, out of core.
+
+        Reads the band a square window at a time, applies `func` to that tile's
+        domain values, and writes the block straight into `dst_obj`, so the full
+        band is never materialised. For a per-pixel `func` the result is
+        byte-identical to the whole-array path (#969).
+
+        Args:
+            func: The per-pixel callable to apply to each tile's domain values.
+            band: Zero-based index of the source band to transform.
+            no_data_value: The source no-data value, preserved in excluded cells.
+            dst_obj: The single-band destination Dataset written in place.
+        """
+        dst_band = dst_obj.raster.GetRasterBand(1)
+        for xoff, yoff, xsize, ysize in self._ds.io._tile_offsets():
+            tile = self._ds.read_array(band=band, window=[xoff, yoff, xsize, ysize])
+            new_tile = np.full(tile.shape, no_data_value, dtype=tile.dtype)
+            self._apply_func_to_domain(func, tile, new_tile, no_data_value)
+            dst_band.WriteArray(new_tile, xoff, yoff)
 
     def fill(
         self, value: float | int, inplace: bool = False, path: str | Path | None = None
@@ -1045,17 +1108,15 @@ class Analysis(_Engine["Dataset"]):
             raise ValueError(f"connectedness must be 4 or 8, got {connectedness}.")
         validate_band_index(band, self._ds.band_count)
 
-        src_band = self._ds.raster.GetRasterBand(band + 1)
-        out_ds = gdal.GetDriverByName("MEM").Create(
-            "", self._ds.columns, self._ds.rows, 1, src_band.DataType
-        )
-        out_ds.SetGeoTransform(self._ds.geotransform)
-        out_ds.SetProjection(self._ds.crs)
+        # Seed the sieve target with GDAL's block-based copy of the one band
+        # (geotransform, CRS, dtype, and no-data carried across in the C layer)
+        # instead of a full-band ``ReadAsArray`` -> ``WriteArray`` NumPy round
+        # trip, so the whole band is never materialised as a NumPy array (#969).
+        # gdal.Translate also carries the band's color table / RAT / scale-offset
+        # onto the result (the old bare-MEM seed dropped them); the sieved pixels
+        # are unchanged either way, so this only preserves more metadata.
+        out_ds = gdal.Translate("", self._ds.raster, format="MEM", bandList=[band + 1])
         dst_band = out_ds.GetRasterBand(1)
-        dst_band.WriteArray(src_band.ReadAsArray())
-        no_data_value = src_band.GetNoDataValue()
-        if no_data_value is not None:
-            dst_band.SetNoDataValue(no_data_value)
 
         mask_band = mask.raster.GetRasterBand(1) if mask is not None else None
         gdal.SieveFilter(dst_band, mask_band, dst_band, threshold, connectedness)
@@ -1451,6 +1512,8 @@ class Analysis(_Engine["Dataset"]):
         self,
         band: int = 0,
         exclude_values: list[Any] | None = None,
+        *,
+        max_samples: int | None = None,
     ) -> GeoDataFrame | None:
         """Extract the real coverage of the values in a certain band.
 
@@ -1471,6 +1534,16 @@ class Analysis(_Engine["Dataset"]):
                 - This parameter is introduced particularly in the case of rasters that has the no_data_value stored in
                   the `no_data_value` property does not match the value stored in the band, so this option can correct
                   this behavior.
+            max_samples (int, optional):
+                Opt-in cap on how many pixels of the band are read to build the
+                coverage mask. When set and the band has more than
+                ``max_samples`` cells, GDAL reads a nearest-neighbour
+                **decimated** grid (~``max_samples`` cells) instead of the full
+                band, so a very large raster is footprinted without materialising
+                it whole. The extracted polygon is then **approximate** -- traced
+                on the coarser grid, so its edges and area are coarser than the
+                exact footprint. ``None`` (default) reads every pixel, so the
+                footprint is exact.
 
         Returns:
             GeoDataFrame:
@@ -1512,8 +1585,13 @@ class Analysis(_Engine["Dataset"]):
 
               ```
         """
-        arr = self._ds.read_array(band=band)
+        arr = self._read_decimated(band, max_samples)
         no_data_val = self._ds.no_data_value[band]
+        # A decimated read spans the same extent with fewer, larger cells, so the
+        # mask's geotransform must scale its pixel size (and rotation terms) to
+        # the coarser grid; the origin is unchanged. Full-resolution reads leave
+        # the geotransform untouched.
+        geotransform = self._scaled_geotransform(arr.shape)
 
         self._warn_if_nodata_absent(arr, no_data_val)
         if exclude_values:
@@ -1536,7 +1614,7 @@ class Analysis(_Engine["Dataset"]):
 
         new_dataset = Dataset.create_from_array(
             arr,
-            geo=self._ds.geotransform,
+            geo=geotransform,
             epsg=crs_spec(self._ds.epsg, self._ds.crs),
             no_data_value=0,
         )
@@ -1711,12 +1789,76 @@ class Analysis(_Engine["Dataset"]):
         )
         return hist, ranges
 
+    def _read_decimated(self, band: int, max_samples: int | None) -> np.ndarray:
+        """Read a band whole, or a nearest-neighbour decimated version of it.
+
+        When `max_samples` is set and the band has more cells than that, GDAL
+        reads a coarser grid of roughly `max_samples` cells (decimated in the C
+        layer) so the whole band is never materialised; otherwise the full band
+        is read. Nearest-neighbour keeps the samples real pixel values.
+
+        Args:
+            band: Zero-based band index to read.
+            max_samples: Approximate pixel budget, or `None` for an exact read.
+
+        Returns:
+            np.ndarray: The band array, full-resolution or decimated.
+
+        Raises:
+            ValueError: `max_samples` is not `None` and is less than 1.
+        """
+        if max_samples is not None and max_samples < 1:
+            raise ValueError(
+                f"max_samples must be a positive integer or None, got {max_samples}."
+            )
+        rows = self._ds.rows
+        cols = self._ds.columns
+        total = rows * cols
+        if max_samples is None or total <= max_samples:
+            return cast(np.ndarray, self._ds.read_array(band=band))
+        factor = (total / max_samples) ** 0.5
+        out_rows = max(1, round(rows / factor))
+        out_cols = max(1, round(cols / factor))
+        return cast(
+            np.ndarray,
+            self._ds.read_array(
+                band=band, out_shape=(out_rows, out_cols), resampling="nearest"
+            ),
+        )
+
+    def _scaled_geotransform(
+        self, shape: tuple[int, ...]
+    ) -> tuple[float, float, float, float, float, float]:
+        """Geotransform for an array covering the source extent at `shape` cells.
+
+        A full-resolution `shape` returns the source geotransform unchanged; a
+        decimated `shape` (fewer/larger cells over the same extent) scales the
+        pixel-size and rotation terms by the row/column decimation factors while
+        keeping the origin fixed.
+
+        Args:
+            shape: The `(rows, cols)` of the (possibly decimated) array.
+
+        Returns:
+            tuple[float, float, float, float, float, float]: The six-element
+            geotransform for that grid.
+        """
+        d_rows, d_cols = shape
+        gt = self._ds.geotransform
+        if (d_rows, d_cols) == (self._ds.rows, self._ds.columns):
+            return (gt[0], gt[1], gt[2], gt[3], gt[4], gt[5])
+        sx = self._ds.columns / d_cols
+        sy = self._ds.rows / d_rows
+        return (gt[0], gt[1] * sx, gt[2] * sy, gt[3], gt[4] * sx, gt[5] * sy)
+
     def plot_histogram(
         self,
         band: int = 0,
         bins: int = 15,
         exclude_value: Any | None = None,
         ax: Any | None = None,
+        *,
+        max_samples: int | None = None,
         **kwargs: Any,
     ):
         """Plot the value distribution of a band as a histogram.
@@ -1737,6 +1879,15 @@ class Analysis(_Engine["Dataset"]):
                 band's no-data value and ``NaN``. Default is ``None``.
             ax (matplotlib.axes.Axes, optional):
                 Axes to draw on. A new figure/axes is created when ``None``.
+            max_samples (int, optional):
+                Opt-in cap on how many pixels are read. When set and the band
+                has more than ``max_samples`` cells, GDAL reads a
+                nearest-neighbour **decimated** version (~``max_samples`` cells)
+                instead of the full band, so a very large raster is histogrammed
+                without materialising it whole. The distribution is then
+                **approximate** -- a subsample of the pixels, the usual
+                expectation for a large raster. ``None`` (default) reads every
+                pixel, so the histogram is exact.
             **kwargs:
                 Style options forwarded to the ``HistogramGlyph``
                 constructor, filtered via
@@ -1779,7 +1930,7 @@ class Analysis(_Engine["Dataset"]):
         require_cleopatra()
         from cleopatra.glyphs.stats.histogram_glyph import HistogramGlyph
 
-        arr = self._ds.read_array(band=band).flatten()
+        arr = self._read_decimated(band, max_samples).flatten()
         no_data_value = self._ds.no_data_value[band]
         mask = np.ones(arr.shape, dtype=bool)
         if np.issubdtype(arr.dtype, np.floating):
