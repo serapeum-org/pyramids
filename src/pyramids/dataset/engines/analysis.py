@@ -301,7 +301,14 @@ class Analysis(_Engine["Dataset"]):
         domain_count = self._ds.rows * self._ds.columns - no_data_count
         return int(domain_count)
 
-    def apply(self, func, band: int = 0, inplace: bool = False) -> Dataset | None:
+    def apply(
+        self,
+        func,
+        band: int = 0,
+        inplace: bool = False,
+        *,
+        elementwise: bool = False,
+    ) -> Dataset | None:
         """Apply a function to all domain cells.
 
         - apply method executes a mathematical operation on the raster array.
@@ -315,6 +322,16 @@ class Analysis(_Engine["Dataset"]):
             inplace (bool):
                 If True, the original dataset will be modified. If False, a new dataset will be created.
                 Default is False.
+            elementwise (bool):
+                Opt-in streaming mode. When `True`, `func` is applied one tile at
+                a time instead of to the whole band at once, so a very large or
+                `/vsicurl` source is never materialised whole. Only pass `True`
+                when `func` is a genuine **per-pixel** map (e.g. `np.abs`,
+                `lambda v: v * 2 + 1`): the tiled result is then byte-identical to
+                the default whole-array pass. A `func` that depends on the whole
+                array -- a min/max normalisation, a rank, any global reduction --
+                would give a different result tiled, so it must keep the default
+                `False`. Default `False` (whole-array, unchanged behaviour).
 
         Returns:
             Dataset | None:
@@ -362,18 +379,7 @@ class Analysis(_Engine["Dataset"]):
             raise TypeError("The second argument should be a function")
 
         no_data_value = self._ds.no_data_value[band]
-        src_array = self._ds.read_array(band)
         dtype = self._ds.gdal_dtype[band]
-
-        new_array = np.full(
-            (self._ds.rows, self._ds.columns), no_data_value, dtype=src_array.dtype
-        )
-        domain_mask = inside_domain(src_array, no_data_value)
-        domain_values = src_array[domain_mask]
-        try:
-            new_array[domain_mask] = func(domain_values)
-        except (ValueError, TypeError):
-            new_array[domain_mask] = np.vectorize(func)(domain_values)
 
         dst_obj = self._ds.__class__._build_dataset(
             self._ds.columns,
@@ -384,12 +390,60 @@ class Analysis(_Engine["Dataset"]):
             self._ds.crs,
             no_data_value,
         )
-        dst_obj.raster.GetRasterBand(1).WriteArray(new_array)
+        if elementwise:
+            self._apply_elementwise_tiled(func, band, no_data_value, dst_obj)
+        else:
+            src_array = self._ds.read_array(band)
+            new_array = np.full(
+                (self._ds.rows, self._ds.columns),
+                no_data_value,
+                dtype=src_array.dtype,
+            )
+            self._apply_func_to_domain(func, src_array, new_array, no_data_value)
+            dst_obj.raster.GetRasterBand(1).WriteArray(new_array)
 
         if inplace:
             self._ds._update_inplace(dst_obj.raster)
             return None
         return dst_obj
+
+    @staticmethod
+    def _apply_func_to_domain(func, src_array, out_array, no_data_value) -> None:
+        """Apply `func` to the domain (non-no-data) cells of `src_array` into `out_array`.
+
+        Args:
+            func: The per-domain-values callable to apply.
+            src_array: The source array supplying the domain values.
+            out_array: The pre-filled output array written in place.
+            no_data_value: The value marking cells to exclude from the domain.
+        """
+        domain_mask = inside_domain(src_array, no_data_value)
+        domain_values = src_array[domain_mask]
+        try:
+            out_array[domain_mask] = func(domain_values)
+        except (ValueError, TypeError):
+            out_array[domain_mask] = np.vectorize(func)(domain_values)
+
+    def _apply_elementwise_tiled(self, func, band, no_data_value, dst_obj) -> None:
+        """Apply an elementwise `func` over one band tile by tile, out of core.
+
+        Reads the band a square window at a time, applies `func` to that tile's
+        domain values, and writes the block straight into `dst_obj`, so the full
+        band is never materialised. For a per-pixel `func` the result is
+        byte-identical to the whole-array path (#969).
+
+        Args:
+            func: The per-pixel callable to apply to each tile's domain values.
+            band: Zero-based index of the source band to transform.
+            no_data_value: The source no-data value, preserved in excluded cells.
+            dst_obj: The single-band destination Dataset written in place.
+        """
+        dst_band = dst_obj.raster.GetRasterBand(1)
+        for xoff, yoff, xsize, ysize in self._ds.io._tile_offsets():
+            tile = self._ds.read_array(band=band, window=[xoff, yoff, xsize, ysize])
+            new_tile = np.full(tile.shape, no_data_value, dtype=tile.dtype)
+            self._apply_func_to_domain(func, tile, new_tile, no_data_value)
+            dst_band.WriteArray(new_tile, xoff, yoff)
 
     def fill(
         self, value: float | int, inplace: bool = False, path: str | Path | None = None
