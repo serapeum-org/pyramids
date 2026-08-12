@@ -1469,12 +1469,17 @@ class Bands(_Engine["Dataset"]):
             # leave a half-written GeoTIFF behind on the disk path: release every
             # handle to the file (both the wrapper and the local `dst` reference,
             # or GDAL keeps the file locked on Windows) and delete the partial file
-            # and its sidecar before re-raising.
+            # and its sidecar before re-raising. The unlinks are best-effort: if a
+            # GDAL/OS build still holds the file, swallow the OSError so the cleanup
+            # never masks the original exception (the file just lingers).
             if path is not None:
                 new_dataset.close()
                 dst = None
-                Path(target).unlink(missing_ok=True)
-                Path(f"{target}.aux.xml").unlink(missing_ok=True)
+                for leftover in (target, f"{target}.aux.xml"):
+                    try:
+                        Path(leftover).unlink()
+                    except OSError:
+                        pass
             raise
         # Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on
         # disk before it is reopened (a no-op for the in-memory driver).
