@@ -1,6 +1,21 @@
 ﻿# Change log
 
 
+## 0.52.0 (2026-08-12)
+
+### Fix
+
+- **crs**: resolve CRSes with the database that produced them (#959)
+
+### Refactor
+
+- **plot**: adopt cleopatra 0.31 RgbBands for the ArrayGlyph constructor (#972)
+
+### Perf
+
+- **dataset**: stream the remaining eager full-array Dataset methods (#971)
+- **dataset**: block-streaming helpers for the eager full-array methods (#968)
+
 ## 0.51.0 (2026-08-12)
 
 ### BREAKING CHANGE
