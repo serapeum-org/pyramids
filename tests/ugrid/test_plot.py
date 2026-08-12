@@ -482,4 +482,3 @@ class TestUgridGroupParams:
         kw = mock_plot.call_args.kwargs
         assert kw.get("color") is color, "explicit color must reach MeshGlyph.plot"
         assert kw.get("data_style") is data_style, "explicit data_style must reach it"
-

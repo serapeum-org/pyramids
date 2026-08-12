@@ -276,4 +276,3 @@ class TestDatasetPlotRgbOptionsEdges:
             w for w in captured if issubclass(w.category, DeprecationWarning)
         ]
         assert not deprecations, "Empty rgb_options must not emit DeprecationWarning"
-
