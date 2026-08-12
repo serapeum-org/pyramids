@@ -438,7 +438,7 @@ def _reduce_strip(
     Raises:
         RuntimeError: GDAL failed to warp a source onto the strip.
     """
-    band_count, ysize, x_size = shape
+    _, ysize, x_size = shape
     strip_south, strip_north = strip_lat
     if method == "min":
         acc = np.full(shape, np.inf, dtype="float64")
