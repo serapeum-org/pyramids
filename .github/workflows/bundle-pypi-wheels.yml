@@ -133,6 +133,7 @@ jobs:
       # costs ~60 min once per release and compiles everything from the
       # SHA256-pinned source tarballs.
       - name: Cache the built GDAL stack
+        id: glibc-stack-cache
         if: github.event_name != 'workflow_run'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -171,8 +172,16 @@ jobs:
           HOST_WORKSPACE: ${{ github.workspace }}
           CIBW_ENVIRONMENT_PASS_LINUX: HOST_WORKSPACE
 
+      # Only save when the source build actually ran fetch() and populated the
+      # dir: on a compiled-stack cache HIT config.sh is skipped and
+      # .srcbuild-distfiles stays empty, so also gate on the stack cache having
+      # missed — else an empty/stale set would seed the immutable key. On the
+      # release path the stack cache step is skipped (its cache-hit output is
+      # '', != 'true'), so the distfile save stays active there as intended.
       - name: Save the source distfiles cache
-        if: success() && steps.distfiles-restore.outputs.cache-hit != 'true'
+        if: >-
+          success() && steps.distfiles-restore.outputs.cache-hit != 'true'
+          && steps.glibc-stack-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .srcbuild-distfiles
@@ -234,6 +243,7 @@ jobs:
       # needs + download pattern), so cache-restored binaries can't reach
       # PyPI from here.
       - name: Cache the built GDAL stack
+        id: musl-stack-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .srcbuild-cache
@@ -271,8 +281,13 @@ jobs:
             LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64
             auditwheel repair --plat ${{ matrix.plat }} -w {dest_dir} {wheel}
 
+      # Gate on the stack cache having missed too — see the glibc job: a
+      # compiled-stack HIT skips config.sh, leaving .srcbuild-distfiles empty,
+      # which must not seed the immutable shared key.
       - name: Save the source distfiles cache
-        if: success() && steps.distfiles-restore.outputs.cache-hit != 'true'
+        if: >-
+          success() && steps.distfiles-restore.outputs.cache-hit != 'true'
+          && steps.musl-stack-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .srcbuild-distfiles
@@ -425,6 +440,7 @@ jobs:
       # cold-build from the pinned vcpkg snapshot instead of restoring
       # cache-stored binaries.
       - name: Cache the vcpkg-built GDAL stack
+        id: vcpkg-installed-cache
         if: github.event_name != 'workflow_run'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -463,8 +479,13 @@ jobs:
           CIBW_BUILD: "cp312-win_arm64 cp313-win_arm64 cp314-win_arm64"
           CIBW_BEFORE_ALL_WINDOWS: powershell -File ci/setup-gdal-from-vcpkg.ps1
 
+      # Gate on the installed cache having missed too — see the glibc job: an
+      # installed-tree HIT makes vcpkg download nothing, leaving
+      # C:\vcpkg\downloads empty, which must not seed the immutable key.
       - name: Save the vcpkg downloaded assets
-        if: success() && steps.vcpkg-downloads-restore.outputs.cache-hit != 'true'
+        if: >-
+          success() && steps.vcpkg-downloads-restore.outputs.cache-hit != 'true'
+          && steps.vcpkg-installed-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: C:\vcpkg\downloads
