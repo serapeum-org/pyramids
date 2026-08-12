@@ -67,7 +67,6 @@ import numpy as np
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import require_cleopatra
 
 # `add_basemap` is imported at top-level so existing test patches that
@@ -78,7 +77,8 @@ from pyramids.base._utils import require_cleopatra
 from pyramids.basemap import basemap as _basemap_module
 
 if TYPE_CHECKING:
-    from cleopatra.geo import Basemap
+    from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
 
 # N-6 — Mesh rendering shares this module's "data in, glyph out"
 # contract via :func:`mesh_render`. The function lives next to
@@ -161,159 +161,71 @@ def _unwrap_geographic_longitude(
     return result
 
 
-def _guard_style_hillshade(kwargs: dict[str, Any], option_keys: Any) -> None:
-    """Normalise and version-gate the ``style`` / ``hillshade`` plot presets.
+# Loose colour-bar kwargs that the typed ``pyramids.plot.ColorBar`` spec replaces.
+# cleopatra 0.30 still accepts these natively, but pyramids standardises on ``ColorBar``,
+# so passing one is a hard error pointing at the spec. ``cbar_kwargs`` (a raw matplotlib
+# colorbar-kwargs passthrough) and ``add_colorbar`` (the on/off switch) are deliberately
+# NOT in this set — they have no ``ColorBar`` field and remain valid.
+_CBAR_REPLACED_BY_COLORBAR = frozenset(
+    {
+        "cbar_label",
+        "cbar_length",
+        "cbar_label_size",
+        "cbar_label_rotation",
+        "cbar_label_location",
+        "cbar_orientation",
+        "cbar_location",
+        "cbar_inside",
+        "cbar_box",
+        "cbar_label_color",
+        "cbar_tick_color",
+        "ticks_spacing",
+    }
+)
 
-    Shared by the raster (:func:`render_array`, ``ArrayGlyph``) and mesh
-    (:func:`mesh_render`, ``MeshGlyph``) dispatch so both paths handle cleopatra's
-    data-style presets identically.
 
-    ``style`` / ``hillshade`` were added to cleopatra's glyphs in 0.24. On an older
-    cleopatra the kwargs would fall through to a cryptic "Unknown option" error deep
-    in the render call; feature-detect each key against ``option_keys`` and raise a
-    clear upgrade hint instead.
+def _reject_replaced_cbar_kwargs(kwargs: dict[str, Any]) -> None:
+    """Raise if any loose colour-bar kwarg the ``ColorBar`` spec replaces is present.
 
-    A ``None`` / ``False`` ``hillshade`` requests no shading, so it is popped from
-    ``kwargs`` in place — making it a true no-op on ANY cleopatra version (a pre-0.24
-    build that rejects the unknown kwarg included). ``{}`` is falsy but is an
-    affirmative "shade with default parameters", so the drop uses identity (only
-    ``None`` / ``False``), not truthiness — an empty-dict ``hillshade`` is still
-    gated/forwarded. An explicit ``style=None`` requests no preset and is likewise
-    popped in place, symmetric with the ``hillshade`` drop. Each remaining key is
-    checked against its own ``option_keys`` membership so a build shipping only one
-    of the two features is handled precisely. An invalid ``style`` *name* is left to
-    cleopatra, which already raises a ``ValueError`` listing the valid ``DATA_STYLES``
-    keys. (issue #737)
+    Mirrors how cleopatra rejects the other loose styling keywords that moved onto typed
+    group objects. cleopatra itself still tolerates the ``cbar_*`` / ``ticks_spacing``
+    forms, but pyramids exposes a single typed colour-bar surface — ``colorbar=ColorBar``
+    — so it rejects the loose forms at the render boundary with a pointer to the spec.
 
     Args:
-        kwargs: The render kwargs; mutated in place to drop a no-op ``style`` /
-            ``hillshade``.
-        option_keys: The glyph's declared option set (``<Glyph>.option_keys()``).
+        kwargs: The render kwargs.
 
     Raises:
-        OptionalPackageDoesNotExist: A ``style`` / ``hillshade`` preset was
-            requested but the installed cleopatra's glyph does not support it.
+        ValueError: If a replaced loose colour-bar keyword is present; the message lists
+            the offending keys and the ``ColorBar`` replacement.
     """
-    if kwargs.get("style") is None:
-        # An explicit ``style=None`` requests no preset — drop it so it never
-        # reaches cleopatra (a true no-op on any version), symmetric with the
-        # ``hillshade`` handling below.
-        kwargs.pop("style", None)
-    hillshade = kwargs.get("hillshade")
-    if hillshade is None or hillshade is False:
-        kwargs.pop("hillshade", None)
-    style_unsupported = "style" in kwargs and "style" not in option_keys
-    hillshade_unsupported = "hillshade" in kwargs and "hillshade" not in option_keys
-    if style_unsupported or hillshade_unsupported:
-        raise OptionalPackageDoesNotExist(
-            "`style=` / `hillshade=` plot presets require cleopatra >= 0.24. "
-            "Upgrade with: pip install -U 'pyramids-gis[viz]' (or "
-            "pip install -U 'cleopatra>=0.24')."
+    offending = sorted(_CBAR_REPLACED_BY_COLORBAR & kwargs.keys())
+    if offending:
+        raise ValueError(
+            f"The loose colour-bar kwargs {offending} were replaced by the typed "
+            "pyramids.plot.ColorBar spec; pass colorbar=ColorBar(label=…, orientation=…, "
+            "length=…, ...) instead of the loose cbar_* / ticks_spacing keywords."
         )
 
 
-# Loose plot kwargs cleopatra 0.28 deprecated in favour of the typed specs
-# (ColorBar / PointOverlay). ``render_array`` translates them to the spec at the
-# render boundary (see ``_migrate_deprecated_plot_specs``) so cleopatra only ever
-# sees the typed form — no double DeprecationWarning — and the loose forms are
-# steered off in one place for every raster plot / animate path. The maps mirror
-# cleopatra's own loose-kwarg -> spec-field mapping.
-_CBAR_TO_COLORBAR = {
-    "cbar_label": "label",
-    "cbar_length": "length",
-    "cbar_label_size": "label_size",
-    "cbar_label_rotation": "label_rotation",
-    "cbar_label_location": "label_location",
-    "cbar_orientation": "orientation",
-    "ticks_spacing": "ticks_spacing",
-}
-_POINT_TO_OVERLAY = {
-    "point_color": "color",
-    "point_size": "size",
-    # Legacy ``pid_*`` aliases first, then the modern ``point_label_*`` names — the
-    # fold below is last-write-wins, so passing both makes ``point_label_*`` win,
-    # matching cleopatra's ``_resolve_point_overlay`` precedence.
-    "pid_color": "label_color",
-    "pid_size": "label_size",
-    "point_label_color": "label_color",
-    "point_label_size": "label_size",
-}
+def nonnull_group_kwargs(**groups: Any) -> dict[str, Any]:
+    """Return the cleopatra render-group kwargs that were actually set (not ``None``).
 
+    Shared by the ``.plot`` facades: they expose the cleopatra render groups
+    (``color`` / ``contour`` / ``cells`` / ``data_style`` / ``classify``) as explicit
+    typed params and fold the set ones into the kwargs forwarded to the render backend.
+    Dropping the unset (``None``) groups keeps them off the render call, so an untouched
+    group never overrides the backend default.
 
-def _migrate_deprecated_plot_specs(
-    kwargs: dict[str, Any], colorbar_cls: Any, point_overlay_cls: Any
-) -> None:
-    """Fold deprecated loose ``cbar_*`` / ``point_*`` kwargs into the typed specs.
+    Args:
+        **groups: Candidate group objects keyed by their cleopatra render-method
+            parameter name (``color`` / ``contour`` / ``cells`` / ``data_style`` /
+            ``classify``).
 
-    Mutates ``kwargs`` in place: the loose keys are popped and folded into a
-    ``ColorBar`` / ``PointOverlay`` unless an explicit typed spec was already given.
-    A typed ``colorbar=ColorBar`` (or ``colorbar=False``, which hides the bar) and a
-    ``points=PointOverlay`` win — the loose keys are dropped with the warning.
-    ``colorbar=True`` / ``None`` still fold (they carry no styling of their own, so
-    dropping the loose kwargs would silently lose the caption). Emits a pyramids
-    ``DeprecationWarning`` naming the typed replacement. Cleopatra therefore never
-    sees the loose kwargs, so its own deprecation never fires — no double warning.
+    Returns:
+        A dict of only the groups whose value is not ``None``.
     """
-    cbar = {
-        _CBAR_TO_COLORBAR[k]: kwargs.pop(k) for k in _CBAR_TO_COLORBAR if k in kwargs
-    }
-    if cbar:
-        existing = kwargs.get("colorbar")
-        # Only a typed ColorBar (carries its own styling) or colorbar=False (bar
-        # hidden) can't be augmented by the loose kwargs. colorbar=True / None /
-        # absent carry no caption of their own, so fold the loose form in — else
-        # the caption that rendered before this migration would silently vanish.
-        if existing is False:
-            warnings.warn(
-                "The loose cbar_* / ticks_spacing kwargs are deprecated and were "
-                "ignored because colorbar=False hides the colour bar.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-        elif isinstance(existing, colorbar_cls):
-            warnings.warn(
-                "The loose cbar_* / ticks_spacing kwargs are deprecated and were "
-                "ignored because an explicit colorbar=ColorBar was given; set the "
-                "styling on it instead.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-        else:
-            warnings.warn(
-                "The loose cbar_* / ticks_spacing kwargs are deprecated; pass "
-                "colorbar=pyramids.plot.ColorBar(...) instead.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-            kwargs["colorbar"] = colorbar_cls(**cbar)
-
-    style = {
-        _POINT_TO_OVERLAY[k]: kwargs.pop(k) for k in _POINT_TO_OVERLAY if k in kwargs
-    }
-    if style:
-        points = kwargs.get("points")
-        if isinstance(points, point_overlay_cls):
-            warnings.warn(
-                "The loose point_* / pid_* kwargs are deprecated and were ignored "
-                "because points= is already a PointOverlay; set them on it instead.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-        elif points is None:
-            warnings.warn(
-                "The loose point_* / pid_* kwargs are deprecated and have no effect "
-                "without points=; pass points=pyramids.plot.PointOverlay(points, ...).",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-        else:
-            warnings.warn(
-                "The loose point_* / pid_* kwargs are deprecated; pass "
-                "points=pyramids.plot.PointOverlay(points, ...) instead.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-            kwargs["points"] = point_overlay_cls(points, **style)
+    return {name: value for name, value in groups.items() if value is not None}
 
 
 def render_array(
@@ -335,7 +247,7 @@ def render_array(
     basemap: bool | str | dict[str, Any] | Basemap | None = None,
     basemap_epsg: int | None = None,
     **kwargs: Any,
-):
+) -> ArrayGlyph:
     """Build an ArrayGlyph and dispatch to the right cleopatra render path.
 
     Args:
@@ -370,7 +282,7 @@ def render_array(
         animation_axis_values: Frame labels for the animation path.
             Required when ``mode == "animate"``.
         data_getter: Optional callable ``f(i) -> ndarray`` forwarded to
-            :meth:`cleopatra.array_glyph.ArrayGlyph.animate` as the
+            :meth:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.animate` as the
             ``data_getter`` kwarg. When set the animation streams each
             frame lazily through this callback instead of slicing the
             pre-materialised ``arr`` stack — used by
@@ -388,7 +300,7 @@ def render_array(
             non-empty web-tile / basemap provider string adds a pyramids web-tile
             basemap underneath the rendered plot (tile mode is applied on
             ``"plot"`` and per-panel on ``"facet"``). A
-            :class:`cleopatra.geo.Basemap` is cleopatra's relief/features
+            :class:`cleopatra.basemap.geo.Basemap` is cleopatra's relief/features
             reference layer, forwarded to the glyph's own ``basemap=`` on the
             ``"plot"``/``"animate"`` render call; it is **not** supported on
             ``"facet"`` (raises). A ``dict`` is a deprecated alias translated to
@@ -400,13 +312,13 @@ def render_array(
             ``basemap`` is truthy and this is ``None`` the helper
             raises :class:`ValueError`.
         **kwargs: Forwarded to the cleopatra entry point selected by
-            ``mode`` (including cleopatra >= 0.28 render params such as
-            ``colorbar=`` / ``full_bleed=``).
+            ``mode`` (including render params such as ``colorbar=`` /
+            ``full_bleed=``).
 
     Returns:
         The result object cleopatra returns for that mode — typically a
-        :class:`cleopatra.array_glyph.ArrayGlyph` for ``"plot"`` and
-        ``"animate"``, and a :class:`cleopatra.array_glyph.FacetGrid`
+        :class:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph` for ``"plot"`` and
+        ``"animate"``, and a :class:`cleopatra.glyphs.gridded.array_glyph.FacetGrid`
         for ``"facet"``.
 
     Raises:
@@ -414,8 +326,11 @@ def render_array(
             required mode-specific argument is missing, if ``basemap`` is
             truthy and ``basemap_epsg`` is ``None``, if a cleopatra
             ``Basemap`` (or equivalent dict) is passed on the ``"facet"``
-            path, or if ``color_scale`` is not a recognised
-            :class:`~cleopatra.styles.ColorScale` value.
+            path, or if a removed loose colour-bar kwarg (``cbar_*`` /
+            ``ticks_spacing``) is passed. A removed loose styling kwarg
+            (``color_scale`` / ``style`` / ``levels`` / ``point_*`` / ...)
+            surfaces cleopatra's own "moved onto a grouped parameter object"
+            ``ValueError`` from the render call.
 
     Examples:
         - Single-slice plot path. Tagged ``+SKIP`` because the call
@@ -531,22 +446,22 @@ def render_array(
             ```
     """
     require_cleopatra()
-    from cleopatra.array_glyph import ArrayGlyph, ColorBar, PointOverlay
-    from cleopatra.geo import Basemap
-    from cleopatra.styles import ColorScale
+    from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import (
+        ArrayGlyph,
+        PanelLabels,
+        PointOverlay,
+    )
 
-    # Deprecate + translate the loose plot kwargs to the typed specs (cbar_* ->
-    # ColorBar, point_*/pid_* -> PointOverlay, dict basemap -> Basemap) so every
-    # raster plot/animate call is steered onto the typed API in one place and
-    # cleopatra only ever sees the typed form. The facet path is skipped:
-    # cleopatra's ``ArrayGlyph.facet`` does not accept ``colorbar=ColorBar`` /
-    # ``PointOverlay`` (only the loose ``cbar_*`` kwargs, like the mesh glyph), so
-    # faceting keeps the loose forms — there is no typed alternative there.
-    # Once cleopatra#256 lands (``ArrayGlyph.facet`` accepts ``colorbar=ColorBar``),
-    # drop this facet exception (and the ``cbar_*`` in ``RENDER_ONLY_OVERRIDES``
-    # below) so facet folds the loose kwargs like plot/animate. Tracked in #934.
-    if mode != "facet":
-        _migrate_deprecated_plot_specs(kwargs, ColorBar, PointOverlay)
+    # The loose styling kwargs are no longer translated here: they moved onto the typed
+    # render groups (color=ColorScaling / contour=Contour / cells=CellValues /
+    # data_style=DataStyle / points=PointOverlay / colorbar=ColorBar). Passing a form
+    # cleopatra removed (color_scale / style / levels / point_* / ...) surfaces cleopatra's
+    # own "moved onto a grouped parameter object" error; the loose cbar_* / ticks_spacing
+    # forms — which cleopatra still tolerates — are rejected here so pyramids exposes a
+    # single typed colour-bar surface (``colorbar=ColorBar``).
+    _reject_replaced_cbar_kwargs(kwargs)
+    # Translate the deprecated ``dict`` basemap alias to a ``Basemap``.
     if isinstance(basemap, dict) and basemap:
         warnings.warn(
             "Passing a dict as basemap= is deprecated; pass "
@@ -599,25 +514,16 @@ def render_array(
         # The stretch parameters have been consumed by ``prepare_array`` above;
         # null them so the constructor call below cannot re-read inert values.
         rgb = surface_reflectance = cutoff = percentile = None
-    # Fail fast on an invalid ``color_scale`` with a pyramids-side message
-    # that lists the valid options, instead of deferring to a less-targeted
-    # cleopatra error deep in the render call. ``ColorScale`` lookup is
-    # case-insensitive, so any-case valid values pass through unchanged.
-    color_scale = kwargs.get("color_scale")
-    if color_scale is not None:
-        try:
-            ColorScale(color_scale)
-        except ValueError:
-            valid = [s.value for s in ColorScale]
-            raise ValueError(
-                f"Unsupported color_scale {color_scale!r}; valid options: {valid}."
-            ) from None
+    # A bare ``(N, 3)`` points array is no longer auto-wrapped by cleopatra (it raises on
+    # the overlay-drawing kinds, and is silently ignored on contour); wrap it in a
+    # ``PointOverlay`` so pyramids callers can keep passing a plain array (the ``points``
+    # param is typed ``np.ndarray | PointOverlay``). A value already given as a
+    # ``PointOverlay`` is left as-is.
+    points = kwargs.get("points")
+    if points is not None and not isinstance(points, PointOverlay):
+        kwargs["points"] = PointOverlay(np.asarray(points))
 
-    # Normalise + version-gate the style/hillshade presets (shared with the mesh
-    # path). Mutates kwargs to drop a no-op hillshade; raises a clear upgrade hint
-    # on a cleopatra whose ArrayGlyph lacks the presets. (issue #737)
     option_keys = ArrayGlyph.option_keys()
-    _guard_style_hillshade(kwargs, option_keys)
 
     # Unwrap a wrapping geographic longitude before handing curvilinear coords
     # to cleopatra, so its pcolormesh doesn't smear a ~178-degree quad across
@@ -660,13 +566,10 @@ def render_array(
     # render method only overwrites ``default_options["title"]`` when its
     # ``title`` arg is not ``None``, so a constructor-set title survives and
     # routing it to the constructor (via ``option_keys()``) is correct.
-    # ``kind`` is force-routed to the render call. The deprecated loose cbar_*
-    # kwargs are too — but only the ``facet`` path still carries them here (plot /
-    # animate already folded them into ``colorbar=ColorBar(...)`` above, so this is
-    # a no-op there). cleopatra's ``facet`` renders them only when they reach the
-    # facet *call* (its per-panel constructors), so force-routing keeps the loose
-    # cbar_* rendering on facet instead of being dropped on the parent constructor.
-    RENDER_ONLY_OVERRIDES = {"kind", *_CBAR_TO_COLORBAR}
+    # ``kind`` is force-routed to the render call. The loose cbar_* kwargs no longer
+    # need force-routing: they are rejected up front by ``_reject_replaced_cbar_kwargs``
+    # (``colorbar=ColorBar`` is the only colour-bar surface), so they never reach the split.
+    RENDER_ONLY_OVERRIDES = {"kind"}
     # Reuse the option set resolved for the style/hillshade guard above — it is
     # cleopatra's declared constructor options and does not change within a call.
     ctor_option_keys = option_keys
@@ -677,6 +580,9 @@ def render_array(
             ctor_kwargs[key] = value
         else:
             render_kwargs[key] = value
+    # The cleopatra render groups (``color`` / ``contour`` / ``cells`` / ``data_style``) the
+    # facades pass are not constructor options, so the split above already routed them to
+    # ``render_kwargs`` — they ride on the plot / animate / facet call as-is.
     # The ``"animate"`` path only flows kwargs into ``cleo.animate(...)``,
     # not the constructor — keys like ``interval`` are valid for animate
     # but not in cleopatra's ``DEFAULT_OPTIONS`` and would trigger an
@@ -717,7 +623,7 @@ def render_array(
     # with pyramids' pre-existing web-tile ``basemap=``, so dispatch on the type:
     #   - a ``str`` provider name (or ``True``) is a pyramids web-tile basemap
     #     drawn under the raster -- pyramids owns this via ``add_basemap``;
-    #   - a ``cleopatra.geo.Basemap`` is cleopatra's relief/features reference
+    #   - a ``cleopatra.basemap.geo.Basemap`` is cleopatra's relief/features reference
     #     layer, forwarded to the glyph's own ``basemap=`` on the render call.
     #     (A non-empty ``dict`` was already deprecated + translated to a
     #     ``Basemap`` up front, so only an empty ``{}`` reaches here — no basemap.)
@@ -797,7 +703,18 @@ def render_array(
                 "(basemap='<provider>') for per-panel tiles, or plot without faceting "
                 "for a relief/features basemap."
             )
-        result = cleo.facet(**facet_kwargs, **render_kwargs)
+        # cleopatra 0.30 renamed facet's ``figsize`` to ``figure_size`` and moved the
+        # per-panel coordinate labels onto a ``PanelLabels`` group (``col`` / ``row``).
+        # Translate the loose facet_kwargs (built by the NetCDF facet path) into the new
+        # names so the NetCDF facet builder can keep emitting the historical spelling.
+        facet_call = dict(facet_kwargs)
+        col_coords = facet_call.pop("col_coords", None)
+        row_coords = facet_call.pop("row_coords", None)
+        if col_coords is not None or row_coords is not None:
+            facet_call["labels"] = PanelLabels(col=col_coords, row=row_coords)
+        if "figsize" in facet_call:
+            facet_call["figure_size"] = facet_call.pop("figsize")
+        result = cleo.facet(**facet_call, **render_kwargs)
         if tile_basemap:
             # Every facet panel renders the same spatial domain (cleopatra
             # reuses the parent extent / curvilinear coords across panels),
@@ -824,7 +741,7 @@ def mesh_render(
     """N-6 — sibling of :func:`render_array` for UGRID mesh data.
 
     Routes a pyramids ``Mesh2d`` + a per-element data array through
-    cleopatra's :class:`~cleopatra.mesh_glyph.MeshGlyph`, returning the
+    cleopatra's :class:`~cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph`, returning the
     glyph instance. Mirrors the :func:`render_array` contract — "single
     backend abstraction, one entry point per cleopatra glyph" — so the
     raster facade (:meth:`pyramids.dataset.Dataset.plot`,
@@ -852,7 +769,7 @@ def mesh_render(
             ``edgecolor``, ``colorbar``, ``title``.
 
     Returns:
-        cleopatra.mesh_glyph.MeshGlyph: The same instance that
+        cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph: The same instance that
             :func:`pyramids.netcdf.ugrid.plot.plot_mesh_data` returns.
 
     Raises:
@@ -906,18 +823,9 @@ def mesh_render(
     if basemap and basemap_epsg is None:
         raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
     require_cleopatra()
-    from cleopatra.mesh_glyph import MeshGlyph
-
+    # ``plot_mesh_data`` forwards the typed render groups straight to ``MeshGlyph.plot`` and
+    # rejects the removed loose colour-bar kwargs, so no pre-processing is needed here.
     from pyramids.netcdf.ugrid.plot import plot_mesh_data
-
-    # Normalise + version-gate the style/hillshade presets against MeshGlyph, the
-    # same way render_array does against ArrayGlyph, so the mesh path exposes
-    # cleopatra's data-style presets with a clean upgrade hint on older cleopatra.
-    # Note: unlike the raster path (where style is an ArrayGlyph *constructor*
-    # option), plot_mesh_data forwards style/hillshade to MeshGlyph.plot(), not the
-    # constructor. Feature-detecting against option_keys() therefore assumes cleopatra
-    # declares them there in lock-step with .plot() accepting them (true on 0.24).
-    _guard_style_hillshade(kwargs, MeshGlyph.option_keys())
 
     result = plot_mesh_data(mesh, data, location=location, **kwargs)
     if basemap:

@@ -1,7 +1,7 @@
 """Tests for the `basemap=` type-dispatch in `render_array` (cleopatra 0.27).
 
 A string provider name (or `True`) draws pyramids' own web-tile basemap under
-the raster; a `cleopatra.geo.Basemap` forwards to the glyph's relief/features
+the raster; a `cleopatra.basemap.geo.Basemap` forwards to the glyph's relief/features
 reference layer instead.
 """
 
@@ -17,13 +17,15 @@ pytestmark = pytest.mark.plot
 
 # Version-gate first: the module binds 0.28-only specs (Basemap) at module scope,
 # so an installed-but-older cleopatra must skip cleanly, not error at collection.
-pytest.importorskip("cleopatra", minversion="0.28", reason="needs cleopatra >= 0.28")
+pytest.importorskip("cleopatra", minversion="0.29", reason="needs cleopatra >= 0.29")
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 _cleo_config.Config.set_matplotlib_backend("agg")
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
-_cleo_geo = pytest.importorskip("cleopatra.geo", reason="cleopatra not installed")
+_cleo_geo = pytest.importorskip(
+    "cleopatra.basemap.geo", reason="cleopatra not installed"
+)
 ArrayGlyph = _cleo_array.ArrayGlyph
 Basemap = _cleo_geo.Basemap
 plt = pytest.importorskip("matplotlib.pyplot", reason="cleopatra not installed")

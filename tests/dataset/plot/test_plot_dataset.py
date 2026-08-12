@@ -13,7 +13,7 @@ from pyramids.netcdf.netcdf import NetCDF
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
@@ -103,7 +103,7 @@ class TestPlotDataSet:
         Test scenario:
             A band carrying a no-data pixel (``-9999``) and a repeated
             ``7.0`` is histogrammed with ``exclude_value=7.0``. Capturing
-            the values handed to ``StatisticalGlyph`` proves both the
+            the values handed to ``HistogramGlyph`` proves both the
             no-data value and the explicit ``exclude_value`` are dropped,
             leaving only the genuine samples.
         """
@@ -128,7 +128,9 @@ class TestPlotDataSet:
             def histogram(self, bins=15):
                 return ("fig", "ax", {})
 
-        with patch("cleopatra.statistical_glyph.StatisticalGlyph", new=_FakeSG):
+        with patch(
+            "cleopatra.glyphs.stats.histogram_glyph.HistogramGlyph", new=_FakeSG
+        ):
             dataset.plot_histogram(band=0, bins=5, exclude_value=7.0)
         vals = sorted(captured["values"].tolist())
         assert vals == [
@@ -139,27 +141,31 @@ class TestPlotDataSet:
 
     @pytest.mark.plot
     def test_invalid_color_scale_raises(self, src: Dataset):
-        """An unsupported ``color_scale`` fails fast with a clear message.
+        """A loose ``color_scale`` kwarg is rejected with a clear ``ValueError``.
 
         Test scenario:
-            ``color_scale="bogus"`` is rejected before any rendering work,
-            with a pyramids-side ``ValueError`` that names the offending
-            value (and lists the valid options).
+            cleopatra 0.30 moved the colour scale onto the ``color=ColorScaling`` group
+            and rejects the ``color_scale`` *key* itself (regardless of value), so
+            ``color_scale="bogus"`` raises a ``ValueError`` naming ``color_scale``, which
+            pyramids surfaces unchanged.
         """
         dataset = Dataset(src)
         with pytest.raises(ValueError, match=r"color_scale"):
             dataset.plot(band=0, color_scale="bogus")
 
     @pytest.mark.plot
-    def test_valid_color_scale_any_case_passes(self, src: Dataset):
-        """A valid ``color_scale`` passes regardless of case.
+    def test_color_scaling_group_renders(self, src: Dataset):
+        """A ``color=ColorScaling`` spec validates and renders without raising.
 
         Test scenario:
-            ``ColorScale`` lookup is case-insensitive, so a mixed-case
-            ``"Power"`` must validate and render without raising.
+            cleopatra 0.30 moved the colour scale onto the typed ``ColorScaling``
+            group, passed as ``color=``; a ``ColorScaling.power()`` spec must render
+            through ``Dataset.plot`` and return an ``ArrayGlyph``.
         """
+        from pyramids.plot import ColorScaling
+
         dataset = Dataset(src)
-        glyph = dataset.plot(band=0, color_scale="Power")
+        glyph = dataset.plot(band=0, color=ColorScaling.power())
         assert isinstance(glyph, ArrayGlyph)
 
     @pytest.mark.plot
@@ -231,7 +237,7 @@ class TestPlotDataSet:
         Test scenario:
             Every pixel equals the no-data value, so after masking there are
             no samples; ``plot_histogram`` must raise a targeted ``ValueError``
-            rather than passing an empty array to ``StatisticalGlyph``.
+            rather than passing an empty array to ``HistogramGlyph``.
         """
         arr = np.full((4, 4), -9999.0, dtype="float32")
         dataset = Dataset.create_from_array(
@@ -428,7 +434,7 @@ class TestPlotDataSet:
         src_arr: np.ndarray,
     ):
         dataset = Dataset(sentinel_raster)
-        array_glyph = dataset.plot(rgb=[3, 2, 1])
+        array_glyph = dataset.plot(rgb_options={"rgb": [3, 2, 1]})
         assert isinstance(array_glyph, ArrayGlyph)
 
     @pytest.mark.plot
@@ -479,7 +485,7 @@ class TestPlotDatasetCollection:
         rasters_folder_rasters_number: int,
         rasters_folder_dim: tuple,
     ):
-        from cleopatra.array_glyph import ArrayGlyph
+        from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
 
         cube = DatasetCollection.read_multiple_files(
             rasters_folder_path, with_order=False
@@ -556,14 +562,6 @@ class TestPlotDatasetCollection:
             cube.plot(rgb_options={"rgb": [0, 1, 2]})
 
     @pytest.mark.plot
-    def test_rgb_loose_kwarg_is_deprecated(self, tmp_path):
-        """The loose top-level `rgb=` still works but warns, mirroring Dataset.plot."""
-        cube = self._rgb_cube(tmp_path, n_times=3)
-        with pytest.warns(DeprecationWarning, match="rgb_options"):
-            glyph = cube.plot(rgb=[0, 1, 2], percentile=2)
-        assert glyph.arr.shape == (3, 8, 8, 3)
-
-    @pytest.mark.plot
     def test_single_band_path_unchanged(self, tmp_path):
         """Without `rgb`, plot() still yields a colormapped single-band animation."""
         cube = self._rgb_cube(tmp_path, n_times=3)
@@ -588,7 +586,7 @@ class TestPlotDatasetCollection:
 
     @pytest.mark.plot
     def test_rgb_options_unknown_key_raises(self, tmp_path):
-        """An unknown `rgb_options` key raises (delegated to `_merge_rgb_options`)."""
+        """An unknown `rgb_options` key raises (delegated to `_unpack_rgb_options`)."""
         cube = self._rgb_cube(tmp_path, n_times=2)
         with pytest.raises(ValueError, match=r"Unknown keys in `rgb_options`"):
             cube.plot(rgb_options={"bogus": 1})
@@ -637,14 +635,6 @@ class TestPlotDatasetCollection:
         with pytest.warns(UserWarning, match="exclude_value is ignored"):
             glyph = cube.plot(exclude_value=0, rgb_options={"rgb": [0, 1, 2]})
         assert glyph.arr.shape == (2, 8, 8, 3), "RGB stack still rendered"
-
-    @pytest.mark.plot
-    def test_rgb_options_wins_over_loose_kwarg(self, tmp_path):
-        """On collision, `rgb_options` wins over the loose kwarg and still warns."""
-        cube = self._rgb_cube(tmp_path, n_times=2, n_bands=4)
-        with pytest.warns(DeprecationWarning, match="rgb_options` wins"):
-            glyph = cube.plot(rgb=[1, 2, 3], rgb_options={"rgb": [0, 1, 2]})
-        assert glyph.arr.shape == (2, 8, 8, 3), "grouped rgb composited every frame"
 
 
 def _make_nc_subset_with_band_count(tmp_path, n_bands: int):

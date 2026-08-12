@@ -18,19 +18,37 @@ class TestPlotSpecReExports:
     """`pyramids.plot` lazily re-exports cleopatra's plot spec classes."""
 
     def test_all_and_dir_list_the_specs(self):
-        """`__all__` / `dir()` advertise the five specs, sorted."""
-        expected = ["Basemap", "ColorBar", "Feature", "FrameLabel", "PointOverlay"]
+        """`__all__` / `dir()` advertise every re-exported spec, sorted."""
+        expected = [
+            "Basemap",
+            "CellValues",
+            "Classify",
+            "ColorBar",
+            "ColorScaling",
+            "Contour",
+            "DataStyle",
+            "Feature",
+            "FrameLabel",
+            "PanelLabels",
+            "PointOverlay",
+        ]
         assert plot_specs.__all__ == expected
         assert dir(plot_specs) == expected
 
     @pytest.mark.parametrize(
         "name, module_name, attribute",
         [
-            ("ColorBar", "cleopatra.array_glyph", "ColorBar"),
-            ("FrameLabel", "cleopatra.array_glyph", "FrameLabel"),
-            ("PointOverlay", "cleopatra.array_glyph", "PointOverlay"),
-            ("Basemap", "cleopatra.geo", "Basemap"),
-            ("Feature", "cleopatra.geo", "Feature"),
+            ("ColorBar", "cleopatra.styling.colorbar", "ColorBar"),
+            ("FrameLabel", "cleopatra.glyphs.gridded.array_glyph", "FrameLabel"),
+            ("PointOverlay", "cleopatra.glyphs.gridded.array_glyph", "PointOverlay"),
+            ("PanelLabels", "cleopatra.glyphs.gridded.array_glyph", "PanelLabels"),
+            ("Basemap", "cleopatra.basemap.geo", "Basemap"),
+            ("Feature", "cleopatra.basemap.geo", "Feature"),
+            ("ColorScaling", "cleopatra.styling.scaling", "ColorScaling"),
+            ("Contour", "cleopatra.styling.params", "Contour"),
+            ("CellValues", "cleopatra.styling.params", "CellValues"),
+            ("DataStyle", "cleopatra.styling.params", "DataStyle"),
+            ("Classify", "cleopatra.styling.params", "Classify"),
         ],
     )
     def test_spec_resolves_to_cleopatra_class(self, name, module_name, attribute):
@@ -66,5 +84,5 @@ class TestPlotSpecReExports:
         with patch(
             "pyramids.plot.require_optional", return_value=_OldCleopatraModule()
         ):
-            with pytest.raises(OptionalPackageDoesNotExist, match="0.28"):
+            with pytest.raises(OptionalPackageDoesNotExist, match="0.30"):
                 plot_specs.ColorBar

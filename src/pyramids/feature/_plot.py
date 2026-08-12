@@ -26,18 +26,47 @@ def plot(
     column: str | None = None,
     basemap: Any = None,
     engine: str = "geopandas",
+    colorbar: Any = None,
+    title: str | None = None,
+    color: Any = None,
+    contour: Any = None,
+    classify: Any = None,
     **kwargs: Any,
 ) -> Any:
-    """Render `fc` via geopandas or cleopatra, optionally over a web-tile basemap."""
+    """Render `fc` via geopandas or cleopatra, optionally over a web-tile basemap.
+
+    ``colorbar`` / ``title`` are the raster-family plot params that map onto both vector
+    back-ends: on geopandas ``colorbar`` toggles the ``legend`` and ``title`` is set on the
+    returned Axes; on cleopatra both forward to the glyph's ``plot`` call. The typed render
+    groups ``color`` / ``contour`` / ``classify`` are cleopatra-glyph concepts with no
+    geopandas equivalent, so they forward to the glyph on ``engine="cleopatra"`` and are
+    ignored on ``engine="geopandas"``. Each is only applied when set.
+    """
     if engine == "geopandas":
         # geopandas' `.plot` is a CachedAccessor: `GeoDataFrame.plot` is the accessor
         # class, so construct it bound to `fc` and then call it. This reaches geopandas'
         # implementation while bypassing FeatureCollection's `plot` facade override —
         # equivalent to the original in-class `super().plot(...)`.
-        result = gpd.GeoDataFrame.plot(fc)(column=column, **kwargs)
+        gp_kwargs = dict(kwargs)
+        if colorbar is not None:
+            # geopandas has no ColorBar object; its `legend` draws the bar, so a
+            # ColorBar spec (or True) shows it and False hides it.
+            gp_kwargs["legend"] = bool(colorbar)
+        result = gpd.GeoDataFrame.plot(fc)(column=column, **gp_kwargs)
         ax = result
+        if title is not None:
+            ax.set_title(title)
     elif engine == "cleopatra":
-        result, ax = plot_cleopatra(fc, column=column, **kwargs)
+        result, ax = plot_cleopatra(
+            fc,
+            column=column,
+            colorbar=colorbar,
+            title=title,
+            color=color,
+            contour=contour,
+            classify=classify,
+            **kwargs,
+        )
     else:
         raise ValueError(
             f"Unsupported engine {engine!r}; choose 'geopandas' or 'cleopatra'."
@@ -50,8 +79,23 @@ def plot(
     return result
 
 
-def plot_cleopatra(fc: Any, column: str | None = None, **kwargs: Any) -> Any:
-    """Build and draw the cleopatra glyph for `fc`, returning ``(glyph, ax)``."""
+def plot_cleopatra(
+    fc: Any,
+    column: str | None = None,
+    colorbar: Any = None,
+    title: str | None = None,
+    color: Any = None,
+    contour: Any = None,
+    classify: Any = None,
+    **kwargs: Any,
+) -> Any:
+    """Build and draw the cleopatra glyph for `fc`, returning ``(glyph, ax)``.
+
+    ``colorbar`` / ``title`` and the typed render groups ``color`` / ``contour`` /
+    ``classify`` are forwarded to the glyph's ``plot`` call (both ``ScatterGlyph.plot`` and
+    ``PolygonGlyph.plot`` accept them), each only when set so the glyph default is
+    preserved otherwise.
+    """
     require_cleopatra()
     if column is not None and column not in fc.columns:
         raise ValueError(
@@ -74,14 +118,25 @@ def plot_cleopatra(fc: Any, column: str | None = None, **kwargs: Any) -> Any:
             "engine='cleopatra' supports single Point or Polygon/MultiPolygon geometries; got "
             f"{sorted(geom_types, key=str)} (MultiPoint is not supported)."
         )
-    _fig, ax, _coll = glyph.plot()
+    plot_call: dict[str, Any] = {}
+    if colorbar is not None:
+        plot_call["colorbar"] = colorbar
+    if title is not None:
+        plot_call["title"] = title
+    if color is not None:
+        plot_call["color"] = color
+    if contour is not None:
+        plot_call["contour"] = contour
+    if classify is not None:
+        plot_call["classify"] = classify
+    _fig, ax, _coll = glyph.plot(**plot_call)
     return glyph, ax
 
 
 def scatter_glyph(fc: Any, values: Any, **kwargs: Any) -> Any:
     """Build a cleopatra ScatterGlyph from `fc`'s point coordinates."""
     require_cleopatra()
-    from cleopatra.scatter_glyph import ScatterGlyph
+    from cleopatra.glyphs.primitives.scatter_glyph import ScatterGlyph
 
     return ScatterGlyph(
         fc.geometry.x.to_numpy(),
@@ -94,7 +149,7 @@ def scatter_glyph(fc: Any, values: Any, **kwargs: Any) -> Any:
 def polygon_glyph(fc: Any, values: Any, **kwargs: Any) -> Any:
     """Build a cleopatra PolygonGlyph from `fc`'s polygon exterior rings."""
     require_cleopatra()
-    from cleopatra.polygon_glyph import PolygonGlyph
+    from cleopatra.glyphs.primitives.polygon_glyph import PolygonGlyph
 
     polygons: list = []
     poly_values: list | None = [] if values is not None else None

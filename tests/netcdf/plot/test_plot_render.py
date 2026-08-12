@@ -18,7 +18,7 @@ from tests.netcdf.plot._plot_helpers import _make_4d_nc
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
@@ -57,7 +57,12 @@ class TestNetCDFPlotColourForwarding:
         assert "robust" not in mock_plot.call_args.kwargs
 
     def test_levels_extend_cbar_kwargs_forwarded(self):
-        """`levels=`, `extend=`, and `cbar_kwargs=` reach the renderer verbatim."""
+        """`levels` folds into a `Contour` group; `extend`/`cbar_kwargs` stay loose.
+
+        cleopatra 0.30 moved `levels` onto the typed `contour=Contour(levels=...)`
+        group, so `NetCDF.plot` builds that from `ColourOpts.levels`; `extend` and the
+        raw `cbar_kwargs` passthrough are still forwarded verbatim.
+        """
         nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         cbar = {"label": "test"}
@@ -68,7 +73,7 @@ class TestNetCDFPlotColourForwarding:
                 colour=ColourOpts(levels=5, extend="both", cbar_kwargs=cbar),
             )
         kw = mock_plot.call_args.kwargs
-        assert kw.get("levels") == 5
+        assert kw.get("contour").levels == 5
         assert kw.get("extend") == "both"
         assert kw.get("cbar_kwargs") == cbar
 

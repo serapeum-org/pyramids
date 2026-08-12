@@ -12,10 +12,9 @@ import numpy as np
 import pytest
 
 mesh_glyph = pytest.importorskip(
-    "cleopatra.mesh_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.mesh_glyph", reason="cleopatra not installed"
 )
 MeshGlyph = mesh_glyph.MeshGlyph
-from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.netcdf.ugrid.dataset import UgridDataset
 from pyramids.netcdf.ugrid.plot import plot_mesh_data, plot_mesh_outline
 
@@ -63,6 +62,25 @@ class TestPlotMeshData:
         data = np.array([1.0, 2.0])
         result = plot_mesh_data(triangle_mesh, data, location="face")
         assert result.im is not None, "plot() must set the mesh mappable on .im"
+
+    def test_typed_colorbar_renders_on_mesh(self, triangle_mesh):
+        """A `ColorBar` spec styles the mesh colour bar (cleopatra >= 0.29, #933).
+
+        Test scenario:
+            cleopatra 0.29 accepts `colorbar=ColorBar` on `MeshGlyph.plot`, so passing
+            a typed spec draws a labelled colour bar rather than only accepting `bool`.
+        """
+        from cleopatra.styling.colorbar import ColorBar
+
+        data = np.array([1.0, 2.0])
+        result = plot_mesh_data(
+            triangle_mesh, data, location="face", colorbar=ColorBar(label="depth")
+        )
+        assert result._cbar is not None, "a ColorBar spec must draw a colour bar"
+        label = result._cbar.ax.get_ylabel() or result._cbar.ax.get_xlabel()
+        assert label == "depth", (
+            f"mesh colour bar should carry the label, got {label!r}"
+        )
 
     def test_invalid_location_raises(self, triangle_mesh):
         """Test that invalid location raises ValueError."""
@@ -258,68 +276,81 @@ class TestMeshStyleHillshade:
         not _mesh_supports_style, reason="cleopatra < 0.24 has no MeshGlyph style"
     )
     def test_dataset_plot_style_renders(self):
-        """``UgridDataset.plot(style=...)`` renders a styled MeshGlyph."""
-        result = self._dataset("face").plot("depth", style="flow_accumulation")
+        """``UgridDataset.plot(data_style=DataStyle(style=...))`` renders a styled mesh."""
+        from cleopatra.styling.params import DataStyle
+
+        result = self._dataset("face").plot(
+            "depth", data_style=DataStyle(style="flow_accumulation")
+        )
         assert isinstance(result, MeshGlyph)
 
     @pytest.mark.skipif(
         not _mesh_supports_style, reason="cleopatra < 0.24 has no MeshGlyph hillshade"
     )
     def test_dataset_plot_hillshade_node_renders(self):
-        """``hillshade=`` renders on node-centered mesh data.
+        """``data_style=DataStyle(hillshade=True)`` renders on node-centered mesh data.
 
         cleopatra requires node-centered elevation for hillshade, so a
         node-location variable is used.
         """
-        result = self._dataset("node").plot("depth", hillshade=True)
+        from cleopatra.styling.params import DataStyle
+
+        result = self._dataset("node").plot(
+            "depth", data_style=DataStyle(hillshade=True)
+        )
         assert isinstance(result, MeshGlyph)
 
     @pytest.mark.skipif(
         not _mesh_supports_style, reason="cleopatra < 0.24 has no MeshGlyph style"
     )
     def test_style_and_hillshade_reach_mesh_glyph_plot(self):
-        """The presets are actually applied to ``MeshGlyph.plot`` (not just returned).
+        """The ``data_style`` group is actually applied to ``MeshGlyph.plot``.
 
         Test scenario:
-            ``isinstance(result, MeshGlyph)`` alone would still pass if the preset
+            ``isinstance(result, MeshGlyph)`` alone would still pass if the group
             were silently dropped between ``mesh_render`` and the glyph. Spy on
-            ``MeshGlyph.plot`` and assert ``style`` / ``hillshade`` arrive in its
-            call kwargs, proving the full facade -> mesh_render -> plot_mesh_data
-            -> MeshGlyph.plot leg forwards them.
+            ``MeshGlyph.plot`` and assert the ``data_style`` group arrives in its call
+            kwargs, proving the full facade -> mesh_render -> plot_mesh_data ->
+            MeshGlyph.plot leg forwards it.
         """
+        from cleopatra.styling.params import DataStyle
+
         ds = self._dataset("face")
         with patch.object(MeshGlyph, "plot") as mock_plot:
-            ds.plot("depth", style="flow_accumulation", hillshade=True)
+            ds.plot(
+                "depth",
+                data_style=DataStyle(style="flow_accumulation", hillshade=True),
+            )
         kw = mock_plot.call_args.kwargs
-        assert kw.get("style") == "flow_accumulation"
-        assert kw.get("hillshade") is True
+        data_style = kw.get("data_style")
+        assert data_style is not None, "the data_style group must reach MeshGlyph.plot"
+        assert data_style.style == "flow_accumulation"
+        assert data_style.hillshade is True
 
-    def test_style_forwarded_to_mesh_render(self):
-        """``UgridDataset.plot`` forwards ``style`` / ``hillshade`` to the helper."""
+    def test_data_style_forwarded_to_mesh_render(self):
+        """``UgridDataset.plot`` forwards a ``data_style=DataStyle`` to the helper.
+
+        The loose ``style`` / ``hillshade`` kwargs were removed (they now raise); the
+        typed ``data_style`` group is what reaches ``_mesh_render``.
+        """
+        from cleopatra.styling.params import DataStyle
+
         ds = self._dataset("face")
+        data_style = DataStyle(style="topography", hillshade=True)
         with patch(
             "pyramids.netcdf.ugrid.dataset._mesh_render", return_value="sentinel"
         ) as mock_render:
-            ds.plot("depth", style="topography", hillshade=True)
-        kw = mock_render.call_args.kwargs
-        assert kw.get("style") == "topography"
-        assert kw.get("hillshade") is True
+            ds.plot("depth", data_style=data_style)
+        assert mock_render.call_args.kwargs.get("data_style") is data_style
 
-    def test_style_on_old_cleopatra_raises_upgrade_hint(self):
-        """``style=`` on a MeshGlyph lacking preset support raises the >= 0.24 hint."""
+    def test_falsy_hillshade_is_dropped(self):
+        """``hillshade=False`` is dropped — no ``DataStyle`` is built for it."""
         ds = self._dataset("face")
-        old_keys = MeshGlyph.option_keys() - {"style", "hillshade"}
-        with patch.object(MeshGlyph, "option_keys", return_value=old_keys):
-            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
-                ds.plot("depth", style="topography")
-
-    def test_falsy_hillshade_not_guarded_on_old_cleopatra(self):
-        """``hillshade=False`` is dropped, so the mesh guard does not fire."""
-        ds = self._dataset("face")
-        old_keys = MeshGlyph.option_keys() - {"style", "hillshade"}
-        with patch.object(MeshGlyph, "option_keys", return_value=old_keys):
-            result = ds.plot("depth", hillshade=False)
-        assert isinstance(result, MeshGlyph)
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            ds.plot("depth", hillshade=False)
+        assert mock_plot.call_args.kwargs.get("data_style") is None, (
+            "a falsy hillshade must not build a DataStyle"
+        )
 
     @pytest.mark.skipif(
         not _mesh_supports_apply_style,
@@ -334,7 +365,118 @@ class TestMeshStyleHillshade:
             preset by name without rebuilding — verify the round trip through the
             ``UgridDataset.plot`` facade.
         """
-        result = self._dataset("face").plot("depth", style="flow_accumulation")
+        from cleopatra.styling.params import DataStyle
+
+        result = self._dataset("face").plot(
+            "depth", data_style=DataStyle(style="flow_accumulation")
+        )
         assert result.style == "flow_accumulation"
         result.apply_style("bathymetry")
         assert result.style == "bathymetry", "apply_style must restyle in place"
+
+
+class TestUgridPlotAlignment:
+    """The raster-family plot params (colorbar/points/kind) on ``UgridDataset.plot``.
+
+    ``UgridDataset.plot`` shares the raster plot signature; ``colorbar`` maps onto the
+    mesh backend while ``points`` / ``kind`` have no mesh meaning and are accepted but
+    ignored.
+    """
+
+    @staticmethod
+    def _dataset(location="face"):
+        """Build a single-face UgridDataset carrying a ``depth`` variable."""
+        data = np.array([5.0]) if location == "face" else np.array([0.0, 1.0, 2.0])
+        return UgridDataset.create_from_arrays(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2]]),
+            data={"depth": data},
+            data_locations={"depth": location},
+        )
+
+    def test_colorbar_spec_reaches_mesh_glyph_plot(self):
+        """An explicit ``colorbar`` forwards through to ``MeshGlyph.plot``.
+
+        Test scenario:
+            ``UgridDataset.plot(colorbar=ColorBar(...))`` must forward the spec down
+            the facade -> mesh_render -> plot_mesh_data -> ``MeshGlyph.plot`` chain.
+        """
+        from cleopatra.styling.colorbar import ColorBar
+
+        bar = ColorBar(label="depth")
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            self._dataset("face").plot("depth", colorbar=bar)
+        assert mock_plot.call_args.kwargs.get("colorbar") is bar, (
+            "an explicit colorbar must reach MeshGlyph.plot"
+        )
+
+    def test_default_colorbar_preserves_mesh_default(self):
+        """A default ``colorbar=None`` leaves the mesh back-end default in place.
+
+        Test scenario:
+            Omitting ``colorbar`` must not override ``plot_mesh_data``'s default (which
+            draws the bar), so ``MeshGlyph.plot`` still receives the drawn-bar default
+            rather than a pyramids-injected ``None``.
+        """
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            self._dataset("face").plot("depth")
+        assert mock_plot.call_args.kwargs.get("colorbar") is True, (
+            "the mesh default (bar drawn) must survive an omitted colorbar"
+        )
+
+    def test_explicit_false_colorbar_reaches_mesh_glyph_plot(self):
+        """An explicit ``colorbar=False`` hides the bar via ``MeshGlyph.plot``."""
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            self._dataset("face").plot("depth", colorbar=False)
+        assert mock_plot.call_args.kwargs.get("colorbar") is False, (
+            "colorbar=False must reach MeshGlyph.plot"
+        )
+
+    def test_points_and_kind_are_accepted_noops(self):
+        """``points`` / ``kind`` are accepted for symmetry and ignored for a mesh.
+
+        Test scenario:
+            Passing the raster-only ``points`` / ``kind`` must neither raise nor reach
+            ``MeshGlyph.plot`` (the mesh has no point overlay and a fixed renderer).
+        """
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            self._dataset("face").plot(
+                "depth", points=np.array([[1.0, 0, 0]]), kind="contourf"
+            )
+        kw = mock_plot.call_args.kwargs
+        assert "points" not in kw, "points must not reach MeshGlyph.plot"
+        assert "kind" not in kw, "kind must not reach MeshGlyph.plot"
+
+
+class TestUgridGroupParams:
+    """Typed render groups (color/contour/data_style) on ``UgridDataset.plot``.
+
+    ``MeshGlyph.plot`` accepts ``color`` / ``contour`` / ``data_style`` (no ``cells``);
+    the facade forwards them when set, and an explicit group wins over the loose kwargs.
+    """
+
+    @staticmethod
+    def _dataset(location="face"):
+        """Build a single-face UgridDataset carrying a ``depth`` variable."""
+        data = np.array([5.0]) if location == "face" else np.array([0.0, 1.0, 2.0])
+        return UgridDataset.create_from_arrays(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2]]),
+            data={"depth": data},
+            data_locations={"depth": location},
+        )
+
+    def test_color_and_data_style_reach_mesh_glyph_plot(self):
+        """Explicit ``color`` / ``data_style`` forward to ``MeshGlyph.plot``."""
+        from cleopatra.styling.params import DataStyle
+        from cleopatra.styling.scaling import ColorScaling
+
+        color = ColorScaling.power(gamma=0.8)
+        data_style = DataStyle(style="flow_accumulation")
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            self._dataset("face").plot("depth", color=color, data_style=data_style)
+        kw = mock_plot.call_args.kwargs
+        assert kw.get("color") is color, "explicit color must reach MeshGlyph.plot"
+        assert kw.get("data_style") is data_style, "explicit data_style must reach it"

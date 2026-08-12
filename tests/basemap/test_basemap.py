@@ -1,7 +1,7 @@
 """Tests for pyramids.basemap.basemap.
 
 ``add_basemap`` and ``get_provider`` are thin wrappers over
-``cleopatra.tiles.add_tiles`` / ``cleopatra.tiles.get_provider`` (the
+``cleopatra.basemap.tiles.add_tiles`` / ``cleopatra.basemap.tiles.get_provider`` (the
 cleopatra C-6 helpers). These tests cover the delegation contract: the
 right cleopatra function is called with the translated kwargs, its return
 value is propagated, the missing-extra error path is wired up, and the
@@ -17,29 +17,31 @@ import pytest
 
 pytestmark = pytest.mark.plot
 
-pytest.importorskip("cleopatra.tiles", reason="cleopatra[tiles] extra not installed")
+pytest.importorskip(
+    "cleopatra.basemap.tiles", reason="cleopatra[tiles] extra not installed"
+)
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.basemap.basemap import add_basemap, get_provider
 
 
 class TestGetProvider:
-    """``get_provider`` delegates to ``cleopatra.tiles.get_provider``."""
+    """``get_provider`` delegates to ``cleopatra.basemap.tiles.get_provider``."""
 
     def test_delegates_to_cleopatra_get_provider(self):
         """The ``name`` argument is forwarded and the result returned verbatim.
 
         Test scenario:
-            Patch ``cleopatra.tiles.get_provider`` with a sentinel and
+            Patch ``cleopatra.basemap.tiles.get_provider`` with a sentinel and
             confirm ``get_provider("CartoDB.Positron")`` calls it once
             with that name and hands back its return value.
         """
-        with patch("cleopatra.tiles.get_provider") as mock_get:
+        with patch("cleopatra.basemap.tiles.get_provider") as mock_get:
             result = get_provider("CartoDB.Positron")
 
         mock_get.assert_called_once_with("CartoDB.Positron")
         assert result is mock_get.return_value, (
-            "get_provider must return cleopatra.tiles.get_provider's result"
+            "get_provider must return cleopatra.basemap.tiles.get_provider's result"
         )
 
     def test_default_provider_round_trip(self):
@@ -73,19 +75,19 @@ class TestGetProvider:
 
 
 class TestAddBasemap:
-    """``add_basemap`` delegates to ``cleopatra.tiles.add_tiles``."""
+    """``add_basemap`` delegates to ``cleopatra.basemap.tiles.add_tiles``."""
 
     def test_delegates_with_default_kwargs(self):
         """A bare ``add_basemap(ax)`` forwards the documented defaults.
 
         Test scenario:
-            Patch ``cleopatra.tiles.add_tiles`` and call ``add_basemap``
+            Patch ``cleopatra.basemap.tiles.add_tiles`` and call ``add_basemap``
             with only ``ax``. Every wrapper-level default must reach
             cleopatra as a keyword (``crs=3857``, ``zoom="auto"``, …) and
             the axes must be passed positionally.
         """
         sentinel_ax = object()
-        with patch("cleopatra.tiles.add_tiles") as mock_add:
+        with patch("cleopatra.basemap.tiles.add_tiles") as mock_add:
             result = add_basemap(sentinel_ax)
 
         mock_add.assert_called_once_with(
@@ -101,7 +103,7 @@ class TestAddBasemap:
             retries=2,
         )
         assert result is mock_add.return_value, (
-            "add_basemap must return cleopatra.tiles.add_tiles's result"
+            "add_basemap must return cleopatra.basemap.tiles.add_tiles's result"
         )
 
     def test_delegates_with_custom_kwargs(self):
@@ -113,7 +115,7 @@ class TestAddBasemap:
             those values (and the untouched defaults for the rest).
         """
         sentinel_ax = object()
-        with patch("cleopatra.tiles.add_tiles") as mock_add:
+        with patch("cleopatra.basemap.tiles.add_tiles") as mock_add:
             add_basemap(
                 sentinel_ax,
                 crs=4326,
@@ -141,22 +143,22 @@ class TestAddBasemap:
         Test scenario:
             Patch the ``import_basemap`` guard to raise; ``add_basemap``
             must propagate ``OptionalPackageDoesNotExist`` and never reach
-            ``cleopatra.tiles.add_tiles``.
+            ``cleopatra.basemap.tiles.add_tiles``.
         """
         with patch(
             "pyramids.basemap.basemap.import_basemap",
             side_effect=OptionalPackageDoesNotExist("no cleopatra[tiles]"),
         ):
-            with patch("cleopatra.tiles.add_tiles") as mock_add:
+            with patch("cleopatra.basemap.tiles.add_tiles") as mock_add:
                 with pytest.raises(OptionalPackageDoesNotExist):
                     add_basemap(object())
         mock_add.assert_not_called()
 
 
 class TestCleopatraDelegation:
-    """The ``add_basemap`` -> ``cleopatra.tiles.add_tiles`` contract.
+    """The ``add_basemap`` -> ``cleopatra.basemap.tiles.add_tiles`` contract.
 
-    ``add_basemap`` is a thin wrapper over ``cleopatra.tiles.add_tiles``
+    ``add_basemap`` is a thin wrapper over ``cleopatra.basemap.tiles.add_tiles``
     (shipped in ``cleopatra >= 0.8.0``, pinned via the ``[viz]`` extra as
     ``cleopatra[tiles]``). These tests pin the contract that wrapper relies
     on: the helper is importable, and the two signatures stay compatible —
@@ -166,18 +168,18 @@ class TestCleopatraDelegation:
     """
 
     def test_cleopatra_add_tiles_is_importable(self):
-        """``cleopatra.tiles.add_tiles`` imports (C-6 contract)."""
+        """``cleopatra.basemap.tiles.add_tiles`` imports (C-6 contract)."""
         cleopatra_tiles = pytest.importorskip(
-            "cleopatra.tiles",
+            "cleopatra.basemap.tiles",
             reason="cleopatra[tiles] extra not installed",
         )
         assert hasattr(cleopatra_tiles, "add_tiles"), (
-            "cleopatra.tiles.add_tiles must exist so "
+            "cleopatra.basemap.tiles.add_tiles must exist so "
             "pyramids.basemap.add_basemap can delegate to it."
         )
 
     def test_pyramids_and_cleopatra_share_addmap_signature(self):
-        """``add_basemap`` and ``cleopatra.tiles.add_tiles`` line up.
+        """``add_basemap`` and ``cleopatra.basemap.tiles.add_tiles`` line up.
 
         Test scenario:
             Compare the parameter names directly so a future cleopatra
@@ -185,7 +187,7 @@ class TestCleopatraDelegation:
             at a downstream call site.
         """
         cleopatra_tiles = pytest.importorskip(
-            "cleopatra.tiles",
+            "cleopatra.basemap.tiles",
             reason="cleopatra[tiles] extra not installed",
         )
         cleo_sig = inspect.signature(cleopatra_tiles.add_tiles)
@@ -196,18 +198,18 @@ class TestCleopatraDelegation:
         extra = pyr_params - cleo_params
         # Cleopatra is allowed to grow its surface: new *optional* params
         # (e.g. `user_agent=` / `max_tiles=` in 0.8.0) don't break the
-        # `add_basemap(ax, ...) -> cleopatra.tiles.add_tiles(ax, ...)`
+        # `add_basemap(ax, ...) -> cleopatra.basemap.tiles.add_tiles(ax, ...)`
         # delegation — pyramids just won't expose them. What *would* break
         # it is cleopatra making a previously-shared (or any) param
         # *required* while pyramids lacks it.
         for name in missing:
             param = cleo_sig.parameters[name]
             assert param.default is not inspect.Parameter.empty, (
-                f"cleopatra.tiles.add_tiles added a *required* param {name!r} "
+                f"cleopatra.basemap.tiles.add_tiles added a *required* param {name!r} "
                 "not in pyramids.add_basemap — the delegation contract is broken."
             )
         assert not extra, (
-            f"pyramids.add_basemap has params not in cleopatra.tiles.add_tiles: "
+            f"pyramids.add_basemap has params not in cleopatra.basemap.tiles.add_tiles: "
             f"{extra}. The thin-wrapper delegation will not work until "
             "these are pushed upstream."
         )

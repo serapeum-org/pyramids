@@ -12,7 +12,7 @@ from pyramids.dataset.engines import Analysis
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
@@ -42,7 +42,7 @@ class TestDatasetPlotFacade:
 
         Test scenario:
             Calling the facade with a single-band dataset must return
-            an instance of :class:`cleopatra.array_glyph.ArrayGlyph` so
+            an instance of :class:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph` so
             downstream callers can chain visual customisations.
         """
         rng = np.random.default_rng(1337)
@@ -80,63 +80,18 @@ class TestDatasetPlotFacade:
         )
 
     @pytest.mark.plot
-    @pytest.mark.parametrize(
-        "color_scale",
-        [
-            "linear",
-            "power",
-            "sym-lognorm",
-            "boundary-norm",
-            "Power",
-        ],
-    )
-    def test_color_scale_string_aliases_work(self, color_scale):
-        """``color_scale`` accepts the ``cleopatra.styles.ColorScale`` aliases.
-
-        Args:
-            color_scale: String alias for the colour-scale enum (lookup
-                is case-insensitive on the cleopatra side).
-
-        Test scenario:
-            The plot docstrings document the string aliases as the valid
-            ``color_scale`` values. Verify each alias (including a
-            mixed-case spelling) is forwarded to cleopatra and yields an
-            ``ArrayGlyph``.
-
-        Notes:
-            cleopatra's ``ColorScale`` StrEnum replaced the legacy
-            integer codes (``1``-``5``); those are no longer accepted —
-            see :meth:`test_color_scale_integer_codes_rejected`.
-        """
-        rng = np.random.default_rng(1337)
-        arr = rng.random((6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
-        plot_kwargs = {"color_scale": color_scale}
-        if color_scale.lower() == "boundary-norm":
-            plot_kwargs["bounds"] = [0.0, 0.25, 0.5, 0.75, 1.0]
-
-        result = dataset.plot(**plot_kwargs)
-        assert isinstance(result, ArrayGlyph), (
-            f"color_scale={color_scale!r} should return ArrayGlyph, "
-            f"got {type(result).__name__}"
-        )
-
-    @pytest.mark.plot
     @pytest.mark.parametrize("color_scale", [1, 2, 3, 4, 5, 0])
     def test_color_scale_integer_codes_rejected(self, color_scale):
         """Legacy integer ``color_scale`` codes raise a clear ``ValueError``.
 
         Args:
-            color_scale: A legacy integer code that older releases
-                accepted but cleopatra's ``ColorScale`` enum rejects.
+            color_scale: A legacy integer code that older releases accepted.
 
         Test scenario:
-            cleopatra now validates ``color_scale`` against the
-            ``ColorScale`` StrEnum and raises ``ValueError`` for anything
-            that is not one of the documented aliases (or a ``ColorScale``
-            member). Confirm pyramids surfaces that error unchanged.
+            cleopatra 0.30 moved the colour scale onto the ``color=ColorScaling`` group
+            and rejects the loose ``color_scale`` *key* regardless of its value (an
+            integer code, a string alias, or anything else), so pyramids surfaces that
+            ``ValueError`` unchanged.
         """
         rng = np.random.default_rng(7)
         arr = rng.random((5, 5)).astype("float32")
@@ -222,48 +177,6 @@ class TestDatasetPlotRgbOptions:
         assert call_kwargs["percentile"] == opts["percentile"]
 
     @pytest.mark.plot
-    def test_loose_rgb_emits_deprecation_warning(self):
-        """Passing `rgb=` loose at the top level emits DeprecationWarning."""
-        rng = np.random.default_rng(13)
-        arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
-        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
-            mock_plot.return_value = "stub"
-            with pytest.warns(DeprecationWarning, match=r"rgb_options"):
-                dataset.plot(rgb=[0, 1, 2])
-        assert mock_plot.call_args.kwargs["rgb"] == [0, 1, 2]
-
-    @pytest.mark.plot
-    @pytest.mark.parametrize(
-        "key,value",
-        [
-            ("surface_reflectance", 10000),
-            ("cutoff", [0.1, 0.9]),
-            ("percentile", 2),
-        ],
-    )
-    def test_other_loose_kwargs_emit_deprecation_warning(self, key, value):
-        """Each Sentinel-loose kwarg emits a DeprecationWarning individually.
-
-        Args:
-            key: One of ``"surface_reflectance"`` / ``"cutoff"`` /
-                ``"percentile"``.
-            value: Test value to pass in for that kwarg.
-        """
-        rng = np.random.default_rng(14)
-        arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
-        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
-            mock_plot.return_value = "stub"
-            with pytest.warns(DeprecationWarning, match=r"rgb_options"):
-                dataset.plot(**{key: value})
-        assert mock_plot.call_args.kwargs[key] == value
-
-    @pytest.mark.plot
     def test_rgb_options_unknown_key_raises(self):
         """Unknown keys in `rgb_options` are rejected with a clear error."""
         rng = np.random.default_rng(15)
@@ -273,60 +186,6 @@ class TestDatasetPlotRgbOptions:
         )
         with pytest.raises(ValueError, match=r"Unknown keys"):
             dataset.plot(rgb_options={"bogus": True})
-
-    @pytest.mark.plot
-    def test_rgb_options_overrides_loose_kwarg(self):
-        """When both forms are passed, `rgb_options` wins for the same key."""
-        rng = np.random.default_rng(16)
-        arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
-        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
-            mock_plot.return_value = "stub"
-            with pytest.warns(DeprecationWarning):
-                dataset.plot(
-                    rgb=[2, 1, 0],
-                    rgb_options={"rgb": [0, 1, 2]},
-                )
-        assert mock_plot.call_args.kwargs["rgb"] == [0, 1, 2]
-
-    def test_collision_warning_distinguishes_from_pure_loose(self):
-        """A loose+grouped collision warns "rgb_options wins", not "group them" (M2).
-
-        Test scenario:
-            M2 fix — when both `rgb=` (loose) and `rgb_options={"rgb": ...}`
-            are passed for the same key, the DeprecationWarning must say
-            the loose value was overridden ("`rgb_options` wins — drop
-            the loose form"), *not* the misleading "Group them under
-            `rgb_options={...}` instead" message that implies the user
-            forgot the grouped form. Conversely, a pure-loose call (no
-            `rgb_options`) still gets the original "group them" wording.
-        """
-        rng = np.random.default_rng(17)
-        arr = rng.random((3, 6, 6)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
-        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
-            mock_plot.return_value = "stub"
-            with warnings.catch_warnings(record=True) as collide:
-                warnings.simplefilter("always")
-                dataset.plot(rgb=[2, 1, 0], rgb_options={"rgb": [0, 1, 2]})
-            with warnings.catch_warnings(record=True) as pure:
-                warnings.simplefilter("always")
-                dataset.plot(rgb=[2, 1, 0])
-        collide_msg = " ".join(str(w.message) for w in collide)
-        pure_msg = " ".join(str(w.message) for w in pure)
-        assert (
-            "rgb_options` wins" in collide_msg and "drop the loose form" in collide_msg
-        ), f"collision warning should say rgb_options wins; got: {collide_msg!r}"
-        assert "Group them under" not in collide_msg, (
-            f"collision warning must not use the 'group them' wording; got: {collide_msg!r}"
-        )
-        assert "Group them under" in pure_msg, (
-            f"pure-loose warning should keep the 'group them' wording; got: {pure_msg!r}"
-        )
 
 
 class TestDatasetPlotRgbOptionsEdges:
@@ -417,85 +276,3 @@ class TestDatasetPlotRgbOptionsEdges:
             w for w in captured if issubclass(w.category, DeprecationWarning)
         ]
         assert not deprecations, "Empty rgb_options must not emit DeprecationWarning"
-
-    @pytest.mark.plot
-    def test_loose_rgb_with_empty_group_still_warns(self, multiband_dataset):
-        """Loose `rgb=` with `rgb_options={}` still triggers the deprecation.
-
-        Test scenario:
-            The warning is gated on the loose kwargs being not-None
-            (not on whether ``rgb_options`` is provided). An empty
-            group doesn't suppress the warning when a loose kwarg is
-            present. The loose ``rgb`` survives because the empty
-            group has no entries to overwrite it.
-        """
-        with patch.object(
-            type(multiband_dataset.analysis), "plot", autospec=True
-        ) as mock_plot:
-            mock_plot.return_value = "stub"
-            with pytest.warns(DeprecationWarning, match=r"rgb_options"):
-                multiband_dataset.plot(rgb=[0, 1, 2], rgb_options={})
-        assert mock_plot.call_args.kwargs["rgb"] == [
-            0,
-            1,
-            2,
-        ], "Loose rgb must survive when rgb_options is empty"
-
-    @pytest.mark.plot
-    def test_only_loose_surface_reflectance_emits_warning_once(self, multiband_dataset):
-        """A single loose `surface_reflectance=` triggers exactly one warning.
-
-        Test scenario:
-            The merge helper emits one warning regardless of how many
-            loose kwargs were passed; with only one set, exactly one
-            DeprecationWarning fires. Verifies the warning is not
-            spammed per-kwarg.
-        """
-        with patch.object(
-            type(multiband_dataset.analysis), "plot", autospec=True
-        ) as mock_plot:
-            mock_plot.return_value = "stub"
-            with warnings.catch_warnings(record=True) as captured:
-                warnings.simplefilter("always")
-                multiband_dataset.plot(surface_reflectance=10000)
-        deprecations = [
-            w for w in captured if issubclass(w.category, DeprecationWarning)
-        ]
-        assert len(deprecations) == 1, (
-            f"Exactly one DeprecationWarning expected, got {len(deprecations)}: "
-            f"{[str(w.message) for w in deprecations]}"
-        )
-        assert "surface_reflectance" in str(deprecations[0].message), (
-            f"Warning must name the loose kwarg, got: {deprecations[0].message}"
-        )
-
-    @pytest.mark.plot
-    def test_rgb_options_only_partial_override(self, multiband_dataset):
-        """`rgb_options` overrides only its own keys; other loose kwargs survive.
-
-        Test scenario:
-            Pass loose ``percentile=2`` AND
-            ``rgb_options={"rgb": [0, 1, 2]}``. The grouped form
-            overrides only ``rgb`` (which wasn't set loose), and the
-            loose ``percentile`` propagates unchanged. The
-            DeprecationWarning still fires because at least one loose
-            kwarg was used.
-        """
-        with patch.object(
-            type(multiband_dataset.analysis), "plot", autospec=True
-        ) as mock_plot:
-            mock_plot.return_value = "stub"
-            with pytest.warns(DeprecationWarning, match=r"percentile"):
-                multiband_dataset.plot(
-                    percentile=2,
-                    rgb_options={"rgb": [0, 1, 2]},
-                )
-        call_kwargs = mock_plot.call_args.kwargs
-        assert call_kwargs["rgb"] == [
-            0,
-            1,
-            2,
-        ], f"Grouped rgb must propagate, got: {call_kwargs.get('rgb')}"
-        assert call_kwargs["percentile"] == 2, (
-            f"Loose percentile must survive, got: {call_kwargs.get('percentile')}"
-        )

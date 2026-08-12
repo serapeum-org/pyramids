@@ -23,7 +23,7 @@ from tests.netcdf.plot._plot_helpers import (
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
@@ -360,7 +360,7 @@ class TestCurvilinearCoords:
 
         Test scenario:
             cleopatra validates ``kind`` against
-            :data:`cleopatra.array_glyph.VALID_PLOT_KINDS`. An unknown
+            :data:`cleopatra.glyphs.gridded.array_glyph.VALID_PLOT_KINDS`. An unknown
             value triggers a ValueError that must propagate through
             pyramids unchanged so users see the same error message they
             would see calling ArrayGlyph directly.

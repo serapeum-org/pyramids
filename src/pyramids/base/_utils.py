@@ -654,14 +654,14 @@ def require_optional(module_name: str, message: str, *, return_module: bool = Fa
     One nuance for dotted names: `import_basemap` previously spelled
     `from cleopatra import tiles`, which calls
     `__import__("cleopatra", ..., fromlist=("tiles",))`. Here it becomes
-    `__import__("cleopatra.tiles")`, so the parent package resolves internally
+    `__import__("cleopatra.basemap.tiles")`, so the parent package resolves internally
     rather than through `builtins.__import__`. A patch keyed on
     `name == "cleopatra"` no longer intercepts it; key on the dotted name
     instead. No in-tree test depends on this.
 
     Args:
         module_name: Dotted module path to import, e.g. ``"zarr"`` or
-            ``"cleopatra.tiles"``.
+            ``"cleopatra.basemap.tiles"``.
         message: The install hint raised when the import fails. Compose it with
             :func:`lazy_extra_hint` for the ``[lazy]`` extra.
         return_module: When `True` the imported module object is returned so the
@@ -894,8 +894,8 @@ def import_h5py(message: str):
 
 
 def import_basemap(message: str):
-    """Import the web-tile basemap backend (``cleopatra.tiles``, the ``[tiles]`` extra)."""
-    return require_optional("cleopatra.tiles", message)
+    """Import the web-tile basemap backend (``cleopatra.basemap.tiles``, the ``[tiles]`` extra)."""
+    return require_optional("cleopatra.basemap.tiles", message)
 
 
 def ogr_ds_to_gdal_dataset(ogr_ds: ogr.DataSource) -> gdal.Dataset:

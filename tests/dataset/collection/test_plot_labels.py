@@ -259,3 +259,30 @@ class TestTimeAxis:
             cube.time = [2000, 2001]
         cube.time = None
         assert cube.time is None
+
+
+class TestPlotRenderGroups:
+    """The typed render groups are forwarded from ``DatasetCollection.plot``.
+
+    ``render_array`` is mocked, so plain sentinels stand in for the cleopatra group
+    objects — the test only pins that a set group is forwarded and an unset one is not.
+    """
+
+    def test_set_groups_are_forwarded(self):
+        """Explicit ``color`` / ``data_style`` reach ``render_array``."""
+        cube = _collection(3)
+        color, data_style = object(), object()
+        with patch("pyramids.dataset.collection.render_array") as render:
+            cube.plot(band=0, color=color, data_style=data_style)
+        kw = render.call_args.kwargs
+        assert kw["color"] is color, "explicit color must be forwarded"
+        assert kw["data_style"] is data_style, "explicit data_style must be forwarded"
+
+    def test_unset_groups_are_not_forwarded(self):
+        """Unset groups are dropped so they never override the render backend default."""
+        cube = _collection(3)
+        with patch("pyramids.dataset.collection.render_array") as render:
+            cube.plot(band=0)
+        kw = render.call_args.kwargs
+        for name in ("color", "contour", "cells", "data_style"):
+            assert name not in kw, f"unset {name} must not be forwarded"

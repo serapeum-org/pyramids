@@ -923,11 +923,17 @@ class Bands(_Engine["Dataset"]):
         )
 
         require_cleopatra()
-        from cleopatra.colors import Colors
+        from cleopatra.styling.colors import Colors
 
         if colormap:
             ramp = self._ramp_from_colormap(colormap, start_value, end_value)
         else:
+            # ``_validate_color_ramp_args`` guarantees the colour pair is present when
+            # ``colormap`` is unset (exactly one of the pair / colormap is given), but mypy
+            # can't follow that cross-method narrowing — now that the mypy override reads
+            # cleopatra's inline types, ``Colors`` needs concrete ``str`` colours.
+            assert start_color is not None
+            assert end_color is not None
             start_rgb, end_rgb = Colors([start_color, end_color]).to_rgb(
                 normalized=False
             )
@@ -1080,7 +1086,7 @@ class Bands(_Engine["Dataset"]):
                 True to overwrite the existing color table. Default is False.
         """
         require_cleopatra()
-        from cleopatra.colors import Colors
+        from cleopatra.styling.colors import Colors
 
         color = Colors(color_df["color"].tolist())
         color_rgb = color.to_rgb(normalized=False)

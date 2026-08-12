@@ -34,6 +34,7 @@ from pyramids.base.crs import (
 from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset
+from pyramids.dataset._plot_helpers import nonnull_group_kwargs
 from pyramids.dataset.dataset import _COLLABORATOR_ATTRS
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf._axis import detect_axis_indices
@@ -71,7 +72,11 @@ from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
 from pyramids.netcdf.utils import _read_attributes, create_time_conversion_func
 
 if TYPE_CHECKING:
-    from cleopatra.geo import Basemap
+    from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import PointOverlay
+    from cleopatra.styling.colorbar import ColorBar
+    from cleopatra.styling.params import CellValues, Contour, DataStyle
+    from cleopatra.styling.scaling import ColorScaling
 
 # Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
 # and `close()` (which snapshots) on the same container from different threads.
@@ -1650,6 +1655,12 @@ class NetCDF(Dataset):
         title: str | None = None,
         ax: Any | None = None,
         figsize: tuple[float, float] | None = None,
+        colorbar: bool | ColorBar | None = None,
+        points: np.ndarray | PointOverlay | None = None,
+        color: ColorScaling | None = None,
+        contour: Contour | None = None,
+        cells: CellValues | None = None,
+        data_style: DataStyle | None = None,
         **kwargs: Any,
     ):
         """Plot a 2-D slice of a NetCDF variable using the plot vocabulary.
@@ -1750,7 +1761,7 @@ class NetCDF(Dataset):
             basemap (bool, str, or Basemap, optional):
                 Reference layer, dispatched by type. ``True`` or a named basemap
                 tile provider overlays a pyramids web-tile basemap; a
-                ``pyramids.plot.Basemap`` (cleopatra >= 0.28) draws a relief/features
+                ``pyramids.plot.Basemap`` draws a relief/features
                 layer instead (not supported on the faceted path). Defaults to None.
             exclude_value (Any, optional):
                 Pixel value to mask out before plotting. Defaults to None.
@@ -1760,6 +1771,30 @@ class NetCDF(Dataset):
                 Existing matplotlib Axes to draw into. Defaults to None.
             figsize (tuple, optional):
                 Figure size in inches. Defaults to None.
+            colorbar (bool or ColorBar, optional):
+                Colour-bar spec. A ``pyramids.plot.ColorBar(label=…, …)``
+                draws a configured bar; ``False`` hides it and
+                ``None`` uses cleopatra's default. Only forwarded when set. Default
+                is ``None``.
+            points (np.ndarray or PointOverlay, optional):
+                Point overlay for the static / animate paths. A 3-column array
+                ``(value, row, col)`` draws unstyled points; pass a
+                ``pyramids.plot.PointOverlay(...)`` to style them. Only forwarded
+                when set — the multi-panel ``facet`` path has no ``points``
+                parameter and raises if one is supplied. Default is ``None``.
+            color (ColorScaling, optional):
+                Colour-scale spec ``pyramids.plot.ColorScaling`` (linear / power / sym-log /
+                boundary / midpoint norm), e.g. ``ColorScaling.power(gamma=0.7)``. Default
+                ``None``.
+            contour (Contour, optional):
+                Contour-line spec ``pyramids.plot.Contour(levels=…, labels=…, label_kw=…)``.
+                Default ``None``.
+            cells (CellValues, optional):
+                Per-cell value annotation ``pyramids.plot.CellValues(show=…, size=…,
+                background_threshold=…)``. Default ``None``.
+            data_style (DataStyle, optional):
+                Data-style / relief spec ``pyramids.plot.DataStyle(style=…, hillshade=…)``.
+                Default ``None``.
             **kwargs:
                 Additional keyword arguments forwarded to
                 :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`.
@@ -1774,14 +1809,14 @@ class NetCDF(Dataset):
                 passing the CRS the data was plotted in (its own CRS — no reprojection needed) so the
                 layer lines up::
 
-                    from cleopatra.reference import add_features
+                    from cleopatra.basemap.reference import add_features
                     var = nc.get_variable("t2m")
                     glyph = var.plot()
                     add_features(glyph.ax, "coastline", crs=var.epsg, zorder=5)
 
                 ``add_features`` fetches Natural Earth data (cached under ``~/.cleopatra``), so it
                 needs the ``[viz]`` extra and network access on first use. A relief backdrop is
-                available the same way via :func:`cleopatra.reference.add_relief`.
+                available the same way via :func:`cleopatra.basemap.reference.add_relief`.
 
         Raises:
             TypeError: If any of the Sentinel-only kwargs (``rgb``,
@@ -2009,7 +2044,7 @@ class NetCDF(Dataset):
             - Facet over the time dim. :class:`FacetSpec` lists the
               column dim (and optionally a row dim and a wrap value).
               The return type becomes
-              :class:`cleopatra.array_glyph.FacetGrid`:
+              :class:`cleopatra.glyphs.gridded.array_glyph.FacetGrid`:
 
               ```python
               >>> from pyramids.netcdf import FacetSpec
@@ -2116,6 +2151,22 @@ class NetCDF(Dataset):
 
               ```
         """
+        # ``colorbar``/``points`` and the typed render groups (``color`` / ``contour`` /
+        # ``cells`` / ``data_style``) are hoisted to explicit params for parity with
+        # ``Dataset.plot`` / ``DatasetCollection.plot``; forward them through the same
+        # ``**kwargs`` channel the multi-mode render path already consumes. Only inject
+        # when set — the facet path rejects ``points`` outright, so a default ``None``
+        # must not reach it, and an unset group must not override cleopatra's backend
+        # default for that group.
+        if colorbar is not None:
+            kwargs["colorbar"] = colorbar
+        if points is not None:
+            kwargs["points"] = points
+        kwargs.update(
+            nonnull_group_kwargs(
+                color=color, contour=contour, cells=cells, data_style=data_style
+            )
+        )
         return NetCDFPlot(self).run(
             variable,
             selectors=selectors,

@@ -8,7 +8,10 @@ tests are guarded by the ``[viz]`` extra, mirroring ``tests/dataset/test_plot.py
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import geopandas as gpd
+import numpy as np
 import pytest
 from shapely.geometry import Point, Polygon, box
 
@@ -20,8 +23,12 @@ pytestmark = pytest.mark.plot
 # Guard every optional-dependency import (cleopatra + its matplotlib backend)
 # behind importorskip so the module skips cleanly in a core-only install
 # (e.g. the wheel-test job), rather than erroring at collection.
-_pg = pytest.importorskip("cleopatra.polygon_glyph", reason="cleopatra not installed")
-_sg = pytest.importorskip("cleopatra.scatter_glyph", reason="cleopatra not installed")
+_pg = pytest.importorskip(
+    "cleopatra.glyphs.primitives.polygon_glyph", reason="cleopatra not installed"
+)
+_sg = pytest.importorskip(
+    "cleopatra.glyphs.primitives.scatter_glyph", reason="cleopatra not installed"
+)
 _cfg = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 _mpl_axes = pytest.importorskip("matplotlib.axes", reason="matplotlib not installed")
 _cfg.Config.set_matplotlib_backend("agg")
@@ -213,3 +220,141 @@ class TestFeatureCollectionCleopatraEngine:
         )
         with pytest.raises(ValueError, match="Point or Polygon"):
             fc.plot(column="v", engine="cleopatra")
+
+
+class TestFeatureCollectionPlotAlignment:
+    """The raster-family plot params (colorbar/points/kind/title) on both engines.
+
+    ``FeatureCollection.plot`` shares the raster plot signature. ``colorbar`` / ``title``
+    map onto both back-ends; ``points`` / ``kind`` have no vector meaning and are accepted
+    but ignored.
+    """
+
+    @staticmethod
+    def _points_fc():
+        """A two-point FeatureCollection carrying a numeric column."""
+        return FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1.0, 2.0]},
+                geometry=[Point(0, 0), Point(1, 1)],
+                crs="EPSG:4326",
+            )
+        )
+
+    def test_cleopatra_forwards_colorbar_and_title_to_glyph_plot(self):
+        """``colorbar`` / ``title`` reach the glyph's ``plot`` on the cleopatra engine.
+
+        Test scenario:
+            The cleopatra engine calls ``ScatterGlyph.plot`` — spy on it and assert the
+            hoisted ``colorbar`` / ``title`` arrive there (they used to be dropped by
+            ``filter_kwargs`` because they are render-call, not constructor, params).
+        """
+        from cleopatra.styling.colorbar import ColorBar
+
+        bar = ColorBar(label="v")
+        with patch.object(
+            ScatterGlyph, "plot", return_value=(MagicMock(), MagicMock(), MagicMock())
+        ) as mock_plot:
+            self._points_fc().plot(
+                column="v", engine="cleopatra", colorbar=bar, title="values"
+            )
+        kw = mock_plot.call_args.kwargs
+        assert kw.get("colorbar") is bar, "colorbar must reach the glyph plot call"
+        assert kw.get("title") == "values", "title must reach the glyph plot call"
+
+    def test_cleopatra_points_and_kind_are_noops(self):
+        """``points`` / ``kind`` are accepted for symmetry and never reach the glyph.
+
+        Test scenario:
+            The raster-only ``points`` / ``kind`` must neither raise nor be forwarded to
+            ``ScatterGlyph.plot`` on the cleopatra engine.
+        """
+        with patch.object(
+            ScatterGlyph, "plot", return_value=(MagicMock(), MagicMock(), MagicMock())
+        ) as mock_plot:
+            self._points_fc().plot(
+                column="v",
+                engine="cleopatra",
+                points=np.array([[1.0, 0, 0]]),
+                kind="contourf",
+            )
+        kw = mock_plot.call_args.kwargs
+        assert "points" not in kw, "points must not reach the glyph plot call"
+        assert "kind" not in kw, "kind must not reach the glyph plot call"
+
+    def test_geopandas_title_sets_axes_title(self):
+        """``title`` is set on the returned Axes for the geopandas engine.
+
+        Test scenario:
+            geopandas' ``plot`` takes no ``title`` kwarg, so the facade sets it on the
+            returned Axes; ``ax.get_title()`` must echo it.
+        """
+        ax = self._points_fc().plot(column="v", title="my map")
+        assert ax.get_title() == "my map", f"unexpected axes title: {ax.get_title()!r}"
+
+    def test_geopandas_colorbar_toggles_legend(self):
+        """``colorbar`` maps to geopandas' ``legend`` (a colour-bar Axes appears).
+
+        Test scenario:
+            A continuous ``legend`` adds a dedicated colour-bar Axes, so
+            ``colorbar=True`` yields a figure with two Axes and ``colorbar=False`` one.
+        """
+        ax_on = self._points_fc().plot(column="v", colorbar=True)
+        assert len(ax_on.figure.axes) == 2, "colorbar=True must draw a legend Axes"
+        ax_off = self._points_fc().plot(column="v", colorbar=False)
+        assert len(ax_off.figure.axes) == 1, "colorbar=False must draw no legend Axes"
+
+
+class TestFeatureCollectionGroupParams:
+    """Typed render groups (color/contour/classify) on ``FeatureCollection.plot``.
+
+    ``ScatterGlyph`` / ``PolygonGlyph`` accept ``color`` / ``contour`` / ``classify``; the
+    facade forwards them on ``engine="cleopatra"`` and ignores them on
+    ``engine="geopandas"`` (no geopandas equivalent).
+    """
+
+    @staticmethod
+    def _points_fc():
+        """A two-point FeatureCollection carrying a numeric column."""
+        return FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1.0, 2.0]},
+                geometry=[Point(0, 0), Point(1, 1)],
+                crs="EPSG:4326",
+            )
+        )
+
+    def test_cleopatra_forwards_color_contour_classify(self):
+        """``color`` / ``contour`` / ``classify`` reach the glyph on the cleopatra engine."""
+        from cleopatra.styling.params import Classify, Contour
+        from cleopatra.styling.scaling import ColorScaling
+
+        color = ColorScaling.linear()
+        contour = Contour(levels=3)
+        classify = Classify(scheme="quantiles", k=3)
+        with patch.object(
+            ScatterGlyph, "plot", return_value=(MagicMock(), MagicMock(), MagicMock())
+        ) as mock_plot:
+            self._points_fc().plot(
+                column="v",
+                engine="cleopatra",
+                color=color,
+                contour=contour,
+                classify=classify,
+            )
+        kw = mock_plot.call_args.kwargs
+        assert kw.get("color") is color, "color must reach the glyph plot call"
+        assert kw.get("contour") is contour, "contour must reach the glyph plot call"
+        assert kw.get("classify") is classify, "classify must reach the glyph plot call"
+
+    def test_geopandas_ignores_group_objects(self):
+        """A cleopatra group on the geopandas engine is ignored, not forwarded/erroring.
+
+        Test scenario:
+            geopandas has no ``color`` kwarg, so passing a ``ColorScaling`` on the default
+            engine must render a plain Axes rather than raising an unexpected-kwarg error.
+        """
+        from cleopatra.styling.scaling import ColorScaling
+
+        result = self._points_fc().plot(column="v", color=ColorScaling.power(gamma=0.7))
+        assert isinstance(result, Axes), f"expected Axes, got {type(result)}"

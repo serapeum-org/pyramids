@@ -30,6 +30,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 if TYPE_CHECKING:
+    from cleopatra.glyphs.gridded.array_glyph import PointOverlay
+    from cleopatra.styling.colorbar import ColorBar
+    from cleopatra.styling.params import Classify, Contour
+    from cleopatra.styling.scaling import ColorScaling
+
     from pyramids.dataset import Dataset
     from pyramids.feature._lazy_collection import LazyFeatureCollection
 
@@ -2190,6 +2195,13 @@ class FeatureCollection(GeoDataFrame):
         column: str | None = None,
         basemap: bool | str | None = None,
         engine: str = "geopandas",
+        colorbar: bool | ColorBar | None = None,
+        points: np.ndarray | PointOverlay | None = None,
+        kind: str = "auto",
+        title: str | None = None,
+        color: ColorScaling | None = None,
+        contour: Contour | None = None,
+        classify: Classify | None = None,
         **kwargs: Any,
     ) -> Any:
         """Plot features, optionally on a web-tile basemap.
@@ -2200,8 +2212,8 @@ class FeatureCollection(GeoDataFrame):
           :meth:`geopandas.GeoDataFrame.plot` and return the matplotlib
           ``Axes``. This is the long-standing behaviour and is unchanged.
         - ``"cleopatra"``: render polygons through
-          :class:`~cleopatra.polygon_glyph.PolygonGlyph` or points through
-          :class:`~cleopatra.scatter_glyph.ScatterGlyph` — sharing the
+          :class:`~cleopatra.glyphs.primitives.polygon_glyph.PolygonGlyph` or points through
+          :class:`~cleopatra.glyphs.primitives.scatter_glyph.ScatterGlyph` — sharing the
           colour/colorbar styling of the raster glyph path — and return the
           cleopatra glyph. Requires the ``[viz]`` extra.
 
@@ -2213,6 +2225,33 @@ class FeatureCollection(GeoDataFrame):
                 renders a single flat colour.
             basemap: ``True`` for OpenStreetMap, or a provider name string.
             engine: ``"geopandas"`` (default) or ``"cleopatra"``.
+            colorbar (bool or ColorBar, optional): Colour-bar spec, part of the
+                shared plot signature. On ``engine="geopandas"`` it toggles the
+                geopandas ``legend`` (a ``ColorBar`` object counts as "show"); on
+                ``engine="cleopatra"`` a ``pyramids.plot.ColorBar(label=…, …)`` styles
+                the glyph's bar. ``None`` (default) leaves each back-end's default.
+            points (np.ndarray or PointOverlay, optional): Accepted for signature
+                symmetry with the raster plot family, but a **no-op here** — a vector
+                layer has no separate point overlay (the geometry is the data).
+                Ignored.
+            kind (str, optional): Accepted for signature symmetry with the raster
+                plot family, but a **no-op here** — ``kind`` selects a raster renderer
+                (``imshow``/``pcolormesh``), which has no vector equivalent. Ignored.
+            title (str, optional): Axes/glyph title. Set on the returned Axes
+                (``engine="geopandas"``) or forwarded to the glyph
+                (``engine="cleopatra"``). Default ``None``.
+            color (ColorScaling, optional): Typed colour-scale spec
+                ``pyramids.plot.ColorScaling``, forwarded to the glyph on
+                ``engine="cleopatra"``. **Ignored on ``engine="geopandas"``** (no
+                geopandas equivalent). Default ``None``.
+            contour (Contour, optional): Typed contour-line spec
+                ``pyramids.plot.Contour``, forwarded to the glyph on
+                ``engine="cleopatra"``. Ignored on ``engine="geopandas"``. Default
+                ``None``.
+            classify (Classify, optional): Typed value-classification spec
+                ``pyramids.plot.Classify`` (``scheme`` / ``k``), forwarded to the glyph on
+                ``engine="cleopatra"``. Ignored on ``engine="geopandas"``. Default
+                ``None``.
             **kwargs: Forwarded to the chosen back-end. For ``"cleopatra"``
                 they are filtered to the glyph's accepted options via
                 ``filter_kwargs``.
@@ -2254,7 +2293,23 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
-        return _plot.plot(self, column=column, basemap=basemap, engine=engine, **kwargs)
+        # ``points`` / ``kind`` are part of the shared raster-family plot signature
+        # but have no meaning for vector geometry, so they are accepted and ignored.
+        # ``colorbar`` / ``title`` map onto both back-ends; ``color`` / ``contour`` /
+        # ``classify`` are cleopatra-glyph groups forwarded on that engine (and ignored on
+        # geopandas). All are forwarded and applied only when set.
+        return _plot.plot(
+            self,
+            column=column,
+            basemap=basemap,
+            engine=engine,
+            colorbar=colorbar,
+            title=title,
+            color=color,
+            contour=contour,
+            classify=classify,
+            **kwargs,
+        )
 
     def _plot_cleopatra(self, column: str | None = None, **kwargs: Any):
         """Render via cleopatra ``PolygonGlyph``/``ScatterGlyph``.
@@ -2293,7 +2348,7 @@ class FeatureCollection(GeoDataFrame):
             **kwargs: Style options, filtered to the glyph's accepted keys.
 
         Returns:
-            cleopatra.scatter_glyph.ScatterGlyph: The point glyph.
+            cleopatra.glyphs.primitives.scatter_glyph.ScatterGlyph: The point glyph.
         """
         return _plot.scatter_glyph(self, values, **kwargs)
 
@@ -2311,7 +2366,7 @@ class FeatureCollection(GeoDataFrame):
             **kwargs: Style options, filtered to the glyph's accepted keys.
 
         Returns:
-            cleopatra.polygon_glyph.PolygonGlyph: The polygon glyph.
+            cleopatra.glyphs.primitives.polygon_glyph.PolygonGlyph: The polygon glyph.
         """
         return _plot.polygon_glyph(self, values, **kwargs)
 

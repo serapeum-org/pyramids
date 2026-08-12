@@ -1062,11 +1062,9 @@ class RasterBase(ABC):
         self,
         band: int | None = None,
         exclude_value: Any | None = None,
-        rgb: list[int] | None = None,
-        surface_reflectance: int | None = None,
-        cutoff: list | None = None,
         overview: bool = False,
         overview_index: int = 0,
+        rgb_options: dict | None = None,
         **kwargs,
     ):
         """Plot.
@@ -1078,19 +1076,14 @@ class RasterBase(ABC):
                 The band you want to get its data. Default is 0.
             exclude_value (Any, optional):
                 Value to exclude from the plot. Default is None.
-            rgb (List[int], optional):
-                RGB band indices. Default is [3, 2, 1].
-            surface_reflectance (int | None, optional):
-                Surface reflectance value used to normalise satellite reflectance bands
-                (typically ``10000`` for Sentinel-2). Default is ``None`` — concrete
-                subclasses are responsible for picking a meaningful default when relevant.
-            cutoff (List, optional):
-                Clip the range of pixel values for each band (take only the pixel values from 0 to the value of
-                the cutoff and scale them back to between 0 and 1). Default is None.
             overview (bool, optional):
                 True if you want to plot the overview. Default is False.
             overview_index (int, optional):
                 Index of the overview. Default is 0.
+            rgb_options (dict, optional):
+                Grouped Sentinel-imagery options for a true-colour composite. Accepted
+                keys: ``"rgb"`` (band indices), ``"surface_reflectance"``, ``"cutoff"``,
+                ``"percentile"``. Default is ``None``.
             **kwargs: Additional plotting options.
                 points (array | PointOverlay):
                     Point overlay. A 3 column array with the first column as the value you want to display for
@@ -1098,10 +1091,8 @@ class RasterBase(ABC):
                     the column index in the array. The second and third columns tell the location of the point
                     in the array. To style the points, pass a
                     ``pyramids.plot.PointOverlay(points, color=..., size=..., label_color=...,
-                    label_size=...)`` instead — pyramids folds the loose ``point_color`` / ``point_size`` /
-                    ``point_label_color`` / ``point_label_size`` / ``pid_color`` / ``pid_size`` kwargs into a
-                    ``PointOverlay`` and emits a ``DeprecationWarning``; set the styling on the
-                    ``PointOverlay`` instead.
+                    label_size=...)`` instead of a bare array; the loose ``point_*`` / ``pid_*``
+                    styling kwargs were removed — set the styling on the ``PointOverlay``.
                 figsize (tuple, optional):
                     Figure size. The default is (8, 8).
                 title (str, optional):
@@ -1110,33 +1101,22 @@ class RasterBase(ABC):
                     Title size. The default is 15.
                 colorbar (bool | ColorBar, optional):
                     Colour-bar spec ``pyramids.plot.ColorBar(label=..., length=..., orientation=...,
-                    label_size=..., label_rotation=..., label_location=..., ticks_spacing=...)``
-                    (cleopatra >= 0.28) — the complete, preferred replacement for the loose ``cbar_*`` /
-                    ``ticks_spacing`` kwargs, which are deprecated (still accepted, but they emit a
-                    ``DeprecationWarning``). ``False`` hides the bar, ``None`` uses the default.
-                color_scale (str, optional):
-                    Color-scale mode. One of "linear", "power", "sym-lognorm", "boundary-norm", "midpoint"
-                    (case-insensitive), or a ``cleopatra.styles.ColorScale`` member. Integer codes are no
-                    longer accepted. The default is "linear".
-                gamma (float, optional):
-                    Exponent for the "power" color scale. The default is 1./2.
-                line_threshold (float, optional):
-                    ``linthresh`` for the "sym-lognorm" color scale. The default is 0.0001.
-                line_scale (float, optional):
-                    ``linscale`` for the "sym-lognorm" color scale. The default is 0.001.
-                bounds (List, optional):
-                    A list of numbers used as discrete bounds for the "boundary-norm" color scale. Default is None.
-                midpoint (float, optional):
-                    Midpoint value for the "midpoint" color scale. The default is 0.
+                    label_size=..., label_rotation=..., label_location=..., ticks_spacing=...)``.
+                    The loose ``cbar_*`` / ``ticks_spacing`` kwargs it replaces were removed —
+                    passing one now raises a ``ValueError``. ``False`` hides the bar, ``None``
+                    uses the default.
                 cmap (str, optional):
                     Color style. The default is 'coolwarm_r'.
-                display_cell_value (bool, optional):
-                    True if you want to display the values of the cells as text.
-                num_size (int, optional):
-                    Size of the numbers plotted on top of each cell. The default is 8.
-                background_color_threshold (float | int, optional):
-                    Threshold value. If the value of the cell is greater, the plotted numbers will be black; if smaller,
-                     the plotted number will be white. If None, maxvalue/2 will be considered. The default is None.
+
+                Colour-scale, contour, cell-value and data-style options moved onto the typed
+                render groups (all re-exported from ``pyramids.plot``): pass
+                ``color=ColorScaling(...)`` (linear / power / sym-log / boundary / midpoint
+                norm), ``contour=Contour(levels=..., ...)``, ``cells=CellValues(show=...,
+                size=..., background_threshold=...)`` and ``data_style=DataStyle(style=...,
+                hillshade=...)``. The loose forms they replace (``color_scale`` / ``gamma`` /
+                ``line_threshold`` / ``line_scale`` / ``bounds`` / ``midpoint`` / ``levels`` /
+                ``display_cell_value`` / ``num_size`` / ``background_color_threshold`` /
+                ``style`` / ``hillshade``) were removed and now raise a ``ValueError``.
 
         Returns:
             Tuple[Axes, Any]:

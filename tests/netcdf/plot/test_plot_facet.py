@@ -15,7 +15,7 @@ from tests.netcdf.plot._plot_helpers import _make_4d_nc, _make_curvilinear_nc
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 _FacetGrid = _cleo_array.FacetGrid
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
@@ -28,7 +28,7 @@ class TestNetCDFPlotFaceting:
 
     Each test exercises the cleopatra `ArrayGlyph.facet` wiring on
     NetCDF.plot. The returned object is a
-    :class:`cleopatra.array_glyph.FacetGrid`; subplot count and the
+    :class:`cleopatra.glyphs.gridded.array_glyph.FacetGrid`; subplot count and the
     `name_dicts` index map confirm the dispatch.
     """
 

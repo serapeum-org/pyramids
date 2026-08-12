@@ -7,10 +7,10 @@ three concern-aligned containers:
   variable down to a single 2-D slice (or to the residual stack the
   facet / animate paths walk).
 - :class:`ColorOpts` — colour controls forwarded
-  verbatim to cleopatra's :class:`~cleopatra.array_glyph.ArrayGlyph`
+  verbatim to cleopatra's :class:`~cleopatra.glyphs.gridded.array_glyph.ArrayGlyph`
   constructor.
 - :class:`FacetSpec` — multi-panel facet layout description forwarded
-  to :meth:`cleopatra.array_glyph.ArrayGlyph.facet`.
+  to :meth:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.facet`.
 
 Each dataclass is :func:`~dataclasses.dataclass` with ``frozen=True``
 so callers cannot mutate the option bag once it has been handed to
@@ -121,7 +121,7 @@ class ColorOpts:
 
     Mirrors common plotting colour kwargs. All fields
     are optional. Non-``None`` values are forwarded verbatim to
-    cleopatra's :class:`~cleopatra.array_glyph.ArrayGlyph`; the
+    cleopatra's :class:`~cleopatra.glyphs.gridded.array_glyph.ArrayGlyph`; the
     ``add_colorbar`` switch is applied post-render on the pyramids
     side because cleopatra does not accept the kwarg today.
 
@@ -144,9 +144,9 @@ class ColorOpts:
         cbar_kwargs: Extra dict forwarded to :meth:`Figure.colorbar`.
             Defaults to None.
         style: Name of a cleopatra data-style preset (a key of
-            ``cleopatra.array_glyph.DATA_STYLES`` — e.g. ``"flow_accumulation"``,
+            ``cleopatra.glyphs.gridded.array_glyph.DATA_STYLES`` — e.g. ``"flow_accumulation"``,
             ``"topography"``) to colour the variable by. Forwarded to
-            :class:`~cleopatra.array_glyph.ArrayGlyph`; requires
+            :class:`~cleopatra.glyphs.gridded.array_glyph.ArrayGlyph`; requires
             cleopatra >= 0.24. Defaults to None (no preset). The rendered glyph
             that ``plot`` returns exposes ``glyph.apply_style(style)`` (cleopatra
             >= 0.25) to re-apply a preset by name in place without re-plotting.
@@ -282,7 +282,7 @@ class FacetSpec:
 
     When set, ``NetCDF.plot`` builds a stack of slices along the named
     dims and hands them to
-    :meth:`cleopatra.array_glyph.ArrayGlyph.facet`. At least one of
+    :meth:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.facet`. At least one of
     ``col`` or ``row`` must be set; ``row`` alone (without ``col``) is
     invalid and rejected by the validator.
 

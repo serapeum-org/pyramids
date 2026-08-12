@@ -9,11 +9,17 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import geopandas as gpd
 import numpy as np
 import shapely
+
+if TYPE_CHECKING:
+    from cleopatra.glyphs.gridded.array_glyph import PointOverlay
+    from cleopatra.styling.colorbar import ColorBar
+    from cleopatra.styling.params import Contour, DataStyle
+    from cleopatra.styling.scaling import ColorScaling
 from osgeo import gdal
 from pyproj import CRS, Transformer
 from shapely.geometry import LineString, box
@@ -21,6 +27,7 @@ from shapely.geometry import LineString, box
 from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import mesh_render as _mesh_render
+from pyramids.dataset._plot_helpers import nonnull_group_kwargs as _nonnull_group_kwargs
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf._mdim import open_mdarray
 from pyramids.netcdf.cf import write_global_attributes
@@ -819,6 +826,12 @@ class UgridDataset:
         cmap: str = "viridis",
         title: str | None = None,
         basemap: bool | str | None = None,
+        colorbar: bool | ColorBar | None = None,
+        points: np.ndarray | PointOverlay | None = None,
+        kind: str = "auto",
+        color: ColorScaling | None = None,
+        contour: Contour | None = None,
+        data_style: DataStyle | None = None,
         **kwargs: Any,
     ) -> Any:
         """Plot a mesh data variable.
@@ -838,6 +851,25 @@ class UgridDataset:
             basemap: If True, add an OpenStreetMap basemap. If a string,
                 use it as the tile provider name (e.g. "CartoDB.Positron").
                 Default is None (no basemap). Requires the [viz] extra.
+            colorbar (bool or ColorBar, optional): Colour-bar spec, part of the
+                shared plot signature. A ``pyramids.plot.ColorBar(label=…, …)``
+                configures the bar; ``False`` hides it and ``None`` (default) uses
+                cleopatra's default (a bar is drawn). Only forwarded when set.
+            points (np.ndarray or PointOverlay, optional): Accepted for signature
+                symmetry with the raster plot family, but a **no-op here** — a mesh
+                has no point-overlay layer (the mesh geometry is the data). Ignored.
+            kind (str, optional): Accepted for signature symmetry with the raster
+                plot family, but a **no-op here** — ``kind`` selects a raster
+                renderer (``imshow``/``pcolormesh``); the mesh always renders via
+                ``tripcolor``/``tricontour``. Ignored.
+            color (ColorScaling, optional): Colour-scale spec
+                ``pyramids.plot.ColorScaling`` (linear / power / sym-log / boundary /
+                midpoint norm), e.g. ``ColorScaling.power(gamma=0.7)``. Default ``None``.
+            contour (Contour, optional): Contour-line spec
+                ``pyramids.plot.Contour(levels=…, label_kw=…)``. Default ``None``.
+            data_style (DataStyle, optional): Data-style / relief spec
+                ``pyramids.plot.DataStyle(style=…, hillshade=…)``. (A mesh has no
+                cell-value overlay, so there is no ``cells`` param here.) Default ``None``.
             **kwargs: Additional arguments passed to mesh_render
                 (forwarded to plot_mesh_data). Notably ``colorbar``
                 (``bool``, default ``True``): pass ``colorbar=False`` to
@@ -851,7 +883,7 @@ class UgridDataset:
                 shaded-relief array.
 
         Returns:
-            cleopatra.mesh_glyph.MeshGlyph instance with the plot
+            cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph instance with the plot
                 rendered. Use the returned object to access the matplotlib
                 handles and the mappable:
 
@@ -878,6 +910,17 @@ class UgridDataset:
             title = variable_name
         if basemap and self.epsg is None:
             raise ValueError("UgridDataset must have a CRS (epsg) to use basemap.")
+        # ``points`` / ``kind`` are part of the shared raster-family plot signature
+        # but have no meaning for a mesh (no point overlay; the renderer is fixed to
+        # tripcolor/tricontour), so they are accepted and ignored. ``colorbar`` and the
+        # typed render groups (``color`` / ``contour`` / ``data_style``) map onto the mesh
+        # backend and are forwarded only when set (so cleopatra's backend defaults are
+        # preserved otherwise).
+        if colorbar is not None:
+            kwargs["colorbar"] = colorbar
+        kwargs.update(
+            _nonnull_group_kwargs(color=color, contour=contour, data_style=data_style)
+        )
         result = _mesh_render(
             mesh=self._mesh,
             data=data,
@@ -899,7 +942,7 @@ class UgridDataset:
             **kwargs: Additional arguments passed to plot_mesh_outline.
 
         Returns:
-            cleopatra.mesh_glyph.MeshGlyph instance with the wireframe
+            cleopatra.glyphs.gridded.mesh_glyph.MeshGlyph instance with the wireframe
                 rendered. ``glyph.fig`` / ``glyph.ax`` are the matplotlib
                 handles; ``glyph.im`` is ``None`` (an outline carries no
                 scalar mapping, so no mappable is produced).

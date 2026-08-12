@@ -447,7 +447,7 @@ class TestRequireOptional:
         Test scenario:
             `__import__("a.b")` returns `a`, so the helper reads
             `sys.modules[name]` back instead. `import_basemap` passes
-            `cleopatra.tiles`, and only this path distinguishes the two.
+            `cleopatra.basemap.tiles`, and only this path distinguishes the two.
         """
         module = require_optional("numpy.linalg", "unused", return_module=True)
         assert module.__name__ == "numpy.linalg", (

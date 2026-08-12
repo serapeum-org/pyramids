@@ -5,7 +5,6 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset.engines import Analysis
@@ -13,7 +12,7 @@ from pyramids.dataset.engines import Analysis
 pytestmark = pytest.mark.plot
 
 _cleo_array = pytest.importorskip(
-    "cleopatra.array_glyph", reason="cleopatra not installed"
+    "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
 # cleopatra >= 0.26 bundles the point-overlay styling kwargs into this class,
@@ -145,20 +144,21 @@ class TestRenderArrayKwargRouting:
 
         return _FakeGlyph, ctor_seen, plot_seen, animate_seen, facet_seen, animate_args
 
-    def test_constructor_owns_cmap_vmin_vmax_levels_cbar(self):
-        """Style/scale kwargs all land on the constructor for plot mode.
+    def test_constructor_owns_cmap_vmin_vmax_cbar(self):
+        """Plain style/scale kwargs land on the constructor for plot mode.
 
         Test scenario:
-            ``cmap``, ``vmin``, ``vmax``, ``levels``, ``cbar_kwargs``
-            must reach ``ArrayGlyph.__init__`` so cleopatra's
-            ``default_options`` is set in one place. None of them may
-            also reach ``ArrayGlyph.plot``; otherwise the value would be
-            overwritten twice (the PR-6 D-4 fix).
+            ``cmap``, ``vmin``, ``vmax``, ``cbar_kwargs`` must reach
+            ``ArrayGlyph.__init__`` so cleopatra's ``default_options`` is set in one
+            place. None of them may also reach ``ArrayGlyph.plot``; otherwise the
+            value would be overwritten twice (the PR-6 D-4 fix). ``cbar_kwargs`` (the
+            raw matplotlib passthrough) is not one of the loose ``cbar_*`` styling
+            keywords the ``ColorBar`` spec replaced, so it stays valid.
         """
         fake_cls, ctor, plot, _, _, _ = self._capture_calls()
         rng = np.random.default_rng(101)
         arr = rng.random((4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr,
                 extent=[0.0, 0.0, 1.0, 1.0],
@@ -166,10 +166,9 @@ class TestRenderArrayKwargRouting:
                 cmap="plasma",
                 vmin=-1.0,
                 vmax=2.0,
-                levels=10,
                 cbar_kwargs={"orientation": "horizontal"},
             )
-        for key in ("cmap", "vmin", "vmax", "levels", "cbar_kwargs"):
+        for key in ("cmap", "vmin", "vmax", "cbar_kwargs"):
             assert key in ctor, f"`{key}` must land on the constructor; ctor={ctor}"
             assert key not in plot, (
                 f"`{key}` must NOT also reach cleo.plot; plot={plot}"
@@ -197,7 +196,7 @@ class TestRenderArrayKwargRouting:
             "full_bleed": True,
             "kind": "imshow",
         }
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr,
                 extent=[0.0, 0.0, 1.0, 1.0],
@@ -223,7 +222,7 @@ class TestRenderArrayKwargRouting:
         fake_cls, ctor, _, animate, _, anim_args = self._capture_calls()
         rng = np.random.default_rng(303)
         arr = rng.random((4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr,
                 extent=[0.0, 0.0, 1.0, 1.0],
@@ -258,7 +257,7 @@ class TestRenderArrayKwargRouting:
         fake_cls, ctor, _, _, facet, _ = self._capture_calls()
         rng = np.random.default_rng(404)
         arr = rng.random((3, 4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr,
                 extent=[0.0, 0.0, 1.0, 1.0],
@@ -291,7 +290,7 @@ class TestRenderArrayKwargRouting:
         fake_cls, ctor, plot, _, _, _ = self._capture_calls()
         rng = np.random.default_rng(505)
         arr = rng.random((4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr,
                 extent=[0.0, 0.0, 1.0, 1.0],
@@ -299,195 +298,54 @@ class TestRenderArrayKwargRouting:
                 add_colorbar=False,
                 kind="imshow",
             )
-        assert "add_colorbar" in ctor and "add_colorbar" not in plot, (
-            f"`add_colorbar` is an option_keys() ctor option; ctor={ctor}"
+        assert "add_colorbar" in ctor, f"`add_colorbar` is a ctor option; ctor={ctor}"
+        assert "add_colorbar" not in plot, (
+            f"`add_colorbar` must not also reach the render call; plot={plot}"
         )
-        assert "kind" in plot and "kind" not in ctor, (
+        assert "kind" in plot, (
             f"`kind` must be force-routed to the render call; plot={plot}"
         )
+        assert "kind" not in ctor, f"`kind` must not stay on the ctor; ctor={ctor}"
 
-    def test_deprecated_cbar_kwargs_fold_into_colorbar(self):
-        """Deprecated loose ``cbar_*`` kwargs are folded into a ColorBar, not passed loose.
+    def test_loose_cbar_kwarg_rejected(self):
+        """A loose ``cbar_*`` kwarg is rejected in favour of the typed ``ColorBar`` spec.
 
         Test scenario:
-            ``render_array`` translates the loose colour-bar kwargs into a
-            ``colorbar=ColorBar(...)`` before the cleopatra call, so neither the
-            constructor nor the render call ever sees a raw ``cbar_*``; the folded
-            ColorBar carries the mapped fields. Uses the ``_capture_calls`` fake.
+            cleopatra 0.30 removed the loose colour-bar styling keywords; pyramids
+            exposes a single typed colour-bar surface, so a loose ``cbar_label`` /
+            ``ticks_spacing`` raises a pyramids ``ValueError`` naming
+            ``pyramids.plot.ColorBar`` rather than being folded or forwarded.
         """
-        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
         rng = np.random.default_rng(506)
         arr = rng.random((4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
-            with pytest.warns(DeprecationWarning, match="cbar_"):
-                render_array(
-                    arr=arr,
-                    extent=[0.0, 0.0, 1.0, 1.0],
-                    mode="plot",
-                    cbar_label="mm",
-                    ticks_spacing=2,
-                )
-        seen = {**ctor, **plot}
-        assert "cbar_label" not in seen, (
-            f"loose cbar_label must be folded away; seen={sorted(seen)}"
-        )
-        assert "ticks_spacing" not in seen, (
-            f"loose ticks_spacing must be folded away; seen={sorted(seen)}"
-        )
-        colorbar = plot.get("colorbar", ctor.get("colorbar"))
-        assert isinstance(colorbar, ColorBar), (
-            f"cbar_* must fold into a ColorBar; got {colorbar!r}"
-        )
-        assert colorbar.label == "mm"
-        assert colorbar.ticks_spacing == 2
+        with pytest.raises(ValueError, match="ColorBar"):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                cbar_label="mm",
+                ticks_spacing=2,
+            )
 
-    def test_deprecated_point_kwargs_fold_into_pointoverlay(self):
-        """Deprecated loose point_* kwargs are folded into a PointOverlay carrying the array.
+    def test_loose_point_kwarg_rejected(self):
+        """A loose ``point_*`` kwarg surfaces cleopatra's removed-keyword ``ValueError``.
 
         Test scenario:
-            ``render_array`` translates the loose point-style kwargs into a
-            ``points=PointOverlay(points, ...)`` before the cleopatra call, so the
-            raw ``point_*`` never reach cleopatra; the overlay carries the styling.
+            The point-styling keywords moved onto ``PointOverlay``; pyramids wraps a
+            bare ``points`` array in a ``PointOverlay`` but no longer translates the
+            loose ``point_*`` styling kwargs, so passing one reaches the real cleopatra
+            render call, which rejects it.
         """
-        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
         rng = np.random.default_rng(507)
         arr = rng.random((4, 4)).astype("float32")
-        pts = np.array([[1.0, 2, 3]])
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
-            with pytest.warns(DeprecationWarning, match="point_"):
-                render_array(
-                    arr=arr,
-                    extent=[0.0, 0.0, 1.0, 1.0],
-                    mode="plot",
-                    points=pts,
-                    point_color="red",
-                    point_size=9,
-                )
-        seen = {**ctor, **plot}
-        assert "point_color" not in seen, (
-            f"loose point_color must be folded away; seen={sorted(seen)}"
-        )
-        overlay = plot.get("points", ctor.get("points"))
-        assert isinstance(overlay, PointOverlay), (
-            f"point_* must fold into a PointOverlay; got {overlay!r}"
-        )
-        assert overlay.color == "red"
-        assert overlay.size == 9
-
-    def test_deprecated_pid_kwargs_fold_into_pointoverlay_labels(self):
-        """Legacy ``pid_*`` label kwargs fold into ``PointOverlay.label_*``.
-
-        Test scenario:
-            The oldest loose aliases ``pid_color`` / ``pid_size`` map to the
-            overlay's ``label_color`` / ``label_size`` — the least-obvious mapping,
-            so pin it explicitly rather than trusting the map by inspection.
-        """
-        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
-        rng = np.random.default_rng(508)
-        arr = rng.random((4, 4)).astype("float32")
-        pts = np.array([[1.0, 2, 3]])
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
-            with pytest.warns(DeprecationWarning, match="pid_"):
-                render_array(
-                    arr=arr,
-                    extent=[0.0, 0.0, 1.0, 1.0],
-                    mode="plot",
-                    points=pts,
-                    pid_color="green",
-                    pid_size=7,
-                )
-        seen = {**ctor, **plot}
-        assert "pid_color" not in seen, (
-            f"legacy pid_color must fold away; seen={sorted(seen)}"
-        )
-        assert "pid_size" not in seen, (
-            f"legacy pid_size must fold away; seen={sorted(seen)}"
-        )
-        overlay = plot.get("points", ctor.get("points"))
-        assert isinstance(overlay, PointOverlay), (
-            f"pid_* must fold into a PointOverlay; got {overlay!r}"
-        )
-        assert overlay.label_color == "green"
-        assert overlay.label_size == 7
-
-    def test_point_label_alias_wins_over_legacy_pid(self):
-        """When both ``point_label_*`` and ``pid_*`` are passed, the modern name wins.
-
-        Test scenario:
-            The fold is last-write-wins over ``_POINT_TO_OVERLAY`` insertion order
-            (``pid_*`` before ``point_label_*``), so passing both must land the
-            ``point_label_*`` value on the overlay — matching cleopatra's
-            ``_resolve_point_overlay`` precedence. Locks the fragile dict-order
-            invariant against a silent reorder.
-        """
-        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
-        rng = np.random.default_rng(509)
-        arr = rng.random((4, 4)).astype("float32")
-        pts = np.array([[1.0, 2, 3]])
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
-            with pytest.warns(DeprecationWarning, match="point_"):
-                render_array(
-                    arr=arr,
-                    extent=[0.0, 0.0, 1.0, 1.0],
-                    mode="plot",
-                    points=pts,
-                    pid_color="green",
-                    point_label_color="purple",
-                )
-        overlay = plot.get("points", ctor.get("points"))
-        assert overlay.label_color == "purple", (
-            f"point_label_color must win over pid_color; got {overlay.label_color!r}"
-        )
-
-    def test_loose_point_kwargs_ignored_when_points_is_pointoverlay(self):
-        """A loose ``point_*`` is dropped (with a warning) when ``points`` is already typed.
-
-        Test scenario:
-            An explicit ``PointOverlay`` wins — the loose ``point_color`` is popped
-            and warned as "ignored", and the overlay reaches the render call
-            untouched (its own styling preserved, not overwritten by the loose kwarg).
-        """
-        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
-        rng = np.random.default_rng(510)
-        arr = rng.random((4, 4)).astype("float32")
-        overlay_in = PointOverlay(np.array([[1.0, 2, 3]]), color="black")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
-            with pytest.warns(DeprecationWarning, match="ignored because points="):
-                render_array(
-                    arr=arr,
-                    extent=[0.0, 0.0, 1.0, 1.0],
-                    mode="plot",
-                    points=overlay_in,
-                    point_color="red",
-                )
-        seen = {**ctor, **plot}
-        assert "point_color" not in seen, "loose point_color must be dropped"
-        assert plot.get("points") is overlay_in, (
-            "the explicit PointOverlay must reach the render call untouched"
-        )
-
-    def test_loose_point_kwargs_dropped_when_no_points(self):
-        """A loose ``point_*`` with no ``points`` is a no-op (warned and dropped).
-
-        Test scenario:
-            Without a ``points`` array there is nothing to style, so the loose
-            ``point_color`` warns "no effect" and is dropped — never reaching
-            cleopatra, and no ``points`` kwarg is invented.
-        """
-        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
-        rng = np.random.default_rng(511)
-        arr = rng.random((4, 4)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
-            with pytest.warns(DeprecationWarning, match="no effect"):
-                render_array(
-                    arr=arr,
-                    extent=[0.0, 0.0, 1.0, 1.0],
-                    mode="plot",
-                    point_color="red",
-                )
-        seen = {**ctor, **plot}
-        assert "point_color" not in seen, "loose point_color must be dropped"
-        assert "points" not in seen, "no points= may be invented from a loose kwarg"
+        with pytest.raises(ValueError):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                points=np.array([[1.0, 2, 3]]),
+                point_color="red",
+            )
 
     @pytest.mark.plot
     def test_kind_contourf_reaches_plot_not_clobbered(self):
@@ -546,27 +404,37 @@ class TestStyleHillshadePresets:
         not _supports_style, reason="cleopatra < 0.24 has no style presets"
     )
     def test_style_preset_renders(self):
-        """A valid ``style`` preset name renders end to end.
+        """A ``data_style=DataStyle(style=...)`` preset renders end to end.
 
         Test scenario:
-            ``render_array(..., style="flow_accumulation")`` auto-routes the
-            preset to ``ArrayGlyph`` (``style`` is in ``option_keys()``) and
-            returns a rendered glyph — no pyramids-side handling needed.
+            cleopatra 0.30 moved the preset name onto the typed ``DataStyle`` group,
+            passed as ``data_style=``; ``render_array`` forwards it to the render call
+            and returns a rendered glyph.
         """
+        from cleopatra.styling.params import DataStyle
+
         rng = np.random.default_rng(737)
         arr = rng.random((6, 6)).astype("float32")
         glyph = render_array(
-            arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", style="flow_accumulation"
+            arr=arr,
+            extent=[0.0, 0.0, 1.0, 1.0],
+            mode="plot",
+            data_style=DataStyle(style="flow_accumulation"),
         )
         assert isinstance(glyph, ArrayGlyph)
 
     @pytest.mark.skipif(not _supports_style, reason="cleopatra < 0.24 has no hillshade")
     def test_hillshade_renders(self):
-        """A ``hillshade`` blend renders end to end."""
+        """A ``data_style=DataStyle(hillshade=True)`` blend renders end to end."""
+        from cleopatra.styling.params import DataStyle
+
         rng = np.random.default_rng(738)
         arr = rng.random((6, 6)).astype("float32")
         glyph = render_array(
-            arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade=True
+            arr=arr,
+            extent=[0.0, 0.0, 1.0, 1.0],
+            mode="plot",
+            data_style=DataStyle(hillshade=True),
         )
         assert isinstance(glyph, ArrayGlyph)
 
@@ -574,14 +442,16 @@ class TestStyleHillshadePresets:
         not _supports_style, reason="cleopatra < 0.24 has no style presets"
     )
     def test_dict_hillshade_renders(self):
-        """A dict ``hillshade`` (parameter passthrough) renders end to end."""
+        """A dict ``hillshade`` on the ``DataStyle`` group renders end to end."""
+        from cleopatra.styling.params import DataStyle
+
         rng = np.random.default_rng(742)
         arr = rng.random((6, 6)).astype("float32")
         glyph = render_array(
             arr=arr,
             extent=[0.0, 0.0, 1.0, 1.0],
             mode="plot",
-            hillshade={"vert_exag": 8},
+            data_style=DataStyle(hillshade={"vert_exag": 8}),
         )
         assert isinstance(glyph, ArrayGlyph)
 
@@ -589,14 +459,15 @@ class TestStyleHillshadePresets:
         not _supports_style, reason="cleopatra < 0.24 has no style presets"
     )
     def test_style_and_hillshade_animate_renders(self):
-        """``style`` + ``hillshade`` render through the real animate path.
+        """``data_style`` renders through the real animate path.
 
         Test scenario:
-            Unlike the mocked NetCDF forwarding test, this drives cleopatra
-            0.24's ``ArrayGlyph.animate(style=..., hillshade=...)`` for real
-            over a ``(time, rows, cols)`` stack, guarding the advertised
-            animated-shaded path against a future cleopatra signature change.
+            Drives cleopatra's ``ArrayGlyph.animate(data_style=...)`` for real over a
+            ``(time, rows, cols)`` stack, guarding the advertised animated-shaded path
+            against a future cleopatra signature change.
         """
+        from cleopatra.styling.params import DataStyle
+
         rng = np.random.default_rng(743)
         stack = rng.random((3, 6, 6)).astype("float32")
         glyph = render_array(
@@ -604,100 +475,9 @@ class TestStyleHillshadePresets:
             extent=[0.0, 0.0, 1.0, 1.0],
             mode="animate",
             animation_axis_values=[0, 1, 2],
-            style="flow_accumulation",
-            hillshade=True,
+            data_style=DataStyle(style="flow_accumulation", hillshade=True),
         )
         assert isinstance(glyph, ArrayGlyph)
-
-    def test_hillshade_only_on_old_cleopatra_raises_upgrade_hint(self):
-        """``hillshade=`` alone on a build lacking it raises the upgrade hint.
-
-        Test scenario:
-            The guard checks each key independently. Simulate a cleopatra that
-            supports ``style`` but not ``hillshade``; a truthy ``hillshade=``
-            with no ``style=`` must still raise the >= 0.24 upgrade error.
-        """
-        rng = np.random.default_rng(744)
-        arr = rng.random((5, 5)).astype("float32")
-        style_only = (ArrayGlyph.option_keys() - {"hillshade"}) | {"style"}
-        with patch.object(ArrayGlyph, "option_keys", return_value=style_only):
-            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
-                render_array(
-                    arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade=True
-                )
-
-    @pytest.mark.parametrize("value", [False, None])
-    def test_falsy_hillshade_is_dropped_not_forwarded(self, value):
-        """A ``None``/``False`` ``hillshade`` is dropped, never reaching cleopatra.
-
-        Test scenario:
-            A falsy hillshade requests no shading, so ``render_array`` must pop
-            it before the ctor/render split — making it a true no-op on any
-            cleopatra version, not merely one that happens to accept the kwarg.
-            A fake glyph captures what actually reaches the constructor / plot
-            call, so this is independent of the installed cleopatra.
-        """
-        fake_cls, ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
-        rng = np.random.default_rng(745)
-        arr = rng.random((5, 5)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
-            render_array(
-                arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade=value
-            )
-        assert "hillshade" not in ctor, f"hillshade={value!r} must not reach the ctor"
-        assert "hillshade" not in plot, f"hillshade={value!r} must not reach plot"
-
-    def test_none_style_is_dropped_not_forwarded(self):
-        """An explicit ``style=None`` is dropped, never reaching cleopatra.
-
-        Test scenario:
-            ``style=None`` requests no preset, so ``render_array`` must pop it
-            before the ctor/render split — a true no-op on any cleopatra version,
-            symmetric with the falsy-``hillshade`` drop. A fake glyph captures
-            what actually reaches the constructor / plot call.
-        """
-        fake_cls, ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
-        rng = np.random.default_rng(748)
-        arr = rng.random((5, 5)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
-            render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", style=None)
-        assert "style" not in ctor, "style=None must not reach the ctor"
-        assert "style" not in plot, "style=None must not reach plot"
-
-    def test_empty_dict_hillshade_is_forwarded(self):
-        """An affirmative ``hillshade={}`` (default params) reaches the glyph.
-
-        Test scenario:
-            ``{}`` is falsy but documented as "shade with default parameters",
-            so unlike ``False`` it must NOT be dropped — it flows to the glyph
-            constructor like any other affirmative hillshade request.
-        """
-        fake_cls, ctor, _plot, *_ = TestRenderArrayKwargRouting._capture_calls()
-        rng = np.random.default_rng(746)
-        arr = rng.random((5, 5)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
-            render_array(
-                arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade={}
-            )
-        assert ctor.get("hillshade") == {}, "affirmative hillshade={} must be forwarded"
-
-    def test_empty_dict_hillshade_on_old_cleopatra_raises_upgrade_hint(self):
-        """``hillshade={}`` on a build lacking hillshade raises the upgrade hint.
-
-        Test scenario:
-            The affirmative empty-dict form must be gated exactly like
-            ``hillshade=True`` — an old cleopatra (``hillshade`` absent from
-            ``option_keys()``) yields the clear >= 0.24 error, not the cryptic
-            downstream "Unknown option".
-        """
-        rng = np.random.default_rng(747)
-        arr = rng.random((5, 5)).astype("float32")
-        old_keys = ArrayGlyph.option_keys() - {"style", "hillshade"}
-        with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
-            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
-                render_array(
-                    arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade={}
-                )
 
     @pytest.mark.skipif(
         not _supports_style, reason="cleopatra < 0.24 has no style presets"
@@ -720,43 +500,6 @@ class TestStyleHillshadePresets:
                 style="definitely_not_a_style",
             )
 
-    def test_style_on_old_cleopatra_raises_upgrade_hint(self):
-        """``style=`` on a cleopatra without preset support raises a clear hint.
-
-        Test scenario:
-            Simulate cleopatra < 0.24 by hiding ``style`` from
-            ``option_keys()``. The scoped guard in ``render_array`` must raise
-            :class:`OptionalPackageDoesNotExist` pointing at the >= 0.24 upgrade
-            instead of letting a cryptic "Unknown option" surface deep in the
-            render call.
-        """
-        rng = np.random.default_rng(740)
-        arr = rng.random((5, 5)).astype("float32")
-        old_keys = ArrayGlyph.option_keys() - {"style", "hillshade"}
-        with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
-            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
-                render_array(
-                    arr=arr,
-                    extent=[0.0, 0.0, 1.0, 1.0],
-                    mode="plot",
-                    style="topography",
-                )
-
-    def test_no_preset_kwargs_unaffected_on_old_cleopatra(self):
-        """Basic plotting is untouched by the guard on an older cleopatra.
-
-        Test scenario:
-            With ``style`` hidden from ``option_keys()`` (simulated old
-            cleopatra) but no ``style`` / ``hillshade`` passed, ``render_array``
-            renders normally — the guard is scoped to preset use only.
-        """
-        rng = np.random.default_rng(741)
-        arr = rng.random((5, 5)).astype("float32")
-        old_keys = ArrayGlyph.option_keys() - {"style", "hillshade"}
-        with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
-            glyph = render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot")
-        assert isinstance(glyph, ArrayGlyph)
-
     @pytest.mark.skipif(
         not _supports_apply_style,
         reason="cleopatra < 0.25 has no glyph.apply_style()",
@@ -770,12 +513,14 @@ class TestStyleHillshadePresets:
             can re-apply a preset by name without rebuilding — verify the round
             trip through the ``Dataset.plot`` facade.
         """
+        from cleopatra.styling.params import DataStyle
+
         rng = np.random.default_rng(750)
         arr = rng.random((1, 8, 8)).astype("float32")
         dataset = Dataset.create_from_array(
             arr=arr, geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326
         )
-        glyph = dataset.plot(band=0, style="flow_accumulation")
+        glyph = dataset.plot(band=0, data_style=DataStyle(style="flow_accumulation"))
         assert glyph.style == "flow_accumulation"
         glyph.apply_style("topography")
         assert glyph.style == "topography", (
@@ -980,7 +725,7 @@ class TestPointOverlay:
         overlay = PointOverlay(self._points(), color="red")
         rng = np.random.default_rng(761)
         arr = rng.random((5, 5)).astype("float32")
-        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
                 arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", points=overlay
             )
@@ -1020,3 +765,68 @@ class TestFrameLabel:
             frame_label=FrameLabel(location=(1, 3)),
         )
         assert isinstance(glyph, ArrayGlyph)
+
+
+class TestRenderArrayGroupParams:
+    """Explicit cleopatra render-group objects and their precedence in render_array.
+
+    The typed groups (``color`` / ``contour`` / ``cells`` / ``data_style``) reach the
+    render call, and an explicitly-passed group wins over the one built from the loose
+    kwargs (``color_scale`` / ``style`` / ...).
+    """
+
+    def test_explicit_color_group_reaches_render_call(self):
+        """An explicit ``color=ColorScaling`` is forwarded to the render call.
+
+        Test scenario:
+            The typed ``color`` group must reach ``ArrayGlyph.plot`` verbatim (the loose
+            ``color_scale`` kwarg it replaces was removed and now raises).
+        """
+        from pyramids.plot import ColorScaling
+
+        fake_cls, _ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
+        rng = np.random.default_rng(11)
+        arr = rng.random((4, 4)).astype("float32")
+        explicit = ColorScaling.power(gamma=0.9)
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                color=explicit,
+            )
+        assert plot.get("color") is explicit, (
+            "explicit color must reach the render call"
+        )
+
+    def test_explicit_groups_reach_render_call(self):
+        """Explicit ``contour`` / ``cells`` / ``data_style`` reach the render call.
+
+        Test scenario:
+            The typed groups other than ``color`` also forward verbatim to
+            ``ArrayGlyph.plot``.
+        """
+        from cleopatra.styling.params import CellValues, Contour, DataStyle
+
+        fake_cls, _ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
+        rng = np.random.default_rng(13)
+        arr = rng.random((4, 4)).astype("float32")
+        contour, cells, data_style = (
+            Contour(levels=4),
+            CellValues(show=True),
+            DataStyle(style="flow_accumulation"),
+        )
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                contour=contour,
+                cells=cells,
+                data_style=data_style,
+            )
+        assert plot.get("contour") is contour, (
+            "explicit contour must reach the render call"
+        )
+        assert plot.get("cells") is cells, "explicit cells must reach the render call"
+        assert plot.get("data_style") is data_style, "explicit data_style must reach it"

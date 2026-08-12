@@ -20,7 +20,7 @@ from pyramids.dataset._plot_helpers import render_array as _render_array
 from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
 
 if TYPE_CHECKING:
-    from cleopatra.geo import Basemap
+    from cleopatra.basemap.geo import Basemap
 
     from pyramids.netcdf.netcdf import NetCDF
 
@@ -106,7 +106,6 @@ _ANIMATE_DROP_KWARGS = frozenset(
         "extend",
         "cbar_kwargs",
         "aspect",
-        "levels",
         "center",
         "norm",
         "robust",
@@ -501,13 +500,10 @@ class NetCDFPlot:
             ("cmap", colour.cmap),
             ("vmin", colour.vmin),
             ("vmax", colour.vmax),
-            ("levels", colour.levels),
             ("norm", colour.norm),
             ("center", colour.center),
             ("extend", colour.extend),
             ("cbar_kwargs", colour.cbar_kwargs),
-            ("style", colour.style),
-            ("hillshade", colour.hillshade),
             ("ax", ax),
             ("figsize", figsize),
             ("title", title),
@@ -516,6 +512,26 @@ class NetCDFPlot:
                 out[key] = value
         if colour.robust:
             out["robust"] = True
+        # cleopatra 0.30 moved ``levels`` / ``style`` / ``hillshade`` off the loose kwargs
+        # onto the typed render groups, so build them from the ColorOpts bag here (a no-op
+        # ``style=None`` / falsy ``hillshade`` is dropped, matching the render-group rules).
+        # The cleopatra import is deferred to the branch that actually builds a group, so a
+        # plain NetCDF plot (no levels/style/hillshade) never imports it. An explicit hoisted
+        # ``contour=`` / ``data_style=`` (already in ``out`` via ``base_kwargs``) wins — the
+        # ColorOpts-derived group only fills the slot when the caller left it unset.
+        if colour.levels is not None and "contour" not in out:
+            from cleopatra.styling.params import Contour
+
+            out["contour"] = Contour(levels=colour.levels)
+        data_style_fields: dict[str, Any] = {}
+        if colour.style is not None:
+            data_style_fields["style"] = colour.style
+        if colour.hillshade is not None and colour.hillshade is not False:
+            data_style_fields["hillshade"] = colour.hillshade
+        if data_style_fields and "data_style" not in out:
+            from cleopatra.styling.params import DataStyle
+
+            out["data_style"] = DataStyle(**data_style_fields)
 
         # Curvilinear coord resolution. Priority (highest first):
         # 1. Explicit user `coords=`.
@@ -544,8 +560,8 @@ class NetCDFPlot:
 
         Honours the ``add_colorbar=False`` switch on
         :meth:`NetCDF.plot`. Cleopatra always attaches a colorbar to its
-        :class:`~cleopatra.array_glyph.ArrayGlyph` /
-        :class:`~cleopatra.array_glyph.FacetGrid` results, so pyramids
+        :class:`~cleopatra.glyphs.gridded.array_glyph.ArrayGlyph` /
+        :class:`~cleopatra.glyphs.gridded.array_glyph.FacetGrid` results, so pyramids
         applies the removal here after the render returns. The helper
         is defensive — it leaves ``result`` untouched when no
         ``.cbar`` attribute exists, when the attribute is already
@@ -706,7 +722,7 @@ class NetCDFPlot:
         Returns:
             tuple: ``(stack, facet_kwargs)`` — the materialised array
                 and the kwargs dict to forward to
-                :meth:`cleopatra.array_glyph.ArrayGlyph.facet`.
+                :meth:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.facet`.
 
         Examples:
             - Build a 3-D stack from a 3-D variable's single time dim
@@ -987,7 +1003,7 @@ class NetCDFPlot:
                 call.
 
         Returns:
-            cleopatra.array_glyph.ArrayGlyph: The cleopatra glyph
+            cleopatra.glyphs.gridded.array_glyph.ArrayGlyph: The cleopatra glyph
                 wrapping the streamed ``FuncAnimation``. The matplotlib
                 animation object is reachable via the glyph's matplotlib
                 figure.

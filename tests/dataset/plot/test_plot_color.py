@@ -278,14 +278,20 @@ class TestPalettePlot:
 
     @pytest.mark.plot
     def test_explicit_color_scale_overrides_palette(self):
-        """An explicit ``color_scale=`` opts out of the palette's boundary norm."""
-        glyph = self._paletted_dataset().plot(band=0, color_scale="linear")
+        """An explicit ``color=ColorScaling`` opts out of the palette's boundary norm."""
+        from pyramids.plot import ColorScaling
+
+        glyph = self._paletted_dataset().plot(band=0, color=ColorScaling.linear())
         assert type(glyph.im.norm).__name__ != "BoundaryNorm"
 
     @pytest.mark.plot
     def test_explicit_bounds_overrides_palette(self):
-        """A lone ``bounds=`` opts out of the palette rather than being overwritten."""
-        glyph = self._paletted_dataset().plot(band=0, bounds=[0, 1, 2, 3])
+        """An explicit ``color=ColorScaling.boundary`` opts out of the palette wiring."""
+        from pyramids.plot import ColorScaling
+
+        glyph = self._paletted_dataset().plot(
+            band=0, color=ColorScaling.boundary(bounds=[0, 1, 2, 3])
+        )
         assert glyph.im.cmap.name == "coolwarm_r"
 
     @pytest.mark.plot

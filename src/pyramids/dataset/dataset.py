@@ -13,7 +13,7 @@ import weakref
 from collections.abc import Sequence
 from numbers import Number
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Unpack, cast
 
 import geopandas as gpd
 import numpy as np
@@ -38,6 +38,7 @@ from pyramids.base.crs import (
 )
 from pyramids.base.remote import cloud_config_from_env, redact_credentials
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
+from pyramids.dataset._plot_helpers import nonnull_group_kwargs
 from pyramids.dataset._wcs import from_wcs as _from_wcs
 from pyramids.dataset._wms import from_wms as _from_wms
 from pyramids.dataset._wms import from_wmts as _from_wmts
@@ -232,7 +233,11 @@ def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.typing.NDA
 
 if TYPE_CHECKING:
     import dask.array as da
-    from cleopatra.geo import Basemap
+    from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import PlotKwargs, PointOverlay
+    from cleopatra.styling.colorbar import ColorBar
+    from cleopatra.styling.params import CellValues, Contour, DataStyle
+    from cleopatra.styling.scaling import ColorScaling
     from geopandas import GeoDataFrame
 
 
@@ -798,19 +803,23 @@ class Dataset(RasterBase):
             resolved_rgb = [int(v) for v in cast("list[int]", candidate)]
         return resolved_rgb
 
-    def plot(
+    def plot(  # type: ignore[override]  # narrows **kwargs to cleopatra's typed PlotKwargs
         self,
         band: int | None = None,
         exclude_value: Any | None = None,
-        rgb: list[int] | None = None,
-        surface_reflectance: int | None = None,
-        cutoff: list | None = None,
         overview: bool | None = False,
         overview_index: int | None = 0,
-        percentile: int | None = None,
         basemap: bool | str | dict[str, Any] | Basemap | None = None,
+        colorbar: bool | ColorBar | None = None,
+        points: np.ndarray | PointOverlay | None = None,
+        kind: str = "auto",
+        title: str | None = None,
+        color: ColorScaling | None = None,
+        contour: Contour | None = None,
+        cells: CellValues | None = None,
+        data_style: DataStyle | None = None,
         rgb_options: dict | None = None,
-        **kwargs: Any,
+        **kwargs: Unpack[PlotKwargs],
     ):
         """Plot the values/overviews of a band.
 
@@ -826,11 +835,8 @@ class Dataset(RasterBase):
         facade defaults to band ``0``. See :meth:`Analysis.plot` for the full kwargs
         surface.
 
-        The four satellite-imagery kwargs ``rgb``, ``surface_reflectance``, ``cutoff``,
-        and ``percentile`` may be grouped under a single ``rgb_options=`` dict
-        (recommended) or passed loose at the top level (deprecated; emits
-        :class:`DeprecationWarning`). When both forms are mixed, the values inside
-        ``rgb_options`` win.
+        The four satellite-imagery options (``rgb``, ``surface_reflectance``, ``cutoff``,
+        ``percentile``) are passed through the single ``rgb_options=`` dict.
 
         Args:
             band (int, optional):
@@ -838,41 +844,53 @@ class Dataset(RasterBase):
                 :meth:`_resolve_plot_band`.
             exclude_value (Any, optional):
                 Pixel value to mask out before plotting. Default is ``None``.
-            rgb (list[int], optional):
-                **Deprecated**; pass via ``rgb_options={"rgb": [...]}`` instead.
-                Three- or four-element list of band indices ``[r, g, b]`` (optionally
-                ``[r, g, b, a]``) to render the dataset as a true-colour composite.
-                Only honoured when the dataset has at least 3 bands and at least one
-                band reports a colour interpretation. Default is ``None``.
-            surface_reflectance (int, optional):
-                **Deprecated**; pass via ``rgb_options={"surface_reflectance": ...}``.
-                Surface-reflectance scale factor used to normalise satellite reflectance
-                bands (typically ``10000`` for Sentinel-2). Default is ``None``.
-            cutoff (list, optional):
-                **Deprecated**; pass via ``rgb_options={"cutoff": ...}``.
-                Per-band clip values used when rendering RGB composites. Default is
-                ``None``.
             overview (bool, optional):
                 If ``True``, plot the overview pyramid level instead of the full-resolution
                 array. Default is ``False``.
             overview_index (int, optional):
                 Index of the overview level to plot when ``overview=True``. Default is ``0``.
-            percentile (int, optional):
-                **Deprecated**; pass via ``rgb_options={"percentile": ...}``.
-                Percentile used when computing colour-scale limits. Default is ``None``.
             basemap (bool, str, or Basemap, optional):
                 Reference layer, dispatched by type. ``True`` or a tile-provider string
                 (e.g. ``"CartoDB.Positron"``) overlays a pyramids web-tile basemap. A
-                ``pyramids.plot.Basemap(relief=..., features=...)`` (cleopatra >= 0.28)
+                ``pyramids.plot.Basemap(relief=..., features=...)``
                 draws a shaded-relief / coastline layer instead. Passing a ``dict`` here is
                 a deprecated alias for ``Basemap`` (emits a ``DeprecationWarning``). Default
                 is ``None``. Requires the ``[viz]`` extra.
+            colorbar (bool or ColorBar, optional):
+                Colour-bar spec. A ``pyramids.plot.ColorBar(label=…, length=…,
+                orientation=…, …)`` draws a configured bar. The loose ``cbar_*`` /
+                ``ticks_spacing`` kwargs it replaces were removed — passing one now raises a
+                :class:`ValueError` pointing here. ``False`` hides the bar, ``None`` uses
+                cleopatra's default. Default is ``None``.
+            points (np.ndarray or PointOverlay, optional):
+                Point overlay. A 3-column array ``(value, row, col)`` draws unstyled
+                points; pass a ``pyramids.plot.PointOverlay(points, color=…, size=…, …)``
+                to style them. Default is ``None``.
+            kind (str, optional):
+                Renderer to use. ``"auto"`` (default) picks per data; otherwise one of
+                ``"imshow"`` / ``"pcolormesh"`` / ``"contour"`` / ``"contourf"``.
+            title (str, optional):
+                Axes title. Default is ``None`` (cleopatra's default title).
+            color (ColorScaling, optional):
+                Colour-scale spec ``pyramids.plot.ColorScaling`` (linear / power / sym-log /
+                boundary / midpoint norm), e.g. ``ColorScaling.power(gamma=0.7)`` or
+                ``ColorScaling.boundary(bounds=[0, 0.5, 1])``. Default ``None``.
+            contour (Contour, optional):
+                Contour-line spec ``pyramids.plot.Contour(levels=…, labels=…, label_kw=…)``.
+                Default ``None``.
+            cells (CellValues, optional):
+                Per-cell value annotation ``pyramids.plot.CellValues(show=…, size=…,
+                background_threshold=…)``. Default ``None``.
+            data_style (DataStyle, optional):
+                Data-style / relief spec ``pyramids.plot.DataStyle(style=…, hillshade=…)``.
+                Default ``None``.
             rgb_options (dict, optional):
-                Grouped Sentinel-imagery kwargs. Accepted keys:
-                ``"rgb"``, ``"surface_reflectance"``, ``"cutoff"``,
-                ``"percentile"``. Recommended over the loose top-level
-                kwargs (which emit :class:`DeprecationWarning`). Default
-                is ``None``.
+                Grouped Sentinel-imagery options for a true-colour composite. Accepted
+                keys: ``"rgb"`` (3- or 4-element band-index list ``[r, g, b(, a)]``, only
+                honoured when the dataset has >= 3 bands and a colour interpretation),
+                ``"surface_reflectance"`` (reflectance scale factor, e.g. ``10000`` for
+                Sentinel-2), ``"cutoff"`` (per-band clip values), ``"percentile"``
+                (percentile stretch). Default is ``None``.
             **kwargs:
                 Additional keyword arguments forwarded verbatim to
                 :meth:`Analysis.plot`. See that method for the full kwargs surface
@@ -939,27 +957,18 @@ class Dataset(RasterBase):
               ... )
 
               ```
-
-            - The deprecated loose-kwarg form still works but emits a
-              :class:`DeprecationWarning`. New code should prefer the
-              grouped ``rgb_options=`` form shown above:
-
-              ```python
-              >>> cleo = rgb_ds.plot(  # doctest: +SKIP
-              ...     rgb=[0, 1, 2], surface_reflectance=255,
-              ... )
-              DeprecationWarning: Passing `rgb=`, `surface_reflectance=`...
-
-              ```
         """
-        rgb, surface_reflectance, cutoff, percentile = self._merge_rgb_options(
-            rgb_options=rgb_options,
-            rgb=rgb,
-            surface_reflectance=surface_reflectance,
-            cutoff=cutoff,
-            percentile=percentile,
+        rgb, surface_reflectance, cutoff, percentile = self._unpack_rgb_options(
+            rgb_options
         )
         resolved_band, resolved_rgb = self._resolve_plot_band(band, rgb)
+        # Spread the explicitly-set cleopatra render groups as their own ``**`` (not merged
+        # into the typed ``**kwargs``, whose PlotKwargs TypedDict has no group keys); the
+        # unset ones are dropped so they do not override cleopatra's backend default for
+        # that group.
+        group_kwargs = nonnull_group_kwargs(
+            color=color, contour=contour, cells=cells, data_style=data_style
+        )
         return self.analysis.plot(
             band=resolved_band,
             exclude_value=exclude_value,
@@ -970,127 +979,50 @@ class Dataset(RasterBase):
             overview_index=overview_index,
             percentile=percentile,
             basemap=basemap,
+            colorbar=colorbar,
+            points=points,
+            kind=kind,
+            title=title,
+            **group_kwargs,
             **kwargs,
         )
 
     @staticmethod
-    def _merge_rgb_options(
-        *,
+    def _unpack_rgb_options(
         rgb_options: dict | None,
-        rgb: list[int] | None,
-        surface_reflectance: int | None,
-        cutoff: list | None,
-        percentile: int | None,
     ) -> tuple[list[int] | None, int | None, list | None, int | None]:
-        """Merge `rgb_options=` with the deprecated loose top-level kwargs.
-
-        Returns the resolved four-tuple ``(rgb, surface_reflectance,
-        cutoff, percentile)`` passed forward to the renderer. Values in
-        ``rgb_options`` win over the loose kwargs on collision; using
-        any of the four loose kwargs emits a :class:`DeprecationWarning`
-        recommending the grouped form.
+        """Unpack the ``rgb_options`` group into the four Sentinel-imagery values.
 
         Args:
-            rgb_options: Recommended grouped form (``{"rgb": ..., ...}``).
-                Accepted keys: ``"rgb"``, ``"surface_reflectance"``,
-                ``"cutoff"``, ``"percentile"``. ``None`` means
-                no grouped options were supplied.
-            rgb: Deprecated top-level kwarg.
-            surface_reflectance: Deprecated top-level kwarg.
-            cutoff: Deprecated top-level kwarg.
-            percentile: Deprecated top-level kwarg.
+            rgb_options: Grouped Sentinel-imagery options, or ``None``. Accepted keys:
+                ``"rgb"``, ``"surface_reflectance"``, ``"cutoff"``, ``"percentile"``.
 
         Returns:
-            tuple: ``(rgb, surface_reflectance, cutoff, percentile)``
-                resolved values, with the grouped form taking precedence.
+            tuple: ``(rgb, surface_reflectance, cutoff, percentile)`` — each the value from
+                ``rgb_options`` or ``None`` when absent.
 
         Raises:
-            ValueError: If ``rgb_options`` contains a key outside the
-                accepted set ``{"rgb", "surface_reflectance", "cutoff",
-                "percentile"}``.
+            ValueError: If ``rgb_options`` contains a key outside the accepted set.
 
         Examples:
-            - Pass everything through the grouped form (recommended).
-              No warnings are emitted and the returned four-tuple
-              mirrors the inputs in order:
+            - Unpack the grouped form (``None`` yields an all-``None`` tuple):
 
                 ```python
-                >>> import warnings
                 >>> from pyramids.dataset import Dataset
-                >>> with warnings.catch_warnings(record=True) as caught:
-                ...     warnings.simplefilter("always")
-                ...     result = Dataset._merge_rgb_options(
-                ...         rgb_options={
-                ...             "rgb": [2, 1, 0],
-                ...             "surface_reflectance": 10000,
-                ...         },
-                ...         rgb=None,
-                ...         surface_reflectance=None,
-                ...         cutoff=None,
-                ...         percentile=None,
-                ...     )
-                >>> result
+                >>> Dataset._unpack_rgb_options(
+                ...     {"rgb": [2, 1, 0], "surface_reflectance": 10000}
+                ... )
                 ([2, 1, 0], 10000, None, None)
-                >>> [w.category.__name__ for w in caught]
-                []
+                >>> Dataset._unpack_rgb_options(None)
+                (None, None, None, None)
 
                 ```
 
-            - Passing a value via the loose top-level kwarg path emits
-              a :class:`DeprecationWarning` that names the kwarg(s)
-              used and points to the grouped replacement:
+            - An unknown key raises :class:`ValueError`:
 
                 ```python
-                >>> import warnings
-                >>> from pyramids.dataset import Dataset
-                >>> with warnings.catch_warnings(record=True) as caught:
-                ...     warnings.simplefilter("always")
-                ...     result = Dataset._merge_rgb_options(
-                ...         rgb_options=None,
-                ...         rgb=[2, 1, 0],
-                ...         surface_reflectance=None,
-                ...         cutoff=None,
-                ...         percentile=None,
-                ...     )
-                >>> result
-                ([2, 1, 0], None, None, None)
-                >>> caught[0].category.__name__
-                'DeprecationWarning'
-
-                ```
-
-            - When both forms collide, ``rgb_options`` wins. A
-              :class:`DeprecationWarning` is still emitted for the loose
-              kwarg:
-
-                ```python
-                >>> import warnings
-                >>> from pyramids.dataset import Dataset
-                >>> with warnings.catch_warnings(record=True) as caught:
-                ...     warnings.simplefilter("always")
-                ...     result = Dataset._merge_rgb_options(
-                ...         rgb_options={"rgb": [0, 1, 2]},
-                ...         rgb=[3, 4, 5],
-                ...         surface_reflectance=None,
-                ...         cutoff=None,
-                ...         percentile=None,
-                ...     )
-                >>> result
-                ([0, 1, 2], None, None, None)
-
-                ```
-
-            - An unknown key in ``rgb_options`` raises
-              :class:`ValueError`:
-
-                ```python
-                >>> from pyramids.dataset import Dataset
-                >>> Dataset._merge_rgb_options(  # doctest: +IGNORE_EXCEPTION_DETAIL
-                ...     rgb_options={"unknown": 1},
-                ...     rgb=None,
-                ...     surface_reflectance=None,
-                ...     cutoff=None,
-                ...     percentile=None,
+                >>> Dataset._unpack_rgb_options(  # doctest: +IGNORE_EXCEPTION_DETAIL
+                ...     {"unknown": 1}
                 ... )
                 Traceback (most recent call last):
                     ...
@@ -1098,50 +1030,20 @@ class Dataset(RasterBase):
 
                 ```
         """
-        loose_pairs = {
-            "rgb": rgb,
-            "surface_reflectance": surface_reflectance,
-            "cutoff": cutoff,
-            "percentile": percentile,
-        }
+        accepted = ("rgb", "surface_reflectance", "cutoff", "percentile")
         opts = rgb_options or {}
-        unknown = set(opts) - set(loose_pairs)
+        unknown = set(opts) - set(accepted)
         if unknown:
             raise ValueError(
                 f"Unknown keys in `rgb_options`: {sorted(unknown)}. "
-                f"Accepted: {sorted(loose_pairs)}."
+                f"Accepted: {sorted(accepted)}."
             )
-        used_loose = [name for name, value in loose_pairs.items() if value is not None]
-        # Split the deprecated loose kwargs into those overridden by a
-        # matching `rgb_options` key (a collision — the loose value is
-        # discarded) and those used on their own. They get distinct
-        # warning text so the message isn't misleading: a user who *did*
-        # use the grouped form shouldn't be told "group them" again.
-        overridden = [name for name in used_loose if name in opts]
-        pure_loose = [name for name in used_loose if name not in opts]
-        if pure_loose:
-            warnings.warn(
-                "Passing "
-                + ", ".join(f"`{name}=`" for name in pure_loose)
-                + " as top-level kwargs to `Dataset.plot` is deprecated. "
-                "Group them under `rgb_options={...}` instead.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-        if overridden:
-            warnings.warn(
-                "Both the loose "
-                + ", ".join(f"`{name}=`" for name in overridden)
-                + " kwarg(s) and `rgb_options` were given for the same key(s); "
-                "`rgb_options` wins — drop the loose form.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-        rgb = opts.get("rgb", rgb)
-        surface_reflectance = opts.get("surface_reflectance", surface_reflectance)
-        cutoff = opts.get("cutoff", cutoff)
-        percentile = opts.get("percentile", percentile)
-        return rgb, surface_reflectance, cutoff, percentile
+        return (
+            opts.get("rgb"),
+            opts.get("surface_reflectance"),
+            opts.get("cutoff"),
+            opts.get("percentile"),
+        )
 
     def crop(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.crop <pyramids.dataset.engines.Spatial.crop>`."""

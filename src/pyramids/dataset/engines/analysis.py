@@ -28,8 +28,8 @@ from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
-    from cleopatra.array_glyph import ArrayGlyph
-    from cleopatra.geo import Basemap
+    from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
 
     from pyramids.dataset.dataset import Dataset
 
@@ -1674,7 +1674,7 @@ class Analysis(_Engine["Dataset"]):
         """Plot the value distribution of a band as a histogram.
 
         Backed by cleopatra's
-        :class:`~cleopatra.statistical_glyph.StatisticalGlyph`. The band is
+        :class:`~cleopatra.glyphs.stats.histogram_glyph.HistogramGlyph`. The band is
         read into memory, the band's no-data value and ``exclude_value``
         (and any ``NaN`` for floating-point bands) are dropped, and only the
         remaining valid samples reach the glyph. Requires the ``[viz]`` extra.
@@ -1690,15 +1690,15 @@ class Analysis(_Engine["Dataset"]):
             ax (matplotlib.axes.Axes, optional):
                 Axes to draw on. A new figure/axes is created when ``None``.
             **kwargs:
-                Style options forwarded to the ``StatisticalGlyph``
+                Style options forwarded to the ``HistogramGlyph``
                 constructor, filtered via
-                :meth:`StatisticalGlyph.filter_kwargs` so only accepted keys
+                :meth:`HistogramGlyph.filter_kwargs` so only accepted keys
                 are passed.
 
         Returns:
             tuple:
                 ``(fig, ax, hist)`` from
-                :meth:`StatisticalGlyph.histogram` — the
+                :meth:`HistogramGlyph.histogram` — the
                 :class:`matplotlib.figure.Figure`, the
                 :class:`matplotlib.axes.Axes`, and the histogram ``dict``.
 
@@ -1729,7 +1729,7 @@ class Analysis(_Engine["Dataset"]):
                 ```
         """
         require_cleopatra()
-        from cleopatra.statistical_glyph import StatisticalGlyph
+        from cleopatra.glyphs.stats.histogram_glyph import HistogramGlyph
 
         arr = self._ds.read_array(band=band).flatten()
         no_data_value = self._ds.no_data_value[band]
@@ -1748,9 +1748,7 @@ class Analysis(_Engine["Dataset"]):
                 f"Band {band} has no valid samples to histogram after masking "
                 "no-data / exclude_value / NaN."
             )
-        glyph = StatisticalGlyph(
-            values, ax=ax, **StatisticalGlyph.filter_kwargs(kwargs)
-        )
+        glyph = HistogramGlyph(values, ax=ax, **HistogramGlyph.filter_kwargs(kwargs))
         result = glyph.histogram(bins=bins)
         return result
 
@@ -1804,7 +1802,7 @@ class Analysis(_Engine["Dataset"]):
                 ```
         """
         require_cleopatra()
-        from cleopatra.array_glyph import ArrayGlyph
+        from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
 
         arr = self._ds.read_array(band=band)
         no_data_value = self._ds.no_data_value[band]
@@ -1842,7 +1840,7 @@ class Analysis(_Engine["Dataset"]):
         Reads ``u_band`` and ``v_band`` as the vector components over the
         dataset's cell-centre coordinate grid (built from the geotransform)
         and renders them via cleopatra's
-        :class:`~cleopatra.vector_glyph.VectorGlyph` as arrows, wind barbs,
+        :class:`~cleopatra.glyphs.gridded.vector_glyph.VectorGlyph` as arrows, wind barbs,
         or streamlines, coloured by vector magnitude. Requires the ``[viz]``
         extra.
 
@@ -1905,7 +1903,7 @@ class Analysis(_Engine["Dataset"]):
                 ```
         """
         require_cleopatra()
-        from cleopatra.vector_glyph import VectorGlyph
+        from cleopatra.glyphs.gridded.vector_glyph import VectorGlyph
 
         band_count = self._ds.band_count
         for name, idx in (("u_band", u_band), ("v_band", v_band)):
@@ -1959,13 +1957,14 @@ class Analysis(_Engine["Dataset"]):
         are dataset-type-specific decisions that belong on the facades.
 
         When the resolved band carries a GDAL colour table and the caller passes neither
-        ``cmap`` nor ``color_scale``, the raster renders through that palette: the colour
-        table is turned into a colormap and handed to cleopatra with
-        ``color_scale="boundary-norm"`` so each pixel value shows its own colour (#913).
-        An explicit ``cmap`` / ``color_scale`` opts out.
+        ``cmap`` nor ``color``, the raster renders through that palette: the colour table is
+        turned into a colormap and handed to cleopatra with
+        ``color=ColorScaling.boundary(bounds=...)`` so each pixel value shows its own colour
+        (#913). An explicit ``cmap`` / ``color`` opts out.
 
-        The plot function uses the `cleopatra` as a backend to plot the raster data, for more information check
-        [ArrayGlyph](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/#cleopatra.array_glyph.ArrayGlyph.plot).
+        The plot function uses `cleopatra` as a backend to plot the raster data; for more
+        information see the
+        [ArrayGlyph reference](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/).
 
         Implementation note: this method is a thin caller around the
         shared :func:`pyramids.dataset._plot_helpers.render_array`
@@ -2005,39 +2004,37 @@ class Analysis(_Engine["Dataset"]):
             basemap (bool, str, or Basemap, optional):
                 Reference layer under the plot, dispatched by type. ``True`` or a tile-provider
                 string (e.g. "CartoDB.Positron") draws a pyramids web-tile basemap. A
-                ``pyramids.plot.Basemap(relief=..., features=...)`` (cleopatra >= 0.28) draws a
+                ``pyramids.plot.Basemap(relief=..., features=...)`` draws a
                 shaded-relief / coastline reference layer instead. Default is None (no basemap).
                 Requires the [viz] extra (mercantile, xyzservices, Pillow). A ``Basemap`` is not
                 supported on the faceted path.
         kwargs:
-                The typed specs below (``ColorBar`` / ``PointOverlay`` / ``Basemap``) are
-                re-exported from ``pyramids.plot`` — import them from there rather than cleopatra.
-                Configure the colour bar through ``colorbar=ColorBar(label=..., length=...,
-                orientation=..., label_size=..., label_rotation=..., label_location=...,
-                ticks_spacing=...)``. The loose ``cbar_*`` / ``ticks_spacing`` kwargs it replaces
-                are deprecated: pyramids still accepts them but folds them into a ``ColorBar``
-                and emits a ``DeprecationWarning``, so they are no longer listed below. The
-                same applies to ``point_*`` -> ``PointOverlay`` and a ``dict`` basemap ->
-                ``Basemap``. Migrate to the typed specs.
-                | Parameter                   | Type                | Description |
-                |-----------------------------|---------------------|-------------|
-                | `points`                    | array \\| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `pyramids.plot.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — pyramids folds the loose `point_color` / `point_size` / `point_label_color` / `point_label_size` / `pid_color` / `pid_size` kwargs into a `PointOverlay` and emits a `DeprecationWarning`; set the styling on the `PointOverlay` instead. |
-                | `figsize`                   | tuple, optional     | Figure size. Default is `(8, 8)`. |
-                | `title`                     | str, optional       | Title of the plot. Default is `'Total Discharge'`. |
-                | `title_size`                | int, optional       | Title size. Default is `15`. |
-                | `color_scale`               | str, optional       | Color-scale mode. One of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styles.ColorScale` member. Integer codes are no longer accepted. Default is `"linear"`. |
-                | `gamma`                     | float, optional     | Exponent for the `"power"` color scale. Default is `1/2`. |
-                | `line_threshold`            | float, optional     | `linthresh` for the `"sym-lognorm"` color scale. Default is `0.0001`. |
-                | `line_scale`                | float, optional     | `linscale` for the `"sym-lognorm"` color scale. Default is `0.001`. |
-                | `bounds`                    | list, optional      | Discrete bounds for the `"boundary-norm"` color scale. Default is `None`. |
-                | `midpoint`                  | float, optional     | Midpoint value for the `"midpoint"` color scale. Default is `0`. |
-                | `cmap`                      | str, optional       | Color map style. Default is `'coolwarm_r'`. |
-                | `display_cell_value`        | bool, optional      | Whether to display cell values as text. |
-                | `num_size`                  | int, optional       | Size of numbers plotted on top of each cell. Default is `8`. |
-                | `background_color_threshold`| float or int, optional | Threshold for deciding text color over cells: if value > threshold -> black text; else white text. If `None`, max value / 2 is used. Default is `None`. |
-                | `add_colorbar`              | bool, optional      | Whether to draw the colour bar. Default is `True`. When `False`, no colorbar is created and the returned glyph's `cbar` is `None`. |
-                | `colorbar`                  | bool \\| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28) — the complete, preferred replacement for the loose `cbar_*` / `ticks_spacing` kwargs. `False` hides it, `None` uses the default. |
-                | `full_bleed`                | bool \\| str, optional | cleopatra >= 0.28 chrome-free layout: drop axes/margins so the array fills the figure. Default `False`. |
+                Colour-scale, contour, cell-value and data-style options moved onto typed
+                render groups (all re-exported from ``pyramids.plot``): pass
+                ``color=ColorScaling(...)`` / ``contour=Contour(...)`` /
+                ``cells=CellValues(...)`` / ``data_style=DataStyle(...)``, the colour bar as
+                ``colorbar=ColorBar(...)``, and point overlays as ``points=PointOverlay(...)``.
+                The loose forms they replace — ``color_scale`` / ``gamma`` / ``bounds`` /
+                ``midpoint`` / ``line_*`` / ``levels`` / ``display_cell_value`` / ``num_size`` /
+                ``background_color_threshold`` / ``style`` / ``hillshade`` / ``point_*`` /
+                ``cbar_*`` / ``ticks_spacing`` — are no longer accepted and now raise. The
+                remaining still-loose kwargs pass through to cleopatra:
+
+                - `points` (array | PointOverlay): Point overlay. A bare 3-column array
+                  `(value, row, col)` draws unstyled points; pass a
+                  `pyramids.plot.PointOverlay(points, color=..., size=..., ...)` to style them.
+                - `cmap` (str, optional): Color map style. Default is `'coolwarm_r'`.
+                - `figsize` (tuple, optional): Figure size. Default is `(8, 8)`.
+                - `title` (str, optional): Title of the plot. Default is `'Total Discharge'`.
+                - `title_size` (int, optional): Title size. Default is `15`.
+                - `add_colorbar` (bool, optional): Whether to draw the colour bar. Default is
+                  `True`; when `False` the returned glyph's `cbar` is `None`.
+                - `colorbar` (bool | ColorBar, optional): Colour-bar spec
+                  `pyramids.plot.ColorBar(label=..., orientation=..., ...)` — replaces the
+                  removed loose `cbar_*` / `ticks_spacing` kwargs. `False` hides it, `None`
+                  uses the default.
+                - `full_bleed` (bool | str, optional): Chrome-free layout: drop axes/margins
+                  so the array fills the figure. Default `False`.
         Returns:
             ArrayGlyph:
                 A cleopatra ``ArrayGlyph`` wrapping the rendered figure. The underlying matplotlib
@@ -2068,27 +2065,28 @@ class Analysis(_Engine["Dataset"]):
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
 
               ```
-            - plot using power scale.
+            - plot using a power scale.
               ```python
-              >>> dataset.plot(band=0, color_scale="power")  # doctest: +SKIP
+              >>> from pyramids.plot import ColorScaling  # doctest: +SKIP
+              >>> dataset.plot(band=0, color=ColorScaling.power(gamma=0.7))  # doctest: +SKIP
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
 
               ```
-            - plot using SymLogNorm scale.
+            - plot using a SymLogNorm scale.
               ```python
-              >>> dataset.plot(band=0, color_scale="sym-lognorm")  # doctest: +SKIP
+              >>> dataset.plot(band=0, color=ColorScaling.sym_log())  # doctest: +SKIP
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
 
               ```
-            - plot using PowerNorm scale.
+            - plot using a BoundaryNorm scale.
               ```python
-              >>> dataset.plot(band=0, color_scale="boundary-norm", bounds=[0, 0.2, 0.4, 0.6, 0.8, 1])  # doctest: +SKIP
+              >>> dataset.plot(band=0, color=ColorScaling.boundary(bounds=[0, 0.2, 0.4, 0.6, 0.8, 1]))  # doctest: +SKIP
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
 
               ```
-            - plot using BoundaryNorm scale.
+            - plot using a midpoint scale.
               ```python
-              >>> dataset.plot(band=0, color_scale="midpoint")  # doctest: +SKIP
+              >>> dataset.plot(band=0, color=ColorScaling.midpoint(at=0))  # doctest: +SKIP
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
 
               ```
@@ -2128,26 +2126,27 @@ class Analysis(_Engine["Dataset"]):
         effective_extent = (
             injected_extent if injected_extent is not None else self._ds.bbox
         )
-        # Render a paletted band through its GDAL colour table (#913): build a
-        # discrete colormap from the palette and hand it to cleopatra as an
-        # explicit ``cmap`` + ``color_scale="boundary-norm"``. Only the single-band
-        # static path (no ``rgb``, no facet) carries a palette, and an explicit
-        # ``cmap`` / ``color_scale`` / ``bounds`` from the caller wins over it.
+        # Render a paletted band through its GDAL colour table (#913): build a discrete
+        # colormap from the palette and hand it to cleopatra as an explicit ``cmap`` plus a
+        # boundary-norm ``color=ColorScaling.boundary(bounds=...)`` (cleopatra 0.30 moved the
+        # colour scale onto the typed group). Only the single-band static path (no ``rgb``,
+        # no facet) carries a palette, and an explicit ``cmap`` / ``color`` from the caller
+        # wins over it.
         if (
             mode == "plot"
             and rgb is None
             and kwargs.get("cmap") is None
-            and kwargs.get("color_scale") is None
-            and kwargs.get("bounds") is None
+            and kwargs.get("color") is None
         ):
             # Read only the resolved band's colour table, not every band's — the
             # full-dataset ``color_table`` rebuilds a row per entry for all bands.
             band_color_table = self._ds.bands._get_color_table(band=band)
             if not band_color_table.empty:
+                from cleopatra.styling.scaling import ColorScaling
+
                 cmap, bounds = self._palette_colormap(band_color_table)
                 kwargs["cmap"] = cmap
-                kwargs["color_scale"] = "boundary-norm"
-                kwargs["bounds"] = bounds
+                kwargs["color"] = ColorScaling.boundary(bounds=bounds)
         return render_array(
             arr=arr,
             extent=effective_extent,
@@ -2224,7 +2223,7 @@ class Analysis(_Engine["Dataset"]):
     @staticmethod
     def _process_color_table(color_table: DataFrame) -> DataFrame:
         require_cleopatra()
-        from cleopatra.colors import Colors
+        from cleopatra.styling.colors import Colors
 
         # if the color_table does not contain the red, green, and blue columns, assume it has one column with
         # the color as hex and then, convert the color to rgb.
@@ -2255,8 +2254,8 @@ class Analysis(_Engine["Dataset"]):
         :meth:`_process_color_table`) into a matplotlib ``ListedColormap`` carrying the
         palette's exact colours, and derives the ``BoundaryNorm`` bin edges from
         cleopatra's ``category_boundaries``. The colormap is handed to cleopatra as an
-        explicit ``cmap`` with ``color_scale="boundary-norm"`` so a paletted raster
-        renders through its own colours — pyramids only builds the mapping; cleopatra
+        explicit ``cmap`` with ``color=ColorScaling.boundary(bounds=...)`` so a paletted
+        raster renders through its own colours — pyramids only builds the mapping; cleopatra
         draws it.
 
         cleopatra renders with ``BoundaryNorm(bounds, ncolors=256)``, so the palette is
@@ -2284,7 +2283,7 @@ class Analysis(_Engine["Dataset"]):
                 boundary edges, sorted by colour-table value.
         """
         require_cleopatra()
-        from cleopatra.colors import category_boundaries
+        from cleopatra.styling.colors import category_boundaries
         from matplotlib.colors import BoundaryNorm, ListedColormap
 
         processed = Analysis._process_color_table(color_table).sort_values("values")

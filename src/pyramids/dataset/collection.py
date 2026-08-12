@@ -11,7 +11,7 @@ import warnings
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Unpack, cast
 
 import numpy as np
 import pandas as pd
@@ -30,7 +30,7 @@ from pyramids.base._utils import (
 )
 from pyramids.base.crs import crs_spec
 from pyramids.base.remote import cloud_config_from_env
-from pyramids.dataset._plot_helpers import render_array
+from pyramids.dataset._plot_helpers import nonnull_group_kwargs, render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
 from pyramids.dataset._stac import from_point as _from_point
 from pyramids.dataset._stac import from_stac as _from_stac
@@ -50,8 +50,16 @@ from pyramids.dataset.ops.io import _read_chunk
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
-    from cleopatra.array_glyph import ArrayGlyph, FrameLabel
-    from cleopatra.geo import Basemap
+    from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import (
+        AnimateKwargs,
+        ArrayGlyph,
+        FrameLabel,
+        PointOverlay,
+    )
+    from cleopatra.styling.colorbar import ColorBar
+    from cleopatra.styling.params import CellValues, Contour, DataStyle
+    from cleopatra.styling.scaling import ColorScaling
     from dask.delayed import Delayed
 
 
@@ -2562,18 +2570,57 @@ class DatasetCollection:
         """
         return self._dataset_at(i)
 
+    def _validate_rgb_animation(
+        self, rgb: list[int], exclude_value: Any | None
+    ) -> None:
+        """Validate the ``rgb`` band layout for an RGB time-lapse (issue #538).
+
+        Args:
+            rgb: The band indices requested for the true-colour composite.
+            exclude_value: The caller's ``exclude_value`` (ignored for RGB frames;
+                a non-``None`` value warns because true-colour frames are not masked).
+
+        Raises:
+            ValueError: If ``rgb`` is not 3 or 4 indices, has a negative index, or asks
+                for more bands than the collection's datasets carry.
+        """
+        if len(rgb) not in (3, 4):
+            raise ValueError(
+                f"rgb must list 3 band indices (RGB) or 4 (RGBA), got "
+                f"{rgb!r} with {len(rgb)} entries."
+            )
+        if min(rgb) < 0:
+            raise ValueError(f"rgb band indices must be non-negative, got {rgb!r}.")
+        if exclude_value is not None:
+            warnings.warn(
+                "exclude_value is ignored for RGB animations; true-colour "
+                "frames are not masked. Drop exclude_value, or render a "
+                "single band to mask by no-data.",
+                UserWarning,
+                stacklevel=3,
+            )
+        needed = max(rgb) + 1
+        if self.base.band_count < needed:
+            raise ValueError(
+                f"rgb={rgb} needs at least {needed} bands, but the "
+                f"collection's datasets have {self.base.band_count}."
+            )
+
     def plot(
         self,
         band: int = 0,
         exclude_value: Any | None = None,
-        rgb: list[int] | None = None,
-        surface_reflectance: int | None = None,
-        cutoff: list | None = None,
-        percentile: int | None = None,
         rgb_options: dict | None = None,
         basemap: bool | str | dict[str, Any] | Basemap | None = None,
         frame_label: FrameLabel | None = None,
-        **kwargs: Any,
+        colorbar: bool | ColorBar | None = None,
+        points: np.ndarray | PointOverlay | None = None,
+        color: ColorScaling | None = None,
+        contour: Contour | None = None,
+        cells: CellValues | None = None,
+        data_style: DataStyle | None = None,
+        animation_axis_values: Any = None,
+        **kwargs: Unpack[AnimateKwargs],
     ) -> ArrayGlyph:
         r"""Render the collection as an animated stack of band slices.
 
@@ -2608,70 +2655,71 @@ class DatasetCollection:
                 Ignored when ``rgb`` is set (true-colour frames are not
                 masked); passing it together with ``rgb`` emits a
                 :class:`UserWarning`.
-            rgb (list[int], optional):
-                Band indices ``[red, green, blue]`` (or four, with
-                alpha) to composite into a true-colour time-lapse. When
-                set, every timestep is rendered as an RGB frame instead
-                of a single colormapped band, and the result is a
-                ``(time, rows, cols, 3)`` animation with no colorbar.
-                Each ``Dataset`` in the collection must carry at least
-                ``max(rgb) + 1`` bands. Default ``None`` (single-band
-                colormapped animation). **Deprecated**; pass via
-                ``rgb_options={"rgb": [...]}`` instead.
-            surface_reflectance (int, optional):
-                Surface-reflectance scale for normalising RGB bands
-                (e.g. ``10000`` for Sentinel-2, ``255`` for 8-bit).
-                Only used when ``rgb`` is set. Default ``None``.
-                **Deprecated**; pass via
-                ``rgb_options={"surface_reflectance": ...}``.
-            cutoff (list, optional):
-                Per-band clip values for the RGB stretch. Only used when
-                ``rgb`` is set. Default ``None``. **Deprecated**; pass
-                via ``rgb_options={"cutoff": ...}``.
-            percentile (int, optional):
-                Percentile stretch for the RGB bands (takes precedence
-                over ``surface_reflectance``). Only used when ``rgb`` is
-                set. Default ``None``. **Deprecated**; pass via
-                ``rgb_options={"percentile": ...}``.
             rgb_options (dict, optional):
-                Recommended grouped form of the RGB parameters above.
-                Accepted keys: ``"rgb"``, ``"surface_reflectance"``,
-                ``"cutoff"``, ``"percentile"``. Mirrors
-                :meth:`Dataset.plot`. On collision with a loose kwarg the
-                ``rgb_options`` value wins. Default ``None``.
+                Grouped Sentinel-imagery options for a true-colour time-lapse (mirrors
+                :meth:`Dataset.plot`). Accepted keys: ``"rgb"`` (band indices
+                ``[red, green, blue(, alpha)]`` — every timestep renders as an RGB frame,
+                a ``(time, rows, cols, 3)`` animation with no colorbar; each ``Dataset``
+                must carry at least ``max(rgb) + 1`` bands), ``"surface_reflectance"``
+                (scale for normalising RGB bands, e.g. ``10000`` for Sentinel-2),
+                ``"cutoff"`` (per-band clip values), ``"percentile"`` (percentile stretch,
+                takes precedence over ``surface_reflectance``). Default ``None``
+                (single-band colormapped animation).
             basemap (bool, str, or Basemap, optional):
                 Reference layer under the animation, dispatched by type. ``True``
                 or a tile-provider string (e.g. ``"CartoDB.Positron"``) overlays a
                 pyramids web-tile basemap; a ``pyramids.plot.Basemap(relief=...,
-                features=...)`` (cleopatra >= 0.28) draws a shaded-relief /
+                features=...)`` draws a shaded-relief /
                 coastline layer instead. The base raster's CRS is supplied
                 automatically. Default ``None`` (no basemap). Requires the
                 ``[viz]`` extra.
             frame_label (FrameLabel, optional):
                 Typed per-frame label spec ``pyramids.plot.FrameLabel(...)``
-                (cleopatra >= 0.28) that styles the animation's frame caption
+                that styles the animation's frame caption
                 (colour, size, placement). ``animation_axis_values`` sets the
                 label *text* per frame; ``frame_label`` styles it. Default
                 ``None`` (cleopatra's default frame label).
+            colorbar (bool or ColorBar, optional):
+                Colour-bar spec ``pyramids.plot.ColorBar(label=…, length=…,
+                orientation=…, label_size=…, label_rotation=…, label_location=…,
+                ticks_spacing=…)``. The loose ``cbar_*`` / ``ticks_spacing`` kwargs it
+                replaces were removed — passing one now raises a :class:`ValueError`.
+                ``False`` hides it, ``None`` uses the default. Default ``None``.
+            points (np.ndarray or PointOverlay, optional):
+                Point overlay. A 3-column array ``(value, row, col)`` draws unstyled
+                points; to style them pass a ``pyramids.plot.PointOverlay(points,
+                color=…, size=…, label_color=…, label_size=…)`` instead (the loose
+                ``point_*`` / ``pid_*`` styling kwargs were removed). Default ``None``.
+            color (ColorScaling, optional):
+                Colour-scale spec ``pyramids.plot.ColorScaling`` (linear / power / sym-log /
+                boundary / midpoint norm), e.g. ``ColorScaling.power(gamma=0.7)``. Default
+                ``None``.
+            contour (Contour, optional):
+                Contour-line spec ``pyramids.plot.Contour(levels=…, labels=…, label_kw=…)``.
+                Default ``None``.
+            cells (CellValues, optional):
+                Per-cell value annotation ``pyramids.plot.CellValues(show=…, size=…,
+                background_threshold=…)``. Default ``None``.
+            data_style (DataStyle, optional):
+                Data-style / relief spec ``pyramids.plot.DataStyle(style=…, hillshade=…)``.
+                Default ``None``.
+            animation_axis_values (sequence, optional):
+                Per-frame labels for the animation, one per timestep. Defaults to the
+                collection's ``time`` axis when set (e.g. dates parsed by
+                ``read_multiple_files``), else ``range(time_length)`` (index labels).
+                Pass a sequence to override (e.g. ``range(2000, 2024)``); it must carry
+                exactly one label per timestep or a :class:`ValueError` is raised.
+                Default ``None``.
             **kwargs:
+                Still-loose cleopatra render kwargs (colour-scale, contour, and cell-value
+                styling moved onto the ``color`` / ``contour`` / ``cells`` params above):
+
                 | Parameter                  | Type                  | Description |
                 |----------------------------|-----------------------|-------------|
-                | animation_axis_values      | sequence, optional    | Per-frame labels for the animation, one per timestep. Defaults to the collection's `time` axis when set (e.g. dates parsed by `read_multiple_files`), else `range(time_length)` (index labels). Pass a sequence here to override (e.g. `range(2000, 2024)`). |
-                | points                     | array \| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
                 | figsize                    | tuple, optional       | Figure size. Default is `(8, 8)`. |
                 | title                      | str, optional         | Title of the plot. Default is `'Total Discharge'`. |
                 | title_size                 | int, optional         | Title size. Default is `15`. |
-                | colorbar                   | bool \| ColorBar, optional | Colour-bar spec `pyramids.plot.ColorBar(label=…, length=…, orientation=…, label_size=…, label_rotation=…, label_location=…, ticks_spacing=…)` (cleopatra >= 0.28). The loose `cbar_*` / `ticks_spacing` kwargs it replaces are deprecated — still accepted, but they emit a `DeprecationWarning`. `False` hides it, `None` uses the default. |
-                | color_scale                | str, optional         | Color-scale mode (default `"linear"`): one of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styles.ColorScale` member. Integer codes are no longer accepted. |
-                | gamma                      | float, optional       | Exponent for `color_scale="power"`. Default is `1/2`. |
-                | line_threshold             | float, optional       | `linthresh` for `color_scale="sym-lognorm"`. Default is `0.0001`. |
-                | line_scale                 | float, optional       | `linscale` for `color_scale="sym-lognorm"`. Default is `0.001`. |
-                | bounds                     | list                  | Discrete bounds for `color_scale="boundary-norm"`. Default is `None`. |
-                | midpoint                   | float, optional       | Midpoint value for `color_scale="midpoint"`. Default is `0`. |
                 | cmap                       | str, optional         | Color map style. Default is `'coolwarm_r'`. |
-                | display_cell_value         | bool                  | Whether to display the values of the cells as text. |
-                | num_size                   | int, optional         | Size of the numbers plotted on top of each cell. Default is `8`. |
-                | background_color_threshold | float \| int, optional| Threshold for deciding number color: if value > threshold -> black; else white. If `None`, uses `max_value/2`. Default is `None`. |
 
 
         Returns:
@@ -2685,7 +2733,7 @@ class DatasetCollection:
             ValueError: When ``rgb`` does not list exactly 3 (RGB) or 4
                 (RGBA) band indices, when any index is negative, or when the
                 collection's datasets carry fewer than ``max(rgb) + 1`` bands.
-                Also raised (via ``_merge_rgb_options``) for an unknown key
+                Also raised (via ``_unpack_rgb_options``) for an unknown key
                 in ``rgb_options``.
 
         Warns:
@@ -2729,20 +2777,15 @@ class DatasetCollection:
         See Also:
             - :meth:`pyramids.dataset.Dataset.plot`: The single-frame
               renderer (still or RGB still) for one ``Dataset``; shares the
-              ``rgb`` / ``rgb_options`` contract via ``_merge_rgb_options``.
+              ``rgb_options`` contract via ``_unpack_rgb_options``.
             - :func:`pyramids.dataset._plot_helpers.render_array`: The shared
               cleopatra dispatch that composites the true-colour frames for
               the animate path.
         """
-        # Resolve the grouped ``rgb_options`` against the deprecated loose
-        # kwargs exactly as ``Dataset.plot`` does, so both facades share one
-        # RGB-parameter contract (and one deprecation message).
-        rgb, surface_reflectance, cutoff, percentile = Dataset._merge_rgb_options(
-            rgb_options=rgb_options,
-            rgb=rgb,
-            surface_reflectance=surface_reflectance,
-            cutoff=cutoff,
-            percentile=percentile,
+        # Unpack the grouped ``rgb_options`` exactly as ``Dataset.plot`` does, so both
+        # facades share one RGB-parameter contract.
+        rgb, surface_reflectance, cutoff, percentile = Dataset._unpack_rgb_options(
+            rgb_options
         )
         # Frame labels for the animation. Default to the collection's time axis
         # when it has one (e.g. dates parsed from the file names by
@@ -2753,7 +2796,9 @@ class DatasetCollection:
         default_labels = (
             list(self.time) if self.time is not None else list(range(self.time_length))
         )
-        axis_values = kwargs.pop("animation_axis_values", default_labels)
+        axis_values = (
+            default_labels if animation_axis_values is None else animation_axis_values
+        )
         if not hasattr(axis_values, "__len__"):
             axis_values = list(axis_values)  # materialise a generator override
         # An explicit override must carry exactly one label per frame; the
@@ -2773,9 +2818,18 @@ class DatasetCollection:
         animate_extras: dict[str, Any] = {
             "basemap": basemap,
             "basemap_epsg": self.base.epsg,
+            "colorbar": colorbar,
+            "points": points,
         }
         if frame_label is not None:
             animate_extras["frame_label"] = frame_label
+        # Fold the explicitly-set cleopatra render groups in; unset ones are dropped so
+        # they do not override cleopatra's backend default for that group.
+        animate_extras.update(
+            nonnull_group_kwargs(
+                color=color, contour=contour, cells=cells, data_style=data_style
+            )
+        )
         # Materialise the cube on demand for plotting. The render helper
         # expects a single (time, rows, cols) numpy array; reading each
         # Dataset's band into one stacked array is fine for a plot call
@@ -2784,30 +2838,10 @@ class DatasetCollection:
         if rgb is not None:
             # RGB time-lapse: read the FULL multi-band array per timestep and
             # stack to (time, bands, rows, cols); render_array composites the
-            # true-colour frames. Guard the band layout here so a misshapen
-            # ``rgb`` raises a clear error instead of cleopatra silently
+            # true-colour frames. The band layout is validated in a helper so a
+            # misshapen ``rgb`` raises a clear error instead of cleopatra silently
             # collapsing the time axis into the colour channels (issue #538).
-            if len(rgb) not in (3, 4):
-                raise ValueError(
-                    f"rgb must list 3 band indices (RGB) or 4 (RGBA), got "
-                    f"{rgb!r} with {len(rgb)} entries."
-                )
-            if min(rgb) < 0:
-                raise ValueError(f"rgb band indices must be non-negative, got {rgb!r}.")
-            if exclude_value is not None:
-                warnings.warn(
-                    "exclude_value is ignored for RGB animations; true-colour "
-                    "frames are not masked. Drop exclude_value, or render a "
-                    "single band to mask by no-data.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            needed = max(rgb) + 1
-            if self.base.band_count < needed:
-                raise ValueError(
-                    f"rgb={rgb} needs at least {needed} bands, but the "
-                    f"collection's datasets have {self.base.band_count}."
-                )
+            self._validate_rgb_animation(rgb, exclude_value)
             data = np.stack([ds.read_array(band=None) for ds in self.datasets], axis=0)
             return render_array(
                 arr=data,
