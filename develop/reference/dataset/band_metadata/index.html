@@ -7851,7 +7851,12 @@ Hold "Ctrl" to enable pan &amp; zoom
 <span class="normal"><a href="#__codelineno-0-1528">1528</a></span>
 <span class="normal"><a href="#__codelineno-0-1529">1529</a></span>
 <span class="normal"><a href="#__codelineno-0-1530">1530</a></span>
-<span class="normal"><a href="#__codelineno-0-1531">1531</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-74" name="__codelineno-0-74"></a><span class="k">class</span><span class="w"> </span><span class="nc">Bands</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
+<span class="normal"><a href="#__codelineno-0-1531">1531</a></span>
+<span class="normal"><a href="#__codelineno-0-1532">1532</a></span>
+<span class="normal"><a href="#__codelineno-0-1533">1533</a></span>
+<span class="normal"><a href="#__codelineno-0-1534">1534</a></span>
+<span class="normal"><a href="#__codelineno-0-1535">1535</a></span>
+<span class="normal"><a href="#__codelineno-0-1536">1536</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-74" name="__codelineno-0-74"></a><span class="k">class</span><span class="w"> </span><span class="nc">Bands</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
 <a id="__codelineno-0-75" name="__codelineno-0-75"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Mixin providing band metadata, attribute table, and color table operations.&quot;&quot;&quot;</span>
 <a id="__codelineno-0-76" name="__codelineno-0-76"></a>
 <a id="__codelineno-0-77" name="__codelineno-0-77"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_iloc</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">gdal</span><span class="o">.</span><span class="n">Band</span><span class="p">:</span>
@@ -9249,66 +9254,71 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-1469" name="__codelineno-0-1469"></a>            <span class="c1"># leave a half-written GeoTIFF behind on the disk path: release every</span>
 <a id="__codelineno-0-1470" name="__codelineno-0-1470"></a>            <span class="c1"># handle to the file (both the wrapper and the local `dst` reference,</span>
 <a id="__codelineno-0-1471" name="__codelineno-0-1471"></a>            <span class="c1"># or GDAL keeps the file locked on Windows) and delete the partial file</span>
-<a id="__codelineno-0-1472" name="__codelineno-0-1472"></a>            <span class="c1"># and its sidecar before re-raising.</span>
-<a id="__codelineno-0-1473" name="__codelineno-0-1473"></a>            <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1474" name="__codelineno-0-1474"></a>                <span class="n">new_dataset</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-<a id="__codelineno-0-1475" name="__codelineno-0-1475"></a>                <span class="n">dst</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-1476" name="__codelineno-0-1476"></a>                <span class="n">Path</span><span class="p">(</span><span class="n">target</span><span class="p">)</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">missing_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-1477" name="__codelineno-0-1477"></a>                <span class="n">Path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">target</span><span class="si">}</span><span class="s2">.aux.xml&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">missing_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-1478" name="__codelineno-0-1478"></a>            <span class="k">raise</span>
-<a id="__codelineno-0-1479" name="__codelineno-0-1479"></a>        <span class="c1"># Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on</span>
-<a id="__codelineno-0-1480" name="__codelineno-0-1480"></a>        <span class="c1"># disk before it is reopened (a no-op for the in-memory driver).</span>
-<a id="__codelineno-0-1481" name="__codelineno-0-1481"></a>        <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">FlushCache</span><span class="p">()</span>
-<a id="__codelineno-0-1482" name="__codelineno-0-1482"></a>
-<a id="__codelineno-0-1483" name="__codelineno-0-1483"></a>        <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
-<a id="__codelineno-0-1484" name="__codelineno-0-1484"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
-<a id="__codelineno-0-1485" name="__codelineno-0-1485"></a>            <span class="k">return</span> <span class="kc">None</span>
-<a id="__codelineno-0-1486" name="__codelineno-0-1486"></a>        <span class="k">return</span> <span class="n">new_dataset</span>
+<a id="__codelineno-0-1472" name="__codelineno-0-1472"></a>            <span class="c1"># and its sidecar before re-raising. The unlinks are best-effort: if a</span>
+<a id="__codelineno-0-1473" name="__codelineno-0-1473"></a>            <span class="c1"># GDAL/OS build still holds the file, swallow the OSError so the cleanup</span>
+<a id="__codelineno-0-1474" name="__codelineno-0-1474"></a>            <span class="c1"># never masks the original exception (the file just lingers).</span>
+<a id="__codelineno-0-1475" name="__codelineno-0-1475"></a>            <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1476" name="__codelineno-0-1476"></a>                <span class="n">new_dataset</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+<a id="__codelineno-0-1477" name="__codelineno-0-1477"></a>                <span class="n">dst</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-1478" name="__codelineno-0-1478"></a>                <span class="k">for</span> <span class="n">leftover</span> <span class="ow">in</span> <span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">target</span><span class="si">}</span><span class="s2">.aux.xml&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-1479" name="__codelineno-0-1479"></a>                    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1480" name="__codelineno-0-1480"></a>                        <span class="n">Path</span><span class="p">(</span><span class="n">leftover</span><span class="p">)</span><span class="o">.</span><span class="n">unlink</span><span class="p">()</span>
+<a id="__codelineno-0-1481" name="__codelineno-0-1481"></a>                    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+<a id="__codelineno-0-1482" name="__codelineno-0-1482"></a>                        <span class="k">pass</span>
+<a id="__codelineno-0-1483" name="__codelineno-0-1483"></a>            <span class="k">raise</span>
+<a id="__codelineno-0-1484" name="__codelineno-0-1484"></a>        <span class="c1"># Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on</span>
+<a id="__codelineno-0-1485" name="__codelineno-0-1485"></a>        <span class="c1"># disk before it is reopened (a no-op for the in-memory driver).</span>
+<a id="__codelineno-0-1486" name="__codelineno-0-1486"></a>        <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">FlushCache</span><span class="p">()</span>
 <a id="__codelineno-0-1487" name="__codelineno-0-1487"></a>
-<a id="__codelineno-0-1488" name="__codelineno-0-1488"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_swap_no_data_tiled</span><span class="p">(</span>
-<a id="__codelineno-0-1489" name="__codelineno-0-1489"></a>        <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-1490" name="__codelineno-0-1490"></a>        <span class="n">new_dataset</span><span class="p">:</span> <span class="n">Dataset</span><span class="p">,</span>
-<a id="__codelineno-0-1491" name="__codelineno-0-1491"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-1492" name="__codelineno-0-1492"></a>        <span class="n">band_old_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-<a id="__codelineno-0-1493" name="__codelineno-0-1493"></a>        <span class="n">new_band_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-<a id="__codelineno-0-1494" name="__codelineno-0-1494"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1495" name="__codelineno-0-1495"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace a band&#39;s old-no-data cells with the new value, one tile at a time.</span>
-<a id="__codelineno-0-1496" name="__codelineno-0-1496"></a>
-<a id="__codelineno-0-1497" name="__codelineno-0-1497"></a><span class="sd">        The caller&#39;s `_set_no_data_value` fills the destination band with the new</span>
-<a id="__codelineno-0-1498" name="__codelineno-0-1498"></a><span class="sd">        no-data value, so every tile is read from the *source*, has its old</span>
-<a id="__codelineno-0-1499" name="__codelineno-0-1499"></a><span class="sd">        no-data cells swapped to the new value, and is written back at its offset</span>
-<a id="__codelineno-0-1500" name="__codelineno-0-1500"></a><span class="sd">        -- reconstructing the band exactly as the previous whole-band read/swap/</span>
-<a id="__codelineno-0-1501" name="__codelineno-0-1501"></a><span class="sd">        write did, but never holding more than one tile as a NumPy array. The swap</span>
-<a id="__codelineno-0-1502" name="__codelineno-0-1502"></a><span class="sd">        is attempted on every tile so an invalid `new_band_value` dtype raises just</span>
-<a id="__codelineno-0-1503" name="__codelineno-0-1503"></a><span class="sd">        as the whole-band assignment did, even for a band with no matching cells.</span>
-<a id="__codelineno-0-1504" name="__codelineno-0-1504"></a>
-<a id="__codelineno-0-1505" name="__codelineno-0-1505"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-1506" name="__codelineno-0-1506"></a><span class="sd">            new_dataset: The destination Dataset written in place.</span>
-<a id="__codelineno-0-1507" name="__codelineno-0-1507"></a><span class="sd">            band: Zero-based index of the band to swap.</span>
-<a id="__codelineno-0-1508" name="__codelineno-0-1508"></a><span class="sd">            band_old_value: The old no-data value to locate (``None`` matches NaN).</span>
-<a id="__codelineno-0-1509" name="__codelineno-0-1509"></a><span class="sd">            new_band_value: The new no-data value written into the matched cells.</span>
-<a id="__codelineno-0-1510" name="__codelineno-0-1510"></a>
-<a id="__codelineno-0-1511" name="__codelineno-0-1511"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-1512" name="__codelineno-0-1512"></a><span class="sd">            NoDataValueError: `new_band_value` cannot be stored in the band dtype.</span>
-<a id="__codelineno-0-1513" name="__codelineno-0-1513"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1514" name="__codelineno-0-1514"></a>        <span class="n">dst_band</span> <span class="o">=</span> <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-1515" name="__codelineno-0-1515"></a>        <span class="k">for</span> <span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">,</span> <span class="n">xsize</span><span class="p">,</span> <span class="n">ysize</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">_tile_offsets</span><span class="p">():</span>
-<a id="__codelineno-0-1516" name="__codelineno-0-1516"></a>            <span class="n">tile</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="p">[</span><span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">,</span> <span class="n">xsize</span><span class="p">,</span> <span class="n">ysize</span><span class="p">])</span>
-<a id="__codelineno-0-1517" name="__codelineno-0-1517"></a>            <span class="n">mask</span> <span class="o">=</span> <span class="n">is_no_data</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">band_old_value</span><span class="p">)</span>
-<a id="__codelineno-0-1518" name="__codelineno-0-1518"></a>            <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-1519" name="__codelineno-0-1519"></a>                <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">errstate</span><span class="p">(</span><span class="n">invalid</span><span class="o">=</span><span class="s2">&quot;raise&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-1520" name="__codelineno-0-1520"></a>                    <span class="n">tile</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_band_value</span>
-<a id="__codelineno-0-1521" name="__codelineno-0-1521"></a>            <span class="c1"># A dtype mismatch surfaces differently across numpy paths: a None value</span>
-<a id="__codelineno-0-1522" name="__codelineno-0-1522"></a>            <span class="c1"># is not subscriptable (TypeError), a NaN cast into an integer band raises</span>
-<a id="__codelineno-0-1523" name="__codelineno-0-1523"></a>            <span class="c1"># ValueError (&quot;cannot convert float NaN to integer&quot;), and an invalid</span>
-<a id="__codelineno-0-1524" name="__codelineno-0-1524"></a>            <span class="c1"># floating-point cast trips errstate (FloatingPointError). Map all of them</span>
-<a id="__codelineno-0-1525" name="__codelineno-0-1525"></a>            <span class="c1"># to the package-level NoDataValueError.</span>
-<a id="__codelineno-0-1526" name="__codelineno-0-1526"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">FloatingPointError</span><span class="p">):</span>
-<a id="__codelineno-0-1527" name="__codelineno-0-1527"></a>                <span class="k">raise</span> <span class="n">NoDataValueError</span><span class="p">(</span>
-<a id="__codelineno-0-1528" name="__codelineno-0-1528"></a>                    <span class="sa">f</span><span class="s2">&quot;The dtype of the given no_data_value: </span><span class="si">{</span><span class="n">new_band_value</span><span class="si">}</span><span class="s2"> differs from the dtype of the &quot;</span>
-<a id="__codelineno-0-1529" name="__codelineno-0-1529"></a>                    <span class="sa">f</span><span class="s2">&quot;band: </span><span class="si">{</span><span class="n">gdal_to_numpy_dtype</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">gdal_dtype</span><span class="p">[</span><span class="n">band</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-1530" name="__codelineno-0-1530"></a>                <span class="p">)</span>
-<a id="__codelineno-0-1531" name="__codelineno-0-1531"></a>            <span class="n">dst_band</span><span class="o">.</span><span class="n">WriteArray</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">)</span>
+<a id="__codelineno-0-1488" name="__codelineno-0-1488"></a>        <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
+<a id="__codelineno-0-1489" name="__codelineno-0-1489"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
+<a id="__codelineno-0-1490" name="__codelineno-0-1490"></a>            <span class="k">return</span> <span class="kc">None</span>
+<a id="__codelineno-0-1491" name="__codelineno-0-1491"></a>        <span class="k">return</span> <span class="n">new_dataset</span>
+<a id="__codelineno-0-1492" name="__codelineno-0-1492"></a>
+<a id="__codelineno-0-1493" name="__codelineno-0-1493"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_swap_no_data_tiled</span><span class="p">(</span>
+<a id="__codelineno-0-1494" name="__codelineno-0-1494"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-1495" name="__codelineno-0-1495"></a>        <span class="n">new_dataset</span><span class="p">:</span> <span class="n">Dataset</span><span class="p">,</span>
+<a id="__codelineno-0-1496" name="__codelineno-0-1496"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-1497" name="__codelineno-0-1497"></a>        <span class="n">band_old_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<a id="__codelineno-0-1498" name="__codelineno-0-1498"></a>        <span class="n">new_band_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<a id="__codelineno-0-1499" name="__codelineno-0-1499"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1500" name="__codelineno-0-1500"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace a band&#39;s old-no-data cells with the new value, one tile at a time.</span>
+<a id="__codelineno-0-1501" name="__codelineno-0-1501"></a>
+<a id="__codelineno-0-1502" name="__codelineno-0-1502"></a><span class="sd">        The caller&#39;s `_set_no_data_value` fills the destination band with the new</span>
+<a id="__codelineno-0-1503" name="__codelineno-0-1503"></a><span class="sd">        no-data value, so every tile is read from the *source*, has its old</span>
+<a id="__codelineno-0-1504" name="__codelineno-0-1504"></a><span class="sd">        no-data cells swapped to the new value, and is written back at its offset</span>
+<a id="__codelineno-0-1505" name="__codelineno-0-1505"></a><span class="sd">        -- reconstructing the band exactly as the previous whole-band read/swap/</span>
+<a id="__codelineno-0-1506" name="__codelineno-0-1506"></a><span class="sd">        write did, but never holding more than one tile as a NumPy array. The swap</span>
+<a id="__codelineno-0-1507" name="__codelineno-0-1507"></a><span class="sd">        is attempted on every tile so an invalid `new_band_value` dtype raises just</span>
+<a id="__codelineno-0-1508" name="__codelineno-0-1508"></a><span class="sd">        as the whole-band assignment did, even for a band with no matching cells.</span>
+<a id="__codelineno-0-1509" name="__codelineno-0-1509"></a>
+<a id="__codelineno-0-1510" name="__codelineno-0-1510"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-1511" name="__codelineno-0-1511"></a><span class="sd">            new_dataset: The destination Dataset written in place.</span>
+<a id="__codelineno-0-1512" name="__codelineno-0-1512"></a><span class="sd">            band: Zero-based index of the band to swap.</span>
+<a id="__codelineno-0-1513" name="__codelineno-0-1513"></a><span class="sd">            band_old_value: The old no-data value to locate (``None`` matches NaN).</span>
+<a id="__codelineno-0-1514" name="__codelineno-0-1514"></a><span class="sd">            new_band_value: The new no-data value written into the matched cells.</span>
+<a id="__codelineno-0-1515" name="__codelineno-0-1515"></a>
+<a id="__codelineno-0-1516" name="__codelineno-0-1516"></a><span class="sd">        Raises:</span>
+<a id="__codelineno-0-1517" name="__codelineno-0-1517"></a><span class="sd">            NoDataValueError: `new_band_value` cannot be stored in the band dtype.</span>
+<a id="__codelineno-0-1518" name="__codelineno-0-1518"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1519" name="__codelineno-0-1519"></a>        <span class="n">dst_band</span> <span class="o">=</span> <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-1520" name="__codelineno-0-1520"></a>        <span class="k">for</span> <span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">,</span> <span class="n">xsize</span><span class="p">,</span> <span class="n">ysize</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">_tile_offsets</span><span class="p">():</span>
+<a id="__codelineno-0-1521" name="__codelineno-0-1521"></a>            <span class="n">tile</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="p">[</span><span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">,</span> <span class="n">xsize</span><span class="p">,</span> <span class="n">ysize</span><span class="p">])</span>
+<a id="__codelineno-0-1522" name="__codelineno-0-1522"></a>            <span class="n">mask</span> <span class="o">=</span> <span class="n">is_no_data</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">band_old_value</span><span class="p">)</span>
+<a id="__codelineno-0-1523" name="__codelineno-0-1523"></a>            <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1524" name="__codelineno-0-1524"></a>                <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">errstate</span><span class="p">(</span><span class="n">invalid</span><span class="o">=</span><span class="s2">&quot;raise&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-1525" name="__codelineno-0-1525"></a>                    <span class="n">tile</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_band_value</span>
+<a id="__codelineno-0-1526" name="__codelineno-0-1526"></a>            <span class="c1"># A dtype mismatch surfaces differently across numpy paths: a None value</span>
+<a id="__codelineno-0-1527" name="__codelineno-0-1527"></a>            <span class="c1"># is not subscriptable (TypeError), a NaN cast into an integer band raises</span>
+<a id="__codelineno-0-1528" name="__codelineno-0-1528"></a>            <span class="c1"># ValueError (&quot;cannot convert float NaN to integer&quot;), and an invalid</span>
+<a id="__codelineno-0-1529" name="__codelineno-0-1529"></a>            <span class="c1"># floating-point cast trips errstate (FloatingPointError). Map all of them</span>
+<a id="__codelineno-0-1530" name="__codelineno-0-1530"></a>            <span class="c1"># to the package-level NoDataValueError.</span>
+<a id="__codelineno-0-1531" name="__codelineno-0-1531"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">FloatingPointError</span><span class="p">):</span>
+<a id="__codelineno-0-1532" name="__codelineno-0-1532"></a>                <span class="k">raise</span> <span class="n">NoDataValueError</span><span class="p">(</span>
+<a id="__codelineno-0-1533" name="__codelineno-0-1533"></a>                    <span class="sa">f</span><span class="s2">&quot;The dtype of the given no_data_value: </span><span class="si">{</span><span class="n">new_band_value</span><span class="si">}</span><span class="s2"> differs from the dtype of the &quot;</span>
+<a id="__codelineno-0-1534" name="__codelineno-0-1534"></a>                    <span class="sa">f</span><span class="s2">&quot;band: </span><span class="si">{</span><span class="n">gdal_to_numpy_dtype</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">gdal_dtype</span><span class="p">[</span><span class="n">band</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-1535" name="__codelineno-0-1535"></a>                <span class="p">)</span>
+<a id="__codelineno-0-1536" name="__codelineno-0-1536"></a>            <span class="n">dst_band</span><span class="o">.</span><span class="n">WriteArray</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -11478,7 +11488,12 @@ match <code>band_count</code>.</p>
 <span class="normal"><a href="#__codelineno-0-1483">1483</a></span>
 <span class="normal"><a href="#__codelineno-0-1484">1484</a></span>
 <span class="normal"><a href="#__codelineno-0-1485">1485</a></span>
-<span class="normal"><a href="#__codelineno-0-1486">1486</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1352" name="__codelineno-0-1352"></a><span class="k">def</span><span class="w"> </span><span class="nf">change_no_data_value</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-1486">1486</a></span>
+<span class="normal"><a href="#__codelineno-0-1487">1487</a></span>
+<span class="normal"><a href="#__codelineno-0-1488">1488</a></span>
+<span class="normal"><a href="#__codelineno-0-1489">1489</a></span>
+<span class="normal"><a href="#__codelineno-0-1490">1490</a></span>
+<span class="normal"><a href="#__codelineno-0-1491">1491</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1352" name="__codelineno-0-1352"></a><span class="k">def</span><span class="w"> </span><span class="nf">change_no_data_value</span><span class="p">(</span>
 <a id="__codelineno-0-1353" name="__codelineno-0-1353"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-1354" name="__codelineno-0-1354"></a>    <span class="n">new_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
 <a id="__codelineno-0-1355" name="__codelineno-0-1355"></a>    <span class="n">old_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -11598,21 +11613,26 @@ match <code>band_count</code>.</p>
 <a id="__codelineno-0-1469" name="__codelineno-0-1469"></a>        <span class="c1"># leave a half-written GeoTIFF behind on the disk path: release every</span>
 <a id="__codelineno-0-1470" name="__codelineno-0-1470"></a>        <span class="c1"># handle to the file (both the wrapper and the local `dst` reference,</span>
 <a id="__codelineno-0-1471" name="__codelineno-0-1471"></a>        <span class="c1"># or GDAL keeps the file locked on Windows) and delete the partial file</span>
-<a id="__codelineno-0-1472" name="__codelineno-0-1472"></a>        <span class="c1"># and its sidecar before re-raising.</span>
-<a id="__codelineno-0-1473" name="__codelineno-0-1473"></a>        <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1474" name="__codelineno-0-1474"></a>            <span class="n">new_dataset</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-<a id="__codelineno-0-1475" name="__codelineno-0-1475"></a>            <span class="n">dst</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-1476" name="__codelineno-0-1476"></a>            <span class="n">Path</span><span class="p">(</span><span class="n">target</span><span class="p">)</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">missing_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-1477" name="__codelineno-0-1477"></a>            <span class="n">Path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">target</span><span class="si">}</span><span class="s2">.aux.xml&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">missing_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-1478" name="__codelineno-0-1478"></a>        <span class="k">raise</span>
-<a id="__codelineno-0-1479" name="__codelineno-0-1479"></a>    <span class="c1"># Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on</span>
-<a id="__codelineno-0-1480" name="__codelineno-0-1480"></a>    <span class="c1"># disk before it is reopened (a no-op for the in-memory driver).</span>
-<a id="__codelineno-0-1481" name="__codelineno-0-1481"></a>    <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">FlushCache</span><span class="p">()</span>
-<a id="__codelineno-0-1482" name="__codelineno-0-1482"></a>
-<a id="__codelineno-0-1483" name="__codelineno-0-1483"></a>    <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
-<a id="__codelineno-0-1484" name="__codelineno-0-1484"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
-<a id="__codelineno-0-1485" name="__codelineno-0-1485"></a>        <span class="k">return</span> <span class="kc">None</span>
-<a id="__codelineno-0-1486" name="__codelineno-0-1486"></a>    <span class="k">return</span> <span class="n">new_dataset</span>
+<a id="__codelineno-0-1472" name="__codelineno-0-1472"></a>        <span class="c1"># and its sidecar before re-raising. The unlinks are best-effort: if a</span>
+<a id="__codelineno-0-1473" name="__codelineno-0-1473"></a>        <span class="c1"># GDAL/OS build still holds the file, swallow the OSError so the cleanup</span>
+<a id="__codelineno-0-1474" name="__codelineno-0-1474"></a>        <span class="c1"># never masks the original exception (the file just lingers).</span>
+<a id="__codelineno-0-1475" name="__codelineno-0-1475"></a>        <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1476" name="__codelineno-0-1476"></a>            <span class="n">new_dataset</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+<a id="__codelineno-0-1477" name="__codelineno-0-1477"></a>            <span class="n">dst</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-1478" name="__codelineno-0-1478"></a>            <span class="k">for</span> <span class="n">leftover</span> <span class="ow">in</span> <span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">target</span><span class="si">}</span><span class="s2">.aux.xml&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-1479" name="__codelineno-0-1479"></a>                <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1480" name="__codelineno-0-1480"></a>                    <span class="n">Path</span><span class="p">(</span><span class="n">leftover</span><span class="p">)</span><span class="o">.</span><span class="n">unlink</span><span class="p">()</span>
+<a id="__codelineno-0-1481" name="__codelineno-0-1481"></a>                <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+<a id="__codelineno-0-1482" name="__codelineno-0-1482"></a>                    <span class="k">pass</span>
+<a id="__codelineno-0-1483" name="__codelineno-0-1483"></a>        <span class="k">raise</span>
+<a id="__codelineno-0-1484" name="__codelineno-0-1484"></a>    <span class="c1"># Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on</span>
+<a id="__codelineno-0-1485" name="__codelineno-0-1485"></a>    <span class="c1"># disk before it is reopened (a no-op for the in-memory driver).</span>
+<a id="__codelineno-0-1486" name="__codelineno-0-1486"></a>    <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">FlushCache</span><span class="p">()</span>
+<a id="__codelineno-0-1487" name="__codelineno-0-1487"></a>
+<a id="__codelineno-0-1488" name="__codelineno-0-1488"></a>    <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
+<a id="__codelineno-0-1489" name="__codelineno-0-1489"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
+<a id="__codelineno-0-1490" name="__codelineno-0-1490"></a>        <span class="k">return</span> <span class="kc">None</span>
+<a id="__codelineno-0-1491" name="__codelineno-0-1491"></a>    <span class="k">return</span> <span class="n">new_dataset</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
