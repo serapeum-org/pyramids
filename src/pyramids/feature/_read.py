@@ -384,6 +384,19 @@ def _pyproj_resolving_through_gdal() -> Iterator[None]:
     original = pyproj.CRS.from_user_input
 
     def _healed(value, **kwargs):
+        """Resolve `value` as pyproj normally would, falling back to GDAL.
+
+        Args:
+            value: Whatever the caller passed to `CRS.from_user_input`.
+            **kwargs: Forwarded unchanged.
+
+        Returns:
+            pyproj.CRS: The resolved CRS.
+
+        Raises:
+            pyproj.exceptions.CRSError: Neither pyproj nor GDAL can read `value`;
+                pyproj's own error is re-raised so the type is unchanged.
+        """
         try:
             return original(value, **kwargs)
         except _PyprojCRSError:
