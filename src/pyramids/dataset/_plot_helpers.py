@@ -66,6 +66,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from pyproj.exceptions import CRSError
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import require_cleopatra
 from pyramids.base.crs import crs_from_user_input
 
@@ -449,12 +450,25 @@ def render_array(
     """
     require_cleopatra()
     from cleopatra.basemap.geo import Basemap
-    from cleopatra.glyphs.gridded.array_glyph import (
-        ArrayGlyph,
-        PanelLabels,
-        PointOverlay,
-        RgbBands,
-    )
+
+    # ``RgbBands`` landed in cleopatra 0.31 (serapeum-org/cleopatra#291), which this
+    # module now requires. ``require_cleopatra`` only checks presence, so an env with a
+    # stale cleopatra <0.31 (RgbBands absent) would otherwise raise a bare
+    # ``ImportError: cannot import name 'RgbBands'``. Translate it into the branded
+    # upgrade hint pyramids uses elsewhere for optional-extra version mismatches.
+    try:
+        from cleopatra.glyphs.gridded.array_glyph import (
+            ArrayGlyph,
+            PanelLabels,
+            PointOverlay,
+            RgbBands,
+        )
+    except ImportError as exc:
+        raise OptionalPackageDoesNotExist(
+            "pyramids requires cleopatra >= 0.31.0 for plotting, but the installed "
+            "cleopatra is too old (missing RgbBands). Upgrade with "
+            "`pip install -U 'pyramids-gis[viz]'`."
+        ) from exc
 
     # The loose styling kwargs are no longer translated here: they moved onto the typed
     # render groups (color=ColorScaling / contour=Contour / cells=CellValues /
