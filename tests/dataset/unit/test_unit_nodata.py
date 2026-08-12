@@ -824,7 +824,9 @@ class TestChangeNoDataValueStreaming:
             no_data_value=-9999.0,
         )
         out = tmp_path / "inplace.tif"
-        result = ds.change_no_data_value(-1.0, old_value=-9999.0, inplace=True, path=out)
+        result = ds.change_no_data_value(
+            -1.0, old_value=-9999.0, inplace=True, path=out
+        )
         assert result is ds, "inplace should return the source dataset"
         assert out.exists(), "inplace + path must still write the file"
         assert ds.no_data_value[0] == -1.0, "source must report the new no-data"
@@ -863,7 +865,7 @@ class TestChangeNoDataValueStreaming:
         with patch.object(ds, "read_array", mock_read):
             with pytest.raises(NoDataValueError):
                 ds.change_no_data_value(-1.0, old_value=-9999.0, path=out)
-        assert not out.exists(), "a failed disk-backed call must remove the partial file"
+        assert not out.exists(), "failed disk call must remove the partial file"
 
 
 class TestChangeNoDataAttrConversion:

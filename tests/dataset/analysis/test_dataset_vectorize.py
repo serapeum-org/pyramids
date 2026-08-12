@@ -455,10 +455,10 @@ class TestFootPrint:
         # The covered block spans x 60..160, y 50..150; decimation (~10-unit cells)
         # blurs the edges, so allow a tile-width tolerance but require the footprint
         # to track the block, not merely stay inside the raster.
-        assert minx == pytest.approx(60, abs=12), f"x-min must track the block, got {minx}"
-        assert maxx == pytest.approx(160, abs=12), f"x-max must track the block, got {maxx}"
-        assert miny == pytest.approx(50, abs=12), f"y-min must track the block, got {miny}"
-        assert maxy == pytest.approx(150, abs=12), f"y-max must track the block, got {maxy}"
+        assert minx == pytest.approx(60, abs=12), f"x-min off block: {minx}"
+        assert maxx == pytest.approx(160, abs=12), f"x-max off block: {maxx}"
+        assert miny == pytest.approx(50, abs=12), f"y-min off block: {miny}"
+        assert maxy == pytest.approx(150, abs=12), f"y-max off block: {maxy}"
         assert float(approx.geometry.area.sum()) == pytest.approx(10000, rel=0.3), (
             "Decimated footprint area should be roughly the block area"
         )
@@ -476,7 +476,11 @@ class TestFootPrint:
         """
         arr = np.ones((8, 8), dtype="float32")
         ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=3857, no_data_value=-9.0
+            arr,
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+            epsg=3857,
+            no_data_value=-9.0,
         )
         with pytest.raises(ValueError, match="max_samples must be a positive integer"):
             ds.footprint(max_samples=bad)
