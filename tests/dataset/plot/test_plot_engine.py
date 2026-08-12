@@ -5,6 +5,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset.engines import Analysis
@@ -406,6 +407,23 @@ class TestRenderArrayKwargRouting:
                 animation_axis_values=[0, 1, 2],
             )
             assert ctor["rgb_bands"] is None, f"animate ctor={ctor}"
+
+    def test_too_old_cleopatra_raises_branded_upgrade_error(self, monkeypatch):
+        """A cleopatra without RgbBands surfaces the branded [viz]-upgrade error.
+
+        Test scenario:
+            ``render_array`` requires cleopatra >= 0.31 for ``RgbBands``. Deleting the
+            symbol from the cleopatra module makes the in-function import raise
+            ``ImportError``; ``render_array`` must translate it into
+            ``OptionalPackageDoesNotExist`` naming the version and the ``[viz]`` upgrade
+            rather than leaking the raw "cannot import name 'RgbBands'".
+        """
+        import cleopatra.glyphs.gridded.array_glyph as cleo_mod
+
+        monkeypatch.delattr(cleo_mod, "RgbBands", raising=False)
+        arr = np.random.default_rng(204).random((4, 4)).astype("float32")
+        with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.31"):
+            render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot")
 
     @pytest.mark.plot
     def test_kind_contourf_reaches_plot_not_clobbered(self):
