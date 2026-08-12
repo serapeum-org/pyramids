@@ -47,14 +47,21 @@ def _source_bounds(
     Raises:
         RuntimeError: The path could not be opened.
     """
-    opened = not isinstance(path, gdal.Dataset)
-    ds = gdal.Open(str(path)) if opened else path
+    if isinstance(path, gdal.Dataset):
+        ds, opened = path, False
+    else:
+        ds, opened = gdal.Open(str(path)), True
     if ds is None:
         raise RuntimeError(f"gdal.Open returned None for merge source {path!r}.")
     gt = ds.GetGeoTransform()
     x_far = gt[0] + gt[1] * ds.RasterXSize
     y_far = gt[3] + gt[5] * ds.RasterYSize
-    bounds = (min(gt[0], x_far), min(gt[3], y_far), max(gt[0], x_far), max(gt[3], y_far))
+    bounds = (
+        min(gt[0], x_far),
+        min(gt[3], y_far),
+        max(gt[0], x_far),
+        max(gt[3], y_far),
+    )
     if opened:
         # Close the handle we opened; a caller-supplied gdal.Dataset is theirs to own.
         ds = None
