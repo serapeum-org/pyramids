@@ -841,5 +841,6 @@ class TestReadFileHealingCrs:
         """
         from pyproj.exceptions import CRSError as PyprojCRSError
 
+        empty = gpd.GeoDataFrame(geometry=[])
         with pytest.raises(PyprojCRSError):
-            FeatureCollection(gpd.GeoDataFrame(geometry=[]), crs="not-a-crs")
+            FeatureCollection(empty, crs="not-a-crs")

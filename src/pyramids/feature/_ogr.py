@@ -270,6 +270,42 @@ of the document's size — the whole point of not parsing it.
 """
 
 
+def _end_of_json_object(head: bytes, start: int) -> int:
+    """Index just past the ``}`` closing the JSON object beginning at `start`.
+
+    Split out of :func:`_strip_geojson_crs` to keep each piece to one job: this one
+    only has to find a matching brace, and does so while skipping quoted strings so a
+    brace inside a CRS name cannot unbalance the count.
+
+    Args:
+        head: The buffer being scanned.
+        start: Index of the opening ``{``.
+
+    Returns:
+        int: The index just past the matching ``}``, or ``-1`` when the object does
+        not close within `head`.
+    """
+    depth, in_string, escaped = 0, False, False
+    for index in range(start, len(head)):
+        char = head[index : index + 1]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == b"\\":
+                escaped = True
+            elif char == b'"':
+                in_string = False
+        elif char == b'"':
+            in_string = True
+        elif char == b"{":
+            depth += 1
+        elif char == b"}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return -1
+
+
 def _strip_geojson_crs(data: bytes) -> bytes | None:
     """Drop the top-level ``crs`` member from GDAL's GeoJSON without parsing it.
 
@@ -312,26 +348,7 @@ def _strip_geojson_crs(data: bytes) -> bytes | None:
     if head[start_of_value : start_of_value + 1] != b"{":
         return None
 
-    depth, in_string, escaped, end = 0, False, False, -1
-    for index in range(start_of_value, len(head)):
-        char = head[index : index + 1]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == b"\\":
-                escaped = True
-            elif char == b'"':
-                in_string = False
-            continue
-        if char == b'"':
-            in_string = True
-        elif char == b"{":
-            depth += 1
-        elif char == b"}":
-            depth -= 1
-            if depth == 0:
-                end = index + 1
-                break
+    end = _end_of_json_object(head, start_of_value)
     if end == -1:
         return None
 
