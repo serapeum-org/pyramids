@@ -26,6 +26,7 @@ from pyramids.dataset.merge import (
     _cloud_config,
     _merge_reduce,
     _prepare_sources,
+    _source_bounds,
     merge_rasters,
     stack_bands,
 )
@@ -604,6 +605,44 @@ class TestMergeRastersDstCrs:
         monkeypatch.setattr(merge_mod.gdal, "Open", lambda *a, **k: None)
         with pytest.raises(RuntimeError, match="gdal.Open returned None"):
             merge_rasters([pa, pb], tmp_path / "x.tif")
+
+
+class TestSourceBounds:
+    """Tests for the ``_source_bounds`` extent helper used by the strip reduction."""
+
+    def test_from_path(self, tmp_path):
+        """A path resolves to its ``(west, south, east, north)`` extent.
+
+        Test scenario:
+            A 4x4 raster at top-left ``(0, 4)`` with unit cells spans x/y ``[0, 4]``.
+        """
+        path = write_raster(
+            tmp_path / "s.tif", np.ones((4, 4), dtype="float32"), (0, 4)
+        )
+        assert _source_bounds(str(path)) == (0.0, 0.0, 4.0, 4.0), "wrong path bounds"
+
+    def test_from_open_dataset(self, tmp_path):
+        """An already-open ``gdal.Dataset`` is used directly, not reopened.
+
+        Test scenario:
+            Passing an open handle returns the same extent as passing its path.
+        """
+        path = write_raster(
+            tmp_path / "s.tif", np.ones((4, 4), dtype="float32"), (0, 4)
+        )
+        assert _source_bounds(gdal.Open(str(path))) == (0.0, 0.0, 4.0, 4.0), (
+            "wrong open-dataset bounds"
+        )
+
+    def test_unopenable_source_raises(self):
+        """A source that cannot be opened raises a clear ``RuntimeError``.
+
+        Test scenario:
+            A non-existent path cannot be opened, so the extent lookup fails loudly
+            rather than returning a bogus extent.
+        """
+        with pytest.raises(RuntimeError):
+            _source_bounds("/no/such/raster/does-not-exist.tif")
 
 
 class TestPrepareSources:

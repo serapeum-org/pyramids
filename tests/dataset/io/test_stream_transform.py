@@ -90,6 +90,19 @@ class TestStreamTransform:
         assert out.read_array().dtype == np.float32, "output dtype not overridden"
         assert np.allclose(out.read_array(), ds.read_array() / 2), "values wrong"
 
+    def test_no_data_value_override(self):
+        """``no_data_value=`` stamps an explicit sentinel on the output.
+
+        Test scenario:
+            Passing `no_data_value` forwards it to `empty_like`, so the output bands
+            carry that sentinel instead of inheriting the source's.
+        """
+        ds = _raster()
+        out = ds.io.stream_transform(lambda tile: tile, no_data_value=42, tile_size=3)
+        assert out.no_data_value[0] == 42, (
+            f"no_data_value not overridden: {out.no_data_value}"
+        )
+
     def test_source_is_untouched(self):
         """The source raster is not modified by the transform.
 
