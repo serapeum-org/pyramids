@@ -9,6 +9,7 @@ import pytest
 from hpc.indexing import get_pixels2
 
 from pyramids.dataset import Dataset
+from pyramids.dataset.engines.io import IO
 
 pytestmark = pytest.mark.core
 
@@ -309,8 +310,6 @@ class TestStreamedConsumers:
     @pytest.fixture
     def tiny_strips(self, monkeypatch):
         """Force `IO.stream_reduce` to 2-row strips so a small raster spans several."""
-        from pyramids.dataset.engines.io import IO
-
         original = IO.stream_reduce
 
         def small(self, fold, initial, *, band=None, strip_rows=256):

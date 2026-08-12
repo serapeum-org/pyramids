@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+import pyramids.dataset.merge as merge_mod
 from pyramids.base.remote import CloudConfig
 from pyramids.dataset import Dataset
 from pyramids.dataset.merge import (
@@ -125,8 +126,6 @@ class TestMergeMethod:
             it does not cover — must produce a byte-identical raster to the default
             single-pass merge.
         """
-        import pyramids.dataset.merge as merge_mod
-
         top = write_raster(
             tmp_path / "top.tif", np.full((4, 4), 10.0, dtype="float32"), (0, 6)
         )
@@ -143,6 +142,43 @@ class TestMergeMethod:
             Dataset.read_file(str(stripped)).read_array(),
         ), f"{method}: 1-row-strip result differs from the single-pass merge"
 
+    @pytest.mark.parametrize("method", ["min", "max", "sum"])
+    def test_multiband_reduction_byte_identical_across_strip_sizes(
+        self, tmp_path, monkeypatch, method
+    ):
+        """A multi-band striped reduction matches the single-pass merge on every band.
+
+        Test scenario:
+            Two vertically-offset 2-band sources; merging with a 1-row strip must equal
+            the single-pass merge across both bands, exercising the per-band strip write
+            (`reduced[band_index]` at the strip's row offset).
+        """
+        top = write_raster(
+            tmp_path / "top.tif",
+            np.stack(
+                [np.full((4, 4), 10.0, "float32"), np.full((4, 4), 11.0, "float32")]
+            ),
+            (0, 6),
+        )
+        bottom = write_raster(
+            tmp_path / "bottom.tif",
+            np.stack(
+                [np.full((4, 4), 20.0, "float32"), np.full((4, 4), 21.0, "float32")]
+            ),
+            (0, 4),
+        )
+        single = tmp_path / f"single_{method}.tif"
+        merge_rasters([top, bottom], single, no_data_value=-9999.0, method=method)
+        monkeypatch.setattr(merge_mod, "_MERGE_STRIP_ROWS", 1)
+        stripped = tmp_path / f"stripped_{method}.tif"
+        merge_rasters([top, bottom], stripped, no_data_value=-9999.0, method=method)
+        single_arr = Dataset.read_file(str(single)).read_array()
+        stripped_arr = Dataset.read_file(str(stripped)).read_array()
+        assert single_arr.shape[0] == 2, f"expected 2 bands, got {single_arr.shape}"
+        assert np.array_equal(single_arr, stripped_arr), (
+            f"{method}: multi-band striped merge diverged from the single-pass merge"
+        )
+
     def test_reduction_peak_memory_is_bounded_by_the_strip(self, tmp_path, monkeypatch):
         """The min/max/sum merge peaks near one strip, far below the full union cube.
 
@@ -151,8 +187,6 @@ class TestMergeMethod:
             Python peak must be a fraction of the dense float64 union, proving the whole
             output is never accumulated at once.
         """
-        import pyramids.dataset.merge as merge_mod
-
         rows, cols = 4000, 250
         pa = write_raster(
             tmp_path / "a.tif", np.ones((rows, cols), dtype="float32"), (0, rows)
