@@ -16,6 +16,7 @@ from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_indices2, locate_values
 from pandas import DataFrame
 
+from pyramids.base.crs import crs_from_user_input
 from pyramids.dataset.engines._base import _Engine
 from pyramids.feature import FeatureCollection, create_points, create_polygon
 
@@ -233,7 +234,10 @@ class Cell(_Engine["Dataset"]):
         rings = np.stack((x, y), axis=-1)
         polygons = [create_polygon(ring) for ring in rings.tolist()]
         gdf = gpd.GeoDataFrame(geometry=polygons)
-        gdf.set_crs(epsg=epsg, inplace=True)
+        # Through `crs_from_user_input`, not `epsg=`: geopandas resolves a bare code
+        # with pyproj, which cannot look up a code only GDAL's PROJ database carries
+        # (issue #943). A resolved CRS object needs no lookup.
+        gdf.set_crs(crs_from_user_input(epsg), inplace=True)
         gdf["id"] = gdf.index
         return gdf
 
@@ -317,7 +321,10 @@ class Cell(_Engine["Dataset"]):
         coords_tuples = list(zip(coords[:, 0], coords[:, 1]))
         points = create_points(coords_tuples)
         gdf = gpd.GeoDataFrame(geometry=points)
-        gdf.set_crs(epsg=epsg, inplace=True)
+        # Through `crs_from_user_input`, not `epsg=`: geopandas resolves a bare code
+        # with pyproj, which cannot look up a code only GDAL's PROJ database carries
+        # (issue #943). A resolved CRS object needs no lookup.
+        gdf.set_crs(crs_from_user_input(epsg), inplace=True)
         gdf["id"] = gdf.index
         return gdf
 

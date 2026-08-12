@@ -944,3 +944,210 @@ class TestDatasetCollectionCropBbox:
         """
         with pytest.raises(TypeError, match=r"mask.*bbox|bbox.*mask"):
             collection.crop()
+
+
+class TestCrossCrsBboxCrop:
+    """A bbox given in a CRS other than the raster's must still crop the raster."""
+
+    @staticmethod
+    def _utm_raster(tmp_path, no_data_value):
+        """Write a 64x64 EPSG:32636 raster, optionally declaring a no-data value."""
+        from osgeo import gdal, osr
+
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(32636)
+        path = os.path.join(tmp_path, f"utm_{no_data_value}.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 1, gdal.GDT_Float32)
+        raster.SetProjection(srs.ExportToWkt())
+        raster.SetGeoTransform([400000.0, 1000.0, 0.0, 3300000.0, 0.0, -1000.0])
+        raster.GetRasterBand(1).WriteArray(np.ones((64, 64), dtype="float32"))
+        if no_data_value is not None:
+            raster.GetRasterBand(1).SetNoDataValue(no_data_value)
+        raster.FlushCache()
+        raster = None
+        return path
+
+    @staticmethod
+    def _lonlat_bbox_inset(dataset):
+        """A lon/lat bbox covering the middle half of `dataset`'s own extent."""
+        from pyramids.base.crs import reproject_coordinates
+
+        min_x, min_y, max_x, max_y = dataset.bounds.total_bounds
+        (west, east), (south, north) = reproject_coordinates(
+            [min_x, max_x], [min_y, max_y], from_crs=32636, to_crs=4326, precision=None
+        )
+        inset_x, inset_y = (east - west) / 4, (north - south) / 4
+        return [west + inset_x, south + inset_y, east - inset_x, north - inset_y]
+
+    @pytest.mark.parametrize("no_data_value", [-9999.0, None], ids=["nodata", "none"])
+    def test_crops_regardless_of_no_data(self, tmp_path, no_data_value):
+        """A cross-CRS bbox crops whether or not the band declares a no-data value.
+
+        Test scenario:
+            With `touch=True` the cutline window optimisation is skipped for a
+            differing CRS, and the crop used to fall back on trimming an all-no-data
+            border. A raster with no no-data value has no border to trim, so the call
+            returned the source *uncropped* and silently — while the identical call on
+            a raster that declared no-data cropped correctly.
+        """
+        path = self._utm_raster(str(tmp_path), no_data_value)
+        dataset = Dataset.read_file(path)
+        bbox = self._lonlat_bbox_inset(dataset)
+
+        cropped = Dataset.read_file(path).crop(bbox=bbox, epsg=4326, touch=True)
+
+        # A bbox over the middle half should land near half the source on each axis.
+        # Asserting only `< 64` would still pass at 63x63 — it would not notice the
+        # crop degenerating back towards the whole raster, which is the bug itself.
+        _, rows, cols = cropped.shape
+        expected = "roughly 32x32 (allowing the touch margin and reprojection slack)"
+        assert 28 <= rows <= 40, f"rows should be {expected}, got {rows}"
+        assert 28 <= cols <= 40, f"cols should be {expected}, got {cols}"
+
+    def test_matches_the_same_crs_crop(self, tmp_path):
+        """The same window expressed in the raster's own CRS gives the same crop.
+
+        Test scenario:
+            Reprojecting the bbox is the caller's alternative to passing `epsg=`; both
+            routes must agree to within the extra cell `touch=True` may include.
+        """
+        path = self._utm_raster(str(tmp_path), None)
+        dataset = Dataset.read_file(path)
+        min_x, min_y, max_x, max_y = dataset.bounds.total_bounds
+        inset_x, inset_y = (max_x - min_x) / 4, (max_y - min_y) / 4
+
+        via_lonlat = Dataset.read_file(path).crop(
+            bbox=self._lonlat_bbox_inset(dataset), epsg=4326, touch=True
+        )
+        via_native = Dataset.read_file(path).crop(
+            bbox=[min_x + inset_x, min_y + inset_y, max_x - inset_x, max_y - inset_y],
+            epsg=32636,
+            touch=True,
+        )
+
+        _, native_rows, native_cols = via_native.shape
+        _, lonlat_rows, lonlat_cols = via_lonlat.shape
+        # Assert the *relationship*, not an absolute cell count. The lon/lat window
+        # is a reprojected quadrilateral, so its axis-aligned envelope is never
+        # smaller than the native rectangle and never much larger. A fixed "within 2
+        # cells" tolerance happens to be met exactly on this PROJ build, so it would
+        # start failing on a PROJ bump for no real reason.
+        assert native_rows <= lonlat_rows <= native_rows * 1.25, (
+            f"lon/lat crop should bracket the native one, got {lonlat_rows} rows "
+            f"against {native_rows}"
+        )
+        assert native_cols <= lonlat_cols <= native_cols * 1.25, (
+            f"lon/lat crop should bracket the native one, got {lonlat_cols} cols "
+            f"against {native_cols}"
+        )
+
+
+class TestCropCrsWithoutEpsgCode:
+    """`crop` must work for a CRS the EPSG register does not name (issue #964)."""
+
+    @staticmethod
+    def _raster(tmp_path, name, crs_text):
+        """Write a 64x64 raster centred on the origin of `crs_text`."""
+        from osgeo import gdal, osr
+
+        srs = osr.SpatialReference()
+        srs.SetFromUserInput(crs_text)
+        path = os.path.join(tmp_path, f"{name}.tif")
+        raster = gdal.GetDriverByName("GTiff").Create(path, 64, 64, 1, gdal.GDT_Float32)
+        raster.SetProjection(srs.ExportToWkt())
+        raster.SetGeoTransform([-32000.0, 1000.0, 0.0, 32000.0, 0.0, -1000.0])
+        raster.GetRasterBand(1).WriteArray(np.ones((64, 64), dtype="float32"))
+        raster.GetRasterBand(1).SetNoDataValue(-9999.0)
+        raster.FlushCache()
+        raster = None
+        return path
+
+    @pytest.mark.parametrize(
+        ("name", "crs_text"),
+        [
+            ("ortho", "+proj=ortho +lat_0=39 +lon_0=-9 +datum=WGS84 +units=m +no_defs"),
+            ("robinson", "ESRI:54030"),
+        ],
+    )
+    def test_crops_a_raster_whose_crs_has_no_epsg_code(self, tmp_path, name, crs_text):
+        """A raster in an EPSG-less CRS crops in its own CRS.
+
+        Test scenario:
+            The cutline is staged as GeoJSON, which can name a CRS only as an OGC
+            URN. A CRS with no authority code was therefore written with no CRS at
+            all, GDAL assumed the GeoJSON default of CRS84, and transforming metre
+            coordinates as lon/lat failed with "Invalid latitude".
+        """
+        from osgeo import osr
+
+        path = self._raster(str(tmp_path), name, crs_text)
+        dataset = Dataset.read_file(path)
+        # The precondition is "no EPSG authority". Checking the authority name rather
+        # than `Dataset.epsg` keeps the test honest regardless of how `epsg` chooses
+        # to report a non-EPSG authority.
+        authority = osr.SpatialReference(wkt=dataset.crs).GetAuthorityName(None)
+        assert authority != "EPSG", (
+            f"precondition: this CRS must carry no EPSG authority, got {authority}"
+        )
+
+        cropped = dataset.crop(
+            bbox=[-16000.0, -16000.0, 16000.0, 16000.0], epsg=dataset.crs, touch=True
+        )
+
+        _, rows, cols = cropped.shape
+        expected = "roughly 32x32 for a half-width bbox on a 64x64 raster"
+        assert 28 <= rows <= 40, f"rows should be {expected}, got {rows}"
+        assert 28 <= cols <= 40, f"cols should be {expected}, got {cols}"
+
+
+class TestCutlineSegmentLength:
+    """Tests for the cutline densification step (`_cutline_segment_length`)."""
+
+    def test_returns_none_for_a_degenerate_envelope(self):
+        """A zero-extent cutline yields None so the caller skips densification.
+
+        Test scenario:
+            A single point has no span to divide, and dividing by it would be a
+            zero or non-finite step.
+        """
+        from shapely.geometry import Point
+
+        from pyramids.dataset.engines.spatial import Spatial
+        from pyramids.feature import FeatureCollection
+
+        cutline = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[Point(0.0, 0.0)], crs="EPSG:4326")
+        )
+        assert Spatial._cutline_segment_length(None, cutline) is None
+
+    def test_returns_none_when_the_scale_cannot_be_measured(self, dataset):
+        """An unmeasurable scale falls back to an undensified reprojection.
+
+        Test scenario:
+            Passing a source with no usable geotransform exercises the give-up
+            branch, which must answer None rather than propagate.
+        """
+        from pyramids.dataset.engines.spatial import Spatial
+        from pyramids.feature import FeatureCollection
+
+        cutline = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[box(0.0, 0.0, 1.0, 1.0)], crs="EPSG:4326")
+        )
+        assert Spatial._cutline_segment_length(object(), cutline) is None
+
+    def test_scales_with_the_source_pixel(self, dataset):
+        """The step tracks the raster's cell size, not a fixed slice of the envelope.
+
+        Test scenario:
+            A fixed `span/64` was scale-free: the same step for a 1 km grid and a
+            30 m one. The measured step must be positive and no larger than the
+            envelope it densifies.
+        """
+        from pyramids.dataset.engines.spatial import Spatial
+        from pyramids.feature import FeatureCollection
+
+        cutline = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[box(0.1, -0.2, 0.4, -0.05)], crs="EPSG:3857")
+        )
+        step = Spatial._cutline_segment_length(dataset, cutline)
+        assert step is None or step > 0, f"a measured step must be positive, got {step}"

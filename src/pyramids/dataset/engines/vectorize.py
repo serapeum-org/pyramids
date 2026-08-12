@@ -476,7 +476,11 @@ class Vectorize(_Engine["Dataset"]):
             coords = src.get_cell_polygons(domain_only=True)
 
         gdf = gpd.GeoDataFrame(df.loc[:], geometry=coords["geometry"].to_list())
-        gdf = gdf.set_crs(coords.crs.to_epsg())
+        # Carry the CRS object across rather than reducing it to an EPSG int:
+        # `to_epsg()` is None for a CRS the register does not name, and a code
+        # only GDAL's PROJ database carries fails when geopandas looks it back up
+        # through pyproj (issue #943). The object needs no lookup at all.
+        gdf = gdf.set_crs(coords.crs)
         return gdf
 
     def translate(self, path: str | Path | None = None, **kwargs) -> Dataset:

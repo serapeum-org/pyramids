@@ -64,10 +64,10 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from pyproj import CRS
 from pyproj.exceptions import CRSError
 
 from pyramids.base._utils import require_cleopatra
+from pyramids.base.crs import crs_from_user_input
 
 # `add_basemap` is imported at top-level so existing test patches that
 # target `pyramids.basemap.basemap.add_basemap` keep working. The
@@ -102,8 +102,10 @@ def _is_degree_geographic(epsg: int) -> bool:
         True when `epsg` is a geographic CRS whose angular unit is degrees.
     """
     try:
-        crs = CRS.from_user_input(epsg)
-    except CRSError:
+        # `crs_from_user_input` heals codes GDAL's PROJ database knows but pyproj's
+        # does not (issue #943); it raises pyramids' CRSError, a ValueError.
+        crs = crs_from_user_input(epsg)
+    except (CRSError, ValueError):
         return False
     return (
         crs.is_geographic

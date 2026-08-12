@@ -21,6 +21,7 @@ style OGR DataSource for ``datasource_to_gdf``.
 
 from __future__ import annotations
 
+import json
 import re
 
 import geopandas as gpd
@@ -33,6 +34,7 @@ from shapely.geometry import Point, Polygon
 from pyramids.feature import FeatureCollection
 from pyramids.feature._ogr import (
     _new_vsimem_path,
+    _strip_geojson_crs,
     as_datasource,
     as_vsimem_path,
     datasource_to_gdf,
@@ -635,3 +637,210 @@ class TestDatasourceToGdf:
         with as_datasource(empty) as ds:
             back = datasource_to_gdf(ds)
         assert len(back) == 0
+
+
+class TestStripGeojsonCrs:
+    """Tests for the byte-level `crs` removal used when a CRS has no URN form."""
+
+    def test_removes_the_member_and_leaves_valid_json(self):
+        """The `crs` member is dropped and the rest of the document survives.
+
+        Test scenario:
+            GDAL's own layout — `type`, `name`, `crs`, `features`.
+        """
+        doc = (
+            b'{"type":"FeatureCollection","name":"x",'
+            b'"crs":{"type":"name","properties":{"name":"urn:ogc:def:crs:EPSG::10857"}},'
+            b'"features":[]}'
+        )
+        parsed = json.loads(_strip_geojson_crs(doc))
+        assert "crs" not in parsed, "the crs member should be gone"
+        assert list(parsed) == ["type", "name", "features"], (
+            f"the other members should survive in order, got {list(parsed)}"
+        )
+
+    def test_handles_the_member_last_and_braces_inside_strings(self):
+        """A trailing `crs`, and braces inside its name, do not break the scan.
+
+        Test scenario:
+            The preceding comma must be absorbed instead of the following one, and a
+            brace inside a quoted string must not unbalance the depth count.
+        """
+        doc = (
+            b'{"type":"FeatureCollection","features":[],'
+            b'"crs":{"properties":{"name":"a{b}c"}}}'
+        )
+        parsed = json.loads(_strip_geojson_crs(doc))
+        assert "crs" not in parsed, "the crs member should be gone"
+        assert list(parsed) == ["type", "features"], (
+            f"unexpected members: {list(parsed)}"
+        )
+
+    def test_returns_none_when_there_is_no_crs_member(self):
+        """A document with no `crs` yields None so the caller can fall back.
+
+        Test scenario:
+            Returning the document unchanged would hide the difference between
+            "nothing to remove" and "removed".
+        """
+        assert _strip_geojson_crs(b'{"type":"FeatureCollection","features":[]}') is None
+
+    def test_returns_none_for_an_unexpected_layout(self):
+        """A non-object `crs` value is not guessed at.
+
+        Test scenario:
+            The helper refuses anything it does not recognise rather than corrupting
+            the document; the caller then does a full parse.
+        """
+        assert _strip_geojson_crs(b'{"crs":"EPSG:4326","features":[]}') is None
+
+    def test_does_not_scan_past_the_header_bound(self):
+        """A `crs` member beyond the header window is not removed.
+
+        Test scenario:
+            The scan is bounded so its cost cannot grow with the document; a member
+            past that bound must return None rather than be missed silently.
+        """
+        filler = b'"pad":"' + b"x" * 5000 + b'",'
+        doc = b"{" + filler + b'"crs":{"properties":{}},"features":[]}'
+        assert _strip_geojson_crs(doc) is None
+
+
+class TestReadFileHealingCrs:
+    """`FeatureCollection.read_file` on a vector whose CRS pyproj cannot look up."""
+
+    @staticmethod
+    def _skew_code():
+        """An EPSG code GDAL resolves but pyproj cannot, or skip."""
+        from pyproj import CRS
+        from pyproj.exceptions import CRSError as PyprojCRSError
+
+        for code in (10857, 10634, 10688, 10723, 11043):
+            srs = osr.SpatialReference()
+            try:
+                srs.ImportFromEPSG(code)
+            except RuntimeError:
+                continue
+            try:
+                CRS.from_epsg(code)
+            except PyprojCRSError:
+                return code
+        pytest.skip("installed GDAL and pyproj agree; no PROJ-database skew to test")
+
+    @pytest.fixture
+    def skew_gpkg(self, tmp_path):
+        """A two-layer GeoPackage in a CRS only GDAL's PROJ database carries."""
+        import pandas as pd
+
+        code = self._skew_code()
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(code)
+        origin_x = srs.GetProjParm("false_easting") or 0.0
+        origin_y = srs.GetProjParm("false_northing") or 0.0
+        step = 1000.0 if srs.IsProjected() else 0.01
+        squares = [
+            Polygon(
+                [
+                    (origin_x + i * step, origin_y),
+                    (origin_x + (i + 1) * step, origin_y),
+                    (origin_x + (i + 1) * step, origin_y + step),
+                    (origin_x + i * step, origin_y + step),
+                ]
+            )
+            for i in range(6)
+        ]
+        gdf = gpd.GeoDataFrame(
+            {
+                "idx": list(range(6)),
+                "when": pd.to_datetime(["2024-01-01T00:00:00+02:00"] * 6),
+            },
+            geometry=squares,
+            crs=srs.ExportToWkt(),
+        )
+        path = str(tmp_path / "skew.gpkg")
+        gdf.to_file(path, driver="GPKG", layer="alpha")
+        gdf.iloc[:2].to_file(path, driver="GPKG", layer="beta", mode="a")
+        return path, code
+
+    def test_reads_and_keeps_the_crs(self, skew_gpkg):
+        """The file opens and the features carry the source CRS.
+
+        Test scenario:
+            Without the healing path the read raises before returning any geometry.
+        """
+        path, code = skew_gpkg
+        fc = FeatureCollection.read_file(path, layer="alpha")
+        assert len(fc) == 6, f"expected 6 features, got {len(fc)}"
+        assert fc.crs is not None, "the healed read should carry a CRS"
+
+    def test_honours_the_layer_argument(self, skew_gpkg):
+        """`layer=` selects the layer, not silently layer 0.
+
+        Test scenario:
+            The first healing implementation dropped `layer=`, returning layer 0's
+            features *and* layer 0's CRS from a two-layer file — silently.
+        """
+        path, _ = skew_gpkg
+        assert len(FeatureCollection.read_file(path, layer="beta")) == 2
+        assert len(FeatureCollection.read_file(path, layer="alpha")) == 6
+
+    def test_honours_the_rows_argument(self, skew_gpkg):
+        """`rows=` limits the read.
+
+        Test scenario:
+            Also dropped by the first implementation, returning every feature.
+        """
+        path, _ = skew_gpkg
+        fc = FeatureCollection.read_file(path, layer="alpha", rows=3)
+        assert len(fc) == 3, f"expected 3 rows, got {len(fc)}"
+
+    def test_preserves_datetime_offsets(self, skew_gpkg):
+        """A tz-aware column keeps its offset.
+
+        Test scenario:
+            Rebuilding the frame by hand returned naive timestamps with the offset
+            discarded, shifting every value.
+        """
+        path, _ = skew_gpkg
+        dtype = str(FeatureCollection.read_file(path, layer="alpha")["when"].dtype)
+        assert "UTC+02:00" in dtype, f"timezone lost from the healed read: {dtype}"
+
+    def test_accepts_a_geodataframe_mask(self, skew_gpkg):
+        """The `GeoDataFrame` form of `mask=` filters instead of raising.
+
+        Test scenario:
+            geopandas accepts it; the hand-built fallback forwarded it unnormalised
+            to a reader that does not.
+        """
+        path, _ = skew_gpkg
+        full = FeatureCollection.read_file(path, layer="alpha")
+        mask = gpd.GeoDataFrame(geometry=full.geometry.iloc[:2].tolist(), crs=full.crs)
+        assert 0 < len(FeatureCollection.read_file(path, layer="alpha", mask=mask)) <= 6
+
+    def test_ordinary_crs_is_untouched(self, skew_gpkg, tmp_path):
+        """A file in a CRS pyproj knows never enters the healing path.
+
+        Test scenario:
+            The patch is entered only after an unpatched read has failed, so an
+            EPSG:4326 file must behave exactly as before.
+        """
+        path, _ = skew_gpkg
+        plain = str(tmp_path / "plain.gpkg")
+        FeatureCollection.read_file(path, layer="alpha").to_crs(4326).to_file(
+            plain, driver="GPKG"
+        )
+        fc = FeatureCollection.read_file(plain)
+        assert fc.crs.to_epsg() == 4326, f"expected EPSG:4326, got {fc.crs}"
+
+    def test_a_genuinely_bad_crs_still_raises_pyprojs_error(self):
+        """A `crs=` neither library can read keeps pyproj's own exception type.
+
+        Test scenario:
+            The healing must widen the lookup, not retype the failure — callers
+            catching `pyproj.exceptions.CRSError` around a construction still work.
+        """
+        from pyproj.exceptions import CRSError as PyprojCRSError
+
+        empty = gpd.GeoDataFrame(geometry=[])
+        with pytest.raises(PyprojCRSError):
+            FeatureCollection(empty, crs="not-a-crs")

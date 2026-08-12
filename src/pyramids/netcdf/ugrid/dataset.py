@@ -24,7 +24,7 @@ from osgeo import gdal
 from pyproj import CRS, Transformer
 from shapely.geometry import LineString, box
 
-from pyramids.base.crs import sr_from_epsg
+from pyramids.base.crs import crs_from_user_input, sr_from_epsg
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import mesh_render as _mesh_render
 from pyramids.dataset._plot_helpers import nonnull_group_kwargs as _nonnull_group_kwargs
@@ -481,9 +481,11 @@ class UgridDataset:
                 "Set CRS before calling to_crs()."
             )
 
+        # Through `crs_from_user_input` so a mesh in a CRS whose code only GDAL's
+        # PROJ database carries still reprojects (issue #943).
         transformer = Transformer.from_crs(
-            f"EPSG:{source_epsg}",
-            f"EPSG:{to_epsg}",
+            crs_from_user_input(f"EPSG:{source_epsg}"),
+            crs_from_user_input(f"EPSG:{to_epsg}"),
             always_xy=True,
         )
         new_node_x, new_node_y = transformer.transform(

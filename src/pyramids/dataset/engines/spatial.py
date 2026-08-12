@@ -15,11 +15,13 @@ from xml.sax.saxutils import escape  # nosec B406 - output escaping only
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
+from pyproj import Transformer
 
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
     crs_equal,
+    crs_from_user_input,
     crs_spec,
     epsg_of_crs,
     reproject_coordinates,
@@ -1601,6 +1603,113 @@ class Spatial(_Engine["Dataset"]):
                     window = (west, south, east, north)
         return window
 
+    @staticmethod
+    def _cutline_segment_length(
+        src: RasterBase, feature: FeatureCollection
+    ) -> float | None:
+        """Densification step for the cutline, about one source pixel wide.
+
+        Dividing the cutline's envelope into a fixed number of parts is scale-free and
+        therefore wrong in general: 64 segments across a 64 km window is a 1 km chord,
+        fine against 1 km pixels, but 64 segments across a continental lon/lat bbox is
+        a ~50 km chord whose sagitta swallows many cells of a 30 m grid. Since the
+        reprojected envelope becomes `outputBounds`, that under-coverage truncates the
+        crop.
+
+        The step is therefore measured, not assumed: one source pixel is transformed
+        into the cutline's own CRS, which converts between their units without either
+        being named. The result is floored at 1/4096 of the envelope so a very fine
+        raster under a very large window cannot explode the vertex count.
+
+        Args:
+            src: The raster being cropped.
+            feature: The cutline, in its own CRS.
+
+        Returns:
+            float | None: The segment length in the cutline's units, or ``None`` when
+            the envelope is degenerate or the scale cannot be measured — in which case
+            the caller reprojects the outline undensified, as it did before.
+        """
+        minx, miny, maxx, maxy = (float(v) for v in feature.total_bounds)
+        span = max(maxx - minx, maxy - miny)
+        if not (math.isfinite(span) and span > 0):
+            return None
+        length: float | None = None
+        try:
+            x0, dx, _, y0, _, dy = src._raster.GetGeoTransform()
+            pixel = min(abs(dx), abs(dy))
+            to_cutline = Transformer.from_crs(
+                crs_from_user_input(src.crs), feature.crs, always_xy=True
+            )
+            ax, ay = to_cutline.transform(x0, y0)
+            bx, by = to_cutline.transform(x0 + pixel, y0)
+            step = math.hypot(bx - ax, by - ay)
+            if math.isfinite(step) and step > 0:
+                length = max(step, span / 4096.0)
+        except (RuntimeError, ValueError, TypeError, AttributeError):
+            # Narrow rather than bare: these are what a missing geotransform, an
+            # unparseable CRS or a transform PROJ refuses actually raise. Catching
+            # everything would swallow genuine bugs in the measurement itself and
+            # silently degrade the crop instead of failing.
+            length = None
+        return length
+
+    @staticmethod
+    def _cutline_in_source_crs(
+        src: RasterBase, feature: FeatureCollection
+    ) -> FeatureCollection:
+        """Reproject a cutline into the raster's own CRS, densifying it first.
+
+        A cutline in a different CRS used to be handed to GDAL as-is. That silently
+        broke `touch=True` crops: :meth:`_cutline_window_bounds` refuses a differing
+        CRS, so no `outputBounds` was set and `cropToCutline` is false under `touch`,
+        leaving the whole source grid in place. The crop then depended entirely on
+        :meth:`_correct_wrap_cutline_error` trimming an all-no-data border — and a
+        raster that declares **no no-data value** has no border to detect, so
+        `crop(bbox=..., epsg=<other CRS>)` returned the raster *uncropped*, with no
+        error. Setting a no-data value on the same raster made the identical call crop
+        correctly, which is what made the bug so easy to miss.
+
+        Bringing the cutline into the source CRS here fixes it at the root: the window
+        optimisation applies again and GDAL needs no cutline transform, so the crop is
+        bounded by the cutline's own window rather than by an incidental no-data
+        border. The two cases are not made identical — with a no-data value the
+        subsequent trim still tightens the result by the touch margin and the
+        reprojection slack, so a band that declares one crops a few cells closer —
+        but neither case can any longer return the raster uncropped.
+
+        The edges are densified before reprojecting. A straight edge in one CRS is
+        generally a *curve* in another, so reprojecting only the four corners of a bbox
+        would cut inside the requested area wherever the true edge bows outward — and
+        because the reprojected envelope becomes `outputBounds`, an under-covered edge
+        truncates the crop rather than merely blurring it. The segment length comes
+        from :meth:`_cutline_segment_length`, which measures one source pixel in the
+        cutline's own units, so the density follows the raster's resolution instead of
+        a fixed division of the envelope.
+
+        Args:
+            src: The raster being cropped.
+            feature: The cutline, in any CRS.
+
+        Returns:
+            FeatureCollection: The cutline in `src`'s CRS, or `feature` unchanged when
+            either side has no CRS or they already agree.
+        """
+        source_crs = src.crs
+        result = feature
+        needs_reprojection = (
+            bool(source_crs)
+            and feature.crs is not None
+            and not crs_equal(source_crs, feature.crs.to_wkt())
+        )
+        if needs_reprojection:
+            densified = feature.copy()
+            step = Spatial._cutline_segment_length(src, feature)
+            if step is not None:
+                densified.geometry = densified.geometry.segmentize(step)
+            result = densified.to_crs(crs_from_user_input(source_crs))
+        return result
+
     def _crop_bbox_windowed(
         self,
         bbox: tuple[float, float, float, float] | list[float],
@@ -1757,6 +1866,7 @@ class Spatial(_Engine["Dataset"]):
         # warp to the cutline's own window first: the trimmed result is identical
         # because every non-no-data cell lives inside that window, but the read shrinks
         # from the source to the crop. cropToCutline already bounds the touch=False path.
+        feature = self._cutline_in_source_crs(self._ds, feature)
         window = self._cutline_window_bounds(self._ds, feature) if touch else None
         # Pin the resolution to the source's own so the windowed warp is a pixel-exact
         # subset and cannot resample; only needed when a window is set.
@@ -1766,6 +1876,14 @@ class Spatial(_Engine["Dataset"]):
                 format="VRT",
                 cropToCutline=not touch,
                 cutlineDSName=cutline_path,
+                # State the cutline's CRS rather than letting GDAL read it back from
+                # the staged file. The cutline is staged as GeoJSON, which can name a
+                # CRS only as an OGC URN, so a CRS with no authority code -- an
+                # orthographic or Robinson grid, or one rescued from GDAL's PROJ
+                # database -- is written with no CRS at all. GDAL then assumes the
+                # GeoJSON default of CRS84 and transforms metre coordinates as
+                # lon/lat, failing with "Invalid latitude" (issue #964).
+                cutlineSRS=(None if feature.crs is None else feature.crs.to_wkt()),
                 multithread=True,
                 outputBounds=window,
                 xRes=abs(gt[1]) if gt else None,

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import itertools
+import json
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -24,8 +25,10 @@ from contextlib import contextmanager
 import geopandas as gpd
 from geopandas import GeoDataFrame
 from osgeo import gdal, ogr
+from pyproj.exceptions import CRSError as _PyprojCRSError
 
 from pyramids.base._errors import VectorDriverError
+from pyramids.base.crs import crs_from_user_input
 
 # Process-wide monotonic counter guaranteeing `/vsimem/` path uniqueness;
 # see the note in `pyramids._io`. `next()` on an itertools.count is atomic
@@ -239,6 +242,198 @@ def as_vsimem_path(gdf: GeoDataFrame) -> Iterator[str]:
         gdal.Unlink(mem_path)
 
 
+def _source_layer_wkt(ds: ogr.DataSource | gdal.Dataset) -> str:
+    """WKT of the datasource's first layer, or ``""`` when it declares none.
+
+    Args:
+        ds: The datasource being materialized.
+
+    Returns:
+        str: The layer's spatial reference as WKT, or ``""``.
+    """
+    wkt = ""
+    try:
+        layer = ds.GetLayer(0)
+        srs = None if layer is None else layer.GetSpatialRef()
+        wkt = "" if srs is None else srs.ExportToWkt()
+    except (RuntimeError, AttributeError):
+        wkt = ""
+    return wkt
+
+
+_GEOJSON_HEADER_SCAN = 4096
+"""Bytes of a GeoJSON document searched for the top-level ``crs`` member.
+
+GDAL writes `type`, `name` then `crs` before the first feature, so the member is
+always within the first few hundred bytes. Bounding the scan keeps the cost independent
+of the document's size — the whole point of not parsing it.
+"""
+
+
+def _end_of_json_object(head: bytes, start: int) -> int:
+    """Index just past the ``}`` closing the JSON object beginning at `start`.
+
+    Split out of :func:`_strip_geojson_crs` to keep each piece to one job: this one
+    only has to find a matching brace, and does so while skipping quoted strings so a
+    brace inside a CRS name cannot unbalance the count.
+
+    Args:
+        head: The buffer being scanned.
+        start: Index of the opening ``{``.
+
+    Returns:
+        int: The index just past the matching ``}``, or ``-1`` when the object does
+        not close within `head`.
+    """
+    depth, in_string, escaped = 0, False, False
+    for index in range(start, len(head)):
+        char = head[index : index + 1]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == b"\\":
+                escaped = True
+            elif char == b'"':
+                in_string = False
+        elif char == b'"':
+            in_string = True
+        elif char == b"{":
+            depth += 1
+        elif char == b"}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return -1
+
+
+def _widen_over_separator(head: bytes, start: int, end: int) -> tuple[int, int]:
+    """Extend a cut to swallow one separating comma, so the result stays valid JSON.
+
+    Removing a member from an object leaves either ``{"a":1,,"b":2}`` or a trailing
+    ``{"a":1,}`` unless one of its commas goes with it. Which one depends on where the
+    member sat: the comma *after* it normally, or the comma *before* it when it was
+    last.
+
+    Args:
+        head: The buffer being edited.
+        start: Index of the member's opening quote.
+        end: Index just past the member's value.
+
+    Returns:
+        tuple[int, int]: The widened ``(start, end)`` to cut between.
+    """
+    while end < len(head) and head[end : end + 1].isspace():
+        end += 1
+    if head[end : end + 1] == b",":
+        return start, end + 1
+    preceding = start - 1
+    while preceding >= 0 and head[preceding : preceding + 1].isspace():
+        preceding -= 1
+    if preceding >= 0 and head[preceding : preceding + 1] == b",":
+        start = preceding
+    return start, end
+
+
+def _strip_geojson_crs(data: bytes) -> bytes | None:
+    """Drop the top-level ``crs`` member from GDAL's GeoJSON without parsing it.
+
+    Decoding and re-encoding the document to remove one key costs a full parse, a full
+    re-serialisation and several times the document in peak memory — on a polygonize
+    output that is the largest allocation in the pipeline, and the read path a few
+    lines above deliberately avoids even *one* extra copy of the same buffer.
+
+    The member sits in the header, so it can be excised by locating it and copying the
+    two surrounding slices. The scan tracks quoted strings so a brace inside a CRS name
+    cannot unbalance it, and gives up (returning ``None``) on anything it does not
+    recognise rather than guessing at a malformed document.
+
+    This is **not** a general JSON editor, and must not be reused as one: it assumes
+    GDAL's own layout — a top-level ``crs`` member holding an object, within the first
+    :data:`_GEOJSON_HEADER_SCAN` bytes — and it does not distinguish a top-level key
+    from an identically named one nested inside an earlier member. Everything it
+    cannot place, it declines; the caller then does a real parse.
+
+    Args:
+        data: The GeoJSON bytes GDAL wrote.
+
+    Returns:
+        bytes | None: The document without its ``crs`` member, or ``None`` when the
+        member is absent or not laid out as expected.
+    """
+    head = bytes(data[:_GEOJSON_HEADER_SCAN])
+    key = head.find(b'"crs"')
+    if key == -1:
+        return None
+    colon = head.find(b":", key + 5)
+    if colon == -1:
+        return None
+    start_of_value = colon + 1
+    while (
+        start_of_value < len(head)
+        and head[start_of_value : start_of_value + 1].isspace()
+    ):
+        start_of_value += 1
+    if head[start_of_value : start_of_value + 1] != b"{":
+        return None
+
+    end = _end_of_json_object(head, start_of_value)
+    if end == -1:
+        return None
+
+    # Absorb one separating comma so what remains is still valid JSON: the one after
+    # the member, or -- if `crs` was last -- the one before it.
+    cut_start, cut_end = _widen_over_separator(head, key, end)
+    return bytes(data[:cut_start]) + bytes(data[cut_end:])
+
+
+def _read_geojson_bytes(data: bytes, ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
+    """Parse GDAL's GeoJSON output, surviving a CRS pyproj cannot look up.
+
+    GDAL names the CRS in the GeoJSON as an authority URN
+    (``urn:ogc:def:crs:EPSG::10857``), and geopandas resolves that URN through pyproj.
+    When the code lives in GDAL's PROJ database but not pyproj's, the read raises
+    before any geometry is returned — so `to_polygons` and `footprint` failed on
+    exactly the rasters issue #943 is about, even though the CRS is fine and GDAL
+    just wrote it.
+
+    The mirror-image failure is quieter and worse. When GDAL cannot express the CRS
+    as a URN at all — an orthographic or Robinson grid, anything with no authority
+    code — it writes *no* ``crs`` member, and nothing raises: GeoJSON's default is
+    CRS84, so the frame comes back carrying metre coordinates labelled **WGS 84**.
+    A wrong CRS that reads as valid is harder to notice than a crash.
+
+    Both are answered the same way: the source layer's own WKT is authoritative, so
+    it is attached whenever it is available, rather than trusting what survived the
+    GeoJSON round trip. The ``crs``-member removal below remains only for the case
+    where the read raises before returning any geometry at all.
+
+    Args:
+        data: The GeoJSON bytes GDAL wrote.
+        ds: The source datasource, consulted for its layer's authoritative WKT.
+
+    Returns:
+        GeoDataFrame: The parsed features, carrying the source CRS.
+    """
+    source_wkt = _source_layer_wkt(ds)
+    try:
+        gdf = gpd.read_file(io.BytesIO(data))
+    except _PyprojCRSError:
+        if not source_wkt:
+            # Nothing authoritative to substitute, so the original failure stands.
+            raise
+        stripped = _strip_geojson_crs(data)
+        if stripped is None:
+            # The member is not where GDAL puts it. Fall back to a full parse, which
+            # is slow but cannot be confused by an unexpected layout.
+            document = json.loads(data)
+            document.pop("crs", None)
+            stripped = json.dumps(document).encode("utf-8")
+        gdf = gpd.read_file(io.BytesIO(stripped))
+    if source_wkt:
+        gdf = gdf.set_crs(crs_from_user_input(source_wkt), allow_override=True)
+    return gdf
+
+
 def datasource_to_gdf(ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
     """Materialize an OGR `DataSource` into a `GeoDataFrame`.
 
@@ -337,7 +532,7 @@ def datasource_to_gdf(ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
             data = gdal.VSIFReadL(1, size, vsi_file)
         finally:
             gdal.VSIFCloseL(vsi_file)
-        gdf = gpd.read_file(io.BytesIO(data))
+        gdf = _read_geojson_bytes(data, ds)
     finally:
         # Under gdal.UseExceptions(), Unlink on a non-existent path
         # raises RuntimeError and would mask whatever exception we

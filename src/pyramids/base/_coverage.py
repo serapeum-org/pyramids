@@ -18,6 +18,7 @@ from osgeo import gdal, osr
 from pyproj import CRS, Transformer
 
 from pyramids.base._errors import CoverageError
+from pyramids.base.crs import crs_from_user_input
 
 
 def validate_bbox(
@@ -104,7 +105,7 @@ def native_projwin(
             native CRS's area of use).
     """
     native = CRS.from_user_input(native_srs.ExportToWkt())
-    transformer = Transformer.from_crs(CRS.from_user_input(crs), native, always_xy=True)
+    transformer = Transformer.from_crs(crs_from_user_input(crs), native, always_xy=True)
     minx, miny, maxx, maxy = bbox
     # Densify the edges (not just the corners) so the native-CRS window still
     # covers the requested area under projection curvature / interruptions (e.g.

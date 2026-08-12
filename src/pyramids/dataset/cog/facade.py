@@ -28,10 +28,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from osgeo import gdal
-from pyproj import CRS
 
-from pyramids.base._errors import ReadOnlyError
+from pyramids.base._errors import CRSError, ReadOnlyError
 from pyramids.base._utils import resolve_cog_predictor
+from pyramids.base.crs import epsg_from_user_input
 from pyramids.dataset.cog.options import CreationOptions
 from pyramids.dataset.cog.validate import ValidationReport
 from pyramids.dataset.cog.validate import validate as _validate_file
@@ -97,12 +97,17 @@ def _coerce_epsg(crs: Any) -> int:
     """
     if isinstance(crs, int):
         return crs
-    epsg = CRS.from_user_input(crs).to_epsg()
-    if epsg is None:
+    try:
+        # Via `epsg_from_user_input`, which heals codes present in GDAL's PROJ
+        # database but absent from pyproj's (issue #943).
+        epsg = epsg_from_user_input(crs)
+    except CRSError as exc:
+        # Chain, so the underlying "no EPSG code" / "could not interpret" reason
+        # stays visible instead of being replaced by the generic message.
         raise ValueError(
             f"Could not resolve an EPSG code from crs={crs!r}; pass an "
             "integer EPSG code explicitly."
-        )
+        ) from exc
     return epsg
 
 

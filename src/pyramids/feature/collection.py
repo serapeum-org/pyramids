@@ -43,12 +43,15 @@ import numpy as np
 import pandas as pd
 from geopandas import GeoDataFrame
 from osgeo import gdal, ogr
+from pyproj import CRS as _PyprojCRS
+from pyproj.exceptions import CRSError as _PyprojCRSError
 from shapely.geometry import box
 
 from pyramids.base._errors import (
     CRSError,
     InvalidGeometryError,
 )
+from pyramids.base.crs import _pyproj_crs_via_gdal
 from pyramids.feature import _analysis, _plot, _read, _write
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
@@ -124,6 +127,23 @@ class FeatureCollection(GeoDataFrame):
                 "detail. Use FeatureCollection.read_file(path) to load a "
                 "file, or pass a GeoDataFrame."
             )
+        # geopandas resolves `crs` with pyproj, whose PROJ database is often older
+        # than GDAL's; an EPSG code pyramids itself produced can therefore be one
+        # geopandas cannot look up (issue #943). Resolve it here, where the healed
+        # CRS object needs no further lookup.
+        #
+        # pyproj is asked first and its failure re-raised unchanged when GDAL cannot
+        # help either, so a genuinely bad `crs=` still raises pyproj's own error
+        # rather than being retyped -- callers that catch `pyproj.exceptions.CRSError`
+        # around a FeatureCollection construction keep working.
+        if kwargs.get("crs") is not None:
+            try:
+                kwargs["crs"] = _PyprojCRS.from_user_input(kwargs["crs"])
+            except _PyprojCRSError:
+                rescued = _pyproj_crs_via_gdal(kwargs["crs"])
+                if rescued is None:
+                    raise
+                kwargs["crs"] = rescued
         super().__init__(data, *args, **kwargs)
 
     def __enter__(self) -> FeatureCollection:

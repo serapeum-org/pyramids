@@ -20,6 +20,7 @@ import numpy as np
 from pyproj import CRS
 
 from pyramids.base._utils import gdal_to_numpy_dtype
+from pyramids.base.crs import crs_from_user_input, crs_spec
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
@@ -134,12 +135,12 @@ class RasterMeta:
         # `ds.crs` is empty for a genuinely ungeoreferenced raster (an ASCII
         # grid, say). `CRS.from_wkt("")` raises, so report no CRS instead of
         # inventing one (ARC-26); consumers already handle `crs is None`.
-        if ds.epsg:
-            crs = CRS.from_epsg(int(ds.epsg))
-        elif ds.crs:
-            crs = CRS.from_wkt(ds.crs)
-        else:
-            crs = None
+        # `crs_spec` picks the code or the WKT, whichever the CRS libraries can
+        # actually resolve, and `crs_from_user_input` heals a code that only GDAL's
+        # PROJ database carries -- otherwise a raster in such a CRS cannot be
+        # described at all (issue #943).
+        spec = crs_spec(ds.epsg, ds.crs)
+        crs = None if spec is None else crs_from_user_input(spec)
         nodata_raw = tuple(ds.no_data_value) if ds.no_data_value else ()
         nodata = tuple(None if v is None else float(v) for v in nodata_raw)
         block_size = tuple(tuple(bs) for bs in ds._block_size)
