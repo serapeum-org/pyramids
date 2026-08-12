@@ -1,6 +1,34 @@
 ﻿# Change log
 
 
+## 0.51.0 (2026-08-12)
+
+### BREAKING CHANGE
+
+- the loose plot / animate styling keywords are removed.
+Pass the typed cleopatra groups instead — color_scale= becomes
+color=ColorScaling(...), style= / hillshade= become
+data_style=DataStyle(...), levels= becomes contour=Contour(...),
+point_*= becomes points=PointOverlay(...), and cbar_*= / ticks_spacing=
+become colorbar=ColorBar(...). Requires cleopatra >=0.30.0.
+- DatasetCollection.create_cube is renamed to
+from_dataset, and from_stac no longer accepts like/crs/resolution/bounds/
+anchor keyword arguments — pass grid=Grid(...) instead.
+
+### Feat
+
+- **plot**: adopt cleopatra 0.30 typed render groups across all plot methods (#946)
+- **spatial**: windowed crop(bbox=) that avoids full reads of huge/remote rasters (#966)
+- **dataset**: generate a color table from a color ramp (#958)
+
+### Refactor
+
+- **collection**: consolidate the DatasetCollection constructor API (#951)
+
+### Perf
+
+- **collection**: stream to_netcdf instead of materialising the full cube (#961)
+
 ## 0.50.0 (2026-08-09)
 
 ### BREAKING CHANGE
