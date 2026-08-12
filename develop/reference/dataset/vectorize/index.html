@@ -7356,8 +7356,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <span class="normal"><a href="#__codelineno-0-1059">1059</a></span>
 <span class="normal"><a href="#__codelineno-0-1060">1060</a></span>
 <span class="normal"><a href="#__codelineno-0-1061">1061</a></span>
-<span class="normal"><a href="#__codelineno-0-1062">1062</a></span>
-<span class="normal"><a href="#__codelineno-0-1063">1063</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="k">class</span><span class="w"> </span><span class="nc">Vectorize</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
+<span class="normal"><a href="#__codelineno-0-1062">1062</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="k">class</span><span class="w"> </span><span class="nc">Vectorize</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
 <a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Mixin providing vectorization, clustering, and translate methods for Dataset.&quot;&quot;&quot;</span>
 <a id="__codelineno-0-58" name="__codelineno-0-58"></a>
 <a id="__codelineno-0-59" name="__codelineno-0-59"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_band_to_polygon</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">col_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GeoDataFrame</span><span class="p">:</span>
@@ -8188,183 +8187,182 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-884" name="__codelineno-0-884"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
 <a id="__codelineno-0-885" name="__codelineno-0-885"></a><span class="sd">              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
 <a id="__codelineno-0-886" name="__codelineno-0-886"></a><span class="sd">              ... )</span>
-<a id="__codelineno-0-887" name="__codelineno-0-887"></a><span class="sd">              &gt;&gt;&gt; from pyramids.plot import ColorScaling, CellValues  # doctest: +SKIP</span>
-<a id="__codelineno-0-888" name="__codelineno-0-888"></a><span class="sd">              &gt;&gt;&gt; dataset.plot(  # doctest: +SKIP</span>
-<a id="__codelineno-0-889" name="__codelineno-0-889"></a><span class="sd">              ...     color=ColorScaling.boundary(bounds=[1, 1.9, 4.1, 5]),</span>
-<a id="__codelineno-0-890" name="__codelineno-0-890"></a><span class="sd">              ...     cells=CellValues(show=True, size=12, background_threshold=5),</span>
-<a id="__codelineno-0-891" name="__codelineno-0-891"></a><span class="sd">              ... )</span>
-<a id="__codelineno-0-892" name="__codelineno-0-892"></a>
-<a id="__codelineno-0-893" name="__codelineno-0-893"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-894" name="__codelineno-0-894"></a><span class="sd">              ![cluster](./../../_images/dataset/cluster.png)</span>
-<a id="__codelineno-0-895" name="__codelineno-0-895"></a>
-<a id="__codelineno-0-896" name="__codelineno-0-896"></a><span class="sd">            - Now let&#39;s cluster the values in the dataset that are between 2 and 4.</span>
-<a id="__codelineno-0-897" name="__codelineno-0-897"></a>
-<a id="__codelineno-0-898" name="__codelineno-0-898"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-899" name="__codelineno-0-899"></a><span class="sd">              &gt;&gt;&gt; lower_value = 2</span>
-<a id="__codelineno-0-900" name="__codelineno-0-900"></a><span class="sd">              &gt;&gt;&gt; upper_value = 4</span>
-<a id="__codelineno-0-901" name="__codelineno-0-901"></a><span class="sd">              &gt;&gt;&gt; cluster_array, count, position, values = dataset.cluster(lower_value, upper_value)</span>
-<a id="__codelineno-0-902" name="__codelineno-0-902"></a>
-<a id="__codelineno-0-903" name="__codelineno-0-903"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-904" name="__codelineno-0-904"></a><span class="sd">            - The first returned output is a binary array with 1 indicating that the cell value is inside the</span>
-<a id="__codelineno-0-905" name="__codelineno-0-905"></a><span class="sd">                cluster, and 0 is outside.</span>
-<a id="__codelineno-0-906" name="__codelineno-0-906"></a>
-<a id="__codelineno-0-907" name="__codelineno-0-907"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-908" name="__codelineno-0-908"></a><span class="sd">              &gt;&gt;&gt; print(cluster_array)  # doctest: +SKIP</span>
-<a id="__codelineno-0-909" name="__codelineno-0-909"></a><span class="sd">              [[1. 1. 1. 1. 1.]</span>
-<a id="__codelineno-0-910" name="__codelineno-0-910"></a><span class="sd">               [1. 1. 0. 0. 0.]</span>
-<a id="__codelineno-0-911" name="__codelineno-0-911"></a><span class="sd">               [0. 1. 1. 1. 1.]</span>
-<a id="__codelineno-0-912" name="__codelineno-0-912"></a><span class="sd">               [1. 0. 0. 1. 1.]</span>
-<a id="__codelineno-0-913" name="__codelineno-0-913"></a><span class="sd">               [1. 1. 1. 1. 1.]]</span>
-<a id="__codelineno-0-914" name="__codelineno-0-914"></a>
-<a id="__codelineno-0-915" name="__codelineno-0-915"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-916" name="__codelineno-0-916"></a><span class="sd">            - The second returned value is the number of connected clusters.</span>
-<a id="__codelineno-0-917" name="__codelineno-0-917"></a>
-<a id="__codelineno-0-918" name="__codelineno-0-918"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-919" name="__codelineno-0-919"></a><span class="sd">              &gt;&gt;&gt; print(count) # doctest: +SKIP</span>
-<a id="__codelineno-0-920" name="__codelineno-0-920"></a><span class="sd">              2</span>
-<a id="__codelineno-0-921" name="__codelineno-0-921"></a>
-<a id="__codelineno-0-922" name="__codelineno-0-922"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-923" name="__codelineno-0-923"></a><span class="sd">            - The third returned value is the indices of the cells that belong to the cluster.</span>
-<a id="__codelineno-0-924" name="__codelineno-0-924"></a>
-<a id="__codelineno-0-925" name="__codelineno-0-925"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-926" name="__codelineno-0-926"></a><span class="sd">              &gt;&gt;&gt; print(position) # doctest: +SKIP</span>
-<a id="__codelineno-0-927" name="__codelineno-0-927"></a><span class="sd">              [[1, 0], [2, 1], [2, 2], [3, 3], [4, 3], [4, 4], [3, 4], [2, 4], [2, 3], [4, 2], [4, 1], [3, 0], [4, 0], [1, 1], [0, 2], [0, 3], [0, 4], [0, 1], [0, 0]]</span>
-<a id="__codelineno-0-928" name="__codelineno-0-928"></a>
-<a id="__codelineno-0-929" name="__codelineno-0-929"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-930" name="__codelineno-0-930"></a><span class="sd">            - The fourth returned value is a list of the values that are in the cluster (extracted from these cells).</span>
-<a id="__codelineno-0-931" name="__codelineno-0-931"></a>
-<a id="__codelineno-0-932" name="__codelineno-0-932"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-933" name="__codelineno-0-933"></a><span class="sd">              &gt;&gt;&gt; print(values) # doctest: +SKIP</span>
-<a id="__codelineno-0-934" name="__codelineno-0-934"></a><span class="sd">              [3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 4, 4, 2, 4, 3, 2, 3, 3, 2]</span>
-<a id="__codelineno-0-935" name="__codelineno-0-935"></a>
-<a id="__codelineno-0-936" name="__codelineno-0-936"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-937" name="__codelineno-0-937"></a>
-<a id="__codelineno-0-938" name="__codelineno-0-938"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-939" name="__codelineno-0-939"></a>        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>
-<a id="__codelineno-0-940" name="__codelineno-0-940"></a>        <span class="n">position</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-941" name="__codelineno-0-941"></a>        <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-942" name="__codelineno-0-942"></a>        <span class="n">count</span> <span class="o">=</span> <span class="mi">1</span>
-<a id="__codelineno-0-943" name="__codelineno-0-943"></a>        <span class="n">cluster</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
-<a id="__codelineno-0-944" name="__codelineno-0-944"></a>
-<a id="__codelineno-0-945" name="__codelineno-0-945"></a>        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
-<a id="__codelineno-0-946" name="__codelineno-0-946"></a>            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
-<a id="__codelineno-0-947" name="__codelineno-0-947"></a>                <span class="k">if</span> <span class="n">lower_bound</span> <span class="o">&lt;=</span> <span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">upper_bound</span> <span class="ow">and</span> <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-948" name="__codelineno-0-948"></a>                    <span class="bp">self</span><span class="o">.</span><span class="n">_group_neighbours</span><span class="p">(</span>
-<a id="__codelineno-0-949" name="__codelineno-0-949"></a>                        <span class="n">data</span><span class="p">,</span>
-<a id="__codelineno-0-950" name="__codelineno-0-950"></a>                        <span class="n">i</span><span class="p">,</span>
-<a id="__codelineno-0-951" name="__codelineno-0-951"></a>                        <span class="n">j</span><span class="p">,</span>
-<a id="__codelineno-0-952" name="__codelineno-0-952"></a>                        <span class="n">lower_bound</span><span class="p">,</span>
-<a id="__codelineno-0-953" name="__codelineno-0-953"></a>                        <span class="n">upper_bound</span><span class="p">,</span>
-<a id="__codelineno-0-954" name="__codelineno-0-954"></a>                        <span class="n">position</span><span class="p">,</span>
-<a id="__codelineno-0-955" name="__codelineno-0-955"></a>                        <span class="n">values</span><span class="p">,</span>
-<a id="__codelineno-0-956" name="__codelineno-0-956"></a>                        <span class="n">count</span><span class="p">,</span>
-<a id="__codelineno-0-957" name="__codelineno-0-957"></a>                        <span class="n">cluster</span><span class="p">,</span>
-<a id="__codelineno-0-958" name="__codelineno-0-958"></a>                    <span class="p">)</span>
-<a id="__codelineno-0-959" name="__codelineno-0-959"></a>                    <span class="k">if</span> <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-960" name="__codelineno-0-960"></a>                        <span class="n">position</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span>
-<a id="__codelineno-0-961" name="__codelineno-0-961"></a>                        <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span>
-<a id="__codelineno-0-962" name="__codelineno-0-962"></a>                        <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">count</span>
-<a id="__codelineno-0-963" name="__codelineno-0-963"></a>                    <span class="n">count</span> <span class="o">+=</span> <span class="mi">1</span>
-<a id="__codelineno-0-964" name="__codelineno-0-964"></a>
-<a id="__codelineno-0-965" name="__codelineno-0-965"></a>        <span class="k">return</span> <span class="n">cluster</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">position</span><span class="p">,</span> <span class="n">values</span>
-<a id="__codelineno-0-966" name="__codelineno-0-966"></a>
-<a id="__codelineno-0-967" name="__codelineno-0-967"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_polygons</span><span class="p">(</span>
-<a id="__codelineno-0-968" name="__codelineno-0-968"></a>        <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-969" name="__codelineno-0-969"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-970" name="__codelineno-0-970"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GeoDataFrame</span><span class="p">:</span>
-<a id="__codelineno-0-971" name="__codelineno-0-971"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Polygonize a raster band — merge connected equal-valued cells into polygons.</span>
-<a id="__codelineno-0-972" name="__codelineno-0-972"></a>
-<a id="__codelineno-0-973" name="__codelineno-0-973"></a><span class="sd">        - Creates vector polygons for all connected regions of pixels in the raster sharing a common</span>
-<a id="__codelineno-0-974" name="__codelineno-0-974"></a><span class="sd">            pixel value (group neighboring cells with the same value into one polygon).</span>
-<a id="__codelineno-0-975" name="__codelineno-0-975"></a>
-<a id="__codelineno-0-976" name="__codelineno-0-976"></a><span class="sd">        Args:</span>
-<a id="__codelineno-0-977" name="__codelineno-0-977"></a><span class="sd">            band (int | List[int] | None):</span>
-<a id="__codelineno-0-978" name="__codelineno-0-978"></a><span class="sd">                Band index 0, 1, 2, 3, ...</span>
-<a id="__codelineno-0-979" name="__codelineno-0-979"></a>
-<a id="__codelineno-0-980" name="__codelineno-0-980"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-981" name="__codelineno-0-981"></a><span class="sd">            GeoDataFrame:</span>
-<a id="__codelineno-0-982" name="__codelineno-0-982"></a><span class="sd">                GeodataFrame containing polygon geomtries for all connected regions.</span>
-<a id="__codelineno-0-983" name="__codelineno-0-983"></a>
-<a id="__codelineno-0-984" name="__codelineno-0-984"></a><span class="sd">        Examples:</span>
-<a id="__codelineno-0-985" name="__codelineno-0-985"></a><span class="sd">            - First, we will create a 10*10 dataset full of random integer between 1, and 5.</span>
-<a id="__codelineno-0-986" name="__codelineno-0-986"></a>
-<a id="__codelineno-0-987" name="__codelineno-0-987"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-988" name="__codelineno-0-988"></a><span class="sd">              &gt;&gt;&gt; import numpy as np</span>
-<a id="__codelineno-0-989" name="__codelineno-0-989"></a><span class="sd">              &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
-<a id="__codelineno-0-990" name="__codelineno-0-990"></a><span class="sd">              &gt;&gt;&gt; np.random.seed(200)</span>
-<a id="__codelineno-0-991" name="__codelineno-0-991"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 5, size=(10, 10))</span>
-<a id="__codelineno-0-992" name="__codelineno-0-992"></a><span class="sd">              &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
-<a id="__codelineno-0-993" name="__codelineno-0-993"></a><span class="sd">              [[3 2 1 1 3 4 1 4 2 3]</span>
-<a id="__codelineno-0-994" name="__codelineno-0-994"></a><span class="sd">               [4 2 2 4 3 3 1 2 4 4]</span>
-<a id="__codelineno-0-995" name="__codelineno-0-995"></a><span class="sd">               [4 2 4 2 3 4 2 1 4 3]</span>
-<a id="__codelineno-0-996" name="__codelineno-0-996"></a><span class="sd">               [3 2 1 4 3 3 4 1 1 4]</span>
-<a id="__codelineno-0-997" name="__codelineno-0-997"></a><span class="sd">               [1 2 4 2 2 1 3 2 3 1]</span>
-<a id="__codelineno-0-998" name="__codelineno-0-998"></a><span class="sd">               [1 4 4 4 1 1 4 2 1 1]</span>
-<a id="__codelineno-0-999" name="__codelineno-0-999"></a><span class="sd">               [1 3 2 3 3 4 1 3 1 3]</span>
-<a id="__codelineno-0-1000" name="__codelineno-0-1000"></a><span class="sd">               [4 1 3 3 3 4 1 4 1 1]</span>
-<a id="__codelineno-0-1001" name="__codelineno-0-1001"></a><span class="sd">               [2 1 3 3 4 2 2 1 3 4]</span>
-<a id="__codelineno-0-1002" name="__codelineno-0-1002"></a><span class="sd">               [2 3 2 2 4 2 1 3 2 2]]</span>
-<a id="__codelineno-0-1003" name="__codelineno-0-1003"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
-<a id="__codelineno-0-1004" name="__codelineno-0-1004"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-1005" name="__codelineno-0-1005"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
-<a id="__codelineno-0-1006" name="__codelineno-0-1006"></a><span class="sd">              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
-<a id="__codelineno-0-1007" name="__codelineno-0-1007"></a><span class="sd">              ... )</span>
-<a id="__codelineno-0-1008" name="__codelineno-0-1008"></a>
-<a id="__codelineno-0-1009" name="__codelineno-0-1009"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-1010" name="__codelineno-0-1010"></a>
-<a id="__codelineno-0-1011" name="__codelineno-0-1011"></a><span class="sd">            - Now, let&#39;s cluster the connected equal cells into polygons.</span>
-<a id="__codelineno-0-1012" name="__codelineno-0-1012"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-1013" name="__codelineno-0-1013"></a><span class="sd">              &gt;&gt;&gt; gdf = dataset.to_polygons()</span>
-<a id="__codelineno-0-1014" name="__codelineno-0-1014"></a><span class="sd">              &gt;&gt;&gt; print(gdf)  # doctest: +SKIP</span>
-<a id="__codelineno-0-1015" name="__codelineno-0-1015"></a><span class="sd">                  Band_1                                           geometry</span>
-<a id="__codelineno-0-1016" name="__codelineno-0-1016"></a><span class="sd">              0        3  POLYGON ((0 0, 0 -0.05, 0.05 -0.05, 0.05 0, 0 0))</span>
-<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a><span class="sd">              1        1  POLYGON ((0.1 0, 0.1 -0.05, 0.2 -0.05, 0.2 0, ...</span>
-<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a><span class="sd">              2        4  POLYGON ((0.25 0, 0.25 -0.05, 0.3 -0.05, 0.3 0...</span>
-<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a><span class="sd">              3        4  POLYGON ((0.35 0, 0.35 -0.05, 0.4 -0.05, 0.4 0...</span>
-<a id="__codelineno-0-1020" name="__codelineno-0-1020"></a><span class="sd">              4        2  POLYGON ((0.4 0, 0.4 -0.05, 0.45 -0.05, 0.45 0...</span>
-<a id="__codelineno-0-1021" name="__codelineno-0-1021"></a><span class="sd">              5        3  POLYGON ((0.45 0, 0.45 -0.05, 0.5 -0.05, 0.5 0...</span>
-<a id="__codelineno-0-1022" name="__codelineno-0-1022"></a><span class="sd">              6        1  POLYGON ((0.3 0, 0.3 -0.1, 0.35 -0.1, 0.35 0, ...</span>
-<a id="__codelineno-0-1023" name="__codelineno-0-1023"></a><span class="sd">              7        4  POLYGON ((0.15 -0.05, 0.15 -0.1, 0.2 -0.1, 0.2...</span>
-<a id="__codelineno-0-1024" name="__codelineno-0-1024"></a><span class="sd">              8        2  POLYGON ((0.35 -0.05, 0.35 -0.1, 0.4 -0.1, 0.4...</span>
-<a id="__codelineno-0-1025" name="__codelineno-0-1025"></a><span class="sd">              9        4  POLYGON ((0 -0.05, 0 -0.15, 0.05 -0.15, 0.05 -...</span>
-<a id="__codelineno-0-1026" name="__codelineno-0-1026"></a><span class="sd">              10       4  POLYGON ((0.4 -0.05, 0.4 -0.15, 0.45 -0.15, 0....</span>
-<a id="__codelineno-0-1027" name="__codelineno-0-1027"></a><span class="sd">              11       4  POLYGON ((0.1 -0.1, 0.1 -0.15, 0.15 -0.15, 0.1...</span>
-<a id="__codelineno-0-1028" name="__codelineno-0-1028"></a>
-<a id="__codelineno-0-1029" name="__codelineno-0-1029"></a><span class="sd">              ```</span>
-<a id="__codelineno-0-1030" name="__codelineno-0-1030"></a>
-<a id="__codelineno-0-1031" name="__codelineno-0-1031"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a>        <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1033" name="__codelineno-0-1033"></a>            <span class="n">band</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-1034" name="__codelineno-0-1034"></a>
-<a id="__codelineno-0-1035" name="__codelineno-0-1035"></a>        <span class="n">names</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_names</span>
-<a id="__codelineno-0-1036" name="__codelineno-0-1036"></a>
-<a id="__codelineno-0-1037" name="__codelineno-0-1037"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">_band_name</span><span class="p">(</span><span class="n">index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-1038" name="__codelineno-0-1038"></a>            <span class="c1"># band_names can be empty (e.g. a mask dataset built internally by footprint); fall back.</span>
-<a id="__codelineno-0-1039" name="__codelineno-0-1039"></a>            <span class="k">return</span> <span class="n">names</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="k">if</span> <span class="n">index</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">names</span><span class="p">)</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;Band_</span><span class="si">{</span><span class="n">index</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>
-<a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
-<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a>            <span class="n">gdf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_band_to_polygon</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="n">_band_name</span><span class="p">(</span><span class="n">band</span><span class="p">))</span>
-<a id="__codelineno-0-1043" name="__codelineno-0-1043"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-1044" name="__codelineno-0-1044"></a>            <span class="n">gdfs</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-1045" name="__codelineno-0-1045"></a>            <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">band</span><span class="p">:</span>
-<a id="__codelineno-0-1046" name="__codelineno-0-1046"></a>                <span class="n">gdfs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_band_to_polygon</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">_band_name</span><span class="p">(</span><span class="n">b</span><span class="p">)))</span>
-<a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>            <span class="n">gdf</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">gdfs</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
-<a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>
-<a id="__codelineno-0-1049" name="__codelineno-0-1049"></a>        <span class="k">return</span> <span class="n">gdf</span>
-<a id="__codelineno-0-1050" name="__codelineno-0-1050"></a>
-<a id="__codelineno-0-1051" name="__codelineno-0-1051"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">cluster2</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GeoDataFrame</span><span class="p">:</span>
-<a id="__codelineno-0-1052" name="__codelineno-0-1052"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Deprecated alias for :meth:`to_polygons`.</span>
-<a id="__codelineno-0-1053" name="__codelineno-0-1053"></a>
-<a id="__codelineno-0-1054" name="__codelineno-0-1054"></a><span class="sd">        .. deprecated::</span>
-<a id="__codelineno-0-1055" name="__codelineno-0-1055"></a><span class="sd">            ``cluster2`` was renamed to :meth:`to_polygons` for clarity. This alias forwards to</span>
-<a id="__codelineno-0-1056" name="__codelineno-0-1056"></a><span class="sd">            :meth:`to_polygons` and will be removed in a future release.</span>
-<a id="__codelineno-0-1057" name="__codelineno-0-1057"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1058" name="__codelineno-0-1058"></a>        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
-<a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>            <span class="s2">&quot;cluster2 is deprecated and will be removed in a future release; use to_polygons instead.&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>            <span class="ne">DeprecationWarning</span><span class="p">,</span>
-<a id="__codelineno-0-1061" name="__codelineno-0-1061"></a>            <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-<a id="__codelineno-0-1062" name="__codelineno-0-1062"></a>        <span class="p">)</span>
-<a id="__codelineno-0-1063" name="__codelineno-0-1063"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_polygons</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">)</span>
+<a id="__codelineno-0-887" name="__codelineno-0-887"></a><span class="sd">              &gt;&gt;&gt; dataset.plot(</span>
+<a id="__codelineno-0-888" name="__codelineno-0-888"></a><span class="sd">              ...     color_scale=&quot;boundary-norm&quot;, bounds=[1, 1.9, 4.1, 5], display_cell_value=True, num_size=12,</span>
+<a id="__codelineno-0-889" name="__codelineno-0-889"></a><span class="sd">              ...     background_color_threshold=5</span>
+<a id="__codelineno-0-890" name="__codelineno-0-890"></a><span class="sd">              ... )  # doctest: +SKIP</span>
+<a id="__codelineno-0-891" name="__codelineno-0-891"></a>
+<a id="__codelineno-0-892" name="__codelineno-0-892"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-893" name="__codelineno-0-893"></a><span class="sd">              ![cluster](./../../_images/dataset/cluster.png)</span>
+<a id="__codelineno-0-894" name="__codelineno-0-894"></a>
+<a id="__codelineno-0-895" name="__codelineno-0-895"></a><span class="sd">            - Now let&#39;s cluster the values in the dataset that are between 2 and 4.</span>
+<a id="__codelineno-0-896" name="__codelineno-0-896"></a>
+<a id="__codelineno-0-897" name="__codelineno-0-897"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-898" name="__codelineno-0-898"></a><span class="sd">              &gt;&gt;&gt; lower_value = 2</span>
+<a id="__codelineno-0-899" name="__codelineno-0-899"></a><span class="sd">              &gt;&gt;&gt; upper_value = 4</span>
+<a id="__codelineno-0-900" name="__codelineno-0-900"></a><span class="sd">              &gt;&gt;&gt; cluster_array, count, position, values = dataset.cluster(lower_value, upper_value)</span>
+<a id="__codelineno-0-901" name="__codelineno-0-901"></a>
+<a id="__codelineno-0-902" name="__codelineno-0-902"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-903" name="__codelineno-0-903"></a><span class="sd">            - The first returned output is a binary array with 1 indicating that the cell value is inside the</span>
+<a id="__codelineno-0-904" name="__codelineno-0-904"></a><span class="sd">                cluster, and 0 is outside.</span>
+<a id="__codelineno-0-905" name="__codelineno-0-905"></a>
+<a id="__codelineno-0-906" name="__codelineno-0-906"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-907" name="__codelineno-0-907"></a><span class="sd">              &gt;&gt;&gt; print(cluster_array)  # doctest: +SKIP</span>
+<a id="__codelineno-0-908" name="__codelineno-0-908"></a><span class="sd">              [[1. 1. 1. 1. 1.]</span>
+<a id="__codelineno-0-909" name="__codelineno-0-909"></a><span class="sd">               [1. 1. 0. 0. 0.]</span>
+<a id="__codelineno-0-910" name="__codelineno-0-910"></a><span class="sd">               [0. 1. 1. 1. 1.]</span>
+<a id="__codelineno-0-911" name="__codelineno-0-911"></a><span class="sd">               [1. 0. 0. 1. 1.]</span>
+<a id="__codelineno-0-912" name="__codelineno-0-912"></a><span class="sd">               [1. 1. 1. 1. 1.]]</span>
+<a id="__codelineno-0-913" name="__codelineno-0-913"></a>
+<a id="__codelineno-0-914" name="__codelineno-0-914"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-915" name="__codelineno-0-915"></a><span class="sd">            - The second returned value is the number of connected clusters.</span>
+<a id="__codelineno-0-916" name="__codelineno-0-916"></a>
+<a id="__codelineno-0-917" name="__codelineno-0-917"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-918" name="__codelineno-0-918"></a><span class="sd">              &gt;&gt;&gt; print(count) # doctest: +SKIP</span>
+<a id="__codelineno-0-919" name="__codelineno-0-919"></a><span class="sd">              2</span>
+<a id="__codelineno-0-920" name="__codelineno-0-920"></a>
+<a id="__codelineno-0-921" name="__codelineno-0-921"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-922" name="__codelineno-0-922"></a><span class="sd">            - The third returned value is the indices of the cells that belong to the cluster.</span>
+<a id="__codelineno-0-923" name="__codelineno-0-923"></a>
+<a id="__codelineno-0-924" name="__codelineno-0-924"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-925" name="__codelineno-0-925"></a><span class="sd">              &gt;&gt;&gt; print(position) # doctest: +SKIP</span>
+<a id="__codelineno-0-926" name="__codelineno-0-926"></a><span class="sd">              [[1, 0], [2, 1], [2, 2], [3, 3], [4, 3], [4, 4], [3, 4], [2, 4], [2, 3], [4, 2], [4, 1], [3, 0], [4, 0], [1, 1], [0, 2], [0, 3], [0, 4], [0, 1], [0, 0]]</span>
+<a id="__codelineno-0-927" name="__codelineno-0-927"></a>
+<a id="__codelineno-0-928" name="__codelineno-0-928"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-929" name="__codelineno-0-929"></a><span class="sd">            - The fourth returned value is a list of the values that are in the cluster (extracted from these cells).</span>
+<a id="__codelineno-0-930" name="__codelineno-0-930"></a>
+<a id="__codelineno-0-931" name="__codelineno-0-931"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-932" name="__codelineno-0-932"></a><span class="sd">              &gt;&gt;&gt; print(values) # doctest: +SKIP</span>
+<a id="__codelineno-0-933" name="__codelineno-0-933"></a><span class="sd">              [3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 4, 4, 2, 4, 3, 2, 3, 3, 2]</span>
+<a id="__codelineno-0-934" name="__codelineno-0-934"></a>
+<a id="__codelineno-0-935" name="__codelineno-0-935"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-936" name="__codelineno-0-936"></a>
+<a id="__codelineno-0-937" name="__codelineno-0-937"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-938" name="__codelineno-0-938"></a>        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>
+<a id="__codelineno-0-939" name="__codelineno-0-939"></a>        <span class="n">position</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-940" name="__codelineno-0-940"></a>        <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-941" name="__codelineno-0-941"></a>        <span class="n">count</span> <span class="o">=</span> <span class="mi">1</span>
+<a id="__codelineno-0-942" name="__codelineno-0-942"></a>        <span class="n">cluster</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+<a id="__codelineno-0-943" name="__codelineno-0-943"></a>
+<a id="__codelineno-0-944" name="__codelineno-0-944"></a>        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+<a id="__codelineno-0-945" name="__codelineno-0-945"></a>            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
+<a id="__codelineno-0-946" name="__codelineno-0-946"></a>                <span class="k">if</span> <span class="n">lower_bound</span> <span class="o">&lt;=</span> <span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">upper_bound</span> <span class="ow">and</span> <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-947" name="__codelineno-0-947"></a>                    <span class="bp">self</span><span class="o">.</span><span class="n">_group_neighbours</span><span class="p">(</span>
+<a id="__codelineno-0-948" name="__codelineno-0-948"></a>                        <span class="n">data</span><span class="p">,</span>
+<a id="__codelineno-0-949" name="__codelineno-0-949"></a>                        <span class="n">i</span><span class="p">,</span>
+<a id="__codelineno-0-950" name="__codelineno-0-950"></a>                        <span class="n">j</span><span class="p">,</span>
+<a id="__codelineno-0-951" name="__codelineno-0-951"></a>                        <span class="n">lower_bound</span><span class="p">,</span>
+<a id="__codelineno-0-952" name="__codelineno-0-952"></a>                        <span class="n">upper_bound</span><span class="p">,</span>
+<a id="__codelineno-0-953" name="__codelineno-0-953"></a>                        <span class="n">position</span><span class="p">,</span>
+<a id="__codelineno-0-954" name="__codelineno-0-954"></a>                        <span class="n">values</span><span class="p">,</span>
+<a id="__codelineno-0-955" name="__codelineno-0-955"></a>                        <span class="n">count</span><span class="p">,</span>
+<a id="__codelineno-0-956" name="__codelineno-0-956"></a>                        <span class="n">cluster</span><span class="p">,</span>
+<a id="__codelineno-0-957" name="__codelineno-0-957"></a>                    <span class="p">)</span>
+<a id="__codelineno-0-958" name="__codelineno-0-958"></a>                    <span class="k">if</span> <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-959" name="__codelineno-0-959"></a>                        <span class="n">position</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span>
+<a id="__codelineno-0-960" name="__codelineno-0-960"></a>                        <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span>
+<a id="__codelineno-0-961" name="__codelineno-0-961"></a>                        <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">count</span>
+<a id="__codelineno-0-962" name="__codelineno-0-962"></a>                    <span class="n">count</span> <span class="o">+=</span> <span class="mi">1</span>
+<a id="__codelineno-0-963" name="__codelineno-0-963"></a>
+<a id="__codelineno-0-964" name="__codelineno-0-964"></a>        <span class="k">return</span> <span class="n">cluster</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">position</span><span class="p">,</span> <span class="n">values</span>
+<a id="__codelineno-0-965" name="__codelineno-0-965"></a>
+<a id="__codelineno-0-966" name="__codelineno-0-966"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_polygons</span><span class="p">(</span>
+<a id="__codelineno-0-967" name="__codelineno-0-967"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-968" name="__codelineno-0-968"></a>        <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-969" name="__codelineno-0-969"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GeoDataFrame</span><span class="p">:</span>
+<a id="__codelineno-0-970" name="__codelineno-0-970"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Polygonize a raster band — merge connected equal-valued cells into polygons.</span>
+<a id="__codelineno-0-971" name="__codelineno-0-971"></a>
+<a id="__codelineno-0-972" name="__codelineno-0-972"></a><span class="sd">        - Creates vector polygons for all connected regions of pixels in the raster sharing a common</span>
+<a id="__codelineno-0-973" name="__codelineno-0-973"></a><span class="sd">            pixel value (group neighboring cells with the same value into one polygon).</span>
+<a id="__codelineno-0-974" name="__codelineno-0-974"></a>
+<a id="__codelineno-0-975" name="__codelineno-0-975"></a><span class="sd">        Args:</span>
+<a id="__codelineno-0-976" name="__codelineno-0-976"></a><span class="sd">            band (int | List[int] | None):</span>
+<a id="__codelineno-0-977" name="__codelineno-0-977"></a><span class="sd">                Band index 0, 1, 2, 3, ...</span>
+<a id="__codelineno-0-978" name="__codelineno-0-978"></a>
+<a id="__codelineno-0-979" name="__codelineno-0-979"></a><span class="sd">        Returns:</span>
+<a id="__codelineno-0-980" name="__codelineno-0-980"></a><span class="sd">            GeoDataFrame:</span>
+<a id="__codelineno-0-981" name="__codelineno-0-981"></a><span class="sd">                GeodataFrame containing polygon geomtries for all connected regions.</span>
+<a id="__codelineno-0-982" name="__codelineno-0-982"></a>
+<a id="__codelineno-0-983" name="__codelineno-0-983"></a><span class="sd">        Examples:</span>
+<a id="__codelineno-0-984" name="__codelineno-0-984"></a><span class="sd">            - First, we will create a 10*10 dataset full of random integer between 1, and 5.</span>
+<a id="__codelineno-0-985" name="__codelineno-0-985"></a>
+<a id="__codelineno-0-986" name="__codelineno-0-986"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-987" name="__codelineno-0-987"></a><span class="sd">              &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-988" name="__codelineno-0-988"></a><span class="sd">              &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
+<a id="__codelineno-0-989" name="__codelineno-0-989"></a><span class="sd">              &gt;&gt;&gt; np.random.seed(200)</span>
+<a id="__codelineno-0-990" name="__codelineno-0-990"></a><span class="sd">              &gt;&gt;&gt; arr = np.random.randint(1, 5, size=(10, 10))</span>
+<a id="__codelineno-0-991" name="__codelineno-0-991"></a><span class="sd">              &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
+<a id="__codelineno-0-992" name="__codelineno-0-992"></a><span class="sd">              [[3 2 1 1 3 4 1 4 2 3]</span>
+<a id="__codelineno-0-993" name="__codelineno-0-993"></a><span class="sd">               [4 2 2 4 3 3 1 2 4 4]</span>
+<a id="__codelineno-0-994" name="__codelineno-0-994"></a><span class="sd">               [4 2 4 2 3 4 2 1 4 3]</span>
+<a id="__codelineno-0-995" name="__codelineno-0-995"></a><span class="sd">               [3 2 1 4 3 3 4 1 1 4]</span>
+<a id="__codelineno-0-996" name="__codelineno-0-996"></a><span class="sd">               [1 2 4 2 2 1 3 2 3 1]</span>
+<a id="__codelineno-0-997" name="__codelineno-0-997"></a><span class="sd">               [1 4 4 4 1 1 4 2 1 1]</span>
+<a id="__codelineno-0-998" name="__codelineno-0-998"></a><span class="sd">               [1 3 2 3 3 4 1 3 1 3]</span>
+<a id="__codelineno-0-999" name="__codelineno-0-999"></a><span class="sd">               [4 1 3 3 3 4 1 4 1 1]</span>
+<a id="__codelineno-0-1000" name="__codelineno-0-1000"></a><span class="sd">               [2 1 3 3 4 2 2 1 3 4]</span>
+<a id="__codelineno-0-1001" name="__codelineno-0-1001"></a><span class="sd">               [2 3 2 2 4 2 1 3 2 2]]</span>
+<a id="__codelineno-0-1002" name="__codelineno-0-1002"></a><span class="sd">              &gt;&gt;&gt; top_left_corner = (0, 0)</span>
+<a id="__codelineno-0-1003" name="__codelineno-0-1003"></a><span class="sd">              &gt;&gt;&gt; cell_size = 0.05</span>
+<a id="__codelineno-0-1004" name="__codelineno-0-1004"></a><span class="sd">              &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-1005" name="__codelineno-0-1005"></a><span class="sd">              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
+<a id="__codelineno-0-1006" name="__codelineno-0-1006"></a><span class="sd">              ... )</span>
+<a id="__codelineno-0-1007" name="__codelineno-0-1007"></a>
+<a id="__codelineno-0-1008" name="__codelineno-0-1008"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-1009" name="__codelineno-0-1009"></a>
+<a id="__codelineno-0-1010" name="__codelineno-0-1010"></a><span class="sd">            - Now, let&#39;s cluster the connected equal cells into polygons.</span>
+<a id="__codelineno-0-1011" name="__codelineno-0-1011"></a><span class="sd">              ```python</span>
+<a id="__codelineno-0-1012" name="__codelineno-0-1012"></a><span class="sd">              &gt;&gt;&gt; gdf = dataset.to_polygons()</span>
+<a id="__codelineno-0-1013" name="__codelineno-0-1013"></a><span class="sd">              &gt;&gt;&gt; print(gdf)  # doctest: +SKIP</span>
+<a id="__codelineno-0-1014" name="__codelineno-0-1014"></a><span class="sd">                  Band_1                                           geometry</span>
+<a id="__codelineno-0-1015" name="__codelineno-0-1015"></a><span class="sd">              0        3  POLYGON ((0 0, 0 -0.05, 0.05 -0.05, 0.05 0, 0 0))</span>
+<a id="__codelineno-0-1016" name="__codelineno-0-1016"></a><span class="sd">              1        1  POLYGON ((0.1 0, 0.1 -0.05, 0.2 -0.05, 0.2 0, ...</span>
+<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a><span class="sd">              2        4  POLYGON ((0.25 0, 0.25 -0.05, 0.3 -0.05, 0.3 0...</span>
+<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a><span class="sd">              3        4  POLYGON ((0.35 0, 0.35 -0.05, 0.4 -0.05, 0.4 0...</span>
+<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a><span class="sd">              4        2  POLYGON ((0.4 0, 0.4 -0.05, 0.45 -0.05, 0.45 0...</span>
+<a id="__codelineno-0-1020" name="__codelineno-0-1020"></a><span class="sd">              5        3  POLYGON ((0.45 0, 0.45 -0.05, 0.5 -0.05, 0.5 0...</span>
+<a id="__codelineno-0-1021" name="__codelineno-0-1021"></a><span class="sd">              6        1  POLYGON ((0.3 0, 0.3 -0.1, 0.35 -0.1, 0.35 0, ...</span>
+<a id="__codelineno-0-1022" name="__codelineno-0-1022"></a><span class="sd">              7        4  POLYGON ((0.15 -0.05, 0.15 -0.1, 0.2 -0.1, 0.2...</span>
+<a id="__codelineno-0-1023" name="__codelineno-0-1023"></a><span class="sd">              8        2  POLYGON ((0.35 -0.05, 0.35 -0.1, 0.4 -0.1, 0.4...</span>
+<a id="__codelineno-0-1024" name="__codelineno-0-1024"></a><span class="sd">              9        4  POLYGON ((0 -0.05, 0 -0.15, 0.05 -0.15, 0.05 -...</span>
+<a id="__codelineno-0-1025" name="__codelineno-0-1025"></a><span class="sd">              10       4  POLYGON ((0.4 -0.05, 0.4 -0.15, 0.45 -0.15, 0....</span>
+<a id="__codelineno-0-1026" name="__codelineno-0-1026"></a><span class="sd">              11       4  POLYGON ((0.1 -0.1, 0.1 -0.15, 0.15 -0.15, 0.1...</span>
+<a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>
+<a id="__codelineno-0-1028" name="__codelineno-0-1028"></a><span class="sd">              ```</span>
+<a id="__codelineno-0-1029" name="__codelineno-0-1029"></a>
+<a id="__codelineno-0-1030" name="__codelineno-0-1030"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1031" name="__codelineno-0-1031"></a>        <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a>            <span class="n">band</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-1033" name="__codelineno-0-1033"></a>
+<a id="__codelineno-0-1034" name="__codelineno-0-1034"></a>        <span class="n">names</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_names</span>
+<a id="__codelineno-0-1035" name="__codelineno-0-1035"></a>
+<a id="__codelineno-0-1036" name="__codelineno-0-1036"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">_band_name</span><span class="p">(</span><span class="n">index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-1037" name="__codelineno-0-1037"></a>            <span class="c1"># band_names can be empty (e.g. a mask dataset built internally by footprint); fall back.</span>
+<a id="__codelineno-0-1038" name="__codelineno-0-1038"></a>            <span class="k">return</span> <span class="n">names</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="k">if</span> <span class="n">index</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">names</span><span class="p">)</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;Band_</span><span class="si">{</span><span class="n">index</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-1039" name="__codelineno-0-1039"></a>
+<a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+<a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>            <span class="n">gdf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_band_to_polygon</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="n">_band_name</span><span class="p">(</span><span class="n">band</span><span class="p">))</span>
+<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-1043" name="__codelineno-0-1043"></a>            <span class="n">gdfs</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-1044" name="__codelineno-0-1044"></a>            <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">band</span><span class="p">:</span>
+<a id="__codelineno-0-1045" name="__codelineno-0-1045"></a>                <span class="n">gdfs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_band_to_polygon</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">_band_name</span><span class="p">(</span><span class="n">b</span><span class="p">)))</span>
+<a id="__codelineno-0-1046" name="__codelineno-0-1046"></a>            <span class="n">gdf</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">gdfs</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+<a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>
+<a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>        <span class="k">return</span> <span class="n">gdf</span>
+<a id="__codelineno-0-1049" name="__codelineno-0-1049"></a>
+<a id="__codelineno-0-1050" name="__codelineno-0-1050"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">cluster2</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GeoDataFrame</span><span class="p">:</span>
+<a id="__codelineno-0-1051" name="__codelineno-0-1051"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Deprecated alias for :meth:`to_polygons`.</span>
+<a id="__codelineno-0-1052" name="__codelineno-0-1052"></a>
+<a id="__codelineno-0-1053" name="__codelineno-0-1053"></a><span class="sd">        .. deprecated::</span>
+<a id="__codelineno-0-1054" name="__codelineno-0-1054"></a><span class="sd">            ``cluster2`` was renamed to :meth:`to_polygons` for clarity. This alias forwards to</span>
+<a id="__codelineno-0-1055" name="__codelineno-0-1055"></a><span class="sd">            :meth:`to_polygons` and will be removed in a future release.</span>
+<a id="__codelineno-0-1056" name="__codelineno-0-1056"></a><span class="sd">        &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1057" name="__codelineno-0-1057"></a>        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+<a id="__codelineno-0-1058" name="__codelineno-0-1058"></a>            <span class="s2">&quot;cluster2 is deprecated and will be removed in a future release; use to_polygons instead.&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>            <span class="ne">DeprecationWarning</span><span class="p">,</span>
+<a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>            <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-0-1061" name="__codelineno-0-1061"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1062" name="__codelineno-0-1062"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_polygons</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -10423,11 +10421,10 @@ print(scaled_dataset.read_array()) # doctest: +SKIP
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="o">...</span>     <span class="n">arr</span><span class="p">,</span> <span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left_corner</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="n">cell_size</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span>
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="o">...</span> <span class="p">)</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.plot</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColorScaling</span><span class="p">,</span> <span class="n">CellValues</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>  <span class="c1"># doctest: +SKIP</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="o">...</span>     <span class="n">color</span><span class="o">=</span><span class="n">ColorScaling</span><span class="o">.</span><span class="n">boundary</span><span class="p">(</span><span class="n">bounds</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mf">1.9</span><span class="p">,</span> <span class="mf">4.1</span><span class="p">,</span> <span class="mi">5</span><span class="p">]),</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="o">...</span>     <span class="n">cells</span><span class="o">=</span><span class="n">CellValues</span><span class="p">(</span><span class="n">show</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span> <span class="n">background_threshold</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="o">...</span> <span class="p">)</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">dataset</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="o">...</span>     <span class="n">color_scale</span><span class="o">=</span><span class="s2">&quot;boundary-norm&quot;</span><span class="p">,</span> <span class="n">bounds</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mf">1.9</span><span class="p">,</span> <span class="mf">4.1</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span> <span class="n">display_cell_value</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">num_size</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="o">...</span>     <span class="n">background_color_threshold</span><span class="o">=</span><span class="mi">5</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="o">...</span> <span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
 </code></pre></div>
   <img alt="cluster" src="../../../_images/dataset/cluster.png" /></p>
 <ul>
@@ -10580,8 +10577,7 @@ print(scaled_dataset.read_array()) # doctest: +SKIP
 <span class="normal"><a href="#__codelineno-0-961">961</a></span>
 <span class="normal"><a href="#__codelineno-0-962">962</a></span>
 <span class="normal"><a href="#__codelineno-0-963">963</a></span>
-<span class="normal"><a href="#__codelineno-0-964">964</a></span>
-<span class="normal"><a href="#__codelineno-0-965">965</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-846" name="__codelineno-0-846"></a><span class="k">def</span><span class="w"> </span><span class="nf">cluster</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-964">964</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-846" name="__codelineno-0-846"></a><span class="k">def</span><span class="w"> </span><span class="nf">cluster</span><span class="p">(</span>
 <a id="__codelineno-0-847" name="__codelineno-0-847"></a>    <span class="bp">self</span><span class="p">,</span> <span class="n">lower_bound</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">upper_bound</span><span class="p">:</span> <span class="n">Any</span>
 <a id="__codelineno-0-848" name="__codelineno-0-848"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">list</span><span class="p">,</span> <span class="nb">list</span><span class="p">]:</span>
 <a id="__codelineno-0-849" name="__codelineno-0-849"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Group all the connected values between two bounds.</span>
@@ -10622,85 +10618,84 @@ print(scaled_dataset.read_array()) # doctest: +SKIP
 <a id="__codelineno-0-884" name="__codelineno-0-884"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
 <a id="__codelineno-0-885" name="__codelineno-0-885"></a><span class="sd">          ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
 <a id="__codelineno-0-886" name="__codelineno-0-886"></a><span class="sd">          ... )</span>
-<a id="__codelineno-0-887" name="__codelineno-0-887"></a><span class="sd">          &gt;&gt;&gt; from pyramids.plot import ColorScaling, CellValues  # doctest: +SKIP</span>
-<a id="__codelineno-0-888" name="__codelineno-0-888"></a><span class="sd">          &gt;&gt;&gt; dataset.plot(  # doctest: +SKIP</span>
-<a id="__codelineno-0-889" name="__codelineno-0-889"></a><span class="sd">          ...     color=ColorScaling.boundary(bounds=[1, 1.9, 4.1, 5]),</span>
-<a id="__codelineno-0-890" name="__codelineno-0-890"></a><span class="sd">          ...     cells=CellValues(show=True, size=12, background_threshold=5),</span>
-<a id="__codelineno-0-891" name="__codelineno-0-891"></a><span class="sd">          ... )</span>
-<a id="__codelineno-0-892" name="__codelineno-0-892"></a>
-<a id="__codelineno-0-893" name="__codelineno-0-893"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-894" name="__codelineno-0-894"></a><span class="sd">          ![cluster](./../../_images/dataset/cluster.png)</span>
-<a id="__codelineno-0-895" name="__codelineno-0-895"></a>
-<a id="__codelineno-0-896" name="__codelineno-0-896"></a><span class="sd">        - Now let&#39;s cluster the values in the dataset that are between 2 and 4.</span>
-<a id="__codelineno-0-897" name="__codelineno-0-897"></a>
-<a id="__codelineno-0-898" name="__codelineno-0-898"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-899" name="__codelineno-0-899"></a><span class="sd">          &gt;&gt;&gt; lower_value = 2</span>
-<a id="__codelineno-0-900" name="__codelineno-0-900"></a><span class="sd">          &gt;&gt;&gt; upper_value = 4</span>
-<a id="__codelineno-0-901" name="__codelineno-0-901"></a><span class="sd">          &gt;&gt;&gt; cluster_array, count, position, values = dataset.cluster(lower_value, upper_value)</span>
-<a id="__codelineno-0-902" name="__codelineno-0-902"></a>
-<a id="__codelineno-0-903" name="__codelineno-0-903"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-904" name="__codelineno-0-904"></a><span class="sd">        - The first returned output is a binary array with 1 indicating that the cell value is inside the</span>
-<a id="__codelineno-0-905" name="__codelineno-0-905"></a><span class="sd">            cluster, and 0 is outside.</span>
-<a id="__codelineno-0-906" name="__codelineno-0-906"></a>
-<a id="__codelineno-0-907" name="__codelineno-0-907"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-908" name="__codelineno-0-908"></a><span class="sd">          &gt;&gt;&gt; print(cluster_array)  # doctest: +SKIP</span>
-<a id="__codelineno-0-909" name="__codelineno-0-909"></a><span class="sd">          [[1. 1. 1. 1. 1.]</span>
-<a id="__codelineno-0-910" name="__codelineno-0-910"></a><span class="sd">           [1. 1. 0. 0. 0.]</span>
-<a id="__codelineno-0-911" name="__codelineno-0-911"></a><span class="sd">           [0. 1. 1. 1. 1.]</span>
-<a id="__codelineno-0-912" name="__codelineno-0-912"></a><span class="sd">           [1. 0. 0. 1. 1.]</span>
-<a id="__codelineno-0-913" name="__codelineno-0-913"></a><span class="sd">           [1. 1. 1. 1. 1.]]</span>
-<a id="__codelineno-0-914" name="__codelineno-0-914"></a>
-<a id="__codelineno-0-915" name="__codelineno-0-915"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-916" name="__codelineno-0-916"></a><span class="sd">        - The second returned value is the number of connected clusters.</span>
-<a id="__codelineno-0-917" name="__codelineno-0-917"></a>
-<a id="__codelineno-0-918" name="__codelineno-0-918"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-919" name="__codelineno-0-919"></a><span class="sd">          &gt;&gt;&gt; print(count) # doctest: +SKIP</span>
-<a id="__codelineno-0-920" name="__codelineno-0-920"></a><span class="sd">          2</span>
-<a id="__codelineno-0-921" name="__codelineno-0-921"></a>
-<a id="__codelineno-0-922" name="__codelineno-0-922"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-923" name="__codelineno-0-923"></a><span class="sd">        - The third returned value is the indices of the cells that belong to the cluster.</span>
-<a id="__codelineno-0-924" name="__codelineno-0-924"></a>
-<a id="__codelineno-0-925" name="__codelineno-0-925"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-926" name="__codelineno-0-926"></a><span class="sd">          &gt;&gt;&gt; print(position) # doctest: +SKIP</span>
-<a id="__codelineno-0-927" name="__codelineno-0-927"></a><span class="sd">          [[1, 0], [2, 1], [2, 2], [3, 3], [4, 3], [4, 4], [3, 4], [2, 4], [2, 3], [4, 2], [4, 1], [3, 0], [4, 0], [1, 1], [0, 2], [0, 3], [0, 4], [0, 1], [0, 0]]</span>
-<a id="__codelineno-0-928" name="__codelineno-0-928"></a>
-<a id="__codelineno-0-929" name="__codelineno-0-929"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-930" name="__codelineno-0-930"></a><span class="sd">        - The fourth returned value is a list of the values that are in the cluster (extracted from these cells).</span>
-<a id="__codelineno-0-931" name="__codelineno-0-931"></a>
-<a id="__codelineno-0-932" name="__codelineno-0-932"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-933" name="__codelineno-0-933"></a><span class="sd">          &gt;&gt;&gt; print(values) # doctest: +SKIP</span>
-<a id="__codelineno-0-934" name="__codelineno-0-934"></a><span class="sd">          [3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 4, 4, 2, 4, 3, 2, 3, 3, 2]</span>
-<a id="__codelineno-0-935" name="__codelineno-0-935"></a>
-<a id="__codelineno-0-936" name="__codelineno-0-936"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-937" name="__codelineno-0-937"></a>
-<a id="__codelineno-0-938" name="__codelineno-0-938"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-939" name="__codelineno-0-939"></a>    <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>
-<a id="__codelineno-0-940" name="__codelineno-0-940"></a>    <span class="n">position</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-941" name="__codelineno-0-941"></a>    <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-942" name="__codelineno-0-942"></a>    <span class="n">count</span> <span class="o">=</span> <span class="mi">1</span>
-<a id="__codelineno-0-943" name="__codelineno-0-943"></a>    <span class="n">cluster</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
-<a id="__codelineno-0-944" name="__codelineno-0-944"></a>
-<a id="__codelineno-0-945" name="__codelineno-0-945"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
-<a id="__codelineno-0-946" name="__codelineno-0-946"></a>        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
-<a id="__codelineno-0-947" name="__codelineno-0-947"></a>            <span class="k">if</span> <span class="n">lower_bound</span> <span class="o">&lt;=</span> <span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">upper_bound</span> <span class="ow">and</span> <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-948" name="__codelineno-0-948"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_group_neighbours</span><span class="p">(</span>
-<a id="__codelineno-0-949" name="__codelineno-0-949"></a>                    <span class="n">data</span><span class="p">,</span>
-<a id="__codelineno-0-950" name="__codelineno-0-950"></a>                    <span class="n">i</span><span class="p">,</span>
-<a id="__codelineno-0-951" name="__codelineno-0-951"></a>                    <span class="n">j</span><span class="p">,</span>
-<a id="__codelineno-0-952" name="__codelineno-0-952"></a>                    <span class="n">lower_bound</span><span class="p">,</span>
-<a id="__codelineno-0-953" name="__codelineno-0-953"></a>                    <span class="n">upper_bound</span><span class="p">,</span>
-<a id="__codelineno-0-954" name="__codelineno-0-954"></a>                    <span class="n">position</span><span class="p">,</span>
-<a id="__codelineno-0-955" name="__codelineno-0-955"></a>                    <span class="n">values</span><span class="p">,</span>
-<a id="__codelineno-0-956" name="__codelineno-0-956"></a>                    <span class="n">count</span><span class="p">,</span>
-<a id="__codelineno-0-957" name="__codelineno-0-957"></a>                    <span class="n">cluster</span><span class="p">,</span>
-<a id="__codelineno-0-958" name="__codelineno-0-958"></a>                <span class="p">)</span>
-<a id="__codelineno-0-959" name="__codelineno-0-959"></a>                <span class="k">if</span> <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-960" name="__codelineno-0-960"></a>                    <span class="n">position</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span>
-<a id="__codelineno-0-961" name="__codelineno-0-961"></a>                    <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span>
-<a id="__codelineno-0-962" name="__codelineno-0-962"></a>                    <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">count</span>
-<a id="__codelineno-0-963" name="__codelineno-0-963"></a>                <span class="n">count</span> <span class="o">+=</span> <span class="mi">1</span>
-<a id="__codelineno-0-964" name="__codelineno-0-964"></a>
-<a id="__codelineno-0-965" name="__codelineno-0-965"></a>    <span class="k">return</span> <span class="n">cluster</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">position</span><span class="p">,</span> <span class="n">values</span>
+<a id="__codelineno-0-887" name="__codelineno-0-887"></a><span class="sd">          &gt;&gt;&gt; dataset.plot(</span>
+<a id="__codelineno-0-888" name="__codelineno-0-888"></a><span class="sd">          ...     color_scale=&quot;boundary-norm&quot;, bounds=[1, 1.9, 4.1, 5], display_cell_value=True, num_size=12,</span>
+<a id="__codelineno-0-889" name="__codelineno-0-889"></a><span class="sd">          ...     background_color_threshold=5</span>
+<a id="__codelineno-0-890" name="__codelineno-0-890"></a><span class="sd">          ... )  # doctest: +SKIP</span>
+<a id="__codelineno-0-891" name="__codelineno-0-891"></a>
+<a id="__codelineno-0-892" name="__codelineno-0-892"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-893" name="__codelineno-0-893"></a><span class="sd">          ![cluster](./../../_images/dataset/cluster.png)</span>
+<a id="__codelineno-0-894" name="__codelineno-0-894"></a>
+<a id="__codelineno-0-895" name="__codelineno-0-895"></a><span class="sd">        - Now let&#39;s cluster the values in the dataset that are between 2 and 4.</span>
+<a id="__codelineno-0-896" name="__codelineno-0-896"></a>
+<a id="__codelineno-0-897" name="__codelineno-0-897"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-898" name="__codelineno-0-898"></a><span class="sd">          &gt;&gt;&gt; lower_value = 2</span>
+<a id="__codelineno-0-899" name="__codelineno-0-899"></a><span class="sd">          &gt;&gt;&gt; upper_value = 4</span>
+<a id="__codelineno-0-900" name="__codelineno-0-900"></a><span class="sd">          &gt;&gt;&gt; cluster_array, count, position, values = dataset.cluster(lower_value, upper_value)</span>
+<a id="__codelineno-0-901" name="__codelineno-0-901"></a>
+<a id="__codelineno-0-902" name="__codelineno-0-902"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-903" name="__codelineno-0-903"></a><span class="sd">        - The first returned output is a binary array with 1 indicating that the cell value is inside the</span>
+<a id="__codelineno-0-904" name="__codelineno-0-904"></a><span class="sd">            cluster, and 0 is outside.</span>
+<a id="__codelineno-0-905" name="__codelineno-0-905"></a>
+<a id="__codelineno-0-906" name="__codelineno-0-906"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-907" name="__codelineno-0-907"></a><span class="sd">          &gt;&gt;&gt; print(cluster_array)  # doctest: +SKIP</span>
+<a id="__codelineno-0-908" name="__codelineno-0-908"></a><span class="sd">          [[1. 1. 1. 1. 1.]</span>
+<a id="__codelineno-0-909" name="__codelineno-0-909"></a><span class="sd">           [1. 1. 0. 0. 0.]</span>
+<a id="__codelineno-0-910" name="__codelineno-0-910"></a><span class="sd">           [0. 1. 1. 1. 1.]</span>
+<a id="__codelineno-0-911" name="__codelineno-0-911"></a><span class="sd">           [1. 0. 0. 1. 1.]</span>
+<a id="__codelineno-0-912" name="__codelineno-0-912"></a><span class="sd">           [1. 1. 1. 1. 1.]]</span>
+<a id="__codelineno-0-913" name="__codelineno-0-913"></a>
+<a id="__codelineno-0-914" name="__codelineno-0-914"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-915" name="__codelineno-0-915"></a><span class="sd">        - The second returned value is the number of connected clusters.</span>
+<a id="__codelineno-0-916" name="__codelineno-0-916"></a>
+<a id="__codelineno-0-917" name="__codelineno-0-917"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-918" name="__codelineno-0-918"></a><span class="sd">          &gt;&gt;&gt; print(count) # doctest: +SKIP</span>
+<a id="__codelineno-0-919" name="__codelineno-0-919"></a><span class="sd">          2</span>
+<a id="__codelineno-0-920" name="__codelineno-0-920"></a>
+<a id="__codelineno-0-921" name="__codelineno-0-921"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-922" name="__codelineno-0-922"></a><span class="sd">        - The third returned value is the indices of the cells that belong to the cluster.</span>
+<a id="__codelineno-0-923" name="__codelineno-0-923"></a>
+<a id="__codelineno-0-924" name="__codelineno-0-924"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-925" name="__codelineno-0-925"></a><span class="sd">          &gt;&gt;&gt; print(position) # doctest: +SKIP</span>
+<a id="__codelineno-0-926" name="__codelineno-0-926"></a><span class="sd">          [[1, 0], [2, 1], [2, 2], [3, 3], [4, 3], [4, 4], [3, 4], [2, 4], [2, 3], [4, 2], [4, 1], [3, 0], [4, 0], [1, 1], [0, 2], [0, 3], [0, 4], [0, 1], [0, 0]]</span>
+<a id="__codelineno-0-927" name="__codelineno-0-927"></a>
+<a id="__codelineno-0-928" name="__codelineno-0-928"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-929" name="__codelineno-0-929"></a><span class="sd">        - The fourth returned value is a list of the values that are in the cluster (extracted from these cells).</span>
+<a id="__codelineno-0-930" name="__codelineno-0-930"></a>
+<a id="__codelineno-0-931" name="__codelineno-0-931"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-932" name="__codelineno-0-932"></a><span class="sd">          &gt;&gt;&gt; print(values) # doctest: +SKIP</span>
+<a id="__codelineno-0-933" name="__codelineno-0-933"></a><span class="sd">          [3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 4, 4, 2, 4, 3, 2, 3, 3, 2]</span>
+<a id="__codelineno-0-934" name="__codelineno-0-934"></a>
+<a id="__codelineno-0-935" name="__codelineno-0-935"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-936" name="__codelineno-0-936"></a>
+<a id="__codelineno-0-937" name="__codelineno-0-937"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-938" name="__codelineno-0-938"></a>    <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span>
+<a id="__codelineno-0-939" name="__codelineno-0-939"></a>    <span class="n">position</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-940" name="__codelineno-0-940"></a>    <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-941" name="__codelineno-0-941"></a>    <span class="n">count</span> <span class="o">=</span> <span class="mi">1</span>
+<a id="__codelineno-0-942" name="__codelineno-0-942"></a>    <span class="n">cluster</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+<a id="__codelineno-0-943" name="__codelineno-0-943"></a>
+<a id="__codelineno-0-944" name="__codelineno-0-944"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+<a id="__codelineno-0-945" name="__codelineno-0-945"></a>        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
+<a id="__codelineno-0-946" name="__codelineno-0-946"></a>            <span class="k">if</span> <span class="n">lower_bound</span> <span class="o">&lt;=</span> <span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">upper_bound</span> <span class="ow">and</span> <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-947" name="__codelineno-0-947"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_group_neighbours</span><span class="p">(</span>
+<a id="__codelineno-0-948" name="__codelineno-0-948"></a>                    <span class="n">data</span><span class="p">,</span>
+<a id="__codelineno-0-949" name="__codelineno-0-949"></a>                    <span class="n">i</span><span class="p">,</span>
+<a id="__codelineno-0-950" name="__codelineno-0-950"></a>                    <span class="n">j</span><span class="p">,</span>
+<a id="__codelineno-0-951" name="__codelineno-0-951"></a>                    <span class="n">lower_bound</span><span class="p">,</span>
+<a id="__codelineno-0-952" name="__codelineno-0-952"></a>                    <span class="n">upper_bound</span><span class="p">,</span>
+<a id="__codelineno-0-953" name="__codelineno-0-953"></a>                    <span class="n">position</span><span class="p">,</span>
+<a id="__codelineno-0-954" name="__codelineno-0-954"></a>                    <span class="n">values</span><span class="p">,</span>
+<a id="__codelineno-0-955" name="__codelineno-0-955"></a>                    <span class="n">count</span><span class="p">,</span>
+<a id="__codelineno-0-956" name="__codelineno-0-956"></a>                    <span class="n">cluster</span><span class="p">,</span>
+<a id="__codelineno-0-957" name="__codelineno-0-957"></a>                <span class="p">)</span>
+<a id="__codelineno-0-958" name="__codelineno-0-958"></a>                <span class="k">if</span> <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-959" name="__codelineno-0-959"></a>                    <span class="n">position</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span>
+<a id="__codelineno-0-960" name="__codelineno-0-960"></a>                    <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span>
+<a id="__codelineno-0-961" name="__codelineno-0-961"></a>                    <span class="n">cluster</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">count</span>
+<a id="__codelineno-0-962" name="__codelineno-0-962"></a>                <span class="n">count</span> <span class="o">+=</span> <span class="mi">1</span>
+<a id="__codelineno-0-963" name="__codelineno-0-963"></a>
+<a id="__codelineno-0-964" name="__codelineno-0-964"></a>    <span class="k">return</span> <span class="n">cluster</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">position</span><span class="p">,</span> <span class="n">values</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -10827,7 +10822,8 @@ print(scaled_dataset.read_array()) # doctest: +SKIP
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/engines/vectorize.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-967"> 967</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-966"> 966</a></span>
+<span class="normal"><a href="#__codelineno-0-967"> 967</a></span>
 <span class="normal"><a href="#__codelineno-0-968"> 968</a></span>
 <span class="normal"><a href="#__codelineno-0-969"> 969</a></span>
 <span class="normal"><a href="#__codelineno-0-970"> 970</a></span>
@@ -10908,90 +10904,89 @@ print(scaled_dataset.read_array()) # doctest: +SKIP
 <span class="normal"><a href="#__codelineno-0-1045">1045</a></span>
 <span class="normal"><a href="#__codelineno-0-1046">1046</a></span>
 <span class="normal"><a href="#__codelineno-0-1047">1047</a></span>
-<span class="normal"><a href="#__codelineno-0-1048">1048</a></span>
-<span class="normal"><a href="#__codelineno-0-1049">1049</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-967" name="__codelineno-0-967"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_polygons</span><span class="p">(</span>
-<a id="__codelineno-0-968" name="__codelineno-0-968"></a>    <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-969" name="__codelineno-0-969"></a>    <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-970" name="__codelineno-0-970"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GeoDataFrame</span><span class="p">:</span>
-<a id="__codelineno-0-971" name="__codelineno-0-971"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Polygonize a raster band — merge connected equal-valued cells into polygons.</span>
-<a id="__codelineno-0-972" name="__codelineno-0-972"></a>
-<a id="__codelineno-0-973" name="__codelineno-0-973"></a><span class="sd">    - Creates vector polygons for all connected regions of pixels in the raster sharing a common</span>
-<a id="__codelineno-0-974" name="__codelineno-0-974"></a><span class="sd">        pixel value (group neighboring cells with the same value into one polygon).</span>
-<a id="__codelineno-0-975" name="__codelineno-0-975"></a>
-<a id="__codelineno-0-976" name="__codelineno-0-976"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-977" name="__codelineno-0-977"></a><span class="sd">        band (int | List[int] | None):</span>
-<a id="__codelineno-0-978" name="__codelineno-0-978"></a><span class="sd">            Band index 0, 1, 2, 3, ...</span>
-<a id="__codelineno-0-979" name="__codelineno-0-979"></a>
-<a id="__codelineno-0-980" name="__codelineno-0-980"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-981" name="__codelineno-0-981"></a><span class="sd">        GeoDataFrame:</span>
-<a id="__codelineno-0-982" name="__codelineno-0-982"></a><span class="sd">            GeodataFrame containing polygon geomtries for all connected regions.</span>
-<a id="__codelineno-0-983" name="__codelineno-0-983"></a>
-<a id="__codelineno-0-984" name="__codelineno-0-984"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-985" name="__codelineno-0-985"></a><span class="sd">        - First, we will create a 10*10 dataset full of random integer between 1, and 5.</span>
-<a id="__codelineno-0-986" name="__codelineno-0-986"></a>
-<a id="__codelineno-0-987" name="__codelineno-0-987"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-988" name="__codelineno-0-988"></a><span class="sd">          &gt;&gt;&gt; import numpy as np</span>
-<a id="__codelineno-0-989" name="__codelineno-0-989"></a><span class="sd">          &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
-<a id="__codelineno-0-990" name="__codelineno-0-990"></a><span class="sd">          &gt;&gt;&gt; np.random.seed(200)</span>
-<a id="__codelineno-0-991" name="__codelineno-0-991"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1, 5, size=(10, 10))</span>
-<a id="__codelineno-0-992" name="__codelineno-0-992"></a><span class="sd">          &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
-<a id="__codelineno-0-993" name="__codelineno-0-993"></a><span class="sd">          [[3 2 1 1 3 4 1 4 2 3]</span>
-<a id="__codelineno-0-994" name="__codelineno-0-994"></a><span class="sd">           [4 2 2 4 3 3 1 2 4 4]</span>
-<a id="__codelineno-0-995" name="__codelineno-0-995"></a><span class="sd">           [4 2 4 2 3 4 2 1 4 3]</span>
-<a id="__codelineno-0-996" name="__codelineno-0-996"></a><span class="sd">           [3 2 1 4 3 3 4 1 1 4]</span>
-<a id="__codelineno-0-997" name="__codelineno-0-997"></a><span class="sd">           [1 2 4 2 2 1 3 2 3 1]</span>
-<a id="__codelineno-0-998" name="__codelineno-0-998"></a><span class="sd">           [1 4 4 4 1 1 4 2 1 1]</span>
-<a id="__codelineno-0-999" name="__codelineno-0-999"></a><span class="sd">           [1 3 2 3 3 4 1 3 1 3]</span>
-<a id="__codelineno-0-1000" name="__codelineno-0-1000"></a><span class="sd">           [4 1 3 3 3 4 1 4 1 1]</span>
-<a id="__codelineno-0-1001" name="__codelineno-0-1001"></a><span class="sd">           [2 1 3 3 4 2 2 1 3 4]</span>
-<a id="__codelineno-0-1002" name="__codelineno-0-1002"></a><span class="sd">           [2 3 2 2 4 2 1 3 2 2]]</span>
-<a id="__codelineno-0-1003" name="__codelineno-0-1003"></a><span class="sd">          &gt;&gt;&gt; top_left_corner = (0, 0)</span>
-<a id="__codelineno-0-1004" name="__codelineno-0-1004"></a><span class="sd">          &gt;&gt;&gt; cell_size = 0.05</span>
-<a id="__codelineno-0-1005" name="__codelineno-0-1005"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
-<a id="__codelineno-0-1006" name="__codelineno-0-1006"></a><span class="sd">          ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
-<a id="__codelineno-0-1007" name="__codelineno-0-1007"></a><span class="sd">          ... )</span>
-<a id="__codelineno-0-1008" name="__codelineno-0-1008"></a>
-<a id="__codelineno-0-1009" name="__codelineno-0-1009"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-1010" name="__codelineno-0-1010"></a>
-<a id="__codelineno-0-1011" name="__codelineno-0-1011"></a><span class="sd">        - Now, let&#39;s cluster the connected equal cells into polygons.</span>
-<a id="__codelineno-0-1012" name="__codelineno-0-1012"></a><span class="sd">          ```python</span>
-<a id="__codelineno-0-1013" name="__codelineno-0-1013"></a><span class="sd">          &gt;&gt;&gt; gdf = dataset.to_polygons()</span>
-<a id="__codelineno-0-1014" name="__codelineno-0-1014"></a><span class="sd">          &gt;&gt;&gt; print(gdf)  # doctest: +SKIP</span>
-<a id="__codelineno-0-1015" name="__codelineno-0-1015"></a><span class="sd">              Band_1                                           geometry</span>
-<a id="__codelineno-0-1016" name="__codelineno-0-1016"></a><span class="sd">          0        3  POLYGON ((0 0, 0 -0.05, 0.05 -0.05, 0.05 0, 0 0))</span>
-<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a><span class="sd">          1        1  POLYGON ((0.1 0, 0.1 -0.05, 0.2 -0.05, 0.2 0, ...</span>
-<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a><span class="sd">          2        4  POLYGON ((0.25 0, 0.25 -0.05, 0.3 -0.05, 0.3 0...</span>
-<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a><span class="sd">          3        4  POLYGON ((0.35 0, 0.35 -0.05, 0.4 -0.05, 0.4 0...</span>
-<a id="__codelineno-0-1020" name="__codelineno-0-1020"></a><span class="sd">          4        2  POLYGON ((0.4 0, 0.4 -0.05, 0.45 -0.05, 0.45 0...</span>
-<a id="__codelineno-0-1021" name="__codelineno-0-1021"></a><span class="sd">          5        3  POLYGON ((0.45 0, 0.45 -0.05, 0.5 -0.05, 0.5 0...</span>
-<a id="__codelineno-0-1022" name="__codelineno-0-1022"></a><span class="sd">          6        1  POLYGON ((0.3 0, 0.3 -0.1, 0.35 -0.1, 0.35 0, ...</span>
-<a id="__codelineno-0-1023" name="__codelineno-0-1023"></a><span class="sd">          7        4  POLYGON ((0.15 -0.05, 0.15 -0.1, 0.2 -0.1, 0.2...</span>
-<a id="__codelineno-0-1024" name="__codelineno-0-1024"></a><span class="sd">          8        2  POLYGON ((0.35 -0.05, 0.35 -0.1, 0.4 -0.1, 0.4...</span>
-<a id="__codelineno-0-1025" name="__codelineno-0-1025"></a><span class="sd">          9        4  POLYGON ((0 -0.05, 0 -0.15, 0.05 -0.15, 0.05 -...</span>
-<a id="__codelineno-0-1026" name="__codelineno-0-1026"></a><span class="sd">          10       4  POLYGON ((0.4 -0.05, 0.4 -0.15, 0.45 -0.15, 0....</span>
-<a id="__codelineno-0-1027" name="__codelineno-0-1027"></a><span class="sd">          11       4  POLYGON ((0.1 -0.1, 0.1 -0.15, 0.15 -0.15, 0.1...</span>
-<a id="__codelineno-0-1028" name="__codelineno-0-1028"></a>
-<a id="__codelineno-0-1029" name="__codelineno-0-1029"></a><span class="sd">          ```</span>
-<a id="__codelineno-0-1030" name="__codelineno-0-1030"></a>
-<a id="__codelineno-0-1031" name="__codelineno-0-1031"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a>    <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1033" name="__codelineno-0-1033"></a>        <span class="n">band</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-1034" name="__codelineno-0-1034"></a>
-<a id="__codelineno-0-1035" name="__codelineno-0-1035"></a>    <span class="n">names</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_names</span>
-<a id="__codelineno-0-1036" name="__codelineno-0-1036"></a>
-<a id="__codelineno-0-1037" name="__codelineno-0-1037"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_band_name</span><span class="p">(</span><span class="n">index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-1038" name="__codelineno-0-1038"></a>        <span class="c1"># band_names can be empty (e.g. a mask dataset built internally by footprint); fall back.</span>
-<a id="__codelineno-0-1039" name="__codelineno-0-1039"></a>        <span class="k">return</span> <span class="n">names</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="k">if</span> <span class="n">index</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">names</span><span class="p">)</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;Band_</span><span class="si">{</span><span class="n">index</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>
-<a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
-<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a>        <span class="n">gdf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_band_to_polygon</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="n">_band_name</span><span class="p">(</span><span class="n">band</span><span class="p">))</span>
-<a id="__codelineno-0-1043" name="__codelineno-0-1043"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-1044" name="__codelineno-0-1044"></a>        <span class="n">gdfs</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-1045" name="__codelineno-0-1045"></a>        <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">band</span><span class="p">:</span>
-<a id="__codelineno-0-1046" name="__codelineno-0-1046"></a>            <span class="n">gdfs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_band_to_polygon</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">_band_name</span><span class="p">(</span><span class="n">b</span><span class="p">)))</span>
-<a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>        <span class="n">gdf</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">gdfs</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
-<a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>
-<a id="__codelineno-0-1049" name="__codelineno-0-1049"></a>    <span class="k">return</span> <span class="n">gdf</span>
+<span class="normal"><a href="#__codelineno-0-1048">1048</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-966" name="__codelineno-0-966"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_polygons</span><span class="p">(</span>
+<a id="__codelineno-0-967" name="__codelineno-0-967"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-968" name="__codelineno-0-968"></a>    <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-969" name="__codelineno-0-969"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GeoDataFrame</span><span class="p">:</span>
+<a id="__codelineno-0-970" name="__codelineno-0-970"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Polygonize a raster band — merge connected equal-valued cells into polygons.</span>
+<a id="__codelineno-0-971" name="__codelineno-0-971"></a>
+<a id="__codelineno-0-972" name="__codelineno-0-972"></a><span class="sd">    - Creates vector polygons for all connected regions of pixels in the raster sharing a common</span>
+<a id="__codelineno-0-973" name="__codelineno-0-973"></a><span class="sd">        pixel value (group neighboring cells with the same value into one polygon).</span>
+<a id="__codelineno-0-974" name="__codelineno-0-974"></a>
+<a id="__codelineno-0-975" name="__codelineno-0-975"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-976" name="__codelineno-0-976"></a><span class="sd">        band (int | List[int] | None):</span>
+<a id="__codelineno-0-977" name="__codelineno-0-977"></a><span class="sd">            Band index 0, 1, 2, 3, ...</span>
+<a id="__codelineno-0-978" name="__codelineno-0-978"></a>
+<a id="__codelineno-0-979" name="__codelineno-0-979"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-980" name="__codelineno-0-980"></a><span class="sd">        GeoDataFrame:</span>
+<a id="__codelineno-0-981" name="__codelineno-0-981"></a><span class="sd">            GeodataFrame containing polygon geomtries for all connected regions.</span>
+<a id="__codelineno-0-982" name="__codelineno-0-982"></a>
+<a id="__codelineno-0-983" name="__codelineno-0-983"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-984" name="__codelineno-0-984"></a><span class="sd">        - First, we will create a 10*10 dataset full of random integer between 1, and 5.</span>
+<a id="__codelineno-0-985" name="__codelineno-0-985"></a>
+<a id="__codelineno-0-986" name="__codelineno-0-986"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-987" name="__codelineno-0-987"></a><span class="sd">          &gt;&gt;&gt; import numpy as np</span>
+<a id="__codelineno-0-988" name="__codelineno-0-988"></a><span class="sd">          &gt;&gt;&gt; from pyramids.dataset import Dataset</span>
+<a id="__codelineno-0-989" name="__codelineno-0-989"></a><span class="sd">          &gt;&gt;&gt; np.random.seed(200)</span>
+<a id="__codelineno-0-990" name="__codelineno-0-990"></a><span class="sd">          &gt;&gt;&gt; arr = np.random.randint(1, 5, size=(10, 10))</span>
+<a id="__codelineno-0-991" name="__codelineno-0-991"></a><span class="sd">          &gt;&gt;&gt; print(arr)  # doctest: +SKIP</span>
+<a id="__codelineno-0-992" name="__codelineno-0-992"></a><span class="sd">          [[3 2 1 1 3 4 1 4 2 3]</span>
+<a id="__codelineno-0-993" name="__codelineno-0-993"></a><span class="sd">           [4 2 2 4 3 3 1 2 4 4]</span>
+<a id="__codelineno-0-994" name="__codelineno-0-994"></a><span class="sd">           [4 2 4 2 3 4 2 1 4 3]</span>
+<a id="__codelineno-0-995" name="__codelineno-0-995"></a><span class="sd">           [3 2 1 4 3 3 4 1 1 4]</span>
+<a id="__codelineno-0-996" name="__codelineno-0-996"></a><span class="sd">           [1 2 4 2 2 1 3 2 3 1]</span>
+<a id="__codelineno-0-997" name="__codelineno-0-997"></a><span class="sd">           [1 4 4 4 1 1 4 2 1 1]</span>
+<a id="__codelineno-0-998" name="__codelineno-0-998"></a><span class="sd">           [1 3 2 3 3 4 1 3 1 3]</span>
+<a id="__codelineno-0-999" name="__codelineno-0-999"></a><span class="sd">           [4 1 3 3 3 4 1 4 1 1]</span>
+<a id="__codelineno-0-1000" name="__codelineno-0-1000"></a><span class="sd">           [2 1 3 3 4 2 2 1 3 4]</span>
+<a id="__codelineno-0-1001" name="__codelineno-0-1001"></a><span class="sd">           [2 3 2 2 4 2 1 3 2 2]]</span>
+<a id="__codelineno-0-1002" name="__codelineno-0-1002"></a><span class="sd">          &gt;&gt;&gt; top_left_corner = (0, 0)</span>
+<a id="__codelineno-0-1003" name="__codelineno-0-1003"></a><span class="sd">          &gt;&gt;&gt; cell_size = 0.05</span>
+<a id="__codelineno-0-1004" name="__codelineno-0-1004"></a><span class="sd">          &gt;&gt;&gt; dataset = Dataset.create_from_array(</span>
+<a id="__codelineno-0-1005" name="__codelineno-0-1005"></a><span class="sd">          ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326</span>
+<a id="__codelineno-0-1006" name="__codelineno-0-1006"></a><span class="sd">          ... )</span>
+<a id="__codelineno-0-1007" name="__codelineno-0-1007"></a>
+<a id="__codelineno-0-1008" name="__codelineno-0-1008"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-1009" name="__codelineno-0-1009"></a>
+<a id="__codelineno-0-1010" name="__codelineno-0-1010"></a><span class="sd">        - Now, let&#39;s cluster the connected equal cells into polygons.</span>
+<a id="__codelineno-0-1011" name="__codelineno-0-1011"></a><span class="sd">          ```python</span>
+<a id="__codelineno-0-1012" name="__codelineno-0-1012"></a><span class="sd">          &gt;&gt;&gt; gdf = dataset.to_polygons()</span>
+<a id="__codelineno-0-1013" name="__codelineno-0-1013"></a><span class="sd">          &gt;&gt;&gt; print(gdf)  # doctest: +SKIP</span>
+<a id="__codelineno-0-1014" name="__codelineno-0-1014"></a><span class="sd">              Band_1                                           geometry</span>
+<a id="__codelineno-0-1015" name="__codelineno-0-1015"></a><span class="sd">          0        3  POLYGON ((0 0, 0 -0.05, 0.05 -0.05, 0.05 0, 0 0))</span>
+<a id="__codelineno-0-1016" name="__codelineno-0-1016"></a><span class="sd">          1        1  POLYGON ((0.1 0, 0.1 -0.05, 0.2 -0.05, 0.2 0, ...</span>
+<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a><span class="sd">          2        4  POLYGON ((0.25 0, 0.25 -0.05, 0.3 -0.05, 0.3 0...</span>
+<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a><span class="sd">          3        4  POLYGON ((0.35 0, 0.35 -0.05, 0.4 -0.05, 0.4 0...</span>
+<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a><span class="sd">          4        2  POLYGON ((0.4 0, 0.4 -0.05, 0.45 -0.05, 0.45 0...</span>
+<a id="__codelineno-0-1020" name="__codelineno-0-1020"></a><span class="sd">          5        3  POLYGON ((0.45 0, 0.45 -0.05, 0.5 -0.05, 0.5 0...</span>
+<a id="__codelineno-0-1021" name="__codelineno-0-1021"></a><span class="sd">          6        1  POLYGON ((0.3 0, 0.3 -0.1, 0.35 -0.1, 0.35 0, ...</span>
+<a id="__codelineno-0-1022" name="__codelineno-0-1022"></a><span class="sd">          7        4  POLYGON ((0.15 -0.05, 0.15 -0.1, 0.2 -0.1, 0.2...</span>
+<a id="__codelineno-0-1023" name="__codelineno-0-1023"></a><span class="sd">          8        2  POLYGON ((0.35 -0.05, 0.35 -0.1, 0.4 -0.1, 0.4...</span>
+<a id="__codelineno-0-1024" name="__codelineno-0-1024"></a><span class="sd">          9        4  POLYGON ((0 -0.05, 0 -0.15, 0.05 -0.15, 0.05 -...</span>
+<a id="__codelineno-0-1025" name="__codelineno-0-1025"></a><span class="sd">          10       4  POLYGON ((0.4 -0.05, 0.4 -0.15, 0.45 -0.15, 0....</span>
+<a id="__codelineno-0-1026" name="__codelineno-0-1026"></a><span class="sd">          11       4  POLYGON ((0.1 -0.1, 0.1 -0.15, 0.15 -0.15, 0.1...</span>
+<a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>
+<a id="__codelineno-0-1028" name="__codelineno-0-1028"></a><span class="sd">          ```</span>
+<a id="__codelineno-0-1029" name="__codelineno-0-1029"></a>
+<a id="__codelineno-0-1030" name="__codelineno-0-1030"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1031" name="__codelineno-0-1031"></a>    <span class="k">if</span> <span class="n">band</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a>        <span class="n">band</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-1033" name="__codelineno-0-1033"></a>
+<a id="__codelineno-0-1034" name="__codelineno-0-1034"></a>    <span class="n">names</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_names</span>
+<a id="__codelineno-0-1035" name="__codelineno-0-1035"></a>
+<a id="__codelineno-0-1036" name="__codelineno-0-1036"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_band_name</span><span class="p">(</span><span class="n">index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-1037" name="__codelineno-0-1037"></a>        <span class="c1"># band_names can be empty (e.g. a mask dataset built internally by footprint); fall back.</span>
+<a id="__codelineno-0-1038" name="__codelineno-0-1038"></a>        <span class="k">return</span> <span class="n">names</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="k">if</span> <span class="n">index</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">names</span><span class="p">)</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;Band_</span><span class="si">{</span><span class="n">index</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-1039" name="__codelineno-0-1039"></a>
+<a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+<a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>        <span class="n">gdf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_band_to_polygon</span><span class="p">(</span><span class="n">band</span><span class="p">,</span> <span class="n">_band_name</span><span class="p">(</span><span class="n">band</span><span class="p">))</span>
+<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-1043" name="__codelineno-0-1043"></a>        <span class="n">gdfs</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-1044" name="__codelineno-0-1044"></a>        <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">band</span><span class="p">:</span>
+<a id="__codelineno-0-1045" name="__codelineno-0-1045"></a>            <span class="n">gdfs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_band_to_polygon</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">_band_name</span><span class="p">(</span><span class="n">b</span><span class="p">)))</span>
+<a id="__codelineno-0-1046" name="__codelineno-0-1046"></a>        <span class="n">gdf</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">gdfs</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+<a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>
+<a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>    <span class="k">return</span> <span class="n">gdf</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -11017,7 +11012,8 @@ print(scaled_dataset.read_array()) # doctest: +SKIP
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/engines/vectorize.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1051">1051</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1050">1050</a></span>
+<span class="normal"><a href="#__codelineno-0-1051">1051</a></span>
 <span class="normal"><a href="#__codelineno-0-1052">1052</a></span>
 <span class="normal"><a href="#__codelineno-0-1053">1053</a></span>
 <span class="normal"><a href="#__codelineno-0-1054">1054</a></span>
@@ -11028,20 +11024,19 @@ print(scaled_dataset.read_array()) # doctest: +SKIP
 <span class="normal"><a href="#__codelineno-0-1059">1059</a></span>
 <span class="normal"><a href="#__codelineno-0-1060">1060</a></span>
 <span class="normal"><a href="#__codelineno-0-1061">1061</a></span>
-<span class="normal"><a href="#__codelineno-0-1062">1062</a></span>
-<span class="normal"><a href="#__codelineno-0-1063">1063</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1051" name="__codelineno-0-1051"></a><span class="k">def</span><span class="w"> </span><span class="nf">cluster2</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GeoDataFrame</span><span class="p">:</span>
-<a id="__codelineno-0-1052" name="__codelineno-0-1052"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Deprecated alias for :meth:`to_polygons`.</span>
-<a id="__codelineno-0-1053" name="__codelineno-0-1053"></a>
-<a id="__codelineno-0-1054" name="__codelineno-0-1054"></a><span class="sd">    .. deprecated::</span>
-<a id="__codelineno-0-1055" name="__codelineno-0-1055"></a><span class="sd">        ``cluster2`` was renamed to :meth:`to_polygons` for clarity. This alias forwards to</span>
-<a id="__codelineno-0-1056" name="__codelineno-0-1056"></a><span class="sd">        :meth:`to_polygons` and will be removed in a future release.</span>
-<a id="__codelineno-0-1057" name="__codelineno-0-1057"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1058" name="__codelineno-0-1058"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
-<a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>        <span class="s2">&quot;cluster2 is deprecated and will be removed in a future release; use to_polygons instead.&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>        <span class="ne">DeprecationWarning</span><span class="p">,</span>
-<a id="__codelineno-0-1061" name="__codelineno-0-1061"></a>        <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-<a id="__codelineno-0-1062" name="__codelineno-0-1062"></a>    <span class="p">)</span>
-<a id="__codelineno-0-1063" name="__codelineno-0-1063"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_polygons</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-1062">1062</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1050" name="__codelineno-0-1050"></a><span class="k">def</span><span class="w"> </span><span class="nf">cluster2</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">band</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GeoDataFrame</span><span class="p">:</span>
+<a id="__codelineno-0-1051" name="__codelineno-0-1051"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Deprecated alias for :meth:`to_polygons`.</span>
+<a id="__codelineno-0-1052" name="__codelineno-0-1052"></a>
+<a id="__codelineno-0-1053" name="__codelineno-0-1053"></a><span class="sd">    .. deprecated::</span>
+<a id="__codelineno-0-1054" name="__codelineno-0-1054"></a><span class="sd">        ``cluster2`` was renamed to :meth:`to_polygons` for clarity. This alias forwards to</span>
+<a id="__codelineno-0-1055" name="__codelineno-0-1055"></a><span class="sd">        :meth:`to_polygons` and will be removed in a future release.</span>
+<a id="__codelineno-0-1056" name="__codelineno-0-1056"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1057" name="__codelineno-0-1057"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+<a id="__codelineno-0-1058" name="__codelineno-0-1058"></a>        <span class="s2">&quot;cluster2 is deprecated and will be removed in a future release; use to_polygons instead.&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>        <span class="ne">DeprecationWarning</span><span class="p">,</span>
+<a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>        <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-0-1061" name="__codelineno-0-1061"></a>    <span class="p">)</span>
+<a id="__codelineno-0-1062" name="__codelineno-0-1062"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_polygons</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
