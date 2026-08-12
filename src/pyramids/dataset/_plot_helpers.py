@@ -450,24 +450,25 @@ def render_array(
     """
     require_cleopatra()
     from cleopatra.basemap.geo import Basemap
+    from cleopatra.glyphs.gridded.array_glyph import (
+        ArrayGlyph,
+        PanelLabels,
+        PointOverlay,
+    )
 
     # ``RgbBands`` landed in cleopatra 0.31 (serapeum-org/cleopatra#291), which this
-    # module now requires. ``require_cleopatra`` only checks presence, so an env with a
-    # stale cleopatra <0.31 (RgbBands absent) would otherwise raise a bare
-    # ``ImportError: cannot import name 'RgbBands'``. Translate it into the branded
-    # upgrade hint pyramids uses elsewhere for optional-extra version mismatches.
+    # module now requires. ``require_cleopatra`` only checks presence, so a stale
+    # cleopatra <0.31 (RgbBands absent) would otherwise raise a bare
+    # ``ImportError: cannot import name 'RgbBands'``. Import it on its own — guarding
+    # only this name — so a genuine module-load failure keeps its real ImportError and
+    # only a truly-absent ``RgbBands`` is translated into the branded upgrade hint.
     try:
-        from cleopatra.glyphs.gridded.array_glyph import (
-            ArrayGlyph,
-            PanelLabels,
-            PointOverlay,
-            RgbBands,
-        )
+        from cleopatra.glyphs.gridded.array_glyph import RgbBands
     except ImportError as exc:
         raise OptionalPackageDoesNotExist(
-            "pyramids requires cleopatra >= 0.31.0 for plotting, but the installed "
-            "cleopatra is too old (missing RgbBands). Upgrade with "
-            "`pip install -U 'pyramids-gis[viz]'`."
+            "pyramids's plotting needs a newer cleopatra than is installed "
+            "(missing RgbBands). Upgrade with `pip install -U 'pyramids-gis[viz]'` "
+            "to satisfy the version pinned in pyproject.toml."
         ) from exc
 
     # The loose styling kwargs are no longer translated here: they moved onto the typed
