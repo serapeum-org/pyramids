@@ -647,3 +647,51 @@ class TestTiledRowOrder:
         assert not (tiled.to_numpy() == -9999.0).any(), (
             "no sentinel may survive into the frame"
         )
+
+    def test_auto_reads_the_whole_array_below_the_threshold(self, uneven, mocker):
+        """`tile=None` reads the whole array when it fits under the byte threshold.
+
+        Test scenario:
+            The 37x53 fixture is far below 256 MiB, so the default call takes the fast
+            whole-array path, not the tiled one.
+        """
+        full_spy = mocker.spy(Vectorize, "_extract_values_full")
+        tiled_spy = mocker.spy(Vectorize, "_extract_values_tiled")
+        uneven.to_feature_collection()
+        assert full_spy.call_count == 1, "small raster should read the whole array"
+        assert tiled_spy.call_count == 0, "small raster should not tile"
+
+    def test_auto_tiles_above_the_threshold_byte_identical(
+        self, uneven, mocker, monkeypatch
+    ):
+        """`tile=None` tiles a raster above the threshold, byte-identical to the full read.
+
+        Test scenario:
+            Drop the auto-tile threshold to 1 byte so the fixture exceeds it; the default
+            call then takes the tiled path and returns exactly the rows the untiled path
+            returns, in the same order.
+        """
+        monkeypatch.setattr("pyramids.dataset.engines.vectorize._AUTO_TILE_BYTES", 1)
+        tiled_spy = mocker.spy(Vectorize, "_extract_values_tiled")
+        auto = uneven.to_feature_collection(tile_size=8)
+        assert tiled_spy.call_count == 1, "large raster should tile"
+        untiled = uneven.to_feature_collection(tile=False)
+        pd.testing.assert_frame_equal(
+            auto.reset_index(drop=True), untiled.reset_index(drop=True)
+        )
+
+    def test_explicit_tile_false_overrides_the_auto_threshold(
+        self, uneven, mocker, monkeypatch
+    ):
+        """An explicit `tile=False` reads the whole array even above the threshold.
+
+        Test scenario:
+            With the threshold dropped to 1 byte (which would auto-tile), passing
+            `tile=False` still takes the whole-array path.
+        """
+        monkeypatch.setattr("pyramids.dataset.engines.vectorize._AUTO_TILE_BYTES", 1)
+        full_spy = mocker.spy(Vectorize, "_extract_values_full")
+        tiled_spy = mocker.spy(Vectorize, "_extract_values_tiled")
+        uneven.to_feature_collection(tile=False)
+        assert full_spy.call_count == 1, "explicit tile=False must read the whole array"
+        assert tiled_spy.call_count == 0, "explicit tile=False must not tile"
