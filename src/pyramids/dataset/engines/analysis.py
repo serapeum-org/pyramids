@@ -1045,17 +1045,14 @@ class Analysis(_Engine["Dataset"]):
             raise ValueError(f"connectedness must be 4 or 8, got {connectedness}.")
         validate_band_index(band, self._ds.band_count)
 
-        src_band = self._ds.raster.GetRasterBand(band + 1)
-        out_ds = gdal.GetDriverByName("MEM").Create(
-            "", self._ds.columns, self._ds.rows, 1, src_band.DataType
+        # Seed the sieve target with GDAL's block-based copy of the one band
+        # (geotransform, CRS, dtype, and no-data carried across in the C layer)
+        # instead of a full-band ``ReadAsArray`` -> ``WriteArray`` NumPy round
+        # trip, so the whole band is never materialised as a NumPy array (#969).
+        out_ds = gdal.Translate(
+            "", self._ds.raster, format="MEM", bandList=[band + 1]
         )
-        out_ds.SetGeoTransform(self._ds.geotransform)
-        out_ds.SetProjection(self._ds.crs)
         dst_band = out_ds.GetRasterBand(1)
-        dst_band.WriteArray(src_band.ReadAsArray())
-        no_data_value = src_band.GetNoDataValue()
-        if no_data_value is not None:
-            dst_band.SetNoDataValue(no_data_value)
 
         mask_band = mask.raster.GetRasterBand(1) if mask is not None else None
         gdal.SieveFilter(dst_band, mask_band, dst_band, threshold, connectedness)
