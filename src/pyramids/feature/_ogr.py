@@ -306,6 +306,34 @@ def _end_of_json_object(head: bytes, start: int) -> int:
     return -1
 
 
+def _widen_over_separator(head: bytes, start: int, end: int) -> tuple[int, int]:
+    """Extend a cut to swallow one separating comma, so the result stays valid JSON.
+
+    Removing a member from an object leaves either ``{"a":1,,"b":2}`` or a trailing
+    ``{"a":1,}`` unless one of its commas goes with it. Which one depends on where the
+    member sat: the comma *after* it normally, or the comma *before* it when it was
+    last.
+
+    Args:
+        head: The buffer being edited.
+        start: Index of the member's opening quote.
+        end: Index just past the member's value.
+
+    Returns:
+        tuple[int, int]: The widened ``(start, end)`` to cut between.
+    """
+    while end < len(head) and head[end : end + 1].isspace():
+        end += 1
+    if head[end : end + 1] == b",":
+        return start, end + 1
+    preceding = start - 1
+    while preceding >= 0 and head[preceding : preceding + 1].isspace():
+        preceding -= 1
+    if preceding >= 0 and head[preceding : preceding + 1] == b",":
+        start = preceding
+    return start, end
+
+
 def _strip_geojson_crs(data: bytes) -> bytes | None:
     """Drop the top-level ``crs`` member from GDAL's GeoJSON without parsing it.
 
@@ -354,17 +382,7 @@ def _strip_geojson_crs(data: bytes) -> bytes | None:
 
     # Absorb one separating comma so what remains is still valid JSON: the one after
     # the member, or -- if `crs` was last -- the one before it.
-    cut_start, cut_end = key, end
-    while cut_end < len(head) and head[cut_end : cut_end + 1].isspace():
-        cut_end += 1
-    if head[cut_end : cut_end + 1] == b",":
-        cut_end += 1
-    else:
-        preceding = cut_start - 1
-        while preceding >= 0 and head[preceding : preceding + 1].isspace():
-            preceding -= 1
-        if preceding >= 0 and head[preceding : preceding + 1] == b",":
-            cut_start = preceding
+    cut_start, cut_end = _widen_over_separator(head, key, end)
     return bytes(data[:cut_start]) + bytes(data[cut_end:])
 
 
