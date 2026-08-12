@@ -147,7 +147,12 @@ jobs:
       # poison a release wheel. Caching them on releases too stops the build
       # re-downloading ~26 tarballs from ~30 hosts, where one 503/429 fails it.
       # Arch-independent key: the tarballs are source, identical across arches
-      # and the glibc/musl jobs, so one download seeds all of them.
+      # and the glibc/musl jobs, so one download seeds all of them. The key
+      # hashes config.sh only, not build-gdal-stack.sh (where GDAL_VERSION is
+      # defaulted): safe because the GDAL tarball's SHA is pinned inline in
+      # config.sh, so any real bump rotates the key. If GDAL_VERSION ever
+      # becomes a workflow input decoupled from that pin, add build-gdal-stack.sh
+      # to the key.
       # Split restore/save (not the combined cache action): actions/cache saves
       # at post-job even when the build FAILED, and the four Linux jobs share
       # one write-once key — so a job aborting mid-fetch would otherwise seed the
