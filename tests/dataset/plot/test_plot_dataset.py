@@ -159,7 +159,9 @@ class TestPlotDataSet:
                 return {}
 
             def __init__(self, values, ax=None, **kwargs):
-                captured["n"] = np.asarray(values).size
+                vals = np.asarray(values)
+                captured["n"] = vals.size
+                captured["vals"] = vals
 
             def histogram(self, bins=15):
                 return ("fig", "ax", {})
@@ -169,11 +171,17 @@ class TestPlotDataSet:
         ):
             dataset.plot_histogram(band=0, max_samples=400)
             decimated = captured["n"]
+            decimated_vals = captured["vals"]
             dataset.plot_histogram(band=0)
             full = captured["n"]
         assert full == 10000, f"Exact read must see every pixel, got {full}"
         assert decimated <= 500, (
             f"max_samples=400 must decimate to ~400 samples, got {decimated}"
+        )
+        # nearest-neighbour decimation must hand the glyph real band values, not
+        # interpolated or out-of-range garbage.
+        assert np.isin(decimated_vals, np.arange(10000)).all(), (
+            "every decimated sample must be an actual band value (nearest-neighbour)"
         )
 
     @pytest.mark.plot

@@ -1112,6 +1112,9 @@ class Analysis(_Engine["Dataset"]):
         # (geotransform, CRS, dtype, and no-data carried across in the C layer)
         # instead of a full-band ``ReadAsArray`` -> ``WriteArray`` NumPy round
         # trip, so the whole band is never materialised as a NumPy array (#969).
+        # gdal.Translate also carries the band's color table / RAT / scale-offset
+        # onto the result (the old bare-MEM seed dropped them); the sieved pixels
+        # are unchanged either way, so this only preserves more metadata.
         out_ds = gdal.Translate("", self._ds.raster, format="MEM", bandList=[band + 1])
         dst_band = out_ds.GetRasterBand(1)
 
