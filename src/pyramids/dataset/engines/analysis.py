@@ -1502,6 +1502,8 @@ class Analysis(_Engine["Dataset"]):
         self,
         band: int = 0,
         exclude_values: list[Any] | None = None,
+        *,
+        max_samples: int | None = None,
     ) -> GeoDataFrame | None:
         """Extract the real coverage of the values in a certain band.
 
@@ -1522,6 +1524,16 @@ class Analysis(_Engine["Dataset"]):
                 - This parameter is introduced particularly in the case of rasters that has the no_data_value stored in
                   the `no_data_value` property does not match the value stored in the band, so this option can correct
                   this behavior.
+            max_samples (int, optional):
+                Opt-in cap on how many pixels of the band are read to build the
+                coverage mask. When set and the band has more than
+                ``max_samples`` cells, GDAL reads a nearest-neighbour
+                **decimated** grid (~``max_samples`` cells) instead of the full
+                band, so a very large raster is footprinted without materialising
+                it whole. The extracted polygon is then **approximate** -- traced
+                on the coarser grid, so its edges and area are coarser than the
+                exact footprint. ``None`` (default) reads every pixel, so the
+                footprint is exact.
 
         Returns:
             GeoDataFrame:
@@ -1563,8 +1575,13 @@ class Analysis(_Engine["Dataset"]):
 
               ```
         """
-        arr = self._ds.read_array(band=band)
+        arr = self._read_decimated(band, max_samples)
         no_data_val = self._ds.no_data_value[band]
+        # A decimated read spans the same extent with fewer, larger cells, so the
+        # mask's geotransform must scale its pixel size (and rotation terms) to
+        # the coarser grid; the origin is unchanged. Full-resolution reads leave
+        # the geotransform untouched.
+        geotransform = self._scaled_geotransform(arr.shape)
 
         self._warn_if_nodata_absent(arr, no_data_val)
         if exclude_values:
@@ -1587,7 +1604,7 @@ class Analysis(_Engine["Dataset"]):
 
         new_dataset = Dataset.create_from_array(
             arr,
-            geo=self._ds.geotransform,
+            geo=geotransform,
             epsg=crs_spec(self._ds.epsg, self._ds.crs),
             no_data_value=0,
         )
@@ -1762,12 +1779,69 @@ class Analysis(_Engine["Dataset"]):
         )
         return hist, ranges
 
+    def _read_decimated(self, band: int, max_samples: int | None) -> np.ndarray:
+        """Read a band whole, or a nearest-neighbour decimated version of it.
+
+        When `max_samples` is set and the band has more cells than that, GDAL
+        reads a coarser grid of roughly `max_samples` cells (decimated in the C
+        layer) so the whole band is never materialised; otherwise the full band
+        is read. Nearest-neighbour keeps the samples real pixel values.
+
+        Args:
+            band: Zero-based band index to read.
+            max_samples: Approximate pixel budget, or `None` for an exact read.
+
+        Returns:
+            np.ndarray: The band array, full-resolution or decimated.
+        """
+        rows = self._ds.rows
+        cols = self._ds.columns
+        total = rows * cols
+        if max_samples is None or total <= max_samples:
+            return cast(np.ndarray, self._ds.read_array(band=band))
+        factor = (total / max_samples) ** 0.5
+        out_rows = max(1, round(rows / factor))
+        out_cols = max(1, round(cols / factor))
+        return cast(
+            np.ndarray,
+            self._ds.read_array(
+                band=band, out_shape=(out_rows, out_cols), resampling="nearest"
+            ),
+        )
+
+    def _scaled_geotransform(
+        self, shape: tuple[int, ...]
+    ) -> tuple[float, float, float, float, float, float]:
+        """Geotransform for an array covering the source extent at `shape` cells.
+
+        A full-resolution `shape` returns the source geotransform unchanged; a
+        decimated `shape` (fewer/larger cells over the same extent) scales the
+        pixel-size and rotation terms by the row/column decimation factors while
+        keeping the origin fixed.
+
+        Args:
+            shape: The `(rows, cols)` of the (possibly decimated) array.
+
+        Returns:
+            tuple[float, float, float, float, float, float]: The six-element
+            geotransform for that grid.
+        """
+        d_rows, d_cols = shape
+        gt = self._ds.geotransform
+        if (d_rows, d_cols) == (self._ds.rows, self._ds.columns):
+            return (gt[0], gt[1], gt[2], gt[3], gt[4], gt[5])
+        sx = self._ds.columns / d_cols
+        sy = self._ds.rows / d_rows
+        return (gt[0], gt[1] * sx, gt[2] * sy, gt[3], gt[4] * sx, gt[5] * sy)
+
     def plot_histogram(
         self,
         band: int = 0,
         bins: int = 15,
         exclude_value: Any | None = None,
         ax: Any | None = None,
+        *,
+        max_samples: int | None = None,
         **kwargs: Any,
     ):
         """Plot the value distribution of a band as a histogram.
@@ -1788,6 +1862,15 @@ class Analysis(_Engine["Dataset"]):
                 band's no-data value and ``NaN``. Default is ``None``.
             ax (matplotlib.axes.Axes, optional):
                 Axes to draw on. A new figure/axes is created when ``None``.
+            max_samples (int, optional):
+                Opt-in cap on how many pixels are read. When set and the band
+                has more than ``max_samples`` cells, GDAL reads a
+                nearest-neighbour **decimated** version (~``max_samples`` cells)
+                instead of the full band, so a very large raster is histogrammed
+                without materialising it whole. The distribution is then
+                **approximate** -- a subsample of the pixels, the usual
+                expectation for a large raster. ``None`` (default) reads every
+                pixel, so the histogram is exact.
             **kwargs:
                 Style options forwarded to the ``HistogramGlyph``
                 constructor, filtered via
@@ -1830,7 +1913,7 @@ class Analysis(_Engine["Dataset"]):
         require_cleopatra()
         from cleopatra.glyphs.stats.histogram_glyph import HistogramGlyph
 
-        arr = self._ds.read_array(band=band).flatten()
+        arr = self._read_decimated(band, max_samples).flatten()
         no_data_value = self._ds.no_data_value[band]
         mask = np.ones(arr.shape, dtype=bool)
         if np.issubdtype(arr.dtype, np.floating):

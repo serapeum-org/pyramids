@@ -419,6 +419,45 @@ class TestFootPrint:
         # the class should be 2
         assert next(iter(set(extent[dataset.band_names[0]]))) == 2
 
+    def test_max_samples_none_is_exact_full_read(self):
+        """The default `max_samples=None` traces the exact full-resolution footprint.
+
+        Test scenario:
+            A 200x200 raster with a solid covered block footprints to a polygon whose area
+            equals the block's geographic area.
+        """
+        arr = np.zeros((200, 200), dtype="float32")
+        arr[50:150, 60:160] = 5.0
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 200.0), cell_size=1.0, epsg=3857
+        )
+        extent = ds.footprint(exclude_values=[0])
+        assert extent is not None, "A covered block must yield a footprint"
+        assert float(extent.geometry.area.sum()) == pytest.approx(100 * 100), (
+            "Exact footprint area must equal the covered block area"
+        )
+
+    def test_max_samples_decimates_and_keeps_extent(self):
+        """`max_samples` traces an approximate footprint on a coarser grid over the same extent.
+
+        Test scenario:
+            The decimated footprint of a solid block stays inside the raster bounds and
+            covers roughly the block's area (coarser, not exact).
+        """
+        arr = np.zeros((200, 200), dtype="float32")
+        arr[50:150, 60:160] = 5.0
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 200.0), cell_size=1.0, epsg=3857
+        )
+        approx = ds.footprint(exclude_values=[0], max_samples=400)
+        assert approx is not None, "Decimated footprint must still be produced"
+        minx, miny, maxx, maxy = approx.total_bounds
+        assert minx >= -1e-6 and miny >= -1e-6, "Footprint must stay within raster bounds"
+        assert maxx <= 200 + 1e-6 and maxy <= 200 + 1e-6, "Footprint must stay within bounds"
+        assert float(approx.geometry.area.sum()) == pytest.approx(10000, rel=0.5), (
+            "Decimated footprint area should be roughly the block area"
+        )
+
 
 class TestToFeatureCollectionMaskTiling:
     """The mask must be honoured on both the tiled and the non-tiled path."""
