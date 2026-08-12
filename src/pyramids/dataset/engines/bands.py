@@ -1445,7 +1445,7 @@ class Bands(_Engine["Dataset"]):
             # to the package-level NoDataValueError.
             except (TypeError, ValueError, FloatingPointError):
                 raise NoDataValueError(
-                    f"The dtype of the given no_data_value: {new_value[band]} differs from the "
+                    f"The dtype of the given no_data_value: {new_value[band]} differs from the dtype of the "
                     f"band: {gdal_to_numpy_dtype(self._ds.gdal_dtype[band])}"
                 )
             new_dataset.raster.GetRasterBand(band + 1).WriteArray(arr)
