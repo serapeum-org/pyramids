@@ -455,6 +455,42 @@ class Analysis(_Engine["Dataset"]):
             return None
         return dst
 
+    def _extract_streamed(
+        self, band: int | None, exclude_list: list
+    ) -> np.typing.NDArray:
+        """Stream the maskless `extract` in full-width row strips (see `extract`).
+
+        `get_pixels2` selects from band 0 in row-major order within each strip;
+        full-width top-to-bottom strips keep that order across the raster, so
+        concatenating the strips reproduces the whole-array selection exactly (#967).
+
+        Args:
+            band (int, optional):
+                Band to read, or `None` for all bands.
+            exclude_list (list):
+                Values to exclude (no-data, and `exclude_value` when given).
+
+        Returns:
+            np.ndarray:
+                The extracted values, byte-identical to the eager whole-array pass.
+        """
+
+        def _collect(
+            acc: list[np.ndarray], strip: np.ndarray, _window: list[int]
+        ) -> list[np.ndarray]:
+            acc.append(get_pixels2(strip, exclude_list))
+            return acc
+
+        parts = [
+            part
+            for part in self._ds.io.stream_reduce(_collect, [], band=band)
+            if part.size
+        ]
+        multiband = band is None and self._ds.band_count > 1
+        if parts:
+            return np.concatenate(parts, axis=1 if multiband else 0)
+        return np.asarray([])
+
     def extract(
         self,
         band: int | None = None,
@@ -556,27 +592,7 @@ class Analysis(_Engine["Dataset"]):
                 if exclude_value is not None
                 else [no_data_value]
             )
-
-            def _collect(
-                acc: list[np.ndarray], strip: np.ndarray, _window: list[int]
-            ) -> list[np.ndarray]:
-                acc.append(get_pixels2(strip, exclude_list))
-                return acc
-
-            # Stream in row strips so the source is never read whole (#967).
-            # get_pixels2 selects from band 0 in row-major order within each strip;
-            # full-width top-to-bottom strips keep that order across the raster, so
-            # concatenating the strips reproduces the whole-array selection exactly.
-            parts = [
-                part
-                for part in self._ds.io.stream_reduce(_collect, [], band=band)
-                if part.size
-            ]
-            multiband = band is None and self._ds.band_count > 1
-            if parts:
-                values = np.concatenate(parts, axis=1 if multiband else 0)
-            else:
-                values = np.asarray([])
+            values = self._extract_streamed(band, exclude_list)
         else:
             arr = self._ds.read_array(band=band)
             geom_types = set(getattr(mask, "geom_type", []))
