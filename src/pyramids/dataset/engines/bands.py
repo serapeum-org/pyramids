@@ -1349,6 +1349,64 @@ class Bands(_Engine["Dataset"]):
                 self._ds.raster.GetRasterBand(band + 1).SetNoDataValue(no_data_value)
         self._ds._no_data_value[band] = no_data_value
 
+    def _normalize_no_data_arg(self, value: Any, name: str) -> list:
+        """Normalize a scalar or per-band no-data value to a list of length band_count.
+
+        Args:
+            value: A scalar (broadcast to every band) or a per-band list.
+            name: The argument name, used in the error message.
+
+        Returns:
+            list: A per-band list of length `band_count`.
+
+        Raises:
+            NoDataValueError: `value` is a list whose length is not `band_count`.
+        """
+        if not isinstance(value, list):
+            return [value] * self._ds.band_count
+        if len(value) != self._ds.band_count:
+            raise NoDataValueError(
+                f"{name} must be a scalar or a list of length band_count "
+                f"({self._ds.band_count}); got a list of length {len(value)}."
+            )
+        return value
+
+    def _swap_all_bands(
+        self, new_dataset: Dataset, new_value: Any, old_value: list | None
+    ) -> None:
+        """Swap every band's old no-data cells to the new value, tile by tile.
+
+        Args:
+            new_dataset: The cloned destination written in place.
+            new_value: Per-band new no-data values (already dtype-coerced).
+            old_value: Per-band old no-data values, or `None` to match NaN.
+        """
+        for band in range(self._ds.band_count):
+            band_old_value = old_value[band] if old_value is not None else None
+            self._swap_no_data_tiled(
+                new_dataset, band, band_old_value, new_value[band]
+            )
+
+    @staticmethod
+    def _discard_partial_output(new_dataset: Dataset, target: str) -> None:
+        """Release the handle and delete a partially-written disk output (best-effort).
+
+        Closes the wrapper (needed with the caller dropping its own `dst` reference,
+        or GDAL keeps the file locked on Windows) and unlinks the partial file plus
+        its sidecar, swallowing `OSError` so a residual lock never masks the original
+        exception -- the file just lingers.
+
+        Args:
+            new_dataset: The destination wrapper to close.
+            target: The output file path whose partial file/sidecar to remove.
+        """
+        new_dataset.close()
+        for leftover in (target, f"{target}.aux.xml"):
+            try:
+                Path(leftover).unlink()
+            except OSError:
+                pass
+
     def change_no_data_value(
         self,
         new_value: Any,
@@ -1424,20 +1482,9 @@ class Bands(_Engine["Dataset"]):
 
               ```
         """
-        if not isinstance(new_value, list):
-            new_value = [new_value] * self._ds.band_count
-        if len(new_value) != self._ds.band_count:
-            raise NoDataValueError(
-                f"new_value must be a scalar or a list of length band_count "
-                f"({self._ds.band_count}); got a list of length {len(new_value)}."
-            )
-        if old_value is not None and not isinstance(old_value, list):
-            old_value = [old_value] * self._ds.band_count
-        if old_value is not None and len(old_value) != self._ds.band_count:
-            raise NoDataValueError(
-                f"old_value must be a scalar or a list of length band_count "
-                f"({self._ds.band_count}); got a list of length {len(old_value)}."
-            )
+        new_value = self._normalize_no_data_arg(new_value, "new_value")
+        if old_value is not None:
+            old_value = self._normalize_no_data_arg(old_value, "old_value")
         # Clone the full header + pixels with GDAL's block-based CreateCopy so
         # every band's colour table, description, scale/offset, RAT and metadata
         # survive exactly (no explicit per-property copy to drift out of sync).
@@ -1450,36 +1497,18 @@ class Bands(_Engine["Dataset"]):
         dst = gdal.GetDriverByName(driver).CreateCopy(target, self._ds.raster, 0)
         new_dataset = self._ds.__class__(dst, "write")
         try:
-            # the new_value could change inside the _set_no_data_value method before it is used to set the no_data_value
-            # attribute in the gdal object/pyramids object and to fill the band.
+            # _set_no_data_value may coerce new_value to each band's dtype; read it
+            # back from the object so the swap below uses the stored values.
             new_dataset._set_no_data_value(new_value)
-            # now we have to use the no_data_value value in the no_data_value attribute in the Dataset object as it is
-            # updated.
             new_value = new_dataset.no_data_value
-            for band in range(self._ds.band_count):
-                # old_value is normalized to a per-band list above (matching
-                # new_value); index it per-band here too instead of comparing
-                # against the whole list.
-                band_old_value = old_value[band] if old_value is not None else None
-                self._swap_no_data_tiled(
-                    new_dataset, band, band_old_value, new_value[band]
-                )
+            self._swap_all_bands(new_dataset, new_value, old_value)
         except Exception:
-            # A mid-stream failure (e.g. a dtype-mismatch NoDataValueError) must not
-            # leave a half-written GeoTIFF behind on the disk path: release every
-            # handle to the file (both the wrapper and the local `dst` reference,
-            # or GDAL keeps the file locked on Windows) and delete the partial file
-            # and its sidecar before re-raising. The unlinks are best-effort: if a
-            # GDAL/OS build still holds the file, swallow the OSError so the cleanup
-            # never masks the original exception (the file just lingers).
+            # A mid-stream failure must not leave a half-written GeoTIFF behind:
+            # drop the local handle and let the helper release + delete the partial
+            # file before re-raising (best-effort, so it never masks the error).
             if path is not None:
-                new_dataset.close()
                 dst = None
-                for leftover in (target, f"{target}.aux.xml"):
-                    try:
-                        Path(leftover).unlink()
-                    except OSError:
-                        pass
+                self._discard_partial_output(new_dataset, target)
             raise
         # Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on
         # disk before it is reopened (a no-op for the in-memory driver).
