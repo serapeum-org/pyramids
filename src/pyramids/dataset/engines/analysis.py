@@ -393,7 +393,9 @@ class Analysis(_Engine["Dataset"]):
         if elementwise:
             self._apply_elementwise_tiled(func, band, no_data_value, dst_obj)
         else:
-            src_array = self._ds.read_array(band)
+            # `band=` as a keyword, never positional: NetCDF.read_array puts
+            # `variable` first, so read_array(band) mis-binds on a variable view.
+            src_array = self._ds.read_array(band=band)
             new_array = np.full(
                 (self._ds.rows, self._ds.columns),
                 no_data_value,

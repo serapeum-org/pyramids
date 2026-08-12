@@ -161,9 +161,22 @@ def test_set_attribute_table(tos):
     assert df_out is not None and len(df_out) == len(df_in)
 
 
-def test_apply_guarded_on_variable_view(tos):
-    with pytest.raises(ValueError, match="pinned"):
-        tos.apply(lambda a: a + 1)
+def test_apply_on_variable_view(tos):
+    """apply works on a variable-pinned view (both the default and elementwise paths).
+
+    The old "pinned" error was an accidental positional read_array(band) mis-bind, not a
+    real guard; both paths now read with band= as a keyword and return a result.
+    """
+    default = tos.apply(lambda a: a + 1)
+    streamed = tos.apply(lambda a: a + 1, elementwise=True)
+    assert default is not None and streamed is not None, (
+        "apply must return a dataset on a variable view for both paths"
+    )
+    np.testing.assert_array_equal(
+        np.asarray(default.read_array(band=0)),
+        np.asarray(streamed.read_array(band=0)),
+        err_msg="default and elementwise apply must agree on a variable view",
+    )
 
 
 def test_set_rpcs_guarded_read_only(tos):
