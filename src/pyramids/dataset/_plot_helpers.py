@@ -453,6 +453,7 @@ def render_array(
         ArrayGlyph,
         PanelLabels,
         PointOverlay,
+        RgbBands,
     )
 
     # The loose styling kwargs are no longer translated here: they moved onto the typed
@@ -596,15 +597,28 @@ def render_array(
     else:
         animate_kwargs = {}
 
+    # cleopatra 0.31 (serapeum-org/cleopatra#291) grouped the four loose RGB
+    # band-prep keywords (``rgb`` / ``surface_reflectance`` / ``cutoff`` /
+    # ``percentile``) into an ``RgbBands`` object; the constructor takes only
+    # ``rgb_bands=``. ``rgb`` is ``None`` on the single-band path (and on the
+    # animate path, where ``prepare_array`` already consumed the stretch above),
+    # so leave ``rgb_bands`` unset there.
+    rgb_bands = (
+        RgbBands(
+            rgb,
+            surface_reflectance=surface_reflectance,
+            cutoff=cutoff,
+            percentile=percentile,
+        )
+        if rgb is not None
+        else None
+    )
     cleo = ArrayGlyph(
         arr,
         exclude_value=exclude_value if exclude_value is not None else np.nan,
         extent=effective_extent,
         coords=coords,
-        rgb=rgb,
-        surface_reflectance=surface_reflectance,
-        cutoff=cutoff,
-        percentile=percentile,
+        rgb_bands=rgb_bands,
         ax=ax,
         fig=fig,
         **ctor_kwargs,
