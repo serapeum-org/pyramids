@@ -284,14 +284,21 @@ class Analysis(_Engine["Dataset"]):
             int:
                 Number of cells.
         """
-        arr = self._ds.read_array(band=band)
+        no_data_value = self._ds.no_data_value[band]
+
         # Count the no-data cells directly rather than counting the *non-zero* values
         # among them. `count_nonzero(arr[mask])` asks "how many no-data cells hold a
         # non-zero value", which equals the no-data count only while the sentinel
         # happens to be non-zero; with `no_data_value == 0` it is always 0, so nothing
         # was subtracted and every cell counted as domain.
-        no_data_count = int(is_no_data(arr, self._ds.no_data_value[band]).sum())
-        domain_count = arr.size - no_data_count
+        def _count(acc: int, strip: np.ndarray, _window: list[int]) -> int:
+            return acc + int(is_no_data(strip, no_data_value).sum())
+
+        # Stream the count in row strips so a very large or /vsicurl source is never
+        # read whole (#967). A summed count is order-independent, so the tiled total
+        # is byte-identical to the whole-band count.
+        no_data_count = self._ds.io.stream_reduce(_count, 0, band=band)
+        domain_count = self._ds.rows * self._ds.columns - no_data_count
         return int(domain_count)
 
     def apply(self, func, band: int = 0, inplace: bool = False) -> Dataset | None:
@@ -431,19 +438,58 @@ class Analysis(_Engine["Dataset"]):
               ```
         """
         no_data_value = self._ds.no_data_value[0]
-        src_array = self._ds.raster.ReadAsArray()
 
-        # rtol=1e-6 is intentionally tighter than the package default
-        # (1e-3): `fill` writes user-supplied values into every domain
-        # cell, so a too-loose match would clobber legitimate cells that
-        # happen to lie within ~0.1% of the no-data sentinel.
-        src_array[inside_domain(src_array, no_data_value, rtol=0.000001)] = value
+        def _fill_tile(tile: np.ndarray) -> np.ndarray:
+            # rtol=1e-6 is intentionally tighter than the package default (1e-3):
+            # `fill` writes user-supplied values into every domain cell, so a
+            # too-loose match would clobber legitimate cells that happen to lie
+            # within ~0.1% of the no-data sentinel.
+            tile[inside_domain(tile, no_data_value, rtol=0.000001)] = value
+            return tile
 
-        dst = self._ds.__class__.dataset_like(self._ds, src_array, path=path)
+        # Stream the fill tile-by-tile so a very large or /vsicurl source is never
+        # read whole (#967). The domain mask is per-pixel, so tiling is byte-identical.
+        dst = self._ds.io.stream_transform(_fill_tile, path=path)
         if inplace:
             self._ds._update_inplace(dst.raster)
             return None
         return dst
+
+    def _extract_streamed(
+        self, band: int | None, exclude_list: list
+    ) -> np.typing.NDArray:
+        """Stream the maskless `extract` in full-width row strips (see `extract`).
+
+        `get_pixels2` selects from band 0 in row-major order within each strip;
+        full-width top-to-bottom strips keep that order across the raster, so
+        concatenating the strips reproduces the whole-array selection exactly (#967).
+
+        Args:
+            band (int, optional):
+                Band to read, or `None` for all bands.
+            exclude_list (list):
+                Values to exclude (no-data, and `exclude_value` when given).
+
+        Returns:
+            np.ndarray:
+                The extracted values, byte-identical to the eager whole-array pass.
+        """
+
+        def _collect(
+            acc: list[np.ndarray], strip: np.ndarray, _window: list[int]
+        ) -> list[np.ndarray]:
+            acc.append(get_pixels2(strip, exclude_list))
+            return acc
+
+        parts = [
+            part
+            for part in self._ds.io.stream_reduce(_collect, [], band=band)
+            if part.size
+        ]
+        multiband = band is None and self._ds.band_count > 1
+        if parts:
+            return np.concatenate(parts, axis=1 if multiband else 0)
+        return np.asarray([])
 
     def extract(
         self,
@@ -535,9 +581,6 @@ class Analysis(_Engine["Dataset"]):
 
                 ```
         """
-        # Optimize: make the read_array return only the array for inside the mask feature, and not to read the whole
-        #  raster
-        arr = self._ds.read_array(band=band)
         no_data_value = (
             self._ds.no_data_value[0]
             if self._ds.no_data_value[0] is not None
@@ -549,8 +592,9 @@ class Analysis(_Engine["Dataset"]):
                 if exclude_value is not None
                 else [no_data_value]
             )
-            values = get_pixels2(arr, exclude_list)
+            values = self._extract_streamed(band, exclude_list)
         else:
+            arr = self._ds.read_array(band=band)
             geom_types = set(getattr(mask, "geom_type", []))
             # map(str, ...) — missing geometries yield float nan, which is not
             # orderable against the str type names.
@@ -1188,7 +1232,6 @@ class Analysis(_Engine["Dataset"]):
                 "The class Dataset is not aligned with the current raster, please use the method "
                 "'align' to align both rasters."
             )
-        arr = self._ds.read_array(band=band)
         no_data_value = (
             self._ds.no_data_value[0]
             if self._ds.no_data_value[0] is not None
@@ -1199,19 +1242,24 @@ class Analysis(_Engine["Dataset"]):
             if exclude_value is not None
             else [no_data_value]
         )
-        ind = get_indices2(arr, mask)
-        classes = classes_map.read_array()
-        values: dict[Any, list[Any]] = {}
 
-        # extract values
-        for i, ind_i in enumerate(ind):
-            # first check if the sub-basin has a list in the dict if not create a list
-            key = classes[ind_i[0], ind_i[1]]
-            if key not in values:
-                values[key] = []
+        def _group(
+            acc: dict[Any, list[Any]], strip: np.ndarray, window: list[int]
+        ) -> dict[Any, list[Any]]:
+            # Read the aligned class strip over the same window; the rasters are
+            # aligned (checked above), so the windows index the same cells.
+            classes = classes_map.read_array(window=window)
+            for ind_i in get_indices2(strip, mask):
+                key = classes[ind_i[0], ind_i[1]]
+                if key not in acc:
+                    acc[key] = []
+                acc[key].append(strip[ind_i[0], ind_i[1]])
+            return acc
 
-            values[key].append(arr[ind_i[0], ind_i[1]])
-
+        # Stream base + class rasters in row strips so neither is read whole (#967).
+        # Full-width top-to-bottom strips keep row-major order, so each class's value
+        # list is byte-identical to the whole-array pass.
+        values: dict[Any, list[Any]] = self._ds.io.stream_reduce(_group, {}, band=band)
         return values
 
     def get_mask(self, band: int = 0) -> np.typing.NDArray:

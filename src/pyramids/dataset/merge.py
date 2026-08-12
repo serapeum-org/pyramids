@@ -24,6 +24,50 @@ _VRT_METHODS = ("first", "last")
 _REDUCE_METHODS = ("min", "max", "sum")
 _MERGE_METHODS = _VRT_METHODS + _REDUCE_METHODS
 
+# Rows per strip for the min/max/sum reduction. The union grid is reduced one
+# full-width strip at a time so peak memory is O(strip) rather than O(grid).
+_MERGE_STRIP_ROWS = 512
+
+
+def _source_bounds(
+    path: str | Path | gdal.Dataset,
+) -> tuple[float, float, float, float]:
+    """Return a source raster's ``(west, south, east, north)`` extent.
+
+    Used to skip sources that do not overlap a strip's latitude band during the
+    tiled reduction. Accepts a path or an already-open dataset.
+
+    Args:
+        path: A source raster path/URL or an open :class:`gdal.Dataset`.
+
+    Returns:
+        tuple[float, float, float, float]: The source extent as ``(west, south,
+        east, north)``.
+
+    Raises:
+        RuntimeError: The path could not be opened.
+    """
+    if isinstance(path, gdal.Dataset):
+        ds, opened = path, False
+    else:
+        ds, opened = gdal.Open(str(path)), True
+    if ds is None:
+        raise RuntimeError(f"gdal.Open returned None for merge source {path!r}.")
+    gt = ds.GetGeoTransform()
+    x_far = gt[0] + gt[1] * ds.RasterXSize
+    y_far = gt[3] + gt[5] * ds.RasterYSize
+    bounds = (
+        min(gt[0], x_far),
+        min(gt[3], y_far),
+        max(gt[0], x_far),
+        max(gt[3], y_far),
+    )
+    if opened:
+        # Close the handle we opened; a caller-supplied gdal.Dataset is theirs to own.
+        ds = None
+    return bounds
+
+
 # The signer -> CloudConfig helper now lives in pyramids.base.remote
 # (shared with pyramids.stac.load_asset so the rule lives in one place).
 # Kept as a module-level name because call sites and tests import
@@ -361,6 +405,87 @@ def _prepare_sources(
     return sources, sources
 
 
+def _reduce_strip(
+    src_paths: list,
+    src_bounds: list[tuple[float, float, float, float]],
+    strip_bounds: list[float],
+    strip_lat: tuple[float, float],
+    shape: tuple[int, int, int],
+    method: str,
+    src_nodata: float | None,
+    fill: float,
+) -> np.ndarray:
+    """Reduce one union-grid strip across every overlapping source.
+
+    Warps each source that overlaps the strip's latitude band onto the strip window
+    and folds it into a NaN-aware accumulator, then fills no-coverage cells. Extracted
+    from :func:`_merge_reduce` to keep that function's nesting (cognitive complexity)
+    low.
+
+    Args:
+        src_paths: Source rasters (paths or open datasets).
+        src_bounds: Each source's ``(west, south, east, north)`` extent.
+        strip_bounds: The strip's ``[west, south, east, north]`` output bounds.
+        strip_lat: The strip's ``(south, north)`` latitude band for the overlap prune.
+        shape: The strip cube shape ``(band_count, rows, cols)``.
+        method: One of ``"min"``, ``"max"``, ``"sum"``.
+        src_nodata: Source pixel value to treat as no-data, or ``None``.
+        fill: Value written where no source covers a pixel.
+
+    Returns:
+        np.ndarray: The reduced strip, shape ``shape``.
+
+    Raises:
+        RuntimeError: GDAL failed to warp a source onto the strip.
+    """
+    _, ysize, x_size = shape
+    strip_south, strip_north = strip_lat
+    if method == "min":
+        acc = np.full(shape, np.inf, dtype="float64")
+    elif method == "max":
+        acc = np.full(shape, -np.inf, dtype="float64")
+    else:
+        acc = np.zeros(shape, dtype="float64")
+    # A boolean "has any valid source" mask suffices: min/max/sum never divide by a
+    # count, only test presence below, so a bool cube (1 byte/px) replaces int64.
+    covered = np.zeros(shape, dtype=bool)
+
+    for path, (_, south, _, north) in zip(src_paths, src_bounds):
+        # Skip a source whose latitude extent misses this strip — warping it would
+        # only add all-no-data, leaving acc/covered unchanged.
+        if north <= strip_south or south >= strip_north:
+            continue
+        warp_opts = gdal.WarpOptions(
+            format="MEM",
+            outputBounds=strip_bounds,
+            width=x_size,
+            height=ysize,
+            srcNodata=src_nodata,
+            dstNodata=float("nan"),
+        )
+        warped = gdal.Warp("", path, options=warp_opts)
+        if warped is None:
+            raise RuntimeError(
+                f"gdal.Warp returned None warping source {path!r} onto the union grid."
+            )
+        array = warped.ReadAsArray().astype("float64")
+        warped = None
+        if array.ndim == 2:
+            array = array[np.newaxis, ...]
+        valid = ~np.isnan(array)
+        covered |= valid
+        if method == "min":
+            np.fmin(acc, array, out=acc)  # fmin/fmax ignore NaN
+        elif method == "max":
+            np.fmax(acc, array, out=acc)
+        else:
+            np.add(acc, array, out=acc, where=valid)
+        del array, valid
+
+    # No-coverage cells are still +inf/-inf/0 in acc; replace them with the fill.
+    return np.where(covered, acc, fill)
+
+
 def _merge_reduce(
     src_paths: list,
     dst: str,
@@ -370,11 +495,15 @@ def _merge_reduce(
 ) -> None:
     """Merge sources by reducing overlapping pixels with min/max/sum.
 
-    Each source is warped onto the union grid (from a scratch
-    :func:`gdal.BuildVRT`) and folded into a running accumulator with a NaN-aware
-    reduction, so only one warped source is held in memory at a time (peak
-    ``O(grid)`` rather than ``O(N·grid)`` for stacking all sources). Pixels with no
-    source coverage are written as ``no_data_value``.
+    The union grid (from a scratch :func:`gdal.BuildVRT`) is reduced one full-width
+    row strip at a time: each source is warped onto that strip's window and folded
+    into the strip accumulator with a NaN-aware reduction, then the reduced strip is
+    written to the output. Peak memory is therefore ``O(strip)`` rather than
+    ``O(grid)`` — a very large mosaic is merged without materialising the whole
+    output. Sources whose extent does not overlap a strip's latitude band are
+    skipped (they would warp to all-no-data). Nearest-neighbour warping onto the
+    exact union grid makes the strip reduction byte-identical to a whole-grid pass.
+    Pixels with no source coverage are written as ``no_data_value``.
 
     Args:
         src_paths: Source rasters as path strings or already-open
@@ -401,56 +530,10 @@ def _merge_reduce(
     band_count = template.RasterCount
     template = None
 
-    output_bounds = [
-        geotransform[0],
-        geotransform[3] + geotransform[5] * y_size,
-        geotransform[0] + geotransform[1] * x_size,
-        geotransform[3],
-    ]
     src_nodata = None if str(n).lower() == "nan" else float(n)
-
-    shape = (band_count, y_size, x_size)
-    if method == "min":
-        acc = np.full(shape, np.inf, dtype="float64")
-    elif method == "max":
-        acc = np.full(shape, -np.inf, dtype="float64")
-    else:
-        acc = np.zeros(shape, dtype="float64")
-    # A boolean "has any valid source" mask suffices: min/max/sum never divide by a
-    # count, only test presence below, so a bool cube (1 byte/px) replaces int64.
-    covered = np.zeros(shape, dtype=bool)
-
-    for path in src_paths:
-        warp_opts = gdal.WarpOptions(
-            format="MEM",
-            outputBounds=output_bounds,
-            width=x_size,
-            height=y_size,
-            srcNodata=src_nodata,
-            dstNodata=float("nan"),
-        )
-        warped = gdal.Warp("", path, options=warp_opts)
-        if warped is None:
-            raise RuntimeError(
-                f"gdal.Warp returned None warping source {path!r} onto the union grid."
-            )
-        array = warped.ReadAsArray().astype("float64")
-        warped = None
-        if array.ndim == 2:
-            array = array[np.newaxis, ...]
-        valid = ~np.isnan(array)
-        covered |= valid
-        if method == "min":
-            np.fmin(acc, array, out=acc)  # fmin/fmax ignore NaN
-        elif method == "max":
-            np.fmax(acc, array, out=acc)
-        else:
-            np.add(acc, array, out=acc, where=valid)
-        del array, valid
-
     fill = float(no_data_value)
-    # No-coverage cells are still +inf/-inf/0 in acc; replace them with the fill.
-    reduced = np.where(covered, acc, fill)
+    # Extent of every source, computed once, to skip sources a strip cannot touch.
+    src_bounds = [_source_bounds(path) for path in src_paths]
 
     out_ds = gdal.GetDriverByName("GTiff").Create(
         dst, x_size, y_size, band_count, gdal.GDT_Float64, options=["COMPRESS=LZW"]
@@ -458,9 +541,34 @@ def _merge_reduce(
     out_ds.SetGeoTransform(geotransform)
     out_ds.SetProjection(projection)
     for band_index in range(band_count):
-        out_band = out_ds.GetRasterBand(band_index + 1)
-        out_band.WriteArray(reduced[band_index])
-        out_band.SetNoDataValue(fill)
+        out_ds.GetRasterBand(band_index + 1).SetNoDataValue(fill)
+
+    for yoff in range(0, y_size, _MERGE_STRIP_ROWS):
+        ysize = min(_MERGE_STRIP_ROWS, y_size - yoff)
+        strip_north = geotransform[3] + geotransform[5] * yoff
+        strip_south = geotransform[3] + geotransform[5] * (yoff + ysize)
+        strip_bounds = [
+            geotransform[0],
+            strip_south,
+            geotransform[0] + geotransform[1] * x_size,
+            strip_north,
+        ]
+        reduced = _reduce_strip(
+            src_paths,
+            src_bounds,
+            strip_bounds,
+            (strip_south, strip_north),
+            (band_count, ysize, x_size),
+            method,
+            src_nodata,
+            fill,
+        )
+        for band_index in range(band_count):
+            out_ds.GetRasterBand(band_index + 1).WriteArray(
+                reduced[band_index], 0, yoff
+            )
+        del reduced
+
     out_ds.FlushCache()
     out_ds = None
 

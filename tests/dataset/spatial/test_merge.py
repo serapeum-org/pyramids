@@ -11,6 +11,7 @@ covers the reproject-before-composite behaviour and its ``_prepare_sources`` /
 
 from __future__ import annotations
 
+import tracemalloc
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -18,6 +19,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+import pyramids.dataset.merge as merge_mod
 from pyramids.base.remote import CloudConfig
 from pyramids.dataset import Dataset
 from pyramids.dataset.merge import (
@@ -25,6 +27,7 @@ from pyramids.dataset.merge import (
     _cloud_config,
     _merge_reduce,
     _prepare_sources,
+    _source_bounds,
     merge_rasters,
     stack_bands,
 )
@@ -110,6 +113,97 @@ class TestMergeMethod:
         )
         assert arr[0, 0] == pytest.approx(10.0), f"A-only column changed: {arr[0, 0]}"
         assert arr[0, 5] == pytest.approx(20.0), f"B-only column changed: {arr[0, 5]}"
+
+    @pytest.mark.parametrize("method", ["min", "max", "sum"])
+    def test_reduction_byte_identical_across_strip_sizes(
+        self, tmp_path, monkeypatch, method
+    ):
+        """Striping the reduction (and its latitude prune) matches a single-pass merge.
+
+        Test scenario:
+            Two vertically-offset sources overlap in a middle row band. Merging with a
+            1-row strip — forcing many strips and skipping each source over the strips
+            it does not cover — must produce a byte-identical raster to the default
+            single-pass merge.
+        """
+        top = write_raster(
+            tmp_path / "top.tif", np.full((4, 4), 10.0, dtype="float32"), (0, 6)
+        )
+        bottom = write_raster(
+            tmp_path / "bottom.tif", np.full((4, 4), 20.0, dtype="float32"), (0, 4)
+        )
+        single = tmp_path / f"single_{method}.tif"
+        merge_rasters([top, bottom], single, no_data_value=-9999.0, method=method)
+        monkeypatch.setattr(merge_mod, "_MERGE_STRIP_ROWS", 1)
+        stripped = tmp_path / f"stripped_{method}.tif"
+        merge_rasters([top, bottom], stripped, no_data_value=-9999.0, method=method)
+        assert np.array_equal(
+            Dataset.read_file(str(single)).read_array(),
+            Dataset.read_file(str(stripped)).read_array(),
+        ), f"{method}: 1-row-strip result differs from the single-pass merge"
+
+    @pytest.mark.parametrize("method", ["min", "max", "sum"])
+    def test_multiband_reduction_byte_identical_across_strip_sizes(
+        self, tmp_path, monkeypatch, method
+    ):
+        """A multi-band striped reduction matches the single-pass merge on every band.
+
+        Test scenario:
+            Two vertically-offset 2-band sources; merging with a 1-row strip must equal
+            the single-pass merge across both bands, exercising the per-band strip write
+            (`reduced[band_index]` at the strip's row offset).
+        """
+        top = write_raster(
+            tmp_path / "top.tif",
+            np.stack(
+                [np.full((4, 4), 10.0, "float32"), np.full((4, 4), 11.0, "float32")]
+            ),
+            (0, 6),
+        )
+        bottom = write_raster(
+            tmp_path / "bottom.tif",
+            np.stack(
+                [np.full((4, 4), 20.0, "float32"), np.full((4, 4), 21.0, "float32")]
+            ),
+            (0, 4),
+        )
+        single = tmp_path / f"single_{method}.tif"
+        merge_rasters([top, bottom], single, no_data_value=-9999.0, method=method)
+        monkeypatch.setattr(merge_mod, "_MERGE_STRIP_ROWS", 1)
+        stripped = tmp_path / f"stripped_{method}.tif"
+        merge_rasters([top, bottom], stripped, no_data_value=-9999.0, method=method)
+        single_arr = Dataset.read_file(str(single)).read_array()
+        stripped_arr = Dataset.read_file(str(stripped)).read_array()
+        assert single_arr.shape[0] == 2, f"expected 2 bands, got {single_arr.shape}"
+        assert np.array_equal(single_arr, stripped_arr), (
+            f"{method}: multi-band striped merge diverged from the single-pass merge"
+        )
+
+    def test_reduction_peak_memory_is_bounded_by_the_strip(self, tmp_path, monkeypatch):
+        """The min/max/sum merge peaks near one strip, far below the full union cube.
+
+        Test scenario:
+            Merge two overlapping 4000x250 sources with 128-row strips; the traced
+            Python peak must be a fraction of the dense float64 union, proving the whole
+            output is never accumulated at once.
+        """
+        rows, cols = 4000, 250
+        pa = write_raster(
+            tmp_path / "a.tif", np.ones((rows, cols), dtype="float32"), (0, rows)
+        )
+        pb = write_raster(
+            tmp_path / "b.tif", np.full((rows, cols), 2.0, dtype="float32"), (0, rows)
+        )
+        monkeypatch.setattr(merge_mod, "_MERGE_STRIP_ROWS", 128)
+        union_bytes = rows * cols * 8  # float64 union cube
+        tracemalloc.start()
+        merge_rasters([pa, pb], tmp_path / "big.tif", no_data_value=-1.0, method="max")
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        assert peak < union_bytes // 4, (
+            f"merge peaked at {peak / 1e6:.1f} MB; a whole-union pass would need "
+            f"{union_bytes / 1e6:.1f} MB — the reduction was not stripped"
+        )
 
     def test_default_method_is_last(self, overlapping_pair, tmp_path):
         """Omitting method defaults to last-wins (backward compatible).
@@ -545,6 +639,44 @@ class TestMergeRastersDstCrs:
         monkeypatch.setattr(merge_mod.gdal, "Open", lambda *a, **k: None)
         with pytest.raises(RuntimeError, match="gdal.Open returned None"):
             merge_rasters([pa, pb], tmp_path / "x.tif")
+
+
+class TestSourceBounds:
+    """Tests for the ``_source_bounds`` extent helper used by the strip reduction."""
+
+    def test_from_path(self, tmp_path):
+        """A path resolves to its ``(west, south, east, north)`` extent.
+
+        Test scenario:
+            A 4x4 raster at top-left ``(0, 4)`` with unit cells spans x/y ``[0, 4]``.
+        """
+        path = write_raster(
+            tmp_path / "s.tif", np.ones((4, 4), dtype="float32"), (0, 4)
+        )
+        assert _source_bounds(str(path)) == (0.0, 0.0, 4.0, 4.0), "wrong path bounds"
+
+    def test_from_open_dataset(self, tmp_path):
+        """An already-open ``gdal.Dataset`` is used directly, not reopened.
+
+        Test scenario:
+            Passing an open handle returns the same extent as passing its path.
+        """
+        path = write_raster(
+            tmp_path / "s.tif", np.ones((4, 4), dtype="float32"), (0, 4)
+        )
+        assert _source_bounds(gdal.Open(str(path))) == (0.0, 0.0, 4.0, 4.0), (
+            "wrong open-dataset bounds"
+        )
+
+    def test_unopenable_source_raises(self):
+        """A source that cannot be opened raises a clear ``RuntimeError``.
+
+        Test scenario:
+            A non-existent path cannot be opened, so the extent lookup fails loudly
+            rather than returning a bogus extent.
+        """
+        with pytest.raises(RuntimeError):
+            _source_bounds("/no/such/raster/does-not-exist.tif")
 
 
 class TestPrepareSources:
