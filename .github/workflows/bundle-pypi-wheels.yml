@@ -141,6 +141,19 @@ jobs:
             srcbuild-glibc-${{ matrix.arch }}-${{
             hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
 
+      # NOT gated off workflow_run (unlike the compiled-stack cache above):
+      # config.sh SHA256-verifies every tarball, so a cached distfile cannot
+      # poison a release wheel. Caching them on releases too stops the build
+      # re-downloading ~26 tarballs from ~30 hosts, where one 503/429 fails it.
+      # Arch-independent key: the tarballs are source, identical across arches
+      # and the glibc/musl jobs, so one download seeds all of them.
+      - name: Cache the source distfiles
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .srcbuild-distfiles
+          key: srcbuild-distfiles-${{ hashFiles('ci/source-build/config.sh') }}
+          restore-keys: srcbuild-distfiles-
+
       - name: Build wheels
         uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
         env:
@@ -213,6 +226,15 @@ jobs:
           key: >-
             srcbuild-musl-${{ matrix.arch }}-${{
             hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
+
+      # Same SHA256-verified source-distfile cache as the glibc job, shared
+      # key so either job seeds it. Safe on releases (verified in fetch()).
+      - name: Cache the source distfiles
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .srcbuild-distfiles
+          key: srcbuild-distfiles-${{ hashFiles('ci/source-build/config.sh') }}
+          restore-keys: srcbuild-distfiles-
 
       - name: Build wheels
         uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
@@ -386,6 +408,20 @@ jobs:
           key: >-
             vcpkg-arm64-${{
             hashFiles('ci/vcpkg.json', 'ci/setup-gdal-from-vcpkg.ps1') }}
+
+      # vcpkg asset caching: persist the DOWNLOADED port distfiles (source
+      # tarballs + build tools), which vcpkg SHA512-verifies on every use, so
+      # a cached asset cannot poison a release wheel — unlike the built
+      # `installed` tree above. NOT gated off workflow_run: caching these on
+      # releases too stops the cold build re-fetching every port's source from
+      # its upstream (a 429/503/outage from any one — e.g. the DKRZ libaec host
+      # — fails the whole vcpkg install).
+      - name: Cache the vcpkg downloaded assets
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: C:\vcpkg\downloads
+          key: vcpkg-arm64-downloads-${{ hashFiles('ci/vcpkg.json') }}
+          restore-keys: vcpkg-arm64-downloads-
 
       - name: Build wheels
         uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0

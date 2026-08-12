@@ -154,12 +154,23 @@ BUILD_ORDER=(
 #     /download suffix and the explicit local file name.
 
 fetch() {
-    # fetch <dep>: download the pinned tarball, verify its SHA256, extract.
+    # fetch <dep>: reuse a SHA-matching cached tarball if one exists, else
+    # download the pinned tarball; verify its SHA256 either way; persist a
+    # fresh download to the distfile cache; extract.
     local dep="$1"
     local tarball="${TARBALL[$dep]}"
-    wget --retry-connrefused --waitretry=30 --dns-timeout=20 \
-        --connect-timeout=20 --read-timeout=300 --timeout=300 -t 5 \
-        -O "${tarball}" "${URL[$dep]}"
+    # ${DISTFILES_DIR} is set by build-gdal-stack.sh (empty otherwise -> the
+    # cache is skipped and this behaves exactly as the old download-only path).
+    local cached="${DISTFILES_DIR:+${DISTFILES_DIR}/${tarball}}"
+    if [[ -n "${cached}" && -f "${cached}" \
+        && "$(sha256sum "${cached}" | cut -d ' ' -f1)" == "${SHA256[$dep]}" ]]; then
+        echo "using cached ${tarball} from ${DISTFILES_DIR}"
+        cp "${cached}" "${tarball}"
+    else
+        wget --retry-connrefused --waitretry=30 --dns-timeout=20 \
+            --connect-timeout=20 --read-timeout=300 --timeout=300 -t 5 \
+            -O "${tarball}" "${URL[$dep]}"
+    fi
     local actual
     actual="$(sha256sum "${tarball}" | cut -d ' ' -f1)"
     if [[ "${actual}" != "${SHA256[$dep]}" ]]; then
@@ -167,6 +178,11 @@ fetch() {
         echo "       expected ${SHA256[$dep]}" >&2
         echo "       actual   ${actual}" >&2
         exit 1
+    fi
+    # Persist a freshly-downloaded, verified tarball so later builds (releases
+    # included) reuse it instead of re-downloading.
+    if [[ -n "${cached}" && ! -f "${cached}" ]]; then
+        cp "${tarball}" "${cached}"
     fi
     case "${tarball}" in
         *.tar.gz)  tar -xzf "${tarball}" ;;
