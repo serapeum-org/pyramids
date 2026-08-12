@@ -1103,9 +1103,7 @@ class Analysis(_Engine["Dataset"]):
         # (geotransform, CRS, dtype, and no-data carried across in the C layer)
         # instead of a full-band ``ReadAsArray`` -> ``WriteArray`` NumPy round
         # trip, so the whole band is never materialised as a NumPy array (#969).
-        out_ds = gdal.Translate(
-            "", self._ds.raster, format="MEM", bandList=[band + 1]
-        )
+        out_ds = gdal.Translate("", self._ds.raster, format="MEM", bandList=[band + 1])
         dst_band = out_ds.GetRasterBand(1)
 
         mask_band = mask.raster.GetRasterBand(1) if mask is not None else None

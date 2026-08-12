@@ -452,8 +452,12 @@ class TestFootPrint:
         approx = ds.footprint(exclude_values=[0], max_samples=400)
         assert approx is not None, "Decimated footprint must still be produced"
         minx, miny, maxx, maxy = approx.total_bounds
-        assert minx >= -1e-6 and miny >= -1e-6, "Footprint must stay within raster bounds"
-        assert maxx <= 200 + 1e-6 and maxy <= 200 + 1e-6, "Footprint must stay within bounds"
+        assert minx >= -1e-6 and miny >= -1e-6, (
+            "Footprint must stay within raster bounds"
+        )
+        assert maxx <= 200 + 1e-6 and maxy <= 200 + 1e-6, (
+            "Footprint must stay within bounds"
+        )
         assert float(approx.geometry.area.sum()) == pytest.approx(10000, rel=0.5), (
             "Decimated footprint area should be roughly the block area"
         )

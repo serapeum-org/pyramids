@@ -84,7 +84,9 @@ class TestApplyElementwise:
         )
         streamed = ds.apply(np.abs, band=1, elementwise=True).read_array()
         whole = ds.apply(np.abs, band=1, elementwise=False).read_array()
-        assert streamed.shape == (300, 300), f"Expected single band, got {streamed.shape}"
+        assert streamed.shape == (300, 300), (
+            f"Expected single band, got {streamed.shape}"
+        )
         np.testing.assert_array_equal(
             streamed, whole, err_msg="Band-1 streamed apply must match whole-array"
         )

@@ -1413,9 +1413,7 @@ class Spatial(_Engine["Dataset"]):
             window = [xoff, yoff, xsize, ysize]
             # read_array() is called with no chunks=, so it always returns a
             # plain ndarray here (the dask.Array arm of ArrayLike is unreachable).
-            mask_tile = cast(
-                np.typing.NDArray, mask.read_array(band=0, window=window)
-            )
+            mask_tile = cast(np.typing.NDArray, mask.read_array(band=0, window=window))
             src_tile = cast(np.typing.NDArray, self._ds.read_array(window=window))
             mask_no_data = is_no_data(mask_tile, mask_noval)
             self._apply_mask_nodata(src_tile, mask_no_data, band_count)

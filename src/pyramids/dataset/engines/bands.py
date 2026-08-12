@@ -1460,9 +1460,7 @@ class Bands(_Engine["Dataset"]):
             # new_value); index it per-band here too instead of comparing
             # against the whole list.
             band_old_value = old_value[band] if old_value is not None else None
-            self._swap_no_data_tiled(
-                new_dataset, band, band_old_value, new_value[band]
-            )
+            self._swap_no_data_tiled(new_dataset, band, band_old_value, new_value[band])
         # Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on
         # disk before it is reopened (a no-op for the in-memory driver).
         new_dataset.raster.FlushCache()
