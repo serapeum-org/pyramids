@@ -7777,19 +7777,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 <span class="normal"><a href="#__codelineno-0-1453">1453</a></span>
 <span class="normal"><a href="#__codelineno-0-1454">1454</a></span>
 <span class="normal"><a href="#__codelineno-0-1455">1455</a></span>
-<span class="normal"><a href="#__codelineno-0-1456">1456</a></span>
-<span class="normal"><a href="#__codelineno-0-1457">1457</a></span>
-<span class="normal"><a href="#__codelineno-0-1458">1458</a></span>
-<span class="normal"><a href="#__codelineno-0-1459">1459</a></span>
-<span class="normal"><a href="#__codelineno-0-1460">1460</a></span>
-<span class="normal"><a href="#__codelineno-0-1461">1461</a></span>
-<span class="normal"><a href="#__codelineno-0-1462">1462</a></span>
-<span class="normal"><a href="#__codelineno-0-1463">1463</a></span>
-<span class="normal"><a href="#__codelineno-0-1464">1464</a></span>
-<span class="normal"><a href="#__codelineno-0-1465">1465</a></span>
-<span class="normal"><a href="#__codelineno-0-1466">1466</a></span>
-<span class="normal"><a href="#__codelineno-0-1467">1467</a></span>
-<span class="normal"><a href="#__codelineno-0-1468">1468</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="k">class</span><span class="w"> </span><span class="nc">Bands</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
+<span class="normal"><a href="#__codelineno-0-1456">1456</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="k">class</span><span class="w"> </span><span class="nc">Bands</span><span class="p">(</span><span class="n">_Engine</span><span class="p">[</span><span class="s2">&quot;Dataset&quot;</span><span class="p">]):</span>
 <a id="__codelineno-0-74" name="__codelineno-0-74"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Mixin providing band metadata, attribute table, and color table operations.&quot;&quot;&quot;</span>
 <a id="__codelineno-0-75" name="__codelineno-0-75"></a>
 <a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_iloc</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">gdal</span><span class="o">.</span><span class="n">Band</span><span class="p">:</span>
@@ -9149,42 +9137,30 @@ Hold "Ctrl" to enable pan &amp; zoom
 <a id="__codelineno-0-1430" name="__codelineno-0-1430"></a>        <span class="c1"># updated.</span>
 <a id="__codelineno-0-1431" name="__codelineno-0-1431"></a>        <span class="n">new_value</span> <span class="o">=</span> <span class="n">new_dataset</span><span class="o">.</span><span class="n">no_data_value</span>
 <a id="__codelineno-0-1432" name="__codelineno-0-1432"></a>        <span class="k">for</span> <span class="n">band</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">):</span>
-<a id="__codelineno-0-1433" name="__codelineno-0-1433"></a>            <span class="c1"># old_value is normalized to a per-band list above (matching new_value);</span>
-<a id="__codelineno-0-1434" name="__codelineno-0-1434"></a>            <span class="c1"># bind the per-band values into the tile closure so it stays per-pixel.</span>
-<a id="__codelineno-0-1435" name="__codelineno-0-1435"></a>            <span class="n">band_old_value</span> <span class="o">=</span> <span class="n">old_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span> <span class="k">if</span> <span class="n">old_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
-<a id="__codelineno-0-1436" name="__codelineno-0-1436"></a>            <span class="n">band_new_value</span> <span class="o">=</span> <span class="n">new_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
-<a id="__codelineno-0-1437" name="__codelineno-0-1437"></a>            <span class="n">band_gdal_dtype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">gdal_dtype</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
-<a id="__codelineno-0-1438" name="__codelineno-0-1438"></a>
-<a id="__codelineno-0-1439" name="__codelineno-0-1439"></a>            <span class="k">def</span><span class="w"> </span><span class="nf">_swap_tile</span><span class="p">(</span>
-<a id="__codelineno-0-1440" name="__codelineno-0-1440"></a>                <span class="n">tile</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
-<a id="__codelineno-0-1441" name="__codelineno-0-1441"></a>                <span class="n">old</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">band_old_value</span><span class="p">,</span>
-<a id="__codelineno-0-1442" name="__codelineno-0-1442"></a>                <span class="n">new</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">band_new_value</span><span class="p">,</span>
-<a id="__codelineno-0-1443" name="__codelineno-0-1443"></a>                <span class="n">dtype</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">band_gdal_dtype</span><span class="p">,</span>
-<a id="__codelineno-0-1444" name="__codelineno-0-1444"></a>            <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
-<a id="__codelineno-0-1445" name="__codelineno-0-1445"></a>                <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-1446" name="__codelineno-0-1446"></a>                    <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">errstate</span><span class="p">(</span><span class="n">invalid</span><span class="o">=</span><span class="s2">&quot;raise&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-1447" name="__codelineno-0-1447"></a>                        <span class="n">tile</span><span class="p">[</span><span class="n">is_no_data</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">old</span><span class="p">)]</span> <span class="o">=</span> <span class="n">new</span>
-<a id="__codelineno-0-1448" name="__codelineno-0-1448"></a>                <span class="c1"># A dtype mismatch surfaces differently across numpy paths: a None</span>
-<a id="__codelineno-0-1449" name="__codelineno-0-1449"></a>                <span class="c1"># value is not subscriptable (TypeError), a NaN cast into an integer</span>
-<a id="__codelineno-0-1450" name="__codelineno-0-1450"></a>                <span class="c1"># band raises ValueError (&quot;cannot convert float NaN to integer&quot;), and</span>
-<a id="__codelineno-0-1451" name="__codelineno-0-1451"></a>                <span class="c1"># an invalid floating-point cast trips errstate (FloatingPointError).</span>
-<a id="__codelineno-0-1452" name="__codelineno-0-1452"></a>                <span class="c1"># Map all of them to the package-level NoDataValueError.</span>
-<a id="__codelineno-0-1453" name="__codelineno-0-1453"></a>                <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">FloatingPointError</span><span class="p">):</span>
-<a id="__codelineno-0-1454" name="__codelineno-0-1454"></a>                    <span class="k">raise</span> <span class="n">NoDataValueError</span><span class="p">(</span>
-<a id="__codelineno-0-1455" name="__codelineno-0-1455"></a>                        <span class="sa">f</span><span class="s2">&quot;The dtype of the given no_data_value: </span><span class="si">{</span><span class="n">new</span><span class="si">}</span><span class="s2"> differs from the &quot;</span>
-<a id="__codelineno-0-1456" name="__codelineno-0-1456"></a>                        <span class="sa">f</span><span class="s2">&quot;dtype of the band: </span><span class="si">{</span><span class="n">gdal_to_numpy_dtype</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-1457" name="__codelineno-0-1457"></a>                    <span class="p">)</span>
-<a id="__codelineno-0-1458" name="__codelineno-0-1458"></a>                <span class="k">return</span> <span class="n">tile</span>
-<a id="__codelineno-0-1459" name="__codelineno-0-1459"></a>
-<a id="__codelineno-0-1460" name="__codelineno-0-1460"></a>            <span class="c1"># Stream the per-band swap into the metadata-preserving copy so a very</span>
-<a id="__codelineno-0-1461" name="__codelineno-0-1461"></a>            <span class="c1"># large or /vsicurl source is never read whole (#967). The swap is</span>
-<a id="__codelineno-0-1462" name="__codelineno-0-1462"></a>            <span class="c1"># per-pixel, so the tiled result is byte-identical to the whole-band pass.</span>
-<a id="__codelineno-0-1463" name="__codelineno-0-1463"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">stream_transform</span><span class="p">(</span><span class="n">_swap_tile</span><span class="p">,</span> <span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">,</span> <span class="n">out</span><span class="o">=</span><span class="n">new_dataset</span><span class="p">)</span>
-<a id="__codelineno-0-1464" name="__codelineno-0-1464"></a>
-<a id="__codelineno-0-1465" name="__codelineno-0-1465"></a>        <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
-<a id="__codelineno-0-1466" name="__codelineno-0-1466"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
-<a id="__codelineno-0-1467" name="__codelineno-0-1467"></a>            <span class="k">return</span> <span class="kc">None</span>
-<a id="__codelineno-0-1468" name="__codelineno-0-1468"></a>        <span class="k">return</span> <span class="n">new_dataset</span>
+<a id="__codelineno-0-1433" name="__codelineno-0-1433"></a>            <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="p">)</span>
+<a id="__codelineno-0-1434" name="__codelineno-0-1434"></a>            <span class="c1"># old_value is normalized to a per-band list above (matching</span>
+<a id="__codelineno-0-1435" name="__codelineno-0-1435"></a>            <span class="c1"># new_value); index it per-band here too instead of comparing</span>
+<a id="__codelineno-0-1436" name="__codelineno-0-1436"></a>            <span class="c1"># against the whole list.</span>
+<a id="__codelineno-0-1437" name="__codelineno-0-1437"></a>            <span class="n">band_old_value</span> <span class="o">=</span> <span class="n">old_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span> <span class="k">if</span> <span class="n">old_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+<a id="__codelineno-0-1438" name="__codelineno-0-1438"></a>            <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1439" name="__codelineno-0-1439"></a>                <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">errstate</span><span class="p">(</span><span class="n">invalid</span><span class="o">=</span><span class="s2">&quot;raise&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-1440" name="__codelineno-0-1440"></a>                    <span class="n">arr</span><span class="p">[</span><span class="n">is_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">band_old_value</span><span class="p">)]</span> <span class="o">=</span> <span class="n">new_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
+<a id="__codelineno-0-1441" name="__codelineno-0-1441"></a>            <span class="c1"># A dtype mismatch surfaces differently across numpy paths: a None value</span>
+<a id="__codelineno-0-1442" name="__codelineno-0-1442"></a>            <span class="c1"># is not subscriptable (TypeError), a NaN cast into an integer band raises</span>
+<a id="__codelineno-0-1443" name="__codelineno-0-1443"></a>            <span class="c1"># ValueError (&quot;cannot convert float NaN to integer&quot;), and an invalid</span>
+<a id="__codelineno-0-1444" name="__codelineno-0-1444"></a>            <span class="c1"># floating-point cast trips errstate (FloatingPointError). Map all of them</span>
+<a id="__codelineno-0-1445" name="__codelineno-0-1445"></a>            <span class="c1"># to the package-level NoDataValueError.</span>
+<a id="__codelineno-0-1446" name="__codelineno-0-1446"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">FloatingPointError</span><span class="p">):</span>
+<a id="__codelineno-0-1447" name="__codelineno-0-1447"></a>                <span class="k">raise</span> <span class="n">NoDataValueError</span><span class="p">(</span>
+<a id="__codelineno-0-1448" name="__codelineno-0-1448"></a>                    <span class="sa">f</span><span class="s2">&quot;The dtype of the given no_data_value: </span><span class="si">{</span><span class="n">new_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span><span class="si">}</span><span class="s2"> differs from the dtype of the &quot;</span>
+<a id="__codelineno-0-1449" name="__codelineno-0-1449"></a>                    <span class="sa">f</span><span class="s2">&quot;band: </span><span class="si">{</span><span class="n">gdal_to_numpy_dtype</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">gdal_dtype</span><span class="p">[</span><span class="n">band</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-1450" name="__codelineno-0-1450"></a>                <span class="p">)</span>
+<a id="__codelineno-0-1451" name="__codelineno-0-1451"></a>            <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">WriteArray</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
+<a id="__codelineno-0-1452" name="__codelineno-0-1452"></a>
+<a id="__codelineno-0-1453" name="__codelineno-0-1453"></a>        <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
+<a id="__codelineno-0-1454" name="__codelineno-0-1454"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
+<a id="__codelineno-0-1455" name="__codelineno-0-1455"></a>            <span class="k">return</span> <span class="kc">None</span>
+<a id="__codelineno-0-1456" name="__codelineno-0-1456"></a>        <span class="k">return</span> <span class="n">new_dataset</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -11313,19 +11289,7 @@ match <code>band_count</code>.</p>
 <span class="normal"><a href="#__codelineno-0-1453">1453</a></span>
 <span class="normal"><a href="#__codelineno-0-1454">1454</a></span>
 <span class="normal"><a href="#__codelineno-0-1455">1455</a></span>
-<span class="normal"><a href="#__codelineno-0-1456">1456</a></span>
-<span class="normal"><a href="#__codelineno-0-1457">1457</a></span>
-<span class="normal"><a href="#__codelineno-0-1458">1458</a></span>
-<span class="normal"><a href="#__codelineno-0-1459">1459</a></span>
-<span class="normal"><a href="#__codelineno-0-1460">1460</a></span>
-<span class="normal"><a href="#__codelineno-0-1461">1461</a></span>
-<span class="normal"><a href="#__codelineno-0-1462">1462</a></span>
-<span class="normal"><a href="#__codelineno-0-1463">1463</a></span>
-<span class="normal"><a href="#__codelineno-0-1464">1464</a></span>
-<span class="normal"><a href="#__codelineno-0-1465">1465</a></span>
-<span class="normal"><a href="#__codelineno-0-1466">1466</a></span>
-<span class="normal"><a href="#__codelineno-0-1467">1467</a></span>
-<span class="normal"><a href="#__codelineno-0-1468">1468</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1345" name="__codelineno-0-1345"></a><span class="k">def</span><span class="w"> </span><span class="nf">change_no_data_value</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-1456">1456</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1345" name="__codelineno-0-1345"></a><span class="k">def</span><span class="w"> </span><span class="nf">change_no_data_value</span><span class="p">(</span>
 <a id="__codelineno-0-1346" name="__codelineno-0-1346"></a>    <span class="bp">self</span><span class="p">,</span> <span class="n">new_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">old_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <a id="__codelineno-0-1347" name="__codelineno-0-1347"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dataset</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-1348" name="__codelineno-0-1348"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Change No Data Value.</span>
@@ -11413,42 +11377,30 @@ match <code>band_count</code>.</p>
 <a id="__codelineno-0-1430" name="__codelineno-0-1430"></a>    <span class="c1"># updated.</span>
 <a id="__codelineno-0-1431" name="__codelineno-0-1431"></a>    <span class="n">new_value</span> <span class="o">=</span> <span class="n">new_dataset</span><span class="o">.</span><span class="n">no_data_value</span>
 <a id="__codelineno-0-1432" name="__codelineno-0-1432"></a>    <span class="k">for</span> <span class="n">band</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">band_count</span><span class="p">):</span>
-<a id="__codelineno-0-1433" name="__codelineno-0-1433"></a>        <span class="c1"># old_value is normalized to a per-band list above (matching new_value);</span>
-<a id="__codelineno-0-1434" name="__codelineno-0-1434"></a>        <span class="c1"># bind the per-band values into the tile closure so it stays per-pixel.</span>
-<a id="__codelineno-0-1435" name="__codelineno-0-1435"></a>        <span class="n">band_old_value</span> <span class="o">=</span> <span class="n">old_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span> <span class="k">if</span> <span class="n">old_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
-<a id="__codelineno-0-1436" name="__codelineno-0-1436"></a>        <span class="n">band_new_value</span> <span class="o">=</span> <span class="n">new_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
-<a id="__codelineno-0-1437" name="__codelineno-0-1437"></a>        <span class="n">band_gdal_dtype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">gdal_dtype</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
-<a id="__codelineno-0-1438" name="__codelineno-0-1438"></a>
-<a id="__codelineno-0-1439" name="__codelineno-0-1439"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">_swap_tile</span><span class="p">(</span>
-<a id="__codelineno-0-1440" name="__codelineno-0-1440"></a>            <span class="n">tile</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
-<a id="__codelineno-0-1441" name="__codelineno-0-1441"></a>            <span class="n">old</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">band_old_value</span><span class="p">,</span>
-<a id="__codelineno-0-1442" name="__codelineno-0-1442"></a>            <span class="n">new</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">band_new_value</span><span class="p">,</span>
-<a id="__codelineno-0-1443" name="__codelineno-0-1443"></a>            <span class="n">dtype</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">band_gdal_dtype</span><span class="p">,</span>
-<a id="__codelineno-0-1444" name="__codelineno-0-1444"></a>        <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
-<a id="__codelineno-0-1445" name="__codelineno-0-1445"></a>            <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-1446" name="__codelineno-0-1446"></a>                <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">errstate</span><span class="p">(</span><span class="n">invalid</span><span class="o">=</span><span class="s2">&quot;raise&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-1447" name="__codelineno-0-1447"></a>                    <span class="n">tile</span><span class="p">[</span><span class="n">is_no_data</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="n">old</span><span class="p">)]</span> <span class="o">=</span> <span class="n">new</span>
-<a id="__codelineno-0-1448" name="__codelineno-0-1448"></a>            <span class="c1"># A dtype mismatch surfaces differently across numpy paths: a None</span>
-<a id="__codelineno-0-1449" name="__codelineno-0-1449"></a>            <span class="c1"># value is not subscriptable (TypeError), a NaN cast into an integer</span>
-<a id="__codelineno-0-1450" name="__codelineno-0-1450"></a>            <span class="c1"># band raises ValueError (&quot;cannot convert float NaN to integer&quot;), and</span>
-<a id="__codelineno-0-1451" name="__codelineno-0-1451"></a>            <span class="c1"># an invalid floating-point cast trips errstate (FloatingPointError).</span>
-<a id="__codelineno-0-1452" name="__codelineno-0-1452"></a>            <span class="c1"># Map all of them to the package-level NoDataValueError.</span>
-<a id="__codelineno-0-1453" name="__codelineno-0-1453"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">FloatingPointError</span><span class="p">):</span>
-<a id="__codelineno-0-1454" name="__codelineno-0-1454"></a>                <span class="k">raise</span> <span class="n">NoDataValueError</span><span class="p">(</span>
-<a id="__codelineno-0-1455" name="__codelineno-0-1455"></a>                    <span class="sa">f</span><span class="s2">&quot;The dtype of the given no_data_value: </span><span class="si">{</span><span class="n">new</span><span class="si">}</span><span class="s2"> differs from the &quot;</span>
-<a id="__codelineno-0-1456" name="__codelineno-0-1456"></a>                    <span class="sa">f</span><span class="s2">&quot;dtype of the band: </span><span class="si">{</span><span class="n">gdal_to_numpy_dtype</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-1457" name="__codelineno-0-1457"></a>                <span class="p">)</span>
-<a id="__codelineno-0-1458" name="__codelineno-0-1458"></a>            <span class="k">return</span> <span class="n">tile</span>
-<a id="__codelineno-0-1459" name="__codelineno-0-1459"></a>
-<a id="__codelineno-0-1460" name="__codelineno-0-1460"></a>        <span class="c1"># Stream the per-band swap into the metadata-preserving copy so a very</span>
-<a id="__codelineno-0-1461" name="__codelineno-0-1461"></a>        <span class="c1"># large or /vsicurl source is never read whole (#967). The swap is</span>
-<a id="__codelineno-0-1462" name="__codelineno-0-1462"></a>        <span class="c1"># per-pixel, so the tiled result is byte-identical to the whole-band pass.</span>
-<a id="__codelineno-0-1463" name="__codelineno-0-1463"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">stream_transform</span><span class="p">(</span><span class="n">_swap_tile</span><span class="p">,</span> <span class="n">band</span><span class="o">=</span><span class="n">band</span><span class="p">,</span> <span class="n">out</span><span class="o">=</span><span class="n">new_dataset</span><span class="p">)</span>
-<a id="__codelineno-0-1464" name="__codelineno-0-1464"></a>
-<a id="__codelineno-0-1465" name="__codelineno-0-1465"></a>    <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
-<a id="__codelineno-0-1466" name="__codelineno-0-1466"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
-<a id="__codelineno-0-1467" name="__codelineno-0-1467"></a>        <span class="k">return</span> <span class="kc">None</span>
-<a id="__codelineno-0-1468" name="__codelineno-0-1468"></a>    <span class="k">return</span> <span class="n">new_dataset</span>
+<a id="__codelineno-0-1433" name="__codelineno-0-1433"></a>        <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="n">band</span><span class="p">)</span>
+<a id="__codelineno-0-1434" name="__codelineno-0-1434"></a>        <span class="c1"># old_value is normalized to a per-band list above (matching</span>
+<a id="__codelineno-0-1435" name="__codelineno-0-1435"></a>        <span class="c1"># new_value); index it per-band here too instead of comparing</span>
+<a id="__codelineno-0-1436" name="__codelineno-0-1436"></a>        <span class="c1"># against the whole list.</span>
+<a id="__codelineno-0-1437" name="__codelineno-0-1437"></a>        <span class="n">band_old_value</span> <span class="o">=</span> <span class="n">old_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span> <span class="k">if</span> <span class="n">old_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+<a id="__codelineno-0-1438" name="__codelineno-0-1438"></a>        <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1439" name="__codelineno-0-1439"></a>            <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">errstate</span><span class="p">(</span><span class="n">invalid</span><span class="o">=</span><span class="s2">&quot;raise&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-1440" name="__codelineno-0-1440"></a>                <span class="n">arr</span><span class="p">[</span><span class="n">is_no_data</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">band_old_value</span><span class="p">)]</span> <span class="o">=</span> <span class="n">new_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span>
+<a id="__codelineno-0-1441" name="__codelineno-0-1441"></a>        <span class="c1"># A dtype mismatch surfaces differently across numpy paths: a None value</span>
+<a id="__codelineno-0-1442" name="__codelineno-0-1442"></a>        <span class="c1"># is not subscriptable (TypeError), a NaN cast into an integer band raises</span>
+<a id="__codelineno-0-1443" name="__codelineno-0-1443"></a>        <span class="c1"># ValueError (&quot;cannot convert float NaN to integer&quot;), and an invalid</span>
+<a id="__codelineno-0-1444" name="__codelineno-0-1444"></a>        <span class="c1"># floating-point cast trips errstate (FloatingPointError). Map all of them</span>
+<a id="__codelineno-0-1445" name="__codelineno-0-1445"></a>        <span class="c1"># to the package-level NoDataValueError.</span>
+<a id="__codelineno-0-1446" name="__codelineno-0-1446"></a>        <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="ne">FloatingPointError</span><span class="p">):</span>
+<a id="__codelineno-0-1447" name="__codelineno-0-1447"></a>            <span class="k">raise</span> <span class="n">NoDataValueError</span><span class="p">(</span>
+<a id="__codelineno-0-1448" name="__codelineno-0-1448"></a>                <span class="sa">f</span><span class="s2">&quot;The dtype of the given no_data_value: </span><span class="si">{</span><span class="n">new_value</span><span class="p">[</span><span class="n">band</span><span class="p">]</span><span class="si">}</span><span class="s2"> differs from the dtype of the &quot;</span>
+<a id="__codelineno-0-1449" name="__codelineno-0-1449"></a>                <span class="sa">f</span><span class="s2">&quot;band: </span><span class="si">{</span><span class="n">gdal_to_numpy_dtype</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">gdal_dtype</span><span class="p">[</span><span class="n">band</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-1450" name="__codelineno-0-1450"></a>            <span class="p">)</span>
+<a id="__codelineno-0-1451" name="__codelineno-0-1451"></a>        <span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">GetRasterBand</span><span class="p">(</span><span class="n">band</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">WriteArray</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
+<a id="__codelineno-0-1452" name="__codelineno-0-1452"></a>
+<a id="__codelineno-0-1453" name="__codelineno-0-1453"></a>    <span class="k">if</span> <span class="n">inplace</span><span class="p">:</span>
+<a id="__codelineno-0-1454" name="__codelineno-0-1454"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">_update_inplace</span><span class="p">(</span><span class="n">new_dataset</span><span class="o">.</span><span class="n">raster</span><span class="p">)</span>
+<a id="__codelineno-0-1455" name="__codelineno-0-1455"></a>        <span class="k">return</span> <span class="kc">None</span>
+<a id="__codelineno-0-1456" name="__codelineno-0-1456"></a>    <span class="k">return</span> <span class="n">new_dataset</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
