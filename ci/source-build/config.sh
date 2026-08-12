@@ -162,8 +162,9 @@ fetch() {
     # ${DISTFILES_DIR} is set by build-gdal-stack.sh (empty otherwise -> the
     # cache is skipped and this behaves exactly as the old download-only path).
     local cached="${DISTFILES_DIR:+${DISTFILES_DIR}/${tarball}}"
-    if [[ -n "${cached}" && -f "${cached}" \
-        && "$(sha256sum "${cached}" | cut -d ' ' -f1)" == "${SHA256[$dep]}" ]]; then
+    local cached_sha=""
+    [[ -n "${cached}" && -f "${cached}" ]] && cached_sha="$(sha256sum "${cached}" | cut -d ' ' -f1)"
+    if [[ "${cached_sha}" == "${SHA256[$dep]}" ]]; then
         echo "using cached ${tarball} from ${DISTFILES_DIR}"
         cp "${cached}" "${tarball}"
     else
