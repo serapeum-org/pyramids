@@ -726,6 +726,144 @@ class TestChangeNoDataValueStreaming:
         reopened = Dataset.read_file(str(out)).read_array()
         assert reopened[1, 0] == -1.0, "Swapped cell must be persisted on disk"
 
+    def test_multi_band_per_band_old_value_list(self):
+        """A per-band old_value list swaps each band's own no-data cells.
+
+        Test scenario:
+            A 2-band raster whose band 0 uses 7 and band 1 uses 8 as no-data has each swapped
+            to its own new value, non-matching cells preserved, and reports the new per-band
+            no-data.
+        """
+        band0 = np.array([[1.0, 2.0], [7.0, 4.0]], dtype="float32")
+        band1 = np.array([[5.0, 8.0], [5.0, 5.0]], dtype="float32")
+        ds = Dataset.create_from_array(
+            np.stack([band0, band1]),
+            top_left_corner=(0.0, 2.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=[7.0, 8.0],
+        )
+        out = ds.change_no_data_value([-1.0, -2.0], old_value=[7.0, 8.0]).read_array()
+        assert out[0][1, 0] == -1.0, "band 0's old no-data (7) must become -1"
+        assert out[1][0, 1] == -2.0, "band 1's old no-data (8) must become -2"
+        assert out[0][0, 0] == 1.0 and out[1][0, 0] == 5.0, "non-matching cells preserved"
+
+    def test_dtype_error_fires_on_band_with_no_matching_cells(self):
+        """The dtype guard fires even when the old value matches zero cells in the band.
+
+        Test scenario:
+            The swap is attempted on every tile (via a setitem that raises), so a band with no
+            matching cells still raises NoDataValueError rather than silently skipping the guard.
+        """
+        arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 2.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        original_read = ds.read_array
+
+        def mock_read(band=None, window=None, **kwargs):
+            """Wrap the real read but raise on assignment (mimic a bad dtype)."""
+            result = original_read(band=band, window=window, **kwargs)
+            mock_arr = MagicMock(wraps=result)
+            mock_arr.__setitem__ = lambda key, value: (_ for _ in ()).throw(
+                TypeError("incompatible type")
+            )
+            mock_arr.__getitem__ = result.__getitem__
+            return mock_arr
+
+        with patch.object(ds, "read_array", mock_read):
+            with pytest.raises(NoDataValueError):
+                ds.change_no_data_value(-1.0, old_value=-12345.0)
+
+    def test_preserves_raster_attribute_table(self):
+        """CreateCopy carries the raster attribute table (RAT) across the swap.
+
+        Test scenario:
+            An int band with a 2-row RAT keeps the RAT (row count and a value) after
+            change_no_data_value.
+        """
+        from osgeo import gdal
+
+        mem = gdal.GetDriverByName("MEM").Create("", 4, 4, 1, gdal.GDT_Int32)
+        mem.SetGeoTransform((0.0, 1.0, 0.0, 4.0, 0.0, -1.0))
+        band = mem.GetRasterBand(1)
+        band.WriteArray(np.array([[0, 1, 2, 3]] * 4, dtype="int32"))
+        band.SetNoDataValue(0)
+        rat = gdal.RasterAttributeTable()
+        rat.CreateColumn("class_name", gdal.GFT_String, gdal.GFU_Name)
+        rat.SetRowCount(2)
+        rat.SetValueAsString(0, 0, "water")
+        rat.SetValueAsString(1, 0, "land")
+        band.SetDefaultRAT(rat)
+        ds = Dataset(mem)
+
+        result = ds.change_no_data_value(255, old_value=0)
+        out_rat = result.raster.GetRasterBand(1).GetDefaultRAT()
+        assert out_rat is not None, "RAT must survive change_no_data_value"
+        assert out_rat.GetRowCount() == 2, "RAT row count must survive"
+        assert out_rat.GetValueAsString(0, 0) == "water", "RAT values must survive"
+
+    def test_inplace_with_path_updates_source_and_persists(self, tmp_path):
+        """inplace=True combined with path= updates the source and persists to disk.
+
+        Test scenario:
+            The source dataset is re-pointed at the disk-backed GeoTIFF, reports the new
+            no-data, reads the swapped cell, and the file reopens with the swap on disk.
+        """
+        arr = np.array([[1.0, 2.0], [-9999.0, 4.0]], dtype="float32")
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 2.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        out = tmp_path / "inplace.tif"
+        result = ds.change_no_data_value(-1.0, old_value=-9999.0, inplace=True, path=out)
+        assert result is ds, "inplace should return the source dataset"
+        assert out.exists(), "inplace + path must still write the file"
+        assert ds.no_data_value[0] == -1.0, "source must report the new no-data"
+        assert np.asarray(ds.read_array(band=0))[1, 0] == -1.0, "source cell swapped"
+        reopened = np.asarray(Dataset.read_file(str(out)).read_array(band=0))
+        assert reopened[1, 0] == -1.0, "disk file must hold the swap"
+
+    def test_partial_file_removed_when_swap_fails(self, tmp_path):
+        """A mid-stream failure on the disk path leaves no partial GeoTIFF behind.
+
+        Test scenario:
+            An assignment that raises during the tiled swap makes change_no_data_value raise
+            NoDataValueError and delete the partially-written file at path.
+        """
+        arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 2.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        original_read = ds.read_array
+
+        def mock_read(band=None, window=None, **kwargs):
+            """Wrap the real read but raise on assignment to force a mid-stream failure."""
+            result = original_read(band=band, window=window, **kwargs)
+            mock_arr = MagicMock(wraps=result)
+            mock_arr.__setitem__ = lambda key, value: (_ for _ in ()).throw(
+                TypeError("incompatible type")
+            )
+            mock_arr.__getitem__ = result.__getitem__
+            return mock_arr
+
+        out = tmp_path / "partial.tif"
+        with patch.object(ds, "read_array", mock_read):
+            with pytest.raises(NoDataValueError):
+                ds.change_no_data_value(-1.0, old_value=-9999.0, path=out)
+        assert not out.exists(), "a failed disk-backed call must remove the partial file"
+
 
 class TestChangeNoDataAttrConversion:
     """Tests for _change_no_data_value_attr type conversion."""
