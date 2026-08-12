@@ -83,6 +83,20 @@ if [[ -d /host && -n "${HOST_WORKSPACE:-}" ]]; then
 else
     CACHE_DIR="${PROJECT_DIR}/.srcbuild-cache"
 fi
+# Source-distfile cache, kept SEPARATE from the compiled-stack cache above.
+# config.sh's fetch() SHA256-verifies every tarball, so a restored distfile
+# cannot poison a wheel (a mismatch aborts the build) — unlike the built
+# binaries. That lets the workflow cache these on the release (workflow_run)
+# path too, so a release stops re-downloading ~26 tarballs from ~30 upstream
+# hosts, where a single 503/429 from any one fails the build. fetch() reads
+# DISTFILES_DIR from the environment; export it for the `bash config.sh` child.
+if [[ -d /host && -n "${HOST_WORKSPACE:-}" ]]; then
+    DISTFILES_DIR="/host${HOST_WORKSPACE}/.srcbuild-distfiles"
+else
+    DISTFILES_DIR="${PROJECT_DIR}/.srcbuild-distfiles"
+fi
+mkdir -p "${DISTFILES_DIR}"
+export DISTFILES_DIR
 # Key on everything that shapes the installed prefix: config.sh (the dep
 # pins + build flags), this script (license collector, prereqs), and the
 # GDAL version, which is injected via the environment rather than

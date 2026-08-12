@@ -133,6 +133,7 @@ jobs:
       # costs ~60 min once per release and compiles everything from the
       # SHA256-pinned source tarballs.
       - name: Cache the built GDAL stack
+        id: glibc-stack-cache
         if: github.event_name != 'workflow_run'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -140,6 +141,31 @@ jobs:
           key: >-
             srcbuild-glibc-${{ matrix.arch }}-${{
             hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
+
+      # NOT gated off workflow_run (unlike the compiled-stack cache above):
+      # config.sh SHA256-verifies every tarball, so a cached distfile cannot
+      # poison a release wheel. Caching them on releases too stops the build
+      # re-downloading ~26 tarballs from ~30 hosts, where one 503/429 fails it.
+      # Arch-independent key: the tarballs are source, identical across arches
+      # and the glibc/musl jobs, so one download seeds all of them. The key
+      # hashes config.sh only, not build-gdal-stack.sh (where GDAL_VERSION is
+      # defaulted): safe because the GDAL tarball's SHA is pinned inline in
+      # config.sh, so any real bump rotates the key. If GDAL_VERSION ever
+      # becomes a workflow input decoupled from that pin, add build-gdal-stack.sh
+      # to the key.
+      # Split restore/save (not the combined cache action): actions/cache saves
+      # at post-job even when the build FAILED, and the four Linux jobs share
+      # one write-once key — so a job aborting mid-fetch would otherwise seed the
+      # shared key with a partial tarball set that never self-heals. Restore
+      # before the build; save only on success (below), and only when the exact
+      # key was not already a hit (GHA cache keys are immutable).
+      - name: Restore the source distfiles cache
+        id: distfiles-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .srcbuild-distfiles
+          key: srcbuild-distfiles-${{ hashFiles('ci/source-build/config.sh') }}
+          restore-keys: srcbuild-distfiles-
 
       - name: Build wheels
         uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
@@ -150,6 +176,21 @@ jobs:
           # mount) — forward the runner workspace path it needs.
           HOST_WORKSPACE: ${{ github.workspace }}
           CIBW_ENVIRONMENT_PASS_LINUX: HOST_WORKSPACE
+
+      # Only save when the source build actually ran fetch() and populated the
+      # dir: on a compiled-stack cache HIT config.sh is skipped and
+      # .srcbuild-distfiles stays empty, so also gate on the stack cache having
+      # missed — else an empty/stale set would seed the immutable key. On the
+      # release path the stack cache step is skipped (its cache-hit output is
+      # '', != 'true'), so the distfile save stays active there as intended.
+      - name: Save the source distfiles cache
+        if: >-
+          success() && steps.distfiles-restore.outputs.cache-hit != 'true'
+          && steps.glibc-stack-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .srcbuild-distfiles
+          key: srcbuild-distfiles-${{ hashFiles('ci/source-build/config.sh') }}
 
       - name: Report wheel sizes
         shell: bash
@@ -207,12 +248,25 @@ jobs:
       # needs + download pattern), so cache-restored binaries can't reach
       # PyPI from here.
       - name: Cache the built GDAL stack
+        id: musl-stack-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .srcbuild-cache
           key: >-
             srcbuild-musl-${{ matrix.arch }}-${{
             hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
+
+      # Same SHA256-verified source-distfile cache as the glibc job, shared key
+      # so either job seeds it. Split restore/save (see the glibc job) so a
+      # mid-fetch failure never locks the write-once shared key with a partial
+      # set. Safe on releases (verified in fetch()).
+      - name: Restore the source distfiles cache
+        id: distfiles-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .srcbuild-distfiles
+          key: srcbuild-distfiles-${{ hashFiles('ci/source-build/config.sh') }}
+          restore-keys: srcbuild-distfiles-
 
       - name: Build wheels
         uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
@@ -231,6 +285,18 @@ jobs:
           CIBW_REPAIR_WHEEL_COMMAND: >-
             LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64
             auditwheel repair --plat ${{ matrix.plat }} -w {dest_dir} {wheel}
+
+      # Gate on the stack cache having missed too — see the glibc job: a
+      # compiled-stack HIT skips config.sh, leaving .srcbuild-distfiles empty,
+      # which must not seed the immutable shared key.
+      - name: Save the source distfiles cache
+        if: >-
+          success() && steps.distfiles-restore.outputs.cache-hit != 'true'
+          && steps.musl-stack-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .srcbuild-distfiles
+          key: srcbuild-distfiles-${{ hashFiles('ci/source-build/config.sh') }}
 
       - name: Report wheel sizes
         shell: bash
@@ -379,6 +445,7 @@ jobs:
       # cold-build from the pinned vcpkg snapshot instead of restoring
       # cache-stored binaries.
       - name: Cache the vcpkg-built GDAL stack
+        id: vcpkg-installed-cache
         if: github.event_name != 'workflow_run'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -386,6 +453,25 @@ jobs:
           key: >-
             vcpkg-arm64-${{
             hashFiles('ci/vcpkg.json', 'ci/setup-gdal-from-vcpkg.ps1') }}
+
+      # vcpkg asset caching: persist the DOWNLOADED port distfiles (source
+      # tarballs + build tools), which vcpkg SHA512-verifies on every use, so
+      # a cached asset cannot poison a release wheel — unlike the built
+      # `installed` tree above. NOT gated off workflow_run: caching these on
+      # releases too stops the cold build re-fetching every port's source from
+      # its upstream (a 429/503/outage from any one — e.g. the DKRZ libaec host
+      # — fails the whole vcpkg install).
+      # Split restore/save (see the glibc job): actions/cache saves at post-job
+      # even on failure, so a winarm64 build aborting mid-fetch would otherwise
+      # seed the write-once key with a partial downloads set. Restore before the
+      # build; save only on success (below).
+      - name: Restore the vcpkg downloaded assets
+        id: vcpkg-downloads-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: C:\vcpkg\downloads
+          key: vcpkg-arm64-downloads-${{ hashFiles('ci/vcpkg.json', 'ci/vcpkg-ports/**') }}
+          restore-keys: vcpkg-arm64-downloads-
 
       - name: Build wheels
         uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
@@ -397,6 +483,18 @@ jobs:
           # this list changes (e.g. adding cp315 or dropping cp311).
           CIBW_BUILD: "cp312-win_arm64 cp313-win_arm64 cp314-win_arm64"
           CIBW_BEFORE_ALL_WINDOWS: powershell -File ci/setup-gdal-from-vcpkg.ps1
+
+      # Gate on the installed cache having missed too — see the glibc job: an
+      # installed-tree HIT makes vcpkg download nothing, leaving
+      # C:\vcpkg\downloads empty, which must not seed the immutable key.
+      - name: Save the vcpkg downloaded assets
+        if: >-
+          success() && steps.vcpkg-downloads-restore.outputs.cache-hit != 'true'
+          && steps.vcpkg-installed-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: C:\vcpkg\downloads
+          key: vcpkg-arm64-downloads-${{ hashFiles('ci/vcpkg.json', 'ci/vcpkg-ports/**') }}
 
       - name: Report wheel sizes
         shell: bash
