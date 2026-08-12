@@ -449,7 +449,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: C:\vcpkg\downloads
-          key: vcpkg-arm64-downloads-${{ hashFiles('ci/vcpkg.json') }}
+          key: vcpkg-arm64-downloads-${{ hashFiles('ci/vcpkg.json', 'ci/vcpkg-ports/**') }}
           restore-keys: vcpkg-arm64-downloads-
 
       - name: Build wheels
@@ -468,7 +468,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: C:\vcpkg\downloads
-          key: vcpkg-arm64-downloads-${{ hashFiles('ci/vcpkg.json') }}
+          key: vcpkg-arm64-downloads-${{ hashFiles('ci/vcpkg.json', 'ci/vcpkg-ports/**') }}
 
       - name: Report wheel sizes
         shell: bash
