@@ -121,10 +121,18 @@ def test_get_band_by_color_absent_returns_none(tos):
     assert tos.get_band_by_color("gray_index") is None
 
 
-def test_change_no_data_value_guarded_on_variable_view(tos):
-    """change_no_data_value is guarded on a variable-pinned view (clear error, not a crash)."""
-    with pytest.raises(ValueError, match="pinned"):
-        tos.change_no_data_value(-999.0, (tos.no_data_value or [None])[0])
+def test_change_no_data_value_on_variable_view(tos):
+    """change_no_data_value works on a variable-pinned view, like the other band ops.
+
+    It clones the view, swaps every band's old no-data cells to the new value, and returns
+    a fresh dataset with the updated no-data value -- the source view is left untouched.
+    """
+    old = (tos.no_data_value or [None])[0]
+    result = tos.change_no_data_value(-999.0, old)
+    assert result is not None, "change_no_data_value must return a dataset for a view"
+    assert all(nd == -999.0 for nd in result.no_data_value), (
+        f"every band's no-data must be -999.0, got {result.no_data_value}"
+    )
 
 
 def _classes(v):

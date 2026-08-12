@@ -626,9 +626,9 @@ class TestChangeNoDataValueTypeError:
         )
         original_read = ds.read_array
 
-        def mock_read(band=None):
+        def mock_read(band=None, window=None, **kwargs):
             """Return array that raises TypeError on assignment."""
-            result = original_read(band=band)
+            result = original_read(band=band, window=window, **kwargs)
             mock_arr = MagicMock(wraps=result)
 
             def raise_type_error(key, value):
@@ -641,6 +641,90 @@ class TestChangeNoDataValueTypeError:
         with patch.object(ds, "read_array", mock_read):
             with pytest.raises(NoDataValueError):
                 ds.change_no_data_value(-1.0, old_value=-9999.0)
+
+
+class TestChangeNoDataValueStreaming:
+    """The tiled/CreateCopy redesign of change_no_data_value stays correct and lossless."""
+
+    def test_multi_tile_matches_direct_swap(self):
+        """A raster larger than one 256-px tile swaps no-data identically to a direct swap.
+
+        Test scenario:
+            Old no-data cells placed in three different tiles are all rewritten to the new
+            value and every other cell is preserved, matching a whole-array NumPy swap.
+        """
+        arr = (np.random.default_rng(0).random((300, 300)) * 10).astype("float32")
+        arr[10, 10] = -9999.0
+        arr[290, 295] = -9999.0
+        arr[130, 260] = -9999.0
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 300.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        result = ds.change_no_data_value(-1.0, old_value=-9999.0).read_array()
+        expected = arr.copy()
+        expected[expected == -9999.0] = -1.0
+        np.testing.assert_array_equal(
+            result, expected, err_msg="Tiled no-data swap must match the direct swap"
+        )
+        assert result.dtype == np.float32, "Band dtype must be preserved"
+
+    def test_preserves_color_table_and_scale_offset(self):
+        """CreateCopy carries the colour table, band description, and scale/offset across.
+
+        Test scenario:
+            A byte raster with a colour table, a band description, and a scale/offset keeps
+            all three after change_no_data_value.
+        """
+        from osgeo import gdal
+
+        mem = gdal.GetDriverByName("MEM").Create("", 4, 4, 1, gdal.GDT_Byte)
+        mem.SetGeoTransform((0.0, 1.0, 0.0, 4.0, 0.0, -1.0))
+        band = mem.GetRasterBand(1)
+        band.WriteArray(np.array([[0, 1, 2, 3]] * 4, dtype="uint8"))
+        band.SetNoDataValue(0)
+        band.SetDescription("classes")
+        band.SetScale(0.5)
+        band.SetOffset(2.0)
+        ct = gdal.ColorTable()
+        ct.SetColorEntry(1, (255, 0, 0, 255))
+        band.SetColorTable(ct)
+        ds = Dataset(mem)
+
+        result = ds.change_no_data_value(255, old_value=0)
+        out_band = result.raster.GetRasterBand(1)
+        assert out_band.GetDescription() == "classes", "Band description must survive"
+        assert out_band.GetScale() == 0.5, "Band scale must survive"
+        assert out_band.GetOffset() == 2.0, "Band offset must survive"
+        assert out_band.GetColorTable() is not None, "Colour table must survive"
+        assert out_band.GetColorTable().GetColorEntry(1) == (255, 0, 0, 255), (
+            "Colour table entries must survive"
+        )
+
+    def test_path_writes_disk_backed_result(self, tmp_path):
+        """`path=` writes a disk-backed GeoTIFF with the new no-data value.
+
+        Test scenario:
+            Passing a `.tif` path produces a file on disk whose band carries the new
+            no-data value and the swapped cells.
+        """
+        arr = np.array([[1.0, 2.0], [-9999.0, 4.0]], dtype="float32")
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 2.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        out = tmp_path / "changed.tif"
+        result = ds.change_no_data_value(-1.0, old_value=-9999.0, path=out)
+        assert out.exists(), "path= must write a file to disk"
+        assert result.no_data_value[0] == -1.0, "Disk result must carry the new no-data"
+        reopened = Dataset.read_file(str(out)).read_array()
+        assert reopened[1, 0] == -1.0, "Swapped cell must be persisted on disk"
 
 
 class TestChangeNoDataAttrConversion:
