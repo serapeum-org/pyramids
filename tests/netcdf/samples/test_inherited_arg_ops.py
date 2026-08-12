@@ -169,9 +169,8 @@ def test_apply_on_variable_view(tos):
     """
     default = tos.apply(lambda a: a + 1)
     streamed = tos.apply(lambda a: a + 1, elementwise=True)
-    assert default is not None and streamed is not None, (
-        "apply must return a dataset on a variable view for both paths"
-    )
+    assert default is not None, "default apply must return a dataset on a variable view"
+    assert streamed is not None, "elementwise apply must return a dataset on a variable view"
     np.testing.assert_array_equal(
         np.asarray(default.read_array(band=0)),
         np.asarray(streamed.read_array(band=0)),

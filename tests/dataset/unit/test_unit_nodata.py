@@ -746,7 +746,8 @@ class TestChangeNoDataValueStreaming:
         out = ds.change_no_data_value([-1.0, -2.0], old_value=[7.0, 8.0]).read_array()
         assert out[0][1, 0] == -1.0, "band 0's old no-data (7) must become -1"
         assert out[1][0, 1] == -2.0, "band 1's old no-data (8) must become -2"
-        assert out[0][0, 0] == 1.0 and out[1][0, 0] == 5.0, "non-matching cells preserved"
+        assert out[0][0, 0] == 1.0, "band 0 non-matching cell must be preserved"
+        assert out[1][0, 0] == 5.0, "band 1 non-matching cell must be preserved"
 
     def test_dtype_error_fires_on_band_with_no_matching_cells(self):
         """The dtype guard fires even when the old value matches zero cells in the band.

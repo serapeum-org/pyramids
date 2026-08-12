@@ -455,12 +455,10 @@ class TestFootPrint:
         # The covered block spans x 60..160, y 50..150; decimation (~10-unit cells)
         # blurs the edges, so allow a tile-width tolerance but require the footprint
         # to track the block, not merely stay inside the raster.
-        assert minx == pytest.approx(60, abs=12) and maxx == pytest.approx(160, abs=12), (
-            f"decimated footprint x-extent must track the block, got {minx}..{maxx}"
-        )
-        assert miny == pytest.approx(50, abs=12) and maxy == pytest.approx(150, abs=12), (
-            f"decimated footprint y-extent must track the block, got {miny}..{maxy}"
-        )
+        assert minx == pytest.approx(60, abs=12), f"x-min must track the block, got {minx}"
+        assert maxx == pytest.approx(160, abs=12), f"x-max must track the block, got {maxx}"
+        assert miny == pytest.approx(50, abs=12), f"y-min must track the block, got {miny}"
+        assert maxy == pytest.approx(150, abs=12), f"y-max must track the block, got {maxy}"
         assert float(approx.geometry.area.sum()) == pytest.approx(10000, rel=0.3), (
             "Decimated footprint area should be roughly the block area"
         )
@@ -498,7 +496,8 @@ class TestFootPrint:
         )
         exact = ds.footprint()
         approx = ds.footprint(max_samples=400)
-        assert exact is not None and approx is not None, "Both footprints must exist"
+        assert exact is not None, "exact footprint must exist"
+        assert approx is not None, "decimated footprint must exist"
         np.testing.assert_allclose(
             approx.total_bounds,
             exact.total_bounds,
