@@ -180,9 +180,13 @@ fetch() {
         echo "       actual   ${actual}" >&2
         exit 1
     fi
-    # Persist a freshly-downloaded, verified tarball so later builds (releases
-    # included) reuse it instead of re-downloading.
-    if [[ -n "${cached}" && ! -f "${cached}" ]]; then
+    # Persist the just-verified tarball so later builds (releases included)
+    # reuse it. Refresh unconditionally, not only when absent: a cached file
+    # whose SHA no longer matches the pin (upstream re-upload, mirror swap,
+    # corrected pin, or a partial write) fell through to the wget branch above
+    # and is now verified here — overwrite the stale copy so it self-heals
+    # instead of re-downloading from a flaky host forever.
+    if [[ -n "${cached}" ]]; then
         cp "${tarball}" "${cached}"
     fi
     case "${tarball}" in
