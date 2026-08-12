@@ -602,7 +602,7 @@ def render_array(
     # ``percentile``) into an ``RgbBands`` object; the constructor takes only
     # ``rgb_bands=``. ``rgb`` is ``None`` on the single-band path (and on the
     # animate path, where ``prepare_array`` already consumed the stretch above),
-    # so leave ``rgb_bands`` unset there.
+    # so pass ``rgb_bands=None`` there.
     rgb_bands = (
         RgbBands(
             rgb,
