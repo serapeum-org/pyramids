@@ -180,3 +180,9 @@ src/pyramids/_data/
 # to themselves); these are generated, not sources. Data lives in examples/data/.
 docs/examples/**/*.tif
 docs/examples/**/*.nc
+
+# Working dirs the from-source GDAL build persists into the runner workspace
+# via cibuildwheel's /host mount: the compiled-stack tar and the SHA-verified
+# source distfiles. Generated build caches, never sources.
+/.srcbuild-cache/
+/.srcbuild-distfiles/
