@@ -1449,18 +1449,33 @@ class Bands(_Engine["Dataset"]):
         target = str(path) if path is not None else ""
         dst = gdal.GetDriverByName(driver).CreateCopy(target, self._ds.raster, 0)
         new_dataset = self._ds.__class__(dst, "write")
-        # the new_value could change inside the _set_no_data_value method before it is used to set the no_data_value
-        # attribute in the gdal object/pyramids object and to fill the band.
-        new_dataset._set_no_data_value(new_value)
-        # now we have to use the no_data_value value in the no_data_value attribute in the Dataset object as it is
-        # updated.
-        new_value = new_dataset.no_data_value
-        for band in range(self._ds.band_count):
-            # old_value is normalized to a per-band list above (matching
-            # new_value); index it per-band here too instead of comparing
-            # against the whole list.
-            band_old_value = old_value[band] if old_value is not None else None
-            self._swap_no_data_tiled(new_dataset, band, band_old_value, new_value[band])
+        try:
+            # the new_value could change inside the _set_no_data_value method before it is used to set the no_data_value
+            # attribute in the gdal object/pyramids object and to fill the band.
+            new_dataset._set_no_data_value(new_value)
+            # now we have to use the no_data_value value in the no_data_value attribute in the Dataset object as it is
+            # updated.
+            new_value = new_dataset.no_data_value
+            for band in range(self._ds.band_count):
+                # old_value is normalized to a per-band list above (matching
+                # new_value); index it per-band here too instead of comparing
+                # against the whole list.
+                band_old_value = old_value[band] if old_value is not None else None
+                self._swap_no_data_tiled(
+                    new_dataset, band, band_old_value, new_value[band]
+                )
+        except Exception:
+            # A mid-stream failure (e.g. a dtype-mismatch NoDataValueError) must not
+            # leave a half-written GeoTIFF behind on the disk path: release every
+            # handle to the file (both the wrapper and the local `dst` reference,
+            # or GDAL keeps the file locked on Windows) and delete the partial file
+            # and its sidecar before re-raising.
+            if path is not None:
+                new_dataset.close()
+                dst = None
+                Path(target).unlink(missing_ok=True)
+                Path(f"{target}.aux.xml").unlink(missing_ok=True)
+            raise
         # Flush the block cache so a disk-backed GeoTIFF has the swapped pixels on
         # disk before it is reopened (a no-op for the in-memory driver).
         new_dataset.raster.FlushCache()
