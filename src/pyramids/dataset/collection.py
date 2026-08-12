@@ -2797,9 +2797,7 @@ class DatasetCollection:
             list(self.time) if self.time is not None else list(range(self.time_length))
         )
         axis_values = (
-            default_labels
-            if animation_axis_values is None
-            else animation_axis_values
+            default_labels if animation_axis_values is None else animation_axis_values
         )
         if not hasattr(axis_values, "__len__"):
             axis_values = list(axis_values)  # materialise a generator override

@@ -302,7 +302,9 @@ class TestRenderArrayKwargRouting:
         assert "add_colorbar" not in plot, (
             f"`add_colorbar` must not also reach the render call; plot={plot}"
         )
-        assert "kind" in plot, f"`kind` must be force-routed to the render call; plot={plot}"
+        assert "kind" in plot, (
+            f"`kind` must be force-routed to the render call; plot={plot}"
+        )
         assert "kind" not in ctor, f"`kind` must not stay on the ctor; ctor={ctor}"
 
     def test_loose_cbar_kwarg_rejected(self):
@@ -518,9 +520,7 @@ class TestStyleHillshadePresets:
         dataset = Dataset.create_from_array(
             arr=arr, geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326
         )
-        glyph = dataset.plot(
-            band=0, data_style=DataStyle(style="flow_accumulation")
-        )
+        glyph = dataset.plot(band=0, data_style=DataStyle(style="flow_accumulation"))
         assert glyph.style == "flow_accumulation"
         glyph.apply_style("topography")
         assert glyph.style == "topography", (
@@ -795,7 +795,9 @@ class TestRenderArrayGroupParams:
                 mode="plot",
                 color=explicit,
             )
-        assert plot.get("color") is explicit, "explicit color must reach the render call"
+        assert plot.get("color") is explicit, (
+            "explicit color must reach the render call"
+        )
 
     def test_explicit_groups_reach_render_call(self):
         """Explicit ``contour`` / ``cells`` / ``data_style`` reach the render call.
@@ -809,8 +811,10 @@ class TestRenderArrayGroupParams:
         fake_cls, _ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
         rng = np.random.default_rng(13)
         arr = rng.random((4, 4)).astype("float32")
-        contour, cells, data_style = Contour(levels=4), CellValues(show=True), DataStyle(
-            style="flow_accumulation"
+        contour, cells, data_style = (
+            Contour(levels=4),
+            CellValues(show=True),
+            DataStyle(style="flow_accumulation"),
         )
         with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
             render_array(
@@ -821,6 +825,8 @@ class TestRenderArrayGroupParams:
                 cells=cells,
                 data_style=data_style,
             )
-        assert plot.get("contour") is contour, "explicit contour must reach the render call"
+        assert plot.get("contour") is contour, (
+            "explicit contour must reach the render call"
+        )
         assert plot.get("cells") is cells, "explicit cells must reach the render call"
         assert plot.get("data_style") is data_style, "explicit data_style must reach it"

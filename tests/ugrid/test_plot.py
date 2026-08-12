@@ -323,9 +323,7 @@ class TestMeshStyleHillshade:
             )
         kw = mock_plot.call_args.kwargs
         data_style = kw.get("data_style")
-        assert data_style is not None, (
-            "the data_style group must reach MeshGlyph.plot"
-        )
+        assert data_style is not None, "the data_style group must reach MeshGlyph.plot"
         assert data_style.style == "flow_accumulation"
         assert data_style.hillshade is True
 
