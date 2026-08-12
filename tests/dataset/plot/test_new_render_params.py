@@ -93,5 +93,6 @@ class TestNewRenderParams:
         `Dataset.plot` facade raises a `ValueError` naming `pyramids.plot.ColorBar`
         instead of being folded or forwarded.
         """
+        dataset = self._dataset()
         with pytest.raises(ValueError, match="ColorBar"):
-            self._dataset().plot(band=0, cbar_label="mm", cbar_length=0.85)
+            dataset.plot(band=0, cbar_label="mm", cbar_length=0.85)
