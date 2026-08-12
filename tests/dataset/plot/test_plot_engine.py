@@ -5,6 +5,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset.engines import Analysis
@@ -15,6 +16,8 @@ _cleo_array = pytest.importorskip(
     "cleopatra.glyphs.gridded.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
+# cleopatra >= 0.31 groups the RGB band-prep keywords into this object.
+RgbBands = _cleo_array.RgbBands
 # cleopatra >= 0.26 bundles the point-overlay styling kwargs into this class,
 # and the animate frame-label pair into FrameLabel.
 PointOverlay = getattr(_cleo_array, "PointOverlay", None)
@@ -346,6 +349,85 @@ class TestRenderArrayKwargRouting:
                 points=np.array([[1.0, 2, 3]]),
                 point_color="red",
             )
+
+    def test_rgb_plot_builds_populated_rgb_bands(self):
+        """An RGB plot call bundles the band indices and stretch controls into RgbBands.
+
+        Test scenario:
+            cleopatra 0.31 replaced ``ArrayGlyph``'s loose ``rgb`` /
+            ``surface_reflectance`` / ``cutoff`` / ``percentile`` constructor keywords
+            with a single ``rgb_bands=RgbBands(...)``. ``render_array`` must forward the
+            band indices positionally and each stretch control under its own keyword, so
+            the constructor receives an ``RgbBands`` whose attributes echo the inputs. A
+            mocked ``ArrayGlyph`` keeps this in the fast (non-``plot``) lane so the
+            default CI suite guards the migration.
+        """
+        fake_cls, ctor, *_ = self._capture_calls()
+        rng = np.random.default_rng(202)
+        arr = rng.random((3, 4, 4)).astype("float32")
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                rgb=[2, 1, 0],
+                surface_reflectance=10000,
+                cutoff=[0.1, 0.2, 0.3],
+                percentile=2,
+            )
+        bands = ctor.get("rgb_bands")
+        assert isinstance(bands, RgbBands), (
+            f"rgb_bands must be an RgbBands; ctor={ctor}"
+        )
+        assert bands.indices == [2, 1, 0]
+        assert bands.surface_reflectance == 10000
+        assert bands.cutoff == [0.1, 0.2, 0.3]
+        assert bands.percentile == 2
+        # cleopatra 0.31 dropped the loose ctor keywords; they must not leak through.
+        assert not ctor.keys() & {"rgb", "surface_reflectance", "cutoff", "percentile"}
+
+    def test_non_rgb_paths_pass_rgb_bands_none(self):
+        """The single-band and animate paths leave rgb_bands as None on the constructor.
+
+        Test scenario:
+            ``render_array`` only builds an ``RgbBands`` when ``rgb`` is set. The
+            single-band ``plot`` path (no ``rgb``) and the ``animate`` path (where the
+            in-house compositor consumes and nulls the RGB stretch before construction)
+            must both pass ``rgb_bands=None`` to ``ArrayGlyph``.
+        """
+        fake_cls, ctor, *_ = self._capture_calls()
+        rng = np.random.default_rng(203)
+        with patch("cleopatra.glyphs.gridded.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=rng.random((4, 4)).astype("float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+            )
+            assert ctor["rgb_bands"] is None, f"single-band ctor={ctor}"
+            render_array(
+                arr=rng.random((3, 4, 4)).astype("float32"),
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="animate",
+                animation_axis_values=[0, 1, 2],
+            )
+            assert ctor["rgb_bands"] is None, f"animate ctor={ctor}"
+
+    def test_too_old_cleopatra_raises_branded_upgrade_error(self, monkeypatch):
+        """A cleopatra without RgbBands surfaces the branded [viz]-upgrade error.
+
+        Test scenario:
+            ``render_array`` requires cleopatra >= 0.31 for ``RgbBands``. Deleting the
+            symbol from the cleopatra module makes the in-function import raise
+            ``ImportError``; ``render_array`` must translate it into
+            ``OptionalPackageDoesNotExist`` naming the version and the ``[viz]`` upgrade
+            rather than leaking the raw "cannot import name 'RgbBands'".
+        """
+        import cleopatra.glyphs.gridded.array_glyph as cleo_mod
+
+        monkeypatch.delattr(cleo_mod, "RgbBands", raising=False)
+        arr = np.random.default_rng(204).random((4, 4)).astype("float32")
+        with pytest.raises(OptionalPackageDoesNotExist, match="missing RgbBands"):
+            render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot")
 
     @pytest.mark.plot
     def test_kind_contourf_reaches_plot_not_clobbered(self):

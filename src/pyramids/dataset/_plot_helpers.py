@@ -66,6 +66,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from pyproj.exceptions import CRSError
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import require_cleopatra
 from pyramids.base.crs import crs_from_user_input
 
@@ -455,6 +456,21 @@ def render_array(
         PointOverlay,
     )
 
+    # ``RgbBands`` landed in cleopatra 0.31 (serapeum-org/cleopatra#291), which this
+    # module now requires. ``require_cleopatra`` only checks presence, so a stale
+    # cleopatra <0.31 (RgbBands absent) would otherwise raise a bare
+    # ``ImportError: cannot import name 'RgbBands'``. Import it on its own — guarding
+    # only this name — so a genuine module-load failure keeps its real ImportError and
+    # only a truly-absent ``RgbBands`` is translated into the branded upgrade hint.
+    try:
+        from cleopatra.glyphs.gridded.array_glyph import RgbBands
+    except ImportError as exc:
+        raise OptionalPackageDoesNotExist(
+            "pyramids's plotting needs a newer cleopatra than is installed "
+            "(missing RgbBands). Upgrade with `pip install -U 'pyramids-gis[viz]'` "
+            "to satisfy the version pinned in pyproject.toml."
+        ) from exc
+
     # The loose styling kwargs are no longer translated here: they moved onto the typed
     # render groups (color=ColorScaling / contour=Contour / cells=CellValues /
     # data_style=DataStyle / points=PointOverlay / colorbar=ColorBar). Passing a form
@@ -596,15 +612,28 @@ def render_array(
     else:
         animate_kwargs = {}
 
+    # cleopatra 0.31 (serapeum-org/cleopatra#291) grouped the four loose RGB
+    # band-prep keywords (``rgb`` / ``surface_reflectance`` / ``cutoff`` /
+    # ``percentile``) into an ``RgbBands`` object; the constructor takes only
+    # ``rgb_bands=``. ``rgb`` is ``None`` on the single-band path (and on the
+    # animate path, where ``prepare_array`` already consumed the stretch above),
+    # so pass ``rgb_bands=None`` there.
+    rgb_bands = (
+        RgbBands(
+            rgb,
+            surface_reflectance=surface_reflectance,
+            cutoff=cutoff,
+            percentile=percentile,
+        )
+        if rgb is not None
+        else None
+    )
     cleo = ArrayGlyph(
         arr,
         exclude_value=exclude_value if exclude_value is not None else np.nan,
         extent=effective_extent,
         coords=coords,
-        rgb=rgb,
-        surface_reflectance=surface_reflectance,
-        cutoff=cutoff,
-        percentile=percentile,
+        rgb_bands=rgb_bands,
         ax=ax,
         fig=fig,
         **ctor_kwargs,
