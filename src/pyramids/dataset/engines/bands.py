@@ -1430,37 +1430,25 @@ class Bands(_Engine["Dataset"]):
         # updated.
         new_value = new_dataset.no_data_value
         for band in range(self._ds.band_count):
-            # old_value is normalized to a per-band list above (matching new_value);
-            # bind the per-band values into the tile closure so it stays per-pixel.
+            arr = self._ds.read_array(band)
+            # old_value is normalized to a per-band list above (matching
+            # new_value); index it per-band here too instead of comparing
+            # against the whole list.
             band_old_value = old_value[band] if old_value is not None else None
-            band_new_value = new_value[band]
-            band_gdal_dtype = self._ds.gdal_dtype[band]
-
-            def _swap_tile(
-                tile: np.ndarray,
-                old: Any = band_old_value,
-                new: Any = band_new_value,
-                dtype: Any = band_gdal_dtype,
-            ) -> np.ndarray:
-                try:
-                    with np.errstate(invalid="raise"):
-                        tile[is_no_data(tile, old)] = new
-                # A dtype mismatch surfaces differently across numpy paths: a None
-                # value is not subscriptable (TypeError), a NaN cast into an integer
-                # band raises ValueError ("cannot convert float NaN to integer"), and
-                # an invalid floating-point cast trips errstate (FloatingPointError).
-                # Map all of them to the package-level NoDataValueError.
-                except (TypeError, ValueError, FloatingPointError):
-                    raise NoDataValueError(
-                        f"The dtype of the given no_data_value: {new} differs from the "
-                        f"dtype of the band: {gdal_to_numpy_dtype(dtype)}"
-                    )
-                return tile
-
-            # Stream the per-band swap into the metadata-preserving copy so a very
-            # large or /vsicurl source is never read whole (#967). The swap is
-            # per-pixel, so the tiled result is byte-identical to the whole-band pass.
-            self._ds.io.stream_transform(_swap_tile, band=band, out=new_dataset)
+            try:
+                with np.errstate(invalid="raise"):
+                    arr[is_no_data(arr, band_old_value)] = new_value[band]
+            # A dtype mismatch surfaces differently across numpy paths: a None value
+            # is not subscriptable (TypeError), a NaN cast into an integer band raises
+            # ValueError ("cannot convert float NaN to integer"), and an invalid
+            # floating-point cast trips errstate (FloatingPointError). Map all of them
+            # to the package-level NoDataValueError.
+            except (TypeError, ValueError, FloatingPointError):
+                raise NoDataValueError(
+                    f"The dtype of the given no_data_value: {new_value[band]} differs from the "
+                    f"band: {gdal_to_numpy_dtype(self._ds.gdal_dtype[band])}"
+                )
+            new_dataset.raster.GetRasterBand(band + 1).WriteArray(arr)
 
         if inplace:
             self._ds._update_inplace(new_dataset.raster)

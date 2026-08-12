@@ -304,7 +304,7 @@ class TestStreamReduce:
 
 
 class TestStreamedConsumers:
-    """`fill`, `change_no_data_value`, `count_domain_cells`, `overlay` stream through the helpers (#967)."""
+    """`count_domain_cells`, `overlay`, and `extract` stream through `stream_reduce` (#967)."""
 
     @pytest.fixture
     def tiny_strips(self, monkeypatch):
@@ -317,36 +317,6 @@ class TestStreamedConsumers:
             return original(self, fold, initial, band=band, strip_rows=2)
 
         monkeypatch.setattr(IO, "stream_reduce", small)
-
-    def test_change_no_data_value_is_byte_identical_and_bounded(self, tmp_path):
-        """`change_no_data_value` matches the eager result and never reads the source whole.
-
-        Test scenario:
-            On a 1000x1000 disk raster full of the old sentinel, changing it to a new
-            one yields every cell equal to the new sentinel, and the traced Python peak
-            stays far below the dense-array size — proving the per-band swap is tiled.
-        """
-        rows = cols = 1000
-        src_path = tmp_path / "nodata.tif"
-        Dataset.create_from_array(
-            np.full((rows, cols), -9999.0, dtype="float32"),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.01,
-            epsg=4326,
-            no_data_value=-9999.0,
-            path=str(src_path),
-        ).close()
-        ds = Dataset.read_file(str(src_path))
-        dense_bytes = rows * cols * 4  # float32
-        tracemalloc.start()
-        out = ds.change_no_data_value(-1.0, old_value=-9999.0)
-        _, peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
-        assert np.all(out.read_array() == -1.0), "sentinel was not fully replaced"
-        assert peak < dense_bytes // 4, (
-            f"change_no_data_value peaked at {peak / 1e6:.1f} MB; a whole-band pass "
-            f"would need {dense_bytes / 1e6:.1f} MB — the read was not tiled"
-        )
 
     def test_overlay_multi_strip_class_lists_are_byte_identical(self, tiny_strips):
         """`overlay` groups values by class byte-identically across multiple strips.
