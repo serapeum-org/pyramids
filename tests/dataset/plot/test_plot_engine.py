@@ -376,7 +376,9 @@ class TestRenderArrayKwargRouting:
                 percentile=2,
             )
         bands = ctor.get("rgb_bands")
-        assert isinstance(bands, RgbBands), f"rgb_bands must be an RgbBands; ctor={ctor}"
+        assert isinstance(bands, RgbBands), (
+            f"rgb_bands must be an RgbBands; ctor={ctor}"
+        )
         assert bands.indices == [2, 1, 0]
         assert bands.surface_reflectance == 10000
         assert bands.cutoff == [0.1, 0.2, 0.3]
