@@ -405,6 +405,87 @@ def _prepare_sources(
     return sources, sources
 
 
+def _reduce_strip(
+    src_paths: list,
+    src_bounds: list[tuple[float, float, float, float]],
+    strip_bounds: list[float],
+    strip_lat: tuple[float, float],
+    shape: tuple[int, int, int],
+    method: str,
+    src_nodata: float | None,
+    fill: float,
+) -> np.ndarray:
+    """Reduce one union-grid strip across every overlapping source.
+
+    Warps each source that overlaps the strip's latitude band onto the strip window
+    and folds it into a NaN-aware accumulator, then fills no-coverage cells. Extracted
+    from :func:`_merge_reduce` to keep that function's nesting (cognitive complexity)
+    low.
+
+    Args:
+        src_paths: Source rasters (paths or open datasets).
+        src_bounds: Each source's ``(west, south, east, north)`` extent.
+        strip_bounds: The strip's ``[west, south, east, north]`` output bounds.
+        strip_lat: The strip's ``(south, north)`` latitude band for the overlap prune.
+        shape: The strip cube shape ``(band_count, rows, cols)``.
+        method: One of ``"min"``, ``"max"``, ``"sum"``.
+        src_nodata: Source pixel value to treat as no-data, or ``None``.
+        fill: Value written where no source covers a pixel.
+
+    Returns:
+        np.ndarray: The reduced strip, shape ``shape``.
+
+    Raises:
+        RuntimeError: GDAL failed to warp a source onto the strip.
+    """
+    band_count, ysize, x_size = shape
+    strip_south, strip_north = strip_lat
+    if method == "min":
+        acc = np.full(shape, np.inf, dtype="float64")
+    elif method == "max":
+        acc = np.full(shape, -np.inf, dtype="float64")
+    else:
+        acc = np.zeros(shape, dtype="float64")
+    # A boolean "has any valid source" mask suffices: min/max/sum never divide by a
+    # count, only test presence below, so a bool cube (1 byte/px) replaces int64.
+    covered = np.zeros(shape, dtype=bool)
+
+    for path, (_, south, _, north) in zip(src_paths, src_bounds):
+        # Skip a source whose latitude extent misses this strip — warping it would
+        # only add all-no-data, leaving acc/covered unchanged.
+        if north <= strip_south or south >= strip_north:
+            continue
+        warp_opts = gdal.WarpOptions(
+            format="MEM",
+            outputBounds=strip_bounds,
+            width=x_size,
+            height=ysize,
+            srcNodata=src_nodata,
+            dstNodata=float("nan"),
+        )
+        warped = gdal.Warp("", path, options=warp_opts)
+        if warped is None:
+            raise RuntimeError(
+                f"gdal.Warp returned None warping source {path!r} onto the union grid."
+            )
+        array = warped.ReadAsArray().astype("float64")
+        warped = None
+        if array.ndim == 2:
+            array = array[np.newaxis, ...]
+        valid = ~np.isnan(array)
+        covered |= valid
+        if method == "min":
+            np.fmin(acc, array, out=acc)  # fmin/fmax ignore NaN
+        elif method == "max":
+            np.fmax(acc, array, out=acc)
+        else:
+            np.add(acc, array, out=acc, where=valid)
+        del array, valid
+
+    # No-coverage cells are still +inf/-inf/0 in acc; replace them with the fill.
+    return np.where(covered, acc, fill)
+
+
 def _merge_reduce(
     src_paths: list,
     dst: str,
@@ -472,56 +553,21 @@ def _merge_reduce(
             geotransform[0] + geotransform[1] * x_size,
             strip_north,
         ]
-        shape = (band_count, ysize, x_size)
-        if method == "min":
-            acc = np.full(shape, np.inf, dtype="float64")
-        elif method == "max":
-            acc = np.full(shape, -np.inf, dtype="float64")
-        else:
-            acc = np.zeros(shape, dtype="float64")
-        # A boolean "has any valid source" mask suffices: min/max/sum never divide by
-        # a count, only test presence below, so a bool cube (1 byte/px) replaces int64.
-        covered = np.zeros(shape, dtype=bool)
-
-        for path, (_, south, _, north) in zip(src_paths, src_bounds):
-            # Skip a source whose latitude extent misses this strip — warping it
-            # would only add all-no-data, leaving acc/covered unchanged.
-            if north <= strip_south or south >= strip_north:
-                continue
-            warp_opts = gdal.WarpOptions(
-                format="MEM",
-                outputBounds=strip_bounds,
-                width=x_size,
-                height=ysize,
-                srcNodata=src_nodata,
-                dstNodata=float("nan"),
-            )
-            warped = gdal.Warp("", path, options=warp_opts)
-            if warped is None:
-                raise RuntimeError(
-                    f"gdal.Warp returned None warping source {path!r} onto the union grid."
-                )
-            array = warped.ReadAsArray().astype("float64")
-            warped = None
-            if array.ndim == 2:
-                array = array[np.newaxis, ...]
-            valid = ~np.isnan(array)
-            covered |= valid
-            if method == "min":
-                np.fmin(acc, array, out=acc)  # fmin/fmax ignore NaN
-            elif method == "max":
-                np.fmax(acc, array, out=acc)
-            else:
-                np.add(acc, array, out=acc, where=valid)
-            del array, valid
-
-        # No-coverage cells are still +inf/-inf/0 in acc; replace them with the fill.
-        reduced = np.where(covered, acc, fill)
+        reduced = _reduce_strip(
+            src_paths,
+            src_bounds,
+            strip_bounds,
+            (strip_south, strip_north),
+            (band_count, ysize, x_size),
+            method,
+            src_nodata,
+            fill,
+        )
         for band_index in range(band_count):
             out_ds.GetRasterBand(band_index + 1).WriteArray(
                 reduced[band_index], 0, yoff
             )
-        del acc, covered, reduced
+        del reduced
 
     out_ds.FlushCache()
     out_ds = None
