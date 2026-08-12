@@ -1277,13 +1277,23 @@ class Spatial(_Engine["Dataset"]):
                 )
 
     def _apply_mask_nodata(
-        self, src_array: np.ndarray, mask_no_data: np.ndarray, band_count: int
+        self,
+        src_array: np.ndarray,
+        mask_no_data: np.ndarray,
+        band_count: int,
+        no_data_value: list | None = None,
     ) -> None:
-        """Write the source no-data value into the masked cells (per band)."""
+        """Write the source no-data value into the masked cells (per band).
+
+        `no_data_value` may be a caller-precomputed, dtype-checked per-band list; the
+        tiled crop passes it so the coercion runs once instead of per tile. When
+        `None` the multi-band path validates it here as before.
+        """
         if band_count > 1:
             # check the no_data_value complies with the src dtype before writing it
             # into cells (a band full of values may never use its no_data_value).
-            no_data_value = self._ds._check_no_data_value(self._ds.no_data_value)
+            if no_data_value is None:
+                no_data_value = self._ds._check_no_data_value(self._ds.no_data_value)
             for band in range(self._ds.band_count):
                 src_array[band, mask_no_data] = no_data_value[band]
         else:
@@ -1409,6 +1419,12 @@ class Spatial(_Engine["Dataset"]):
             dst_obj: The destination Dataset the masked blocks are written into.
             band_count: Number of bands in the source raster.
         """
+        # Coerce the per-band no-data value once here rather than on every tile.
+        no_data_value = (
+            self._ds._check_no_data_value(self._ds.no_data_value)
+            if band_count > 1
+            else None
+        )
         for xoff, yoff, xsize, ysize in self._ds.io._tile_offsets():
             window = [xoff, yoff, xsize, ysize]
             # read_array() is called with no chunks=, so it always returns a
@@ -1416,7 +1432,7 @@ class Spatial(_Engine["Dataset"]):
             mask_tile = cast(np.typing.NDArray, mask.read_array(band=0, window=window))
             src_tile = cast(np.typing.NDArray, self._ds.read_array(window=window))
             mask_no_data = is_no_data(mask_tile, mask_noval)
-            self._apply_mask_nodata(src_tile, mask_no_data, band_count)
+            self._apply_mask_nodata(src_tile, mask_no_data, band_count, no_data_value)
             if band_count > 1:
                 for band in range(band_count):
                     dst_obj.raster.GetRasterBand(band + 1).WriteArray(
