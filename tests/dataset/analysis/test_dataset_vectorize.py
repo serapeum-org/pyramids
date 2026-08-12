@@ -462,6 +462,24 @@ class TestFootPrint:
             "Decimated footprint area should be roughly the block area"
         )
 
+    @pytest.mark.parametrize("bad", [0, -5])
+    def test_max_samples_below_one_raises(self, bad):
+        """A non-positive max_samples is rejected with a clear ValueError.
+
+        Args:
+            bad: An invalid max_samples value (zero or negative).
+
+        Test scenario:
+            footprint(max_samples=0) and (max_samples=-5) raise ValueError instead of a
+            cryptic ZeroDivisionError / complex-round TypeError.
+        """
+        arr = np.ones((8, 8), dtype="float32")
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=3857, no_data_value=-9.0
+        )
+        with pytest.raises(ValueError, match="max_samples must be a positive integer"):
+            ds.footprint(max_samples=bad)
+
     def test_max_samples_preserves_extent_on_rotated_non_square_raster(self):
         """Decimated footprint keeps the exact extent on a rotated, non-square-cell raster.
 

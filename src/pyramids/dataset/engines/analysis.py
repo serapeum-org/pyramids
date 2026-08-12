@@ -1800,7 +1800,14 @@ class Analysis(_Engine["Dataset"]):
 
         Returns:
             np.ndarray: The band array, full-resolution or decimated.
+
+        Raises:
+            ValueError: `max_samples` is not `None` and is less than 1.
         """
+        if max_samples is not None and max_samples < 1:
+            raise ValueError(
+                f"max_samples must be a positive integer or None, got {max_samples}."
+            )
         rows = self._ds.rows
         cols = self._ds.columns
         total = rows * cols
