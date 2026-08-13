@@ -49,10 +49,11 @@ import http.client
 import logging
 import os
 import re
+import threading
 import urllib.error
 import urllib.request
 import warnings
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -873,6 +874,82 @@ _VSICURL_FAST_READ_KNOBS: dict[str, str] = {
 """Fast single-file `/vsicurl/` read preset enabled by `CloudConfig(vsicurl_tuning=True)`."""
 
 
+# Config keys that name a *store's* credentials, endpoint or request shape, as
+# opposed to a global HTTP transport knob. Only these are applied per-bucket via
+# GDAL path-specific options; everything else (GDAL_HTTP_*, VSI_CACHE, CPL_*)
+# stays thread-local. Matched by prefix so a new AWS_/GS_/AZURE_ option is scoped
+# without a code change.
+_PATH_SCOPED_KEY_PREFIXES: tuple[str, ...] = (
+    "AWS_",
+    "GS_",
+    "GOOGLE_",
+    "AZURE_",
+    "OSS_",
+    "SWIFT_",
+)
+
+
+def _bucket_prefix(path: str) -> str | None:
+    """The `/vsi<store>/<bucket>` a path's credentials scope to, or ``None``.
+
+    GDAL path-specific options are keyed by a path prefix and matched
+    longest-first, so keying on the store + bucket applies a store's credentials
+    to every object under it without leaking them to another bucket. Only the
+    object-store handlers have a bucket to key on; anything else (a local file, a
+    plain ``/vsicurl/`` URL) returns ``None`` and its config stays thread-local.
+
+    Args:
+        path: A user path or URL. Converted to VSI form first, so ``s3://b/k``
+            and ``/vsis3/b/k`` both key on ``/vsis3/b``.
+
+    Returns:
+        str | None: ``/vsis3/<bucket>`` (or the gs/az/adls/oss/swift equivalent),
+        or ``None`` when the path names no object-store bucket.
+    """
+    try:
+        vsi = _to_vsi(path)
+    except (ValueError, TypeError):
+        vsi = path
+    for store in _OBJECT_STORE_VSI_PREFIXES:
+        if vsi.startswith(store):
+            bucket = vsi[len(store) :].split("/", 1)[0]
+            return f"{store}{bucket}" if bucket else None
+    return None
+
+
+# GDAL path-specific options are process-global shared state, so restoring them
+# needs bookkeeping the plain `gdal.config_options` save/restore does not give:
+# `GetPathSpecificOption` merges with the global config, so it cannot report what
+# a block set. This registry stacks the values pyramids itself sets per
+# (prefix, key), so a nested same-bucket block restores the outer block's value
+# instead of unsetting it. Same-bucket writes from *different threads* with
+# *different* credentials still race — inherent to GDAL's global model, and the
+# reason a store should be opened with one credential set at a time.
+_PATH_OPTION_LOCK = threading.Lock()
+_PATH_OPTION_STACK: dict[tuple[str, str], list[str]] = {}
+
+
+def _push_path_option(prefix: str, key: str, value: str) -> None:
+    """Set a path-specific option, remembering the prior value for restore."""
+    with _PATH_OPTION_LOCK:
+        _PATH_OPTION_STACK.setdefault((prefix, key), []).append(value)
+        gdal.SetPathSpecificOption(prefix, key, value)
+
+
+def _pop_path_option(prefix: str, key: str) -> None:
+    """Undo the most recent :func:`_push_path_option` for this (prefix, key)."""
+    with _PATH_OPTION_LOCK:
+        stack = _PATH_OPTION_STACK.get((prefix, key))
+        if not stack:
+            return
+        stack.pop()
+        if stack:
+            gdal.SetPathSpecificOption(prefix, key, stack[-1])
+        else:
+            gdal.SetPathSpecificOption(prefix, key, None)
+            del _PATH_OPTION_STACK[(prefix, key)]
+
+
 @dataclass
 class CloudConfig:
     """Context manager setting GDAL config options for cloud I/O.
@@ -1006,7 +1083,11 @@ class CloudConfig:
     curl_cache_size: int | None = None
     vsicurl_tuning: bool = False
     extra: Mapping[str, str] = field(default_factory=dict)
+    path: str | Sequence[str] | None = None
     _ctx: Any = field(default=None, init=False, repr=False, compare=False)
+    _scoped: list[tuple[str, str]] = field(
+        default_factory=list, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         """Reject the mutually-exclusive anonymous + Requester-Pays combination.
@@ -1163,22 +1244,69 @@ class CloudConfig:
         return out
 
     def __enter__(self) -> CloudConfig:
-        """Enter the context and apply the GDAL config options."""
+        """Enter the context and apply the GDAL config options.
+
+        A store's credentials, endpoint and request-shape options
+        (:data:`_PATH_SCOPED_KEY_PREFIXES`) are applied per-bucket via
+        `gdal.SetPathSpecificOption`, so GDAL's VSICurl worker threads — which
+        fetch the byte-ranges of a large read and do **not** inherit thread-local
+        config — see them. The remaining transport knobs stay thread-local. When
+        no bucket can be derived from `path` (a local file, or `path` is unset),
+        every option stays thread-local, matching the pre-fix behaviour.
+        """
         cfg = self.as_gdal_config()
-        self._ctx = gdal.config_options(cfg)
+        prefixes = self._bucket_prefixes()
+        thread_local = cfg
+        if prefixes:
+            scoped = {
+                key: value
+                for key, value in cfg.items()
+                if key.startswith(_PATH_SCOPED_KEY_PREFIXES)
+            }
+            thread_local = {
+                key: value for key, value in cfg.items() if key not in scoped
+            }
+            for prefix in prefixes:
+                for key, value in scoped.items():
+                    _push_path_option(prefix, key, value)
+                    self._scoped.append((prefix, key))
+        self._ctx = gdal.config_options(thread_local)
         self._ctx.__enter__()
-        logger.debug("CloudConfig entered with %d option(s)", len(cfg))
+        logger.debug(
+            "CloudConfig entered: %d thread-local, %d path-scoped across %d bucket(s)",
+            len(thread_local),
+            len(cfg) - len(thread_local),
+            len(prefixes),
+        )
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool | None:
         """Exit the context, restore the previous GDAL config, and clear _ctx."""
         result = cast(bool | None, self._ctx.__exit__(exc_type, exc_val, exc_tb))
         self._ctx = None
+        for prefix, key in reversed(self._scoped):
+            _pop_path_option(prefix, key)
+        self._scoped.clear()
         logger.debug("CloudConfig exited")
         return result
 
+    def _bucket_prefixes(self) -> list[str]:
+        """Distinct object-store prefixes across :attr:`path` (order-preserving)."""
+        if self.path is None:
+            return []
+        paths = [self.path] if isinstance(self.path, str) else list(self.path)
+        prefixes: list[str] = []
+        for one in paths:
+            prefix = _bucket_prefix(str(one))
+            if prefix is not None and prefix not in prefixes:
+                prefixes.append(prefix)
+        return prefixes
 
-def cloud_config_from_env(env: Mapping[str, str] | None) -> Any:
+
+def cloud_config_from_env(
+    env: Mapping[str, str] | None,
+    path: str | Sequence[str] | None = None,
+) -> Any:
     """Return a context manager installing a GDAL config mapping, or a no-op.
 
     The mapping-taking sibling of :func:`signer_cloud_config`, for call sites
@@ -1211,10 +1339,10 @@ def cloud_config_from_env(env: Mapping[str, str] | None) -> Any:
 
             ```
     """
-    return CloudConfig(extra=dict(env)) if env else nullcontext()
+    return CloudConfig(extra=dict(env), path=path) if env else nullcontext()
 
 
-def signer_cloud_config(signer: Any) -> Any:
+def signer_cloud_config(signer: Any, path: str | Sequence[str] | None = None) -> Any:
     """Return a context manager installing a signer's GDAL config, or a no-op.
 
     This is the one place the "apply a signer's `gdal_env()` for the duration
@@ -1250,7 +1378,11 @@ def signer_cloud_config(signer: Any) -> Any:
 
             ```
     """
-    return nullcontext() if signer is None else CloudConfig(extra=signer.gdal_env())
+    return (
+        nullcontext()
+        if signer is None
+        else CloudConfig(extra=signer.gdal_env(), path=path)
+    )
 
 
 _REQUESTER_PAYS_ACK_ENV = "PYRAMIDS_REQUESTER_PAYS_ACK"
