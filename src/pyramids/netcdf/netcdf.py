@@ -2788,7 +2788,141 @@ class NetCDF(Dataset):
                 stacklevel=3,
             )
 
-    def _apply_to_all_variables(self, operation, op_kwargs):
+    def _stream_apply_to_file(
+        self, operation, op_kwargs, spatial_vars, aux_vars, path
+    ) -> NetCDF | None:
+        """Stream ``operation`` over every variable straight to a netCDF ``path``, slab by slab.
+
+        Applies the op to each spatial variable (a cheap VRT/warp -- no data read), builds the
+        output file's dimensions / coordinates / variable specs from the shared transformed grid,
+        then fills each variable one leading-dimension slab at a time via
+        :func:`open_streaming_multidim_netcdf`, so the whole cube is never resident. Non-spatial
+        auxiliary variables are carried through unchanged (written whole).
+
+        Returns ``None`` -- signalling the caller to fall back to the eager build-then-write path --
+        for shapes this single-leading-dimension slab writer cannot represent: a spatial variable
+        with two or more band dimensions, a string/object-typed auxiliary variable, or a
+        curvilinear (2-D) coordinate grid.
+
+        Args:
+            operation: The Dataset method to apply (e.g. ``"crop"``).
+            op_kwargs: Keyword arguments for that method.
+            spatial_vars: Names of the variables carrying both spatial axes.
+            aux_vars: Names of the non-spatial variables to carry through unchanged.
+            path: Output ``.nc`` path.
+
+        Returns:
+            NetCDF | None: A file-backed container reading ``path``, or ``None`` when the shape is
+            not slab-streamable (the caller then falls back to the eager path).
+        """
+        from pyramids.netcdf.engines.interop import open_streaming_multidim_netcdf
+        from pyramids.netcdf.utils import _read_attributes
+
+        rg = self._working_group()
+        for name in spatial_vars:
+            if len(self.get_variable(name)._band_dim_names) >= 2:
+                return None
+        for name in aux_vars:
+            src_md = rg.OpenMDArray(name)
+            if src_md is not None and src_md.GetDataType().GetClass() == gdal.GEDTC_STRING:
+                return None
+
+        results = {
+            name: getattr(self.get_variable(name), operation)(**op_kwargs)
+            for name in spatial_vars
+        }
+        template = results[spatial_vars[0]]
+        y_coord = np.asarray(template.y)
+        x_coord = np.asarray(template.x)
+        if y_coord.ndim != 1 or x_coord.ndim != 1:
+            return None  # curvilinear (2-D) coords aren't slab-streamable here
+
+        dims: dict[str, int] = {"y": int(y_coord.shape[0]), "x": int(x_coord.shape[0])}
+        coords: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
+            "y": (y_coord, {}),
+            "x": (x_coord, {}),
+        }
+        var_specs: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]] = {}
+        for name in spatial_vars:
+            var = self.get_variable(name)
+            res = results[name]
+            src_md = rg.OpenMDArray(name)
+            attrs = _read_attributes(src_md) if src_md is not None else {}
+            band_dims = var._band_dim_names
+            if band_dims:
+                bd = band_dims[0]
+                if bd not in dims:
+                    dims[bd] = int(var._band_dim_sizes[0])
+                    bd_values = var._band_dim_values_map.get(bd)
+                    coords[bd] = (
+                        np.asarray(bd_values)
+                        if bd_values is not None
+                        else np.arange(int(var._band_dim_sizes[0])),
+                        {},
+                    )
+                var_specs[name] = ((bd, "y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
+            else:
+                var_specs[name] = (("y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
+
+        aux_data: dict[str, np.ndarray] = {}
+        for name in aux_vars:
+            src_md = rg.OpenMDArray(name)
+            if src_md is None:
+                continue
+            aux_dim_names = tuple(d.GetName() for d in src_md.GetDimensions() or [])
+            for d in src_md.GetDimensions() or []:
+                dn = d.GetName()
+                if dn not in dims:
+                    iv = d.GetIndexingVariable()
+                    dims[dn] = int(d.GetSize())
+                    coords[dn] = (
+                        (self._md_array_to_numpy(iv), _read_attributes(iv))
+                        if iv is not None
+                        else (np.arange(int(d.GetSize())), {})
+                    )
+            arr = np.ascontiguousarray(self._md_array_to_numpy(src_md))
+            var_specs[name] = (aux_dim_names, arr.dtype, _read_attributes(src_md))
+            aux_data[name] = arr
+
+        root_attrs: dict[str, Any] = dict(self.global_attributes)
+        root_attrs.setdefault("Conventions", "CF-1.8")
+        try:
+            crs_wkt = template.crs.to_wkt() if template.crs is not None else None
+        except AttributeError:
+            crs_wkt = None
+        if crs_wkt:
+            root_attrs["crs_wkt"] = crs_wkt
+        if template.epsg is not None:
+            root_attrs["epsg"] = int(template.epsg)
+        root_attrs["GeoTransform"] = " ".join(str(v) for v in template.geotransform)
+        ndv = scalar_no_data(template.no_data_value)
+        if ndv is not None:
+            root_attrs["nodata"] = ndv
+
+        with open_streaming_multidim_netcdf(
+            str(path), dims, coords, var_specs, root_attrs
+        ) as writer:
+            for name in spatial_vars:
+                var = self.get_variable(name)
+                res = results[name]
+                if var._band_dim_names:
+                    for i in range(int(var._band_dim_sizes[0])):
+                        plane = np.asarray(res.read_array(band=i))
+                        if plane.ndim == 3 and plane.shape[0] == 1:
+                            plane = plane[0]
+                        writer.write_slab(name, i, plane)
+                else:
+                    plane = np.asarray(res.read_array())
+                    if plane.ndim == 3 and plane.shape[0] == 1:
+                        plane = plane[0]
+                    writer.write_whole(name, plane)
+            for name in aux_vars:
+                if name in aux_data:
+                    writer.write_whole(name, aux_data[name])
+
+        return NetCDF.read_file(str(path))
+
+    def _apply_to_all_variables(self, operation, op_kwargs, path=None):
         """Apply a spatial operation to every gridded variable in the container.
 
         Only variables carrying both spatial axes are cropped / reprojected.
@@ -2849,6 +2983,24 @@ class NetCDF(Dataset):
                 f"metadata (standard_name / axis) or rename the axes to y/x.",
                 stacklevel=3,
             )
+
+        # Streaming-to-file path (ARC-46/#976): write the transformed cube straight to `path`,
+        # one leading-dimension slab at a time, so the whole result is never resident. Variables
+        # with >= 2 band dimensions aren't slab-streamable here, so `_stream_apply_to_file` returns
+        # None and we fall back to the eager in-memory build followed by a plain file write (still
+        # correct, just not bounded-memory for that rare shape).
+        if path is not None:
+            streamed = self._stream_apply_to_file(
+                operation, op_kwargs, spatial_vars, aux_vars, path
+            )
+            if streamed is not None:
+                return streamed
+            mem = self._apply_to_all_variables(operation, op_kwargs)
+            try:
+                mem.to_file(str(path))
+            finally:
+                mem.close()
+            return NetCDF.read_file(str(path))
 
         result = None
         for var_name in spatial_vars:
@@ -3136,6 +3288,7 @@ class NetCDF(Dataset):
         to_epsg: int,
         method: str = DEFAULT_RESAMPLING,
         maintain_alignment: bool = False,
+        path: str | Path | None = None,
     ) -> NetCDF:
         """Reproject the dataset to a different CRS.
 
@@ -3149,6 +3302,10 @@ class NetCDF(Dataset):
             method: Resampling method. Defaults to `"nearest neighbor"`.
             maintain_alignment: If True, keep the same number of rows
                 and columns. Defaults to False.
+            path: Optional output `.nc` path. When set, the reprojected container is streamed
+                straight to that file one slab at a time (so the whole cube is never resident) and a
+                **file-backed** `NetCDF` reading it is returned; `None` (default) builds the result
+                in memory.
 
         Returns:
             NetCDF: Reprojected container or variable subset.
@@ -3161,6 +3318,7 @@ class NetCDF(Dataset):
                     "method": method,
                     "maintain_alignment": maintain_alignment,
                 },
+                path=path,
             )
         else:
             # to_crs warps the backing raster; a multidim view can't be window-read by GDAL >= 3.13,
@@ -3172,6 +3330,10 @@ class NetCDF(Dataset):
                 maintain_alignment=maintain_alignment,
             )
             result = self._preserve_netcdf_metadata(result)
+            if path is not None:
+                result.to_file(str(path))
+                result.close()
+                result = NetCDF.read_file(str(path))
         return cast("NetCDF", result)
 
     def warped_view(
@@ -3391,6 +3553,7 @@ class NetCDF(Dataset):
         self,
         cell_size: float,
         method: str = DEFAULT_RESAMPLING,
+        path: str | Path | None = None,
     ) -> NetCDF:
         """Resample the dataset to a different cell size.
 
@@ -3402,6 +3565,10 @@ class NetCDF(Dataset):
         Args:
             cell_size: New cell size.
             method: Resampling method. Defaults to `"nearest neighbor"`.
+            path: Optional output `.nc` path. When set, the resampled container is streamed straight
+                to that file one slab at a time (so the whole cube is never resident) and a
+                **file-backed** `NetCDF` reading it is returned; `None` (default) builds the result
+                in memory.
 
         Returns:
             NetCDF: Resampled container or variable subset.
@@ -3410,6 +3577,7 @@ class NetCDF(Dataset):
             result = self._apply_to_all_variables(
                 "resample",
                 {"cell_size": cell_size, "method": method},
+                path=path,
             )
         else:
             # resample warps the backing raster; a multidim view can't be window-read by GDAL >= 3.13.
@@ -3419,6 +3587,10 @@ class NetCDF(Dataset):
                 method=method,
             )
             result = self._preserve_netcdf_metadata(result)
+            if path is not None:
+                result.to_file(str(path))
+                result.close()
+                result = NetCDF.read_file(str(path))
         return cast("NetCDF", result)
 
     def sel(self, *args, **kwargs) -> NetCDF:

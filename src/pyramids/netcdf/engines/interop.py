@@ -593,6 +593,19 @@ class _StreamingMultidimWriter:
             count=[1] + list(block.shape),
         )
 
+    def write_whole(self, var_name: str, array: np.ndarray) -> None:
+        """Write an entire (non-streamed) variable in one hyperslab.
+
+        For a variable with no streamed leading dimension -- a 2-D ``(y, x)`` grid, or a small
+        carried-through auxiliary variable -- there is no slab to iterate, so the full array is
+        written at once.
+
+        Args:
+            var_name: Target variable.
+            array: The variable's full array, matching its declared shape.
+        """
+        self._arrays[var_name].Write(np.ascontiguousarray(np.asarray(array)))
+
 
 def _build_streaming_multidim(
     dataset: gdal.Dataset,

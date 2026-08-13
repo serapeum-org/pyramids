@@ -69,6 +69,7 @@ class Selection(_Engine["NetCDF"]):
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         epsg: Any = None,
         chunks: Any = None,
+        path: str | Path | None = None,
     ) -> NetCDF:
         """Crop the dataset using a polygon mask, a raster mask, or a bbox tuple.
 
@@ -124,6 +125,12 @@ class Selection(_Engine["NetCDF"]):
                 for a rectilinear (affine-warp) crop (which is eager), or
                 on a **root container** (call crop on a single variable via
                 :meth:`get_variable` instead).
+            path (keyword-only): Optional output ``.nc`` path. On a **root
+                container** the cropped cube is streamed straight to that
+                file one leading-dimension slab at a time (so the whole
+                result is never resident) and a **file-backed** :class:`NetCDF`
+                reading it is returned; ``None`` (default) builds the result
+                in memory.
 
         Returns:
             NetCDF: Cropped container or variable subset.
@@ -181,7 +188,7 @@ class Selection(_Engine["NetCDF"]):
             bbox, mask, epsg, is_container, touch, chunks
         )
         if antimeridian is not None:
-            return antimeridian
+            return cast("NetCDF", self._finalize_crop_output(antimeridian, path))
         mask = self._resolve_crop_mask(mask, bbox, epsg)
         if is_container:
             # A container crops every variable; `chunks` is a curvilinear-only, per-variable knob
@@ -193,10 +200,30 @@ class Selection(_Engine["NetCDF"]):
                     "curvilinear-only, per-variable option — call crop on a single variable "
                     "via get_variable(name) instead."
                 )
-            result = nc._apply_to_all_variables("crop", {"mask": mask, "touch": touch})
+            # `path` streams every cropped variable straight to `path` slab-by-slab (bounded memory)
+            # and returns a file-backed NetCDF; `path=None` keeps the in-memory fan-out.
+            result = nc._apply_to_all_variables(
+                "crop", {"mask": mask, "touch": touch}, path=path
+            )
         else:
-            result = self._crop_one(mask, touch=touch, chunks=chunks)
+            result = self._finalize_crop_output(
+                self._crop_one(mask, touch=touch, chunks=chunks), path
+            )
         return cast("NetCDF", result)
+
+    @staticmethod
+    def _finalize_crop_output(result: NetCDF, path: str | Path | None) -> NetCDF:
+        """Persist a single-variable / antimeridian crop to ``path`` when requested.
+
+        The container fan-out already streams straight to ``path`` (bounded memory); the
+        non-container crop paths build an in-memory result, so honour ``path`` by writing it
+        out and re-opening a file-backed :class:`NetCDF`. ``path=None`` returns ``result`` as-is.
+        """
+        if path is None:
+            return result
+        result.to_file(str(path))
+        result.close()
+        return cast("NetCDF", type(result).read_file(str(path)))
 
     def _try_antimeridian(
         self,
