@@ -879,41 +879,90 @@ _VSICURL_FAST_READ_KNOBS: dict[str, str] = {
 # GDAL path-specific options; everything else (GDAL_HTTP_*, VSI_CACHE, CPL_*)
 # stays thread-local. Matched by prefix so a new AWS_/GS_/AZURE_ option is scoped
 # without a code change.
-_PATH_SCOPED_KEY_PREFIXES: tuple[str, ...] = (
-    "AWS_",
-    "GS_",
-    "GOOGLE_",
-    "AZURE_",
-    "OSS_",
-    "SWIFT_",
+# Config keys GDAL's object-store handlers read *per path* (via
+# `VSIGetPathSpecificOption`), so scoping them to a bucket reaches the VSICurl
+# worker threads. An explicit allowlist, not an `AWS_`/`GS_` prefix match: keys
+# such as `AWS_PROFILE`, `AWS_CONFIG_FILE`, `AWS_WEB_IDENTITY_TOKEN_FILE` and
+# `GOOGLE_APPLICATION_CREDENTIALS` drive credential-provider bootstrap and are
+# read through the *global* getter, so path-scoping them would hide them from the
+# code that reads them (invisible both ways). Anything not listed here stays
+# thread-local, exactly as before.
+_PATH_SCOPED_KEYS: frozenset[str] = frozenset(
+    {
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_REGION",
+        "AWS_DEFAULT_REGION",
+        "AWS_S3_ENDPOINT",
+        "AWS_ENDPOINT_URL",
+        "AWS_VIRTUAL_HOSTING",
+        "AWS_REQUEST_PAYER",
+        "AWS_NO_SIGN_REQUEST",
+        "AWS_HTTPS",
+        "GS_ACCESS_KEY_ID",
+        "GS_SECRET_ACCESS_KEY",
+        "GS_OAUTH2_REFRESH_TOKEN",
+        "GS_NO_SIGN_REQUEST",
+        "GS_USER_PROJECT",
+        "AZURE_STORAGE_ACCOUNT",
+        "AZURE_STORAGE_ACCESS_KEY",
+        "AZURE_STORAGE_SAS_TOKEN",
+        "AZURE_STORAGE_CONNECTION_STRING",
+        "AZURE_NO_SIGN_REQUEST",
+        "OSS_ACCESS_KEY_ID",
+        "OSS_SECRET_ACCESS_KEY",
+        "OSS_ENDPOINT",
+        "SWIFT_STORAGE_URL",
+        "SWIFT_AUTH_TOKEN",
+        "SWIFT_AUTH_V1_URL",
+        "SWIFT_USER",
+        "SWIFT_KEY",
+    }
 )
 
 
-def _bucket_prefix(path: str) -> str | None:
-    """The `/vsi<store>/<bucket>` a path's credentials scope to, or ``None``.
+# The archive VSI prefixes a chained path stacks in front of the real store
+# (`/vsizip//vsis3/bucket/a.zip/x.tif`), stripped before the bucket is read.
+_ARCHIVE_CHAIN_PREFIXES: tuple[str, ...] = (_VSIZIP, _VSITAR, _VSIGZIP)
 
-    GDAL path-specific options are keyed by a path prefix and matched
-    longest-first, so keying on the store + bucket applies a store's credentials
-    to every object under it without leaking them to another bucket. Only the
-    object-store handlers have a bucket to key on; anything else (a local file, a
-    plain ``/vsicurl/`` URL) returns ``None`` and its config stays thread-local.
+
+def _bucket_prefix(path: str) -> str | None:
+    """The `/vsi<store>/<bucket>/` a path's credentials scope to, or ``None``.
+
+    GDAL path-specific options are keyed by a raw string prefix, matched
+    longest-first. The key therefore ends in a **trailing slash**: without it
+    `/vsis3/eodata` would also match sibling buckets whose name merely starts the
+    same (`/vsis3/eodata2/...`, `/vsis3/eodata-public/...`), leaking one bucket's
+    endpoint and secret key to another. A real object read always carries a
+    `/<key>` suffix, so `/vsis3/eodata/` still matches `/vsis3/eodata/S2/x.jp2`.
+
+    An archive chain (`/vsizip//vsis3/bucket/...`) is seen past to the underlying
+    store, and the ``_streaming`` twin of each store keys on its own prefix. Only
+    the object-store handlers have a bucket to key on; anything else (a local
+    file, a plain ``/vsicurl/`` URL) returns ``None`` and its config stays
+    thread-local.
 
     Args:
         path: A user path or URL. Converted to VSI form first, so ``s3://b/k``
-            and ``/vsis3/b/k`` both key on ``/vsis3/b``.
+            and ``/vsis3/b/k`` both key on ``/vsis3/b/``.
 
     Returns:
-        str | None: ``/vsis3/<bucket>`` (or the gs/az/adls/oss/swift equivalent),
-        or ``None`` when the path names no object-store bucket.
+        str | None: ``/vsis3/<bucket>/`` (or the gs/az/adls/oss/swift/streaming
+        equivalent), or ``None`` when the path names no object-store bucket.
     """
     try:
         vsi = _to_vsi(path)
     except (ValueError, TypeError):
         vsi = path
+    for archive in _ARCHIVE_CHAIN_PREFIXES:
+        while vsi.startswith(archive):
+            vsi = vsi[len(archive) :]
     for store in _OBJECT_STORE_VSI_PREFIXES:
-        if vsi.startswith(store):
-            bucket = vsi[len(store) :].split("/", 1)[0]
-            return f"{store}{bucket}" if bucket else None
+        for handler in (store, f"{store[:-1]}_streaming/"):
+            if vsi.startswith(handler):
+                bucket = vsi[len(handler) :].split("/", 1)[0]
+                return f"{handler}{bucket}/" if bucket else None
     return None
 
 
@@ -932,8 +981,11 @@ _PATH_OPTION_STACK: dict[tuple[str, str], list[str]] = {}
 def _push_path_option(prefix: str, key: str, value: str) -> None:
     """Set a path-specific option, remembering the prior value for restore."""
     with _PATH_OPTION_LOCK:
-        _PATH_OPTION_STACK.setdefault((prefix, key), []).append(value)
-        gdal.SetPathSpecificOption(prefix, key, value)
+        stack = _PATH_OPTION_STACK.setdefault((prefix, key), [])
+        already_current = bool(stack) and stack[-1] == value
+        stack.append(value)
+        if not already_current:
+            gdal.SetPathSpecificOption(prefix, key, value)
 
 
 def _pop_path_option(prefix: str, key: str) -> None:
@@ -1049,8 +1101,23 @@ class CloudConfig:
             ```
 
     Note:
-        :func:`gdal.config_options` is thread-local; each thread that
-        opens cloud assets needs its own `with CloudConfig(...)`.
+        Pass `path=` (the source `/vsi*` path or URL, or a list of them) so a
+        store's credentials and endpoint reach GDAL's VSICurl worker threads. A
+        large read farms its byte-range GETs onto workers that do not inherit
+        thread-local config, so without `path=` a custom `AWS_S3_ENDPOINT` set
+        here is invisible to them and a non-AWS store falls back to real AWS and
+        403s (#983). With `path=`, the credential/endpoint subset
+        (:data:`_PATH_SCOPED_KEYS`) is applied per bucket via
+        `gdal.SetPathSpecificOption`, which is worker-visible; the HTTP transport
+        knobs stay thread-local. Without `path=`, or for a local path, every
+        option stays thread-local as before.
+
+        Path-specific options are process-global shared state. Concurrent reads
+        of *different* buckets are isolated by their distinct bucket keys; a
+        nested same-bucket block restores the outer block's value on exit. Two
+        threads reading the *same* bucket with *different* credentials at the
+        same time is not supported — GDAL has one global slot per (bucket, key),
+        so open a store with one credential set at a time.
 
     See Also:
         - :meth:`as_gdal_config`: the mapping function that this context
@@ -1257,21 +1324,27 @@ class CloudConfig:
         cfg = self.as_gdal_config()
         prefixes = self._bucket_prefixes()
         thread_local = cfg
-        if prefixes:
-            scoped = {
-                key: value
-                for key, value in cfg.items()
-                if key.startswith(_PATH_SCOPED_KEY_PREFIXES)
-            }
-            thread_local = {
-                key: value for key, value in cfg.items() if key not in scoped
-            }
-            for prefix in prefixes:
-                for key, value in scoped.items():
-                    _push_path_option(prefix, key, value)
-                    self._scoped.append((prefix, key))
-        self._ctx = gdal.config_options(thread_local)
-        self._ctx.__enter__()
+        try:
+            if prefixes:
+                scoped = {
+                    key: value for key, value in cfg.items() if key in _PATH_SCOPED_KEYS
+                }
+                thread_local = {
+                    key: value for key, value in cfg.items() if key not in scoped
+                }
+                for prefix in prefixes:
+                    for key, value in scoped.items():
+                        _push_path_option(prefix, key, value)
+                        self._scoped.append((prefix, key))
+            self._ctx = gdal.config_options(thread_local)
+            self._ctx.__enter__()
+        except BaseException:
+            # __enter__ raising means __exit__ never runs, so unwind here or a
+            # pushed secret is stranded in GDAL's process-global path state.
+            for prefix, key in reversed(self._scoped):
+                _pop_path_option(prefix, key)
+            self._scoped.clear()
+            raise
         logger.debug(
             "CloudConfig entered: %d thread-local, %d path-scoped across %d bucket(s)",
             len(thread_local),
