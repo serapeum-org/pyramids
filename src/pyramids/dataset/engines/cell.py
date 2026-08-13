@@ -16,7 +16,7 @@ from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_indices2, locate_values
 from pandas import DataFrame
 
-from pyramids.base.crs import crs_from_user_input
+from pyramids.base.crs import crs_from_user_input, crs_spec
 from pyramids.dataset.engines._base import _Engine
 from pyramids.feature import FeatureCollection, create_points, create_polygon
 
@@ -161,6 +161,25 @@ class Cell(_Engine["Dataset"]):
 
         return coords
 
+    def _attach_crs(self, gdf: GeoDataFrame) -> None:
+        """Label `gdf` in place with the raster's CRS, or leave it unprojected.
+
+        Uses the resolved CRS *spec* (the EPSG code when it is resolvable downstream,
+        else the WKT), routed through `crs_from_user_input` rather than a bare `epsg=`:
+        geopandas resolves a code with pyproj, which cannot look up a code only GDAL's
+        PROJ database carries (issue #943). Passing the bare `_get_epsg()` code alone was
+        `None` for a valid CRS with no EPSG authority (a custom projection or a proj4/WKT
+        reprojection), which crashed `set_crs` and, before #893, silently mislabelled such
+        cells as EPSG:4326 (issue #979). `crs_spec` is `None` only when the raster truly
+        has no CRS -- then the frame is left unprojected.
+
+        Args:
+            gdf (GeoDataFrame): The frame to label in place.
+        """
+        crs = crs_spec(self._ds.epsg, self._ds.crs)
+        if crs is not None:
+            gdf.set_crs(crs_from_user_input(crs), inplace=True)
+
     def get_cell_polygons(self, domain_only: bool = False) -> GeoDataFrame:
         """Get a polygon shapely geometry for the raster cells.
 
@@ -170,7 +189,12 @@ class Cell(_Engine["Dataset"]):
 
         Returns:
             GeoDataFrame:
-                With two columns, geometry, and id.
+                With two columns, geometry, and id. The frame is labelled with the
+                raster's own CRS -- its EPSG code when that code is resolvable
+                downstream, otherwise its WKT (so a custom authority-less projection, or
+                a code only GDAL's PROJ database carries, is preserved rather than
+                fabricated as EPSG:4326) -- or left unprojected (`crs=None`) when the
+                raster has no CRS.
 
         Examples:
             - Create `Dataset` consists of 1 band, 3 rows, 3 columns, at the point lon/lat (0, 0).
@@ -215,7 +239,6 @@ class Cell(_Engine["Dataset"]):
         # Expressed as vector steps it also carries the rotation terms, so a skewed
         # raster yields the right parallelogram instead of an axis-aligned box.
         _, col_dx, row_dx, _, col_dy, row_dy = self._ds.geotransform
-        epsg = self._ds._get_epsg()
         x = np.zeros((coords.shape[0], 4))
         y = np.zeros((coords.shape[0], 4))
         x[:, 0] = coords[:, 0]
@@ -234,10 +257,7 @@ class Cell(_Engine["Dataset"]):
         rings = np.stack((x, y), axis=-1)
         polygons = [create_polygon(ring) for ring in rings.tolist()]
         gdf = gpd.GeoDataFrame(geometry=polygons)
-        # Through `crs_from_user_input`, not `epsg=`: geopandas resolves a bare code
-        # with pyproj, which cannot look up a code only GDAL's PROJ database carries
-        # (issue #943). A resolved CRS object needs no lookup.
-        gdf.set_crs(crs_from_user_input(epsg), inplace=True)
+        self._attach_crs(gdf)
         gdf["id"] = gdf.index
         return gdf
 
@@ -254,7 +274,12 @@ class Cell(_Engine["Dataset"]):
 
         Returns:
             GeoDataFrame:
-                With two columns, geometry, and id.
+                With two columns, geometry, and id. The frame is labelled with the
+                raster's own CRS -- its EPSG code when that code is resolvable
+                downstream, otherwise its WKT (so a custom authority-less projection, or
+                a code only GDAL's PROJ database carries, is preserved rather than
+                fabricated as EPSG:4326) -- or left unprojected (`crs=None`) when the
+                raster has no CRS.
 
         Examples:
             - Create `Dataset` consists of 1 band, 3 rows, 3 columns, at the point lon/lat (0, 0).
@@ -316,15 +341,10 @@ class Cell(_Engine["Dataset"]):
             ![get_cell_points-corner](./../../_images/dataset/get_cell_points-corner.png)
         """
         coords = self.get_cell_coords(location=location, domain_only=domain_only)
-        epsg = self._ds._get_epsg()
-
         coords_tuples = list(zip(coords[:, 0], coords[:, 1]))
         points = create_points(coords_tuples)
         gdf = gpd.GeoDataFrame(geometry=points)
-        # Through `crs_from_user_input`, not `epsg=`: geopandas resolves a bare code
-        # with pyproj, which cannot look up a code only GDAL's PROJ database carries
-        # (issue #943). A resolved CRS object needs no lookup.
-        gdf.set_crs(crs_from_user_input(epsg), inplace=True)
+        self._attach_crs(gdf)
         gdf["id"] = gdf.index
         return gdf
 

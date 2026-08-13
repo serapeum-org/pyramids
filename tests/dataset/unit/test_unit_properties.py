@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.base.crs import sr_from_epsg
+from pyramids.base.crs import crs_from_user_input, crs_spec, sr_from_epsg
 from pyramids.dataset import Dataset
 from pyramids.dataset.abstract_dataset import RasterBase
 
@@ -593,6 +593,8 @@ class TestDatasetLike:
 class TestCellGeometryMethods:
     """Tests for get_cell_coords, get_cell_points, get_cell_polygons."""
 
+    _ORTHO_PROJ4 = "+proj=ortho +lat_0=50 +lon_0=10 +datum=WGS84 +units=m +no_defs"
+
     def test_get_cell_coords_center(self, single_band_dataset):
         """Center coords should be at half-cell offsets from corners."""
         coords = single_band_dataset.get_cell_coords(location="center")
@@ -657,6 +659,157 @@ class TestCellGeometryMethods:
         gdf = dataset_with_nodata.get_cell_polygons(domain_only=True)
         assert isinstance(gdf, gpd.GeoDataFrame), "Should return GeoDataFrame"
         assert len(gdf) == 4, f"Expected 4 polygons for domain cells, got {len(gdf)}"
+
+    @classmethod
+    def _authority_less_raster(cls) -> Dataset:
+        """A raster on a valid CRS that carries no EPSG authority code.
+
+        Returns:
+            Dataset: a 10x10 raster reprojected to the local orthographic (proj4/WKT
+            only) `_ORTHO_PROJ4`, so `_get_epsg()` is None while the full CRS spec is
+            present.
+        """
+        arr = np.arange(100, dtype="float32").reshape(10, 10)
+        ds = Dataset.create_from_array(
+            arr, geo=(10.0, 0.1, 0.0, 50.0, 0.0, -0.1), epsg=4326
+        )
+        return ds.to_crs(cls._ORTHO_PROJ4)
+
+    def test_get_cell_polygons_authority_less_crs(self):
+        """get_cell_polygons labels the frame with an authority-less CRS, not a crash (#979).
+
+        Test scenario:
+            A raster on a custom orthographic CRS (no EPSG code) yields cell polygons whose
+            crs equals the source CRS -- not None, not a fabricated EPSG:4326 -- and to_epsg()
+            is None.
+        """
+        r = self._authority_less_raster()
+        gdf = r.get_cell_polygons()
+        assert gdf.crs is not None, "authority-less CRS must still label the frame"
+        assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
+        assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
+            "cell polygons must carry the source orthographic CRS, not a fabricated one"
+        )
+
+    def test_get_cell_points_authority_less_crs(self):
+        """get_cell_points labels the frame with an authority-less CRS, not a crash (#979).
+
+        Test scenario:
+            The point variant of the raster above carries the same source CRS with no EPSG
+            code, instead of raising CRSError.
+        """
+        r = self._authority_less_raster()
+        gdf = r.get_cell_points()
+        assert gdf.crs is not None, "authority-less CRS must still label the frame"
+        assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
+        assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
+            "cell points must carry the source orthographic CRS, not a fabricated one"
+        )
+
+    def test_get_cell_polygons_no_crs_is_unprojected(self):
+        """A raster with no CRS at all yields an unprojected frame, not a crash (#979).
+
+        Test scenario:
+            When the raster carries no CRS, the cell polygons come back with crs=None rather
+            than raising on `crs_from_user_input(None)`.
+        """
+        arr = np.arange(9, dtype="float32").reshape(3, 3)
+        ds = Dataset.create_from_array(
+            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=None
+        )
+        gdf = ds.get_cell_polygons()
+        assert gdf.crs is None, "a CRS-less raster must yield an unprojected frame"
+        assert len(gdf) == 9, f"expected 9 polygons, got {len(gdf)}"
+
+    def test_get_cell_points_no_crs_is_unprojected(self):
+        """A raster with no CRS at all yields unprojected points, not a crash (#979).
+
+        Test scenario:
+            When the raster carries no CRS, get_cell_points comes back with crs=None rather
+            than raising on `crs_from_user_input(None)`, mirroring the polygon path.
+        """
+        arr = np.arange(9, dtype="float32").reshape(3, 3)
+        ds = Dataset.create_from_array(
+            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=None
+        )
+        gdf = ds.get_cell_points()
+        assert gdf.crs is None, "a CRS-less raster must yield an unprojected frame"
+        assert len(gdf) == 9, f"expected 9 points, got {len(gdf)}"
+
+    def test_get_cell_polygons_domain_only_authority_less_crs(self):
+        """The domain_only path also labels an authority-less CRS correctly (#979).
+
+        Test scenario:
+            get_cell_polygons(domain_only=True) on the authority-less raster (all cells valid)
+            still carries the source orthographic CRS, proving the masked path shares the fix.
+        """
+        r = self._authority_less_raster()
+        gdf = r.get_cell_polygons(domain_only=True)
+        assert gdf.crs is not None, "domain_only path must still label the frame"
+        assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
+        assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
+            "domain_only polygons must carry the source orthographic CRS"
+        )
+
+    def test_get_cell_polygons_gdal_only_epsg_code(self):
+        """A code GDAL resolves but pyproj cannot is labelled from its WKT (#943 / #979).
+
+        Test scenario:
+            A raster on EPSG:10857 (which pyproj's bundled database cannot look up) yields cell
+            polygons whose crs is the same CRS crs_from_user_input heals the code to -- proving
+            crs_spec's WKT fallback labels these methods correctly rather than crashing.
+        """
+        arr = np.arange(9, dtype="float32").reshape(3, 3)
+        ds = Dataset.create_from_array(
+            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=10857
+        )
+        if not isinstance(crs_spec(ds.epsg, ds.crs), str):
+            pytest.skip(
+                "pyproj resolves EPSG:10857 on this stack; the WKT-fallback branch "
+                "is not exercised here"
+            )
+        gdf = ds.get_cell_polygons()
+        assert gdf.crs is not None, "a GDAL-only code must still label the frame"
+        assert gdf.crs.equals(crs_from_user_input(10857)), (
+            "cell polygons must carry the CRS the GDAL-only code resolves to"
+        )
+
+    def test_get_cell_points_domain_only_authority_less_crs(self):
+        """The domain_only point path also labels an authority-less CRS correctly (#979).
+
+        Test scenario:
+            get_cell_points(domain_only=True) on the authority-less raster carries the source
+            orthographic CRS, mirroring the polygon masked-path check.
+        """
+        r = self._authority_less_raster()
+        gdf = r.get_cell_points(domain_only=True)
+        assert gdf.crs is not None, "domain_only path must still label the frame"
+        assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
+        assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
+            "domain_only points must carry the source orthographic CRS"
+        )
+
+    def test_get_cell_points_gdal_only_epsg_code(self):
+        """A GDAL-only EPSG code is labelled from its WKT on the point path (#943 / #979).
+
+        Test scenario:
+            EPSG:10857 (which pyproj cannot look up) yields cell points whose crs is the CRS
+            crs_from_user_input heals the code to, mirroring the polygon GDAL-only check.
+        """
+        arr = np.arange(9, dtype="float32").reshape(3, 3)
+        ds = Dataset.create_from_array(
+            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=10857
+        )
+        if not isinstance(crs_spec(ds.epsg, ds.crs), str):
+            pytest.skip(
+                "pyproj resolves EPSG:10857 on this stack; the WKT-fallback branch "
+                "is not exercised here"
+            )
+        gdf = ds.get_cell_points()
+        assert gdf.crs is not None, "a GDAL-only code must still label the frame"
+        assert gdf.crs.equals(crs_from_user_input(10857)), (
+            "cell points must carry the CRS the GDAL-only code resolves to"
+        )
 
 
 class TestGetBandByColor:
