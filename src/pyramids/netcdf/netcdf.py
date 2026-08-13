@@ -2941,7 +2941,7 @@ class NetCDF(Dataset):
 
         return NetCDF.read_file(str(path))
 
-    def _apply_to_all_variables(self, operation, op_kwargs, path=None):
+    def _apply_to_all_variables(self, operation, op_kwargs, path=None, *, warn_demoted=True):
         """Apply a spatial operation to every gridded variable in the container.
 
         Only variables carrying both spatial axes are cropped / reprojected.
@@ -2993,7 +2993,7 @@ class NetCDF(Dataset):
             ]
             if len(unknown_axes) >= 2:
                 demoted.append(n)
-        if demoted:
+        if demoted and warn_demoted:
             warnings.warn(
                 f"{operation}() is carrying {len(demoted)} multi-dimensional "
                 f"variable(s) {demoted} through unchanged because their axes were "
@@ -3015,11 +3015,12 @@ class NetCDF(Dataset):
             if streamed is not None:
                 return streamed
             # The eager fallback re-runs the same spatial/aux scan and would emit the demoted-
-            # variable warning a second time for one call; it was already warned above, so suppress
-            # the duplicate on the recursive build (review N1).
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                mem = self._apply_to_all_variables(operation, op_kwargs)
+            # variable warning a second time for one call; it was already warned above. Suppress
+            # only that duplicate via `warn_demoted=False` — genuine warnings from the real
+            # transform work still surface (reviews N1, R2-L1).
+            mem = self._apply_to_all_variables(
+                operation, op_kwargs, warn_demoted=False
+            )
             try:
                 mem.to_file(str(path))
             finally:
