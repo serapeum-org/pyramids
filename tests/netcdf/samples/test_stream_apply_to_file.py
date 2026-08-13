@@ -30,7 +30,16 @@ def _snapshot(nc):
 
 
 def _assert_same(mem, streamed):
-    """Assert two containers hold the same variables with value-identical arrays."""
+    """Assert two containers match on variables, array values, and spatial CRS / geotransform.
+
+    Metadata is compared only for the genuinely spatial variables (those the eager result gives a
+    CRS): non-spatial bounds variables inherit the container's global CRS in the streamed file but
+    stay CRS-less in the eager path — a harmless, known divergence not asserted here. The
+    geotransform tolerance is relative and loose (`rtol=1e-4`): the eager path reconstructs the
+    affine via `create_from_array` while the streamed file round-trips the native warp geotransform,
+    so they differ sub-pixel (~1e-5 of a cell) — still far tighter than any real CRS/affine
+    regression, which flips units or collapses to identity.
+    """
     assert sorted(mem.variables) == sorted(streamed.variables)
     left, right = _snapshot(mem), _snapshot(streamed)
     for name in left:
@@ -39,6 +48,24 @@ def _assert_same(mem, streamed):
             assert_allclose(left[name], right[name], equal_nan=True, err_msg=name)
         else:
             assert_array_equal(left[name], right[name], err_msg=name)
+    # CRS + affine must survive the streamed write, not just the pixel values — a `to_crs` that
+    # dropped or garbled the reconstructed CRS/geotransform would still match on values alone (L5).
+    assert mem.epsg == streamed.epsg, f"container epsg {mem.epsg} != {streamed.epsg}"
+    for name in left:
+        mem_var = mem.get_variable(name)
+        if mem_var.epsg is None:
+            continue  # non-spatial / auxiliary variable in the eager result
+        streamed_var = streamed.get_variable(name)
+        assert mem_var.epsg == streamed_var.epsg, (
+            f"{name}: epsg {mem_var.epsg} != {streamed_var.epsg}"
+        )
+        assert_allclose(
+            np.asarray(mem_var.geotransform, dtype=float),
+            np.asarray(streamed_var.geotransform, dtype=float),
+            rtol=1e-4,
+            atol=1e-3,
+            err_msg=f"{name}: geotransform",
+        )
 
 
 OPS = {
