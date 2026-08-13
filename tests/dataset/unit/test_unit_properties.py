@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.base.crs import crs_from_user_input, sr_from_epsg
+from pyramids.base.crs import crs_from_user_input, crs_spec, sr_from_epsg
 from pyramids.dataset import Dataset
 from pyramids.dataset.abstract_dataset import RasterBase
 
@@ -763,6 +763,11 @@ class TestCellGeometryMethods:
         ds = Dataset.create_from_array(
             arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=10857
         )
+        if not isinstance(crs_spec(ds.epsg, ds.crs), str):
+            pytest.skip(
+                "pyproj resolves EPSG:10857 on this stack; the WKT-fallback branch "
+                "is not exercised here"
+            )
         gdf = ds.get_cell_polygons()
         assert gdf.crs is not None, "a GDAL-only code must still label the frame"
         assert gdf.crs.equals(crs_from_user_input(10857)), (
