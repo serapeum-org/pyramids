@@ -658,21 +658,22 @@ class TestCellGeometryMethods:
         assert isinstance(gdf, gpd.GeoDataFrame), "Should return GeoDataFrame"
         assert len(gdf) == 4, f"Expected 4 polygons for domain cells, got {len(gdf)}"
 
-    @staticmethod
-    def _authority_less_raster() -> Dataset:
+    _ORTHO_PROJ4 = "+proj=ortho +lat_0=50 +lon_0=10 +datum=WGS84 +units=m +no_defs"
+
+    @classmethod
+    def _authority_less_raster(cls) -> Dataset:
         """A raster on a valid CRS that carries no EPSG authority code.
 
         Returns:
-            Dataset: a 10x10 raster reprojected to a local orthographic (proj4/WKT
-            only), so `_get_epsg()` is None while the full CRS spec is present.
+            Dataset: a 10x10 raster reprojected to the local orthographic (proj4/WKT
+            only) `_ORTHO_PROJ4`, so `_get_epsg()` is None while the full CRS spec is
+            present.
         """
         arr = np.arange(100, dtype="float32").reshape(10, 10)
         ds = Dataset.create_from_array(
             arr, geo=(10.0, 0.1, 0.0, 50.0, 0.0, -0.1), epsg=4326
         )
-        return ds.to_crs(
-            "+proj=ortho +lat_0=50 +lon_0=10 +datum=WGS84 +units=m +no_defs"
-        )
+        return ds.to_crs(cls._ORTHO_PROJ4)
 
     def test_get_cell_polygons_authority_less_crs(self):
         """get_cell_polygons labels the frame with an authority-less CRS, not a crash (#979).
@@ -686,8 +687,8 @@ class TestCellGeometryMethods:
         gdf = r.get_cell_polygons()
         assert gdf.crs is not None, "authority-less CRS must still label the frame"
         assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
-        assert gdf.crs.equals(crs_from_user_input(r.crs)), (
-            "cell polygons must carry the raster's own CRS, not a fabricated one"
+        assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
+            "cell polygons must carry the source orthographic CRS, not a fabricated one"
         )
 
     def test_get_cell_points_authority_less_crs(self):
@@ -701,8 +702,8 @@ class TestCellGeometryMethods:
         gdf = r.get_cell_points()
         assert gdf.crs is not None, "authority-less CRS must still label the frame"
         assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
-        assert gdf.crs.equals(crs_from_user_input(r.crs)), (
-            "cell points must carry the raster's own CRS, not a fabricated one"
+        assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
+            "cell points must carry the source orthographic CRS, not a fabricated one"
         )
 
     def test_get_cell_polygons_no_crs_is_unprojected(self):
