@@ -7288,7 +7288,7 @@ callable that defers reading until data is first accessed.</p>
 <a id="__codelineno-0-152" name="__codelineno-0-152"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;True when the variable can produce an array — eager data or a lazy loader.</span>
 <a id="__codelineno-0-153" name="__codelineno-0-153"></a>
 <a id="__codelineno-0-154" name="__codelineno-0-154"></a><span class="sd">        Metadata-only, so callers can decide whether to read a variable&#39;s values without forcing</span>
-<a id="__codelineno-0-155" name="__codelineno-0-155"></a><span class="sd">        the load a bare `.data` access would trigger.</span>
+<a id="__codelineno-0-155" name="__codelineno-0-155"></a><span class="sd">        the load a bare ``.data`` access would trigger.</span>
 <a id="__codelineno-0-156" name="__codelineno-0-156"></a><span class="sd">        &quot;&quot;&quot;</span>
 <a id="__codelineno-0-157" name="__codelineno-0-157"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loader</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
 <a id="__codelineno-0-158" name="__codelineno-0-158"></a>
