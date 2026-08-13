@@ -212,6 +212,28 @@ class TestWindowedTimeSelection:
         assert calls == [], "a negative index must not take the windowed path"
         np.testing.assert_array_equal(result, temporal[-1])
 
+    def test_reversed_range_falls_back_to_empty_slice(self, temporal_file, monkeypatch):
+        """A reversed/empty range is not windowed (no negative GDAL `count`); it returns empty.
+
+        Test scenario:
+            `sel_time_range(2, 1)` on a file-backed variable takes the in-memory fallback (the spy
+            records no windowed read) and yields the same empty `(0, n_elements)` array the cached
+            path would — never passing `count = -1` to GDAL.
+        """
+        path, temporal = temporal_file
+        calls = []
+        real = models._read_time_slab
+        monkeypatch.setattr(
+            models,
+            "_read_time_slab",
+            lambda p, name, start, stop: (
+                calls.append((start, stop)) or real(p, name, start, stop)
+            ),
+        )
+        result = UgridDataset.read_file(path).get_data("h").sel_time_range(2, 1)
+        assert calls == [], "a reversed range must not take the windowed path"
+        np.testing.assert_array_equal(np.asarray(result.data), temporal[2:1])
+
 
 class TestStreamingWrite:
     """`to_file` streams each variable without populating the shared cache (#982)."""

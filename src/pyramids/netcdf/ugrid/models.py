@@ -233,6 +233,9 @@ class MeshVariable:
 
         Requires an on-disk source, an axis-0 time dimension (what the slab reader indexes), and
         non-negative in-range indices; otherwise the caller falls back to a full load then slice.
+        A reversed/empty range (``stop < start``) is excluded so the in-memory slice — which yields
+        a consistent empty array — handles it, rather than passing a negative ``count`` to GDAL
+        (review L2).
         """
         n_steps = self.n_time_steps
         return (
@@ -240,7 +243,7 @@ class MeshVariable:
             and self.time_index == 0
             and start >= 0
             and start < n_steps
-            and (stop is None or 0 <= stop <= n_steps)
+            and (stop is None or (start <= stop <= n_steps))
         )
 
     def _read_time_window(
