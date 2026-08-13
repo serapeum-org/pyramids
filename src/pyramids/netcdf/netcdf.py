@@ -2788,7 +2788,198 @@ class NetCDF(Dataset):
                 stacklevel=3,
             )
 
-    def _apply_to_all_variables(self, operation, op_kwargs):
+    def _stream_apply_to_file(
+        self, operation, op_kwargs, spatial_vars, aux_vars, path
+    ) -> NetCDF | None:
+        """Stream ``operation`` over every variable straight to a netCDF ``path``, slab by slab.
+
+        Applies the op to each spatial variable (a cheap VRT/warp -- no data read), builds the
+        output file's dimensions / coordinates / variable specs from the shared transformed grid,
+        then fills each variable one leading-dimension slab at a time via
+        :func:`open_streaming_multidim_netcdf`, so the whole cube is never resident. Non-spatial
+        auxiliary variables are carried through unchanged (written whole).
+
+        Returns ``None`` -- signalling the caller to fall back to the eager build-then-write path --
+        for shapes this single-leading-dimension slab writer cannot represent: a spatial variable
+        with two or more band dimensions, a string/object-typed auxiliary variable, or a
+        curvilinear (2-D) coordinate grid.
+
+        Args:
+            operation: The Dataset method to apply (e.g. ``"crop"``).
+            op_kwargs: Keyword arguments for that method.
+            spatial_vars: Names of the variables carrying both spatial axes.
+            aux_vars: Names of the non-spatial variables to carry through unchanged.
+            path: Output ``.nc`` path.
+
+        Returns:
+            NetCDF | None: A file-backed container reading ``path``, or ``None`` when the shape is
+            not slab-streamable (the caller then falls back to the eager path).
+        """
+        rg = self._working_group()
+        # `get_variable` builds a fresh classic-raster wrapper (a new GDAL dataset) each call, so
+        # resolve every spatial variable once and reuse it across the guard/spec/write passes below
+        # instead of re-opening it up to four times (review R2-N1).
+        spatial_var_objs = {name: self.get_variable(name) for name in spatial_vars}
+        if not self._stream_feasible(rg, spatial_var_objs, spatial_vars, aux_vars):
+            return None
+
+        results = {
+            name: getattr(spatial_var_objs[name], operation)(**op_kwargs)
+            for name in spatial_vars
+        }
+        template = results[spatial_vars[0]]
+        y_coord = np.asarray(template.y)
+        x_coord = np.asarray(template.x)
+        if y_coord.ndim != 1 or x_coord.ndim != 1:
+            return None  # curvilinear (2-D) coords aren't slab-streamable here
+
+        # Every variable is written against the template's shared y/x grid. A container whose
+        # variables transform onto *different* grids (mixed native cell size / extent, or a
+        # reprojection that yields per-variable shapes) isn't slab-streamable here — fall back to
+        # the eager per-variable build rather than mis-writing a slab into a template-shaped array
+        # (review L1).
+        template_yx = (int(y_coord.shape[0]), int(x_coord.shape[0]))
+        for name in spatial_vars:
+            res_yx = (
+                int(np.asarray(results[name].y).shape[0]),
+                int(np.asarray(results[name].x).shape[0]),
+            )
+            if res_yx != template_yx:
+                return None
+
+        dims: dict[str, int] = {"y": int(y_coord.shape[0]), "x": int(x_coord.shape[0])}
+        coords: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
+            "y": (y_coord, {}),
+            "x": (x_coord, {}),
+        }
+        var_specs: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]] = {}
+        for name in spatial_vars:
+            self._add_spatial_var_spec(
+                name, spatial_var_objs[name], results[name], rg, dims, coords, var_specs
+            )
+        aux_data: dict[str, np.ndarray] = {}
+        for name in aux_vars:
+            self._add_aux_var_spec(name, rg, dims, coords, var_specs, aux_data)
+
+        root_attrs = self._stream_root_attrs(template)
+
+        with _interop.open_streaming_multidim_netcdf(
+            str(path), dims, coords, var_specs, root_attrs
+        ) as writer:
+            for name in spatial_vars:
+                self._write_stream_variable(
+                    writer, name, spatial_var_objs[name], results[name]
+                )
+            for name in aux_vars:
+                if name in aux_data:
+                    writer.write_whole(name, aux_data[name])
+
+        return NetCDF.read_file(str(path))
+
+    @staticmethod
+    def _stream_feasible(rg, spatial_var_objs, spatial_vars, aux_vars) -> bool:
+        """True when the single-leading-dimension slab writer can represent every variable's shape.
+
+        Rejects a spatial variable with two or more band dimensions and a string/object-typed
+        auxiliary variable — shapes the writer cannot handle, for which the caller falls back to the
+        eager build.
+        """
+        for name in spatial_vars:
+            if len(spatial_var_objs[name]._band_dim_names) >= 2:
+                return False
+        for name in aux_vars:
+            src_md = rg.OpenMDArray(name)
+            if (
+                src_md is not None
+                and src_md.GetDataType().GetClass() == gdal.GEDTC_STRING
+            ):
+                return False
+        return True
+
+    @staticmethod
+    def _add_spatial_var_spec(name, var, res, rg, dims, coords, var_specs) -> None:
+        """Add one spatial variable's band dimension / coordinate and its var-spec to the builders.
+
+        `attrs` carries the source variable's own `_FillValue` (when it declared one), so a variable
+        that actually has no-data keeps it per-variable; the template's no-data is additionally
+        recorded as the global `nodata`. (Writing `scalar_no_data(res.no_data_value)` unconditionally
+        was rejected — it surfaces GDAL's uninitialised default as a spurious out-of-range
+        `_FillValue` for no-data-less vars.)
+        """
+        src_md = rg.OpenMDArray(name)
+        attrs = _read_attributes(src_md) if src_md is not None else {}
+        band_dims = var._band_dim_names
+        if not band_dims:
+            var_specs[name] = (("y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
+            return
+        bd = band_dims[0]
+        if bd not in dims:
+            dims[bd] = int(var._band_dim_sizes[0])
+            bd_values = var._band_dim_values_map.get(bd)
+            coords[bd] = (
+                np.asarray(bd_values)
+                if bd_values is not None
+                else np.arange(int(var._band_dim_sizes[0])),
+                {},
+            )
+        var_specs[name] = ((bd, "y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
+
+    def _add_aux_var_spec(self, name, rg, dims, coords, var_specs, aux_data) -> None:
+        """Add one carried-through auxiliary variable's dims/coords/spec and cache its whole array."""
+        src_md = rg.OpenMDArray(name)
+        if src_md is None:
+            return
+        aux_dim_names = tuple(d.GetName() for d in src_md.GetDimensions() or [])
+        for d in src_md.GetDimensions() or []:
+            dn = d.GetName()
+            if dn not in dims:
+                iv = d.GetIndexingVariable()
+                dims[dn] = int(d.GetSize())
+                coords[dn] = (
+                    (self._md_array_to_numpy(iv), _read_attributes(iv))
+                    if iv is not None
+                    else (np.arange(int(d.GetSize())), {})
+                )
+        arr = np.ascontiguousarray(self._md_array_to_numpy(src_md))
+        var_specs[name] = (aux_dim_names, arr.dtype, _read_attributes(src_md))
+        aux_data[name] = arr
+
+    def _stream_root_attrs(self, template) -> dict[str, Any]:
+        """Build the streamed file's root attributes (Conventions + CRS + GeoTransform + nodata)."""
+        root_attrs: dict[str, Any] = dict(self.global_attributes)
+        root_attrs.setdefault("Conventions", "CF-1.8")
+        try:
+            crs_wkt = template.crs.to_wkt() if template.crs is not None else None
+        except AttributeError:
+            crs_wkt = None
+        if crs_wkt:
+            root_attrs["crs_wkt"] = crs_wkt
+        if template.epsg is not None:
+            root_attrs["epsg"] = int(template.epsg)
+        root_attrs["GeoTransform"] = " ".join(str(v) for v in template.geotransform)
+        ndv = scalar_no_data(template.no_data_value)
+        if ndv is not None:
+            root_attrs["nodata"] = ndv
+        return root_attrs
+
+    @staticmethod
+    def _write_stream_variable(writer, name, var, res) -> None:
+        """Write one spatial variable: a band-dim variable slab-by-slab, a 2-D variable whole."""
+        if var._band_dim_names:
+            for i in range(int(var._band_dim_sizes[0])):
+                plane = np.asarray(res.read_array(band=i))
+                if plane.ndim == 3 and plane.shape[0] == 1:
+                    plane = plane[0]
+                writer.write_slab(name, i, plane)
+            return
+        plane = np.asarray(res.read_array())
+        if plane.ndim == 3 and plane.shape[0] == 1:
+            plane = plane[0]
+        writer.write_whole(name, plane)
+
+    def _apply_to_all_variables(
+        self, operation, op_kwargs, path=None, *, warn_demoted=True
+    ):
         """Apply a spatial operation to every gridded variable in the container.
 
         Only variables carrying both spatial axes are cropped / reprojected.
@@ -2826,30 +3017,23 @@ class NetCDF(Dataset):
                 f"{names} have both spatial axes."
             )
 
-        # A variable with >= 2 *unrecognised* axes is likely a grid whose axes
-        # were not recognised (no CF axis attributes / no known x/y names) and is
-        # carried through untransformed — warn. Axes that are clearly non-spatial
-        # (time / vertical / ensemble / bounds) don't count, so a legitimately
-        # non-spatial N-D aux variable (e.g. (time, level)) does not trip the warning.
-        demoted = []
-        for n in aux_vars:
-            unknown_axes = [
-                d
-                for d in self._variable_dim_names(rg, n)
-                if d.lower() not in _NONSPATIAL_AXIS_NAMES
-            ]
-            if len(unknown_axes) >= 2:
-                demoted.append(n)
-        if demoted:
-            warnings.warn(
-                f"{operation}() is carrying {len(demoted)} multi-dimensional "
-                f"variable(s) {demoted} through unchanged because their axes were "
-                f"not recognised as spatial (no CF axis attributes or known x/y "
-                f"names); they will NOT be cropped/reprojected. Add CF axis "
-                f"metadata (standard_name / axis) or rename the axes to y/x.",
-                stacklevel=3,
+        self._warn_demoted_variables(rg, aux_vars, operation, warn_demoted)
+
+        if path is not None:
+            return self._to_file_via_stream_or_eager(
+                operation, op_kwargs, spatial_vars, aux_vars, path
             )
 
+        return self._fan_out_eager(spatial_vars, aux_vars, operation, op_kwargs)
+
+    def _fan_out_eager(self, spatial_vars, aux_vars, operation, op_kwargs) -> NetCDF:
+        """Build an in-memory container by applying ``operation`` to each spatial variable.
+
+        Each variable is transformed, materialised, and dropped into a shared `NetCDF` container
+        (the first variable creates it); non-spatial auxiliary variables are then carried through
+        unchanged. This is the historical eager fan-out — the ``path=None`` default of
+        :meth:`_apply_to_all_variables`.
+        """
         result = None
         for var_name in spatial_vars:
             var = self.get_variable(var_name)
@@ -2916,6 +3100,61 @@ class NetCDF(Dataset):
 
         self._carry_aux_variables(cast("NetCDF", result), aux_vars, operation)
         return cast("NetCDF", result)
+
+    def _warn_demoted_variables(self, rg, aux_vars, operation, warn_demoted) -> None:
+        """Warn about auxiliary variables carried through untransformed for lack of spatial axes.
+
+        A variable with >= 2 *unrecognised* axes is likely a grid whose axes were not recognised (no
+        CF axis attributes / no known x/y names). Axes that are clearly non-spatial (time / vertical
+        / ensemble / bounds) don't count, so a legitimately non-spatial N-D aux variable (e.g.
+        ``(time, level)``) does not trip the warning. ``warn_demoted=False`` suppresses the message
+        on the eager fallback recursion, which already warned on the outer call.
+        """
+        demoted = [
+            n
+            for n in aux_vars
+            if len(
+                [
+                    d
+                    for d in self._variable_dim_names(rg, n)
+                    if d.lower() not in _NONSPATIAL_AXIS_NAMES
+                ]
+            )
+            >= 2
+        ]
+        if demoted and warn_demoted:
+            warnings.warn(
+                f"{operation}() is carrying {len(demoted)} multi-dimensional "
+                f"variable(s) {demoted} through unchanged because their axes were "
+                f"not recognised as spatial (no CF axis attributes or known x/y "
+                f"names); they will NOT be cropped/reprojected. Add CF axis "
+                f"metadata (standard_name / axis) or rename the axes to y/x.",
+                stacklevel=4,
+            )
+
+    def _to_file_via_stream_or_eager(
+        self, operation, op_kwargs, spatial_vars, aux_vars, path
+    ) -> NetCDF:
+        """Write the transformed container to ``path``, streaming when possible else eager.
+
+        The streaming path (ARC-46/#976) writes the cube one leading-dimension slab at a time, so the
+        whole result is never resident. A shape the slab writer cannot represent makes
+        ``_stream_apply_to_file`` return None, and we fall back to the eager in-memory build followed
+        by a plain file write (still correct, just not bounded-memory for that rare shape). The
+        fallback recursion passes ``warn_demoted=False`` so the demoted-variable warning — already
+        emitted by the caller — is not duplicated, while genuine transform warnings still surface.
+        """
+        streamed = self._stream_apply_to_file(
+            operation, op_kwargs, spatial_vars, aux_vars, path
+        )
+        if streamed is not None:
+            return streamed
+        mem = self._apply_to_all_variables(operation, op_kwargs, warn_demoted=False)
+        try:
+            mem.to_file(str(path))
+        finally:
+            mem.close()
+        return NetCDF.read_file(str(path))
 
     def reduce(self, *args, **kwargs) -> NetCDF:
         """Facade — :meth:`Selection.reduce <pyramids.netcdf.engines.selection.Selection.reduce>`."""
@@ -3136,6 +3375,7 @@ class NetCDF(Dataset):
         to_epsg: int,
         method: str = DEFAULT_RESAMPLING,
         maintain_alignment: bool = False,
+        path: str | Path | None = None,
     ) -> NetCDF:
         """Reproject the dataset to a different CRS.
 
@@ -3149,6 +3389,10 @@ class NetCDF(Dataset):
             method: Resampling method. Defaults to `"nearest neighbor"`.
             maintain_alignment: If True, keep the same number of rows
                 and columns. Defaults to False.
+            path: Optional output `.nc` path. When set, the reprojected container is streamed
+                straight to that file one slab at a time (so the whole cube is never resident) and a
+                **file-backed** `NetCDF` reading it is returned; `None` (default) builds the result
+                in memory.
 
         Returns:
             NetCDF: Reprojected container or variable subset.
@@ -3161,6 +3405,7 @@ class NetCDF(Dataset):
                     "method": method,
                     "maintain_alignment": maintain_alignment,
                 },
+                path=path,
             )
         else:
             # to_crs warps the backing raster; a multidim view can't be window-read by GDAL >= 3.13,
@@ -3172,6 +3417,10 @@ class NetCDF(Dataset):
                 maintain_alignment=maintain_alignment,
             )
             result = self._preserve_netcdf_metadata(result)
+            if path is not None:
+                result.to_file(str(path))
+                result.close()
+                result = NetCDF.read_file(str(path))
         return cast("NetCDF", result)
 
     def warped_view(
@@ -3391,6 +3640,7 @@ class NetCDF(Dataset):
         self,
         cell_size: float,
         method: str = DEFAULT_RESAMPLING,
+        path: str | Path | None = None,
     ) -> NetCDF:
         """Resample the dataset to a different cell size.
 
@@ -3402,6 +3652,10 @@ class NetCDF(Dataset):
         Args:
             cell_size: New cell size.
             method: Resampling method. Defaults to `"nearest neighbor"`.
+            path: Optional output `.nc` path. When set, the resampled container is streamed straight
+                to that file one slab at a time (so the whole cube is never resident) and a
+                **file-backed** `NetCDF` reading it is returned; `None` (default) builds the result
+                in memory.
 
         Returns:
             NetCDF: Resampled container or variable subset.
@@ -3410,6 +3664,7 @@ class NetCDF(Dataset):
             result = self._apply_to_all_variables(
                 "resample",
                 {"cell_size": cell_size, "method": method},
+                path=path,
             )
         else:
             # resample warps the backing raster; a multidim view can't be window-read by GDAL >= 3.13.
@@ -3419,6 +3674,10 @@ class NetCDF(Dataset):
                 method=method,
             )
             result = self._preserve_netcdf_metadata(result)
+            if path is not None:
+                result.to_file(str(path))
+                result.close()
+                result = NetCDF.read_file(str(path))
         return cast("NetCDF", result)
 
     def sel(self, *args, **kwargs) -> NetCDF:

@@ -352,10 +352,86 @@ def _apply_md_array_attrs(md_arr: gdal.MDArray, attrs: dict[str, Any]) -> None:
         write_attributes_to_md_array(md_arr, remaining)
 
 
+def _write_md_array_streamed(md_arr: gdal.MDArray, arr: Any) -> None:
+    """Write ``arr`` into ``md_arr``, streaming a dask array one block at a time.
+
+    A dask array is written block by block -- each block is computed, written to its
+    hyperslab, then released before the next -- so a lazily-loaded variable never
+    becomes fully resident (ARC-48). Any other array-like is written in one hyperslab.
+
+    Args:
+        md_arr: The full-shape destination MDArray.
+        arr: A dask array (streamed block by block) or a NumPy array (written whole).
+    """
+    if not (hasattr(arr, "dask") and hasattr(arr, "blocks")):
+        md_arr.Write(np.ascontiguousarray(np.asarray(arr)))
+        return
+    for block_id in np.ndindex(*arr.numblocks):
+        block = np.ascontiguousarray(np.asarray(arr.blocks[block_id]))
+        starts = [
+            int(sum(arr.chunks[axis][: block_id[axis]])) for axis in range(arr.ndim)
+        ]
+        md_arr.Write(block, array_start_idx=starts, count=list(block.shape))
+
+
+def _write_data_var(
+    root: gdal.Group,
+    gdal_dims: dict[str, Any],
+    dims: dict[str, int],
+    var_name: str,
+    var_dims: tuple[str, ...],
+    var_values: Any,
+    var_attrs: dict[str, Any],
+) -> None:
+    """Create and fill one data variable's MDArray, streaming a dask-backed one block by block.
+
+    A dask-backed variable (a lazily-loaded xarray var passed through by
+    `_build_multidim_from_xarray`) is written block by block so it never becomes fully resident; a
+    NumPy variable, or a temporal one that must be CF-encoded, is materialised and written in one
+    shot (the prior behaviour).
+
+    Raises:
+        ValueError: When the variable references an unknown dimension, or its shape does not match
+            the sizes implied by its dimensions.
+    """
+    unknown = [d for d in var_dims if d not in gdal_dims]
+    if unknown:
+        raise ValueError(
+            f"variable {var_name!r} references unknown dimension(s) "
+            f"{unknown} not in dims {sorted(gdal_dims)}"
+        )
+    dtype = np.dtype(getattr(var_values, "dtype", None) or np.asarray(var_values).dtype)
+    temporal = np.issubdtype(dtype, np.datetime64) or np.issubdtype(
+        dtype, np.timedelta64
+    )
+    stream = hasattr(var_values, "dask") and var_values.ndim > 0 and not temporal
+    if stream:
+        values: Any = var_values
+        cf_attrs: dict[str, Any] = {}
+        shape = tuple(var_values.shape)
+        write_dtype = dtype
+    else:
+        values, cf_attrs = _encode_temporal_array(np.asarray(var_values))
+        shape = values.shape
+        write_dtype = values.dtype
+    expected = tuple(dims[d] for d in var_dims)
+    if shape != expected:
+        raise ValueError(
+            f"variable {var_name!r} has shape {shape} but its "
+            f"dimensions {tuple(var_dims)} imply {expected}"
+        )
+    ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(np.dtype(write_dtype)))
+    md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
+    _write_md_array_streamed(md_arr, values)
+    merged = dict(var_attrs)
+    merged.update(cf_attrs)
+    _apply_md_array_attrs(md_arr, merged)
+
+
 def _build_multidim(
     dims: dict[str, int],
     coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
-    data_vars: dict[str, tuple[tuple[str, ...], np.ndarray, dict[str, Any]]],
+    data_vars: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]],
     global_attrs: dict[str, Any],
 ) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from plain arrays and attrs.
@@ -409,25 +485,9 @@ def _build_multidim(
         _apply_md_array_attrs(md_arr, merged)
 
     for var_name, (var_dims, var_values, var_attrs) in data_vars.items():
-        unknown = [d for d in var_dims if d not in gdal_dims]
-        if unknown:
-            raise ValueError(
-                f"variable {var_name!r} references unknown dimension(s) "
-                f"{unknown} not in dims {sorted(gdal_dims)}"
-            )
-        values, cf_attrs = _encode_temporal_array(np.asarray(var_values))
-        expected = tuple(dims[d] for d in var_dims)
-        if values.shape != expected:
-            raise ValueError(
-                f"variable {var_name!r} has shape {values.shape} but its "
-                f"dimensions {tuple(var_dims)} imply {expected}"
-            )
-        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
-        md_arr = root.CreateMDArray(var_name, [gdal_dims[d] for d in var_dims], ext)
-        md_arr.Write(np.ascontiguousarray(values))
-        merged = dict(var_attrs)
-        merged.update(cf_attrs)
-        _apply_md_array_attrs(md_arr, merged)
+        _write_data_var(
+            root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs
+        )
 
     if global_attrs:
         write_global_attributes(root, dict(global_attrs))
@@ -456,7 +516,10 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
         if name in dims
     }
     data_vars = {
-        name: (tuple(var.dims), np.asarray(var.values), dict(var.attrs))
+        # `var.data` hands the underlying array through WITHOUT computing it, so a
+        # dask-backed variable stays lazy and `_build_multidim` can stream it block by
+        # block (ARC-48); `.values` would force a full materialisation up front.
+        name: (tuple(var.dims), var.data, dict(var.attrs))
         for name, var in dataset.data_vars.items()
     }
     return _build_multidim(dims, coords, data_vars, dict(dataset.attrs))
@@ -548,6 +611,19 @@ class _StreamingMultidimWriter:
             array_start_idx=[int(index)] + [0] * block.ndim,
             count=[1] + list(block.shape),
         )
+
+    def write_whole(self, var_name: str, array: np.ndarray) -> None:
+        """Write an entire (non-streamed) variable in one hyperslab.
+
+        For a variable with no streamed leading dimension -- a 2-D ``(y, x)`` grid, or a small
+        carried-through auxiliary variable -- there is no slab to iterate, so the full array is
+        written at once.
+
+        Args:
+            var_name: Target variable.
+            array: The variable's full array, matching its declared shape.
+        """
+        self._arrays[var_name].Write(np.ascontiguousarray(np.asarray(array)))
 
 
 def _build_streaming_multidim(

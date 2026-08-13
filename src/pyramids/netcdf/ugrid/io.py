@@ -563,7 +563,9 @@ def _write_connectivity_array(
         dims,
         gdal.ExtendedDataType.Create(gdal.GDT_Int32),
     )
-    out_data = conn.data.copy().astype(np.int32)
+    # `astype` already returns a fresh, writable array (mutated below), so the extra `.copy()`
+    # only duplicated the connectivity array for no benefit (#982).
+    out_data = conn.data.astype(np.int32)
     file_fill = -999
     out_data[out_data == conn.fill_value] = file_fill
     if conn.original_start_index != 0:
