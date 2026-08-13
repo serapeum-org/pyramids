@@ -1020,8 +1020,10 @@ def _make_variable_loader(path: str, var_name: str):
                 f"Variable {var_name!r} is no longer present in {path!r} on lazy read."
             )
         # `ReadAsArray()` already returns a fresh, numpy-owned array, so an extra `.copy()` only
-        # duplicates the largest arrays for no benefit (#982).
-        return md.ReadAsArray()
+        # duplicates the largest arrays for no benefit (#982). The typed local coerces GDAL's
+        # untyped `Any` return to the declared type (no-any-return).
+        data: np.typing.NDArray | None = md.ReadAsArray()
+        return data
 
     return _load
 
