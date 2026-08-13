@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -15927,7 +15927,7 @@ release deterministic on Windows.</p>
 <a id="__codelineno-0-2428" name="__codelineno-0-2428"></a><span class="sd">            - :meth:`pyramids.dataset.DatasetCollection.from_archive`: open</span>
 <a id="__codelineno-0-2429" name="__codelineno-0-2429"></a><span class="sd">              *every* member of an archive as a temporal stack.</span>
 <a id="__codelineno-0-2430" name="__codelineno-0-2430"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-2431" name="__codelineno-0-2431"></a>        <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="n">gdal_env</span><span class="p">):</span>
+<a id="__codelineno-0-2431" name="__codelineno-0-2431"></a>        <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="n">gdal_env</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)):</span>
 <a id="__codelineno-0-2432" name="__codelineno-0-2432"></a>            <span class="n">src</span> <span class="o">=</span> <span class="n">_io</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">read_only</span><span class="o">=</span><span class="n">read_only</span><span class="p">,</span> <span class="n">file_i</span><span class="o">=</span><span class="n">file_i</span><span class="p">,</span> <span class="n">vsi</span><span class="o">=</span><span class="n">vsi</span><span class="p">)</span>
 <a id="__codelineno-0-2433" name="__codelineno-0-2433"></a>        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">access</span><span class="o">=</span><span class="s2">&quot;read_only&quot;</span> <span class="k">if</span> <span class="n">read_only</span> <span class="k">else</span> <span class="s2">&quot;write&quot;</span><span class="p">,</span> <span class="n">gdal_env</span><span class="o">=</span><span class="n">gdal_env</span><span class="p">)</span>
 <a id="__codelineno-0-2434" name="__codelineno-0-2434"></a>
@@ -23830,7 +23830,7 @@ nothing captured.</p>
 <a id="__codelineno-0-2428" name="__codelineno-0-2428"></a><span class="sd">        - :meth:`pyramids.dataset.DatasetCollection.from_archive`: open</span>
 <a id="__codelineno-0-2429" name="__codelineno-0-2429"></a><span class="sd">          *every* member of an archive as a temporal stack.</span>
 <a id="__codelineno-0-2430" name="__codelineno-0-2430"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-2431" name="__codelineno-0-2431"></a>    <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="n">gdal_env</span><span class="p">):</span>
+<a id="__codelineno-0-2431" name="__codelineno-0-2431"></a>    <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="n">gdal_env</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)):</span>
 <a id="__codelineno-0-2432" name="__codelineno-0-2432"></a>        <span class="n">src</span> <span class="o">=</span> <span class="n">_io</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">read_only</span><span class="o">=</span><span class="n">read_only</span><span class="p">,</span> <span class="n">file_i</span><span class="o">=</span><span class="n">file_i</span><span class="p">,</span> <span class="n">vsi</span><span class="o">=</span><span class="n">vsi</span><span class="p">)</span>
 <a id="__codelineno-0-2433" name="__codelineno-0-2433"></a>    <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">access</span><span class="o">=</span><span class="s2">&quot;read_only&quot;</span> <span class="k">if</span> <span class="n">read_only</span> <span class="k">else</span> <span class="s2">&quot;write&quot;</span><span class="p">,</span> <span class="n">gdal_env</span><span class="o">=</span><span class="n">gdal_env</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>

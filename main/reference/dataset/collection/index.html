@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -11351,7 +11351,7 @@ to construct one.&quot;)``.
 <a id="__codelineno-0-680" name="__codelineno-0-680"></a>                <span class="c1"># around their *reads* too: the open alone does not cover a</span>
 <a id="__codelineno-0-681" name="__codelineno-0-681"></a>                <span class="c1"># per-thread or lazy-chunk read, which re-opens the file.</span>
 <a id="__codelineno-0-682" name="__codelineno-0-682"></a>                <span class="n">env</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_gdal_env</span> <span class="ow">or</span> <span class="kc">None</span>
-<a id="__codelineno-0-683" name="__codelineno-0-683"></a>                <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_gdal_env</span><span class="p">):</span>
+<a id="__codelineno-0-683" name="__codelineno-0-683"></a>                <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_gdal_env</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_files</span><span class="p">)):</span>
 <a id="__codelineno-0-684" name="__codelineno-0-684"></a>                    <span class="bp">self</span><span class="o">.</span><span class="n">_datasets</span> <span class="o">=</span> <span class="p">[</span>
 <a id="__codelineno-0-685" name="__codelineno-0-685"></a>                        <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">),</span> <span class="n">gdal_env</span><span class="o">=</span><span class="n">env</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_files</span>
 <a id="__codelineno-0-686" name="__codelineno-0-686"></a>                    <span class="p">]</span>
@@ -11386,7 +11386,7 @@ to construct one.&quot;)``.
 <a id="__codelineno-0-715" name="__codelineno-0-715"></a>        <span class="n">handle</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle_cache</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
 <a id="__codelineno-0-716" name="__codelineno-0-716"></a>        <span class="k">if</span> <span class="n">handle</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-717" name="__codelineno-0-717"></a>            <span class="n">env</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_gdal_env</span> <span class="ow">or</span> <span class="kc">None</span>
-<a id="__codelineno-0-718" name="__codelineno-0-718"></a>            <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_gdal_env</span><span class="p">):</span>
+<a id="__codelineno-0-718" name="__codelineno-0-718"></a>            <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_gdal_env</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_files</span><span class="p">[</span><span class="n">idx</span><span class="p">])):</span>
 <a id="__codelineno-0-719" name="__codelineno-0-719"></a>                <span class="n">handle</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_files</span><span class="p">[</span><span class="n">idx</span><span class="p">]),</span> <span class="n">gdal_env</span><span class="o">=</span><span class="n">env</span><span class="p">)</span>
 <a id="__codelineno-0-720" name="__codelineno-0-720"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_handle_cache</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">handle</span>
 <a id="__codelineno-0-721" name="__codelineno-0-721"></a>        <span class="k">return</span> <span class="n">handle</span>
@@ -12653,7 +12653,7 @@ to construct one.&quot;)``.
 <a id="__codelineno-0-1982" name="__codelineno-0-1982"></a><span class="sd">        so both build the same lazy collection (only the first file opened eagerly)</span>
 <a id="__codelineno-0-1983" name="__codelineno-0-1983"></a><span class="sd">        with an optional pre-computed ``time_axis``.</span>
 <a id="__codelineno-0-1984" name="__codelineno-0-1984"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1985" name="__codelineno-0-1985"></a>        <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="n">gdal_env</span><span class="p">):</span>
+<a id="__codelineno-0-1985" name="__codelineno-0-1985"></a>        <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="n">gdal_env</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">files</span><span class="p">)):</span>
 <a id="__codelineno-0-1986" name="__codelineno-0-1986"></a>            <span class="c1"># The template is reachable as `collection.base`, and the legacy</span>
 <a id="__codelineno-0-1987" name="__codelineno-0-1987"></a>            <span class="c1"># `DatasetCollection(src, N)` shape replicates it as every timestep, so it</span>
 <a id="__codelineno-0-1988" name="__codelineno-0-1988"></a>            <span class="c1"># needs the env for its own reads too — not just this open.</span>
@@ -12738,7 +12738,7 @@ to construct one.&quot;)``.
 <a id="__codelineno-0-2067" name="__codelineno-0-2067"></a><span class="sd">                the template.</span>
 <a id="__codelineno-0-2068" name="__codelineno-0-2068"></a><span class="sd">        &quot;&quot;&quot;</span>
 <a id="__codelineno-0-2069" name="__codelineno-0-2069"></a>        <span class="n">expected_dtype</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="n">meta</span><span class="o">.</span><span class="n">dtype</span><span class="p">))</span>
-<a id="__codelineno-0-2070" name="__codelineno-0-2070"></a>        <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="n">gdal_env</span><span class="p">):</span>
+<a id="__codelineno-0-2070" name="__codelineno-0-2070"></a>        <span class="k">with</span> <span class="n">cloud_config_from_env</span><span class="p">(</span><span class="n">gdal_env</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">files</span><span class="p">)):</span>
 <a id="__codelineno-0-2071" name="__codelineno-0-2071"></a>            <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">files</span><span class="p">:</span>
 <a id="__codelineno-0-2072" name="__codelineno-0-2072"></a>                <span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">gdal_env</span><span class="o">=</span><span class="n">gdal_env</span><span class="p">)</span>
 <a id="__codelineno-0-2073" name="__codelineno-0-2073"></a>                <span class="k">try</span><span class="p">:</span>
