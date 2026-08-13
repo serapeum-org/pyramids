@@ -234,6 +234,46 @@ class TestWindowedTimeSelection:
         assert calls == [], "a reversed range must not take the windowed path"
         np.testing.assert_array_equal(np.asarray(result.data), temporal[2:1])
 
+    def test_empty_range_falls_back_to_empty_slice(self, temporal_file, monkeypatch):
+        """An empty `start == stop` range is not windowed (a `count=0` read raises under GDAL).
+
+        Test scenario:
+            `sel_time_range(1, 1)` on a file-backed variable takes the in-memory fallback (the spy
+            records no windowed read) and returns the same empty `(0, n_elements)` array the cached
+            path would — never sending `count = 0` to GDAL (review R2-M1).
+        """
+        path, temporal = temporal_file
+        calls = []
+        real = models._read_time_slab
+        monkeypatch.setattr(
+            models,
+            "_read_time_slab",
+            lambda p, name, start, stop: (
+                calls.append((start, stop)) or real(p, name, start, stop)
+            ),
+        )
+        result = UgridDataset.read_file(path).get_data("h").sel_time_range(1, 1)
+        assert calls == [], "an empty range must not take the windowed path"
+        assert np.asarray(result.data).shape[0] == 0
+        np.testing.assert_array_equal(np.asarray(result.data), temporal[1:1])
+
+    def test_full_range_reads_every_step(self, temporal_file, monkeypatch):
+        """A full `stop == n_steps` range windows one read and returns every step (upper boundary)."""
+        path, temporal = temporal_file
+        calls = []
+        real = models._read_time_slab
+        monkeypatch.setattr(
+            models,
+            "_read_time_slab",
+            lambda p, name, start, stop: (
+                calls.append((start, stop)) or real(p, name, start, stop)
+            ),
+        )
+        n_steps = temporal.shape[0]
+        result = UgridDataset.read_file(path).get_data("h").sel_time_range(0, n_steps)
+        assert calls == [(0, n_steps)], "a full range should still window a single read"
+        np.testing.assert_array_equal(np.asarray(result.data), temporal)
+
 
 class TestStreamingWrite:
     """`to_file` streams each variable without populating the shared cache (#982)."""
