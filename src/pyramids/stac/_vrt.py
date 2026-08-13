@@ -356,9 +356,11 @@ def _source_config(
     """
     config: AbstractContextManager[Any]
     if any(is_remote(path) for path in hrefs):
-        config = CloudConfig(vsicurl_tuning=True, extra=dict(gdal_env or {}))
+        config = CloudConfig(
+            vsicurl_tuning=True, extra=dict(gdal_env or {}), path=hrefs
+        )
     else:
-        config = cloud_config_from_env(gdal_env)
+        config = cloud_config_from_env(gdal_env, path=hrefs)
     return config
 
 

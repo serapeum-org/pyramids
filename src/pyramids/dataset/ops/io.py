@@ -90,7 +90,7 @@ def _read_chunk(
     # for the (unused) meta-inference call convention.
     assert block_info is not None
     location = block_info[None]["array-location"]
-    with cloud_config_from_env(gdal_env):
+    with cloud_config_from_env(gdal_env, path=manager.path):
         result = _read_chunk_body(location, manager, lock, band, out_dtype, single_band)
     return result
 

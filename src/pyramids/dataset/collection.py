@@ -680,7 +680,7 @@ class DatasetCollection:
                 # around their *reads* too: the open alone does not cover a
                 # per-thread or lazy-chunk read, which re-opens the file.
                 env = self._gdal_env or None
-                with cloud_config_from_env(self._gdal_env):
+                with cloud_config_from_env(self._gdal_env, path=list(self._files)):
                     self._datasets = [
                         Dataset.read_file(str(p), gdal_env=env) for p in self._files
                     ]
@@ -715,7 +715,7 @@ class DatasetCollection:
         handle = self._handle_cache.get(idx)
         if handle is None:
             env = self._gdal_env or None
-            with cloud_config_from_env(self._gdal_env):
+            with cloud_config_from_env(self._gdal_env, path=str(self._files[idx])):
                 handle = Dataset.read_file(str(self._files[idx]), gdal_env=env)
             self._handle_cache[idx] = handle
         return handle
@@ -1982,7 +1982,7 @@ class DatasetCollection:
         so both build the same lazy collection (only the first file opened eagerly)
         with an optional pre-computed ``time_axis``.
         """
-        with cloud_config_from_env(gdal_env):
+        with cloud_config_from_env(gdal_env, path=list(files)):
             # The template is reachable as `collection.base`, and the legacy
             # `DatasetCollection(src, N)` shape replicates it as every timestep, so it
             # needs the env for its own reads too — not just this open.
@@ -2067,7 +2067,7 @@ class DatasetCollection:
                 the template.
         """
         expected_dtype = str(np.dtype(meta.dtype))
-        with cloud_config_from_env(gdal_env):
+        with cloud_config_from_env(gdal_env, path=list(files)):
             for path in files:
                 ds = Dataset.read_file(path, gdal_env=gdal_env)
                 try:

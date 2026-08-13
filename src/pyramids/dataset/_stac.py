@@ -615,7 +615,7 @@ def _from_stac_multi_asset(
                 continue
             raise
         out_path = os.path.join(out_dir, f"stac_item_{idx}.tif")
-        with cloud_config_from_env(gdal_env):
+        with cloud_config_from_env(gdal_env, path=hrefs):
             Dataset.from_band_files(
                 hrefs, band_names=asset_keys, align=align, path=out_path
             )

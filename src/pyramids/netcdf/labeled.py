@@ -349,6 +349,7 @@ class LabeledDataset:
             aws_no_sign_request=anon,
             aws_region=effective_region,
             aws_virtual_hosting=False if is_anon_s3 else None,
+            path=gdal_path,
         )
         ds = cls._open_multidim_store(gdal_path, cloud, source)
         # Keep the S3 config live for the post-open group navigation + array
