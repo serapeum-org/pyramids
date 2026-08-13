@@ -3024,6 +3024,16 @@ class NetCDF(Dataset):
                 operation, op_kwargs, spatial_vars, aux_vars, path
             )
 
+        return self._fan_out_eager(spatial_vars, aux_vars, operation, op_kwargs)
+
+    def _fan_out_eager(self, spatial_vars, aux_vars, operation, op_kwargs) -> NetCDF:
+        """Build an in-memory container by applying ``operation`` to each spatial variable.
+
+        Each variable is transformed, materialised, and dropped into a shared `NetCDF` container
+        (the first variable creates it); non-spatial auxiliary variables are then carried through
+        unchanged. This is the historical eager fan-out — the ``path=None`` default of
+        :meth:`_apply_to_all_variables`.
+        """
         result = None
         for var_name in spatial_vars:
             var = self.get_variable(var_name)
