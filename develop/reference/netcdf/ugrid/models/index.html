@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7378,9 +7378,9 @@ callable that defers reading until data is first accessed.</p>
 <a id="__codelineno-0-242" name="__codelineno-0-242"></a>
 <a id="__codelineno-0-243" name="__codelineno-0-243"></a><span class="sd">        Requires an on-disk source, an axis-0 time dimension (what the slab reader indexes), and</span>
 <a id="__codelineno-0-244" name="__codelineno-0-244"></a><span class="sd">        non-negative in-range indices; otherwise the caller falls back to a full load then slice.</span>
-<a id="__codelineno-0-245" name="__codelineno-0-245"></a><span class="sd">        A reversed/empty range (``stop &lt; start``) is excluded so the in-memory slice — which yields</span>
-<a id="__codelineno-0-246" name="__codelineno-0-246"></a><span class="sd">        a consistent empty array — handles it, rather than passing a negative ``count`` to GDAL</span>
-<a id="__codelineno-0-247" name="__codelineno-0-247"></a><span class="sd">        (review L2).</span>
+<a id="__codelineno-0-245" name="__codelineno-0-245"></a><span class="sd">        A reversed **or empty** range (``stop &lt;= start``) is excluded so the in-memory slice — which</span>
+<a id="__codelineno-0-246" name="__codelineno-0-246"></a><span class="sd">        yields a consistent empty array — handles it, rather than passing a zero/negative ``count``</span>
+<a id="__codelineno-0-247" name="__codelineno-0-247"></a><span class="sd">        to GDAL, which raises under ``gdal.UseExceptions()`` (reviews L2, R2-M1).</span>
 <a id="__codelineno-0-248" name="__codelineno-0-248"></a><span class="sd">        &quot;&quot;&quot;</span>
 <a id="__codelineno-0-249" name="__codelineno-0-249"></a>        <span class="n">n_steps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_time_steps</span>
 <a id="__codelineno-0-250" name="__codelineno-0-250"></a>        <span class="k">return</span> <span class="p">(</span>
@@ -7388,7 +7388,7 @@ callable that defers reading until data is first accessed.</p>
 <a id="__codelineno-0-252" name="__codelineno-0-252"></a>            <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_index</span> <span class="o">==</span> <span class="mi">0</span>
 <a id="__codelineno-0-253" name="__codelineno-0-253"></a>            <span class="ow">and</span> <span class="n">start</span> <span class="o">&gt;=</span> <span class="mi">0</span>
 <a id="__codelineno-0-254" name="__codelineno-0-254"></a>            <span class="ow">and</span> <span class="n">start</span> <span class="o">&lt;</span> <span class="n">n_steps</span>
-<a id="__codelineno-0-255" name="__codelineno-0-255"></a>            <span class="ow">and</span> <span class="p">(</span><span class="n">stop</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="p">(</span><span class="n">start</span> <span class="o">&lt;=</span> <span class="n">stop</span> <span class="o">&lt;=</span> <span class="n">n_steps</span><span class="p">))</span>
+<a id="__codelineno-0-255" name="__codelineno-0-255"></a>            <span class="ow">and</span> <span class="p">(</span><span class="n">stop</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="p">(</span><span class="n">start</span> <span class="o">&lt;</span> <span class="n">stop</span> <span class="o">&lt;=</span> <span class="n">n_steps</span><span class="p">))</span>
 <a id="__codelineno-0-256" name="__codelineno-0-256"></a>        <span class="p">)</span>
 <a id="__codelineno-0-257" name="__codelineno-0-257"></a>
 <a id="__codelineno-0-258" name="__codelineno-0-258"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_read_time_window</span><span class="p">(</span>
