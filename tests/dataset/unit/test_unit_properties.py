@@ -736,6 +736,39 @@ class TestCellGeometryMethods:
         assert gdf.crs is None, "a CRS-less raster must yield an unprojected frame"
         assert len(gdf) == 9, f"expected 9 points, got {len(gdf)}"
 
+    def test_get_cell_polygons_domain_only_authority_less_crs(self):
+        """The domain_only path also labels an authority-less CRS correctly (#979).
+
+        Test scenario:
+            get_cell_polygons(domain_only=True) on the authority-less raster (all cells valid)
+            still carries the source orthographic CRS, proving the masked path shares the fix.
+        """
+        r = self._authority_less_raster()
+        gdf = r.get_cell_polygons(domain_only=True)
+        assert gdf.crs is not None, "domain_only path must still label the frame"
+        assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
+        assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
+            "domain_only polygons must carry the source orthographic CRS"
+        )
+
+    def test_get_cell_polygons_gdal_only_epsg_code(self):
+        """A code GDAL resolves but pyproj cannot is labelled from its WKT (#943 / #979).
+
+        Test scenario:
+            A raster on EPSG:10857 (which pyproj's bundled database cannot look up) yields cell
+            polygons whose crs is the same CRS crs_from_user_input heals the code to -- proving
+            crs_spec's WKT fallback labels these methods correctly rather than crashing.
+        """
+        arr = np.arange(9, dtype="float32").reshape(3, 3)
+        ds = Dataset.create_from_array(
+            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=10857
+        )
+        gdf = ds.get_cell_polygons()
+        assert gdf.crs is not None, "a GDAL-only code must still label the frame"
+        assert gdf.crs.equals(crs_from_user_input(10857)), (
+            "cell polygons must carry the CRS the GDAL-only code resolves to"
+        )
+
 
 class TestGetBandByColor:
     """Tests for get_band_by_color method."""
