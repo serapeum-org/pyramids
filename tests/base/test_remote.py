@@ -1160,7 +1160,7 @@ class TestCloudConfigWorkerThreadVisibility:
             from distinct bucket keys, not from thread-locality.
         """
         seen: dict[str, str | None] = {}
-        barrier = threading.Barrier(2)
+        barrier = threading.Barrier(2, timeout=10)
 
         def read(bucket: str, endpoint: str, tag: str):
             with CloudConfig(extra={"AWS_S3_ENDPOINT": endpoint}, path=bucket):
@@ -1185,6 +1185,37 @@ class TestCloudConfigWorkerThreadVisibility:
                 self._worker_path_option("/vsis3/eodata/a.zip/x.tif", "AWS_S3_ENDPOINT")
                 == "eodata.dataspace.copernicus.eu"
             )
+
+    def test_a_raising_config_restore_does_not_strand_the_secret(self, monkeypatch):
+        """`__exit__` pops the path options even if the config restore raises.
+
+        Args:
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            The exit-path mirror of the `__enter__` rollback: a GDAL restore
+            failure must not leave a per-bucket secret live in the process-global
+            path state.
+        """
+        import pyramids.base.remote as remote
+
+        class _BoomExit:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                raise RuntimeError("restore boom")
+
+        monkeypatch.setattr(remote.gdal, "config_options", lambda cfg: _BoomExit())
+        with pytest.raises(RuntimeError, match="restore boom"):
+            with CloudConfig(extra={"AWS_SECRET_ACCESS_KEY": "S"}, path=self.OBJECT):
+                pass
+        monkeypatch.undo()
+        assert (
+            gdal.GetPathSpecificOption(self.OBJECT, "AWS_SECRET_ACCESS_KEY", "CLEAN")
+            != "S"
+        )
+        assert not remote._PATH_OPTION_STACK
 
     def test_a_credential_provider_key_stays_thread_local(self):
         """`AWS_PROFILE` is not path-scoped — GDAL reads it via the global getter.
