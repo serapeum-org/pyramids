@@ -950,11 +950,36 @@ def _bucket_prefix(path: str) -> str | None:
         vsi = _to_vsi(path)
     except (ValueError, TypeError):
         vsi = path
+    return _object_store_key(_strip_archive_chain(vsi))
+
+
+def _strip_archive_chain(vsi: str) -> str:
+    """Remove any stacked archive VSI prefixes, so the underlying store shows.
+
+    Args:
+        vsi: A VSI path, possibly chained (`/vsizip//vsis3/...`).
+
+    Returns:
+        str: The path with every leading archive prefix removed.
+    """
     while vsi.startswith(_ARCHIVE_CHAIN_PREFIXES):
         for archive in _ARCHIVE_CHAIN_PREFIXES:
             if vsi.startswith(archive):
                 vsi = vsi[len(archive) :]
                 break
+    return vsi
+
+
+def _object_store_key(vsi: str) -> str | None:
+    """The `/vsi<store>/<bucket>/` key for an object-store path, or ``None``.
+
+    Args:
+        vsi: A VSI path with any archive chain already stripped.
+
+    Returns:
+        str | None: The bucket key (trailing slash), or ``None`` when the path
+        names no object store.
+    """
     for store in _OBJECT_STORE_VSI_PREFIXES:
         for handler in (store, f"{store[:-1]}_streaming/"):
             if vsi.startswith(handler):
