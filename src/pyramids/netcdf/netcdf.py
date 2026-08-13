@@ -2816,8 +2816,12 @@ class NetCDF(Dataset):
             not slab-streamable (the caller then falls back to the eager path).
         """
         rg = self._working_group()
+        # `get_variable` builds a fresh classic-raster wrapper (a new GDAL dataset) each call, so
+        # resolve every spatial variable once and reuse it across the guard/spec/write passes below
+        # instead of re-opening it up to four times (review R2-N1).
+        spatial_var_objs = {name: self.get_variable(name) for name in spatial_vars}
         for name in spatial_vars:
-            if len(self.get_variable(name)._band_dim_names) >= 2:
+            if len(spatial_var_objs[name]._band_dim_names) >= 2:
                 return None
         for name in aux_vars:
             src_md = rg.OpenMDArray(name)
@@ -2828,7 +2832,7 @@ class NetCDF(Dataset):
                 return None
 
         results = {
-            name: getattr(self.get_variable(name), operation)(**op_kwargs)
+            name: getattr(spatial_var_objs[name], operation)(**op_kwargs)
             for name in spatial_vars
         }
         template = results[spatial_vars[0]]
@@ -2858,7 +2862,7 @@ class NetCDF(Dataset):
         }
         var_specs: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]] = {}
         for name in spatial_vars:
-            var = self.get_variable(name)
+            var = spatial_var_objs[name]
             res = results[name]
             src_md = rg.OpenMDArray(name)
             # `attrs` carries the source variable's own `_FillValue` (when it declared one), so a
@@ -2922,7 +2926,7 @@ class NetCDF(Dataset):
             str(path), dims, coords, var_specs, root_attrs
         ) as writer:
             for name in spatial_vars:
-                var = self.get_variable(name)
+                var = spatial_var_objs[name]
                 res = results[name]
                 if var._band_dim_names:
                     for i in range(int(var._band_dim_sizes[0])):
