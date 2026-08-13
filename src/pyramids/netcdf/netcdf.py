@@ -2820,16 +2820,8 @@ class NetCDF(Dataset):
         # resolve every spatial variable once and reuse it across the guard/spec/write passes below
         # instead of re-opening it up to four times (review R2-N1).
         spatial_var_objs = {name: self.get_variable(name) for name in spatial_vars}
-        for name in spatial_vars:
-            if len(spatial_var_objs[name]._band_dim_names) >= 2:
-                return None
-        for name in aux_vars:
-            src_md = rg.OpenMDArray(name)
-            if (
-                src_md is not None
-                and src_md.GetDataType().GetClass() == gdal.GEDTC_STRING
-            ):
-                return None
+        if not self._stream_feasible(rg, spatial_var_objs, spatial_vars, aux_vars):
+            return None
 
         results = {
             name: getattr(spatial_var_objs[name], operation)(**op_kwargs)
@@ -2862,51 +2854,98 @@ class NetCDF(Dataset):
         }
         var_specs: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]] = {}
         for name in spatial_vars:
-            var = spatial_var_objs[name]
-            res = results[name]
-            src_md = rg.OpenMDArray(name)
-            # `attrs` carries the source variable's own `_FillValue` (when it declared one), so a
-            # variable that actually has no-data keeps it per-variable; the template's no-data is
-            # additionally recorded as the global `nodata` below. (Writing
-            # `scalar_no_data(res.no_data_value)` unconditionally was rejected — it surfaces GDAL's
-            # uninitialised default as a spurious out-of-range `_FillValue` for no-data-less vars.)
-            attrs = _read_attributes(src_md) if src_md is not None else {}
-            band_dims = var._band_dim_names
-            if band_dims:
-                bd = band_dims[0]
-                if bd not in dims:
-                    dims[bd] = int(var._band_dim_sizes[0])
-                    bd_values = var._band_dim_values_map.get(bd)
-                    coords[bd] = (
-                        np.asarray(bd_values)
-                        if bd_values is not None
-                        else np.arange(int(var._band_dim_sizes[0])),
-                        {},
-                    )
-                var_specs[name] = ((bd, "y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
-            else:
-                var_specs[name] = (("y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
-
+            self._add_spatial_var_spec(
+                name, spatial_var_objs[name], results[name], rg, dims, coords, var_specs
+            )
         aux_data: dict[str, np.ndarray] = {}
         for name in aux_vars:
-            src_md = rg.OpenMDArray(name)
-            if src_md is None:
-                continue
-            aux_dim_names = tuple(d.GetName() for d in src_md.GetDimensions() or [])
-            for d in src_md.GetDimensions() or []:
-                dn = d.GetName()
-                if dn not in dims:
-                    iv = d.GetIndexingVariable()
-                    dims[dn] = int(d.GetSize())
-                    coords[dn] = (
-                        (self._md_array_to_numpy(iv), _read_attributes(iv))
-                        if iv is not None
-                        else (np.arange(int(d.GetSize())), {})
-                    )
-            arr = np.ascontiguousarray(self._md_array_to_numpy(src_md))
-            var_specs[name] = (aux_dim_names, arr.dtype, _read_attributes(src_md))
-            aux_data[name] = arr
+            self._add_aux_var_spec(name, rg, dims, coords, var_specs, aux_data)
 
+        root_attrs = self._stream_root_attrs(template)
+
+        with _interop.open_streaming_multidim_netcdf(
+            str(path), dims, coords, var_specs, root_attrs
+        ) as writer:
+            for name in spatial_vars:
+                self._write_stream_variable(
+                    writer, name, spatial_var_objs[name], results[name]
+                )
+            for name in aux_vars:
+                if name in aux_data:
+                    writer.write_whole(name, aux_data[name])
+
+        return NetCDF.read_file(str(path))
+
+    @staticmethod
+    def _stream_feasible(rg, spatial_var_objs, spatial_vars, aux_vars) -> bool:
+        """True when the single-leading-dimension slab writer can represent every variable's shape.
+
+        Rejects a spatial variable with two or more band dimensions and a string/object-typed
+        auxiliary variable — shapes the writer cannot handle, for which the caller falls back to the
+        eager build.
+        """
+        for name in spatial_vars:
+            if len(spatial_var_objs[name]._band_dim_names) >= 2:
+                return False
+        for name in aux_vars:
+            src_md = rg.OpenMDArray(name)
+            if (
+                src_md is not None
+                and src_md.GetDataType().GetClass() == gdal.GEDTC_STRING
+            ):
+                return False
+        return True
+
+    @staticmethod
+    def _add_spatial_var_spec(name, var, res, rg, dims, coords, var_specs) -> None:
+        """Add one spatial variable's band dimension / coordinate and its var-spec to the builders.
+
+        `attrs` carries the source variable's own `_FillValue` (when it declared one), so a variable
+        that actually has no-data keeps it per-variable; the template's no-data is additionally
+        recorded as the global `nodata`. (Writing `scalar_no_data(res.no_data_value)` unconditionally
+        was rejected — it surfaces GDAL's uninitialised default as a spurious out-of-range
+        `_FillValue` for no-data-less vars.)
+        """
+        src_md = rg.OpenMDArray(name)
+        attrs = _read_attributes(src_md) if src_md is not None else {}
+        band_dims = var._band_dim_names
+        if not band_dims:
+            var_specs[name] = (("y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
+            return
+        bd = band_dims[0]
+        if bd not in dims:
+            dims[bd] = int(var._band_dim_sizes[0])
+            bd_values = var._band_dim_values_map.get(bd)
+            coords[bd] = (
+                np.asarray(bd_values)
+                if bd_values is not None
+                else np.arange(int(var._band_dim_sizes[0])),
+                {},
+            )
+        var_specs[name] = ((bd, "y", "x"), np.dtype(res.numpy_dtype[0]), attrs)
+
+    def _add_aux_var_spec(self, name, rg, dims, coords, var_specs, aux_data) -> None:
+        """Add one carried-through auxiliary variable's dims/coords/spec and cache its whole array."""
+        src_md = rg.OpenMDArray(name)
+        if src_md is None:
+            return
+        aux_dim_names = tuple(d.GetName() for d in src_md.GetDimensions() or [])
+        for d in src_md.GetDimensions() or []:
+            dn = d.GetName()
+            if dn not in dims:
+                iv = d.GetIndexingVariable()
+                dims[dn] = int(d.GetSize())
+                coords[dn] = (
+                    (self._md_array_to_numpy(iv), _read_attributes(iv))
+                    if iv is not None
+                    else (np.arange(int(d.GetSize())), {})
+                )
+        arr = np.ascontiguousarray(self._md_array_to_numpy(src_md))
+        var_specs[name] = (aux_dim_names, arr.dtype, _read_attributes(src_md))
+        aux_data[name] = arr
+
+    def _stream_root_attrs(self, template) -> dict[str, Any]:
+        """Build the streamed file's root attributes (Conventions + CRS + GeoTransform + nodata)."""
         root_attrs: dict[str, Any] = dict(self.global_attributes)
         root_attrs.setdefault("Conventions", "CF-1.8")
         try:
@@ -2921,29 +2960,22 @@ class NetCDF(Dataset):
         ndv = scalar_no_data(template.no_data_value)
         if ndv is not None:
             root_attrs["nodata"] = ndv
+        return root_attrs
 
-        with _interop.open_streaming_multidim_netcdf(
-            str(path), dims, coords, var_specs, root_attrs
-        ) as writer:
-            for name in spatial_vars:
-                var = spatial_var_objs[name]
-                res = results[name]
-                if var._band_dim_names:
-                    for i in range(int(var._band_dim_sizes[0])):
-                        plane = np.asarray(res.read_array(band=i))
-                        if plane.ndim == 3 and plane.shape[0] == 1:
-                            plane = plane[0]
-                        writer.write_slab(name, i, plane)
-                else:
-                    plane = np.asarray(res.read_array())
-                    if plane.ndim == 3 and plane.shape[0] == 1:
-                        plane = plane[0]
-                    writer.write_whole(name, plane)
-            for name in aux_vars:
-                if name in aux_data:
-                    writer.write_whole(name, aux_data[name])
-
-        return NetCDF.read_file(str(path))
+    @staticmethod
+    def _write_stream_variable(writer, name, var, res) -> None:
+        """Write one spatial variable: a band-dim variable slab-by-slab, a 2-D variable whole."""
+        if var._band_dim_names:
+            for i in range(int(var._band_dim_sizes[0])):
+                plane = np.asarray(res.read_array(band=i))
+                if plane.ndim == 3 and plane.shape[0] == 1:
+                    plane = plane[0]
+                writer.write_slab(name, i, plane)
+            return
+        plane = np.asarray(res.read_array())
+        if plane.ndim == 3 and plane.shape[0] == 1:
+            plane = plane[0]
+        writer.write_whole(name, plane)
 
     def _apply_to_all_variables(self, operation, op_kwargs, path=None, *, warn_demoted=True):
         """Apply a spatial operation to every gridded variable in the container.
