@@ -774,6 +774,43 @@ class TestCellGeometryMethods:
             "cell polygons must carry the CRS the GDAL-only code resolves to"
         )
 
+    def test_get_cell_points_domain_only_authority_less_crs(self):
+        """The domain_only point path also labels an authority-less CRS correctly (#979).
+
+        Test scenario:
+            get_cell_points(domain_only=True) on the authority-less raster carries the source
+            orthographic CRS, mirroring the polygon masked-path check.
+        """
+        r = self._authority_less_raster()
+        gdf = r.get_cell_points(domain_only=True)
+        assert gdf.crs is not None, "domain_only path must still label the frame"
+        assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
+        assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
+            "domain_only points must carry the source orthographic CRS"
+        )
+
+    def test_get_cell_points_gdal_only_epsg_code(self):
+        """A GDAL-only EPSG code is labelled from its WKT on the point path (#943 / #979).
+
+        Test scenario:
+            EPSG:10857 (which pyproj cannot look up) yields cell points whose crs is the CRS
+            crs_from_user_input heals the code to, mirroring the polygon GDAL-only check.
+        """
+        arr = np.arange(9, dtype="float32").reshape(3, 3)
+        ds = Dataset.create_from_array(
+            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=10857
+        )
+        if not isinstance(crs_spec(ds.epsg, ds.crs), str):
+            pytest.skip(
+                "pyproj resolves EPSG:10857 on this stack; the WKT-fallback branch "
+                "is not exercised here"
+            )
+        gdf = ds.get_cell_points()
+        assert gdf.crs is not None, "a GDAL-only code must still label the frame"
+        assert gdf.crs.equals(crs_from_user_input(10857)), (
+            "cell points must carry the CRS the GDAL-only code resolves to"
+        )
+
 
 class TestGetBandByColor:
     """Tests for get_band_by_color method."""
