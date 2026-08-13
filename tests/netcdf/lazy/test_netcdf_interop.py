@@ -19,7 +19,10 @@ xr = pytest.importorskip("xarray")
 pytestmark = pytest.mark.interop
 
 from pyramids.dataset import Dataset
-from pyramids.netcdf.engines.interop import _encode_temporal_array
+from pyramids.netcdf.engines.interop import (
+    _encode_temporal_array,
+    _write_md_array_streamed,
+)
 from pyramids.netcdf.netcdf import NetCDF
 from tests._marks import requires_dask
 
@@ -904,4 +907,102 @@ class TestToXarrayLazy:
         )
         assert captured["orient"] is False, (
             "lazy interop read must be raw (orient=False)"
+        )
+
+
+class _RecordingMDArray:
+    """A stand-in ``gdal.MDArray`` that records each hyperslab write into a real buffer."""
+
+    def __init__(self, shape, dtype):
+        """Allocate the destination buffer and a write log.
+
+        Args:
+            shape: Full array shape.
+            dtype: Buffer dtype.
+        """
+        self.buf = np.zeros(shape, dtype=dtype)
+        self.writes = []
+
+    def Write(self, block, array_start_idx=None, count=None):
+        """Record and apply one write; a whole write has ``array_start_idx is None``."""
+        self.writes.append((array_start_idx, count))
+        if array_start_idx is None:
+            self.buf[...] = np.asarray(block)
+        else:
+            sl = tuple(slice(s, s + c) for s, c in zip(array_start_idx, count))
+            self.buf[sl] = np.asarray(block)
+
+
+class TestFromXarrayStreaming:
+    """from_xarray streams a dask-backed variable block by block, not all at once (ARC-48)."""
+
+    @requires_dask
+    def test_dask_input_round_trips_and_matches_eager(self):
+        """A dask-backed input reproduces the data and agrees with the equivalent numpy input.
+
+        Test scenario:
+            Build the same 3-D variable once dask-backed and once as numpy; `from_xarray` of each
+            must yield the same values on read-back, proving the streamed write is correct.
+        """
+        import dask.array as da
+
+        base = np.arange(4 * 3 * 2, dtype="float32").reshape(4, 3, 2)
+        coords = {"time": np.arange(4), "lat": [10.0, 11.0, 12.0], "lon": [20.0, 21.0]}
+        lazy = xr.Dataset(
+            {"t": (("time", "lat", "lon"), da.from_array(base, chunks=(2, 2, 1)))},
+            coords=coords,
+        )
+        eager = xr.Dataset({"t": (("time", "lat", "lon"), base)}, coords=coords)
+        nc_lazy = NetCDF.from_xarray(lazy)
+        nc_eager = NetCDF.from_xarray(eager)
+        try:
+            got = np.asarray(nc_lazy.to_xarray()["t"].values)
+            assert np.array_equal(got, base), (
+                "streamed dask input must reproduce the data"
+            )
+            assert np.array_equal(got, np.asarray(nc_eager.to_xarray()["t"].values)), (
+                "streamed and eager from_xarray must agree"
+            )
+        finally:
+            nc_lazy.close()
+            nc_eager.close()
+
+    @requires_dask
+    def test_dask_written_block_by_block(self):
+        """A dask array is written one hyperslab per block, and the blocks reconstruct the array.
+
+        Test scenario:
+            A `(4, 3, 2)` array chunked `(2, 3, 1)` has 4 blocks; `_write_md_array_streamed` must
+            issue exactly 4 hyperslab writes whose offsets/counts reassemble the original.
+        """
+        import dask.array as da
+
+        base = np.arange(24, dtype="float32").reshape(4, 3, 2)
+        arr = da.from_array(base, chunks=(2, 3, 1))  # 2 * 1 * 2 = 4 blocks
+        rec = _RecordingMDArray((4, 3, 2), "float32")
+        _write_md_array_streamed(rec, arr)
+        assert len(rec.writes) == 4, (
+            f"expected one write per block, got {len(rec.writes)}"
+        )
+        assert all(s is not None and c is not None for s, c in rec.writes), (
+            "each streamed write must be a bounded hyperslab (array_start_idx + count)"
+        )
+        assert np.array_equal(rec.buf, base), (
+            "the block writes must reconstruct the full array"
+        )
+
+    def test_numpy_written_in_a_single_hyperslab(self):
+        """A numpy array is written whole, not streamed.
+
+        Test scenario:
+            `_write_md_array_streamed` on a numpy array issues a single whole-array write
+            (`array_start_idx is None`), preserving the prior eager behaviour.
+        """
+        rec = _RecordingMDArray((2, 3), "int64")
+        _write_md_array_streamed(rec, np.arange(6).reshape(2, 3))
+        assert rec.writes == [(None, None)], (
+            f"numpy must be one whole write, got {rec.writes}"
+        )
+        assert np.array_equal(rec.buf, np.arange(6).reshape(2, 3)), (
+            "the whole write must land"
         )
