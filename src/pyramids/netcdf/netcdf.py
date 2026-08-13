@@ -2824,7 +2824,10 @@ class NetCDF(Dataset):
                 return None
         for name in aux_vars:
             src_md = rg.OpenMDArray(name)
-            if src_md is not None and src_md.GetDataType().GetClass() == gdal.GEDTC_STRING:
+            if (
+                src_md is not None
+                and src_md.GetDataType().GetClass() == gdal.GEDTC_STRING
+            ):
                 return None
 
         results = {

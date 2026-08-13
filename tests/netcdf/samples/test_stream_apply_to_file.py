@@ -105,7 +105,9 @@ def test_two_band_dim_variable_falls_back_to_eager_write(sample, tmp_path, monke
     out = tmp_path / "rhum.nc"
     streamed = NetCDF.read_file(sample(RHUM)).resample(cell * 2, path=str(out))
     try:
-        assert returned["is_none"] is True  # 4-D (time, level) var rejects the slab writer
+        assert (
+            returned["is_none"] is True
+        )  # 4-D (time, level) var rejects the slab writer
         assert out.exists()
         _assert_same(mem, streamed)
     finally:
@@ -123,8 +125,10 @@ def test_subset_crop_honours_path(sample, tmp_path):
         NetCDF.read_file(sample(TOS)).get_variable("tos").crop(bbox=(0, -40, 60, 40))
     )
     out = tmp_path / "tos_subset.nc"
-    on_disk = NetCDF.read_file(sample(TOS)).get_variable("tos").crop(
-        bbox=(0, -40, 60, 40), path=str(out)
+    on_disk = (
+        NetCDF.read_file(sample(TOS))
+        .get_variable("tos")
+        .crop(bbox=(0, -40, 60, 40), path=str(out))
     )
     try:
         assert out.exists()

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import geopandas as gpd
