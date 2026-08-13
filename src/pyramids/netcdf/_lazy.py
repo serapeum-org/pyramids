@@ -339,7 +339,10 @@ def _read_mdarray_chunk(
     Returns:
         np.ndarray: The block data, shape `tuple(counts)`.
     """
-    with cloud_config_from_env(gdal_env), manager.acquire_context() as ds:
+    with (
+        cloud_config_from_env(gdal_env, path=manager.path),
+        manager.acquire_context() as ds,
+    ):
         rg = ds.GetRootGroup()
         md_arr = rg.OpenMDArray(variable_name)
         block = md_arr.ReadAsArray(

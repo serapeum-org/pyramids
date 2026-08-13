@@ -628,6 +628,15 @@ class FileManager(ABC):
     shared implementation.
     """
 
+    @property
+    def path(self) -> str | None:
+        """The file path or URL this manager opens, or ``None`` when unknown.
+
+        Used to scope a read's cloud credentials to the source's bucket (#983);
+        both concrete managers store it as ``_path``.
+        """
+        return getattr(self, "_path", None)
+
     @abstractmethod
     def acquire(self) -> Any:
         """Return an open GDAL/OGR handle. Opens the file on first call."""

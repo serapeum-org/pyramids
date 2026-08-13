@@ -237,7 +237,7 @@ def merge_rasters(
     # All GDAL reads/writes run under the signer's cloud config (a no-op when
     # signer is None) so authenticated remote sources open with the right
     # credentials for the whole merge.
-    with _cloud_config(signer):
+    with _cloud_config(signer, path=src_paths):
         # Put every source on one CRS before compositing. The BuildVRT/Warp
         # mosaic below cannot reproject — it stitches pixel grids assuming a
         # shared CRS — so mismatched sources must be warped first or they would
@@ -538,6 +538,11 @@ def _merge_reduce(
     out_ds = gdal.GetDriverByName("GTiff").Create(
         dst, x_size, y_size, band_count, gdal.GDT_Float64, options=["COMPRESS=LZW"]
     )
+    if out_ds is None:
+        raise RuntimeError(
+            f"gdal.Create returned None writing the reduced mosaic to {dst!r}; "
+            f"check the output path is writable ({gdal.GetLastErrorMsg()!r})."
+        )
     out_ds.SetGeoTransform(geotransform)
     out_ds.SetProjection(projection)
     for band_index in range(band_count):
@@ -612,7 +617,7 @@ def stack_bands(
     """
     if signer is not None:
         files = [signer.sign_href(str(f)) for f in files]
-    with _cloud_config(signer):
+    with _cloud_config(signer, path=[str(f) for f in files]):
         result = Dataset.from_band_files(
             files,
             band_names=band_names,

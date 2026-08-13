@@ -186,9 +186,9 @@ def _open_config(
     """
     config: AbstractContextManager[Any]
     if engine == "gdal" and is_remote(href):
-        config = CloudConfig(vsicurl_tuning=True, extra=dict(gdal_env or {}))
+        config = CloudConfig(vsicurl_tuning=True, extra=dict(gdal_env or {}), path=href)
     else:
-        config = cloud_config_from_env(gdal_env)
+        config = cloud_config_from_env(gdal_env, path=href)
     return config
 
 

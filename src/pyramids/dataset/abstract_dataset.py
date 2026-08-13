@@ -156,7 +156,7 @@ def _reconstruct_dataset(
     #
     # The env is applied here rather than forwarded to read_file so every
     # subclass benefits without widening its own signature.
-    with cloud_config_from_env(gdal_env):
+    with cloud_config_from_env(gdal_env, path=path):
         dataset = cls.read_file(path, read_only=True)
     dataset.attach_gdal_env(gdal_env)
     return dataset
@@ -258,7 +258,7 @@ class RasterBase(ABC):
         A :class:`contextlib.nullcontext` when nothing was captured, so the
         overwhelmingly common unsigned case pays nothing per read.
         """
-        return cloud_config_from_env(self._gdal_env)
+        return cloud_config_from_env(self._gdal_env, path=self._file_name)
 
     def attach_gdal_env(self, gdal_env: dict[str, str] | None) -> None:
         """Capture `gdal_env` on an already-open dataset.

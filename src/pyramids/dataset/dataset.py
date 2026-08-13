@@ -2428,7 +2428,7 @@ class Dataset(RasterBase):
             - :meth:`pyramids.dataset.DatasetCollection.from_archive`: open
               *every* member of an archive as a temporal stack.
         """
-        with cloud_config_from_env(gdal_env):
+        with cloud_config_from_env(gdal_env, path=str(path)):
             src = _io.read_file(path, read_only=read_only, file_i=file_i, vsi=vsi)
         return cls(src, access="read_only" if read_only else "write", gdal_env=gdal_env)
 
