@@ -3014,7 +3014,12 @@ class NetCDF(Dataset):
             )
             if streamed is not None:
                 return streamed
-            mem = self._apply_to_all_variables(operation, op_kwargs)
+            # The eager fallback re-runs the same spatial/aux scan and would emit the demoted-
+            # variable warning a second time for one call; it was already warned above, so suppress
+            # the duplicate on the recursive build (review N1).
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                mem = self._apply_to_all_variables(operation, op_kwargs)
             try:
                 mem.to_file(str(path))
             finally:
