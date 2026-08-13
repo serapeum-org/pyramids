@@ -80,16 +80,22 @@ def _read_time_slab(
     ds = gdal.OpenEx(str(path), gdal.OF_MULTIDIM_RASTER | gdal.OF_VERBOSE_ERROR)
     if ds is None:
         raise ValueError(f"GDAL cannot re-open {path!r} for a windowed variable read.")
-    rg = ds.GetRootGroup()
-    md = open_mdarray(rg, var_name) if rg is not None else None
-    if md is None:
-        raise ValueError(f"Variable {var_name!r} is no longer present in {path!r}.")
-    sizes = [d.GetSize() for d in md.GetDimensions()]
-    start_idx = [0] * len(sizes)
-    start_idx[0] = start
-    count = list(sizes)
-    count[0] = 1 if stop is None else stop - start
-    slab = md.ReadAsArray(array_start_idx=start_idx, count=count)
+    try:
+        rg = ds.GetRootGroup()
+        md = open_mdarray(rg, var_name) if rg is not None else None
+        if md is None:
+            raise ValueError(f"Variable {var_name!r} is no longer present in {path!r}.")
+        sizes = [d.GetSize() for d in md.GetDimensions()]
+        start_idx = [0] * len(sizes)
+        start_idx[0] = start
+        count = list(sizes)
+        count[0] = 1 if stop is None else stop - start
+        # `ReadAsArray` returns a fresh, numpy-owned array, so the slab stays valid after the
+        # dataset is closed in `finally` (closing the per-selection reopen deterministically keeps
+        # Windows from holding a read handle on the file — review N3).
+        slab = md.ReadAsArray(array_start_idx=start_idx, count=count)
+    finally:
+        ds = None
     if slab is None:
         result = None
     else:
