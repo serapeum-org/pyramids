@@ -367,12 +367,17 @@ class TestLoadAsset:
 
         Test scenario:
             A reader stub captures `AWS_REQUEST_PAYER` at call time; with an
-            `AWSRequesterPaysSigner` it must read `requester`.
+            `AWSRequesterPaysSigner` it must read `requester`. Since #983 the
+            credential is applied per-bucket (path-specific), which is how GDAL's
+            worker threads see it, so the stub reads it through the path-specific
+            getter for the asset's `/vsis3/` path rather than the global one.
         """
         captured: dict[str, str | None] = {}
 
         def fake_read_file(href, vsi=None, gdal_env=None):
-            captured["payer"] = gdal.GetConfigOption("AWS_REQUEST_PAYER")
+            captured["payer"] = gdal.GetPathSpecificOption(
+                "/vsis3/usgs-landsat/x.tif", "AWS_REQUEST_PAYER", None
+            )
             return "DS"
 
         monkeypatch.setattr(_loader.Dataset, "read_file", staticmethod(fake_read_file))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import warnings
 from contextlib import nullcontext
 
@@ -1059,3 +1060,131 @@ class TestNetworkHandlersChainArchives:
             chaining — the same trap `/vsicurl/` already guarded against.
         """
         assert _to_vsi(path) == path, "a hostname must not trigger chaining"
+
+
+class TestCloudConfigWorkerThreadVisibility:
+    """Tests that a store's credentials reach GDAL's VSICurl worker threads (#983).
+
+    `CloudConfig` applied its options thread-locally, and the worker threads that
+    fetch the byte-ranges of a large read do not inherit thread-local config, so
+    a custom `AWS_S3_ENDPOINT` never reached them and a non-AWS store 403'd. The
+    fix applies the credential/endpoint subset per-bucket via path-specific
+    options, which are worker-visible.
+    """
+
+    ENV = {
+        "AWS_S3_ENDPOINT": "eodata.dataspace.copernicus.eu",
+        "AWS_ACCESS_KEY_ID": "CDSEKEY",
+        "AWS_VIRTUAL_HOSTING": "FALSE",
+        "GDAL_HTTP_TIMEOUT": "60",
+    }
+    BUCKET = "/vsis3/eodata"
+    OBJECT = "/vsis3/eodata/S2/B04_10m.jp2"
+
+    @staticmethod
+    def _worker_path_option(path: str, key: str):
+        """Read a path-specific option from a separate (non-calling) thread."""
+        result: dict[str, str | None] = {}
+        thread = threading.Thread(
+            target=lambda: result.__setitem__(
+                "v", gdal.GetPathSpecificOption(path, key, None)
+            )
+        )
+        thread.start()
+        thread.join()
+        return result["v"]
+
+    @staticmethod
+    def _worker_global_option(key: str):
+        """Read a global config option from a separate thread."""
+        result: dict[str, str | None] = {}
+        thread = threading.Thread(
+            target=lambda: result.__setitem__("v", gdal.GetConfigOption(key))
+        )
+        thread.start()
+        thread.join()
+        return result["v"]
+
+    def test_a_worker_thread_sees_the_endpoint_and_key(self):
+        """The credential/endpoint subset is visible off the calling thread.
+
+        Test scenario:
+            This is the bug: before the fix a worker read these back as `None`
+            and fell through to real AWS.
+        """
+        with CloudConfig(extra=self.ENV, path=self.OBJECT):
+            assert (
+                self._worker_path_option(self.OBJECT, "AWS_S3_ENDPOINT")
+                == "eodata.dataspace.copernicus.eu"
+            )
+            assert (
+                self._worker_path_option(self.OBJECT, "AWS_ACCESS_KEY_ID") == "CDSEKEY"
+            )
+
+    def test_credentials_do_not_leak_to_another_bucket(self):
+        """A different bucket does not inherit this bucket's credentials."""
+        with CloudConfig(extra=self.ENV, path=self.OBJECT):
+            assert (
+                self._worker_path_option("/vsis3/other/x.tif", "AWS_S3_ENDPOINT")
+                is None
+            )
+
+    def test_options_are_unset_on_exit(self):
+        """The path-specific options do not outlive the block."""
+        with CloudConfig(extra=self.ENV, path=self.OBJECT):
+            pass
+        assert (
+            gdal.GetPathSpecificOption(self.OBJECT, "AWS_S3_ENDPOINT", "GONE") == "GONE"
+        )
+
+    def test_a_nested_same_bucket_block_does_not_strip_the_outer(self):
+        """An inner block's exit restores the outer block's value, not `None`.
+
+        Test scenario:
+            Wrapped engine methods can call each other on the same dataset, so a
+            same-bucket `CloudConfig` can nest. A naive unset-on-exit would leave
+            the outer read with no credentials.
+        """
+        with CloudConfig(extra=self.ENV, path=self.OBJECT):
+            with CloudConfig(extra=self.ENV, path=self.OBJECT):
+                pass
+            assert (
+                gdal.GetPathSpecificOption(self.OBJECT, "AWS_S3_ENDPOINT", "STRIPPED")
+                == "eodata.dataspace.copernicus.eu"
+            )
+        assert (
+            gdal.GetPathSpecificOption(self.OBJECT, "AWS_S3_ENDPOINT", "GONE") == "GONE"
+        )
+
+    def test_http_knobs_stay_thread_local(self):
+        """A transport knob is not path-scoped — it has no bucket to attach to."""
+        with CloudConfig(extra=self.ENV, path=self.OBJECT):
+            assert self._worker_path_option(self.OBJECT, "GDAL_HTTP_TIMEOUT") is None, (
+                "GDAL_HTTP_TIMEOUT must not become a per-bucket credential"
+            )
+            assert gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") == "60"
+
+    def test_without_a_path_behaviour_is_unchanged(self):
+        """No path means every option stays thread-local, as before the fix."""
+        with CloudConfig(extra=self.ENV):
+            assert self._worker_global_option("AWS_S3_ENDPOINT") is None
+            assert (
+                gdal.GetConfigOption("AWS_S3_ENDPOINT")
+                == "eodata.dataspace.copernicus.eu"
+            )
+
+    def test_a_local_path_scopes_nothing(self):
+        """A local file has no bucket, so its config stays thread-local."""
+        with CloudConfig(extra=self.ENV, path="/tmp/local.tif"):
+            assert self._worker_global_option("AWS_S3_ENDPOINT") is None
+
+    def test_multiple_buckets_each_get_the_credentials(self):
+        """A merge over sources in two buckets scopes both.
+
+        Test scenario:
+            `merge_rasters` wraps a list of sources, which may span buckets.
+        """
+        paths = ["/vsis3/eodata/a.jp2", "/vsis3/eodata2/b.jp2"]
+        with CloudConfig(extra=self.ENV, path=paths):
+            assert self._worker_path_option(paths[0], "AWS_S3_ENDPOINT") is not None
+            assert self._worker_path_option(paths[1], "AWS_S3_ENDPOINT") is not None
