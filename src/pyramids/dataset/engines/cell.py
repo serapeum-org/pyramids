@@ -170,7 +170,10 @@ class Cell(_Engine["Dataset"]):
 
         Returns:
             GeoDataFrame:
-                With two columns, geometry, and id.
+                With two columns, geometry, and id. The frame is labelled with the
+                raster's own CRS -- the EPSG code when it has one, otherwise its WKT
+                (so a custom, authority-less projection is preserved, not fabricated as
+                EPSG:4326) -- or left unprojected (`crs=None`) when the raster has no CRS.
 
         Examples:
             - Create `Dataset` consists of 1 band, 3 rows, 3 columns, at the point lon/lat (0, 0).
@@ -260,7 +263,10 @@ class Cell(_Engine["Dataset"]):
 
         Returns:
             GeoDataFrame:
-                With two columns, geometry, and id.
+                With two columns, geometry, and id. The frame is labelled with the
+                raster's own CRS -- the EPSG code when it has one, otherwise its WKT
+                (so a custom, authority-less projection is preserved, not fabricated as
+                EPSG:4326) -- or left unprojected (`crs=None`) when the raster has no CRS.
 
         Examples:
             - Create `Dataset` consists of 1 band, 3 rows, 3 columns, at the point lon/lat (0, 0).

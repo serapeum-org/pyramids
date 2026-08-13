@@ -724,6 +724,21 @@ class TestCellGeometryMethods:
         assert gdf.crs is None, "a CRS-less raster must yield an unprojected frame"
         assert len(gdf) == 9, f"expected 9 polygons, got {len(gdf)}"
 
+    def test_get_cell_points_no_crs_is_unprojected(self):
+        """A raster with no CRS at all yields unprojected points, not a crash (#979).
+
+        Test scenario:
+            When the raster carries no CRS, get_cell_points comes back with crs=None rather
+            than raising on `crs_from_user_input(None)`, mirroring the polygon path.
+        """
+        arr = np.arange(9, dtype="float32").reshape(3, 3)
+        ds = Dataset.create_from_array(
+            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=None
+        )
+        gdf = ds.get_cell_points()
+        assert gdf.crs is None, "a CRS-less raster must yield an unprojected frame"
+        assert len(gdf) == 9, f"expected 9 points, got {len(gdf)}"
+
 
 class TestGetBandByColor:
     """Tests for get_band_by_color method."""
