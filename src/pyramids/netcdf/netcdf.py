@@ -2977,7 +2977,9 @@ class NetCDF(Dataset):
             plane = plane[0]
         writer.write_whole(name, plane)
 
-    def _apply_to_all_variables(self, operation, op_kwargs, path=None, *, warn_demoted=True):
+    def _apply_to_all_variables(
+        self, operation, op_kwargs, path=None, *, warn_demoted=True
+    ):
         """Apply a spatial operation to every gridded variable in the container.
 
         Only variables carrying both spatial axes are cropped / reprojected.
