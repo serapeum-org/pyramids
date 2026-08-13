@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.base.crs import sr_from_epsg
+from pyramids.base.crs import crs_from_user_input, sr_from_epsg
 from pyramids.dataset import Dataset
 from pyramids.dataset.abstract_dataset import RasterBase
 
@@ -682,8 +682,6 @@ class TestCellGeometryMethods:
             crs equals the source CRS -- not None, not a fabricated EPSG:4326 -- and to_epsg()
             is None.
         """
-        from pyramids.base.crs import crs_from_user_input
-
         r = self._authority_less_raster()
         gdf = r.get_cell_polygons()
         assert gdf.crs is not None, "authority-less CRS must still label the frame"
@@ -699,8 +697,6 @@ class TestCellGeometryMethods:
             The point variant of the raster above carries the same source CRS with no EPSG
             code, instead of raising CRSError.
         """
-        from pyramids.base.crs import crs_from_user_input
-
         r = self._authority_less_raster()
         gdf = r.get_cell_points()
         assert gdf.crs is not None, "authority-less CRS must still label the frame"
