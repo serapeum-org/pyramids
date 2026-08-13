@@ -2815,9 +2815,6 @@ class NetCDF(Dataset):
             NetCDF | None: A file-backed container reading ``path``, or ``None`` when the shape is
             not slab-streamable (the caller then falls back to the eager path).
         """
-        from pyramids.netcdf.engines.interop import open_streaming_multidim_netcdf
-        from pyramids.netcdf.utils import _read_attributes
-
         rg = self._working_group()
         for name in spatial_vars:
             if len(self.get_variable(name)._band_dim_names) >= 2:
@@ -2902,7 +2899,7 @@ class NetCDF(Dataset):
         if ndv is not None:
             root_attrs["nodata"] = ndv
 
-        with open_streaming_multidim_netcdf(
+        with _interop.open_streaming_multidim_netcdf(
             str(path), dims, coords, var_specs, root_attrs
         ) as writer:
             for name in spatial_vars:
