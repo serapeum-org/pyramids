@@ -3015,53 +3015,12 @@ class NetCDF(Dataset):
                 f"{names} have both spatial axes."
             )
 
-        # A variable with >= 2 *unrecognised* axes is likely a grid whose axes
-        # were not recognised (no CF axis attributes / no known x/y names) and is
-        # carried through untransformed — warn. Axes that are clearly non-spatial
-        # (time / vertical / ensemble / bounds) don't count, so a legitimately
-        # non-spatial N-D aux variable (e.g. (time, level)) does not trip the warning.
-        demoted = []
-        for n in aux_vars:
-            unknown_axes = [
-                d
-                for d in self._variable_dim_names(rg, n)
-                if d.lower() not in _NONSPATIAL_AXIS_NAMES
-            ]
-            if len(unknown_axes) >= 2:
-                demoted.append(n)
-        if demoted and warn_demoted:
-            warnings.warn(
-                f"{operation}() is carrying {len(demoted)} multi-dimensional "
-                f"variable(s) {demoted} through unchanged because their axes were "
-                f"not recognised as spatial (no CF axis attributes or known x/y "
-                f"names); they will NOT be cropped/reprojected. Add CF axis "
-                f"metadata (standard_name / axis) or rename the axes to y/x.",
-                stacklevel=3,
-            )
+        self._warn_demoted_variables(rg, aux_vars, operation, warn_demoted)
 
-        # Streaming-to-file path (ARC-46/#976): write the transformed cube straight to `path`,
-        # one leading-dimension slab at a time, so the whole result is never resident. Variables
-        # with >= 2 band dimensions aren't slab-streamable here, so `_stream_apply_to_file` returns
-        # None and we fall back to the eager in-memory build followed by a plain file write (still
-        # correct, just not bounded-memory for that rare shape).
         if path is not None:
-            streamed = self._stream_apply_to_file(
+            return self._to_file_via_stream_or_eager(
                 operation, op_kwargs, spatial_vars, aux_vars, path
             )
-            if streamed is not None:
-                return streamed
-            # The eager fallback re-runs the same spatial/aux scan and would emit the demoted-
-            # variable warning a second time for one call; it was already warned above. Suppress
-            # only that duplicate via `warn_demoted=False` — genuine warnings from the real
-            # transform work still surface (reviews N1, R2-L1).
-            mem = self._apply_to_all_variables(
-                operation, op_kwargs, warn_demoted=False
-            )
-            try:
-                mem.to_file(str(path))
-            finally:
-                mem.close()
-            return NetCDF.read_file(str(path))
 
         result = None
         for var_name in spatial_vars:
@@ -3129,6 +3088,61 @@ class NetCDF(Dataset):
 
         self._carry_aux_variables(cast("NetCDF", result), aux_vars, operation)
         return cast("NetCDF", result)
+
+    def _warn_demoted_variables(self, rg, aux_vars, operation, warn_demoted) -> None:
+        """Warn about auxiliary variables carried through untransformed for lack of spatial axes.
+
+        A variable with >= 2 *unrecognised* axes is likely a grid whose axes were not recognised (no
+        CF axis attributes / no known x/y names). Axes that are clearly non-spatial (time / vertical
+        / ensemble / bounds) don't count, so a legitimately non-spatial N-D aux variable (e.g.
+        ``(time, level)``) does not trip the warning. ``warn_demoted=False`` suppresses the message
+        on the eager fallback recursion, which already warned on the outer call.
+        """
+        demoted = [
+            n
+            for n in aux_vars
+            if len(
+                [
+                    d
+                    for d in self._variable_dim_names(rg, n)
+                    if d.lower() not in _NONSPATIAL_AXIS_NAMES
+                ]
+            )
+            >= 2
+        ]
+        if demoted and warn_demoted:
+            warnings.warn(
+                f"{operation}() is carrying {len(demoted)} multi-dimensional "
+                f"variable(s) {demoted} through unchanged because their axes were "
+                f"not recognised as spatial (no CF axis attributes or known x/y "
+                f"names); they will NOT be cropped/reprojected. Add CF axis "
+                f"metadata (standard_name / axis) or rename the axes to y/x.",
+                stacklevel=4,
+            )
+
+    def _to_file_via_stream_or_eager(
+        self, operation, op_kwargs, spatial_vars, aux_vars, path
+    ) -> NetCDF:
+        """Write the transformed container to ``path``, streaming when possible else eager.
+
+        The streaming path (ARC-46/#976) writes the cube one leading-dimension slab at a time, so the
+        whole result is never resident. A shape the slab writer cannot represent makes
+        ``_stream_apply_to_file`` return None, and we fall back to the eager in-memory build followed
+        by a plain file write (still correct, just not bounded-memory for that rare shape). The
+        fallback recursion passes ``warn_demoted=False`` so the demoted-variable warning — already
+        emitted by the caller — is not duplicated, while genuine transform warnings still surface.
+        """
+        streamed = self._stream_apply_to_file(
+            operation, op_kwargs, spatial_vars, aux_vars, path
+        )
+        if streamed is not None:
+            return streamed
+        mem = self._apply_to_all_variables(operation, op_kwargs, warn_demoted=False)
+        try:
+            mem.to_file(str(path))
+        finally:
+            mem.close()
+        return NetCDF.read_file(str(path))
 
     def reduce(self, *args, **kwargs) -> NetCDF:
         """Facade — :meth:`Selection.reduce <pyramids.netcdf.engines.selection.Selection.reduce>`."""
