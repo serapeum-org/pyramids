@@ -874,11 +874,6 @@ _VSICURL_FAST_READ_KNOBS: dict[str, str] = {
 """Fast single-file `/vsicurl/` read preset enabled by `CloudConfig(vsicurl_tuning=True)`."""
 
 
-# Config keys that name a *store's* credentials, endpoint or request shape, as
-# opposed to a global HTTP transport knob. Only these are applied per-bucket via
-# GDAL path-specific options; everything else (GDAL_HTTP_*, VSI_CACHE, CPL_*)
-# stays thread-local. Matched by prefix so a new AWS_/GS_/AZURE_ option is scoped
-# without a code change.
 # Config keys GDAL's object-store handlers read *per path* (via
 # `VSIGetPathSpecificOption`), so scoping them to a bucket reaches the VSICurl
 # worker threads. An explicit allowlist, not an `AWS_`/`GS_` prefix match: keys
@@ -955,9 +950,11 @@ def _bucket_prefix(path: str) -> str | None:
         vsi = _to_vsi(path)
     except (ValueError, TypeError):
         vsi = path
-    for archive in _ARCHIVE_CHAIN_PREFIXES:
-        while vsi.startswith(archive):
-            vsi = vsi[len(archive) :]
+    while vsi.startswith(_ARCHIVE_CHAIN_PREFIXES):
+        for archive in _ARCHIVE_CHAIN_PREFIXES:
+            if vsi.startswith(archive):
+                vsi = vsi[len(archive) :]
+                break
     for store in _OBJECT_STORE_VSI_PREFIXES:
         for handler in (store, f"{store[:-1]}_streaming/"):
             if vsi.startswith(handler):
@@ -1314,7 +1311,7 @@ class CloudConfig:
         """Enter the context and apply the GDAL config options.
 
         A store's credentials, endpoint and request-shape options
-        (:data:`_PATH_SCOPED_KEY_PREFIXES`) are applied per-bucket via
+        (:data:`_PATH_SCOPED_KEYS`) are applied per-bucket via
         `gdal.SetPathSpecificOption`, so GDAL's VSICurl worker threads — which
         fetch the byte-ranges of a large read and do **not** inherit thread-local
         config — see them. The remaining transport knobs stay thread-local. When
@@ -1355,11 +1352,16 @@ class CloudConfig:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool | None:
         """Exit the context, restore the previous GDAL config, and clear _ctx."""
-        result = cast(bool | None, self._ctx.__exit__(exc_type, exc_val, exc_tb))
-        self._ctx = None
-        for prefix, key in reversed(self._scoped):
-            _pop_path_option(prefix, key)
-        self._scoped.clear()
+        try:
+            result = cast(bool | None, self._ctx.__exit__(exc_type, exc_val, exc_tb))
+        finally:
+            # In a `finally` so a raising config-restore cannot skip the pop and
+            # strand a per-bucket secret in GDAL's process-global path state --
+            # the exit-path mirror of the __enter__ rollback.
+            self._ctx = None
+            for prefix, key in reversed(self._scoped):
+                _pop_path_option(prefix, key)
+            self._scoped.clear()
         logger.debug("CloudConfig exited")
         return result
 
