@@ -2837,6 +2837,20 @@ class NetCDF(Dataset):
         if y_coord.ndim != 1 or x_coord.ndim != 1:
             return None  # curvilinear (2-D) coords aren't slab-streamable here
 
+        # Every variable is written against the template's shared y/x grid. A container whose
+        # variables transform onto *different* grids (mixed native cell size / extent, or a
+        # reprojection that yields per-variable shapes) isn't slab-streamable here — fall back to
+        # the eager per-variable build rather than mis-writing a slab into a template-shaped array
+        # (review L1).
+        template_yx = (int(y_coord.shape[0]), int(x_coord.shape[0]))
+        for name in spatial_vars:
+            res_yx = (
+                int(np.asarray(results[name].y).shape[0]),
+                int(np.asarray(results[name].x).shape[0]),
+            )
+            if res_yx != template_yx:
+                return None
+
         dims: dict[str, int] = {"y": int(y_coord.shape[0]), "x": int(x_coord.shape[0])}
         coords: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
             "y": (y_coord, {}),
@@ -2847,6 +2861,11 @@ class NetCDF(Dataset):
             var = self.get_variable(name)
             res = results[name]
             src_md = rg.OpenMDArray(name)
+            # `attrs` carries the source variable's own `_FillValue` (when it declared one), so a
+            # variable that actually has no-data keeps it per-variable; the template's no-data is
+            # additionally recorded as the global `nodata` below. (Writing
+            # `scalar_no_data(res.no_data_value)` unconditionally was rejected — it surfaces GDAL's
+            # uninitialised default as a spurious out-of-range `_FillValue` for no-data-less vars.)
             attrs = _read_attributes(src_md) if src_md is not None else {}
             band_dims = var._band_dim_names
             if band_dims:
