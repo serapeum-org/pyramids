@@ -267,3 +267,27 @@ class TestStreamingWrite:
             np.asarray(back.get_data("h").data),
             np.asarray(UgridDataset.read_file(src).get_data("h").data),
         )
+
+
+class TestGeoDataFrameTolerance:
+    """`to_geodataframe` tolerates a temporal variable that resolves to no data (review L3)."""
+
+    def test_dataless_temporal_variable_yields_null_column(self):
+        """A temporal variable with neither eager data nor a loader gives a null column, not a raise.
+
+        Test scenario:
+            Injecting a temporal `MeshVariable` with no `_data` and no `_loader` (so `has_data_source`
+            is False), `to_geodataframe` stores `None` for its column — the historical tolerance —
+            instead of raising the `sel_time` "no loaded data" error.
+        """
+        ds, _ = _temporal_dataset()
+        ds._data_variables["h"] = models.MeshVariable(
+            name="h",
+            location="face",
+            mesh_name=ds.mesh_name,
+            shape=(3, 2),
+            dimensions=("time", "mesh2d_nFaces"),
+        )
+        gdf = ds.to_geodataframe(variable_name="h", location="face")
+        assert "h" in gdf.columns
+        assert gdf["h"].isna().all()

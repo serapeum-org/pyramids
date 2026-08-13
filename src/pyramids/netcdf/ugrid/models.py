@@ -148,6 +148,15 @@ class MeshVariable:
         return self._data
 
     @property
+    def has_data_source(self) -> bool:
+        """True when the variable can produce an array — eager data or a lazy loader.
+
+        Metadata-only, so callers can decide whether to read a variable's values without forcing
+        the load a bare `.data` access would trigger.
+        """
+        return self._data is not None or self._loader is not None
+
+    @property
     def n_elements(self) -> int:
         """Number of mesh elements (last dimension of shape)."""
         result = self.shape[-1] if self.shape else 0

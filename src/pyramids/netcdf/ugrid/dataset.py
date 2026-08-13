@@ -669,8 +669,17 @@ class UgridDataset:
             var = self.get_data(variable_name)
             if var.location == location:
                 # For a temporal variable only the first step is tabulated; `sel_time(0)` reads just
-                # that slab instead of loading every step to slice `[0]` (#982).
-                var_data = var.sel_time(0) if var.has_time else var.data
+                # that slab instead of loading every step to slice `[0]` (#982). `has_data_source`
+                # avoids a temporal-specific `sel_time` error for a variable with no readable data
+                # (checked without forcing a load — review L3).
+                if var.has_time:
+                    var_data = var.sel_time(0) if var.has_data_source else None
+                else:
+                    var_data = var.data
+                # A variable with no readable data becomes a length-correct null column rather than
+                # raising — pandas rejects a scalar `None` column ("must pass an index") (review L3).
+                if var_data is None:
+                    var_data = np.full(len(geometries), np.nan)
                 data_dict[variable_name] = var_data
 
         gdf = gpd.GeoDataFrame(data_dict, geometry=geometries)
