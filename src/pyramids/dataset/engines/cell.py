@@ -16,7 +16,7 @@ from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_indices2, locate_values
 from pandas import DataFrame
 
-from pyramids.base.crs import crs_from_user_input
+from pyramids.base.crs import crs_from_user_input, crs_spec
 from pyramids.dataset.engines._base import _Engine
 from pyramids.feature import FeatureCollection, create_points, create_polygon
 
@@ -215,7 +215,7 @@ class Cell(_Engine["Dataset"]):
         # Expressed as vector steps it also carries the rotation terms, so a skewed
         # raster yields the right parallelogram instead of an axis-aligned box.
         _, col_dx, row_dx, _, col_dy, row_dy = self._ds.geotransform
-        epsg = self._ds._get_epsg()
+        crs = crs_spec(self._ds.epsg, self._ds.crs)
         x = np.zeros((coords.shape[0], 4))
         y = np.zeros((coords.shape[0], 4))
         x[:, 0] = coords[:, 0]
@@ -234,10 +234,16 @@ class Cell(_Engine["Dataset"]):
         rings = np.stack((x, y), axis=-1)
         polygons = [create_polygon(ring) for ring in rings.tolist()]
         gdf = gpd.GeoDataFrame(geometry=polygons)
-        # Through `crs_from_user_input`, not `epsg=`: geopandas resolves a bare code
-        # with pyproj, which cannot look up a code only GDAL's PROJ database carries
-        # (issue #943). A resolved CRS object needs no lookup.
-        gdf.set_crs(crs_from_user_input(epsg), inplace=True)
+        # Label with the resolved CRS *spec* (the EPSG code when the CRS has one,
+        # else its WKT), routed through `crs_from_user_input` rather than a bare
+        # `epsg=`: geopandas resolves a code with pyproj, which cannot look up a code
+        # only GDAL's PROJ database carries (issue #943). Using `_get_epsg()` alone
+        # passed `None` for a valid CRS with no EPSG authority (a custom projection or
+        # a proj4/WKT reprojection), which crashed `set_crs` and, before #893, silently
+        # mislabelled such cells as EPSG:4326 (issue #979). `crs_spec` is `None` only
+        # when the raster truly has no CRS -- then leave the frame unprojected.
+        if crs is not None:
+            gdf.set_crs(crs_from_user_input(crs), inplace=True)
         gdf["id"] = gdf.index
         return gdf
 
@@ -316,15 +322,21 @@ class Cell(_Engine["Dataset"]):
             ![get_cell_points-corner](./../../_images/dataset/get_cell_points-corner.png)
         """
         coords = self.get_cell_coords(location=location, domain_only=domain_only)
-        epsg = self._ds._get_epsg()
+        crs = crs_spec(self._ds.epsg, self._ds.crs)
 
         coords_tuples = list(zip(coords[:, 0], coords[:, 1]))
         points = create_points(coords_tuples)
         gdf = gpd.GeoDataFrame(geometry=points)
-        # Through `crs_from_user_input`, not `epsg=`: geopandas resolves a bare code
-        # with pyproj, which cannot look up a code only GDAL's PROJ database carries
-        # (issue #943). A resolved CRS object needs no lookup.
-        gdf.set_crs(crs_from_user_input(epsg), inplace=True)
+        # Label with the resolved CRS *spec* (the EPSG code when the CRS has one,
+        # else its WKT), routed through `crs_from_user_input` rather than a bare
+        # `epsg=`: geopandas resolves a code with pyproj, which cannot look up a code
+        # only GDAL's PROJ database carries (issue #943). Using `_get_epsg()` alone
+        # passed `None` for a valid CRS with no EPSG authority (a custom projection or
+        # a proj4/WKT reprojection), which crashed `set_crs` and, before #893, silently
+        # mislabelled such cells as EPSG:4326 (issue #979). `crs_spec` is `None` only
+        # when the raster truly has no CRS -- then leave the frame unprojected.
+        if crs is not None:
+            gdf.set_crs(crs_from_user_input(crs), inplace=True)
         gdf["id"] = gdf.index
         return gdf
 

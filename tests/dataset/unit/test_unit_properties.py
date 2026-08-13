@@ -658,6 +658,72 @@ class TestCellGeometryMethods:
         assert isinstance(gdf, gpd.GeoDataFrame), "Should return GeoDataFrame"
         assert len(gdf) == 4, f"Expected 4 polygons for domain cells, got {len(gdf)}"
 
+    @staticmethod
+    def _authority_less_raster() -> Dataset:
+        """A raster on a valid CRS that carries no EPSG authority code.
+
+        Returns:
+            Dataset: a 10x10 raster reprojected to a local orthographic (proj4/WKT
+            only), so `_get_epsg()` is None while the full CRS spec is present.
+        """
+        arr = np.arange(100, dtype="float32").reshape(10, 10)
+        ds = Dataset.create_from_array(
+            arr, geo=(10.0, 0.1, 0.0, 50.0, 0.0, -0.1), epsg=4326
+        )
+        return ds.to_crs(
+            "+proj=ortho +lat_0=50 +lon_0=10 +datum=WGS84 +units=m +no_defs"
+        )
+
+    def test_get_cell_polygons_authority_less_crs(self):
+        """get_cell_polygons labels the frame with an authority-less CRS, not a crash (#979).
+
+        Test scenario:
+            A raster on a custom orthographic CRS (no EPSG code) yields cell polygons whose
+            crs equals the source CRS -- not None, not a fabricated EPSG:4326 -- and to_epsg()
+            is None.
+        """
+        from pyramids.base.crs import crs_from_user_input
+
+        r = self._authority_less_raster()
+        gdf = r.get_cell_polygons()
+        assert gdf.crs is not None, "authority-less CRS must still label the frame"
+        assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
+        assert gdf.crs.equals(crs_from_user_input(r.crs)), (
+            "cell polygons must carry the raster's own CRS, not a fabricated one"
+        )
+
+    def test_get_cell_points_authority_less_crs(self):
+        """get_cell_points labels the frame with an authority-less CRS, not a crash (#979).
+
+        Test scenario:
+            The point variant of the raster above carries the same source CRS with no EPSG
+            code, instead of raising CRSError.
+        """
+        from pyramids.base.crs import crs_from_user_input
+
+        r = self._authority_less_raster()
+        gdf = r.get_cell_points()
+        assert gdf.crs is not None, "authority-less CRS must still label the frame"
+        assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
+        assert gdf.crs.equals(crs_from_user_input(r.crs)), (
+            "cell points must carry the raster's own CRS, not a fabricated one"
+        )
+
+    def test_get_cell_polygons_no_crs_is_unprojected(self):
+        """A raster with no CRS at all yields an unprojected frame, not a crash (#979).
+
+        Test scenario:
+            When the raster carries no CRS, the cell polygons come back with crs=None rather
+            than raising on `crs_from_user_input(None)`.
+        """
+        arr = np.arange(9, dtype="float32").reshape(3, 3)
+        ds = Dataset.create_from_array(
+            arr, geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=None
+        )
+        gdf = ds.get_cell_polygons()
+        assert gdf.crs is None, "a CRS-less raster must yield an unprojected frame"
+        assert len(gdf) == 9, f"expected 9 polygons, got {len(gdf)}"
+
 
 class TestGetBandByColor:
     """Tests for get_band_by_color method."""
