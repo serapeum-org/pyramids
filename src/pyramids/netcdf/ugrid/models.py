@@ -152,7 +152,7 @@ class MeshVariable:
         """True when the variable can produce an array — eager data or a lazy loader.
 
         Metadata-only, so callers can decide whether to read a variable's values without forcing
-        the load a bare `.data` access would trigger.
+        the load a bare ``.data`` access would trigger.
         """
         return self._data is not None or self._loader is not None
 
