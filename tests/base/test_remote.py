@@ -1129,6 +1129,74 @@ class TestCloudConfigWorkerThreadVisibility:
                 is None
             )
 
+    @pytest.mark.parametrize(
+        "sibling",
+        [
+            "/vsis3/eodata2/b.jp2",
+            "/vsis3/eodata-public/c.jp2",
+            "/vsis3/eodataXYZ/d.jp2",
+        ],
+    )
+    def test_credentials_do_not_leak_to_a_prefix_sharing_sibling(self, sibling: str):
+        """A bucket whose name merely starts the same does not inherit the key.
+
+        Args:
+            sibling: A bucket sharing `eodata`'s name prefix but not the bucket.
+
+        Test scenario:
+            GDAL matches path-specific options by raw string prefix, so a key of
+            `/vsis3/eodata` (no trailing slash) would leak `eodata`'s endpoint and
+            secret to `/vsis3/eodata2/...`. The trailing slash prevents it.
+        """
+        with CloudConfig(extra=self.ENV, path=self.OBJECT):
+            assert self._worker_path_option(sibling, "AWS_S3_ENDPOINT") is None
+            assert self._worker_path_option(sibling, "AWS_ACCESS_KEY_ID") != "CDSEKEY"
+
+    def test_two_threads_reading_different_buckets_do_not_collide(self):
+        """Concurrent reads of different buckets each see only their own config.
+
+        Test scenario:
+            Path-specific options are process-global, so the isolation must come
+            from distinct bucket keys, not from thread-locality.
+        """
+        seen: dict[str, str | None] = {}
+        barrier = threading.Barrier(2)
+
+        def read(bucket: str, endpoint: str, tag: str):
+            with CloudConfig(extra={"AWS_S3_ENDPOINT": endpoint}, path=bucket):
+                barrier.wait()
+                seen[tag] = self._worker_path_option(bucket, "AWS_S3_ENDPOINT")
+
+        threads = [
+            threading.Thread(target=read, args=("/vsis3/alpha/x", "alpha-ep", "a")),
+            threading.Thread(target=read, args=("/vsis3/beta/x", "beta-ep", "b")),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert seen == {"a": "alpha-ep", "b": "beta-ep"}
+
+    def test_an_archive_chained_path_scopes_the_underlying_bucket(self):
+        """A `/vsizip//vsis3/bucket/...` path scopes on the real store."""
+        chained = "/vsizip//vsis3/eodata/a.zip/x.tif"
+        with CloudConfig(extra=self.ENV, path=chained):
+            assert (
+                self._worker_path_option("/vsis3/eodata/a.zip/x.tif", "AWS_S3_ENDPOINT")
+                == "eodata.dataspace.copernicus.eu"
+            )
+
+    def test_a_credential_provider_key_stays_thread_local(self):
+        """`AWS_PROFILE` is not path-scoped — GDAL reads it via the global getter.
+
+        Test scenario:
+            Path-scoping a credential-provider key would hide it both ways, since
+            a path-specific option is invisible to `gdal.GetConfigOption`.
+        """
+        with CloudConfig(extra={"AWS_PROFILE": "myprofile"}, path=self.OBJECT):
+            assert gdal.GetConfigOption("AWS_PROFILE") == "myprofile"
+            assert self._worker_path_option(self.OBJECT, "AWS_PROFILE") is None
+
     def test_options_are_unset_on_exit(self):
         """The path-specific options do not outlive the block."""
         with CloudConfig(extra=self.ENV, path=self.OBJECT):
