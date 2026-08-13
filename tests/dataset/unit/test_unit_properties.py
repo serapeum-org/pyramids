@@ -593,6 +593,8 @@ class TestDatasetLike:
 class TestCellGeometryMethods:
     """Tests for get_cell_coords, get_cell_points, get_cell_polygons."""
 
+    _ORTHO_PROJ4 = "+proj=ortho +lat_0=50 +lon_0=10 +datum=WGS84 +units=m +no_defs"
+
     def test_get_cell_coords_center(self, single_band_dataset):
         """Center coords should be at half-cell offsets from corners."""
         coords = single_band_dataset.get_cell_coords(location="center")
@@ -657,8 +659,6 @@ class TestCellGeometryMethods:
         gdf = dataset_with_nodata.get_cell_polygons(domain_only=True)
         assert isinstance(gdf, gpd.GeoDataFrame), "Should return GeoDataFrame"
         assert len(gdf) == 4, f"Expected 4 polygons for domain cells, got {len(gdf)}"
-
-    _ORTHO_PROJ4 = "+proj=ortho +lat_0=50 +lon_0=10 +datum=WGS84 +units=m +no_defs"
 
     @classmethod
     def _authority_less_raster(cls) -> Dataset:
