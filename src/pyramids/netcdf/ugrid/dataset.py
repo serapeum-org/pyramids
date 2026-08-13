@@ -631,7 +631,11 @@ class UgridDataset:
             if var.has_time and "time" not in dims:
                 time_dim = rg.CreateDimension("time", None, None, var.n_time_steps)
                 dims["time"] = time_dim
-            write_ugrid_data_variable(rg, var, mesh_name, dims)
+            # `load_array` reads each variable without memoising it on the shared dataset, so the
+            # write streams one variable at a time instead of holding the whole cube resident (#982).
+            write_ugrid_data_variable(
+                rg, var.with_data(var.load_array()), mesh_name, dims
+            )
 
         global_attrs = dict(self._global_attributes)
         if "Conventions" not in global_attrs:
@@ -664,9 +668,9 @@ class UgridDataset:
         if variable_name is not None:
             var = self.get_data(variable_name)
             if var.location == location:
-                var_data = var.data
-                if var_data is not None and var.has_time:
-                    var_data = var_data[0]
+                # For a temporal variable only the first step is tabulated; `sel_time(0)` reads just
+                # that slab instead of loading every step to slice `[0]` (#982).
+                var_data = var.sel_time(0) if var.has_time else var.data
                 data_dict[variable_name] = var_data
 
         gdf = gpd.GeoDataFrame(data_dict, geometry=geometries)
@@ -1006,8 +1010,9 @@ def _make_variable_loader(path: str, var_name: str):
             raise ValueError(
                 f"Variable {var_name!r} is no longer present in {path!r} on lazy read."
             )
-        data = md.ReadAsArray()
-        return data.copy() if data is not None else None
+        # `ReadAsArray()` already returns a fresh, numpy-owned array, so an extra `.copy()` only
+        # duplicates the largest arrays for no benefit (#982).
+        return md.ReadAsArray()
 
     return _load
 
@@ -1065,6 +1070,7 @@ def _read_data_variables(
             dimensions=dim_names,
             _loader=_make_variable_loader(path, var_name),
             _dtype=dtype,
+            _source_path=path,
         )
 
     return variables

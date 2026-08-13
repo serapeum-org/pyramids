@@ -63,7 +63,9 @@ class Connectivity:
         raw_data = md_arr.ReadAsArray()
         if raw_data is None:
             raise ValueError(f"Cannot read connectivity array for cf_role='{cf_role}'.")
-        data = raw_data.copy().astype(np.intp)
+        # `astype` already returns a fresh, writable array (mutated below), so the extra `.copy()`
+        # only duplicated the connectivity array for no benefit (#982).
+        data = raw_data.astype(np.intp)
 
         mask = data == raw_fill
 

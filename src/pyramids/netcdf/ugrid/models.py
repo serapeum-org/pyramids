@@ -12,6 +12,9 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 import numpy as np
+from osgeo import gdal
+
+from pyramids.netcdf._mdim import open_mdarray
 
 #: Default UGRID mesh-topology variable name used when a file/in-memory mesh has no
 #: explicit name (the de-facto convention written by Deltares D-Flow FM and others).
@@ -64,6 +67,36 @@ class MeshTopologyInfo:
     crs_wkt: str | None = None
 
 
+def _read_time_slab(
+    path: str, var_name: str, start: int, stop: int | None
+) -> np.typing.NDArray | None:
+    """Read only a time slab of ``var_name`` straight from ``path`` (axis-0 time).
+
+    Reads ``[start]`` (when ``stop`` is ``None``) or ``[start:stop]`` along the leading axis via a
+    windowed MDArray read, so a single-step / short-range selection never materialises the whole
+    ``(n_time, n_elements)`` array (issue #982). The leading axis is dropped for a single step, so the
+    result matches ``data[index]``.
+    """
+    ds = gdal.OpenEx(str(path), gdal.OF_MULTIDIM_RASTER | gdal.OF_VERBOSE_ERROR)
+    if ds is None:
+        raise ValueError(f"GDAL cannot re-open {path!r} for a windowed variable read.")
+    rg = ds.GetRootGroup()
+    md = open_mdarray(rg, var_name) if rg is not None else None
+    if md is None:
+        raise ValueError(f"Variable {var_name!r} is no longer present in {path!r}.")
+    sizes = [d.GetSize() for d in md.GetDimensions()]
+    start_idx = [0] * len(sizes)
+    start_idx[0] = start
+    count = list(sizes)
+    count[0] = 1 if stop is None else stop - start
+    slab = md.ReadAsArray(array_start_idx=start_idx, count=count)
+    if slab is None:
+        result = None
+    else:
+        result = slab[0] if stop is None else slab
+    return result
+
+
 @dataclass
 class MeshVariable:
     """Data variable defined on a mesh location.
@@ -97,6 +130,9 @@ class MeshVariable:
     _data: np.ndarray | None = field(default=None, repr=False)
     _loader: Callable[[], np.ndarray] | None = field(default=None, repr=False)
     _dtype: np.dtype | None = field(default=None, repr=False)
+    # File this variable was read from, threaded so a single-step / short-range time selection can
+    # read only that slab from disk instead of the whole `(n_time, n_elements)` array (issue #982).
+    _source_path: str | None = field(default=None, repr=False)
 
     @property
     def data(self) -> np.typing.NDArray | None:
@@ -170,8 +206,61 @@ class MeshVariable:
             result = np.dtype("float64")
         return result
 
+    def load_array(self) -> np.typing.NDArray | None:
+        """Return the full array **without** memoising it on this variable.
+
+        ``.data`` caches the loaded array on the instance; ``load_array`` reads it for a one-shot
+        consumer (e.g. writing every variable to a file) without retaining it, so a bulk operation
+        over many variables need not hold them all resident at once (issue #982). Returns an already
+        loaded array when present.
+        """
+        if self._data is not None:
+            result = self._data
+        elif self._loader is not None:
+            result = self._loader()
+        else:
+            result = None
+        return result
+
+    def _can_window_time(self, start: int, stop: int | None) -> bool:
+        """True when a time slab can be read straight from disk instead of loading everything.
+
+        Requires an on-disk source, an axis-0 time dimension (what the slab reader indexes), and
+        non-negative in-range indices; otherwise the caller falls back to a full load then slice.
+        """
+        n_steps = self.n_time_steps
+        return (
+            self._source_path is not None
+            and self.time_index == 0
+            and start >= 0
+            and start < n_steps
+            and (stop is None or 0 <= stop <= n_steps)
+        )
+
+    def _read_time_window(
+        self, start: int, stop: int | None
+    ) -> np.typing.NDArray | None:
+        """Return the ``[start]`` step (``stop is None``) or ``[start:stop]`` range of the time axis.
+
+        Reads only the requested slab from disk when possible (:meth:`_can_window_time`); otherwise
+        slices an already loaded array, or falls back to a full load then slice.
+        """
+        if self._data is not None:
+            result = self._data[start] if stop is None else self._data[start:stop]
+        elif self._can_window_time(start, stop):
+            result = _read_time_slab(
+                cast("str", self._source_path), self.name, start, stop
+            )
+        else:
+            data = self.data
+            if data is None:
+                result = None
+            else:
+                result = data[start] if stop is None else data[start:stop]
+        return result
+
     def sel_time(self, index: int) -> np.typing.NDArray:
-        """Select a single time step.
+        """Select a single time step, reading only that slab from disk when possible.
 
         Args:
             index: Time step index.
@@ -186,13 +275,13 @@ class MeshVariable:
         """
         if not self.has_time:
             raise ValueError(f"Variable '{self.name}' has no time dimension.")
-        data = self.data
-        if data is None:
+        slab = self._read_time_window(index, None)
+        if slab is None:
             raise ValueError(f"Variable '{self.name}' has no loaded data.")
-        return cast("np.typing.NDArray", data[index])
+        return cast("np.typing.NDArray", slab)
 
     def sel_time_range(self, start: int, stop: int) -> MeshVariable:
-        """Select a time range, returning a new MeshVariable.
+        """Select a time range, reading only that slab from disk when possible.
 
         Args:
             start: Start time index (inclusive).
@@ -207,10 +296,10 @@ class MeshVariable:
         """
         if not self.has_time:
             raise ValueError(f"Variable '{self.name}' has no time dimension.")
-        data = self.data
-        if data is None:
+        slab = self._read_time_window(start, stop)
+        if slab is None:
             raise ValueError(f"Variable '{self.name}' has no loaded data.")
-        return self.with_data(data[start:stop])
+        return self.with_data(slab)
 
     def with_data(self, data: np.ndarray | None) -> MeshVariable:
         """Return a copy of this variable carrying ``data``, keeping all other metadata.
