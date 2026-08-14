@@ -42,7 +42,13 @@ the pixels they need via HTTP range requests. pyramids provides:
     To reproduce the previous output exactly:
 
     ```python
-    ds.to_cog("scene.tif", predictor=1, overview_resampling="nearest")
+    from pyramids.dataset import cog
+
+    ds.to_cog(
+        "scene.tif",
+        compression=cog.Compression(predictor=1),
+        overviews=cog.Overviews(resampling="nearest"),
+    )
     ```
 
 ## Writing a COG
@@ -62,31 +68,38 @@ ds.to_cog("scene.tif")
 
 ### Compression
 
+Grouped options live under the `cog` namespace; import it once:
+
 ```python
-ds.to_cog("scene.tif", compress="ZSTD", level=18)
-ds.to_cog("scene.tif", compress="LERC", extra={"MAX_Z_ERROR": 0.001})
-ds.to_cog("scene.tif", compress="DEFLATE")   # predictor auto-resolves per dtype
-ds.to_cog("scene.tif", compress="DEFLATE", predictor=3)   # force the float predictor
+from pyramids.dataset import cog
+
+ds.to_cog("scene.tif", compression=cog.Compression(compress="ZSTD", level=18))
+ds.to_cog("scene.tif", compression=cog.Compression(compress="LERC"), extra={"MAX_Z_ERROR": 0.001})
+ds.to_cog("scene.tif", compression=cog.Compression(compress="DEFLATE"))   # predictor auto-resolves per dtype
+ds.to_cog(
+    "scene.tif",
+    compression=cog.Compression(compress="DEFLATE", predictor=3),   # force the float predictor
+)
 ```
 
 Supported `compress` values: `DEFLATE` (default), `LZW`, `ZSTD`,
 `WEBP`, `JPEG`, `LERC`, `LERC_DEFLATE`, `LERC_ZSTD`, `NONE`.
 
 By default the **predictor** is chosen from the source dtype (`2` for
-integer, `3` for float); pass `predictor=` to override.
+integer, `3` for float); set `cog.Compression(predictor=...)` to override.
 
 ### Named profiles
 
-Instead of remembering compression + level/quality combos, pick a named
-profile (`deflate`, `zstd`, `lzw`, `packbits`, `jpeg`, `webp`, `lerc`,
-`lerc_deflate`, `lerc_zstd`, `raw`):
+Instead of remembering compression + level/quality combos, pass a named
+profile as the `compression` string (`deflate`, `zstd`, `lzw`, `packbits`,
+`jpeg`, `webp`, `lerc`, `lerc_deflate`, `lerc_zstd`, `raw`):
 
 ```python
-ds.to_cog("scene.tif", profile="zstd")     # COMPRESS=ZSTD, LEVEL=9
-ds.to_cog("scene.tif", profile="lerc_deflate")
+ds.to_cog("scene.tif", compression="zstd")     # COMPRESS=ZSTD, LEVEL=9
+ds.to_cog("scene.tif", compression="lerc_deflate")
 
-# Explicit kwargs and `extra` override a profile:
-ds.to_cog("scene.tif", profile="zstd", level=22)
+# A full Compression object overrides the profile preset:
+ds.to_cog("scene.tif", compression=cog.Compression(compress="ZSTD", level=22))
 ```
 
 `jpeg` / `webp` enforce their dtype/band constraints (Byte; 1-3 / 3-4
@@ -97,28 +110,34 @@ bands) up-front with a clear error.
 ```python
 ds.to_cog(
     "scene.tif",
-    blocksize=256,        # power of 2 in [64, 4096]
-    bigtiff="IF_SAFER",   # default
-    num_threads="ALL_CPUS",
+    layout=cog.Layout(
+        blocksize=256,        # power of 2 in [64, 4096]
+        bigtiff="IF_SAFER",   # default
+        num_threads="ALL_CPUS",
+    ),
 )
 ```
 
 ### Overviews
 
-The COG driver generates overviews itself; `to_cog` exposes the knobs:
+The COG driver generates overviews itself; the `cog.Overviews` object
+exposes the knobs:
 
 ```python
 ds.to_cog(
     "scene.tif",
-    overview_resampling="bilinear",   # default: dtype-aware (see below)
-    overview_count=5,                 # default: auto
-    overview_compress="DEFLATE",
+    overviews=cog.Overviews(
+        resampling="bilinear",   # default: dtype-aware (see below)
+        count=5,                 # default: auto
+        compress="DEFLATE",
+    ),
 )
 ```
 
 > **Categorical-safe by default.** When you don't pass
-> `overview_resampling`, `to_cog` picks `mode` for categorical sources
-> (integer dtype or a colour table) and `average` for continuous float
+> `overviews=cog.Overviews(resampling=...)`, `to_cog` picks `mode` for
+> categorical sources (integer dtype or a colour table) and `average` for
+> continuous float
 > — so the default never corrupts category labels (land cover, basin
 > IDs, classification masks). pyramids only emits a `UserWarning` when
 > **you** explicitly request an averaging method (`average`,
@@ -132,8 +151,7 @@ For serving to map/tile consumers:
 ```python
 ds.to_cog(
     "web.tif",
-    tiling_scheme="GoogleMapsCompatible",
-    resampling="bilinear",
+    tiling=cog.Tiling(scheme="GoogleMapsCompatible", resampling="bilinear"),
 )
 # Output is in EPSG:3857 aligned to the web-Mercator zoom grid.
 ```
@@ -243,7 +261,7 @@ report = ds.validate_cog(strict=True)
 One COG per time slice — the typical static-STAC pattern:
 
 ```python
-from pyramids.dataset import DatasetCollection
+from pyramids.dataset import DatasetCollection, cog
 
 dc = DatasetCollection.read_multiple_files("path/to/folder")
 dc.open_multi_dataset(band=0)
@@ -252,7 +270,7 @@ paths = dc.to_cog_stack(
     "out_cogs/",
     pattern="B04_{i:04d}.tif",   # filename template
     name="B04",
-    compress="ZSTD",
+    compression=cog.Compression(compress="ZSTD"),
 )
 # -> [PosixPath('out_cogs/B04_0000.tif'), ..., PosixPath('out_cogs/B04_NNNN.tif')]
 ```
@@ -261,12 +279,15 @@ paths = dc.to_cog_stack(
 
 `to_cog` can pre-process the source in one call — band subset/reorder
 (`indexes`, 0-based), dtype cast (`out_dtype`), and an explicit
-`nodata` — routed through an in-memory `gdal.Translate` so your open
-dataset is never mutated:
+`nodata`, grouped in a `cog.BandSelection` — routed through an in-memory
+`gdal.Translate` so your open dataset is never mutated:
 
 ```python
 # RGB-from-multiband, cast to uint8, set NoData=0:
-ds.to_cog("rgb.tif", indexes=[3, 2, 1], out_dtype="uint8", nodata=0)
+ds.to_cog(
+    "rgb.tif",
+    bands=cog.BandSelection(indexes=[3, 2, 1], out_dtype="uint8", nodata=0),
+)
 ```
 
 The dtype-aware predictor is resolved from the **post-cast** dtype (so a
@@ -280,9 +301,11 @@ descriptions or palette:
 ```python
 ds.to_cog(
     "landcover.tif",
-    band_tags={0: {"name": "landcover", "units": "class"}},
-    colormap={0: (0, 0, 0, 255), 1: (34, 139, 34, 255), 2: (70, 130, 180, 255)},
-    metadata={"source": "my-pipeline", "version": "1.0"},
+    tags=cog.Tags(
+        band_tags={0: {"name": "landcover", "units": "class"}},
+        colormap={0: (0, 0, 0, 255), 1: (34, 139, 34, 255), 2: (70, 130, 180, 255)},
+        metadata={"source": "my-pipeline", "version": "1.0"},
+    ),
 )
 ```
 
@@ -295,7 +318,7 @@ To upload a COG straight to an object store without a temp file, use
 `to_cog_bytes` — it accepts the same keywords as `to_cog`:
 
 ```python
-blob = ds.to_cog_bytes(compress="ZSTD")
+blob = ds.to_cog_bytes(compression=cog.Compression(compress="ZSTD"))
 # e.g. boto3:  s3.put_object(Bucket="b", Key="scene.tif", Body=blob)
 ```
 
@@ -421,14 +444,17 @@ Your output will always be larger than the input extent — that's by
 design; it lets a tile server serve the file without further
 reprojection.
 
-**`overview_resampling="average"` warning on my categorical raster**
+**`overviews=cog.Overviews(resampling="average")` warning on my categorical raster**
 This is the documented safety check. Either switch to
-`overview_resampling="nearest"` / `"mode"`, or suppress the warning
+`cog.Overviews(resampling="nearest")` / `"mode"`, or suppress the warning
 if you really want averaged overviews:
 
 ```python
 import warnings
+
+from pyramids.dataset import cog
+
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", UserWarning)
-    ds.to_cog("x.tif", overview_resampling="average")
+    ds.to_cog("x.tif", overviews=cog.Overviews(resampling="average"))
 ```
