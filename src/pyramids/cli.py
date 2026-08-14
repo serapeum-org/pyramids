@@ -45,6 +45,7 @@ import operator
 import os
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -57,7 +58,7 @@ from pyramids.base.crs import crs_spec, sr_from_user_input, sr_from_wkt
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS
-from pyramids.dataset.cog import PROFILES, cog_info, validate
+from pyramids.dataset.cog import PROFILES, Compression, Layout, cog_info, validate
 from pyramids.dataset.merge import merge_rasters
 from pyramids.feature import FeatureCollection
 from pyramids.processing.cli import add_processing_commands
@@ -136,12 +137,18 @@ def _cmd_create(args: argparse.Namespace) -> int:
     _refuse_existing(args.output, args.overwrite)
     ds = Dataset.read_file(args.input)
     kwargs: dict = {}
-    if args.profile:
-        kwargs["profile"] = args.profile
+    # --profile seeds the compression; --compress overrides the method on top.
+    compression = Compression.coerce(args.profile) if args.profile else None
     if args.compress:
-        kwargs["compress"] = args.compress
+        compression = (
+            replace(compression, compress=args.compress)
+            if compression is not None
+            else Compression(compress=args.compress)
+        )
+    if compression is not None:
+        kwargs["compression"] = compression
     if args.blocksize:
-        kwargs["blocksize"] = args.blocksize
+        kwargs["layout"] = Layout(blocksize=args.blocksize)
     out = ds.to_cog(args.output, **kwargs)
     print(f"wrote {out}")
     if args.no_validate:

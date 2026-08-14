@@ -3038,7 +3038,7 @@ class DatasetCollection:
         Examples:
             - Default naming — one COG per slice:
                 ```python
-                >>> dc.to_cog_stack("out/", compress="ZSTD")  # doctest: +SKIP
+                >>> dc.to_cog_stack("out/", compression="zstd")  # doctest: +SKIP
                 [PosixPath('out/slice_0000.tif'), ..., PosixPath('out/slice_0002.tif')]
 
                 ```
@@ -3054,11 +3054,12 @@ class DatasetCollection:
                 ```
             - Overwrite existing outputs and forward COG options:
                 ```python
+                >>> from pyramids.dataset import cog  # doctest: +SKIP
                 >>> dc.to_cog_stack(  # doctest: +SKIP
                 ...     "out/",
                 ...     overwrite=True,
-                ...     compress="DEFLATE",
-                ...     blocksize=256,
+                ...     compression="deflate",
+                ...     layout=cog.Layout(blocksize=256),
                 ... )
 
                 ```

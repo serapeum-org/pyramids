@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, cog
 from pyramids.dataset.cog.validate import ValidationReport
 
 pytestmark = pytest.mark.core
@@ -72,7 +72,9 @@ class TestToCogBasics:
         assert "COMPRESSION=DEFLATE" in info
 
     def test_custom_blocksize(self, small_float_dataset, tmp_path):
-        out = small_float_dataset.to_cog(tmp_path / "out.tif", blocksize=128)
+        out = small_float_dataset.to_cog(
+            tmp_path / "out.tif", layout=cog.Layout(blocksize=128)
+        )
         reopened = gdal.Open(str(out))
         bx, by = reopened.GetRasterBand(1).GetBlockSize()
         assert bx == 128
@@ -87,22 +89,30 @@ class TestToCogBasics:
 class TestToCogBlocksizeValidation:
     def test_invalid_blocksize_raises_before_write(self, small_float_dataset, tmp_path):
         with pytest.raises(ValueError, match="power of 2"):
-            small_float_dataset.to_cog(tmp_path / "x.tif", blocksize=500)
+            small_float_dataset.to_cog(
+                tmp_path / "x.tif", layout=cog.Layout(blocksize=500)
+            )
 
     @pytest.mark.parametrize("size", [64, 128, 256, 512, 1024])
     def test_accepts_valid_blocksizes(self, small_float_dataset, tmp_path, size):
-        out = small_float_dataset.to_cog(tmp_path / f"out_{size}.tif", blocksize=size)
+        out = small_float_dataset.to_cog(
+            tmp_path / f"out_{size}.tif", layout=cog.Layout(blocksize=size)
+        )
         assert out.exists()
 
 
 class TestToCogCompression:
     def test_compress_lzw(self, small_float_dataset, tmp_path):
-        out = small_float_dataset.to_cog(tmp_path / "out.tif", compress="LZW")
+        out = small_float_dataset.to_cog(
+            tmp_path / "out.tif", compression=cog.Compression(compress="LZW")
+        )
         info = gdal.Info(str(out))
         assert "COMPRESSION=LZW" in info
 
     def test_compress_none(self, small_float_dataset, tmp_path):
-        out = small_float_dataset.to_cog(tmp_path / "out.tif", compress="NONE")
+        out = small_float_dataset.to_cog(
+            tmp_path / "out.tif", compression=cog.Compression(compress="NONE")
+        )
         assert out.exists()
         # compress="NONE" must yield an uncompressed raster: GDAL either omits the
         # COMPRESSION metadata key entirely or reports it as "NONE".
@@ -119,7 +129,7 @@ class TestToCogExtra:
     def test_extra_as_dict_overrides_kwargs(self, small_float_dataset, tmp_path):
         out = small_float_dataset.to_cog(
             tmp_path / "out.tif",
-            compress="DEFLATE",
+            compression=cog.Compression(compress="DEFLATE"),
             extra={"COMPRESS": "LZW"},
         )
         info = gdal.Info(str(out))
@@ -128,7 +138,7 @@ class TestToCogExtra:
     def test_extra_as_list_str(self, small_float_dataset, tmp_path):
         out = small_float_dataset.to_cog(
             tmp_path / "out.tif",
-            compress="DEFLATE",
+            compression=cog.Compression(compress="DEFLATE"),
             extra=["PREDICTOR=2"],
         )
         info = gdal.Info(str(out))
@@ -146,7 +156,7 @@ class TestToCogExtra:
 class TestToCogWebOptimized:
     def test_google_maps_reprojects_to_3857(self, small_float_dataset, tmp_path):
         out = small_float_dataset.to_cog(
-            tmp_path / "web.tif", tiling_scheme="GoogleMapsCompatible"
+            tmp_path / "web.tif", tiling=cog.Tiling(scheme="GoogleMapsCompatible")
         )
         reopened = Dataset.read_file(out)
         assert reopened.epsg == 3857
@@ -155,17 +165,21 @@ class TestToCogWebOptimized:
     def test_both_tiling_scheme_and_target_srs_warns(
         self, small_float_dataset, tmp_path
     ):
-        with pytest.warns(UserWarning, match="tiling_scheme wins"):
+        with pytest.warns(UserWarning, match="scheme wins"):
             small_float_dataset.to_cog(
                 tmp_path / "out.tif",
-                tiling_scheme="GoogleMapsCompatible",
-                target_srs=3035,
+                tiling=cog.Tiling(
+                    scheme="GoogleMapsCompatible",
+                    target_srs=3035,
+                ),
             )
 
 
 class TestToCogTargetSrs:
     def test_target_srs_int(self, small_float_dataset, tmp_path):
-        out = small_float_dataset.to_cog(tmp_path / "out.tif", target_srs=3857)
+        out = small_float_dataset.to_cog(
+            tmp_path / "out.tif", tiling=cog.Tiling(target_srs=3857)
+        )
         reopened = Dataset.read_file(out)
         assert reopened.epsg == 3857
         reopened.close()
@@ -175,7 +189,7 @@ class TestToCogCategoricalWarning:
     def test_byte_with_average_warns(self, small_byte_dataset, tmp_path):
         with pytest.warns(UserWarning, match="categorical"):
             small_byte_dataset.to_cog(
-                tmp_path / "out.tif", overview_resampling="average"
+                tmp_path / "out.tif", overviews=cog.Overviews(resampling="average")
             )
 
     @pytest.mark.parametrize("method", ["bilinear", "cubic", "cubicspline", "lanczos"])
@@ -184,27 +198,30 @@ class TestToCogCategoricalWarning:
     ):
         with pytest.warns(UserWarning, match="categorical"):
             small_byte_dataset.to_cog(
-                tmp_path / f"out_{method}.tif", overview_resampling=method
+                tmp_path / f"out_{method}.tif",
+                overviews=cog.Overviews(resampling=method),
             )
 
     def test_float_with_average_does_not_warn(self, small_float_dataset, tmp_path):
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
             small_float_dataset.to_cog(
-                tmp_path / "out.tif", overview_resampling="average"
+                tmp_path / "out.tif", overviews=cog.Overviews(resampling="average")
             )
 
     def test_byte_with_nearest_does_not_warn(self, small_byte_dataset, tmp_path):
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
             small_byte_dataset.to_cog(
-                tmp_path / "out.tif", overview_resampling="nearest"
+                tmp_path / "out.tif", overviews=cog.Overviews(resampling="nearest")
             )
 
     def test_byte_with_mode_does_not_warn(self, small_byte_dataset, tmp_path):
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
-            small_byte_dataset.to_cog(tmp_path / "out.tif", overview_resampling="mode")
+            small_byte_dataset.to_cog(
+                tmp_path / "out.tif", overviews=cog.Overviews(resampling="mode")
+            )
 
 
 # ---------------------------------------------------------------------------

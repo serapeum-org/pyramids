@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, cog
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -46,7 +46,7 @@ class TestWebOptimizedCog:
             The reopened web-optimized COG reports EPSG:3857.
         """
         out = big_dataset.to_cog(
-            tmp_path / "web.tif", tiling_scheme="GoogleMapsCompatible"
+            tmp_path / "web.tif", tiling=cog.Tiling(scheme="GoogleMapsCompatible")
         )
         reopened = Dataset.read_file(str(out))
         assert reopened.epsg == 3857, f"expected EPSG:3857, got {reopened.epsg}"
@@ -62,7 +62,7 @@ class TestWebOptimizedCog:
             Every overview level decimates by a power of two (zoom-aligned).
         """
         out = big_dataset.to_cog(
-            tmp_path / "web.tif", tiling_scheme="GoogleMapsCompatible"
+            tmp_path / "web.tif", tiling=cog.Tiling(scheme="GoogleMapsCompatible")
         )
         info = Dataset.read_file(str(out)).cog_info()
         assert info.overviews, "web-optimized COG should carry overviews"
@@ -82,6 +82,6 @@ class TestWebOptimizedCog:
             The GoogleMapsCompatible output passes validate_cog.
         """
         out = big_dataset.to_cog(
-            tmp_path / "web.tif", tiling_scheme="GoogleMapsCompatible"
+            tmp_path / "web.tif", tiling=cog.Tiling(scheme="GoogleMapsCompatible")
         )
         assert Dataset.read_file(str(out)).validate_cog().is_valid, "invalid web COG"

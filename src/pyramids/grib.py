@@ -23,6 +23,7 @@ from typing import Any, cast
 from osgeo import gdal
 
 from pyramids.base._errors import DriverNotExistError
+from pyramids.dataset.cog import BandSelection, Tiling
 from pyramids.dataset.dataset import Dataset
 
 _GRIB_DRIVER = "GRIB"
@@ -335,9 +336,9 @@ def grib_to_cog(
             Path,
             dataset.to_cog(
                 output,
-                indexes=[band_index],
-                profile=cog_profile,
-                target_srs=target_crs,
+                compression=cog_profile,
+                bands=BandSelection(indexes=[band_index]),
+                tiling=Tiling(target_srs=target_crs),
             ),
         )
     return result

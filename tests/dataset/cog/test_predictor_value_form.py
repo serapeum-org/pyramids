@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, cog
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -73,7 +73,10 @@ class TestPredictorValueForm:
             Both numeric (2/3) and string (STANDARD/FLOATING_POINT/YES) forms are
             accepted by the COG driver and round-trip to the numeric token.
         """
-        out = float_dataset.to_cog(tmp_path / f"p_{predictor}.tif", predictor=predictor)
+        out = float_dataset.to_cog(
+            tmp_path / f"p_{predictor}.tif",
+            compression=cog.Compression(predictor=predictor),
+        )
         assert _predictor_token(out) == expected_token, (
             f"predictor={predictor!r} should yield token {expected_token!r}"
         )

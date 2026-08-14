@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, cog
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -60,7 +60,9 @@ class TestToCogPreprocess:
         Test scenario:
             indexes=[0] keeps a single band; the COG has 1 band.
         """
-        out = multiband_float.to_cog(tmp_path / "one.tif", indexes=[0])
+        out = multiband_float.to_cog(
+            tmp_path / "one.tif", bands=cog.BandSelection(indexes=[0])
+        )
         ds = _open(out)
         assert ds.RasterCount == 1, f"expected 1 band, got {ds.RasterCount}"
         ds = None
@@ -76,7 +78,9 @@ class TestToCogPreprocess:
             indexes=[2, 0] yields a 2-band COG whose band 1 == old band 2 (value
             2) and band 2 == old band 0 (value 0).
         """
-        out = multiband_float.to_cog(tmp_path / "reorder.tif", indexes=[2, 0])
+        out = multiband_float.to_cog(
+            tmp_path / "reorder.tif", bands=cog.BandSelection(indexes=[2, 0])
+        )
         ds = _open(out)
         assert ds.RasterCount == 2, f"expected 2 bands, got {ds.RasterCount}"
         assert ds.GetRasterBand(1).ReadAsArray()[0, 0] == pytest.approx(2.0)
@@ -96,7 +100,8 @@ class TestToCogPreprocess:
             post-cast dtype, not the float source.
         """
         out = multiband_float.to_cog(
-            tmp_path / "cast.tif", indexes=[0], out_dtype="int16"
+            tmp_path / "cast.tif",
+            bands=cog.BandSelection(indexes=[0], out_dtype="int16"),
         )
         ds = _open(out)
         assert gdal.GetDataTypeName(ds.GetRasterBand(1).DataType) == "Int16", (
@@ -116,7 +121,9 @@ class TestToCogPreprocess:
         Test scenario:
             nodata=-1 is written to band 1 of the COG.
         """
-        out = multiband_float.to_cog(tmp_path / "nd.tif", indexes=[0], nodata=-1.0)
+        out = multiband_float.to_cog(
+            tmp_path / "nd.tif", bands=cog.BandSelection(indexes=[0], nodata=-1.0)
+        )
         ds = _open(out)
         nd = ds.GetRasterBand(1).GetNoDataValue()
         ds = None
@@ -150,6 +157,7 @@ class TestToCogPreprocess:
             Subset + cast + nodata together yield a valid COG.
         """
         out = multiband_float.to_cog(
-            tmp_path / "combo.tif", indexes=[1, 0], out_dtype="int16", nodata=0
+            tmp_path / "combo.tif",
+            bands=cog.BandSelection(indexes=[1, 0], out_dtype="int16", nodata=0),
         )
         assert Dataset.read_file(str(out)).validate_cog().is_valid, "combo COG invalid"
