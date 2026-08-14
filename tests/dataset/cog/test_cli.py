@@ -111,6 +111,28 @@ class TestCli:
             "--blocksize should set the internal tile size"
         )
 
+    def test_create_profile_jpeg_validates_dtype(self, source_tif, tmp_path, capsys):
+        """`--profile jpeg` on a non-Byte source is rejected up-front (exit 1).
+
+        Args:
+            source_tif: Fixture float32 source raster.
+            tmp_path: pytest temp directory.
+            capsys: pytest stdout/stderr capture.
+
+        Test scenario:
+            The jpeg profile requires Byte, so a float source fails the friendly
+            dtype pre-check — the profile-string validation path the CLI must
+            preserve (not silently coerce away).
+        """
+        out = tmp_path / "j.tif"
+        code = main(
+            ["cog", "create", source_tif, str(out), "--profile", "jpeg",
+             "--no-validate"]
+        )
+        err = capsys.readouterr().err
+        assert code == 1, "jpeg on a float source should be rejected"
+        assert "jpeg profile requires" in err, f"should name the constraint: {err}"
+
     def test_create_refuses_existing_without_overwrite(
         self, source_tif, tmp_path, capsys
     ):

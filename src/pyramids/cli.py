@@ -137,16 +137,19 @@ def _cmd_create(args: argparse.Namespace) -> int:
     _refuse_existing(args.output, args.overwrite)
     ds = Dataset.read_file(args.input)
     kwargs: dict = {}
-    # --profile seeds the compression; --compress overrides the method on top.
-    compression = Compression.coerce(args.profile) if args.profile else None
+    # --profile alone is forwarded as the profile *string* so to_cog runs the
+    # jpeg/webp dtype/band validation (the string path). --compress overrides the
+    # method, producing a Compression object (which, like a direct object, skips
+    # that profile-only check and goes straight to GDAL).
     if args.compress:
-        compression = (
-            replace(compression, compress=args.compress)
-            if compression is not None
+        seed = Compression.coerce(args.profile) if args.profile else None
+        kwargs["compression"] = (
+            replace(seed, compress=args.compress)
+            if seed is not None
             else Compression(compress=args.compress)
         )
-    if compression is not None:
-        kwargs["compression"] = compression
+    elif args.profile:
+        kwargs["compression"] = args.profile
     if args.blocksize:
         kwargs["layout"] = Layout(blocksize=args.blocksize)
     out = ds.to_cog(args.output, **kwargs)
