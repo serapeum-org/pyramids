@@ -129,20 +129,22 @@ class TestToCogProfile:
         out = float_dataset.to_cog(tmp_path / "z.tif", compression="zstd")
         assert _compression(out) == "ZSTD", "profile should set ZSTD compression"
 
-    def test_explicit_compress_overrides_profile(self, float_dataset, tmp_path):
-        """An explicit compress kwarg wins over the profile.
+    def test_compression_object_sets_method(self, float_dataset, tmp_path):
+        """A Compression(compress=...) object sets that method directly.
 
         Args:
             float_dataset: Fixture float32 Dataset.
             tmp_path: pytest temp directory.
 
         Test scenario:
-            profile='zstd' but compress='DEFLATE' yields DEFLATE.
+            compression=Compression(compress='DEFLATE') yields DEFLATE, independent
+            of any profile string. The old profile-plus-explicit-override
+            interaction now lives only in the CLI (see test_cli.py).
         """
         out = float_dataset.to_cog(
             tmp_path / "o.tif", compression=cog.Compression(compress="DEFLATE")
         )
-        assert _compression(out) == "DEFLATE", "explicit compress must override profile"
+        assert _compression(out) == "DEFLATE", "Compression(compress=...) sets the method"
 
     def test_lzw_profile(self, float_dataset, tmp_path):
         """profile='lzw' produces an LZW COG.
