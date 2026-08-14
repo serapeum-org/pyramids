@@ -362,65 +362,22 @@ class COG(_Engine["Dataset"]):
             )
         )
 
-        # Single house policy lives here (ARC-1): `to_cog` resolves the
-        # dtype-dependent defaults so a direct `ds.to_cog(...)` and the
+        # Single house policy lives here (ARC-1): `_build_cog_defaults` resolves
+        # the dtype-dependent defaults so a direct `ds.to_cog(...)` and the
         # `write_cog(...)` facade — which now just delegates here — produce
         # identical output for identical input.
-        predictor = compression.predictor if compression is not None else None
-        if predictor is None:
-            # Per-dtype predictor (ARC-2): 2 for integer, 3 for float. GeoTIFF
-            # bands share a dtype, so band 0 decides for the whole file. Set
-            # `Compression(predictor=...)` to override for a mixed source.
-            predictor = resolve_cog_predictor(source_band0.DataType)
-        caller_chose_resampling = overviews.resampling is not None
-        overview_resampling = overviews.resampling
-        if overview_resampling is None:
-            # Category-safe default (ARC-3): `mode` for integer/colour-table
-            # sources, `average` for continuous. Chosen so the default never
-            # corrupts categorical rasters and never trips the guardrail below.
-            overview_resampling = default_cog_overview_resampling(
-                source_band0.DataType, source_band0.GetColorTable() is not None
-            )
-        if caller_chose_resampling:
-            # Only warn when the *caller* explicitly asked for an averaging
-            # resampler on categorical data — never for a default we picked.
-            self._warn_if_categorical_with_averaging(
-                overview_resampling, band=source_band0
-            )
-
-        num_threads_str = (
-            layout.num_threads
-            if isinstance(layout.num_threads, str)
-            else str(layout.num_threads)
+        defaults = self._build_cog_defaults(
+            compression,
+            overviews,
+            tiling,
+            layout,
+            eff_target_srs,
+            eff_compress,
+            eff_level,
+            eff_quality,
+            compress_extra,
+            source_band0,
         )
-        reprojecting = bool(tiling.scheme or eff_target_srs)
-        defaults: dict[str, Any] = {
-            "COMPRESS": eff_compress,
-            "LEVEL": eff_level,
-            "QUALITY": eff_quality,
-            **compress_extra,
-            "BLOCKSIZE": layout.blocksize,
-            "PREDICTOR": predictor,
-            "BIGTIFF": layout.bigtiff,
-            "NUM_THREADS": num_threads_str,
-            "OVERVIEW_RESAMPLING": overview_resampling,
-            "OVERVIEW_COUNT": overviews.count,
-            "OVERVIEW_COMPRESS": overviews.compress,
-            "TILING_SCHEME": tiling.scheme,
-            "ZOOM_LEVEL": tiling.zoom_level,
-            "ZOOM_LEVEL_STRATEGY": tiling.zoom_level_strategy,
-            "ALIGNED_LEVELS": tiling.aligned_levels,
-            "WARP_RESAMPLING": tiling.resampling if reprojecting else None,
-            "ADD_ALPHA": True if layout.add_mask else None,
-            "SPARSE_OK": True if layout.sparse_ok else None,
-            "STATISTICS": "YES" if layout.statistics else None,
-        }
-        if eff_target_srs is not None:
-            defaults["TARGET_SRS"] = (
-                f"EPSG:{eff_target_srs}"
-                if isinstance(eff_target_srs, int)
-                else eff_target_srs
-            )
 
         options = merge_options(defaults, extra)
         with config_context(config):
@@ -474,6 +431,100 @@ class COG(_Engine["Dataset"]):
         if compression is not None and compression.max_z_error is not None:
             compress_extra["MAX_Z_ERROR"] = compression.max_z_error
         return eff_compress, eff_level, eff_quality, compress_extra
+
+    def _build_cog_defaults(
+        self,
+        compression: Compression | None,
+        overviews: Overviews,
+        tiling: Tiling,
+        layout: Layout,
+        eff_target_srs: int | str | None,
+        eff_compress: str,
+        eff_level: int | None,
+        eff_quality: int | None,
+        compress_extra: dict[str, Any],
+        source_band0: Any,
+    ) -> dict[str, Any]:
+        """Assemble the GDAL COG creation-option dict from the resolved groups.
+
+        Resolves the dtype-dependent defaults (predictor and overview
+        resampling), emits the categorical-averaging guardrail when the caller
+        chose an averaging resampler, and maps every group field to its GDAL
+        option key.
+
+        Args:
+            compression: The coerced compression group, or `None`.
+            overviews: The overview group.
+            tiling: The tiling/reprojection group.
+            layout: The physical-layout group.
+            eff_target_srs: The effective target SRS (after the scheme conflict
+                resolution), or `None`.
+            eff_compress: Resolved compression method.
+            eff_level: Resolved compression level, or `None`.
+            eff_quality: Resolved lossy quality, or `None`.
+            compress_extra: Extra compression options (e.g. `MAX_Z_ERROR`).
+            source_band0: Band 0 of the effective source (for dtype-aware
+                predictor / overview resolution).
+
+        Returns:
+            The GDAL COG creation-option dict (before merging `extra`).
+        """
+        # Per-dtype predictor (ARC-2): 2 for integer, 3 for float. GeoTIFF bands
+        # share a dtype, so band 0 decides for the whole file. Set
+        # `Compression(predictor=...)` to override for a mixed source.
+        predictor = compression.predictor if compression is not None else None
+        if predictor is None:
+            predictor = resolve_cog_predictor(source_band0.DataType)
+        # Category-safe default (ARC-3): `mode` for integer/colour-table sources,
+        # `average` for continuous — the default never corrupts categorical
+        # rasters and never trips the guardrail below.
+        caller_chose_resampling = overviews.resampling is not None
+        overview_resampling = overviews.resampling
+        if overview_resampling is None:
+            overview_resampling = default_cog_overview_resampling(
+                source_band0.DataType, source_band0.GetColorTable() is not None
+            )
+        if caller_chose_resampling:
+            # Only warn when the *caller* explicitly asked for an averaging
+            # resampler on categorical data — never for a default we picked.
+            self._warn_if_categorical_with_averaging(
+                overview_resampling, band=source_band0
+            )
+
+        num_threads_str = (
+            layout.num_threads
+            if isinstance(layout.num_threads, str)
+            else str(layout.num_threads)
+        )
+        reprojecting = bool(tiling.scheme or eff_target_srs)
+        defaults: dict[str, Any] = {
+            "COMPRESS": eff_compress,
+            "LEVEL": eff_level,
+            "QUALITY": eff_quality,
+            **compress_extra,
+            "BLOCKSIZE": layout.blocksize,
+            "PREDICTOR": predictor,
+            "BIGTIFF": layout.bigtiff,
+            "NUM_THREADS": num_threads_str,
+            "OVERVIEW_RESAMPLING": overview_resampling,
+            "OVERVIEW_COUNT": overviews.count,
+            "OVERVIEW_COMPRESS": overviews.compress,
+            "TILING_SCHEME": tiling.scheme,
+            "ZOOM_LEVEL": tiling.zoom_level,
+            "ZOOM_LEVEL_STRATEGY": tiling.zoom_level_strategy,
+            "ALIGNED_LEVELS": tiling.aligned_levels,
+            "WARP_RESAMPLING": tiling.resampling if reprojecting else None,
+            "ADD_ALPHA": True if layout.add_mask else None,
+            "SPARSE_OK": True if layout.sparse_ok else None,
+            "STATISTICS": "YES" if layout.statistics else None,
+        }
+        if eff_target_srs is not None:
+            defaults["TARGET_SRS"] = (
+                f"EPSG:{eff_target_srs}"
+                if isinstance(eff_target_srs, int)
+                else eff_target_srs
+            )
+        return defaults
 
     def _effective_source(
         self,
