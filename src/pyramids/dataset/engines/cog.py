@@ -229,10 +229,11 @@ class COG(_Engine["Dataset"]):
                 string (`deflate`, `zstd`, `lzw`, `packbits`, `jpeg`, `webp`,
                 `lerc`, `lerc_deflate`, `lerc_zstd`, `raw`) or a
                 :class:`~pyramids.dataset.cog.Compression`. `None` uses the
-                house `DEFLATE` default. `jpeg`/`webp` enforce dtype/band
-                constraints (Byte; 1-3 / 3-4 bands). The predictor auto-resolves
-                per source dtype (`2` integer, `3` float) unless set on
-                `Compression`.
+                house `DEFLATE` default. The `jpeg`/`webp` **profile strings**
+                enforce dtype/band constraints (Byte; 1-3 / 3-4 bands) up front;
+                a direct `Compression(compress="JPEG")` is passed to GDAL
+                unchecked. The predictor auto-resolves per source dtype (`2`
+                integer, `3` float) unless set on `Compression`.
             overviews: The internal overview pyramid, as an
                 :class:`~pyramids.dataset.cog.Overviews`. `None` builds the
                 default pyramid with dtype-aware resampling (`mode` for

@@ -257,14 +257,17 @@ class Compression:
             1,
             2,
             3,
+            "1",
+            "2",
+            "3",
             "YES",
             "NO",
             "STANDARD",
             "FLOATING_POINT",
         }:
             raise ValueError(
-                f"predictor must be one of 1/2/3/'YES'/'NO'/'STANDARD'/"
-                f"'FLOATING_POINT'; got {self.predictor!r}."
+                f"predictor must be one of 1/2/3 (int or str) / 'YES'/'NO'/"
+                f"'STANDARD'/'FLOATING_POINT'; got {self.predictor!r}."
             )
 
     @classmethod
@@ -387,8 +390,8 @@ class BandSelection:
 
     Note:
         ``indexes`` is a plain list, so ``frozen=True`` only blocks rebinding the
-        field, not mutating the list, and an instance carrying one is not
-        hashable. Treat these as option carriers, not value keys.
+        field, not mutating the list, and an instance is not hashable once
+        ``indexes`` is populated. Treat these as option carriers, not value keys.
     """
 
     indexes: list[int] | None = None
@@ -417,8 +420,8 @@ class Tags:
 
     Note:
         The fields are plain dicts, so ``frozen=True`` only blocks rebinding
-        them, not mutating their contents, and an instance carrying one is not
-        hashable. Treat these as option carriers, not value keys.
+        them, not mutating their contents, and an instance is not hashable once such a
+        field is populated. Treat these as option carriers, not value keys.
     """
 
     band_tags: dict[int, dict[str, Any]] | None = None

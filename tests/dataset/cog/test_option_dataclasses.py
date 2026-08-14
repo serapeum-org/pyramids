@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from pyramids.dataset.cog import (
+    PROFILES,
     BandSelection,
     Compression,
     Layout,
@@ -16,6 +17,19 @@ from pyramids.dataset.cog import (
     Tags,
     Tiling,
 )
+
+_COERCED_PROFILE_KEYS = {"COMPRESS", "LEVEL", "QUALITY", "MAX_Z_ERROR"}
+
+
+def test_all_profiles_use_only_coerced_keys():
+    """Every PROFILES entry uses only keys `Compression.coerce` carries.
+
+    Guards against a future profile adding a key (e.g. `PREDICTOR`, `NBITS`) that
+    the string-coercion path would silently drop.
+    """
+    for name, opts in PROFILES.items():
+        extra = set(opts) - _COERCED_PROFILE_KEYS
+        assert not extra, f"profile {name!r} uses keys coerce would drop: {extra}"
 
 pytestmark = pytest.mark.core
 
@@ -61,6 +75,15 @@ class TestCompression:
 
         Args:
             predictor: A valid predictor value.
+        """
+        assert Compression(predictor=predictor).predictor == predictor
+
+    @pytest.mark.parametrize("predictor", ["1", "2", "3"])
+    def test_string_numeric_predictor_accepted(self, predictor):
+        """String-numeric predictors (forwarded by the old flat API) are accepted.
+
+        Args:
+            predictor: A numeric predictor in string form.
         """
         assert Compression(predictor=predictor).predictor == predictor
 
