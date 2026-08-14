@@ -122,12 +122,11 @@ class TestMetadataForwarding:
         """
         arr = np.random.default_rng(1).random((32, 32)).astype("float32")
         ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+        tags = cog.Tags(colormap={0: (1, 2, 3, 255)})
         with pytest.raises(
             ValueError, match="colormap is only supported on Byte/UInt16"
         ):
-            ds.to_cog(
-                tmp_path / "f_cmap.tif", tags=cog.Tags(colormap={0: (1, 2, 3, 255)})
-            )
+            ds.to_cog(tmp_path / "f_cmap.tif", tags=tags)
 
     def test_colormap_on_float_after_cast_succeeds(self, tmp_path):
         """Casting to uint8 first lets a colormap be applied (L2).

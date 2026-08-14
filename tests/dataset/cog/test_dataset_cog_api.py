@@ -87,11 +87,11 @@ class TestToCogBasics:
 
 
 class TestToCogBlocksizeValidation:
-    def test_invalid_blocksize_raises_before_write(self, small_float_dataset, tmp_path):
+    def test_invalid_blocksize_raises_before_write(self):
+        # Validation lives in Layout.__post_init__, so a bad blocksize is
+        # rejected at construction — before to_cog is ever called.
         with pytest.raises(ValueError, match="power of 2"):
-            small_float_dataset.to_cog(
-                tmp_path / "x.tif", layout=cog.Layout(blocksize=500)
-            )
+            cog.Layout(blocksize=500)
 
     @pytest.mark.parametrize("size", [64, 128, 256, 512, 1024])
     def test_accepts_valid_blocksizes(self, small_float_dataset, tmp_path, size):
@@ -165,14 +165,9 @@ class TestToCogWebOptimized:
     def test_both_tiling_scheme_and_target_srs_warns(
         self, small_float_dataset, tmp_path
     ):
+        tiling = cog.Tiling(scheme="GoogleMapsCompatible", target_srs=3035)
         with pytest.warns(UserWarning, match="scheme wins"):
-            small_float_dataset.to_cog(
-                tmp_path / "out.tif",
-                tiling=cog.Tiling(
-                    scheme="GoogleMapsCompatible",
-                    target_srs=3035,
-                ),
-            )
+            small_float_dataset.to_cog(tmp_path / "out.tif", tiling=tiling)
 
 
 class TestToCogTargetSrs:
@@ -187,19 +182,19 @@ class TestToCogTargetSrs:
 
 class TestToCogCategoricalWarning:
     def test_byte_with_average_warns(self, small_byte_dataset, tmp_path):
+        overviews = cog.Overviews(resampling="average")
         with pytest.warns(UserWarning, match="categorical"):
-            small_byte_dataset.to_cog(
-                tmp_path / "out.tif", overviews=cog.Overviews(resampling="average")
-            )
+            small_byte_dataset.to_cog(tmp_path / "out.tif", overviews=overviews)
 
     @pytest.mark.parametrize("method", ["bilinear", "cubic", "cubicspline", "lanczos"])
     def test_byte_with_averaging_family_warns(
         self, small_byte_dataset, tmp_path, method
     ):
+        overviews = cog.Overviews(resampling=method)
         with pytest.warns(UserWarning, match="categorical"):
             small_byte_dataset.to_cog(
                 tmp_path / f"out_{method}.tif",
-                overviews=cog.Overviews(resampling=method),
+                overviews=overviews,
             )
 
     def test_float_with_average_does_not_warn(self, small_float_dataset, tmp_path):

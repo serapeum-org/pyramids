@@ -113,23 +113,19 @@ class TestToCogBlocksizeBoundaries:
             reopened = None
 
     @pytest.mark.parametrize("bad", [32, 63, 65, 500, 8192])
-    def test_invalid_blocksize_rejected(self, small_float_dataset, tmp_path, bad):
-        """Test invalid blocksizes raise ValueError before I/O.
+    def test_invalid_blocksize_rejected(self, bad):
+        """Test invalid blocksizes raise ValueError at Layout construction.
 
         Args:
             bad: Illegal blocksize value to try.
 
         Test scenario:
-            Values below 64, above 4096, or non-powers-of-2 within
-            the range must be rejected up-front (no partial file
-            written).
+            Values below 64, above 4096, or non-powers-of-2 within the range are
+            rejected up-front by Layout.__post_init__ — before to_cog is ever
+            called, so no partial file can be written.
         """
-        target = tmp_path / f"bad_{bad}.tif"
         with pytest.raises(ValueError, match=r"power of 2") as exc_info:
-            small_float_dataset.to_cog(target, layout=cog.Layout(blocksize=bad))
-        assert not target.exists(), (
-            f"No file should be created on validation failure: {target}"
-        )
+            cog.Layout(blocksize=bad)
         assert "power of 2" in str(exc_info.value), (
             f"Error message must mention 'power of 2'; got: {exc_info.value}"
         )

@@ -197,4 +197,5 @@ class TestTags:
     def test_fields_round_trip(self):
         """The three fields are stored verbatim."""
         t = Tags(band_tags={0: {"name": "x"}}, metadata={"a": "b"})
-        assert t.band_tags == {0: {"name": "x"}} and t.metadata == {"a": "b"}
+        assert t.band_tags == {0: {"name": "x"}}
+        assert t.metadata == {"a": "b"}

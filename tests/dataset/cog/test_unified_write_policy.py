@@ -261,11 +261,9 @@ class TestToCogResamplingGuardrail:
             When the caller themselves passes overview_resampling='average' on
             integer data, the guardrail must fire.
         """
+        overviews = cog.Overviews(resampling="average")
         with pytest.warns(UserWarning, match="categorical"):
-            int_dataset.to_cog(
-                tmp_path / "i_avg.tif",
-                overviews=cog.Overviews(resampling="average"),
-            )
+            int_dataset.to_cog(tmp_path / "i_avg.tif", overviews=overviews)
 
     def test_default_on_float_emits_no_warning(self, float_dataset, tmp_path):
         """The auto-resolved default on float data emits no categorical warning.
