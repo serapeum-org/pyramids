@@ -268,7 +268,7 @@ class Compression:
             )
 
     @classmethod
-    def coerce(cls, value: "str | Compression | None") -> "Compression | None":
+    def coerce(cls, value: str | Compression | None) -> Compression | None:
         """Coerce a profile-name string or ``Compression`` into a ``Compression``.
 
         Args:
@@ -384,6 +384,11 @@ class BandSelection:
             ``None`` keeps the source dtype.
         nodata: NoData value to set on the output. ``None`` keeps the source
             NoData.
+
+    Note:
+        ``indexes`` is a plain list, so ``frozen=True`` only blocks rebinding the
+        field, not mutating the list, and an instance carrying one is not
+        hashable. Treat these as option carriers, not value keys.
     """
 
     indexes: list[int] | None = None
@@ -409,6 +414,11 @@ class Tags:
             tuple. GeoTIFF only supports a colour table on a single-band
             ``Byte`` / ``UInt16`` raster.
         metadata: Dataset-level metadata items.
+
+    Note:
+        The fields are plain dicts, so ``frozen=True`` only blocks rebinding
+        them, not mutating their contents, and an instance carrying one is not
+        hashable. Treat these as option carriers, not value keys.
     """
 
     band_tags: dict[int, dict[str, Any]] | None = None
