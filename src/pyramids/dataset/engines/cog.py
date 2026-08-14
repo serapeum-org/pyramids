@@ -316,6 +316,12 @@ class COG(_Engine["Dataset"]):
 
                 ```
         """
+        # The jpeg/webp dtype/band check is a named-profile convenience (it mirrors
+        # the profile presets), so it fires only when the method was selected via a
+        # profile string — a direct `Compression(compress="JPEG")` goes straight to
+        # GDAL, matching the pre-refactor flat `compress="JPEG"` path (which GDAL
+        # accepts for e.g. 4-band Byte).
+        compression_from_profile = isinstance(compression, str)
         compression = Compression.coerce(compression)
         overviews = overviews or Overviews()
         tiling = tiling or Tiling()
@@ -348,9 +354,11 @@ class COG(_Engine["Dataset"]):
 
         # Resolve the compression (PB-5): the profile string is already expanded
         # by Compression.coerce; jpeg/webp enforce dtype/band constraints against
-        # the *effective* source.
+        # the *effective* source only for the named-profile path.
         eff_compress, eff_level, eff_quality, compress_extra = (
-            self._resolve_compression(compression, source_ds, source_band0)
+            self._resolve_compression(
+                compression, source_ds, source_band0, compression_from_profile
+            )
         )
 
         # Single house policy lives here (ARC-1): `to_cog` resolves the
@@ -423,19 +431,23 @@ class COG(_Engine["Dataset"]):
         compression: Compression | None,
         source_ds: gdal.Dataset,
         source_band0: Any,
+        from_profile: bool = False,
     ) -> tuple[str, int | None, int | None, dict[str, Any]]:
         """Resolve effective compression options from a `Compression` group.
 
         The profile-string form is already expanded into `compression` by
         :meth:`Compression.coerce`, so this only reads its fields. `None` yields
-        the house `DEFLATE` default. `JPEG`/`WEBP` validate dtype/band
-        constraints against the effective source regardless of how the method
-        was requested.
+        the house `DEFLATE` default.
 
         Args:
             compression: The coerced compression group, or `None`.
             source_ds: Effective source dataset (for band-count validation).
             source_band0: Band 0 of the effective source (for dtype validation).
+            from_profile: `True` when the method was selected via a profile-name
+                string. Only then are the `jpeg`/`webp` dtype/band constraints
+                enforced (they mirror the profile presets); a direct
+                `Compression(compress=...)` is passed straight to GDAL, matching
+                the pre-refactor flat-`compress=` behaviour.
 
         Returns:
             `(eff_compress, eff_level, eff_quality, compress_extra)` where
@@ -449,13 +461,14 @@ class COG(_Engine["Dataset"]):
         )
         eff_level = compression.level if compression is not None else None
         eff_quality = compression.quality if compression is not None else None
-        # jpeg/webp constraints key on the compress method (profile name ==
-        # method name for the constrained profiles); other methods pass silently.
-        validate_profile(
-            eff_compress.lower(),
-            gdal.GetDataTypeName(source_band0.DataType),
-            source_ds.RasterCount,
-        )
+        if from_profile:
+            # profile name == method name for the constrained profiles (jpeg/webp);
+            # unconstrained profiles pass silently.
+            validate_profile(
+                eff_compress.lower(),
+                gdal.GetDataTypeName(source_band0.DataType),
+                source_ds.RasterCount,
+            )
         compress_extra: dict[str, Any] = {}
         if compression is not None and compression.max_z_error is not None:
             compress_extra["MAX_Z_ERROR"] = compression.max_z_error
