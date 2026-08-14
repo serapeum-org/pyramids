@@ -1,6 +1,17 @@
 ﻿# Change log
 
 
+## 0.53.0 (2026-08-14)
+
+### Fix
+
+- **remote**: make cloud credentials reach VSICurl worker threads, per bucket (#984)
+- **cell**: label cell polygons/points with the CRS spec, not the EPSG code (#981)
+
+### Perf
+
+- **netcdf**: bound peak memory — stream from_xarray, container crop/to_crs/resample, and UGRID reads (#980)
+
 ## 0.52.0 (2026-08-12)
 
 ### Fix
