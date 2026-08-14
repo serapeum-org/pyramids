@@ -82,8 +82,8 @@ class TestToCogBytes:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            Passing compress="ZSTD" produces a COG whose IMAGE_STRUCTURE
-            compression is ZSTD.
+            Passing compression=Compression(compress="ZSTD") produces a COG whose
+            IMAGE_STRUCTURE compression is ZSTD.
         """
         blob = float_dataset.to_cog_bytes(compression=cog.Compression(compress="ZSTD"))
         out = tmp_path / "zstd.tif"
