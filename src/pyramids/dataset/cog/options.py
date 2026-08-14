@@ -236,9 +236,10 @@ class Compression:
             ``None`` lets ``to_cog`` apply its ``DEFLATE`` default.
         level: Compression level (e.g. 1-12 for DEFLATE, 1-22 for ZSTD).
         quality: Lossy quality 1-100 (JPEG/WEBP).
-        predictor: ``"YES"``/``"STANDARD"``/``"FLOATING_POINT"`` or ``1``/``2``/
-            ``3``. ``None`` auto-resolves per source dtype (``2`` integer,
-            ``3`` float).
+        predictor: ``"YES"``/``"NO"``/``"STANDARD"``/``"FLOATING_POINT"`` or
+            ``1``/``2``/``3`` (the COG driver's ``PREDICTOR`` tokens; ``"NO"``
+            /``1`` disables it). ``None`` auto-resolves per source dtype (``2``
+            integer, ``3`` float).
         max_z_error: Maximum per-pixel error for the LERC family.
     """
 
@@ -257,11 +258,12 @@ class Compression:
             2,
             3,
             "YES",
+            "NO",
             "STANDARD",
             "FLOATING_POINT",
         }:
             raise ValueError(
-                f"predictor must be one of 1/2/3/'YES'/'STANDARD'/"
+                f"predictor must be one of 1/2/3/'YES'/'NO'/'STANDARD'/"
                 f"'FLOATING_POINT'; got {self.predictor!r}."
             )
 
