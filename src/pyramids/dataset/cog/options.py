@@ -18,6 +18,11 @@ resolved). ``BandSelection`` and ``Tags`` instead *transform* the source raster
 — ``_translate`` runs the in-memory band-subset/cast/NoData ``gdal.Translate``
 and ``_stamp`` applies the colour table / metadata — so the write call site is a
 thin orchestrator over these methods rather than the home of the mapping logic.
+
+These ``_``-prefixed methods are private by convention, but they are the COG
+engine's internal contract: :class:`pyramids.dataset.engines.cog.COG` is their
+only intended caller (a sibling module in this subpackage), and they are *not*
+part of the public API. Rename or re-signature them in lockstep with that engine.
 """
 
 from __future__ import annotations
