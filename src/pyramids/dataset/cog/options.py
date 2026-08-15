@@ -481,7 +481,9 @@ class BandSelection:
     def __post_init__(self) -> None:
         """Validate band indices."""
         if self.indexes is not None and any(i < 0 for i in self.indexes):
-            raise ValueError(f"band indexes must be >= 0 (0-based); got {self.indexes}.")
+            raise ValueError(
+                f"band indexes must be >= 0 (0-based); got {self.indexes}."
+            )
 
 
 @dataclass(frozen=True)

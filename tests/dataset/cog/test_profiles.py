@@ -144,7 +144,9 @@ class TestToCogProfile:
         out = float_dataset.to_cog(
             tmp_path / "o.tif", compression=cog.Compression(compress="DEFLATE")
         )
-        assert _compression(out) == "DEFLATE", "Compression(compress=...) sets the method"
+        assert _compression(out) == "DEFLATE", (
+            "Compression(compress=...) sets the method"
+        )
 
     def test_lzw_profile(self, float_dataset, tmp_path):
         """profile='lzw' produces an LZW COG.

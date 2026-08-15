@@ -83,8 +83,17 @@ class TestCli:
         """
         out = tmp_path / "override.tif"
         code = main(
-            ["cog", "create", source_tif, str(out), "--profile", "deflate",
-             "--compress", "ZSTD", "--no-validate"]
+            [
+                "cog",
+                "create",
+                source_tif,
+                str(out),
+                "--profile",
+                "deflate",
+                "--compress",
+                "ZSTD",
+                "--no-validate",
+            ]
         )
         assert code == 0, "create should succeed"
         assert Dataset.read_file(str(out)).cog.info().compression == "ZSTD", (
@@ -103,8 +112,15 @@ class TestCli:
         """
         out = tmp_path / "blk.tif"
         code = main(
-            ["cog", "create", source_tif, str(out), "--blocksize", "256",
-             "--no-validate"]
+            [
+                "cog",
+                "create",
+                source_tif,
+                str(out),
+                "--blocksize",
+                "256",
+                "--no-validate",
+            ]
         )
         assert code == 0, "create should succeed"
         assert Dataset.read_file(str(out)).cog.info().blocksize == (256, 256), (
@@ -126,8 +142,15 @@ class TestCli:
         """
         out = tmp_path / "j.tif"
         code = main(
-            ["cog", "create", source_tif, str(out), "--profile", "jpeg",
-             "--no-validate"]
+            [
+                "cog",
+                "create",
+                source_tif,
+                str(out),
+                "--profile",
+                "jpeg",
+                "--no-validate",
+            ]
         )
         err = capsys.readouterr().err
         assert code == 1, "jpeg on a float source should be rejected"

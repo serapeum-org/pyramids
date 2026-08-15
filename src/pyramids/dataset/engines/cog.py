@@ -30,8 +30,8 @@ from pyramids.base._utils import (
 from pyramids.base.crs import crs_equal, crs_from_user_input, require_crs_spec
 from pyramids.dataset.abstract_dataset import under_gdal_env
 from pyramids.dataset.cog import (
-    COGInfo,
     BandSelection,
+    COGInfo,
     Compression,
     Layout,
     Overviews,
