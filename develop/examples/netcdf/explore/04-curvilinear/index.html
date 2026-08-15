@@ -6854,7 +6854,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="kn">from</span><span class="w"> </span><span class="nn">shapely.geometry</span><span class="w"> </span><span class="kn">import</span> <span class="n">Polygon</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColorOpts</span><span class="p">,</span> <span class="n">NetCDF</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColorOpts</span><span class="p">,</span> <span class="n">GeoReference</span><span class="p">,</span> <span class="n">NetCDF</span>
 
 <span class="n">DATA</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s1">'../../../../examples/data/netcdf/samples'</span><span class="p">)</span>
 </pre></div>
@@ -6867,7 +6867,7 @@ import numpy as np
 from shapely.geometry import Polygon
 
 from pyramids.feature import FeatureCollection
-from pyramids.netcdf import ColorOpts, NetCDF
+from pyramids.netcdf import ColorOpts, GeoReference, NetCDF
 
 DATA = Path('../../../../examples/data/netcdf/samples')</div>
 </div>
@@ -7299,8 +7299,7 @@ min / mean / max: 6.549163818359375 inf 9.999999933815813e+36
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
 <span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
     <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
-    <span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">),</span>
-    <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">,</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">),</span>
     <span class="n">variable_name</span><span class="o">=</span><span class="s1">'salt_slice0'</span><span class="p">,</span>
     <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
 <span class="p">)</span>
@@ -7311,8 +7310,7 @@ min / mean / max: 6.549163818359375 inf 9.999999933815813e+36
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
 NetCDF.create_from_array(
     arr=slice2d,
-    geo=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0),
-    epsg=var.epsg or 4326,
+    geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0), epsg=var.epsg or 4326),
     variable_name='salt_slice0',
     path=str(work / 'derived.nc'),
 )
@@ -7772,7 +7770,9 @@ print(meta)</div>
 <span class="n">lon_jump</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">xc</span> <span class="o">&gt;</span> <span class="mf">1e30</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">,</span> <span class="n">xc</span><span class="p">),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span> <span class="o">&gt;</span> <span class="mi">100</span>
 <span class="n">cols</span> <span class="o">=</span> <span class="nb">slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">lon_jump</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)))</span> <span class="ow">or</span> <span class="n">xc</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
 <span class="n">patch</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
-    <span class="n">tair</span><span class="p">[:,</span> <span class="n">cols</span><span class="p">],</span> <span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tair</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span> <span class="n">variable_name</span><span class="o">=</span><span class="s1">'Tair'</span>
+    <span class="n">tair</span><span class="p">[:,</span> <span class="n">cols</span><span class="p">],</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tair</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span>
+    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'Tair'</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">glyph</span> <span class="o">=</span> <span class="n">patch</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s1">'Tair'</span><span class="p">,</span> <span class="n">coords</span><span class="o">=</span><span class="p">(</span><span class="n">xc</span><span class="p">[:,</span> <span class="n">cols</span><span class="p">],</span> <span class="n">yc</span><span class="p">[:,</span> <span class="n">cols</span><span class="p">]))</span>
 <span class="n">glyph</span><span class="o">.</span><span class="n">add_features</span><span class="p">(</span><span class="s2">"coastline"</span><span class="p">,</span> <span class="s2">"50m"</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
@@ -7790,7 +7790,9 @@ tair[tair &gt; 1e30] = (
 lon_jump = np.abs(np.diff(np.where(xc &gt; 1e30, np.nan, xc), axis=1)) &gt; 100
 cols = slice(0, int(np.argmax(lon_jump.any(axis=0))) or xc.shape[1])
 patch = NetCDF.create_from_array(
-    tair[:, cols], geo=(0, 1, 0, tair.shape[0], 0, -1), epsg=4326, variable_name='Tair'
+    tair[:, cols],
+    geo_ref=GeoReference(geo=(0, 1, 0, tair.shape[0], 0, -1), epsg=4326),
+    variable_name='Tair',
 )
 glyph = patch.plot(variable='Tair', coords=(xc[:, cols], yc[:, cols]))
 glyph.add_features("coastline", "50m", zorder=5)</div>
@@ -7927,8 +7929,7 @@ min / mean / max: -45.14314058601594 5.372144206290461e+36 9.969209968386869e+36
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
 <span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
     <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
-    <span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">),</span>
-    <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">,</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">),</span>
     <span class="n">variable_name</span><span class="o">=</span><span class="s1">'Tair_slice0'</span><span class="p">,</span>
     <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
 <span class="p">)</span>
@@ -7939,8 +7940,7 @@ min / mean / max: -45.14314058601594 5.372144206290461e+36 9.969209968386869e+36
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
 NetCDF.create_from_array(
     arr=slice2d,
-    geo=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0),
-    epsg=var.epsg or 4326,
+    geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0), epsg=var.epsg or 4326),
     variable_name='Tair_slice0',
     path=str(work / 'derived.nc'),
 )
@@ -8321,7 +8321,7 @@ print(meta)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[22]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f27952e3950&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fb09b7a3bb0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -8435,8 +8435,7 @@ min / mean / max: 0.0 6867.66015625 23328.0
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
 <span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
     <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
-    <span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">),</span>
-    <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">,</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">),</span>
     <span class="n">variable_name</span><span class="o">=</span><span class="s1">'data_slice0'</span><span class="p">,</span>
     <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
 <span class="p">)</span>
@@ -8447,8 +8446,7 @@ min / mean / max: 0.0 6867.66015625 23328.0
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
 NetCDF.create_from_array(
     arr=slice2d,
-    geo=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0),
-    epsg=var.epsg or 4326,
+    geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0), epsg=var.epsg or 4326),
     variable_name='data_slice0',
     path=str(work / 'derived.nc'),
 )

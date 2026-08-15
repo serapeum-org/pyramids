@@ -6904,7 +6904,7 @@ it (<a href="https://github.com/serapeum-org/pyramids/issues/705">#705</a> was e
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">GeoReference</span><span class="p">,</span> <span class="n">NetCDF</span>
 
 <span class="n">DATA</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s1">'../../../../examples/data/netcdf/samples'</span><span class="p">)</span>
 </pre></div>
@@ -6913,7 +6913,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import GeoReference, NetCDF
 
 DATA = Path('../../../../examples/data/netcdf/samples')</div>
 </div>
@@ -7138,7 +7138,7 @@ the coastline on top — it's North America:</p>
 <span class="n">geo</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">air</span><span class="o">.</span><span class="n">geotransform</span><span class="p">)</span>
 <span class="n">geo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">geo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">360</span>  <span class="c1"># 200..330 E  -&gt;  -160..-30 (same grid, shifted frame)</span>
 <span class="n">shifted_file</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
-    <span class="n">arr</span><span class="o">=</span><span class="n">first_step</span><span class="p">,</span> <span class="n">geo</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">geo</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span> <span class="n">variable_name</span><span class="o">=</span><span class="s1">'air'</span>
+    <span class="n">arr</span><span class="o">=</span><span class="n">first_step</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">geo</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span> <span class="n">variable_name</span><span class="o">=</span><span class="s1">'air'</span>
 <span class="p">)</span>
 <span class="n">shifted</span> <span class="o">=</span> <span class="n">shifted_file</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'air'</span><span class="p">)</span>
 </pre></div>
@@ -7146,7 +7146,7 @@ the coastline on top — it's North America:</p>
 geo = list(air.geotransform)
 geo[0] = geo[0] - 360  # 200..330 E  -&gt;  -160..-30 (same grid, shifted frame)
 shifted_file = NetCDF.create_from_array(
-    arr=first_step, geo=tuple(geo), epsg=4326, variable_name='air'
+    arr=first_step, geo_ref=GeoReference(geo=tuple(geo), epsg=4326), variable_name='air'
 )
 shifted = shifted_file.get_variable('air')</div>
 </div>
