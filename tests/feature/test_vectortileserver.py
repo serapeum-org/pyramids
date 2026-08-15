@@ -206,6 +206,29 @@ class TestVectorTileServerValidation:
         with pytest.raises(ValueError, match="no bbox given"):
             _read._vts_bbox_3857(None, {})
 
+    def test_full_extent_in_4326_is_reprojected_to_3857(self):
+        """A ``fullExtent`` reported in EPSG:4326 is reprojected, not read as metres."""
+        meta = {
+            "fullExtent": {
+                "xmin": -1.0, "ymin": -1.0, "xmax": 1.0, "ymax": 1.0,
+                "spatialReference": {"wkid": 4326, "latestWkid": 4326},
+            }
+        }
+        minx, miny, maxx, maxy = _read._vts_bbox_3857(None, meta)
+        assert abs(maxx - 111319.49) < 1.0, f"1 deg lon should be ~111 km in 3857, got {maxx}"
+        assert minx < 0 < maxx and miny < 0 < maxy, "the reprojected extent straddles the origin"
+
+    def test_full_extent_in_unknown_crs_raises_service_error(self):
+        """A ``fullExtent`` in an unrecognised CRS is a VectorTileServerError, not misread metres."""
+        meta = {
+            "fullExtent": {
+                "xmin": 0.0, "ymin": 0.0, "xmax": 1.0, "ymax": 1.0,
+                "spatialReference": {"wkid": 999999, "latestWkid": 999999},
+            }
+        }
+        with pytest.raises(VectorTileServerError, match="unrecognised CRS"):
+            _read._vts_bbox_3857(None, meta)
+
     def test_pick_zoom_falls_back_to_coarsest_when_all_exceed_cap(self):
         """When every LOD exceeds ``max_tiles`` the coarsest advertised level is used."""
         lods = {2: 9784.0, 5: 1223.0}

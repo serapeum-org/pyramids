@@ -314,17 +314,32 @@ def _vts_bbox_3857(
         return minx, miny, maxx, maxy
     extent = meta.get("fullExtent") or meta.get("initialExtent") or {}
     try:
-        return (
-            float(extent["xmin"]),
-            float(extent["ymin"]),
-            float(extent["xmax"]),
-            float(extent["ymax"]),
+        xmin, ymin, xmax, ymax = (
+            float(extent[key]) for key in ("xmin", "ymin", "xmax", "ymax")
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(
             "from_vectortileserver: no bbox given and the service metadata has no usable fullExtent; "
             "pass bbox=(west, south, east, north)."
         ) from exc
+    # fullExtent is usually already in the tile-matrix CRS (Web Mercator), but some
+    # services report it in the data's own CRS (e.g. 4326 or a projected SR). Honour its
+    # spatialReference instead of assuming metres, reprojecting the corners to 3857 when
+    # it is not Web Mercator so the tile maths stay in the tile CRS.
+    spatial_ref = extent.get("spatialReference") or {}
+    wkid = int(spatial_ref.get("latestWkid") or spatial_ref.get("wkid") or 3857)
+    if wkid in _WEBMERC_WKIDS:
+        return xmin, ymin, xmax, ymax
+    try:
+        transformer = pyproj.Transformer.from_crs(wkid, 3857, always_xy=True)
+    except _PyprojCRSError as exc:
+        raise VectorTileServerError(
+            f"VectorTileServer fullExtent is in an unrecognised CRS (wkid={wkid}); "
+            "pass an explicit bbox=(west, south, east, north) in EPSG:4326."
+        ) from exc
+    minx, miny = transformer.transform(xmin, ymin)
+    maxx, maxy = transformer.transform(xmax, ymax)
+    return minx, miny, maxx, maxy
 
 
 def _vts_tile_range(
