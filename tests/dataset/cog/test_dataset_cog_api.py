@@ -219,6 +219,68 @@ class TestToCogCategoricalWarning:
             )
 
 
+class TestToCogOptionMapping:
+    """Cover the option-mapping branches of the engine's _build_cog_defaults."""
+
+    def test_max_z_error_from_compression_field(self, small_float_dataset, tmp_path):
+        """`Compression(max_z_error=...)` forwards MAX_Z_ERROR (not just via extra).
+
+        Args:
+            small_float_dataset: Fixture float32 Dataset.
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            A LERC write whose tolerance comes from the Compression field bounds
+            the per-pixel round-trip error, exercising the compress_extra branch.
+        """
+        out = small_float_dataset.to_cog(
+            tmp_path / "lerc.tif",
+            compression=cog.Compression(compress="LERC", max_z_error=0.5),
+        )
+        reopened = Dataset.read_file(out)
+        diff = np.abs(
+            small_float_dataset.read_array().astype(np.float64)
+            - reopened.read_array().astype(np.float64)
+        )
+        reopened.close()
+        assert diff.max() <= 0.5, f"LERC tolerance exceeded: {diff.max()}"
+
+    def test_target_srs_as_string(self, small_float_dataset, tmp_path):
+        """A non-int `target_srs` is forwarded verbatim (the else branch).
+
+        Args:
+            small_float_dataset: Fixture float32 Dataset.
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            `target_srs="EPSG:3857"` (a string, not an int) reprojects the output
+            to Web Mercator.
+        """
+        out = small_float_dataset.to_cog(
+            tmp_path / "srs.tif", tiling=cog.Tiling(target_srs="EPSG:3857")
+        )
+        reopened = Dataset.read_file(out)
+        epsg = reopened.epsg
+        reopened.close()
+        assert epsg == 3857, f"expected EPSG:3857, got {epsg}"
+
+    def test_num_threads_as_int(self, small_float_dataset, tmp_path):
+        """An int `num_threads` is stringified for GDAL (the else branch).
+
+        Args:
+            small_float_dataset: Fixture float32 Dataset.
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            `Layout(num_threads=2)` writes a valid COG (the int→str conversion
+            path, distinct from the default "ALL_CPUS" string).
+        """
+        out = small_float_dataset.to_cog(
+            tmp_path / "nt.tif", layout=cog.Layout(num_threads=2)
+        )
+        assert out.exists(), "int num_threads should produce a COG"
+
+
 # ---------------------------------------------------------------------------
 # is_cog property
 # ---------------------------------------------------------------------------
