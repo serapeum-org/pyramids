@@ -6627,7 +6627,13 @@ likewise switched its overviews from <code>average</code> to <code>mode</code> (
 a spurious "averaging corrupts categorical rasters" warning). The files are
 still valid COGs, but they are <strong>byte-different</strong> from older releases.</p>
 <p>To reproduce the previous output exactly:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">predictor</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">overview_resampling</span><span class="o">=</span><span class="s2">&quot;nearest&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">cog</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">compression</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Compression</span><span class="p">(</span><span class="n">predictor</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">overviews</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Overviews</span><span class="p">(</span><span class="n">resampling</span><span class="o">=</span><span class="s2">&quot;nearest&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
 </code></pre></div>
 </div>
 <h2 id="writing-a-cog"><a class="toclink" href="#writing-a-cog">Writing a COG</a><a class="headerlink" href="#writing-a-cog" title="Permanent link">#</a></h2>
@@ -6642,48 +6648,60 @@ still valid COGs, but they are <strong>byte-different</strong> from older releas
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="compression"><a class="toclink" href="#compression">Compression</a><a class="headerlink" href="#compression" title="Permanent link">#</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compress</span><span class="o">=</span><span class="s2">&quot;ZSTD&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">18</span><span class="p">)</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compress</span><span class="o">=</span><span class="s2">&quot;LERC&quot;</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;MAX_Z_ERROR&quot;</span><span class="p">:</span> <span class="mf">0.001</span><span class="p">})</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compress</span><span class="o">=</span><span class="s2">&quot;DEFLATE&quot;</span><span class="p">)</span>   <span class="c1"># predictor auto-resolves per dtype</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compress</span><span class="o">=</span><span class="s2">&quot;DEFLATE&quot;</span><span class="p">,</span> <span class="n">predictor</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>   <span class="c1"># force the float predictor</span>
+<p>Grouped options live under the <code>cog</code> namespace; import it once:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">cog</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Compression</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">&quot;ZSTD&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">18</span><span class="p">))</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Compression</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">&quot;LERC&quot;</span><span class="p">),</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;MAX_Z_ERROR&quot;</span><span class="p">:</span> <span class="mf">0.001</span><span class="p">})</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Compression</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">&quot;DEFLATE&quot;</span><span class="p">))</span>   <span class="c1"># predictor auto-resolves per dtype</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">compression</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Compression</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">&quot;DEFLATE&quot;</span><span class="p">,</span> <span class="n">predictor</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>   <span class="c1"># force the float predictor</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="p">)</span>
 </code></pre></div>
 <p>Supported <code>compress</code> values: <code>DEFLATE</code> (default), <code>LZW</code>, <code>ZSTD</code>,
 <code>WEBP</code>, <code>JPEG</code>, <code>LERC</code>, <code>LERC_DEFLATE</code>, <code>LERC_ZSTD</code>, <code>NONE</code>.</p>
 <p>By default the <strong>predictor</strong> is chosen from the source dtype (<code>2</code> for
-integer, <code>3</code> for float); pass <code>predictor=</code> to override.</p>
+integer, <code>3</code> for float); set <code>cog.Compression(predictor=...)</code> to override.</p>
 <h3 id="named-profiles"><a class="toclink" href="#named-profiles">Named profiles</a><a class="headerlink" href="#named-profiles" title="Permanent link">#</a></h3>
-<p>Instead of remembering compression + level/quality combos, pick a named
-profile (<code>deflate</code>, <code>zstd</code>, <code>lzw</code>, <code>packbits</code>, <code>jpeg</code>, <code>webp</code>, <code>lerc</code>,
-<code>lerc_deflate</code>, <code>lerc_zstd</code>, <code>raw</code>):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">profile</span><span class="o">=</span><span class="s2">&quot;zstd&quot;</span><span class="p">)</span>     <span class="c1"># COMPRESS=ZSTD, LEVEL=9</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">profile</span><span class="o">=</span><span class="s2">&quot;lerc_deflate&quot;</span><span class="p">)</span>
+<p>Instead of remembering compression + level/quality combos, pass a named
+profile as the <code>compression</code> string (<code>deflate</code>, <code>zstd</code>, <code>lzw</code>, <code>packbits</code>,
+<code>jpeg</code>, <code>webp</code>, <code>lerc</code>, <code>lerc_deflate</code>, <code>lerc_zstd</code>, <code>raw</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="s2">&quot;zstd&quot;</span><span class="p">)</span>     <span class="c1"># COMPRESS=ZSTD, LEVEL=9</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="s2">&quot;lerc_deflate&quot;</span><span class="p">)</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Explicit kwargs and `extra` override a profile:</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">profile</span><span class="o">=</span><span class="s2">&quot;zstd&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">22</span><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># A full Compression object is used directly (no profile expansion):</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Compression</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">&quot;ZSTD&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">22</span><span class="p">))</span>
 </code></pre></div>
 <p><code>jpeg</code> / <code>webp</code> enforce their dtype/band constraints (Byte; 1-3 / 3-4
 bands) up-front with a clear error.</p>
 <h3 id="tile-size-and-bigtiff"><a class="toclink" href="#tile-size-and-bigtiff">Tile size and bigtiff</a><a class="headerlink" href="#tile-size-and-bigtiff" title="Permanent link">#</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">blocksize</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>        <span class="c1"># power of 2 in [64, 4096]</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">bigtiff</span><span class="o">=</span><span class="s2">&quot;IF_SAFER&quot;</span><span class="p">,</span>   <span class="c1"># default</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">num_threads</span><span class="o">=</span><span class="s2">&quot;ALL_CPUS&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="p">)</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">layout</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Layout</span><span class="p">(</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>        <span class="n">blocksize</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>        <span class="c1"># power of 2 in [64, 4096]</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>        <span class="n">bigtiff</span><span class="o">=</span><span class="s2">&quot;IF_SAFER&quot;</span><span class="p">,</span>   <span class="c1"># default</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>        <span class="n">num_threads</span><span class="o">=</span><span class="s2">&quot;ALL_CPUS&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="p">),</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">)</span>
 </code></pre></div>
 <h3 id="overviews"><a class="toclink" href="#overviews">Overviews</a><a class="headerlink" href="#overviews" title="Permanent link">#</a></h3>
-<p>The COG driver generates overviews itself; <code>to_cog</code> exposes the knobs:</p>
+<p>The COG driver generates overviews itself; the <code>cog.Overviews</code> object
+exposes the knobs:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="n">overview_resampling</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">,</span>   <span class="c1"># default: dtype-aware (see below)</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">overview_count</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>                 <span class="c1"># default: auto</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">overview_compress</span><span class="o">=</span><span class="s2">&quot;DEFLATE&quot;</span><span class="p">,</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="n">overviews</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Overviews</span><span class="p">(</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>        <span class="n">resampling</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">,</span>   <span class="c1"># default: dtype-aware (see below)</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>        <span class="n">count</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>                 <span class="c1"># default: auto</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>        <span class="n">compress</span><span class="o">=</span><span class="s2">&quot;DEFLATE&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="p">),</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="p">)</span>
 </code></pre></div>
 <blockquote>
 <p><strong>Categorical-safe by default.</strong> When you don't pass
-<code>overview_resampling</code>, <code>to_cog</code> picks <code>mode</code> for categorical sources
-(integer dtype or a colour table) and <code>average</code> for continuous float
+<code>overviews=cog.Overviews(resampling=...)</code>, <code>to_cog</code> picks <code>mode</code> for
+categorical sources (integer dtype or a colour table) and <code>average</code> for
+continuous float
 — so the default never corrupts category labels (land cover, basin
 IDs, classification masks). pyramids only emits a <code>UserWarning</code> when
 <strong>you</strong> explicitly request an averaging method (<code>average</code>,
@@ -6694,10 +6712,9 @@ raster.</p>
 <p>For serving to map/tile consumers:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="s2">&quot;web.tif&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">tiling_scheme</span><span class="o">=</span><span class="s2">&quot;GoogleMapsCompatible&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">resampling</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="p">)</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="c1"># Output is in EPSG:3857 aligned to the web-Mercator zoom grid.</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">tiling</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Tiling</span><span class="p">(</span><span class="n">scheme</span><span class="o">=</span><span class="s2">&quot;GoogleMapsCompatible&quot;</span><span class="p">,</span> <span class="n">resampling</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">),</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="p">)</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1"># Output is in EPSG:3857 aligned to the web-Mercator zoom grid.</span>
 </code></pre></div>
 <h2 id="reading-a-cog-from-cloud-storage"><a class="toclink" href="#reading-a-cog-from-cloud-storage">Reading a COG from cloud storage</a><a class="headerlink" href="#reading-a-cog-from-cloud-storage" title="Permanent link">#</a></h2>
 <p>pyramids rewrites URL-scheme paths to GDAL's <code>/vsi*</code> form automatically:</p>
@@ -6805,7 +6822,7 @@ invent its own scheme. Before running your Python process:</p>
 </code></pre></div>
 <h2 id="exporting-a-datasetcollection-as-a-cog-stack"><a class="toclink" href="#exporting-a-datasetcollection-as-a-cog-stack">Exporting a <code>DatasetCollection</code> as a COG stack</a><a class="headerlink" href="#exporting-a-datasetcollection-as-a-cog-stack" title="Permanent link">#</a></h2>
 <p>One COG per time slice — the typical static-STAC pattern:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetCollection</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetCollection</span><span class="p">,</span> <span class="n">cog</span>
 <a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>
 <a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="n">dc</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">read_multiple_files</span><span class="p">(</span><span class="s2">&quot;path/to/folder&quot;</span><span class="p">)</span>
 <a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">dc</span><span class="o">.</span><span class="n">open_multi_dataset</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
@@ -6814,17 +6831,20 @@ invent its own scheme. Before running your Python process:</p>
 <a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>    <span class="s2">&quot;out_cogs/&quot;</span><span class="p">,</span>
 <a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>    <span class="n">pattern</span><span class="o">=</span><span class="s2">&quot;B04_</span><span class="si">{i:04d}</span><span class="s2">.tif&quot;</span><span class="p">,</span>   <span class="c1"># filename template</span>
 <a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;B04&quot;</span><span class="p">,</span>
-<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>    <span class="n">compress</span><span class="o">=</span><span class="s2">&quot;ZSTD&quot;</span><span class="p">,</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>    <span class="n">compression</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Compression</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">&quot;ZSTD&quot;</span><span class="p">),</span>
 <a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="p">)</span>
 <a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="c1"># -&gt; [PosixPath(&#39;out_cogs/B04_0000.tif&#39;), ..., PosixPath(&#39;out_cogs/B04_NNNN.tif&#39;)]</span>
 </code></pre></div>
 <h2 id="selecting-bands-casting-dtype-and-nodata-on-write"><a class="toclink" href="#selecting-bands-casting-dtype-and-nodata-on-write">Selecting bands, casting dtype, and NoData on write</a><a class="headerlink" href="#selecting-bands-casting-dtype-and-nodata-on-write" title="Permanent link">#</a></h2>
 <p><code>to_cog</code> can pre-process the source in one call — band subset/reorder
 (<code>indexes</code>, 0-based), dtype cast (<code>out_dtype</code>), and an explicit
-<code>nodata</code> — routed through an in-memory <code>gdal.Translate</code> so your open
-dataset is never mutated:</p>
+<code>nodata</code>, grouped in a <code>cog.BandSelection</code> — routed through an in-memory
+<code>gdal.Translate</code> so your open dataset is never mutated:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># RGB-from-multiband, cast to uint8, set NoData=0:</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;rgb.tif&quot;</span><span class="p">,</span> <span class="n">indexes</span><span class="o">=</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">out_dtype</span><span class="o">=</span><span class="s2">&quot;uint8&quot;</span><span class="p">,</span> <span class="n">nodata</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>    <span class="s2">&quot;rgb.tif&quot;</span><span class="p">,</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>    <span class="n">bands</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">BandSelection</span><span class="p">(</span><span class="n">indexes</span><span class="o">=</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">out_dtype</span><span class="o">=</span><span class="s2">&quot;uint8&quot;</span><span class="p">,</span> <span class="n">nodata</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="p">)</span>
 </code></pre></div>
 <p>The dtype-aware predictor is resolved from the <strong>post-cast</strong> dtype (so a
 float→int16 cast correctly yields <code>PREDICTOR=2</code>).</p>
@@ -6833,17 +6853,19 @@ float→int16 cast correctly yields <code>PREDICTOR=2</code>).</p>
 descriptions or palette:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span>
 <a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>    <span class="s2">&quot;landcover.tif&quot;</span><span class="p">,</span>
-<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    <span class="n">band_tags</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;landcover&quot;</span><span class="p">,</span> <span class="s2">&quot;units&quot;</span><span class="p">:</span> <span class="s2">&quot;class&quot;</span><span class="p">}},</span>
-<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>    <span class="n">colormap</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">255</span><span class="p">),</span> <span class="mi">1</span><span class="p">:</span> <span class="p">(</span><span class="mi">34</span><span class="p">,</span> <span class="mi">139</span><span class="p">,</span> <span class="mi">34</span><span class="p">,</span> <span class="mi">255</span><span class="p">),</span> <span class="mi">2</span><span class="p">:</span> <span class="p">(</span><span class="mi">70</span><span class="p">,</span> <span class="mi">130</span><span class="p">,</span> <span class="mi">180</span><span class="p">,</span> <span class="mi">255</span><span class="p">)},</span>
-<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="s2">&quot;my-pipeline&quot;</span><span class="p">,</span> <span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="s2">&quot;1.0&quot;</span><span class="p">},</span>
-<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="p">)</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    <span class="n">tags</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Tags</span><span class="p">(</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>        <span class="n">band_tags</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;landcover&quot;</span><span class="p">,</span> <span class="s2">&quot;units&quot;</span><span class="p">:</span> <span class="s2">&quot;class&quot;</span><span class="p">}},</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>        <span class="n">colormap</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">255</span><span class="p">),</span> <span class="mi">1</span><span class="p">:</span> <span class="p">(</span><span class="mi">34</span><span class="p">,</span> <span class="mi">139</span><span class="p">,</span> <span class="mi">34</span><span class="p">,</span> <span class="mi">255</span><span class="p">),</span> <span class="mi">2</span><span class="p">:</span> <span class="p">(</span><span class="mi">70</span><span class="p">,</span> <span class="mi">130</span><span class="p">,</span> <span class="mi">180</span><span class="p">,</span> <span class="mi">255</span><span class="p">)},</span>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="s2">&quot;my-pipeline&quot;</span><span class="p">,</span> <span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="s2">&quot;1.0&quot;</span><span class="p">},</span>
+<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>    <span class="p">),</span>
+<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="p">)</span>
 </code></pre></div>
 <p>These are stamped onto an in-memory copy before the write, so the
 original dataset is left untouched.</p>
 <h2 id="encoding-to-bytes-in-memory"><a class="toclink" href="#encoding-to-bytes-in-memory">Encoding to bytes (in-memory)</a><a class="headerlink" href="#encoding-to-bytes-in-memory" title="Permanent link">#</a></h2>
 <p>To upload a COG straight to an object store without a temp file, use
 <code>to_cog_bytes</code> — it accepts the same keywords as <code>to_cog</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">blob</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_cog_bytes</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">&quot;ZSTD&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">blob</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_cog_bytes</span><span class="p">(</span><span class="n">compression</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Compression</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">&quot;ZSTD&quot;</span><span class="p">))</span>
 <a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="c1"># e.g. boto3:  s3.put_object(Bucket=&quot;b&quot;, Key=&quot;scene.tif&quot;, Body=blob)</span>
 </code></pre></div>
 <h2 id="inspecting-a-cog"><a class="toclink" href="#inspecting-a-cog">Inspecting a COG</a><a class="headerlink" href="#inspecting-a-cog" title="Permanent link">#</a></h2>
@@ -6941,14 +6963,17 @@ The tiling scheme reprojects to EPSG:3857 and aligns to a zoom grid.
 Your output will always be larger than the input extent — that's by
 design; it lets a tile server serve the file without further
 reprojection.</p>
-<p><strong><code>overview_resampling="average"</code> warning on my categorical raster</strong>
+<p><strong><code>overviews=cog.Overviews(resampling="average")</code> warning on my categorical raster</strong>
 This is the documented safety check. Either switch to
-<code>overview_resampling="nearest"</code> / <code>"mode"</code>, or suppress the warning
+<code>cog.Overviews(resampling="nearest")</code> / <code>"mode"</code>, or suppress the warning
 if you really want averaged overviews:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
-<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="k">with</span> <span class="n">warnings</span><span class="o">.</span><span class="n">catch_warnings</span><span class="p">():</span>
-<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="ne">UserWarning</span><span class="p">)</span>
-<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>    <span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;x.tif&quot;</span><span class="p">,</span> <span class="n">overview_resampling</span><span class="o">=</span><span class="s2">&quot;average&quot;</span><span class="p">)</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">cog</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="k">with</span> <span class="n">warnings</span><span class="o">.</span><span class="n">catch_warnings</span><span class="p">():</span>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="ne">UserWarning</span><span class="p">)</span>
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>    <span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;x.tif&quot;</span><span class="p">,</span> <span class="n">overviews</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Overviews</span><span class="p">(</span><span class="n">resampling</span><span class="o">=</span><span class="s2">&quot;average&quot;</span><span class="p">))</span>
 </code></pre></div>
 
 

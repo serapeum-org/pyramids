@@ -7121,7 +7121,7 @@ COG stack.</li>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyproj</span><span class="w"> </span><span class="kn">import</span> <span class="n">Transformer</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DatasetCollection</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DatasetCollection</span><span class="p">,</span> <span class="n">cog</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset.cog</span><span class="w"> </span><span class="kn">import</span> <span class="n">validate</span>
 
 <span class="c1"># Resolve the bundled example data whether the kernel runs from the notebook</span>
@@ -7139,7 +7139,7 @@ from pathlib import Path
 
 from pyproj import Transformer
 
-from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset import Dataset, DatasetCollection, cog
 from pyramids.dataset.cog import validate
 
 # Resolve the bundled example data whether the kernel runs from the notebook
@@ -7160,7 +7160,7 @@ print("work:", work)</div>
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>data: /home/runner/work/pyramids/pyramids/examples/data
-work: /tmp/pyramids-cog-real-5ejnalxv
+work: /tmp/pyramids-cog-real-cwffr4wh
 </pre>
 </div>
 </div>
@@ -7287,7 +7287,7 @@ valid COG: True | errors: []
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f2beb8c6120&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f16bdb2e510&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7329,11 +7329,11 @@ valid COG: True | errors: []
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">zstd</span> <span class="o">=</span> <span class="n">noah</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s2">"noah_zstd.tif"</span><span class="p">,</span> <span class="n">profile</span><span class="o">=</span><span class="s2">"zstd"</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"profile=zstd -&gt;"</span><span class="p">,</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">zstd</span><span class="p">)</span><span class="o">.</span><span class="n">cog_info</span><span class="p">()</span><span class="o">.</span><span class="n">compression</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">zstd</span> <span class="o">=</span> <span class="n">noah</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s2">"noah_zstd.tif"</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="s2">"zstd"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"compression=zstd -&gt;"</span><span class="p">,</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">zstd</span><span class="p">)</span><span class="o">.</span><span class="n">cog_info</span><span class="p">()</span><span class="o">.</span><span class="n">compression</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4">zstd = noah.to_cog(work / "noah_zstd.tif", profile="zstd")
-print("profile=zstd -&gt;", Dataset.read_file(zstd).cog_info().compression)</div>
+<div class="clipboard-copy-txt" id="cell-4">zstd = noah.to_cog(work / "noah_zstd.tif", compression="zstd")
+print("compression=zstd -&gt;", Dataset.read_file(zstd).cog_info().compression)</div>
 </div>
 </div>
 </div>
@@ -7345,7 +7345,7 @@ print("profile=zstd -&gt;", Dataset.read_file(zstd).cog_info().compression)</div
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>profile=zstd -&gt; ZSTD
+<pre>compression=zstd -&gt; ZSTD
 </pre>
 </div>
 </div>
@@ -7464,11 +7464,11 @@ centre value: -9.969209968386869e+36
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">blob</span> <span class="o">=</span> <span class="n">noah</span><span class="o">.</span><span class="n">to_cog_bytes</span><span class="p">(</span><span class="n">profile</span><span class="o">=</span><span class="s2">"zstd"</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">blob</span> <span class="o">=</span> <span class="n">noah</span><span class="o">.</span><span class="n">to_cog_bytes</span><span class="p">(</span><span class="n">compression</span><span class="o">=</span><span class="s2">"zstd"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"bytes:"</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">blob</span><span class="p">),</span> <span class="s2">"| TIFF marker:"</span><span class="p">,</span> <span class="n">blob</span><span class="p">[:</span><span class="mi">2</span><span class="p">])</span>
 <span class="c1"># e.g. boto3: s3.put_object(Bucket=..., Key="noah.tif", Body=blob)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">blob = noah.to_cog_bytes(profile="zstd")
+<div class="clipboard-copy-txt" id="cell-6">blob = noah.to_cog_bytes(compression="zstd")
 print("bytes:", len(blob), "| TIFF marker:", blob[:2])
 # e.g. boto3: s3.put_object(Bucket=..., Key="noah.tif", Body=blob)</div>
 </div>
@@ -7522,11 +7522,15 @@ all on an in-memory copy, so the source dataset is never mutated.</p>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">rgb</span> <span class="o">=</span> <span class="n">noah</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span>
     <span class="n">work</span> <span class="o">/</span> <span class="s2">"noah_rgb.tif"</span><span class="p">,</span>
-    <span class="n">indexes</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span>  <span class="c1"># select + reorder bands (0-based)</span>
-    <span class="n">out_dtype</span><span class="o">=</span><span class="s2">"int16"</span><span class="p">,</span>  <span class="c1"># predictor re-resolves to 2 for the cast</span>
-    <span class="n">nodata</span><span class="o">=-</span><span class="mi">9999</span><span class="p">,</span>
-    <span class="n">band_tags</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="p">{</span><span class="s2">"name"</span><span class="p">:</span> <span class="s2">"precip_band_1"</span><span class="p">}},</span>
-    <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">"source"</span><span class="p">:</span> <span class="s2">"NOAH-1979"</span><span class="p">,</span> <span class="s2">"pipeline"</span><span class="p">:</span> <span class="s2">"cog-real-data-notebook"</span><span class="p">},</span>
+    <span class="n">bands</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">BandSelection</span><span class="p">(</span>
+        <span class="n">indexes</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span>  <span class="c1"># select + reorder bands (0-based)</span>
+        <span class="n">out_dtype</span><span class="o">=</span><span class="s2">"int16"</span><span class="p">,</span>  <span class="c1"># predictor re-resolves to 2 for the cast</span>
+        <span class="n">nodata</span><span class="o">=-</span><span class="mi">9999</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">tags</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Tags</span><span class="p">(</span>
+        <span class="n">band_tags</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="p">{</span><span class="s2">"name"</span><span class="p">:</span> <span class="s2">"precip_band_1"</span><span class="p">}},</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">"source"</span><span class="p">:</span> <span class="s2">"NOAH-1979"</span><span class="p">,</span> <span class="s2">"pipeline"</span><span class="p">:</span> <span class="s2">"cog-real-data-notebook"</span><span class="p">},</span>
+    <span class="p">),</span>
 <span class="p">)</span>
 <span class="n">rgb_info</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">rgb</span><span class="p">)</span><span class="o">.</span><span class="n">cog_info</span><span class="p">()</span>
 <span class="nb">print</span><span class="p">(</span>
@@ -7541,11 +7545,15 @@ all on an in-memory copy, so the source dataset is never mutated.</p>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-7">rgb = noah.to_cog(
     work / "noah_rgb.tif",
-    indexes=[0, 1, 2],  # select + reorder bands (0-based)
-    out_dtype="int16",  # predictor re-resolves to 2 for the cast
-    nodata=-9999,
-    band_tags={0: {"name": "precip_band_1"}},
-    metadata={"source": "NOAH-1979", "pipeline": "cog-real-data-notebook"},
+    bands=cog.BandSelection(
+        indexes=[0, 1, 2],  # select + reorder bands (0-based)
+        out_dtype="int16",  # predictor re-resolves to 2 for the cast
+        nodata=-9999,
+    ),
+    tags=cog.Tags(
+        band_tags={0: {"name": "precip_band_1"}},
+        metadata={"source": "NOAH-1979", "pipeline": "cog-real-data-notebook"},
+    ),
 )
 rgb_info = Dataset.read_file(rgb).cog_info()
 print(
@@ -7583,7 +7591,7 @@ band-1 tag: precip_band_1
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="6-web-optimized-cog-reproject-to-web-mercator">6. Web-optimized COG (reproject to Web-Mercator)<a class="anchor-link" href="#6-web-optimized-cog-reproject-to-web-mercator">¶</a></h2><p>The Rhine DEM is in a projected CRS (EPSG:4647). <code>tiling_scheme="GoogleMapsCompatible"</code>
+<h2 id="6-web-optimized-cog-reproject-to-web-mercator">6. Web-optimized COG (reproject to Web-Mercator)<a class="anchor-link" href="#6-web-optimized-cog-reproject-to-web-mercator">¶</a></h2><p>The Rhine DEM is in a projected CRS (EPSG:4647). <code>tiling=cog.Tiling(scheme="GoogleMapsCompatible")</code>
 reprojects to EPSG:3857 and aligns overviews to the Web-Mercator zoom grid, ready for a
 tile server.</p>
 </div>
@@ -7611,13 +7619,13 @@ tile server.</p>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">dem</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">DATA</span> <span class="o">/</span> <span class="s2">"dem"</span> <span class="o">/</span> <span class="s2">"DEM5km_Rhine_burned_fill.tif"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"DEM source CRS:"</span><span class="p">,</span> <span class="n">dem</span><span class="o">.</span><span class="n">epsg</span><span class="p">)</span>
 
-<span class="n">web</span> <span class="o">=</span> <span class="n">dem</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s2">"dem_web.tif"</span><span class="p">,</span> <span class="n">tiling_scheme</span><span class="o">=</span><span class="s2">"GoogleMapsCompatible"</span><span class="p">)</span>
+<span class="n">web</span> <span class="o">=</span> <span class="n">dem</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s2">"dem_web.tif"</span><span class="p">,</span> <span class="n">tiling</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Tiling</span><span class="p">(</span><span class="n">scheme</span><span class="o">=</span><span class="s2">"GoogleMapsCompatible"</span><span class="p">))</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"web-optimized CRS:"</span><span class="p">,</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">web</span><span class="p">)</span><span class="o">.</span><span class="n">epsg</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-8">dem = Dataset.read_file(DATA / "dem" / "DEM5km_Rhine_burned_fill.tif")
 print("DEM source CRS:", dem.epsg)
 
-web = dem.to_cog(work / "dem_web.tif", tiling_scheme="GoogleMapsCompatible")
+web = dem.to_cog(work / "dem_web.tif", tiling=cog.Tiling(scheme="GoogleMapsCompatible"))
 print("web-optimized CRS:", Dataset.read_file(web).epsg)</div>
 </div>
 </div>
@@ -7689,7 +7697,7 @@ projected CRS.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f2beba6d310&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f16bdc95d10&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7809,7 +7817,7 @@ writes one COG per time slice.</p>
     <span class="n">work</span> <span class="o">/</span> <span class="s2">"rhine_cogs"</span><span class="p">,</span>
     <span class="n">pattern</span><span class="o">=</span><span class="s2">"Qtot_</span><span class="si">{i:02d}</span><span class="s2">.tif"</span><span class="p">,</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">"Qtot"</span><span class="p">,</span>
-    <span class="n">compress</span><span class="o">=</span><span class="s2">"DEFLATE"</span><span class="p">,</span>
+    <span class="n">compression</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Compression</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">"DEFLATE"</span><span class="p">),</span>
 <span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"slices written:"</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">paths</span><span class="p">),</span> <span class="s2">"| time_length:"</span><span class="p">,</span> <span class="n">dc</span><span class="o">.</span><span class="n">time_length</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"first slice is a valid COG:"</span><span class="p">,</span> <span class="n">validate</span><span class="p">(</span><span class="n">paths</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">.</span><span class="n">is_valid</span><span class="p">)</span>
@@ -7820,7 +7828,7 @@ paths = dc.to_cog_stack(
     work / "rhine_cogs",
     pattern="Qtot_{i:02d}.tif",
     name="Qtot",
-    compress="DEFLATE",
+    compression=cog.Compression(compress="DEFLATE"),
 )
 print("slices written:", len(paths), "| time_length:", dc.time_length)
 print("first slice is a valid COG:", validate(paths[0]).is_valid)</div>
@@ -7843,7 +7851,7 @@ first slice is a valid COG: True
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/tmp/ipykernel_2580/3653744599.py:1: DeprecationWarning: DatasetCollection.read_multiple_files is deprecated; use from_files(path, glob=..., date_format=...) instead.
+<pre>/tmp/ipykernel_2798/3236988729.py:1: DeprecationWarning: DatasetCollection.read_multiple_files is deprecated; use from_files(path, glob=..., date_format=...) instead.
   dc = DatasetCollection.read_multiple_files(DATA / "geotiff" / "rhine", with_order=False)
 </pre>
 </div>
@@ -7896,7 +7904,7 @@ COG stack.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f2be2ba2fd0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f16b9e5fed0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7961,10 +7969,10 @@ main(["cog", "info", str(out)])</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>/tmp/pyramids-cog-real-5ejnalxv/noah_cog.tif: valid COG
+<pre>/tmp/pyramids-cog-real-cwffr4wh/noah_cog.tif: valid COG
 validate exit code: 0
 --- info ---
-file:        /tmp/pyramids-cog-real-5ejnalxv/noah_cog.tif
+file:        /tmp/pyramids-cog-real-cwffr4wh/noah_cog.tif
 is_cog:      True
 driver:      GTiff
 size:        720 x 360 (4 band(s))

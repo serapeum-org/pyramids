@@ -7105,7 +7105,7 @@ build a temp workspace plus a couple of small rasters.</p>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">cog</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset.cog</span><span class="w"> </span><span class="kn">import</span> <span class="n">validate</span>
 
 <span class="n">workdir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"pyramids-cog-"</span><span class="p">))</span>
@@ -7123,7 +7123,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, cog
 from pyramids.dataset.cog import validate
 
 workdir = Path(tempfile.mkdtemp(prefix="pyramids-cog-"))
@@ -7209,7 +7209,7 @@ print(ds)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[2]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fe0075fc980&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f227c910d70&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7256,14 +7256,14 @@ overview resampling (continuous float → <code>average</code>) from the source 
 <span class="nb">print</span><span class="p">(</span><span class="s2">"wrote"</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
 
 <span class="c1"># A named compression profile is a one-word shortcut:</span>
-<span class="n">out_zstd</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="n">workdir</span> <span class="o">/</span> <span class="s2">"scene_zstd.tif"</span><span class="p">,</span> <span class="n">profile</span><span class="o">=</span><span class="s2">"zstd"</span><span class="p">)</span>
+<span class="n">out_zstd</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="n">workdir</span> <span class="o">/</span> <span class="s2">"scene_zstd.tif"</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="s2">"zstd"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"wrote"</span><span class="p">,</span> <span class="n">out_zstd</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-3">out = ds.to_cog(workdir / "scene.tif")
 print("wrote", out)
 
 # A named compression profile is a one-word shortcut:
-out_zstd = ds.to_cog(workdir / "scene_zstd.tif", profile="zstd")
+out_zstd = ds.to_cog(workdir / "scene_zstd.tif", compression="zstd")
 print("wrote", out_zstd)</div>
 </div>
 </div>
@@ -7276,8 +7276,8 @@ print("wrote", out_zstd)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>wrote /tmp/pyramids-cog-w2714_ce/scene.tif
-wrote /tmp/pyramids-cog-w2714_ce/scene_zstd.tif
+<pre>wrote /tmp/pyramids-cog-_y82jkmf/scene.tif
+wrote /tmp/pyramids-cog-_y82jkmf/scene_zstd.tif
 </pre>
 </div>
 </div>
@@ -7401,7 +7401,7 @@ COG encoding.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fe003d37390&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f2270c6c190&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7580,11 +7580,11 @@ file. It accepts the same keywords as <code>to_cog</code>.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">blob</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_cog_bytes</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">"DEFLATE"</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">blob</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_cog_bytes</span><span class="p">(</span><span class="n">compression</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Compression</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">"DEFLATE"</span><span class="p">))</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"bytes:"</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">blob</span><span class="p">),</span> <span class="s2">"TIFF marker:"</span><span class="p">,</span> <span class="n">blob</span><span class="p">[:</span><span class="mi">2</span><span class="p">])</span>
 <span class="c1"># e.g. boto3: s3.put_object(Bucket=..., Key="scene.tif", Body=blob)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-8">blob = ds.to_cog_bytes(compress="DEFLATE")
+<div class="clipboard-copy-txt" id="cell-8">blob = ds.to_cog_bytes(compression=cog.Compression(compress="DEFLATE"))
 print("bytes:", len(blob), "TIFF marker:", blob[:2])
 # e.g. boto3: s3.put_object(Bucket=..., Key="scene.tif", Body=blob)</div>
 </div>
@@ -7612,9 +7612,10 @@ print("bytes:", len(blob), "TIFF marker:", blob[:2])
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="band-subset-dtype-cast-nodata-tags-colour-table">Band subset, dtype cast, NoData, tags &amp; colour table<a class="anchor-link" href="#band-subset-dtype-cast-nodata-tags-colour-table">¶</a></h2><p><code>to_cog</code> can pre-process the source in one call — select/reorder bands (<code>indexes</code>, 0-based),
-cast the dtype (<code>out_dtype</code>), set <code>nodata</code>, and attach band tags / a colour table / dataset
-metadata — all on an in-memory copy, so the original dataset is never mutated.</p>
+<h2 id="band-subset-dtype-cast-nodata-tags-colour-table">Band subset, dtype cast, NoData, tags &amp; colour table<a class="anchor-link" href="#band-subset-dtype-cast-nodata-tags-colour-table">¶</a></h2><p><code>to_cog</code> can pre-process the source in one call — a <code>cog.BandSelection</code> selects/reorders bands
+(<code>indexes</code>, 0-based), casts the dtype (<code>out_dtype</code>), and sets <code>nodata</code>, while a <code>cog.Tags</code> attaches
+band tags / a colour table / dataset metadata — all on an in-memory copy, so the original dataset is
+never mutated.</p>
 </div>
 </div>
 </div>
@@ -7646,11 +7647,15 @@ metadata — all on an in-memory copy, so the original dataset is never mutated.
 <span class="p">)</span>
 <span class="n">rgb</span> <span class="o">=</span> <span class="n">multi</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span>
     <span class="n">workdir</span> <span class="o">/</span> <span class="s2">"rgb.tif"</span><span class="p">,</span>
-    <span class="n">indexes</span><span class="o">=</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span>  <span class="c1"># select + reorder bands (0-based)</span>
-    <span class="n">out_dtype</span><span class="o">=</span><span class="s2">"int16"</span><span class="p">,</span>  <span class="c1"># cast; predictor re-resolves to 2</span>
-    <span class="n">nodata</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-    <span class="n">band_tags</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="p">{</span><span class="s2">"name"</span><span class="p">:</span> <span class="s2">"red"</span><span class="p">}},</span>
-    <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">"source"</span><span class="p">:</span> <span class="s2">"cog-basics-notebook"</span><span class="p">},</span>
+    <span class="n">bands</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">BandSelection</span><span class="p">(</span>
+        <span class="n">indexes</span><span class="o">=</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span>  <span class="c1"># select + reorder bands (0-based)</span>
+        <span class="n">out_dtype</span><span class="o">=</span><span class="s2">"int16"</span><span class="p">,</span>  <span class="c1"># cast; predictor re-resolves to 2</span>
+        <span class="n">nodata</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">tags</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Tags</span><span class="p">(</span>
+        <span class="n">band_tags</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="p">{</span><span class="s2">"name"</span><span class="p">:</span> <span class="s2">"red"</span><span class="p">}},</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">"source"</span><span class="p">:</span> <span class="s2">"cog-basics-notebook"</span><span class="p">},</span>
+    <span class="p">),</span>
 <span class="p">)</span>
 <span class="n">rgb_info</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">rgb</span><span class="p">)</span><span class="o">.</span><span class="n">cog_info</span><span class="p">()</span>
 <span class="nb">print</span><span class="p">(</span>
@@ -7671,11 +7676,15 @@ multi = Dataset.create_from_array(
 )
 rgb = multi.to_cog(
     workdir / "rgb.tif",
-    indexes=[2, 1, 0],  # select + reorder bands (0-based)
-    out_dtype="int16",  # cast; predictor re-resolves to 2
-    nodata=0,
-    band_tags={0: {"name": "red"}},
-    metadata={"source": "cog-basics-notebook"},
+    bands=cog.BandSelection(
+        indexes=[2, 1, 0],  # select + reorder bands (0-based)
+        out_dtype="int16",  # cast; predictor re-resolves to 2
+        nodata=0,
+    ),
+    tags=cog.Tags(
+        band_tags={0: {"name": "red"}},
+        metadata={"source": "cog-basics-notebook"},
+    ),
 )
 rgb_info = Dataset.read_file(rgb).cog_info()
 print(
@@ -7759,7 +7768,7 @@ print("validate exit code:", rc_val)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>file:        /tmp/pyramids-cog-w2714_ce/scene.tif
+<pre>file:        /tmp/pyramids-cog-_y82jkmf/scene.tif
 is_cog:      True
 driver:      GTiff
 size:        600 x 600 (1 band(s))
@@ -7773,7 +7782,7 @@ blocksize:   (512, 512)
 overviews:   1
   - level 0: 300 x 300 (1/2)
 info exit code: 0
-/tmp/pyramids-cog-w2714_ce/scene.tif: valid COG
+/tmp/pyramids-cog-_y82jkmf/scene.tif: valid COG
 validate exit code: 0
 </pre>
 </div>
