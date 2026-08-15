@@ -159,10 +159,16 @@ class TestCompression:
         ds = _mem_dataset(gdal.GDT_Float32)
         band = ds.GetRasterBand(1)
         opts = Compression()._to_options(band)
-        assert opts["COMPRESS"] == "DEFLATE", f"expected DEFLATE, got {opts['COMPRESS']}"
-        assert opts["PREDICTOR"] == 3, f"float predictor should be 3, got {opts['PREDICTOR']}"
+        assert opts["COMPRESS"] == "DEFLATE", (
+            f"expected DEFLATE, got {opts['COMPRESS']}"
+        )
+        assert opts["PREDICTOR"] == 3, (
+            f"float predictor should be 3, got {opts['PREDICTOR']}"
+        )
         assert opts["LEVEL"] is None and opts["QUALITY"] is None, f"unexpected: {opts}"
-        assert opts["MAX_Z_ERROR"] is None, f"MAX_Z_ERROR should be None, got {opts['MAX_Z_ERROR']}"
+        assert opts["MAX_Z_ERROR"] is None, (
+            f"MAX_Z_ERROR should be None, got {opts['MAX_Z_ERROR']}"
+        )
 
     def test_to_options_integer_source_gets_predictor_2(self):
         """An integer source resolves PREDICTOR to 2.
@@ -173,7 +179,9 @@ class TestCompression:
         """
         ds = _mem_dataset(gdal.GDT_Byte)
         band = ds.GetRasterBand(1)
-        assert Compression()._to_options(band)["PREDICTOR"] == 2, "integer predictor should be 2"
+        assert Compression()._to_options(band)["PREDICTOR"] == 2, (
+            "integer predictor should be 2"
+        )
 
     def test_to_options_explicit_fields_passthrough(self):
         """Explicit compression fields are forwarded verbatim.
@@ -186,7 +194,9 @@ class TestCompression:
         band = ds.GetRasterBand(1)
         opts = Compression(compress="ZSTD", level=18, predictor=1)._to_options(band)
         assert (opts["COMPRESS"], opts["LEVEL"]) == ("ZSTD", 18), f"unexpected: {opts}"
-        assert opts["PREDICTOR"] == 1, f"explicit predictor should win, got {opts['PREDICTOR']}"
+        assert opts["PREDICTOR"] == 1, (
+            f"explicit predictor should win, got {opts['PREDICTOR']}"
+        )
 
     @pytest.mark.parametrize("compress", ["LERC", "NONE", "JPEG", "WEBP", "PACKBITS"])
     def test_to_options_predictor_dropped_for_non_predictor_compressor(self, compress):
@@ -202,7 +212,9 @@ class TestCompression:
         ds = _mem_dataset(gdal.GDT_Byte)
         band = ds.GetRasterBand(1)
         opts = Compression(compress=compress, predictor=2)._to_options(band)
-        assert opts["PREDICTOR"] is None, f"{compress} should drop PREDICTOR, got {opts['PREDICTOR']}"
+        assert opts["PREDICTOR"] is None, (
+            f"{compress} should drop PREDICTOR, got {opts['PREDICTOR']}"
+        )
 
     def test_to_options_max_z_error_carried(self):
         """`max_z_error` rides along as MAX_Z_ERROR.
@@ -239,8 +251,12 @@ class TestOverviews:
         ds = _mem_dataset(gdal.GDT_Float32)
         band = ds.GetRasterBand(1)
         opts = Overviews()._to_options(band)
-        assert opts["OVERVIEW_RESAMPLING"] == "average", f"got {opts['OVERVIEW_RESAMPLING']}"
-        assert opts["OVERVIEW_COUNT"] is None and opts["OVERVIEW_COMPRESS"] is None, f"unexpected: {opts}"
+        assert opts["OVERVIEW_RESAMPLING"] == "average", (
+            f"got {opts['OVERVIEW_RESAMPLING']}"
+        )
+        assert opts["OVERVIEW_COUNT"] is None and opts["OVERVIEW_COMPRESS"] is None, (
+            f"unexpected: {opts}"
+        )
 
     def test_to_options_default_resampling_integer_is_mode(self):
         """An integer source defaults to the category-safe `mode` resampler.
@@ -250,7 +266,9 @@ class TestOverviews:
         """
         ds = _mem_dataset(gdal.GDT_Byte)
         band = ds.GetRasterBand(1)
-        assert Overviews()._to_options(band)["OVERVIEW_RESAMPLING"] == "mode", "integer should use mode"
+        assert Overviews()._to_options(band)["OVERVIEW_RESAMPLING"] == "mode", (
+            "integer should use mode"
+        )
 
     def test_to_options_default_resampling_color_table_is_mode(self):
         """A palette source (float + colour table) still defaults to `mode`.
@@ -260,7 +278,9 @@ class TestOverviews:
         """
         ds = _mem_dataset(gdal.GDT_Float32, color_table=True)
         band = ds.GetRasterBand(1)
-        assert Overviews()._to_options(band)["OVERVIEW_RESAMPLING"] == "mode", "palette should use mode"
+        assert Overviews()._to_options(band)["OVERVIEW_RESAMPLING"] == "mode", (
+            "palette should use mode"
+        )
 
     def test_to_options_explicit_fields_passthrough(self):
         """Explicit resampling / count / compress are forwarded verbatim.
@@ -271,7 +291,9 @@ class TestOverviews:
         """
         ds = _mem_dataset(gdal.GDT_Byte)
         band = ds.GetRasterBand(1)
-        opts = Overviews(resampling="lanczos", count=4, compress="ZSTD")._to_options(band)
+        opts = Overviews(resampling="lanczos", count=4, compress="ZSTD")._to_options(
+            band
+        )
         assert opts == {
             "OVERVIEW_RESAMPLING": "lanczos",
             "OVERVIEW_COUNT": 4,
@@ -304,8 +326,12 @@ class TestTiling:
             WARP_RESAMPLING (not reprojecting), and omits the TARGET_SRS key.
         """
         opts = Tiling()._to_options()
-        assert opts["TILING_SCHEME"] is None, f"expected no scheme, got {opts['TILING_SCHEME']}"
-        assert opts["WARP_RESAMPLING"] is None, f"warp should be dropped, got {opts['WARP_RESAMPLING']}"
+        assert opts["TILING_SCHEME"] is None, (
+            f"expected no scheme, got {opts['TILING_SCHEME']}"
+        )
+        assert opts["WARP_RESAMPLING"] is None, (
+            f"warp should be dropped, got {opts['WARP_RESAMPLING']}"
+        )
         assert "TARGET_SRS" not in opts, f"TARGET_SRS should be absent, got {opts}"
 
     def test_to_options_target_srs_int_formats_epsg(self):
@@ -335,7 +361,9 @@ class TestTiling:
             the scheme and WARP_RESAMPLING; TARGET_SRS stays absent.
         """
         opts = Tiling(scheme="GoogleMapsCompatible", resampling="cubic")._to_options()
-        assert opts["TILING_SCHEME"] == "GoogleMapsCompatible", f"got {opts['TILING_SCHEME']}"
+        assert opts["TILING_SCHEME"] == "GoogleMapsCompatible", (
+            f"got {opts['TILING_SCHEME']}"
+        )
         assert opts["WARP_RESAMPLING"] == "cubic", f"got {opts['WARP_RESAMPLING']}"
         assert "TARGET_SRS" not in opts, f"TARGET_SRS should be absent, got {opts}"
 
@@ -350,7 +378,9 @@ class TestTiling:
         with pytest.warns(UserWarning, match="scheme wins and target_srs is ignored"):
             opts = til._to_options()
         assert "TARGET_SRS" not in opts, f"target_srs should be dropped, got {opts}"
-        assert opts["TILING_SCHEME"] == "GoogleMapsCompatible", f"scheme should win, got {opts}"
+        assert opts["TILING_SCHEME"] == "GoogleMapsCompatible", (
+            f"scheme should win, got {opts}"
+        )
 
     def test_to_options_zoom_and_aligned_fields_passthrough(self):
         """Zoom / aligned-level knobs are forwarded verbatim.
@@ -359,8 +389,14 @@ class TestTiling:
             `zoom_level`, `zoom_level_strategy`, and `aligned_levels` map straight
             to their GDAL keys.
         """
-        opts = Tiling(zoom_level=5, zoom_level_strategy="upper", aligned_levels=2)._to_options()
-        assert (opts["ZOOM_LEVEL"], opts["ZOOM_LEVEL_STRATEGY"], opts["ALIGNED_LEVELS"]) == (
+        opts = Tiling(
+            zoom_level=5, zoom_level_strategy="upper", aligned_levels=2
+        )._to_options()
+        assert (
+            opts["ZOOM_LEVEL"],
+            opts["ZOOM_LEVEL_STRATEGY"],
+            opts["ALIGNED_LEVELS"],
+        ) == (
             5,
             "upper",
             2,
@@ -381,7 +417,9 @@ class TestBandSelection:
 
     def test_needs_translate_false_when_empty(self):
         """A bare `BandSelection` needs no pre-process."""
-        assert BandSelection()._needs_translate() is False, "empty selection should not translate"
+        assert BandSelection()._needs_translate() is False, (
+            "empty selection should not translate"
+        )
 
     @pytest.mark.parametrize(
         "kwargs",
@@ -397,7 +435,9 @@ class TestBandSelection:
         Args:
             kwargs: A single populated `BandSelection` field.
         """
-        assert BandSelection(**kwargs)._needs_translate() is True, f"{kwargs} should translate"
+        assert BandSelection(**kwargs)._needs_translate() is True, (
+            f"{kwargs} should translate"
+        )
 
     def test_translate_subsets_and_reorders_bands(self):
         """`_translate` keeps and reorders the requested bands.
@@ -417,7 +457,9 @@ class TestBandSelection:
         """
         src = _mem_dataset(gdal.GDT_Float32)
         mem = BandSelection(out_dtype="uint8")._translate(src)
-        assert mem.GetRasterBand(1).DataType == gdal.GDT_Byte, "output should be cast to Byte"
+        assert mem.GetRasterBand(1).DataType == gdal.GDT_Byte, (
+            "output should be cast to Byte"
+        )
 
     def test_translate_sets_nodata(self):
         """`_translate` stamps the requested NoData value.
@@ -445,7 +487,9 @@ class TestBandSelection:
         )
         with pytest.raises(FailedToSaveError, match="pre-processed COG source") as exc:
             BandSelection(out_dtype="uint8")._translate(src)
-        assert "out_dtype" in str(exc.value), f"message should name the fields, got: {exc.value}"
+        assert "out_dtype" in str(exc.value), (
+            f"message should name the fields, got: {exc.value}"
+        )
 
 
 class TestLayout:
@@ -498,7 +542,9 @@ class TestLayout:
         Test scenario:
             `Layout(num_threads=4)._to_options()` forwards NUM_THREADS "4".
         """
-        assert Layout(num_threads=4)._to_options()["NUM_THREADS"] == "4", "int threads should stringify"
+        assert Layout(num_threads=4)._to_options()["NUM_THREADS"] == "4", (
+            "int threads should stringify"
+        )
 
     def test_to_options_toggles_map_to_yes_or_dropped(self):
         """The boolean toggles map to `True`/`None` (kept/dropped downstream).
@@ -508,8 +554,12 @@ class TestLayout:
             ADD_ALPHA / SPARSE_OK truthy and drops STATISTICS (`None`).
         """
         opts = Layout(add_mask=True, sparse_ok=True, statistics=False)._to_options()
-        assert opts["ADD_ALPHA"] is True and opts["SPARSE_OK"] is True, f"toggles should be on: {opts}"
-        assert opts["STATISTICS"] is None, f"statistics=False should drop, got {opts['STATISTICS']}"
+        assert opts["ADD_ALPHA"] is True and opts["SPARSE_OK"] is True, (
+            f"toggles should be on: {opts}"
+        )
+        assert opts["STATISTICS"] is None, (
+            f"statistics=False should drop, got {opts['STATISTICS']}"
+        )
 
 
 class TestTags:
@@ -550,7 +600,9 @@ class TestTags:
         """
         ds = _mem_dataset(gdal.GDT_Byte)
         Tags(metadata={"source": "s2"})._stamp(ds)
-        assert ds.GetMetadata().get("source") == "s2", f"metadata not stamped: {ds.GetMetadata()}"
+        assert ds.GetMetadata().get("source") == "s2", (
+            f"metadata not stamped: {ds.GetMetadata()}"
+        )
 
     def test_stamp_band_tags_set_per_band(self):
         """`_stamp` writes per-band tags at the 1-based band number.
@@ -574,7 +626,9 @@ class TestTags:
         Tags(colormap={0: (1, 2, 3, 4)})._stamp(ds)
         band = ds.GetRasterBand(1)
         assert band.GetColorTable() is not None, "colour table should be attached"
-        assert band.GetColorInterpretation() == gdal.GCI_PaletteIndex, "should be palette-interpreted"
+        assert band.GetColorInterpretation() == gdal.GCI_PaletteIndex, (
+            "should be palette-interpreted"
+        )
 
     def test_stamp_colormap_rejects_non_byte_dtype(self):
         """`_stamp` rejects a colourmap on a non-Byte/UInt16 band.

@@ -156,9 +156,13 @@ class TestValidateProfile:
         Test scenario:
             Profiles without a dtype/band constraint return `None` silently.
         """
-        assert validate_profile(name, dtype, bands) is None, f"{name} should pass silently"
+        assert validate_profile(name, dtype, bands) is None, (
+            f"{name} should pass silently"
+        )
 
-    @pytest.mark.parametrize("name, bands", [("jpeg", 1), ("jpeg", 3), ("webp", 3), ("webp", 4)])
+    @pytest.mark.parametrize(
+        "name, bands", [("jpeg", 1), ("jpeg", 3), ("webp", 3), ("webp", 4)]
+    )
     def test_constrained_profile_accepts_valid_source(self, name, bands):
         """JPEG/WEBP accept a Byte source within their band range.
 
@@ -169,7 +173,9 @@ class TestValidateProfile:
         Test scenario:
             JPEG (1-3) and WEBP (3-4) pass for a Byte source in range.
         """
-        assert validate_profile(name, "Byte", bands) is None, f"{name}/{bands} should pass"
+        assert validate_profile(name, "Byte", bands) is None, (
+            f"{name}/{bands} should pass"
+        )
 
     @pytest.mark.parametrize("name", ["jpeg", "webp"])
     def test_constrained_profile_rejects_non_byte_dtype(self, name):
@@ -183,7 +189,9 @@ class TestValidateProfile:
         """
         with pytest.raises(ValueError, match="requires dtype in") as exc:
             validate_profile(name, "Float32", 3)
-        assert name in str(exc.value), f"message should name the profile, got: {exc.value}"
+        assert name in str(exc.value), (
+            f"message should name the profile, got: {exc.value}"
+        )
 
     @pytest.mark.parametrize("name, bands", [("jpeg", 4), ("webp", 1), ("webp", 5)])
     def test_constrained_profile_rejects_bad_band_count(self, name, bands):
@@ -198,4 +206,6 @@ class TestValidateProfile:
         """
         with pytest.raises(ValueError, match="bands; got") as exc:
             validate_profile(name, "Byte", bands)
-        assert str(bands) in str(exc.value), f"message should name the band count, got: {exc.value}"
+        assert str(bands) in str(exc.value), (
+            f"message should name the band count, got: {exc.value}"
+        )
