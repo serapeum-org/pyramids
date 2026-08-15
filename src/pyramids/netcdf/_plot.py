@@ -630,11 +630,14 @@ class NetCDFPlot:
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")
@@ -651,11 +654,14 @@ class NetCDFPlot:
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")
@@ -731,11 +737,14 @@ class NetCDFPlot:
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")
@@ -758,18 +767,19 @@ class NetCDFPlot:
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference, ExtraDimensions
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr4d = np.random.rand(3, 2, 4, 4).astype(np.float32)
                 >>> nc4d = NetCDF.create_from_array(
-                ...     arr=arr4d,
-                ...     geo=(0.0, 1.0, 0, 4.0, 0, -1.0),
-                ...     epsg=4326,
+                ...     arr4d,
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
                 ...     variable_name="temperature",
-                ...     extra_dims=[
-                ...         ("time", [0, 6, 12]),
-                ...         ("pressure_level", [1000, 500]),
-                ...     ],
+                ...     dims=ExtraDimensions(
+                ...         dims=[
+                ...             ("time", [0, 6, 12]),
+                ...             ("pressure_level", [1000, 500]),
+                ...         ]
+                ...     ),
                 ... )
                 >>> sub = nc4d.get_variable("temperature")
                 >>> stack, fkw = NetCDFPlot(sub)._build_facet_stack(
@@ -881,11 +891,14 @@ class NetCDFPlot:
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")
@@ -903,11 +916,14 @@ class NetCDFPlot:
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")
@@ -1017,11 +1033,14 @@ class NetCDFPlot:
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")
@@ -1043,11 +1062,14 @@ class NetCDFPlot:
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")
@@ -1153,11 +1175,14 @@ class NetCDFPlot:
                 ```python
                 >>> import logging
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")
@@ -1188,7 +1213,10 @@ class NetCDFPlot:
                 >>> from pyramids.netcdf import _plot as plot_mod
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")
@@ -1282,11 +1310,14 @@ class NetCDFPlot:
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")
@@ -1304,11 +1335,14 @@ class NetCDFPlot:
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")
@@ -1330,11 +1364,14 @@ class NetCDFPlot:
 
                 ```python
                 >>> import numpy as np
-                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import NetCDF, GeoReference
                 >>> from pyramids.netcdf._plot import NetCDFPlot
                 >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
                 >>> nc = NetCDF.create_from_array(
-                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     arr,
+                ...     geo_ref=GeoReference(
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ...     ),
                 ...     variable_name="t2m",
                 ... )
                 >>> sub = nc.get_variable("t2m")

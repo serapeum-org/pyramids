@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import SEED
 
@@ -21,10 +22,9 @@ def _make_nc(var_name="temperature"):
     arr = np.random.default_rng(SEED).random((3, 5, 8)).astype(np.float64)
     return NetCDF.create_from_array(
         arr=arr,
-        geo=GEO,
+        geo_ref=GeoReference(geo=GEO),
         variable_name=var_name,
-        extra_dim_name="time",
-        extra_dim_values=[0, 6, 12],
+        dims=ExtraDimensions(name="time", values=[0, 6, 12]),
     )
 
 

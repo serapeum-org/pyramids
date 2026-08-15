@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -23,11 +24,10 @@ def _make_nc():
     geo = (0.0, 1.0, 0, 3.0, 0, -1.0)
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=geo,
+        geo_ref=GeoReference(geo=geo),
         variable_name="temp",
         no_data_value=-9999.0,
-        extra_dim_name="time",
-        extra_dim_values=[0, 6, 12, 18, 24],
+        dims=ExtraDimensions(name="time", values=[0, 6, 12, 18, 24]),
     )
     return nc
 
@@ -341,7 +341,7 @@ class TestSelErrors:
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=geo,
+            geo_ref=GeoReference(geo=geo),
             variable_name="flat",
         )
         var = nc.get_variable("flat")
@@ -427,10 +427,9 @@ class TestSelBoundary:
         geo = (0.0, 1.0, 0, 3.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=geo,
+            geo_ref=GeoReference(geo=geo),
             variable_name="v",
-            extra_dim_name="level",
-            extra_dim_values=[0.5, 1.5, 2.5],
+            dims=ExtraDimensions(name="level", values=[0.5, 1.5, 2.5]),
         )
         var = nc.get_variable("v")
         result = var.sel(level=1.5)

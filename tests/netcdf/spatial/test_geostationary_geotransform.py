@@ -19,7 +19,7 @@ import pytest
 from osgeo import gdal
 
 import pyramids.netcdf.netcdf as netcdf_module
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import GeoReference, NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -180,7 +180,7 @@ class TestNonGeostationaryUnaffected:
         geo = (10.0, cell, 0.0, 50.0, 0.0, -10.0 / 23)
         arr = np.zeros((24, 32), "f4")
         container = NetCDF.create_from_array(
-            arr, geo=geo, epsg=4326, variable_name="t2m"
+            arr, geo_ref=GeoReference(geo=geo, epsg=4326), variable_name="t2m"
         )
         cube = container.get_variable("t2m")
         assert cube._is_geostationary() is False

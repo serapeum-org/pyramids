@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.cf import build_coordinate_attrs
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import GEO, SEED
@@ -105,7 +106,9 @@ class TestCreateDimensionCFAttrs:
             with axis=X, standard_name=longitude, units=degrees_east.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, epsg=4326, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO, epsg=4326), variable_name="temp"
+        )
         attrs = self._read_coord_attrs(nc, "x")
         assert attrs.get("axis") == "X", f"Expected axis=X, got {attrs.get('axis')}"
         assert attrs.get("standard_name") == "longitude", (
@@ -123,7 +126,9 @@ class TestCreateDimensionCFAttrs:
             with axis=Y, standard_name=latitude, units=degrees_north.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, epsg=4326, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO, epsg=4326), variable_name="temp"
+        )
         attrs = self._read_coord_attrs(nc, "y")
         assert attrs.get("axis") == "Y", f"Expected axis=Y, got {attrs.get('axis')}"
         assert attrs.get("standard_name") == "latitude", (
@@ -143,7 +148,9 @@ class TestCreateDimensionCFAttrs:
         geo_utm = (500000.0, 100.0, 0, 3000000.0, 0, -100.0)
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=geo_utm, epsg=32637, variable_name="temp"
+            arr=arr,
+            geo_ref=GeoReference(geo=geo_utm, epsg=32637),
+            variable_name="temp",
         )
         attrs = self._read_coord_attrs(nc, "x")
         assert attrs.get("axis") == "X", f"Expected axis=X, got {attrs.get('axis')}"
@@ -161,7 +168,10 @@ class TestCreateDimensionCFAttrs:
         """
         arr = np.random.default_rng(SEED).random((3, 5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="precip", extra_dim_name="time"
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="precip",
+            dims=ExtraDimensions(name="time"),
         )
         attrs = self._read_coord_attrs(nc, "time")
         assert attrs.get("axis") == "T", f"Expected axis=T, got {attrs.get('axis')}"
@@ -177,7 +187,9 @@ class TestCreateDimensionCFAttrs:
             attributes are preserved.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         out_path = str(tmp_path / "coord_attrs.nc")
         nc.to_file(out_path)
         nc2 = NetCDF.read_file(out_path)

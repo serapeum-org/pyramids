@@ -13,7 +13,7 @@ from osgeo import gdal, osr
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.window import Window
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import GeoReference, NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -304,9 +304,7 @@ class TestNetCDFMaskedReads:
         arr = np.array([[[1.0, -9999.0], [3.0, 4.0]]], dtype="float32")
         nc = NetCDF.create_from_array(
             arr,
-            top_left_corner=(0, 2),
-            cell_size=1.0,
-            epsg=4326,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
             variable_name="t",
             no_data_value=-9999.0,
         )

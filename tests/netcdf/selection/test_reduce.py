@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 from tests._marks import requires_dask
 
 pytestmark = pytest.mark.core
@@ -30,11 +30,9 @@ def _make_time_nc(arr: np.ndarray, time_values: list) -> NetCDF:
     """
     return NetCDF.create_from_array(
         arr,
-        geo=_GEO,
-        epsg=4326,
+        geo_ref=GeoReference(geo=_GEO, epsg=4326),
         variable_name="v",
-        extra_dim_name="time",
-        extra_dim_values=time_values,
+        dims=ExtraDimensions(name="time", values=time_values),
     )
 
 
@@ -163,12 +161,10 @@ class TestReduceSkipna:
         )  # (time=2, y=1, x=2)
         nc = NetCDF.create_from_array(
             arr,
-            geo=_GEO,
-            epsg=4326,
+            geo_ref=GeoReference(geo=_GEO, epsg=4326),
             no_data_value=-9999.0,
             variable_name="v",
-            extra_dim_name="time",
-            extra_dim_values=[0, 1],
+            dims=ExtraDimensions(name="time", values=[0, 1]),
         )
         skip = nc.reduce("time", "mean", skipna=True).get_variable("v").read_array()
         assert skip[0, 0] == pytest.approx(10.0), (
@@ -185,12 +181,10 @@ class TestReduceSkipna:
         arr = np.array([[[10.0]], [[-9999.0]]], dtype="float32")
         nc = NetCDF.create_from_array(
             arr,
-            geo=_GEO,
-            epsg=4326,
+            geo_ref=GeoReference(geo=_GEO, epsg=4326),
             no_data_value=-9999.0,
             variable_name="v",
-            extra_dim_name="time",
-            extra_dim_values=[0, 1],
+            dims=ExtraDimensions(name="time", values=[0, 1]),
         )
         out = nc.reduce("time", "sum", skipna=False).get_variable("v").read_array()
         assert out[0, 0] == pytest.approx(-9989.0), "raw sum should include sentinel"
@@ -212,12 +206,10 @@ class TestReduceSkipna:
         )  # (time=2, y=1, x=2); column 1 is all-NoData
         nc = NetCDF.create_from_array(
             arr,
-            geo=_GEO,
-            epsg=4326,
+            geo_ref=GeoReference(geo=_GEO, epsg=4326),
             no_data_value=-9999.0,
             variable_name="v",
-            extra_dim_name="time",
-            extra_dim_values=[0, 1],
+            dims=ExtraDimensions(name="time", values=[0, 1]),
         )
         out = nc.reduce("time", how, skipna=True).get_variable("v").read_array()
         assert out[0, 1] == -9999.0, (
@@ -378,19 +370,17 @@ class TestReduceMultiBandDim:
         extra = [("d0", [0, 1]), ("d1", [0, 1]), ("d2", [0, 1])]
         nc = NetCDF.create_from_array(
             a1,
-            geo=_GEO,
-            epsg=4326,
+            geo_ref=GeoReference(geo=_GEO, epsg=4326),
             no_data_value=-9999.0,
             variable_name="v1",
-            extra_dims=extra,
+            dims=ExtraDimensions(dims=extra),
         )
         v2 = NetCDF.create_from_array(
             a2,
-            geo=_GEO,
-            epsg=4326,
+            geo_ref=GeoReference(geo=_GEO, epsg=4326),
             no_data_value=-9999.0,
             variable_name="v2",
-            extra_dims=extra,
+            dims=ExtraDimensions(dims=extra),
         )
         nc.set_variable("v2", v2.get_variable("v2"))
         return nc, a1, a2
@@ -444,10 +434,9 @@ class TestReduceStreamingLazyPath:
         arr = np.arange(4 * 2 * 3 * 5, dtype="float64").reshape(4, 2, 3, 5)
         NetCDF.create_from_array(
             arr,
-            geo=_GEO,
-            epsg=4326,
+            geo_ref=GeoReference(geo=_GEO, epsg=4326),
             variable_name="v",
-            extra_dims=[("time", [0, 1, 2, 3]), ("level", [1000, 500])],
+            dims=ExtraDimensions(dims=[("time", [0, 1, 2, 3]), ("level", [1000, 500])]),
         ).to_file(str(tmp_path / "cube4d.nc"))
         return str(tmp_path / "cube4d.nc"), arr
 

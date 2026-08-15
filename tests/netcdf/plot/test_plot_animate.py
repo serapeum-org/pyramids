@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from pyramids.netcdf import FacetSpec, Selectors
+from pyramids.netcdf import FacetSpec, GeoReference, Selectors
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_plot_3d_nc
 from tests.netcdf.plot._plot_helpers import _make_4d_nc, _make_fake_render
@@ -416,8 +416,7 @@ class TestNetCDFPlotAnimateEdges:
         arr = rng.random((4, 4)).astype(np.float32)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=(0.0, 1.0, 0, 4.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
             variable_name="flat",
         )
         with pytest.raises(ValueError, match=r"(?:no band|free band dim)"):

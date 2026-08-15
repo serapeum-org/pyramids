@@ -5,6 +5,7 @@ and CF compliance validation (CF-14).
 import numpy as np
 import pytest
 
+from pyramids.netcdf import GeoReference
 from pyramids.netcdf.cf import decode_flags, validate_cf
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import GEO, SEED, MockDim
@@ -144,7 +145,7 @@ class TestCFAttributePreservation:
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
         )
         var = nc.get_variable("temp")
@@ -162,7 +163,9 @@ class TestCFAttributePreservation:
             Create, copy, check Conventions on copy.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         nc2 = nc.copy()
         ga = nc2.global_attributes
         assert ga.get("Conventions") == "CF-1.8", (

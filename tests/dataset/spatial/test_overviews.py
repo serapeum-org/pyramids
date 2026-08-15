@@ -14,7 +14,7 @@ from osgeo import gdal, osr
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import _DESCRIPTION_EXCERPT, IO
 from pyramids.errors import OverviewTargetError, PyramidsError, ReadOnlyError
-from pyramids.netcdf import Container, NetCDF
+from pyramids.netcdf import Container, GeoReference, NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -388,8 +388,7 @@ class TestCreateOverviewsPathlessGuard:
         source = tmp_path / "guard_var.nc"
         container = NetCDF.create_from_array(
             arr=np.random.default_rng(11).random((16, 16)).astype(np.float64),
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(30.0, 1.0, 0, 40.0, 0, -1.0), epsg=4326),
             no_data_value=-9999.0,
             variable_name="elevation",
         )

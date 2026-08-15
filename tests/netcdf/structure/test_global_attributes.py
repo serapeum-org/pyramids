@@ -7,6 +7,7 @@ single return statement, descriptive assertion messages.
 import numpy as np
 import pytest
 
+from pyramids.netcdf import GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -18,7 +19,7 @@ def _make_nc():
     geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
     return NetCDF.create_from_array(
         arr=arr,
-        geo=geo,
+        geo_ref=GeoReference(geo=geo),
         variable_name="v",
     )
 

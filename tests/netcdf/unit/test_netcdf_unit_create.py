@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.netcdf import GeoReference
 from pyramids.netcdf.engines.variables import _create_netcdf_from_array
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_2d_nc
@@ -112,9 +113,9 @@ class TestCreateFromArrayAlternatives:
         arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            top_left_corner=(10.0, 50.0),
-            cell_size=0.5,
-            epsg=4326,
+            geo_ref=GeoReference(
+                top_left_corner=(10.0, 50.0), cell_size=0.5, epsg=4326
+            ),
             no_data_value=-9999.0,
             path=None,
         )
@@ -134,7 +135,7 @@ class TestCreateFromArrayAlternatives:
         with pytest.raises(ValueError, match="Either 'geo'"):
             NetCDF.create_from_array(
                 arr=arr,
-                epsg=4326,
+                geo_ref=GeoReference(epsg=4326),
                 no_data_value=-9999.0,
             )
 
@@ -147,8 +148,7 @@ class TestCreateFromArrayAlternatives:
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=geo,
-            epsg=4326,
+            geo_ref=GeoReference(geo=geo, epsg=4326),
             no_data_value=-9999.0,
             path=None,
         )
@@ -165,8 +165,7 @@ class TestCreateFromArrayAlternatives:
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=geo,
-            epsg=4326,
+            geo_ref=GeoReference(geo=geo, epsg=4326),
             no_data_value=-9999.0,
             variable_name="test_var",
             path=None,

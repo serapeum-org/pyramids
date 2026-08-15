@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from pyramids.netcdf import ColorOpts, ColourOpts, Selectors
+from pyramids.netcdf import ColorOpts, ColourOpts, GeoReference, Selectors
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_plot_3d_nc
@@ -369,8 +369,7 @@ class TestPlotStampsGlyphCRS:
         """
         nc = NetCDF.create_from_array(
             np.arange(12.0).reshape(3, 4),
-            geo=(0.0, 1.0, 0, 3.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 3.0, 0, -1.0), epsg=4326),
             variable_name="d",
         )
         glyph = nc.get_variable("d").plot()
@@ -384,8 +383,7 @@ class TestPlotStampsGlyphCRS:
         """
         nc = NetCDF.create_from_array(
             np.arange(12.0).reshape(3, 4),
-            geo=(0.0, 1.0, 0, 3.0, 0, -1.0),
-            epsg=3857,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 3.0, 0, -1.0), epsg=3857),
             variable_name="d",
         )
         glyph = nc.get_variable("d").plot()

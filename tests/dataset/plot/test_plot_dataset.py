@@ -8,6 +8,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.plot
@@ -692,11 +693,10 @@ def _make_nc_subset_with_band_count(tmp_path, n_bands: int):
     arr = rng.random((n_bands, 5, 6)).astype("float32")
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=(30.0, 0.5, 0, 35.0, 0, -0.5),
+        geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5)),
         variable_name="t2m",
         path=None,
-        extra_dim_name="time",
-        extra_dim_values=list(range(n_bands)),
+        dims=ExtraDimensions(name="time", values=list(range(n_bands))),
     )
     return nc.get_variable("t2m"), arr
 

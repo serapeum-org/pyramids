@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -265,8 +266,10 @@ class TestRootContainer4DSpatialOps:
         arr = np.arange(2 * 3 * 5 * 6).reshape(2, 3, 5, 6).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
-            extra_dims=[("time", [10, 20]), ("level", [1000, 850, 500])],
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0)),
+            dims=ExtraDimensions(
+                dims=[("time", [10, 20]), ("level", [1000, 850, 500])]
+            ),
             variable_name="temp",
         )
         var = nc.get_variable("temp")
@@ -287,9 +290,8 @@ class TestRootContainer4DSpatialOps:
         with pytest.raises(ValueError, match="mutually exclusive"):
             NetCDF.create_from_array(
                 arr=arr,
-                geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
-                extra_dim_values=[1, 2, 3],
-                extra_dims=[("time", [1, 2, 3])],
+                geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0)),
+                dims=ExtraDimensions(values=[1, 2, 3], dims=[("time", [1, 2, 3])]),
                 variable_name="temp",
             )
 
@@ -299,8 +301,8 @@ class TestRootContainer4DSpatialOps:
         with pytest.raises(ValueError, match="must have 2 entries"):
             NetCDF.create_from_array(
                 arr=arr,
-                geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
-                extra_dims=[("time", [1, 2])],  # only 1 entry, need 2
+                geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0)),
+                dims=ExtraDimensions(dims=[("time", [1, 2])]),  # only 1 entry, need 2
                 variable_name="temp",
             )
 
@@ -310,8 +312,8 @@ class TestRootContainer4DSpatialOps:
         with pytest.raises(ValueError, match="does not match arr.shape"):
             NetCDF.create_from_array(
                 arr=arr,
-                geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
-                extra_dims=[("time", [1, 2, 3]), ("level", [1, 2, 3])],
+                geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0)),
+                dims=ExtraDimensions(dims=[("time", [1, 2, 3]), ("level", [1, 2, 3])]),
                 variable_name="temp",
             )
 
@@ -464,10 +466,11 @@ def _make_4d_writable_nc():
                     arr[t, level, y, x] = t * 1000.0 + level * 100.0 + y * 10.0 + x
     return NetCDF.create_from_array(
         arr=arr,
-        geo=(-10.0, 1.0, 0, 44.0, 0, -1.0),
-        epsg=4326,
+        geo_ref=GeoReference(geo=(-10.0, 1.0, 0, 44.0, 0, -1.0), epsg=4326),
         variable_name="temperature",
-        extra_dims=[("time", TIME_VALUES), ("pressure_level", LEVEL_VALUES)],
+        dims=ExtraDimensions(
+            dims=[("time", TIME_VALUES), ("pressure_level", LEVEL_VALUES)]
+        ),
     )
 
 

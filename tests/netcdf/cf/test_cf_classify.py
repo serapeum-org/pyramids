@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from pyramids.netcdf import GeoReference
 from pyramids.netcdf.cf import (
     _check_coordinate_variable,
     apply_valid_range_mask,
@@ -435,7 +436,9 @@ class TestCFInfoOnMetadata:
     def test_meta_data_has_cf(self):
         """NetCDFMetadata.cf is not None after reading."""
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         md = nc.meta_data
         assert md.cf is not None, "cf should be populated"
         assert md.cf.cf_version == "1.8", f"Expected CF 1.8, got {md.cf.cf_version}"
@@ -443,7 +446,9 @@ class TestCFInfoOnMetadata:
     def test_cf_classifications(self):
         """CFInfo.classifications contains correct roles."""
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         md = nc.meta_data
         assert "temp" in md.cf.data_variable_names, (
             f"temp should be in data_variable_names: {md.cf.data_variable_names}"
@@ -452,7 +457,9 @@ class TestCFInfoOnMetadata:
     def test_cf_conventions_parsed(self):
         """CFInfo.conventions contains parsed Conventions attribute."""
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         md = nc.meta_data
         assert "CF" in md.cf.conventions, (
             f"CF should be in conventions: {md.cf.conventions}"

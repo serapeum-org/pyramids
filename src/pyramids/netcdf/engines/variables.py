@@ -32,6 +32,12 @@ from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf._mdim import scalar_no_data, unflatten_band_axes
+from pyramids.netcdf.array_options import (
+    CFAttributes,
+    Encoding,
+    ExtraDimensions,
+    GeoReference,
+)
 from pyramids.netcdf.cf import (
     srs_to_grid_mapping,
     write_attributes_to_md_array,
@@ -376,23 +382,14 @@ def _build_variable_mdarray(
 
 def create_from_array(
     arr: np.ndarray,
-    geo: tuple[float, float, float, float, float, float] | None = None,
-    epsg: str | int = 4326,
-    no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
+    *,
+    geo_ref: GeoReference | None = None,
     path: str | Path | None = None,
     variable_name: str | None = None,
-    extra_dim_name: str = "time",
-    extra_dim_values: list | None = None,
-    extra_dims: list[tuple[str, list | None]] | None = None,
-    top_left_corner: tuple[float, float] | None = None,
-    cell_size: int | float | None = None,
-    chunk_sizes: tuple | list | None = None,
-    compression: str | None = None,
-    compression_level: int | None = None,
-    title: str | None = None,
-    institution: str | None = None,
-    source: str | None = None,
-    history: str | None = None,
+    no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
+    dims: ExtraDimensions | None = None,
+    encoding: Encoding | None = None,
+    attrs: CFAttributes | None = None,
 ) -> NetCDF:
     """Create a NetCDF dataset from a NumPy array and geotransform.
 
@@ -421,59 +418,41 @@ def create_from_array(
     dask block shape. Writing to memory (`path=None`) still materialises
     one block at a time but the in-memory result holds the full array.
 
+    The write options are organised into grouped, validated dataclasses
+    (:class:`~pyramids.netcdf.array_options.GeoReference`,
+    :class:`~pyramids.netcdf.array_options.ExtraDimensions`,
+    :class:`~pyramids.netcdf.array_options.Encoding`,
+    :class:`~pyramids.netcdf.array_options.CFAttributes`) — see each class for
+    its fields. They are importable from the subpackage, e.g.
+    ``from pyramids.netcdf import GeoReference``.
+
     Args:
         arr: 2-D `(rows, cols)`, 3-D `(extra_dim, rows, cols)`, or
             4-D+ `(d_0, ..., d_{n-1}, rows, cols)` array. Either a NumPy
             array (written eagerly) or a `dask.array.Array` (streamed
             block-by-block, see above).
-        geo: Geotransform tuple `(x_min, pixel_size, rotation,
-            y_max, rotation, pixel_size)`.
-        epsg: EPSG code for the spatial reference.
-            Defaults to 4326.
-        no_data_value: Sentinel value for cells outside the
-            domain. Defaults to DEFAULT_NO_DATA_VALUE.
+        geo_ref: How the array maps to space — a
+            :class:`~pyramids.netcdf.array_options.GeoReference` holding either
+            `geo` / `epsg` or `top_left_corner` + `cell_size`. Required: it
+            must resolve to a geotransform. Defaults to an empty
+            `GeoReference()`, which raises unless a geotransform can be built.
         path: Output file path. If `None`, the dataset is
             created in memory. Defaults to None.
         variable_name: Name of the data variable in the NetCDF
             file. Defaults to `"data"`.
-        extra_dim_name: Legacy single-dim path. Name of the
-            non-spatial dimension for 3-D arrays (e.g. `"time"`,
-            `"level"`, `"depth"`). Ignored for 2-D arrays.
-            Mutually exclusive with `extra_dims`. Defaults to
-            `"time"`.
-        extra_dim_values: Legacy single-dim path. Coordinate values
-            for the non-spatial dimension. Must have length
-            `arr.shape[0]` for 3-D arrays. Mutually exclusive with
-            `extra_dims`. Defaults to `[0, 1, 2,..., N-1]`.
-        extra_dims: Multi-dim path. Ordered list of
-            `(dim_name, values)` pairs describing every non-spatial
-            dimension in storage order. `len(extra_dims)` must
-            equal `arr.ndim - 2`. Each `values` is either a list of
-            length `arr.shape[i]` or `None` (use integer indices
-            `[0, 1, ..., size - 1]`). Mutually exclusive with
-            `extra_dim_name` / `extra_dim_values`.
-        top_left_corner: `(x, y)` of the top-left corner. Used
-            with `cell_size` to build `geo` when `geo` is
-            not provided. Defaults to None.
-        cell_size: Pixel size. Used with `top_left_corner` to
-            build `geo`. Defaults to None.
-        chunk_sizes: Chunk sizes for the data variable as a tuple
-            matching the array dimensions (e.g. `(1, 256, 256)`
-            for 3-D). Only effective when writing to disk.
-            Defaults to None (GDAL default chunking).
-        compression: Compression algorithm name (`"DEFLATE"`,
-            `"ZSTD"`, etc.). Only effective when writing to
-            disk. Defaults to None (no compression).
-        compression_level: Compression level (e.g. 1-9 for
-            DEFLATE). Defaults to None (GDAL default).
-        title: CF global attribute `title`. Short
-            description of the dataset. Defaults to None.
-        institution: CF global attribute `institution`.
-            Where the data was produced. Defaults to None.
-        source: CF global attribute `source`. How the
-            data was produced. Defaults to None.
-        history: CF global attribute `history`. Audit
-            trail of processing steps. Defaults to None.
+        no_data_value: Sentinel value for cells outside the
+            domain. Defaults to DEFAULT_NO_DATA_VALUE.
+        dims: The non-spatial dimensions of a 3-D+ array, as an
+            :class:`~pyramids.netcdf.array_options.ExtraDimensions`. Ignored
+            for 2-D arrays. Defaults to an empty `ExtraDimensions()` (dim name
+            `"time"`, integer-index coordinates).
+        encoding: On-disk write options (chunking, compression) as an
+            :class:`~pyramids.netcdf.array_options.Encoding`. Only effective
+            when `path` is given. Defaults to an empty `Encoding()`.
+        attrs: CF global attributes (`title`, `institution`, `source`,
+            `history`) as a
+            :class:`~pyramids.netcdf.array_options.CFAttributes`. Defaults to
+            an empty `CFAttributes()`.
 
     Returns:
         NetCDF: The newly created NetCDF dataset.
@@ -484,32 +463,27 @@ def create_from_array(
     # was invoked on, sidestepping the deprecated base-NetCDF construction path.
     from pyramids.netcdf.netcdf import Container
 
-    if geo is None and top_left_corner is not None and cell_size is not None:
-        geo = (
-            top_left_corner[0],
-            cell_size,
-            0,
-            top_left_corner[1],
-            0,
-            -cell_size,
-        )
-    if geo is None:
-        raise ValueError(
-            "Either 'geo' or both 'top_left_corner' and 'cell_size' must be provided."
-        )
+    geo_ref = geo_ref or GeoReference()
+    dims = dims or ExtraDimensions()
+    encoding = encoding or Encoding()
+    attrs = attrs or CFAttributes()
+
+    # `GeoReference` owns the geo/(corner + cell_size) reconciliation and raises when neither
+    # can produce a geotransform.
+    geo = geo_ref.resolve_geotransform()
 
     rows = int(arr.shape[-2]) if arr.ndim >= 2 else 0
     cols = int(arr.shape[-1]) if arr.ndim >= 2 else 0
 
     # Reconcile the legacy single-dim params with the new
-    # `extra_dims` list-of-pairs API. Result is a normalised list
+    # `dims` list-of-pairs API. Result is a normalised list
     # of (name, values) pairs whose length equals
     # `max(arr.ndim - 2, 0)`.
     resolved_extra_dims = _resolve_extra_dims(
         arr=arr,
-        extra_dim_name=extra_dim_name,
-        extra_dim_values=extra_dim_values,
-        extra_dims=extra_dims,
+        extra_dim_name=dims.name,
+        extra_dim_values=dims.values,
+        extra_dims=dims.dims,
     )
 
     if arr.ndim == 3:
@@ -522,18 +496,7 @@ def create_from_array(
     if variable_name is None:
         variable_name = "data"
 
-    # Collapse the four optional CF global attributes into one mapping so the
-    # builder stays within the parameter budget; only provided ones are kept.
-    cf_attrs = {
-        k: v
-        for k, v in (
-            ("title", title),
-            ("institution", institution),
-            ("source", source),
-            ("history", history),
-        )
-        if v is not None
-    }
+    cf_attrs = attrs.as_dict()
 
     dst_ds = _create_netcdf_from_array(
         arr,
@@ -542,12 +505,12 @@ def create_from_array(
         rows,
         resolved_extra_dims,
         geo,
-        epsg,
+        geo_ref.epsg,
         no_data_value,
         path=path,
-        chunk_sizes=chunk_sizes,
-        compression=compression,
-        compression_level=compression_level,
+        chunk_sizes=encoding.chunk_sizes,
+        compression=encoding.compression,
+        compression_level=encoding.compression_level,
         cf_attrs=cf_attrs,
     )
     result = Container(dst_ds)

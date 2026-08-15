@@ -10,6 +10,7 @@ from numpy.testing import assert_allclose
 from osgeo import gdal
 
 from pyramids.base._utils import numpy_to_gdal_dtype
+from pyramids.netcdf import GeoReference
 from pyramids.netcdf.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
@@ -58,7 +59,7 @@ def _make_flat_nc():
     arr = np.ones((5, 8), dtype=np.float64)
     return NetCDF.create_from_array(
         arr=arr,
-        geo=(0, 1, 0, 5, 0, -1),
+        geo_ref=GeoReference(geo=(0, 1, 0, 5, 0, -1)),
         variable_name="v",
     )
 

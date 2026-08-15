@@ -19,6 +19,7 @@ xr = pytest.importorskip("xarray")
 pytestmark = pytest.mark.interop
 
 from pyramids.dataset import Dataset
+from pyramids.netcdf import GeoReference
 from pyramids.netcdf.engines.interop import (
     _encode_temporal_array,
     _write_md_array_streamed,
@@ -129,8 +130,7 @@ def _make_2d_nc(rows=4, cols=6, variable_name="elevation"):
     geo = (10.0, 1.0, 0, 44.0, 0, -1.0)
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=geo,
-        epsg=4326,
+        geo_ref=GeoReference(geo=geo, epsg=4326),
         no_data_value=-9999.0,
         variable_name=variable_name,
     )

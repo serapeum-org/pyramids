@@ -11,6 +11,7 @@ from numpy.testing import assert_allclose
 from shapely.geometry import box
 
 from pyramids.dataset import Dataset
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -22,12 +23,10 @@ def _make_nc(rows=20, cols=30, bands=5):
     geo = (30.0, 0.5, 0, 35.0, 0, -0.5)
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=geo,
-        epsg=4326,
+        geo_ref=GeoReference(geo=geo, epsg=4326),
         no_data_value=-9999.0,
         variable_name="temperature",
-        extra_dim_name="time",
-        extra_dim_values=[0, 6, 12, 18, 24],
+        dims=ExtraDimensions(name="time", values=[0, 6, 12, 18, 24]),
     )
     return nc
 
