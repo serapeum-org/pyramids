@@ -125,8 +125,15 @@ class TestMetadataForwarding:
         tags = cog.Tags(colormap={0: (1, 2, 3, 255)})
         with pytest.raises(
             ValueError, match="colormap is only supported on Byte/UInt16"
-        ):
+        ) as exc_info:
             ds.to_cog(tmp_path / "f_cmap.tif", tags=tags)
+        message = str(exc_info.value)
+        assert "bands=cog.BandSelection(out_dtype=" in message, (
+            f"guidance must name the grouped API, got: {message}"
+        )
+        assert "to_cog(..., out_dtype=" not in message, (
+            f"message must not point at the removed flat out_dtype= kwarg: {message}"
+        )
 
     def test_colormap_on_float_after_cast_succeeds(self, tmp_path):
         """Casting to uint8 first lets a colormap be applied (L2).

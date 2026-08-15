@@ -619,7 +619,8 @@ class COG(_Engine["Dataset"]):
                 raise ValueError(
                     f"colormap is only supported on Byte/UInt16 rasters; got "
                     f"{gdal.GetDataTypeName(band.DataType)}. Cast first with "
-                    f"to_cog(..., out_dtype='uint8'), or drop the colormap."
+                    f"to_cog(..., bands=cog.BandSelection(out_dtype='uint8')), "
+                    f"or drop the colormap."
                 )
             color_table = gdal.ColorTable()
             for value, rgba in colormap.items():
