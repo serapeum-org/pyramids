@@ -16,6 +16,7 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset, cog
 from pyramids.dataset.cog.validate import ValidationReport
+from pyramids.dataset.engines import cog as cog_engine
 
 pytestmark = pytest.mark.core
 
@@ -264,21 +265,32 @@ class TestToCogOptionMapping:
         reopened.close()
         assert epsg == 3857, f"expected EPSG:3857, got {epsg}"
 
-    def test_num_threads_as_int(self, small_float_dataset, tmp_path):
-        """An int `num_threads` is stringified for GDAL (the else branch).
+    def test_num_threads_as_int(self, small_float_dataset, tmp_path, monkeypatch):
+        """An int `num_threads` is stringified to NUM_THREADS (the else branch).
 
         Args:
             small_float_dataset: Fixture float32 Dataset.
             tmp_path: pytest temp directory.
+            monkeypatch: pytest monkeypatch fixture.
 
         Test scenario:
-            `Layout(num_threads=2)` writes a valid COG (the int→str conversion
-            path, distinct from the default "ALL_CPUS" string).
+            `Layout(num_threads=2)` forwards NUM_THREADS="2" to the writer,
+            captured by spying on the COG option dict (int→str conversion).
         """
-        out = small_float_dataset.to_cog(
+        captured: dict = {}
+        real = cog_engine.translate_to_cog
+
+        def spy(src, path, options):
+            captured.update(options)
+            return real(src, path, options)
+
+        monkeypatch.setattr(cog_engine, "translate_to_cog", spy)
+        small_float_dataset.to_cog(
             tmp_path / "nt.tif", layout=cog.Layout(num_threads=2)
         )
-        assert out.exists(), "int num_threads should produce a COG"
+        assert captured.get("NUM_THREADS") == "2", (
+            f"int num_threads should stringify to '2', got {captured.get('NUM_THREADS')!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
