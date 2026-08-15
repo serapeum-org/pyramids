@@ -641,3 +641,54 @@ class TestTags:
         with pytest.raises(ValueError, match="only supported on Byte/UInt16") as exc:
             Tags(colormap={0: (1, 2, 3, 4)})._stamp(ds)
         assert "Byte/UInt16" in str(exc.value), f"unexpected message: {exc.value}"
+
+
+class TestOptionComposition:
+    """The four `_to_options` slices compose into the GDAL creation-option dict."""
+
+    def test_slices_merge_without_key_collision(self):
+        """The group slices union to the full COG key set with no collision.
+
+        Test scenario:
+            Merging Compression/Overviews/Tiling/Layout `_to_options` for a plain
+            float source must not have one slice clobber another (a dict-merge
+            collision would silently drop keys), and must yield exactly the keys
+            the engine's old flat `_build_cog_defaults` produced.
+        """
+        ds = _mem_dataset(gdal.GDT_Float32)
+        band = ds.GetRasterBand(1)
+        slices = [
+            Compression()._to_options(band),
+            Overviews()._to_options(band),
+            Tiling()._to_options(),
+            Layout()._to_options(),
+        ]
+        merged: dict = {}
+        for group_slice in slices:
+            merged.update(group_slice)
+        total_keys = sum(len(group_slice) for group_slice in slices)
+        assert len(merged) == total_keys, (
+            f"key collision across slices: {total_keys} keys collapsed to {len(merged)}"
+        )
+        expected = {
+            "COMPRESS",
+            "LEVEL",
+            "QUALITY",
+            "MAX_Z_ERROR",
+            "PREDICTOR",
+            "OVERVIEW_RESAMPLING",
+            "OVERVIEW_COUNT",
+            "OVERVIEW_COMPRESS",
+            "TILING_SCHEME",
+            "ZOOM_LEVEL",
+            "ZOOM_LEVEL_STRATEGY",
+            "ALIGNED_LEVELS",
+            "WARP_RESAMPLING",
+            "BLOCKSIZE",
+            "BIGTIFF",
+            "NUM_THREADS",
+            "ADD_ALPHA",
+            "SPARSE_OK",
+            "STATISTICS",
+        }
+        assert set(merged) == expected, f"unexpected key set: {set(merged) ^ expected}"
