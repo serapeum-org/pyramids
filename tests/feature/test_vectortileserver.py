@@ -255,6 +255,30 @@ class TestVectorTileServerValidation:
         )
         assert frames == [], "an empty sub-layer yields no frame"
 
+    def test_tile_count_matches_covering_list(self):
+        """The count that drives zoom-pick / max_tiles equals the actual covering-tile list."""
+        origin_x, origin_y, tile_size, lods, _ = _read._resolve_vts_tiling(_load_metadata())
+        info = _load_fixture_info()
+        bbox_3857 = _read._vts_bbox_3857(tuple(info["bbox_4326"]), {})
+        level = info["zoom"]
+        tile_span = tile_size * lods[level]
+        count = _read._vts_tile_count(bbox_3857, origin_x, origin_y, tile_span, level)
+        tiles = _read._covering_vts_tiles(
+            bbox_3857, level, origin_x, origin_y, tile_span, max_tiles=1000
+        )
+        assert count == len(tiles) == 2, "pick/cap count and fetched list must agree"
+
+    def test_tile_range_clamped_to_valid_grid(self):
+        """A world-spanning bbox clamps to ``0 .. 2**level - 1`` (no negative or overflow indices)."""
+        origin = _read._WEBMERC_ORIGIN
+        span = (2 * origin) / (2**3)  # metres per tile at zoom 3 (an 8x8 grid)
+        huge = (-3 * origin, -3 * origin, 3 * origin, 3 * origin)
+        col_min, col_max, row_min, row_max = _read._vts_tile_range(
+            huge, -origin, origin, span, level=3
+        )
+        assert (col_min, row_min) == (0, 0), "lower indices clamped to 0"
+        assert (col_max, row_max) == (7, 7), "upper indices clamped to 2**3 - 1"
+
     def test_covering_tiles_matches_fixture(self):
         """The covering-tile math reproduces exactly the fixture's two tiles."""
         info = _load_fixture_info()

@@ -347,14 +347,22 @@ def _vts_tile_range(
     origin_x: float,
     origin_y: float,
     tile_span: float,
+    level: int,
 ) -> tuple[int, int, int, int]:
-    """Inclusive ``(col_min, col_max, row_min, row_max)`` covering ``bbox_3857``."""
+    """Inclusive ``(col_min, col_max, row_min, row_max)``, clamped to the valid grid at ``level``.
+
+    The grid at ``level`` has ``2**level`` tiles per axis, so indices are clamped to
+    ``0 .. 2**level - 1``. This keeps the covering-tile list, the count that drives the
+    zoom-pick / ``max_tiles`` cap, and the fetch all in agreement, and stops the reader
+    requesting out-of-world tiles that would only 404.
+    """
     minx, miny, maxx, maxy = bbox_3857
-    col_min = int(math.floor((minx - origin_x) / tile_span))
-    col_max = int(math.floor((maxx - origin_x) / tile_span))
+    last = 2**level - 1
+    col_min = max(0, int(math.floor((minx - origin_x) / tile_span)))
+    col_max = min(last, int(math.floor((maxx - origin_x) / tile_span)))
     # y grows downward from the top-left origin, so the north edge maps to the smallest row.
-    row_min = int(math.floor((origin_y - maxy) / tile_span))
-    row_max = int(math.floor((origin_y - miny) / tile_span))
+    row_min = max(0, int(math.floor((origin_y - maxy) / tile_span)))
+    row_max = min(last, int(math.floor((origin_y - miny) / tile_span)))
     return col_min, col_max, row_min, row_max
 
 
@@ -363,10 +371,11 @@ def _vts_tile_count(
     origin_x: float,
     origin_y: float,
     tile_span: float,
+    level: int,
 ) -> int:
-    """Number of tiles covering ``bbox_3857`` at ``tile_span`` metres per tile."""
+    """Number of in-grid tiles covering ``bbox_3857`` at ``level`` (matches the fetched set)."""
     col_min, col_max, row_min, row_max = _vts_tile_range(
-        bbox_3857, origin_x, origin_y, tile_span
+        bbox_3857, origin_x, origin_y, tile_span, level
     )
     return max(0, col_max - col_min + 1) * max(0, row_max - row_min + 1)
 
@@ -382,7 +391,7 @@ def _pick_vts_zoom(
     """Highest LOD whose covering-tile count fits ``max_tiles`` (else the coarsest LOD)."""
     for level in sorted(lods, reverse=True):
         tile_span = tile_size * lods[level]
-        if _vts_tile_count(bbox_3857, origin_x, origin_y, tile_span) <= max_tiles:
+        if _vts_tile_count(bbox_3857, origin_x, origin_y, tile_span, level) <= max_tiles:
             return level
     return min(lods)
 
@@ -418,13 +427,14 @@ def _covering_vts_tiles(
 ) -> list[tuple[int, int, int]]:
     """List ``(z, x, y)`` tiles covering ``bbox_3857`` at ``level``; warn + truncate past ``max_tiles``."""
     col_min, col_max, row_min, row_max = _vts_tile_range(
-        bbox_3857, origin_x, origin_y, tile_span
+        bbox_3857, origin_x, origin_y, tile_span, level
     )
+    # The range is already clamped to the valid 0 .. 2**level - 1 grid, so every index here
+    # is a real tile — the count above (which drove the zoom-pick / cap) matches this list.
     tiles = [
         (level, x, y)
         for x in range(col_min, col_max + 1)
         for y in range(row_min, row_max + 1)
-        if x >= 0 and y >= 0
     ]
     if len(tiles) > max_tiles:
         warnings.warn(
