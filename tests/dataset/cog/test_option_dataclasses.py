@@ -489,8 +489,9 @@ class TestBandSelection:
         monkeypatch.setattr(
             "pyramids.dataset.cog.options.gdal.Translate", lambda *a, **k: None
         )
+        selection = BandSelection(out_dtype="uint8")
         with pytest.raises(FailedToSaveError, match="pre-processed COG source") as exc:
-            BandSelection(out_dtype="uint8")._translate(src)
+            selection._translate(src)
         assert "out_dtype" in str(exc.value), (
             f"message should name the fields, got: {exc.value}"
         )
@@ -645,8 +646,9 @@ class TestTags:
             Byte/UInt16 constraint.
         """
         ds = _mem_dataset(gdal.GDT_Float32)
+        tags = Tags(colormap={0: (1, 2, 3, 4)})
         with pytest.raises(ValueError, match="only supported on Byte/UInt16") as exc:
-            Tags(colormap={0: (1, 2, 3, 4)})._stamp(ds)
+            tags._stamp(ds)
         assert "Byte/UInt16" in str(exc.value), f"unexpected message: {exc.value}"
 
 
