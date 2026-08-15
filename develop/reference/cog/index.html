@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -11346,9 +11346,7 @@ callers can pass optional kwargs through unchanged.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/cog/options.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-626">626</a></span>
-<span class="normal"><a href="#__codelineno-0-627">627</a></span>
-<span class="normal"><a href="#__codelineno-0-628">628</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-628">628</a></span>
 <span class="normal"><a href="#__codelineno-0-629">629</a></span>
 <span class="normal"><a href="#__codelineno-0-630">630</a></span>
 <span class="normal"><a href="#__codelineno-0-631">631</a></span>
@@ -11390,51 +11388,53 @@ callers can pass optional kwargs through unchanged.</p>
 <span class="normal"><a href="#__codelineno-0-667">667</a></span>
 <span class="normal"><a href="#__codelineno-0-668">668</a></span>
 <span class="normal"><a href="#__codelineno-0-669">669</a></span>
-<span class="normal"><a href="#__codelineno-0-670">670</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-626" name="__codelineno-0-626"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_gdal_options</span><span class="p">(</span><span class="n">opts</span><span class="p">:</span> <span class="n">CreationOptions</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
-<a id="__codelineno-0-627" name="__codelineno-0-627"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Serialize a mapping into GDAL&#39;s `[&#39;KEY=VALUE&#39;,...]` list form.</span>
-<a id="__codelineno-0-628" name="__codelineno-0-628"></a>
-<a id="__codelineno-0-629" name="__codelineno-0-629"></a><span class="sd">    Keys are uppercased; values are stringified via :func:`_stringify`</span>
-<a id="__codelineno-0-630" name="__codelineno-0-630"></a><span class="sd">    (booleans become `&quot;YES&quot;`/`&quot;NO&quot;`). `None` values are skipped so</span>
-<a id="__codelineno-0-631" name="__codelineno-0-631"></a><span class="sd">    callers can pass optional kwargs through unchanged.</span>
-<a id="__codelineno-0-632" name="__codelineno-0-632"></a>
-<a id="__codelineno-0-633" name="__codelineno-0-633"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-634" name="__codelineno-0-634"></a><span class="sd">        opts: Mapping of option names to values, or `None`.</span>
-<a id="__codelineno-0-635" name="__codelineno-0-635"></a>
-<a id="__codelineno-0-636" name="__codelineno-0-636"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-637" name="__codelineno-0-637"></a><span class="sd">        List of `&quot;KEY=VALUE&quot;` strings. Empty list when `opts` is `None`.</span>
-<a id="__codelineno-0-638" name="__codelineno-0-638"></a>
-<a id="__codelineno-0-639" name="__codelineno-0-639"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-640" name="__codelineno-0-640"></a><span class="sd">        - Serialize a compression config:</span>
-<a id="__codelineno-0-641" name="__codelineno-0-641"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-642" name="__codelineno-0-642"></a><span class="sd">            &gt;&gt;&gt; to_gdal_options({&quot;COMPRESS&quot;: &quot;DEFLATE&quot;, &quot;LEVEL&quot;: 9})</span>
-<a id="__codelineno-0-643" name="__codelineno-0-643"></a><span class="sd">            [&#39;COMPRESS=DEFLATE&#39;, &#39;LEVEL=9&#39;]</span>
-<a id="__codelineno-0-644" name="__codelineno-0-644"></a>
-<a id="__codelineno-0-645" name="__codelineno-0-645"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-646" name="__codelineno-0-646"></a><span class="sd">        - Booleans become GDAL&#39;s YES/NO convention:</span>
-<a id="__codelineno-0-647" name="__codelineno-0-647"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-648" name="__codelineno-0-648"></a><span class="sd">            &gt;&gt;&gt; to_gdal_options({&quot;STATISTICS&quot;: True, &quot;SPARSE_OK&quot;: False})</span>
-<a id="__codelineno-0-649" name="__codelineno-0-649"></a><span class="sd">            [&#39;STATISTICS=YES&#39;, &#39;SPARSE_OK=NO&#39;]</span>
-<a id="__codelineno-0-650" name="__codelineno-0-650"></a>
-<a id="__codelineno-0-651" name="__codelineno-0-651"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-652" name="__codelineno-0-652"></a><span class="sd">        - None values are dropped so optional kwargs flow through unchanged:</span>
-<a id="__codelineno-0-653" name="__codelineno-0-653"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-654" name="__codelineno-0-654"></a><span class="sd">            &gt;&gt;&gt; to_gdal_options({&quot;COMPRESS&quot;: &quot;LZW&quot;, &quot;LEVEL&quot;: None})</span>
-<a id="__codelineno-0-655" name="__codelineno-0-655"></a><span class="sd">            [&#39;COMPRESS=LZW&#39;]</span>
-<a id="__codelineno-0-656" name="__codelineno-0-656"></a><span class="sd">            &gt;&gt;&gt; to_gdal_options(None)</span>
-<a id="__codelineno-0-657" name="__codelineno-0-657"></a><span class="sd">            []</span>
-<a id="__codelineno-0-658" name="__codelineno-0-658"></a>
-<a id="__codelineno-0-659" name="__codelineno-0-659"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-660" name="__codelineno-0-660"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-661" name="__codelineno-0-661"></a>    <span class="n">result</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
-<a id="__codelineno-0-662" name="__codelineno-0-662"></a>    <span class="k">if</span> <span class="n">opts</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-663" name="__codelineno-0-663"></a>        <span class="n">result</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-664" name="__codelineno-0-664"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-665" name="__codelineno-0-665"></a>        <span class="n">result</span> <span class="o">=</span> <span class="p">[</span>
-<a id="__codelineno-0-666" name="__codelineno-0-666"></a>            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">_stringify</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-667" name="__codelineno-0-667"></a>            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">opts</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
-<a id="__codelineno-0-668" name="__codelineno-0-668"></a>            <span class="k">if</span> <span class="n">v</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-<a id="__codelineno-0-669" name="__codelineno-0-669"></a>        <span class="p">]</span>
-<a id="__codelineno-0-670" name="__codelineno-0-670"></a>    <span class="k">return</span> <span class="n">result</span>
+<span class="normal"><a href="#__codelineno-0-670">670</a></span>
+<span class="normal"><a href="#__codelineno-0-671">671</a></span>
+<span class="normal"><a href="#__codelineno-0-672">672</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-628" name="__codelineno-0-628"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_gdal_options</span><span class="p">(</span><span class="n">opts</span><span class="p">:</span> <span class="n">CreationOptions</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-629" name="__codelineno-0-629"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Serialize a mapping into GDAL&#39;s `[&#39;KEY=VALUE&#39;,...]` list form.</span>
+<a id="__codelineno-0-630" name="__codelineno-0-630"></a>
+<a id="__codelineno-0-631" name="__codelineno-0-631"></a><span class="sd">    Keys are uppercased; values are stringified via :func:`_stringify`</span>
+<a id="__codelineno-0-632" name="__codelineno-0-632"></a><span class="sd">    (booleans become `&quot;YES&quot;`/`&quot;NO&quot;`). `None` values are skipped so</span>
+<a id="__codelineno-0-633" name="__codelineno-0-633"></a><span class="sd">    callers can pass optional kwargs through unchanged.</span>
+<a id="__codelineno-0-634" name="__codelineno-0-634"></a>
+<a id="__codelineno-0-635" name="__codelineno-0-635"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-636" name="__codelineno-0-636"></a><span class="sd">        opts: Mapping of option names to values, or `None`.</span>
+<a id="__codelineno-0-637" name="__codelineno-0-637"></a>
+<a id="__codelineno-0-638" name="__codelineno-0-638"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-639" name="__codelineno-0-639"></a><span class="sd">        List of `&quot;KEY=VALUE&quot;` strings. Empty list when `opts` is `None`.</span>
+<a id="__codelineno-0-640" name="__codelineno-0-640"></a>
+<a id="__codelineno-0-641" name="__codelineno-0-641"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-642" name="__codelineno-0-642"></a><span class="sd">        - Serialize a compression config:</span>
+<a id="__codelineno-0-643" name="__codelineno-0-643"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-644" name="__codelineno-0-644"></a><span class="sd">            &gt;&gt;&gt; to_gdal_options({&quot;COMPRESS&quot;: &quot;DEFLATE&quot;, &quot;LEVEL&quot;: 9})</span>
+<a id="__codelineno-0-645" name="__codelineno-0-645"></a><span class="sd">            [&#39;COMPRESS=DEFLATE&#39;, &#39;LEVEL=9&#39;]</span>
+<a id="__codelineno-0-646" name="__codelineno-0-646"></a>
+<a id="__codelineno-0-647" name="__codelineno-0-647"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-648" name="__codelineno-0-648"></a><span class="sd">        - Booleans become GDAL&#39;s YES/NO convention:</span>
+<a id="__codelineno-0-649" name="__codelineno-0-649"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-650" name="__codelineno-0-650"></a><span class="sd">            &gt;&gt;&gt; to_gdal_options({&quot;STATISTICS&quot;: True, &quot;SPARSE_OK&quot;: False})</span>
+<a id="__codelineno-0-651" name="__codelineno-0-651"></a><span class="sd">            [&#39;STATISTICS=YES&#39;, &#39;SPARSE_OK=NO&#39;]</span>
+<a id="__codelineno-0-652" name="__codelineno-0-652"></a>
+<a id="__codelineno-0-653" name="__codelineno-0-653"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-654" name="__codelineno-0-654"></a><span class="sd">        - None values are dropped so optional kwargs flow through unchanged:</span>
+<a id="__codelineno-0-655" name="__codelineno-0-655"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-656" name="__codelineno-0-656"></a><span class="sd">            &gt;&gt;&gt; to_gdal_options({&quot;COMPRESS&quot;: &quot;LZW&quot;, &quot;LEVEL&quot;: None})</span>
+<a id="__codelineno-0-657" name="__codelineno-0-657"></a><span class="sd">            [&#39;COMPRESS=LZW&#39;]</span>
+<a id="__codelineno-0-658" name="__codelineno-0-658"></a><span class="sd">            &gt;&gt;&gt; to_gdal_options(None)</span>
+<a id="__codelineno-0-659" name="__codelineno-0-659"></a><span class="sd">            []</span>
+<a id="__codelineno-0-660" name="__codelineno-0-660"></a>
+<a id="__codelineno-0-661" name="__codelineno-0-661"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-662" name="__codelineno-0-662"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-663" name="__codelineno-0-663"></a>    <span class="n">result</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<a id="__codelineno-0-664" name="__codelineno-0-664"></a>    <span class="k">if</span> <span class="n">opts</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-665" name="__codelineno-0-665"></a>        <span class="n">result</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-666" name="__codelineno-0-666"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-667" name="__codelineno-0-667"></a>        <span class="n">result</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-0-668" name="__codelineno-0-668"></a>            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">_stringify</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-669" name="__codelineno-0-669"></a>            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">opts</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+<a id="__codelineno-0-670" name="__codelineno-0-670"></a>            <span class="k">if</span> <span class="n">v</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+<a id="__codelineno-0-671" name="__codelineno-0-671"></a>        <span class="p">]</span>
+<a id="__codelineno-0-672" name="__codelineno-0-672"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -11583,9 +11583,7 @@ dict are uppercased; <code>None</code> values from either source are dropped.</p
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/cog/options.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-714">714</a></span>
-<span class="normal"><a href="#__codelineno-0-715">715</a></span>
-<span class="normal"><a href="#__codelineno-0-716">716</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-716">716</a></span>
 <span class="normal"><a href="#__codelineno-0-717">717</a></span>
 <span class="normal"><a href="#__codelineno-0-718">718</a></span>
 <span class="normal"><a href="#__codelineno-0-719">719</a></span>
@@ -11635,59 +11633,61 @@ dict are uppercased; <code>None</code> values from either source are dropped.</p
 <span class="normal"><a href="#__codelineno-0-763">763</a></span>
 <span class="normal"><a href="#__codelineno-0-764">764</a></span>
 <span class="normal"><a href="#__codelineno-0-765">765</a></span>
-<span class="normal"><a href="#__codelineno-0-766">766</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-714" name="__codelineno-0-714"></a><span class="k">def</span><span class="w"> </span><span class="nf">merge_options</span><span class="p">(</span>
-<a id="__codelineno-0-715" name="__codelineno-0-715"></a>    <span class="n">defaults</span><span class="p">:</span> <span class="n">CreationOptions</span><span class="p">,</span>
-<a id="__codelineno-0-716" name="__codelineno-0-716"></a>    <span class="n">extra</span><span class="p">:</span> <span class="n">CreationOptions</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-717" name="__codelineno-0-717"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<a id="__codelineno-0-718" name="__codelineno-0-718"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Merge default options with user-supplied extras; extras win.</span>
-<a id="__codelineno-0-719" name="__codelineno-0-719"></a>
-<a id="__codelineno-0-720" name="__codelineno-0-720"></a><span class="sd">    Accepts `extra` as either a mapping `{&#39;KEY&#39;: value}` or the legacy</span>
-<a id="__codelineno-0-721" name="__codelineno-0-721"></a><span class="sd">    list form `[&#39;KEY=VALUE&#39;,...]` used by</span>
-<a id="__codelineno-0-722" name="__codelineno-0-722"></a><span class="sd">    :meth:`pyramids.dataset.Dataset.to_file`. All keys in the returned</span>
-<a id="__codelineno-0-723" name="__codelineno-0-723"></a><span class="sd">    dict are uppercased; `None` values from either source are dropped.</span>
-<a id="__codelineno-0-724" name="__codelineno-0-724"></a>
-<a id="__codelineno-0-725" name="__codelineno-0-725"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-726" name="__codelineno-0-726"></a><span class="sd">        defaults: Baseline options (typically derived from kwargs in</span>
-<a id="__codelineno-0-727" name="__codelineno-0-727"></a><span class="sd">            :meth:`pyramids.dataset.engines.COG.to_cog`).</span>
-<a id="__codelineno-0-728" name="__codelineno-0-728"></a><span class="sd">        extra: User-provided overrides as a mapping, `list[str]`, or</span>
-<a id="__codelineno-0-729" name="__codelineno-0-729"></a><span class="sd">            `None`.</span>
-<a id="__codelineno-0-730" name="__codelineno-0-730"></a>
-<a id="__codelineno-0-731" name="__codelineno-0-731"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-732" name="__codelineno-0-732"></a><span class="sd">        New :class:`dict` with all keys uppercased and `None` values</span>
-<a id="__codelineno-0-733" name="__codelineno-0-733"></a><span class="sd">        removed; `extra` entries override `defaults` on conflict.</span>
-<a id="__codelineno-0-734" name="__codelineno-0-734"></a>
-<a id="__codelineno-0-735" name="__codelineno-0-735"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-736" name="__codelineno-0-736"></a><span class="sd">        ValueError: When a legacy list-form entry lacks `=`.</span>
-<a id="__codelineno-0-737" name="__codelineno-0-737"></a>
-<a id="__codelineno-0-738" name="__codelineno-0-738"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-739" name="__codelineno-0-739"></a><span class="sd">        - Dict extras override defaults on conflict:</span>
-<a id="__codelineno-0-740" name="__codelineno-0-740"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-741" name="__codelineno-0-741"></a><span class="sd">            &gt;&gt;&gt; merge_options({&quot;COMPRESS&quot;: &quot;DEFLATE&quot;}, {&quot;COMPRESS&quot;: &quot;ZSTD&quot;})</span>
-<a id="__codelineno-0-742" name="__codelineno-0-742"></a><span class="sd">            {&#39;COMPRESS&#39;: &#39;ZSTD&#39;}</span>
-<a id="__codelineno-0-743" name="__codelineno-0-743"></a>
-<a id="__codelineno-0-744" name="__codelineno-0-744"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-745" name="__codelineno-0-745"></a><span class="sd">        - Legacy list-of-string form is also accepted for back-compat:</span>
-<a id="__codelineno-0-746" name="__codelineno-0-746"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-747" name="__codelineno-0-747"></a><span class="sd">            &gt;&gt;&gt; merge_options({&quot;COMPRESS&quot;: &quot;DEFLATE&quot;}, [&quot;LEVEL=9&quot;])</span>
-<a id="__codelineno-0-748" name="__codelineno-0-748"></a><span class="sd">            {&#39;COMPRESS&#39;: &#39;DEFLATE&#39;, &#39;LEVEL&#39;: &#39;9&#39;}</span>
-<a id="__codelineno-0-749" name="__codelineno-0-749"></a>
-<a id="__codelineno-0-750" name="__codelineno-0-750"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-751" name="__codelineno-0-751"></a><span class="sd">        - None extras returns a copy of the defaults:</span>
-<a id="__codelineno-0-752" name="__codelineno-0-752"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-753" name="__codelineno-0-753"></a><span class="sd">            &gt;&gt;&gt; merge_options({&quot;COMPRESS&quot;: &quot;DEFLATE&quot;}, None)</span>
-<a id="__codelineno-0-754" name="__codelineno-0-754"></a><span class="sd">            {&#39;COMPRESS&#39;: &#39;DEFLATE&#39;}</span>
-<a id="__codelineno-0-755" name="__codelineno-0-755"></a>
-<a id="__codelineno-0-756" name="__codelineno-0-756"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-757" name="__codelineno-0-757"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-758" name="__codelineno-0-758"></a>    <span class="n">merged</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-0-759" name="__codelineno-0-759"></a>        <span class="nb">str</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">():</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">defaults</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">v</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-<a id="__codelineno-0-760" name="__codelineno-0-760"></a>    <span class="p">}</span>
-<a id="__codelineno-0-761" name="__codelineno-0-761"></a>    <span class="c1"># `extra is None` -&gt; nothing to merge, keep the defaults.</span>
-<a id="__codelineno-0-762" name="__codelineno-0-762"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">extra</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
-<a id="__codelineno-0-763" name="__codelineno-0-763"></a>        <span class="n">merged</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_parse_list_extra</span><span class="p">(</span><span class="n">extra</span><span class="p">))</span>
-<a id="__codelineno-0-764" name="__codelineno-0-764"></a>    <span class="k">elif</span> <span class="n">extra</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-765" name="__codelineno-0-765"></a>        <span class="n">merged</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="nb">str</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">():</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">extra</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">v</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">})</span>
-<a id="__codelineno-0-766" name="__codelineno-0-766"></a>    <span class="k">return</span> <span class="n">merged</span>
+<span class="normal"><a href="#__codelineno-0-766">766</a></span>
+<span class="normal"><a href="#__codelineno-0-767">767</a></span>
+<span class="normal"><a href="#__codelineno-0-768">768</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-716" name="__codelineno-0-716"></a><span class="k">def</span><span class="w"> </span><span class="nf">merge_options</span><span class="p">(</span>
+<a id="__codelineno-0-717" name="__codelineno-0-717"></a>    <span class="n">defaults</span><span class="p">:</span> <span class="n">CreationOptions</span><span class="p">,</span>
+<a id="__codelineno-0-718" name="__codelineno-0-718"></a>    <span class="n">extra</span><span class="p">:</span> <span class="n">CreationOptions</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-719" name="__codelineno-0-719"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<a id="__codelineno-0-720" name="__codelineno-0-720"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Merge default options with user-supplied extras; extras win.</span>
+<a id="__codelineno-0-721" name="__codelineno-0-721"></a>
+<a id="__codelineno-0-722" name="__codelineno-0-722"></a><span class="sd">    Accepts `extra` as either a mapping `{&#39;KEY&#39;: value}` or the legacy</span>
+<a id="__codelineno-0-723" name="__codelineno-0-723"></a><span class="sd">    list form `[&#39;KEY=VALUE&#39;,...]` used by</span>
+<a id="__codelineno-0-724" name="__codelineno-0-724"></a><span class="sd">    :meth:`pyramids.dataset.Dataset.to_file`. All keys in the returned</span>
+<a id="__codelineno-0-725" name="__codelineno-0-725"></a><span class="sd">    dict are uppercased; `None` values from either source are dropped.</span>
+<a id="__codelineno-0-726" name="__codelineno-0-726"></a>
+<a id="__codelineno-0-727" name="__codelineno-0-727"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-728" name="__codelineno-0-728"></a><span class="sd">        defaults: Baseline options (typically derived from kwargs in</span>
+<a id="__codelineno-0-729" name="__codelineno-0-729"></a><span class="sd">            :meth:`pyramids.dataset.engines.COG.to_cog`).</span>
+<a id="__codelineno-0-730" name="__codelineno-0-730"></a><span class="sd">        extra: User-provided overrides as a mapping, `list[str]`, or</span>
+<a id="__codelineno-0-731" name="__codelineno-0-731"></a><span class="sd">            `None`.</span>
+<a id="__codelineno-0-732" name="__codelineno-0-732"></a>
+<a id="__codelineno-0-733" name="__codelineno-0-733"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-734" name="__codelineno-0-734"></a><span class="sd">        New :class:`dict` with all keys uppercased and `None` values</span>
+<a id="__codelineno-0-735" name="__codelineno-0-735"></a><span class="sd">        removed; `extra` entries override `defaults` on conflict.</span>
+<a id="__codelineno-0-736" name="__codelineno-0-736"></a>
+<a id="__codelineno-0-737" name="__codelineno-0-737"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-738" name="__codelineno-0-738"></a><span class="sd">        ValueError: When a legacy list-form entry lacks `=`.</span>
+<a id="__codelineno-0-739" name="__codelineno-0-739"></a>
+<a id="__codelineno-0-740" name="__codelineno-0-740"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-741" name="__codelineno-0-741"></a><span class="sd">        - Dict extras override defaults on conflict:</span>
+<a id="__codelineno-0-742" name="__codelineno-0-742"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-743" name="__codelineno-0-743"></a><span class="sd">            &gt;&gt;&gt; merge_options({&quot;COMPRESS&quot;: &quot;DEFLATE&quot;}, {&quot;COMPRESS&quot;: &quot;ZSTD&quot;})</span>
+<a id="__codelineno-0-744" name="__codelineno-0-744"></a><span class="sd">            {&#39;COMPRESS&#39;: &#39;ZSTD&#39;}</span>
+<a id="__codelineno-0-745" name="__codelineno-0-745"></a>
+<a id="__codelineno-0-746" name="__codelineno-0-746"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-747" name="__codelineno-0-747"></a><span class="sd">        - Legacy list-of-string form is also accepted for back-compat:</span>
+<a id="__codelineno-0-748" name="__codelineno-0-748"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-749" name="__codelineno-0-749"></a><span class="sd">            &gt;&gt;&gt; merge_options({&quot;COMPRESS&quot;: &quot;DEFLATE&quot;}, [&quot;LEVEL=9&quot;])</span>
+<a id="__codelineno-0-750" name="__codelineno-0-750"></a><span class="sd">            {&#39;COMPRESS&#39;: &#39;DEFLATE&#39;, &#39;LEVEL&#39;: &#39;9&#39;}</span>
+<a id="__codelineno-0-751" name="__codelineno-0-751"></a>
+<a id="__codelineno-0-752" name="__codelineno-0-752"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-753" name="__codelineno-0-753"></a><span class="sd">        - None extras returns a copy of the defaults:</span>
+<a id="__codelineno-0-754" name="__codelineno-0-754"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-755" name="__codelineno-0-755"></a><span class="sd">            &gt;&gt;&gt; merge_options({&quot;COMPRESS&quot;: &quot;DEFLATE&quot;}, None)</span>
+<a id="__codelineno-0-756" name="__codelineno-0-756"></a><span class="sd">            {&#39;COMPRESS&#39;: &#39;DEFLATE&#39;}</span>
+<a id="__codelineno-0-757" name="__codelineno-0-757"></a>
+<a id="__codelineno-0-758" name="__codelineno-0-758"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-759" name="__codelineno-0-759"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-760" name="__codelineno-0-760"></a>    <span class="n">merged</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-0-761" name="__codelineno-0-761"></a>        <span class="nb">str</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">():</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">defaults</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">v</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+<a id="__codelineno-0-762" name="__codelineno-0-762"></a>    <span class="p">}</span>
+<a id="__codelineno-0-763" name="__codelineno-0-763"></a>    <span class="c1"># `extra is None` -&gt; nothing to merge, keep the defaults.</span>
+<a id="__codelineno-0-764" name="__codelineno-0-764"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">extra</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+<a id="__codelineno-0-765" name="__codelineno-0-765"></a>        <span class="n">merged</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_parse_list_extra</span><span class="p">(</span><span class="n">extra</span><span class="p">))</span>
+<a id="__codelineno-0-766" name="__codelineno-0-766"></a>    <span class="k">elif</span> <span class="n">extra</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-767" name="__codelineno-0-767"></a>        <span class="n">merged</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="nb">str</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">():</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">extra</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">v</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">})</span>
+<a id="__codelineno-0-768" name="__codelineno-0-768"></a>    <span class="k">return</span> <span class="n">merged</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -11787,9 +11787,7 @@ the closed range [64, 4096].</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/cog/options.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-769">769</a></span>
-<span class="normal"><a href="#__codelineno-0-770">770</a></span>
-<span class="normal"><a href="#__codelineno-0-771">771</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-771">771</a></span>
 <span class="normal"><a href="#__codelineno-0-772">772</a></span>
 <span class="normal"><a href="#__codelineno-0-773">773</a></span>
 <span class="normal"><a href="#__codelineno-0-774">774</a></span>
@@ -11827,47 +11825,49 @@ the closed range [64, 4096].</p>
 <span class="normal"><a href="#__codelineno-0-806">806</a></span>
 <span class="normal"><a href="#__codelineno-0-807">807</a></span>
 <span class="normal"><a href="#__codelineno-0-808">808</a></span>
-<span class="normal"><a href="#__codelineno-0-809">809</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-769" name="__codelineno-0-769"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_blocksize</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-770" name="__codelineno-0-770"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Raise :class:`ValueError` if `value` is not a valid COG tile size.</span>
-<a id="__codelineno-0-771" name="__codelineno-0-771"></a>
-<a id="__codelineno-0-772" name="__codelineno-0-772"></a><span class="sd">    The GDAL COG driver requires `BLOCKSIZE` to be a power of 2 in</span>
-<a id="__codelineno-0-773" name="__codelineno-0-773"></a><span class="sd">    the closed range [64, 4096].</span>
-<a id="__codelineno-0-774" name="__codelineno-0-774"></a>
-<a id="__codelineno-0-775" name="__codelineno-0-775"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-776" name="__codelineno-0-776"></a><span class="sd">        value: Proposed blocksize.</span>
-<a id="__codelineno-0-777" name="__codelineno-0-777"></a>
-<a id="__codelineno-0-778" name="__codelineno-0-778"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-779" name="__codelineno-0-779"></a><span class="sd">        ValueError: If `value` is outside the allowed set.</span>
-<a id="__codelineno-0-780" name="__codelineno-0-780"></a>
-<a id="__codelineno-0-781" name="__codelineno-0-781"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-782" name="__codelineno-0-782"></a><span class="sd">        - Valid power-of-2 blocksizes return silently:</span>
-<a id="__codelineno-0-783" name="__codelineno-0-783"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-784" name="__codelineno-0-784"></a><span class="sd">            &gt;&gt;&gt; validate_blocksize(512)</span>
-<a id="__codelineno-0-785" name="__codelineno-0-785"></a><span class="sd">            &gt;&gt;&gt; validate_blocksize(256)</span>
-<a id="__codelineno-0-786" name="__codelineno-0-786"></a>
-<a id="__codelineno-0-787" name="__codelineno-0-787"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-788" name="__codelineno-0-788"></a><span class="sd">        - Non-power-of-2 is rejected:</span>
-<a id="__codelineno-0-789" name="__codelineno-0-789"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-790" name="__codelineno-0-790"></a><span class="sd">            &gt;&gt;&gt; validate_blocksize(500) # doctest: +IGNORE_EXCEPTION_DETAIL</span>
-<a id="__codelineno-0-791" name="__codelineno-0-791"></a><span class="sd">            Traceback (most recent call last):</span>
-<a id="__codelineno-0-792" name="__codelineno-0-792"></a><span class="sd">            ...</span>
-<a id="__codelineno-0-793" name="__codelineno-0-793"></a><span class="sd">            ValueError: blocksize must be a power of 2 in [64, 4096]; got 500...</span>
-<a id="__codelineno-0-794" name="__codelineno-0-794"></a>
-<a id="__codelineno-0-795" name="__codelineno-0-795"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-796" name="__codelineno-0-796"></a><span class="sd">        - Out-of-range values are rejected:</span>
-<a id="__codelineno-0-797" name="__codelineno-0-797"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-798" name="__codelineno-0-798"></a><span class="sd">            &gt;&gt;&gt; validate_blocksize(32) # doctest: +IGNORE_EXCEPTION_DETAIL</span>
-<a id="__codelineno-0-799" name="__codelineno-0-799"></a><span class="sd">            Traceback (most recent call last):</span>
-<a id="__codelineno-0-800" name="__codelineno-0-800"></a><span class="sd">            ...</span>
-<a id="__codelineno-0-801" name="__codelineno-0-801"></a><span class="sd">            ValueError: blocksize must be a power of 2 in [64, 4096]; got 32...</span>
-<a id="__codelineno-0-802" name="__codelineno-0-802"></a>
-<a id="__codelineno-0-803" name="__codelineno-0-803"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-804" name="__codelineno-0-804"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-805" name="__codelineno-0-805"></a>    <span class="k">if</span> <span class="n">value</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_VALID_BLOCKSIZES</span><span class="p">:</span>
-<a id="__codelineno-0-806" name="__codelineno-0-806"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-807" name="__codelineno-0-807"></a>            <span class="sa">f</span><span class="s2">&quot;blocksize must be a power of 2 in [64, 4096]; got </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">. &quot;</span>
-<a id="__codelineno-0-808" name="__codelineno-0-808"></a>            <span class="sa">f</span><span class="s2">&quot;Valid values: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">_VALID_BLOCKSIZES</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-809" name="__codelineno-0-809"></a>        <span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-809">809</a></span>
+<span class="normal"><a href="#__codelineno-0-810">810</a></span>
+<span class="normal"><a href="#__codelineno-0-811">811</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-771" name="__codelineno-0-771"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_blocksize</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-772" name="__codelineno-0-772"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Raise :class:`ValueError` if `value` is not a valid COG tile size.</span>
+<a id="__codelineno-0-773" name="__codelineno-0-773"></a>
+<a id="__codelineno-0-774" name="__codelineno-0-774"></a><span class="sd">    The GDAL COG driver requires `BLOCKSIZE` to be a power of 2 in</span>
+<a id="__codelineno-0-775" name="__codelineno-0-775"></a><span class="sd">    the closed range [64, 4096].</span>
+<a id="__codelineno-0-776" name="__codelineno-0-776"></a>
+<a id="__codelineno-0-777" name="__codelineno-0-777"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-778" name="__codelineno-0-778"></a><span class="sd">        value: Proposed blocksize.</span>
+<a id="__codelineno-0-779" name="__codelineno-0-779"></a>
+<a id="__codelineno-0-780" name="__codelineno-0-780"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-781" name="__codelineno-0-781"></a><span class="sd">        ValueError: If `value` is outside the allowed set.</span>
+<a id="__codelineno-0-782" name="__codelineno-0-782"></a>
+<a id="__codelineno-0-783" name="__codelineno-0-783"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-784" name="__codelineno-0-784"></a><span class="sd">        - Valid power-of-2 blocksizes return silently:</span>
+<a id="__codelineno-0-785" name="__codelineno-0-785"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-786" name="__codelineno-0-786"></a><span class="sd">            &gt;&gt;&gt; validate_blocksize(512)</span>
+<a id="__codelineno-0-787" name="__codelineno-0-787"></a><span class="sd">            &gt;&gt;&gt; validate_blocksize(256)</span>
+<a id="__codelineno-0-788" name="__codelineno-0-788"></a>
+<a id="__codelineno-0-789" name="__codelineno-0-789"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-790" name="__codelineno-0-790"></a><span class="sd">        - Non-power-of-2 is rejected:</span>
+<a id="__codelineno-0-791" name="__codelineno-0-791"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-792" name="__codelineno-0-792"></a><span class="sd">            &gt;&gt;&gt; validate_blocksize(500) # doctest: +IGNORE_EXCEPTION_DETAIL</span>
+<a id="__codelineno-0-793" name="__codelineno-0-793"></a><span class="sd">            Traceback (most recent call last):</span>
+<a id="__codelineno-0-794" name="__codelineno-0-794"></a><span class="sd">            ...</span>
+<a id="__codelineno-0-795" name="__codelineno-0-795"></a><span class="sd">            ValueError: blocksize must be a power of 2 in [64, 4096]; got 500...</span>
+<a id="__codelineno-0-796" name="__codelineno-0-796"></a>
+<a id="__codelineno-0-797" name="__codelineno-0-797"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-798" name="__codelineno-0-798"></a><span class="sd">        - Out-of-range values are rejected:</span>
+<a id="__codelineno-0-799" name="__codelineno-0-799"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-800" name="__codelineno-0-800"></a><span class="sd">            &gt;&gt;&gt; validate_blocksize(32) # doctest: +IGNORE_EXCEPTION_DETAIL</span>
+<a id="__codelineno-0-801" name="__codelineno-0-801"></a><span class="sd">            Traceback (most recent call last):</span>
+<a id="__codelineno-0-802" name="__codelineno-0-802"></a><span class="sd">            ...</span>
+<a id="__codelineno-0-803" name="__codelineno-0-803"></a><span class="sd">            ValueError: blocksize must be a power of 2 in [64, 4096]; got 32...</span>
+<a id="__codelineno-0-804" name="__codelineno-0-804"></a>
+<a id="__codelineno-0-805" name="__codelineno-0-805"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-806" name="__codelineno-0-806"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-807" name="__codelineno-0-807"></a>    <span class="k">if</span> <span class="n">value</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_VALID_BLOCKSIZES</span><span class="p">:</span>
+<a id="__codelineno-0-808" name="__codelineno-0-808"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-809" name="__codelineno-0-809"></a>            <span class="sa">f</span><span class="s2">&quot;blocksize must be a power of 2 in [64, 4096]; got </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">. &quot;</span>
+<a id="__codelineno-0-810" name="__codelineno-0-810"></a>            <span class="sa">f</span><span class="s2">&quot;Valid values: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">_VALID_BLOCKSIZES</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-811" name="__codelineno-0-811"></a>        <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -11963,9 +11963,7 @@ the closed range [64, 4096].</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/dataset/cog/options.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-812">812</a></span>
-<span class="normal"><a href="#__codelineno-0-813">813</a></span>
-<span class="normal"><a href="#__codelineno-0-814">814</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-814">814</a></span>
 <span class="normal"><a href="#__codelineno-0-815">815</a></span>
 <span class="normal"><a href="#__codelineno-0-816">816</a></span>
 <span class="normal"><a href="#__codelineno-0-817">817</a></span>
@@ -12000,44 +11998,46 @@ the closed range [64, 4096].</p>
 <span class="normal"><a href="#__codelineno-0-846">846</a></span>
 <span class="normal"><a href="#__codelineno-0-847">847</a></span>
 <span class="normal"><a href="#__codelineno-0-848">848</a></span>
-<span class="normal"><a href="#__codelineno-0-849">849</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-812" name="__codelineno-0-812"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_option_keys</span><span class="p">(</span><span class="n">opts</span><span class="p">:</span> <span class="n">CreationOptions</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-813" name="__codelineno-0-813"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Raise :class:`ValueError` for any key not in :data:`COG_DRIVER_OPTIONS`.</span>
-<a id="__codelineno-0-814" name="__codelineno-0-814"></a>
-<a id="__codelineno-0-815" name="__codelineno-0-815"></a><span class="sd">    Keys are compared case-insensitively.</span>
+<span class="normal"><a href="#__codelineno-0-849">849</a></span>
+<span class="normal"><a href="#__codelineno-0-850">850</a></span>
+<span class="normal"><a href="#__codelineno-0-851">851</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-814" name="__codelineno-0-814"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_option_keys</span><span class="p">(</span><span class="n">opts</span><span class="p">:</span> <span class="n">CreationOptions</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-815" name="__codelineno-0-815"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Raise :class:`ValueError` for any key not in :data:`COG_DRIVER_OPTIONS`.</span>
 <a id="__codelineno-0-816" name="__codelineno-0-816"></a>
-<a id="__codelineno-0-817" name="__codelineno-0-817"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-818" name="__codelineno-0-818"></a><span class="sd">        opts: Mapping of option names to values.</span>
-<a id="__codelineno-0-819" name="__codelineno-0-819"></a>
-<a id="__codelineno-0-820" name="__codelineno-0-820"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-821" name="__codelineno-0-821"></a><span class="sd">        ValueError: If any key is not a recognized COG driver option.</span>
-<a id="__codelineno-0-822" name="__codelineno-0-822"></a>
-<a id="__codelineno-0-823" name="__codelineno-0-823"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-824" name="__codelineno-0-824"></a><span class="sd">        - Known keys return silently:</span>
-<a id="__codelineno-0-825" name="__codelineno-0-825"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-826" name="__codelineno-0-826"></a><span class="sd">            &gt;&gt;&gt; validate_option_keys({&quot;COMPRESS&quot;: &quot;DEFLATE&quot;})</span>
-<a id="__codelineno-0-827" name="__codelineno-0-827"></a><span class="sd">            &gt;&gt;&gt; validate_option_keys({&quot;BLOCKSIZE&quot;: 512, &quot;BIGTIFF&quot;: &quot;IF_SAFER&quot;})</span>
-<a id="__codelineno-0-828" name="__codelineno-0-828"></a>
-<a id="__codelineno-0-829" name="__codelineno-0-829"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-830" name="__codelineno-0-830"></a><span class="sd">        - Unknown keys raise ValueError naming the offender:</span>
-<a id="__codelineno-0-831" name="__codelineno-0-831"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-832" name="__codelineno-0-832"></a><span class="sd">            &gt;&gt;&gt; validate_option_keys({&quot;NONSENSE&quot;: &quot;x&quot;}) # doctest: +IGNORE_EXCEPTION_DETAIL</span>
-<a id="__codelineno-0-833" name="__codelineno-0-833"></a><span class="sd">            Traceback (most recent call last):</span>
-<a id="__codelineno-0-834" name="__codelineno-0-834"></a><span class="sd">            ...</span>
-<a id="__codelineno-0-835" name="__codelineno-0-835"></a><span class="sd">            ValueError: Unknown COG driver option(s): [&#39;NONSENSE&#39;]...</span>
-<a id="__codelineno-0-836" name="__codelineno-0-836"></a>
-<a id="__codelineno-0-837" name="__codelineno-0-837"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-838" name="__codelineno-0-838"></a><span class="sd">        - Empty mapping is accepted:</span>
-<a id="__codelineno-0-839" name="__codelineno-0-839"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-840" name="__codelineno-0-840"></a><span class="sd">            &gt;&gt;&gt; validate_option_keys({})</span>
-<a id="__codelineno-0-841" name="__codelineno-0-841"></a>
-<a id="__codelineno-0-842" name="__codelineno-0-842"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-843" name="__codelineno-0-843"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-844" name="__codelineno-0-844"></a>    <span class="n">unknown</span> <span class="o">=</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">opts</span><span class="o">.</span><span class="n">keys</span><span class="p">()}</span> <span class="o">-</span> <span class="n">COG_DRIVER_OPTIONS</span>
-<a id="__codelineno-0-845" name="__codelineno-0-845"></a>    <span class="k">if</span> <span class="n">unknown</span><span class="p">:</span>
-<a id="__codelineno-0-846" name="__codelineno-0-846"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-847" name="__codelineno-0-847"></a>            <span class="sa">f</span><span class="s2">&quot;Unknown COG driver option(s): </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">unknown</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
-<a id="__codelineno-0-848" name="__codelineno-0-848"></a>            <span class="sa">f</span><span class="s2">&quot;Valid options: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">COG_DRIVER_OPTIONS</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-849" name="__codelineno-0-849"></a>        <span class="p">)</span>
+<a id="__codelineno-0-817" name="__codelineno-0-817"></a><span class="sd">    Keys are compared case-insensitively.</span>
+<a id="__codelineno-0-818" name="__codelineno-0-818"></a>
+<a id="__codelineno-0-819" name="__codelineno-0-819"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-820" name="__codelineno-0-820"></a><span class="sd">        opts: Mapping of option names to values.</span>
+<a id="__codelineno-0-821" name="__codelineno-0-821"></a>
+<a id="__codelineno-0-822" name="__codelineno-0-822"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-823" name="__codelineno-0-823"></a><span class="sd">        ValueError: If any key is not a recognized COG driver option.</span>
+<a id="__codelineno-0-824" name="__codelineno-0-824"></a>
+<a id="__codelineno-0-825" name="__codelineno-0-825"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-826" name="__codelineno-0-826"></a><span class="sd">        - Known keys return silently:</span>
+<a id="__codelineno-0-827" name="__codelineno-0-827"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-828" name="__codelineno-0-828"></a><span class="sd">            &gt;&gt;&gt; validate_option_keys({&quot;COMPRESS&quot;: &quot;DEFLATE&quot;})</span>
+<a id="__codelineno-0-829" name="__codelineno-0-829"></a><span class="sd">            &gt;&gt;&gt; validate_option_keys({&quot;BLOCKSIZE&quot;: 512, &quot;BIGTIFF&quot;: &quot;IF_SAFER&quot;})</span>
+<a id="__codelineno-0-830" name="__codelineno-0-830"></a>
+<a id="__codelineno-0-831" name="__codelineno-0-831"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-832" name="__codelineno-0-832"></a><span class="sd">        - Unknown keys raise ValueError naming the offender:</span>
+<a id="__codelineno-0-833" name="__codelineno-0-833"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-834" name="__codelineno-0-834"></a><span class="sd">            &gt;&gt;&gt; validate_option_keys({&quot;NONSENSE&quot;: &quot;x&quot;}) # doctest: +IGNORE_EXCEPTION_DETAIL</span>
+<a id="__codelineno-0-835" name="__codelineno-0-835"></a><span class="sd">            Traceback (most recent call last):</span>
+<a id="__codelineno-0-836" name="__codelineno-0-836"></a><span class="sd">            ...</span>
+<a id="__codelineno-0-837" name="__codelineno-0-837"></a><span class="sd">            ValueError: Unknown COG driver option(s): [&#39;NONSENSE&#39;]...</span>
+<a id="__codelineno-0-838" name="__codelineno-0-838"></a>
+<a id="__codelineno-0-839" name="__codelineno-0-839"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-840" name="__codelineno-0-840"></a><span class="sd">        - Empty mapping is accepted:</span>
+<a id="__codelineno-0-841" name="__codelineno-0-841"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-842" name="__codelineno-0-842"></a><span class="sd">            &gt;&gt;&gt; validate_option_keys({})</span>
+<a id="__codelineno-0-843" name="__codelineno-0-843"></a>
+<a id="__codelineno-0-844" name="__codelineno-0-844"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-845" name="__codelineno-0-845"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-846" name="__codelineno-0-846"></a>    <span class="n">unknown</span> <span class="o">=</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">opts</span><span class="o">.</span><span class="n">keys</span><span class="p">()}</span> <span class="o">-</span> <span class="n">COG_DRIVER_OPTIONS</span>
+<a id="__codelineno-0-847" name="__codelineno-0-847"></a>    <span class="k">if</span> <span class="n">unknown</span><span class="p">:</span>
+<a id="__codelineno-0-848" name="__codelineno-0-848"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-849" name="__codelineno-0-849"></a>            <span class="sa">f</span><span class="s2">&quot;Unknown COG driver option(s): </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">unknown</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
+<a id="__codelineno-0-850" name="__codelineno-0-850"></a>            <span class="sa">f</span><span class="s2">&quot;Valid options: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">COG_DRIVER_OPTIONS</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-851" name="__codelineno-0-851"></a>        <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
