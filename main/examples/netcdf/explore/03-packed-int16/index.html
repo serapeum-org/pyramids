@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6832,7 +6832,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="kn">from</span><span class="w"> </span><span class="nn">shapely.geometry</span><span class="w"> </span><span class="kn">import</span> <span class="n">Polygon</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">GeoReference</span><span class="p">,</span> <span class="n">NetCDF</span>
 
 <span class="n">DATA</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s1">'../../../../examples/data/netcdf/samples'</span><span class="p">)</span>
 </pre></div>
@@ -6845,7 +6845,7 @@ import numpy as np
 from shapely.geometry import Polygon
 
 from pyramids.feature import FeatureCollection
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import GeoReference, NetCDF
 
 DATA = Path('../../../../examples/data/netcdf/samples')</div>
 </div>
@@ -7346,8 +7346,7 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 <span class="n">slice2d</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="mi">0</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">))]</span>
 <span class="n">NetCDF</span><span class="o">.</span><span class="n">create_from_array</span><span class="p">(</span>
     <span class="n">arr</span><span class="o">=</span><span class="n">slice2d</span><span class="p">,</span>
-    <span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span>
-    <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">,</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">var</span><span class="o">.</span><span class="n">epsg</span> <span class="ow">or</span> <span class="mi">4326</span><span class="p">),</span>
     <span class="n">variable_name</span><span class="o">=</span><span class="s1">'tcw_slice0'</span><span class="p">,</span>
     <span class="n">path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">work</span> <span class="o">/</span> <span class="s1">'derived.nc'</span><span class="p">),</span>
 <span class="p">)</span>
@@ -7358,8 +7357,7 @@ print('dimensions after reducing time:', dict(time_mean.dimension_sizes))</div>
 slice2d = data[tuple(0 for _ in range(data.ndim - 2))]
 NetCDF.create_from_array(
     arr=slice2d,
-    geo=var.geotransform,
-    epsg=var.epsg or 4326,
+    geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg or 4326),
     variable_name='tcw_slice0',
     path=str(work / 'derived.nc'),
 )
