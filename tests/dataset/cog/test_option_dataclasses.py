@@ -18,6 +18,8 @@ from pyramids.dataset.cog import (
     Tiling,
 )
 
+pytestmark = pytest.mark.core
+
 _COERCED_PROFILE_KEYS = {"COMPRESS", "LEVEL", "QUALITY", "MAX_Z_ERROR"}
 
 
@@ -30,8 +32,6 @@ def test_all_profiles_use_only_coerced_keys():
     for name, opts in PROFILES.items():
         extra = set(opts) - _COERCED_PROFILE_KEYS
         assert not extra, f"profile {name!r} uses keys coerce would drop: {extra}"
-
-pytestmark = pytest.mark.core
 
 
 class TestCompression:
