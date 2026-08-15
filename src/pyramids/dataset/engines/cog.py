@@ -58,6 +58,14 @@ _AVERAGING_RESAMPLERS: frozenset[str] = frozenset(
 )
 
 
+_PREDICTOR_COMPRESSORS: frozenset[str] = frozenset({"DEFLATE", "LZW", "LZMA", "ZSTD"})
+"""Compression methods for which the GDAL ``PREDICTOR`` option is meaningful.
+
+The COG driver ignores ``PREDICTOR`` (and emits a ``RuntimeWarning``) for every
+other method — LERC, NONE, JPEG, WEBP, PACKBITS — so it is omitted there.
+"""
+
+
 _RESAMPLING_ALG: dict[str, int] = {
     "nearest": gdal.GRIORA_NearestNeighbour,
     "nearest neighbor": gdal.GRIORA_NearestNeighbour,
@@ -503,7 +511,11 @@ class COG(_Engine["Dataset"]):
             "QUALITY": eff_quality,
             **compress_extra,
             "BLOCKSIZE": layout.blocksize,
-            "PREDICTOR": predictor,
+            # PREDICTOR is only honoured by DEFLATE/LZW/LZMA/ZSTD; omit it for the
+            # others (LERC/NONE/JPEG/WEBP/...) which ignore it and warn.
+            "PREDICTOR": (
+                predictor if eff_compress.upper() in _PREDICTOR_COMPRESSORS else None
+            ),
             "BIGTIFF": layout.bigtiff,
             "NUM_THREADS": num_threads_str,
             "OVERVIEW_RESAMPLING": overview_resampling,
