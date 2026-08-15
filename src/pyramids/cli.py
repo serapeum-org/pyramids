@@ -137,10 +137,13 @@ def _cmd_create(args: argparse.Namespace) -> int:
     _refuse_existing(args.output, args.overwrite)
     ds = Dataset.read_file(args.input)
     kwargs: dict = {}
-    # --profile alone is forwarded as the profile *string* so to_cog runs the
-    # jpeg/webp dtype/band validation (the string path). --compress overrides the
-    # method, producing a Compression object (which, like a direct object, skips
-    # that profile-only check and goes straight to GDAL).
+    # --profile alone is forwarded as the profile *string*, so to_cog runs the
+    # jpeg/webp dtype/band pre-check (the string path). Passing --compress builds a
+    # Compression object instead — the explicit-method escape hatch — which skips
+    # that profile-only pre-check and goes straight to GDAL, even when --compress
+    # names the same constrained method as the profile. This mirrors the library:
+    # a Compression object always bypasses the profile pre-check (issue: 4-band JPEG
+    # is valid for GDAL but outside the jpeg profile's 1-3 band convenience range).
     if args.compress:
         seed = Compression.coerce(args.profile) if args.profile else None
         kwargs["compression"] = (
@@ -816,7 +819,11 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument(
         "--profile", choices=sorted(PROFILES), help="named compression profile"
     )
-    create.add_argument("--compress", help="compression method (e.g. DEFLATE, ZSTD)")
+    create.add_argument(
+        "--compress",
+        help="compression method (e.g. DEFLATE, ZSTD); overrides --profile and "
+        "skips its jpeg/webp dtype/band pre-check",
+    )
     create.add_argument("--blocksize", type=int, help="internal tile size")
     create.add_argument(
         "--no-validate", action="store_true", help="skip post-write validation"
