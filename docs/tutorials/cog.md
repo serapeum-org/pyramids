@@ -98,7 +98,7 @@ profile as the `compression` string (`deflate`, `zstd`, `lzw`, `packbits`,
 ds.to_cog("scene.tif", compression="zstd")     # COMPRESS=ZSTD, LEVEL=9
 ds.to_cog("scene.tif", compression="lerc_deflate")
 
-# A full Compression object overrides the profile preset:
+# A full Compression object is used directly (no profile expansion):
 ds.to_cog("scene.tif", compression=cog.Compression(compress="ZSTD", level=22))
 ```
 
