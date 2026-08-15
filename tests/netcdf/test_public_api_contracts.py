@@ -12,7 +12,7 @@ import warnings
 import numpy as np
 import pytest
 
-from pyramids.netcdf import ColorOpts, ColourOpts, LabeledArray, NetCDF
+from pyramids.netcdf import ColorOpts, ColourOpts, GeoReference, LabeledArray, NetCDF
 from pyramids.netcdf._kerchunk_facade import _normalize_backend
 from pyramids.netcdf.labeled import _is_zarr_store, _LabeledArray
 from pyramids.netcdf.models import CFInfo
@@ -27,7 +27,9 @@ def small_nc():
     """
     arr = np.arange(2 * 4 * 4, dtype=np.float32).reshape(2, 4, 4)
     return NetCDF.create_from_array(
-        arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326, variable_name="t"
+        arr,
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        variable_name="t",
     )
 
 

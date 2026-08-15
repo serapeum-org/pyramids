@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from pyramids.netcdf import GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -100,7 +101,7 @@ class TestUnpackWithoutScaleOffset:
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=geo,
+            geo_ref=GeoReference(geo=geo),
             variable_name="plain",
         )
         var = nc.get_variable("plain")
@@ -122,7 +123,7 @@ class TestUnpackWithoutScaleOffset:
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=geo,
+            geo_ref=GeoReference(geo=geo),
             variable_name="v",
         )
         var = nc.get_variable("v")

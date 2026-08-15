@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from pyramids.netcdf.array_options import (
+    CFAttributes,
+    Encoding,
+    ExtraDimensions,
+    GeoReference,
+)
 from pyramids.netcdf.labeled import LabeledArray, LabeledDataset
 from pyramids.netcdf.metadata import from_json, get_metadata, to_dict, to_json
 from pyramids.netcdf.models import (
@@ -26,6 +32,10 @@ __all__ = [
     "Container",
     "Variable",
     "UgridDataset",
+    "GeoReference",
+    "ExtraDimensions",
+    "Encoding",
+    "CFAttributes",
     "LabeledDataset",
     "LabeledArray",
     "NetCDFMetadata",

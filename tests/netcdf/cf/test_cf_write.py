@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.netcdf import CFAttributes, ExtraDimensions, GeoReference
 from pyramids.netcdf.cf import write_attributes_to_md_array, write_global_attributes
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import GEO, SEED
@@ -220,7 +221,9 @@ class TestCreateFromArrayCFGlobalAttributes:
             attribute on the root group.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         ga = nc.global_attributes
         assert "Conventions" in ga, (
             f"Expected 'Conventions' in global attributes, got {list(ga.keys())}"
@@ -238,9 +241,9 @@ class TestCreateFromArrayCFGlobalAttributes:
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
-            title="My dataset",
+            attrs=CFAttributes(title="My dataset"),
         )
         ga = nc.global_attributes
         assert ga.get("title") == "My dataset", (
@@ -256,9 +259,9 @@ class TestCreateFromArrayCFGlobalAttributes:
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
-            institution="Deltares",
+            attrs=CFAttributes(institution="Deltares"),
         )
         ga = nc.global_attributes
         assert ga.get("institution") == "Deltares", (
@@ -274,9 +277,9 @@ class TestCreateFromArrayCFGlobalAttributes:
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
-            source="Model v1.0",
+            attrs=CFAttributes(source="Model v1.0"),
         )
         ga = nc.global_attributes
         assert ga.get("source") == "Model v1.0", (
@@ -292,9 +295,9 @@ class TestCreateFromArrayCFGlobalAttributes:
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
-            history="Created by test",
+            attrs=CFAttributes(history="Created by test"),
         )
         ga = nc.global_attributes
         assert ga.get("history") == "Created by test", (
@@ -311,12 +314,14 @@ class TestCreateFromArrayCFGlobalAttributes:
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
-            title="Full test",
-            institution="Test Lab",
-            source="Unit test",
-            history="Created in test",
+            attrs=CFAttributes(
+                title="Full test",
+                institution="Test Lab",
+                source="Unit test",
+                history="Created in test",
+            ),
         )
         ga = nc.global_attributes
         assert ga["Conventions"] == "CF-1.8", (
@@ -343,7 +348,9 @@ class TestCreateFromArrayCFGlobalAttributes:
             only Conventions should be present.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         ga = nc.global_attributes
         assert "Conventions" in ga, "Conventions must always be present"
         assert "title" not in ga, (
@@ -369,10 +376,10 @@ class TestCreateFromArrayCFGlobalAttributes:
         arr = np.random.default_rng(SEED).random((3, 5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="precip",
-            extra_dim_name="time",
-            title="3D test",
+            dims=ExtraDimensions(name="time"),
+            attrs=CFAttributes(title="3D test"),
         )
         ga = nc.global_attributes
         assert ga["Conventions"] == "CF-1.8", (
@@ -391,7 +398,7 @@ class TestCreateFromArrayCFGlobalAttributes:
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="data",
         )
         var = nc.get_variable("data")
@@ -417,7 +424,7 @@ class TestCFGlobalAttributesRoundTrip:
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
         )
         out_path = str(tmp_path / "test_conventions.nc")
@@ -441,12 +448,14 @@ class TestCFGlobalAttributesRoundTrip:
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
-            title="Round-trip test",
-            institution="Test Institute",
-            source="pytest",
-            history="Created for testing",
+            attrs=CFAttributes(
+                title="Round-trip test",
+                institution="Test Institute",
+                source="pytest",
+                history="Created for testing",
+            ),
         )
         out_path = str(tmp_path / "test_all_attrs.nc")
         nc.to_file(out_path)
@@ -477,10 +486,10 @@ class TestCFGlobalAttributesRoundTrip:
         out_path = str(tmp_path / "direct_write.nc")
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
             path=out_path,
-            title="Direct write",
+            attrs=CFAttributes(title="Direct write"),
         )
         nc.close()
         nc2 = NetCDF.read_file(out_path)

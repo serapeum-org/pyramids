@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import GeoReference, NetCDF
 from pyramids.netcdf._mdim import (
     needs_y_flip,
     open_mdarray,
@@ -35,9 +35,7 @@ def mdim_dataset():
     arr = np.arange(12, dtype=np.float32).reshape(3, 4)
     nc = NetCDF.create_from_array(
         arr,
-        top_left_corner=(0, 0),
-        cell_size=1.0,
-        epsg=4326,
+        geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
         variable_name="v",
     )
     return nc._raster

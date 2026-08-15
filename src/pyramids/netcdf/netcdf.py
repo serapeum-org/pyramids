@@ -56,6 +56,7 @@ from pyramids.netcdf._mdim import (
 )
 from pyramids.netcdf._mfdataset import open_mfdataset
 from pyramids.netcdf._plot import NetCDFPlot
+from pyramids.netcdf.array_options import ExtraDimensions, GeoReference
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     detect_axis,
@@ -1836,10 +1837,11 @@ class NetCDF(Dataset):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.netcdf import NetCDF, Selectors
+              >>> from pyramids.netcdf import NetCDF, Selectors, GeoReference
               >>> arr = np.random.rand(4, 8, 8).astype(np.float32)
               >>> nc = NetCDF.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=0.1, epsg=4326),
               ...     variable_name="t2m",
               ... )
               >>> cleo = nc.plot(  # doctest: +SKIP
@@ -2008,7 +2010,8 @@ class NetCDF(Dataset):
               ... )
               >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
               >>> nc_curv = NetCDF.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     arr,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
               ...     variable_name="t2m",
               ... )
               >>> cleo = nc_curv.plot(  # doctest: +SKIP
@@ -3069,24 +3072,19 @@ class NetCDF(Dataset):
             )
 
             if result is None:
-                # First variable: build the container.
-                if extra_dims is not None:
-                    result = NetCDF.create_from_array(
-                        arr=var_arr,
+                # First variable: build the container. `ExtraDimensions(dims=None)` falls back to
+                # the default single "time" axis, so both the band-dim and no-band-dim cases share
+                # this one call.
+                result = NetCDF.create_from_array(
+                    var_arr,
+                    geo_ref=GeoReference(
                         geo=var_result.geotransform,
                         epsg=crs_spec(var_result.epsg, var_result.crs),
-                        no_data_value=var_ndv_scalar,
-                        variable_name=var_name,
-                        extra_dims=extra_dims,
-                    )
-                else:
-                    result = NetCDF.create_from_array(
-                        arr=var_arr,
-                        geo=var_result.geotransform,
-                        epsg=crs_spec(var_result.epsg, var_result.crs),
-                        no_data_value=var_ndv_scalar,
-                        variable_name=var_name,
-                    )
+                    ),
+                    no_data_value=var_ndv_scalar,
+                    variable_name=var_name,
+                    dims=ExtraDimensions(dims=extra_dims),
+                )
             else:
                 # Subsequent variables: drop into the existing container.
                 ds = Dataset.create_from_array(
@@ -3329,23 +3327,13 @@ class NetCDF(Dataset):
             else None
         )
         if result is None:
-            if extra is not None:
-                result = NetCDF.create_from_array(
-                    arr=arr,
-                    geo=geo,
-                    epsg=epsg,
-                    no_data_value=ndv,
-                    variable_name=var_name,
-                    extra_dims=extra,
-                )
-            else:
-                result = NetCDF.create_from_array(
-                    arr=arr,
-                    geo=geo,
-                    epsg=epsg,
-                    no_data_value=ndv,
-                    variable_name=var_name,
-                )
+            result = NetCDF.create_from_array(
+                arr,
+                geo_ref=GeoReference(geo=geo, epsg=epsg),
+                no_data_value=ndv,
+                variable_name=var_name,
+                dims=ExtraDimensions(dims=extra),
+            )
         else:
             # A Dataset stores at most one (flattened) band axis, so collapse the
             # trailing band dimensions to a single (prod(sizes), rows, cols) store.

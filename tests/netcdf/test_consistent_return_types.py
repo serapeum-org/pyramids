@@ -14,6 +14,7 @@ import pytest
 from shapely.geometry import box
 
 from pyramids.dataset import Dataset
+from pyramids.netcdf import GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_3d_nc
 
@@ -55,8 +56,7 @@ def _make_2d_nc(rows=10, cols=12, variable_name="elevation"):
     geo = (30.0, 1.0, 0, 40.0, 0, -1.0)
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=geo,
-        epsg=4326,
+        geo_ref=GeoReference(geo=geo, epsg=4326),
         no_data_value=-9999.0,
         variable_name=variable_name,
     )

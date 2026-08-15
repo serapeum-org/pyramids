@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from pyramids.base._file_manager import FILE_CACHE
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 
@@ -96,19 +97,22 @@ def make_3d_nc(
             dtype=np.float64,
         ).reshape(bands, rows, cols)
 
-    kwargs = {
-        "arr": arr,
-        "geo": geo,
-        "epsg": epsg,
-        "no_data_value": no_data_value,
-        "variable_name": variable_name,
-    }
-    if extra_dim_name is not None:
-        kwargs["extra_dim_name"] = extra_dim_name
-    if extra_dim_values is not None:
-        kwargs["extra_dim_values"] = list(extra_dim_values)
+    dims = None
+    if extra_dim_name is not None or extra_dim_values is not None:
+        dim_kwargs = {}
+        if extra_dim_name is not None:
+            dim_kwargs["name"] = extra_dim_name
+        if extra_dim_values is not None:
+            dim_kwargs["values"] = list(extra_dim_values)
+        dims = ExtraDimensions(**dim_kwargs)
 
-    nc = NetCDF.create_from_array(**kwargs)
+    nc = NetCDF.create_from_array(
+        arr,
+        geo_ref=GeoReference(geo=geo, epsg=epsg),
+        no_data_value=no_data_value,
+        variable_name=variable_name,
+        dims=dims,
+    )
     return nc
 
 
@@ -136,8 +140,7 @@ def make_2d_nc(
     geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
     return NetCDF.create_from_array(
         arr=arr,
-        geo=geo,
-        epsg=4326,
+        geo_ref=GeoReference(geo=geo, epsg=4326),
         no_data_value=-9999.0,
         path=None,
         variable_name=variable_name,
@@ -164,11 +167,9 @@ def make_plot_3d_nc(n_times: int = 4, rows: int = 5, cols: int = 5) -> NetCDF:
     arr = rng.random((n_times, rows, cols)).astype(np.float32)
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=(0.0, 1.0, 0, float(rows), 0, -1.0),
-        epsg=4326,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(rows), 0, -1.0), epsg=4326),
         variable_name="t2m",
-        extra_dim_name="time",
-        extra_dim_values=list(range(n_times)),
+        dims=ExtraDimensions(name="time", values=list(range(n_times))),
     )
     return nc
 

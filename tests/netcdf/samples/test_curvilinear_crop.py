@@ -14,7 +14,7 @@ from osgeo import gdal
 from shapely.geometry import MultiPolygon, Polygon
 
 from pyramids.feature import FeatureCollection
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import GeoReference, NetCDF
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.engines.selection import _lon_cell_size
 from tests.netcdf.samples.conftest import TOS as RECTILINEAR
@@ -144,7 +144,9 @@ def test_synthetic_curvilinear_antimeridian_masks_both_sides():
     lat2d = np.tile(np.linspace(9.0, -9.0, ny).reshape(ny, 1), (1, nx)).astype(float)
     data = np.arange(ny * nx, dtype="float32").reshape(1, ny, nx)
     nc = NetCDF.create_from_array(
-        arr=data, geo=(172.0, 1.0, 0.0, 9.0, 0.0, -2.0), epsg=4326, variable_name="c"
+        arr=data,
+        geo_ref=GeoReference(geo=(172.0, 1.0, 0.0, 9.0, 0.0, -2.0), epsg=4326),
+        variable_name="c",
     )
     try:
         var = nc.get_variable("c")

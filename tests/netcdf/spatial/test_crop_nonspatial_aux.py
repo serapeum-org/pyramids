@@ -29,6 +29,7 @@ import pytest
 from osgeo import gdal
 from shapely.geometry import box
 
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
@@ -88,10 +89,8 @@ def _era5_like_cube(*, with_spatial=True, with_aux=True, with_second_spatial=Fal
     if with_spatial:
         nc = NetCDF.create_from_array(
             np.ones((n_t, n_lat, n_lon), "float32"),
-            top_left_corner=(0.0, 5.0),
-            cell_size=1.0,
-            epsg=4326,
-            extra_dims=[("valid_time", list(range(n_t)))],
+            geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=1.0, epsg=4326),
+            dims=ExtraDimensions(dims=[("valid_time", list(range(n_t)))]),
             variable_name="t2m",
         )
     else:

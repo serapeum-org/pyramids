@@ -18,6 +18,7 @@ import pytest
 from numpy.testing import assert_allclose
 from osgeo import gdal
 
+from pyramids.netcdf import GeoReference
 from pyramids.netcdf.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
@@ -223,7 +224,9 @@ class TestFileBackedMutation:
         nc = NetCDF.read_file(path)
         view = nc.get_group("forecast")
         source = NetCDF.create_from_array(
-            arr=np.full((5, 8), 7.0), geo=GEO, variable_name="precip"
+            arr=np.full((5, 8), 7.0),
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="precip",
         ).get_variable("precip")
 
         view.set_variable("precip", source)

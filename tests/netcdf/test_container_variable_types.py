@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pyramids.netcdf import Container, NetCDF, Variable
+from pyramids.netcdf import Container, ExtraDimensions, GeoReference, NetCDF, Variable
 
 pytestmark = pytest.mark.core
 
@@ -44,10 +44,9 @@ def _make_container() -> Container:
     arr = np.arange(2 * 4 * 5, dtype=np.float64).reshape(2, 4, 5)
     return NetCDF.create_from_array(
         arr=arr,
-        geo=(0.0, 1.0, 0, 4.0, 0, -1.0),
-        epsg=4326,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
         variable_name="t",
-        extra_dims=[("time", [0, 1])],
+        dims=ExtraDimensions(dims=[("time", [0, 1])]),
     )
 
 

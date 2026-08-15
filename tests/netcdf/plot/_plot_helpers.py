@@ -6,6 +6,7 @@ import types
 
 import numpy as np
 
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 
@@ -42,11 +43,9 @@ def _make_3d_nc_with_dates():
     arr = rng.random((len(times), 5, 5)).astype(np.float32)
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
-        epsg=4326,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
         variable_name="t2m",
-        extra_dim_name="time",
-        extra_dim_values=list(range(len(times))),
+        dims=ExtraDimensions(name="time", values=list(range(len(times)))),
     )
     var = nc.get_variable("t2m")
     var._band_dim_values = list(times)
@@ -66,13 +65,14 @@ def _make_4d_nc():
     arr = rng.random((nt, nl, ny, nx)).astype(np.float32)
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=(0.0, 1.0, 0, float(ny), 0, -1.0),
-        epsg=4326,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(ny), 0, -1.0), epsg=4326),
         variable_name="temperature",
-        extra_dims=[
-            ("time", [0, 6, 12]),
-            ("pressure_level", [1000, 500]),
-        ],
+        dims=ExtraDimensions(
+            dims=[
+                ("time", [0, 6, 12]),
+                ("pressure_level", [1000, 500]),
+            ]
+        ),
     )
     return nc
 
@@ -87,8 +87,7 @@ def _make_2d_nc():
     arr = rng.random((5, 5)).astype(np.float32)
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
-        epsg=4326,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
         variable_name="surface",
     )
     return nc
@@ -104,11 +103,9 @@ def _make_ensemble_nc():
     arr = rng.random((3, 4, 4)).astype(np.float32)
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=(0.0, 1.0, 0, 4.0, 0, -1.0),
-        epsg=4326,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
         variable_name="forecast",
-        extra_dim_name="ensemble",
-        extra_dim_values=[0, 1, 2],
+        dims=ExtraDimensions(name="ensemble", values=[0, 1, 2]),
     )
     return nc
 
@@ -124,11 +121,9 @@ def _make_3d_nc_anon_dim():
     arr = rng.random((3, 4, 4)).astype(np.float32)
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=(0.0, 1.0, 0, 4.0, 0, -1.0),
-        epsg=4326,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, 4.0, 0, -1.0), epsg=4326),
         variable_name="signal",
-        extra_dim_name="alpha",
-        extra_dim_values=[10, 20, 30],
+        dims=ExtraDimensions(name="alpha", values=[10, 20, 30]),
     )
     return nc
 
@@ -255,19 +250,16 @@ def _make_curvilinear_nc(
         arr = rng.random((rows, cols)).astype(np.float32)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=(0.0, 1.0, 0, float(rows), 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(rows), 0, -1.0), epsg=4326),
             variable_name=data_var,
         )
     else:
         arr = rng.random((n_times, rows, cols)).astype(np.float32)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=(0.0, 1.0, 0, float(rows), 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, float(rows), 0, -1.0), epsg=4326),
             variable_name=data_var,
-            extra_dim_name="time",
-            extra_dim_values=list(range(n_times)),
+            dims=ExtraDimensions(name="time", values=list(range(n_times))),
         )
     x_2d, y_2d = _attach_curvilinear_coords(
         nc,

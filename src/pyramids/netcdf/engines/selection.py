@@ -38,6 +38,7 @@ from pyramids.dataset.engines.spatial import (
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf._mdim import open_mdarray
 from pyramids.netcdf._plot import NetCDFPlot
+from pyramids.netcdf.array_options import GeoReference
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -567,8 +568,10 @@ class Selection(_Engine["NetCDF"]):
         var_name = getattr(nc, "_source_var_name", None) or "data"
         container = nc.create_from_array(
             data_win,
-            geo=nc._bbox_geotransform(lon_win, lat_win),
-            epsg=crs_spec(nc.epsg, nc.crs),
+            geo_ref=GeoReference(
+                geo=nc._bbox_geotransform(lon_win, lat_win),
+                epsg=crs_spec(nc.epsg, nc.crs),
+            ),
             no_data_value=nd,
             variable_name=var_name,
         )

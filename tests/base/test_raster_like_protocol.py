@@ -16,6 +16,7 @@ from shapely.geometry import box
 from pyramids.base.protocols import RasterLike, SpatialObject
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
+from pyramids.netcdf import GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -44,7 +45,9 @@ def ds() -> Dataset:
 def nc() -> NetCDF:
     """A small in-memory NetCDF container built from a 2-D array."""
     return NetCDF.create_from_array(
-        arr=np.ones((5, 8), dtype=np.float64), geo=GEO, variable_name="v"
+        arr=np.ones((5, 8), dtype=np.float64),
+        geo_ref=GeoReference(geo=GEO),
+        variable_name="v",
     )
 
 

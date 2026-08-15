@@ -19,6 +19,7 @@ import pytest
 from numpy.testing import assert_allclose
 from osgeo import gdal, osr
 
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
@@ -87,7 +88,7 @@ class TestReadVariableConsistency:
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=geo,
+            geo_ref=GeoReference(geo=geo),
             variable_name="test",
         )
         from_read = nc._read_variable("test")
@@ -109,9 +110,9 @@ class TestReadVariableConsistency:
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=geo,
+            geo_ref=GeoReference(geo=geo),
             variable_name="test3d",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
         )
         from_read = nc._read_variable("test3d")
         var = nc.get_variable("test3d")
@@ -136,7 +137,7 @@ class TestPyramidsCreatedNotFlipped:
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=geo,
+            geo_ref=GeoReference(geo=geo),
             variable_name="seq",
         )
         var = nc.get_variable("seq")
@@ -158,7 +159,7 @@ class TestPyramidsCreatedNotFlipped:
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=geo,
+            geo_ref=GeoReference(geo=geo),
             variable_name="v",
         )
         var = nc.get_variable("v")
@@ -179,7 +180,7 @@ class TestOneDimNotFlipped:
         geo = (10.0, 0.5, 0, 15.0, 0, -0.5)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=geo,
+            geo_ref=GeoReference(geo=geo),
             variable_name="v",
         )
         x_vals = nc._read_variable("x")

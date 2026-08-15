@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from osgeo import osr
 
+from pyramids.netcdf import GeoReference
 from pyramids.netcdf.cf import srs_to_grid_mapping
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import GEO, SEED
@@ -94,7 +95,9 @@ class TestGridMappingInCreateFromArray:
             which should contain a spatial_ref grid_mapping variable.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         rg = nc._raster.GetRootGroup()
         gm_arr = rg.OpenMDArray("spatial_ref")
         assert gm_arr is not None, "spatial_ref variable should exist"
@@ -114,7 +117,9 @@ class TestGridMappingInCreateFromArray:
             The data variable should have grid_mapping="spatial_ref".
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         attrs = self._read_var_attrs(nc, "temp")
         assert attrs.get("grid_mapping") == "spatial_ref", (
             f"Expected grid_mapping=spatial_ref, got {attrs.get('grid_mapping')}"
@@ -129,7 +134,9 @@ class TestGridMappingInCreateFromArray:
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=GEO_UTM, epsg=32637, variable_name="temp"
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO_UTM, epsg=32637),
+            variable_name="temp",
         )
         attrs = self._read_var_attrs(nc, "spatial_ref")
         assert attrs.get("grid_mapping_name") == "transverse_mercator", (
@@ -144,7 +151,9 @@ class TestGridMappingInCreateFromArray:
             out of get_variable_names().
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         assert "spatial_ref" not in nc.variable_names, (
             f"spatial_ref should be filtered from variable_names: {nc.variable_names}"
         )
@@ -157,7 +166,9 @@ class TestGridMappingInCreateFromArray:
             CRS is preserved.
         """
         arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
-        nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
+        nc = NetCDF.create_from_array(
+            arr=arr, geo_ref=GeoReference(geo=GEO), variable_name="temp"
+        )
         out_path = str(tmp_path / "gm_round_trip.nc")
         nc.to_file(out_path)
         nc2 = NetCDF.read_file(out_path)

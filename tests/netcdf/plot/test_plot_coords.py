@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from pyramids.netcdf import Selectors
+from pyramids.netcdf import GeoReference, Selectors
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_plot_3d_nc
 from tests.netcdf.plot._plot_helpers import (
@@ -502,8 +502,7 @@ class TestCurvilinearCoordsEdges:
         rng = np.random.default_rng(42)
         nc = NetCDF.create_from_array(
             arr=rng.random((5, 6)).astype(np.float32),
-            geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
             variable_name="CANWAT",
         )
         wrf_x = np.linspace(-110.0, -100.0, 6, dtype=np.float32)
@@ -567,8 +566,7 @@ class TestCurvilinearCoordsEdges:
         rng = np.random.default_rng(43)
         nc = NetCDF.create_from_array(
             arr=rng.random((5, 6)).astype(np.float32),
-            geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0), epsg=4326),
             variable_name="CANWAT",
         )
         bad_x = np.linspace(-1.0, 1.0, 99, dtype=np.float32)

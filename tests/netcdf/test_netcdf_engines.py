@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 from pyramids.feature import FeatureCollection
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 from pyramids.netcdf.engines.interop import Interop
 from pyramids.netcdf.engines.selection import Selection
 from pyramids.netcdf.engines.variables import Variables
@@ -106,8 +106,7 @@ class TestEngineWiring:
         """
         nc = NetCDF.create_from_array(
             np.arange(24.0).reshape(2, 3, 4),
-            geo=(0.0, 1.0, 0, 2.0, 0, -1.0),
-            epsg=4326,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0, 2.0, 0, -1.0), epsg=4326),
             variable_name="data",
         )
         nc.epsg = 3857
@@ -223,10 +222,14 @@ class TestVariablesEngine:
         """
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
         src = NetCDF.create_from_array(
-            np.ones((4, 5), dtype=np.float32), geo=geo, variable_name="a"
+            np.ones((4, 5), dtype=np.float32),
+            geo_ref=GeoReference(geo=geo),
+            variable_name="a",
         )
         dst = NetCDF.create_from_array(
-            np.zeros((4, 5), dtype=np.float32), geo=geo, variable_name="b"
+            np.zeros((4, 5), dtype=np.float32),
+            geo_ref=GeoReference(geo=geo),
+            variable_name="b",
         )
         dst.add_variable(src)
         assert sorted(dst.variable_names) == [
@@ -244,7 +247,9 @@ class TestVariablesEngine:
         """
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
         nc = NetCDF.create_from_array(
-            np.zeros((2, 3, 4, 5), dtype=np.float32), geo=geo, variable_name="v"
+            np.zeros((2, 3, 4, 5), dtype=np.float32),
+            geo_ref=GeoReference(geo=geo),
+            variable_name="v",
         )
         var = nc.get_variable("v")
         assert var._band_dim_names == (
@@ -264,9 +269,9 @@ class TestVariablesEngine:
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             np.zeros((3, 4, 5), dtype=np.float32),
-            geo=geo,
+            geo_ref=GeoReference(geo=geo),
             variable_name="w",
-            extra_dims=[("lev", None)],
+            dims=ExtraDimensions(dims=[("lev", None)]),
         )
         assert "w" in nc.variable_names, (
             "variable not created with None-filled dim values"
@@ -281,8 +286,7 @@ class TestVariablesEngine:
         """
         nc = NetCDF.create_from_array(
             np.arange(12.0).reshape(3, 4),
-            top_left_corner=(0.0, 10.0),
-            cell_size=1.0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 10.0), cell_size=1.0),
         )
         assert "data" in nc.variable_names, "default variable not created"
 

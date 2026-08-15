@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from pyramids.netcdf import Encoding, ExtraDimensions, GeoReference
 from pyramids.netcdf.engines.variables import (
     _is_dask_array,
     _iter_block_windows,
@@ -134,10 +135,18 @@ class TestStreamingParity:
         extra = [(f"d{i}", None) for i in range(len(shape) - 2)] or None
 
         NetCDF.create_from_array(
-            arr=source, geo=GEO, variable_name="v", extra_dims=extra, path=eager_path
+            arr=source,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            dims=ExtraDimensions(dims=extra),
+            path=eager_path,
         )
         NetCDF.create_from_array(
-            arr=dask_arr, geo=GEO, variable_name="v", extra_dims=extra, path=stream_path
+            arr=dask_arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            dims=ExtraDimensions(dims=extra),
+            path=stream_path,
         )
 
         eager_var = NetCDF.read_file(eager_path).get_variable("v")
@@ -167,10 +176,16 @@ class TestStreamingParity:
         dask_arr = da.from_array(source, chunks=(2, 6, 8))
 
         eager = NetCDF.create_from_array(
-            arr=source, geo=GEO, variable_name="v", extra_dim_name="time"
+            arr=source,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            dims=ExtraDimensions(name="time"),
         )
         streamed = NetCDF.create_from_array(
-            arr=dask_arr, geo=GEO, variable_name="v", extra_dim_name="time"
+            arr=dask_arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            dims=ExtraDimensions(name="time"),
         )
         assert_allclose(
             np.asarray(streamed.get_variable("v").read_array()),
@@ -186,7 +201,11 @@ class TestStreamingParity:
         path = str(tmp_path / "single.nc")
 
         NetCDF.create_from_array(
-            arr=dask_arr, geo=GEO, variable_name="v", extra_dim_name="time", path=path
+            arr=dask_arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            dims=ExtraDimensions(name="time"),
+            path=path,
         )
 
         var = NetCDF.read_file(path).get_variable("v")
@@ -207,7 +226,11 @@ class TestStreamingStorageChunks:
         path = str(tmp_path / "dask_chunks.nc")
 
         NetCDF.create_from_array(
-            arr=dask_arr, geo=GEO, variable_name="v", extra_dim_name="time", path=path
+            arr=dask_arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="v",
+            dims=ExtraDimensions(name="time"),
+            path=path,
         )
 
         var_info = get_metadata(NetCDF.read_file(path)).variables["v"]
@@ -227,11 +250,11 @@ class TestStreamingStorageChunks:
 
         NetCDF.create_from_array(
             arr=dask_arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
             path=path,
-            chunk_sizes=(2, 5, 5),
+            encoding=Encoding(chunk_sizes=(2, 5, 5)),
         )
 
         var_info = get_metadata(NetCDF.read_file(path)).variables["v"]

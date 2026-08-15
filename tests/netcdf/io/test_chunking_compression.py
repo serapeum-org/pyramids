@@ -15,6 +15,7 @@ import pytest
 from numpy.testing import assert_allclose
 from osgeo import gdal
 
+from pyramids.netcdf import Encoding, ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import SEED
 
@@ -39,18 +40,17 @@ class TestCompressionOnDisk:
 
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
             path=compressed,
-            compression="DEFLATE",
-            compression_level=4,
+            encoding=Encoding(compression="DEFLATE", compression_level=4),
         )
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
             path=uncompressed,
         )
         comp_size = os.path.getsize(compressed)
@@ -72,21 +72,19 @@ class TestCompressionOnDisk:
 
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
             path=low,
-            compression="DEFLATE",
-            compression_level=1,
+            encoding=Encoding(compression="DEFLATE", compression_level=1),
         )
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
             path=high,
-            compression="DEFLATE",
-            compression_level=9,
+            encoding=Encoding(compression="DEFLATE", compression_level=9),
         )
         assert os.path.getsize(high) <= os.path.getsize(low), (
             f"Level 9 ({os.path.getsize(high)}) should be <= "
@@ -108,11 +106,11 @@ class TestChunkingOnDisk:
         path = str(tmp_path / "chunked.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
             path=path,
-            chunk_sizes=(1, 25, 25),
+            encoding=Encoding(chunk_sizes=(1, 25, 25)),
         )
         ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
         rg = ds.GetRootGroup()
@@ -132,13 +130,13 @@ class TestChunkingOnDisk:
         path = str(tmp_path / "chunk_compress.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
             path=path,
-            chunk_sizes=(1, 50, 50),
-            compression="DEFLATE",
-            compression_level=4,
+            encoding=Encoding(
+                chunk_sizes=(1, 50, 50), compression="DEFLATE", compression_level=4
+            ),
         )
         ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
         rg = ds.GetRootGroup()
@@ -164,10 +162,10 @@ class TestRoundTripDataIntegrity:
         path = str(tmp_path / "rt_2d.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="elev",
             path=path,
-            compression="DEFLATE",
+            encoding=Encoding(compression="DEFLATE"),
         )
         reloaded = NetCDF.read_file(path)
         var = reloaded.get_variable("elev")
@@ -188,14 +186,13 @@ class TestRoundTripDataIntegrity:
         path = str(tmp_path / "rt_3d.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18, 24],
+            dims=ExtraDimensions(name="time", values=[0, 6, 12, 18, 24]),
             path=path,
-            chunk_sizes=(1, 30, 40),
-            compression="DEFLATE",
-            compression_level=4,
+            encoding=Encoding(
+                chunk_sizes=(1, 30, 40), compression="DEFLATE", compression_level=4
+            ),
         )
         reloaded = NetCDF.read_file(path)
         var = reloaded.get_variable("temp")
@@ -216,11 +213,11 @@ class TestRoundTripDataIntegrity:
         path = str(tmp_path / "rt_ndv.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
             path=path,
             no_data_value=-9999.0,
-            compression="DEFLATE",
+            encoding=Encoding(compression="DEFLATE"),
         )
         reloaded = NetCDF.read_file(path)
         var = reloaded.get_variable("v")
@@ -244,10 +241,10 @@ class TestInMemoryIgnoresOptions:
         arr = np.random.default_rng(SEED).random((3, 10, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
-            extra_dim_name="time",
-            chunk_sizes=(1, 5, 5),
+            dims=ExtraDimensions(name="time"),
+            encoding=Encoding(chunk_sizes=(1, 5, 5)),
         )
         var = nc.get_variable("v")
         assert var.shape == (3, 10, 10), f"Shape should be preserved, got {var.shape}"
@@ -261,10 +258,9 @@ class TestInMemoryIgnoresOptions:
         arr = np.ones((5, 5), dtype=np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
-            compression="DEFLATE",
-            compression_level=9,
+            encoding=Encoding(compression="DEFLATE", compression_level=9),
         )
         var = nc.get_variable("v")
         assert_allclose(
@@ -287,12 +283,11 @@ class TestBoundaryChunkSizes:
         path = str(tmp_path / "single_chunk.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
             path=path,
-            chunk_sizes=(5, 50, 50),
-            compression="DEFLATE",
+            encoding=Encoding(chunk_sizes=(5, 50, 50), compression="DEFLATE"),
         )
         ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
         rg = ds.GetRootGroup()
@@ -310,11 +305,10 @@ class TestBoundaryChunkSizes:
         path = str(tmp_path / "chunk_2d.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
             path=path,
-            chunk_sizes=(25, 25),
-            compression="DEFLATE",
+            encoding=Encoding(chunk_sizes=(25, 25), compression="DEFLATE"),
         )
         ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
         rg = ds.GetRootGroup()
@@ -339,11 +333,11 @@ class TestChunkingViaMetadataAPI:
         path = str(tmp_path / "chunked_meta.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="precip",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
             path=path,
-            chunk_sizes=(2, 30, 40),
+            encoding=Encoding(chunk_sizes=(2, 30, 40)),
         )
         metadata = get_metadata(path)
         assert "precip" in metadata.variables, (
@@ -369,10 +363,10 @@ class TestChunkingViaMetadataAPI:
         path = str(tmp_path / "2d_chunked_meta.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="elev",
             path=path,
-            chunk_sizes=(20, 30),
+            encoding=Encoding(chunk_sizes=(20, 30)),
         )
         metadata = get_metadata(path)
         var_info = metadata.variables["elev"]
@@ -394,9 +388,9 @@ class TestChunkingViaMetadataAPI:
         path = str(tmp_path / "no_chunk_meta.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="temp",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
             path=path,
         )
         metadata = get_metadata(path)
@@ -420,13 +414,13 @@ class TestChunkingViaMetadataAPI:
         path = str(tmp_path / "chunk_compress_meta.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="var",
-            extra_dim_name="time",
+            dims=ExtraDimensions(name="time"),
             path=path,
-            chunk_sizes=(1, 40, 50),
-            compression="DEFLATE",
-            compression_level=6,
+            encoding=Encoding(
+                chunk_sizes=(1, 40, 50), compression="DEFLATE", compression_level=6
+            ),
         )
         metadata = get_metadata(path)
         var_info = metadata.variables["var"]
@@ -452,11 +446,11 @@ class TestChunkingViaMetadataAPI:
         path = str(tmp_path / "read_chunk.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="data",
-            extra_dim_name="level",
+            dims=ExtraDimensions(name="level"),
             path=path,
-            chunk_sizes=(1, 15, 15),
+            encoding=Encoding(chunk_sizes=(1, 15, 15)),
         )
         nc = NetCDF.read_file(path)
         metadata = get_metadata(nc)
@@ -548,7 +542,7 @@ class TestNodataBeforeWrite:
         path = str(tmp_path / "ndv_order.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
             path=path,
             no_data_value=-9999.0,
@@ -580,10 +574,10 @@ class TestCompressionOnly:
         path = str(tmp_path / "compress_no_chunk.nc")
         NetCDF.create_from_array(
             arr=arr,
-            geo=GEO,
+            geo_ref=GeoReference(geo=GEO),
             variable_name="v",
             path=path,
-            compression="DEFLATE",
+            encoding=Encoding(compression="DEFLATE"),
         )
         assert os.path.getsize(path) > 0, "File should be created"
         reloaded = NetCDF.read_file(path)

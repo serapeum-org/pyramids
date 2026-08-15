@@ -24,6 +24,7 @@ import pytest
 from pyramids.base._utils import RGB_CHANNEL_INTERPS
 from pyramids.dataset import Dataset
 from pyramids.dataset.abstract_dataset import RasterBase
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 
@@ -41,11 +42,10 @@ def _make_nc_subset(n_bands: int) -> NetCDF:
     arr = rng.random((n_bands, 5, 6)).astype("float32")
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=(30.0, 0.5, 0, 35.0, 0, -0.5),
+        geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5)),
         variable_name="t2m",
         path=None,
-        extra_dim_name="time",
-        extra_dim_values=list(range(n_bands)),
+        dims=ExtraDimensions(name="time", values=list(range(n_bands))),
     )
     return nc.get_variable("t2m")
 
@@ -520,11 +520,10 @@ class TestNetCDFPlotPolicy:
         arr = rng.random((3, 5, 6)).astype("float32")
         nc_root = NetCDF.create_from_array(
             arr=arr,
-            geo=(30.0, 0.5, 0, 35.0, 0, -0.5),
+            geo_ref=GeoReference(geo=(30.0, 0.5, 0, 35.0, 0, -0.5)),
             variable_name="t2m",
             path=None,
-            extra_dim_name="time",
-            extra_dim_values=[0, 1, 2],
+            dims=ExtraDimensions(name="time", values=[0, 1, 2]),
         )
         assert nc_root._is_md_array is True
         assert nc_root._is_subset is False

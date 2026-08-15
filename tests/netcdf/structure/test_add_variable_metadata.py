@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
 gdal.UseExceptions()
@@ -56,10 +57,9 @@ def _write_simple_nc(path):
     arr = np.random.default_rng(0).random((2, 3, 4)).astype(np.float64)
     nc = NetCDF.create_from_array(
         arr=arr,
-        geo=(0.0, 1.0, 0, 3.0, 0, -1.0),
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0, 3.0, 0, -1.0)),
         variable_name="tas",
-        extra_dim_name="time",
-        extra_dim_values=[0, 1],
+        dims=ExtraDimensions(name="time", values=[0, 1]),
     )
     nc.to_file(str(path))
 
