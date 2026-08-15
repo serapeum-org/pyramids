@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6670,7 +6670,7 @@ profile as the <code>compression</code> string (<code>deflate</code>, <code>zstd
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="s2">&quot;zstd&quot;</span><span class="p">)</span>     <span class="c1"># COMPRESS=ZSTD, LEVEL=9</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="s2">&quot;lerc_deflate&quot;</span><span class="p">)</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># A full Compression object overrides the profile preset:</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># A full Compression object is used directly (no profile expansion):</span>
 <a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_cog</span><span class="p">(</span><span class="s2">&quot;scene.tif&quot;</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="n">cog</span><span class="o">.</span><span class="n">Compression</span><span class="p">(</span><span class="n">compress</span><span class="o">=</span><span class="s2">&quot;ZSTD&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">22</span><span class="p">))</span>
 </code></pre></div>
 <p><code>jpeg</code> / <code>webp</code> enforce their dtype/band constraints (Byte; 1-3 / 3-4
