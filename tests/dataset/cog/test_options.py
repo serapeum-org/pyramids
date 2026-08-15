@@ -12,6 +12,7 @@ from pyramids.dataset.cog.options import (
     to_gdal_options,
     validate_blocksize,
     validate_option_keys,
+    validate_profile,
 )
 
 
@@ -131,3 +132,70 @@ class TestCogDriverOptions:
 
     def test_is_frozenset(self):
         assert isinstance(COG_DRIVER_OPTIONS, frozenset)
+
+
+class TestValidateProfile:
+    """Per-profile dtype / band-count constraints in `validate_profile`."""
+
+    @pytest.mark.parametrize(
+        "name, dtype, bands",
+        [
+            ("deflate", "Float32", 4),
+            ("zstd", "Byte", 1),
+            ("lerc", "Float64", 10),
+        ],
+    )
+    def test_unconstrained_profile_passes(self, name, dtype, bands):
+        """An unconstrained profile accepts any dtype / band count.
+
+        Args:
+            name: An unconstrained profile name.
+            dtype: Any GDAL dtype name.
+            bands: Any band count.
+
+        Test scenario:
+            Profiles without a dtype/band constraint return `None` silently.
+        """
+        assert validate_profile(name, dtype, bands) is None, f"{name} should pass silently"
+
+    @pytest.mark.parametrize("name, bands", [("jpeg", 1), ("jpeg", 3), ("webp", 3), ("webp", 4)])
+    def test_constrained_profile_accepts_valid_source(self, name, bands):
+        """JPEG/WEBP accept a Byte source within their band range.
+
+        Args:
+            name: A constrained profile name.
+            bands: A band count inside the allowed range.
+
+        Test scenario:
+            JPEG (1-3) and WEBP (3-4) pass for a Byte source in range.
+        """
+        assert validate_profile(name, "Byte", bands) is None, f"{name}/{bands} should pass"
+
+    @pytest.mark.parametrize("name", ["jpeg", "webp"])
+    def test_constrained_profile_rejects_non_byte_dtype(self, name):
+        """JPEG/WEBP reject a non-Byte source dtype.
+
+        Args:
+            name: A constrained profile name.
+
+        Test scenario:
+            A Float32 source raises `ValueError` naming the dtype constraint.
+        """
+        with pytest.raises(ValueError, match="requires dtype in") as exc:
+            validate_profile(name, "Float32", 3)
+        assert name in str(exc.value), f"message should name the profile, got: {exc.value}"
+
+    @pytest.mark.parametrize("name, bands", [("jpeg", 4), ("webp", 1), ("webp", 5)])
+    def test_constrained_profile_rejects_bad_band_count(self, name, bands):
+        """JPEG/WEBP reject a Byte source outside their band range.
+
+        Args:
+            name: A constrained profile name.
+            bands: A band count outside the allowed range.
+
+        Test scenario:
+            An out-of-range band count raises `ValueError` naming the band range.
+        """
+        with pytest.raises(ValueError, match="bands; got") as exc:
+            validate_profile(name, "Byte", bands)
+        assert str(bands) in str(exc.value), f"message should name the band count, got: {exc.value}"

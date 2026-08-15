@@ -640,6 +640,25 @@ class BandSelection:
         A band subset, a dtype cast, or a NoData override all route the source
         through :meth:`_translate`; with none of them set the backing raster is
         used unchanged.
+
+        Returns:
+            ``True`` if ``indexes``, ``out_dtype``, or ``nodata`` is set.
+
+        Examples:
+            - A bare selection needs no pre-process:
+                ```python
+                >>> from pyramids.dataset.cog import BandSelection
+                >>> BandSelection()._needs_translate()
+                False
+
+                ```
+            - Any populated field flips it on (here a dtype cast):
+                ```python
+                >>> from pyramids.dataset.cog import BandSelection
+                >>> BandSelection(out_dtype="uint8")._needs_translate()
+                True
+
+                ```
         """
         return (
             self.indexes is not None
@@ -725,7 +744,27 @@ class Tags:
     metadata: dict[str, Any] | None = None
 
     def _has_any(self) -> bool:
-        """Return ``True`` when any tag / colourmap / metadata is set to stamp."""
+        """Return ``True`` when any tag / colourmap / metadata is set to stamp.
+
+        Returns:
+            ``True`` if ``band_tags``, ``colormap``, or ``metadata`` is non-empty.
+
+        Examples:
+            - A bare instance carries nothing to stamp:
+                ```python
+                >>> from pyramids.dataset.cog import Tags
+                >>> Tags()._has_any()
+                False
+
+                ```
+            - Any populated field makes it true (here dataset metadata):
+                ```python
+                >>> from pyramids.dataset.cog import Tags
+                >>> Tags(metadata={"source": "s2"})._has_any()
+                True
+
+                ```
+        """
         return bool(self.band_tags or self.colormap or self.metadata)
 
     def _stamp(self, ds: gdal.Dataset) -> None:
