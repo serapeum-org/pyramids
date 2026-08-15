@@ -241,6 +241,26 @@ class Compression:
             /``1`` disables it). ``None`` auto-resolves per source dtype (``2``
             integer, ``3`` float).
         max_z_error: Maximum per-pixel error for the LERC family.
+
+    Examples:
+        - Build an explicit compression policy and read its fields:
+            ```python
+            >>> from pyramids.dataset.cog import Compression
+            >>> comp = Compression(compress="ZSTD", level=18)
+            >>> comp.compress
+            'ZSTD'
+            >>> comp.level
+            18
+
+            ```
+        - An out-of-range quality is rejected at construction:
+            ```python
+            >>> Compression(quality=200)
+            Traceback (most recent call last):
+                ...
+            ValueError: quality must be in 1..100; got 200.
+
+            ```
     """
 
     compress: str | None = None
@@ -324,6 +344,26 @@ class Overviews:
         count: Number of overview levels. ``None`` lets GDAL decide.
         compress: Compression for the overview IFDs. ``None`` inherits the
             full-resolution compression.
+
+    Examples:
+        - Pin an averaging pyramid with four levels:
+            ```python
+            >>> from pyramids.dataset.cog import Overviews
+            >>> ov = Overviews(resampling="average", count=4)
+            >>> ov.resampling
+            'average'
+            >>> ov.count
+            4
+
+            ```
+        - A negative overview count is rejected:
+            ```python
+            >>> Overviews(count=-1)
+            Traceback (most recent call last):
+                ...
+            ValueError: overview count must be >= 0; got -1.
+
+            ```
     """
 
     resampling: str | None = None
@@ -354,6 +394,26 @@ class Tiling:
         zoom_level: Pin the maximum zoom level (advanced tiling-scheme knob).
         zoom_level_strategy: ``auto`` (default), ``lower``, or ``upper``.
         aligned_levels: Number of overview levels aligned to the tiling scheme.
+
+    Examples:
+        - Request a web-optimized tiling scheme:
+            ```python
+            >>> from pyramids.dataset.cog import Tiling
+            >>> til = Tiling(scheme="GoogleMapsCompatible")
+            >>> til.scheme
+            'GoogleMapsCompatible'
+            >>> til.zoom_level_strategy
+            'auto'
+
+            ```
+        - An unknown zoom-level strategy is rejected:
+            ```python
+            >>> Tiling(zoom_level_strategy="sideways")
+            Traceback (most recent call last):
+                ...
+            ValueError: zoom_level_strategy must be 'auto'/'lower'/'upper'; got 'sideways'.
+
+            ```
     """
 
     target_srs: int | str | None = None
@@ -392,6 +452,26 @@ class BandSelection:
         ``indexes`` is a plain list, so ``frozen=True`` only blocks rebinding the
         field, not mutating the list, and an instance is not hashable once
         ``indexes`` is populated. Treat these as option carriers, not value keys.
+
+    Examples:
+        - Select and reorder three bands, casting the output:
+            ```python
+            >>> from pyramids.dataset.cog import BandSelection
+            >>> sel = BandSelection(indexes=[2, 1, 0], out_dtype="uint8")
+            >>> sel.indexes
+            [2, 1, 0]
+            >>> sel.out_dtype
+            'uint8'
+
+            ```
+        - A negative (non-0-based) index is rejected:
+            ```python
+            >>> BandSelection(indexes=[0, -1])
+            Traceback (most recent call last):
+                ...
+            ValueError: band indexes must be >= 0 (0-based); got [0, -1].
+
+            ```
     """
 
     indexes: list[int] | None = None
@@ -422,6 +502,24 @@ class Tags:
         The fields are plain dicts, so ``frozen=True`` only blocks rebinding
         them, not mutating their contents, and an instance is not hashable once such a
         field is populated. Treat these as option carriers, not value keys.
+
+    Examples:
+        - Stamp a band description and read it back:
+            ```python
+            >>> from pyramids.dataset.cog import Tags
+            >>> tags = Tags(band_tags={0: {"name": "NDVI"}}, metadata={"source": "s2"})
+            >>> tags.band_tags[0]["name"]
+            'NDVI'
+            >>> tags.metadata["source"]
+            's2'
+
+            ```
+        - A bare instance carries nothing:
+            ```python
+            >>> Tags().colormap is None
+            True
+
+            ```
     """
 
     band_tags: dict[int, dict[str, Any]] | None = None
@@ -442,6 +540,26 @@ class Layout:
         add_mask: Add an alpha band for transparency.
         sparse_ok: Allow sparse (unfilled) tiles.
         statistics: Compute and embed band statistics.
+
+    Examples:
+        - Override the tile size and read the defaults it keeps:
+            ```python
+            >>> from pyramids.dataset.cog import Layout
+            >>> lay = Layout(blocksize=256)
+            >>> lay.blocksize
+            256
+            >>> lay.bigtiff
+            'IF_SAFER'
+
+            ```
+        - A non-power-of-2 blocksize is rejected at construction:
+            ```python
+            >>> Layout(blocksize=500)  # doctest: +IGNORE_EXCEPTION_DETAIL
+            Traceback (most recent call last):
+                ...
+            ValueError: blocksize must be a power of 2 in [64, 4096]; got 500...
+
+            ```
     """
 
     blocksize: int = 512
