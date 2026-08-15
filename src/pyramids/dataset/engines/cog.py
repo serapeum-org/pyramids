@@ -314,7 +314,9 @@ class COG(_Engine["Dataset"]):
         # GDAL, matching the pre-refactor flat `compress="JPEG"` path (which GDAL
         # accepts for e.g. 4-band Byte).
         compression_from_profile = isinstance(compression, str)
-        compression = Compression.coerce(compression) or Compression()
+        compression = Compression.coerce(compression)
+        if compression is None:
+            compression = Compression()
         overviews = overviews or Overviews()
         tiling = tiling or Tiling()
         bands = bands or BandSelection()
@@ -326,6 +328,20 @@ class COG(_Engine["Dataset"]):
         # `Tags._stamp`, so the predictor/overview policy below — and the COG write
         # itself — see the *output* bands, and the user's dataset is never mutated.
         source_ds, source_band0 = self._effective_source(bands, tags)
+
+        # Single house policy (ARC-1): each option group serializes its own fields
+        # — `Compression`/`Overviews` resolve the dtype-aware predictor and overview
+        # resampling from the source band — so a direct `ds.to_cog(...)` and the
+        # `write_cog(...)` facade produce identical output for identical input.
+        # Assembled before the checks below so `Tiling._to_options`'
+        # scheme-vs-target_srs conflict warning keeps firing ahead of them (and is
+        # not swallowed by a `validate_profile` raise), matching pre-refactor order.
+        defaults = {
+            **compression._to_options(source_band0),
+            **overviews._to_options(source_band0),
+            **tiling._to_options(),
+            **layout._to_options(),
+        }
 
         # The jpeg/webp dtype/band constraints (PB-5) mirror the named-profile
         # presets, so they are enforced against the *effective* source only for the
@@ -345,17 +361,6 @@ class COG(_Engine["Dataset"]):
             self._warn_if_categorical_with_averaging(
                 overviews.resampling, band=source_band0
             )
-
-        # Single house policy (ARC-1): each option group serializes its own fields
-        # — `Compression`/`Overviews` resolve the dtype-aware predictor and overview
-        # resampling from the source band — so a direct `ds.to_cog(...)` and the
-        # `write_cog(...)` facade produce identical output for identical input.
-        defaults = {
-            **compression._to_options(source_band0),
-            **overviews._to_options(source_band0),
-            **tiling._to_options(),
-            **layout._to_options(),
-        }
 
         options = merge_options(defaults, extra)
         with config_context(config):
