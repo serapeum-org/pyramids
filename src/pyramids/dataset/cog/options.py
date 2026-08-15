@@ -1,8 +1,8 @@
 """COG creation-option types, serialization, and validation.
 
 Provides the :data:`CreationOptions` alias (a `Mapping[str, Any]`), the named
-:data:`PROFILES`, and pure-Python helpers used by
-:mod:`pyramids.dataset.cog.write` and :class:`pyramids.dataset.engines.cog.COG`:
+:data:`PROFILES`, and helpers used by :mod:`pyramids.dataset.cog.write` and
+:class:`pyramids.dataset.engines.cog.COG`:
 
 - :func:`to_gdal_options` — serialize a mapping into GDAL's `['KEY=VALUE',...]` list form.
 - :func:`merge_options` — merge defaults with user-supplied extras (dict or legacy `list[str]`).
@@ -10,15 +10,36 @@ Provides the :data:`CreationOptions` alias (a `Mapping[str, Any]`), the named
 - :func:`validate_option_keys` — gate unknown keys against :data:`COG_DRIVER_OPTIONS`.
 - :func:`profile_options` / :func:`validate_profile` — named compression presets.
 
-The module has no GDAL dependency — all helpers operate on plain Python
-values. GDAL is invoked only at the write call site.
+Each grouped option dataclass owns the logic that turns *its own* fields into
+the effective GDAL options via a ``_to_options`` method (``Layout``/``Tiling``
+serialize from their fields alone; ``Compression``/``Overviews`` also take the
+source band so the dtype-aware predictor / overview-resampling default can be
+resolved). ``BandSelection`` and ``Tags`` instead *transform* the source raster
+— ``_translate`` runs the in-memory band-subset/cast/NoData ``gdal.Translate``
+and ``_stamp`` applies the colour table / metadata — so the write call site is a
+thin orchestrator over these methods rather than the home of the mapping logic.
+
+These ``_``-prefixed methods are private by convention, but they are the COG
+engine's internal contract: :class:`pyramids.dataset.engines.cog.COG` is their
+only intended caller (a sibling module in this subpackage), and they are *not*
+part of the public API. Rename or re-signature them in lockstep with that engine.
 """
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+
+from osgeo import gdal
+
+from pyramids.base._errors import FailedToSaveError
+from pyramids.base._utils import (
+    default_cog_overview_resampling,
+    numpy_to_gdal_dtype,
+    resolve_cog_predictor,
+)
 
 CreationOptions = Mapping[str, Any]
 """Alias for a mapping of GDAL creation-option names to Python values.
@@ -66,6 +87,19 @@ COG_DRIVER_OPTIONS: frozenset[str] = frozenset(
 
 
 _VALID_BLOCKSIZES: frozenset[int] = frozenset({64, 128, 256, 512, 1024, 2048, 4096})
+
+
+_PREDICTOR_COMPRESSORS: frozenset[str] = frozenset({"DEFLATE", "LZW", "LZMA", "ZSTD"})
+"""Compression methods for which the GDAL ``PREDICTOR`` option is meaningful.
+
+The COG driver ignores ``PREDICTOR`` (and emits a ``RuntimeWarning``) for every
+other method — LERC, NONE, JPEG, WEBP, PACKBITS — so :meth:`Compression._to_options`
+omits it there.
+"""
+
+
+_PALETTE_GDAL_DTYPES: frozenset[int] = frozenset({gdal.GDT_Byte, gdal.GDT_UInt16})
+"""GDAL dtypes for which a colour table (palette) is meaningful."""
 
 
 COG_READ_DEFAULTS: dict[str, str] = {
@@ -329,6 +363,40 @@ class Compression:
             max_z_error=opts.get("MAX_Z_ERROR"),
         )
 
+    def _to_options(self, source_band: Any) -> dict[str, Any]:
+        """Map the compression fields to their GDAL COG creation options.
+
+        The compression method falls back to the house ``DEFLATE`` default; the
+        predictor is resolved per the source dtype when unset (``2`` for
+        integer, ``3`` for float) and is emitted only for methods that honour it
+        (:data:`_PREDICTOR_COMPRESSORS`) — GDAL ignores and warns on ``PREDICTOR``
+        for LERC/NONE/JPEG/WEBP. ``max_z_error`` (LERC family) rides along as
+        ``MAX_Z_ERROR``. ``None`` values are kept and dropped later by
+        :func:`merge_options` / :func:`to_gdal_options`.
+
+        Args:
+            source_band: Band 0 of the effective source, whose ``DataType``
+                drives the predictor default.
+
+        Returns:
+            The compression slice of the GDAL creation-option dict
+            (``COMPRESS``/``LEVEL``/``QUALITY``/``MAX_Z_ERROR``/``PREDICTOR``).
+        """
+        compress = self.compress if self.compress is not None else "DEFLATE"
+        predictor = self.predictor
+        if predictor is None:
+            predictor = resolve_cog_predictor(source_band.DataType)
+        options: dict[str, Any] = {
+            "COMPRESS": compress,
+            "LEVEL": self.level,
+            "QUALITY": self.quality,
+            "MAX_Z_ERROR": self.max_z_error,
+            "PREDICTOR": (
+                predictor if compress.upper() in _PREDICTOR_COMPRESSORS else None
+            ),
+        }
+        return options
+
 
 @dataclass(frozen=True)
 class Overviews:
@@ -374,6 +442,34 @@ class Overviews:
         """Validate the overview count."""
         if self.count is not None and self.count < 0:
             raise ValueError(f"overview count must be >= 0; got {self.count}.")
+
+    def _to_options(self, source_band: Any) -> dict[str, Any]:
+        """Map the overview fields to their GDAL COG creation options.
+
+        When ``resampling`` is unset it resolves to a category-safe default from
+        the source dtype / colour table (``mode`` for categorical, ``average``
+        for continuous) so the default never corrupts a categorical raster. The
+        caller (:meth:`pyramids.dataset.engines.cog.COG.to_cog`) still owns the
+        guardrail warning for an *explicit* averaging choice on categorical data.
+
+        Args:
+            source_band: Band 0 of the effective source, whose ``DataType`` and
+                colour table drive the resampling default.
+
+        Returns:
+            The overview slice of the GDAL creation-option dict
+            (``OVERVIEW_RESAMPLING``/``OVERVIEW_COUNT``/``OVERVIEW_COMPRESS``).
+        """
+        resampling = self.resampling
+        if resampling is None:
+            resampling = default_cog_overview_resampling(
+                source_band.DataType, source_band.GetColorTable() is not None
+            )
+        return {
+            "OVERVIEW_RESAMPLING": resampling,
+            "OVERVIEW_COUNT": self.count,
+            "OVERVIEW_COMPRESS": self.compress,
+        }
 
 
 @dataclass(frozen=True)
@@ -431,6 +527,64 @@ class Tiling:
                 f"got {self.zoom_level_strategy!r}."
             )
 
+    def _to_options(self) -> dict[str, Any]:
+        """Map the tiling / reprojection fields to their GDAL COG options.
+
+        ``scheme`` and ``target_srs`` are mutually exclusive: when both are set,
+        ``scheme`` wins, ``target_srs`` is dropped, and a ``UserWarning`` is
+        emitted. ``WARP_RESAMPLING`` is only emitted when actually reprojecting
+        (a scheme or a surviving ``target_srs``); an integer ``target_srs``
+        becomes ``EPSG:<n>``, a string is forwarded verbatim.
+
+        Returns:
+            The tiling slice of the GDAL creation-option dict.
+
+        Examples:
+            - A tiling scheme drives the scheme keys and warp resampling:
+                ```python
+                >>> from pyramids.dataset.cog import Tiling
+                >>> Tiling(scheme="GoogleMapsCompatible")._to_options()["TILING_SCHEME"]
+                'GoogleMapsCompatible'
+
+                ```
+            - An integer target SRS is formatted as an EPSG string:
+                ```python
+                >>> Tiling(target_srs=3857)._to_options()["TARGET_SRS"]
+                'EPSG:3857'
+
+                ```
+            - With neither scheme nor target SRS, warp resampling is dropped:
+                ```python
+                >>> Tiling()._to_options()["WARP_RESAMPLING"] is None
+                True
+
+                ```
+        """
+        eff_target_srs = self.target_srs
+        if self.scheme is not None and eff_target_srs is not None:
+            warnings.warn(
+                "Both tiling.scheme and tiling.target_srs provided; "
+                "scheme wins and target_srs is ignored.",
+                UserWarning,
+                stacklevel=3,
+            )
+            eff_target_srs = None
+        reprojecting = bool(self.scheme or eff_target_srs)
+        options: dict[str, Any] = {
+            "TILING_SCHEME": self.scheme,
+            "ZOOM_LEVEL": self.zoom_level,
+            "ZOOM_LEVEL_STRATEGY": self.zoom_level_strategy,
+            "ALIGNED_LEVELS": self.aligned_levels,
+            "WARP_RESAMPLING": self.resampling if reprojecting else None,
+        }
+        if eff_target_srs is not None:
+            options["TARGET_SRS"] = (
+                f"EPSG:{eff_target_srs}"
+                if isinstance(eff_target_srs, int)
+                else eff_target_srs
+            )
+        return options
+
 
 @dataclass(frozen=True)
 class BandSelection:
@@ -485,6 +639,72 @@ class BandSelection:
                 f"band indexes must be >= 0 (0-based); got {self.indexes}."
             )
 
+    def _needs_translate(self) -> bool:
+        """Return ``True`` when any field requires an in-memory pre-process.
+
+        A band subset, a dtype cast, or a NoData override all route the source
+        through :meth:`_translate`; with none of them set the backing raster is
+        used unchanged.
+
+        Returns:
+            ``True`` if ``indexes``, ``out_dtype``, or ``nodata`` is set.
+
+        Examples:
+            - A bare selection needs no pre-process:
+                ```python
+                >>> from pyramids.dataset.cog import BandSelection
+                >>> BandSelection()._needs_translate()
+                False
+
+                ```
+            - Any populated field flips it on (here a dtype cast):
+                ```python
+                >>> from pyramids.dataset.cog import BandSelection
+                >>> BandSelection(out_dtype="uint8")._needs_translate()
+                True
+
+                ```
+        """
+        return (
+            self.indexes is not None
+            or self.out_dtype is not None
+            or self.nodata is not None
+        )
+
+    def _translate(self, source: gdal.Dataset) -> gdal.Dataset:
+        """Run the in-memory ``gdal.Translate`` for the selected fields.
+
+        Applies band selection/reordering (0-based indices mapped to GDAL's
+        1-based ``bandList``), the output dtype cast, and the NoData override,
+        producing a MEM dataset so the predictor / overview policy and the COG
+        write see the *output* bands rather than the original source.
+
+        Args:
+            source: The backing :class:`gdal.Dataset` to pre-process.
+
+        Returns:
+            A new in-memory :class:`gdal.Dataset`.
+
+        Raises:
+            FailedToSaveError: When ``gdal.Translate`` returns no dataset.
+        """
+        translate_kwargs: dict[str, Any] = {}
+        if self.indexes is not None:
+            # pyramids band indices are 0-based; GDAL bandList is 1-based.
+            translate_kwargs["bandList"] = [i + 1 for i in self.indexes]
+        if self.out_dtype is not None:
+            translate_kwargs["outputType"] = numpy_to_gdal_dtype(self.out_dtype)
+        if self.nodata is not None:
+            translate_kwargs["noData"] = self.nodata
+        mem = gdal.Translate("", source, format="MEM", **translate_kwargs)
+        if mem is None:
+            raise FailedToSaveError(
+                "failed to build the pre-processed COG source "
+                f"(indexes={self.indexes}, out_dtype={self.out_dtype}, "
+                f"nodata={self.nodata})"
+            )
+        return mem
+
 
 @dataclass(frozen=True)
 class Tags:
@@ -527,6 +747,69 @@ class Tags:
     band_tags: dict[int, dict[str, Any]] | None = None
     colormap: dict[int, tuple[int, int, int, int]] | None = None
     metadata: dict[str, Any] | None = None
+
+    def _has_any(self) -> bool:
+        """Return ``True`` when any tag / colourmap / metadata is set to stamp.
+
+        Returns:
+            ``True`` if ``band_tags``, ``colormap``, or ``metadata`` is non-empty.
+
+        Examples:
+            - A bare instance carries nothing to stamp:
+                ```python
+                >>> from pyramids.dataset.cog import Tags
+                >>> Tags()._has_any()
+                False
+
+                ```
+            - Any populated field makes it true (here dataset metadata):
+                ```python
+                >>> from pyramids.dataset.cog import Tags
+                >>> Tags(metadata={"source": "s2"})._has_any()
+                True
+
+                ```
+        """
+        return bool(self.band_tags or self.colormap or self.metadata)
+
+    def _stamp(self, ds: gdal.Dataset) -> None:
+        """Stamp band tags / colourmap / dataset metadata onto a dataset.
+
+        Mutates ``ds`` in place — the caller passes a MEM copy so the user's open
+        dataset is never touched. Dataset metadata and per-band tags are written
+        as strings; the colourmap builds a palette on band 1 and flips its colour
+        interpretation to ``PaletteIndex``.
+
+        Args:
+            ds: The (copied) :class:`gdal.Dataset` to mutate.
+
+        Raises:
+            ValueError: When ``colormap`` targets a band whose dtype is not
+                ``Byte`` / ``UInt16`` (GeoTIFF only supports a colour table
+                there; GDAL would otherwise fail deep in ``CreateCopy``).
+        """
+        if self.metadata:
+            ds.SetMetadata({str(k): str(v) for k, v in self.metadata.items()})
+        if self.colormap:
+            band = ds.GetRasterBand(1)
+            if band.DataType not in _PALETTE_GDAL_DTYPES:
+                raise ValueError(
+                    f"colormap is only supported on Byte/UInt16 rasters; got "
+                    f"{gdal.GetDataTypeName(band.DataType)}. Cast first with "
+                    f"to_cog(..., bands=cog.BandSelection(out_dtype='uint8')), "
+                    f"or drop the colormap."
+                )
+            color_table = gdal.ColorTable()
+            for value, rgba in self.colormap.items():
+                color_table.SetColorEntry(int(value), tuple(rgba))
+            band.SetColorTable(color_table)
+            band.SetColorInterpretation(gdal.GCI_PaletteIndex)
+        if self.band_tags:
+            for index, tags in self.band_tags.items():
+                # 0-based index -> GDAL 1-based band number.
+                ds.GetRasterBand(index + 1).SetMetadata(
+                    {str(k): str(v) for k, v in tags.items()}
+                )
 
 
 @dataclass(frozen=True)
@@ -579,6 +862,48 @@ class Layout:
                 f"bigtiff must be 'IF_SAFER'/'YES'/'NO'/'IF_NEEDED'; "
                 f"got {self.bigtiff!r}."
             )
+
+    def _to_options(self) -> dict[str, Any]:
+        """Map the physical-layout fields to their GDAL COG creation options.
+
+        ``num_threads`` is stringified (``"ALL_CPUS"`` or an int becomes its
+        decimal string); the boolean toggles map to ``YES``/dropped — an unset
+        toggle is left as ``None`` so :func:`merge_options` /
+        :func:`to_gdal_options` omit it rather than forcing ``NO``.
+
+        Returns:
+            The layout slice of the GDAL creation-option dict.
+
+        Examples:
+            - Defaults keep the house tile size and enable statistics:
+                ```python
+                >>> from pyramids.dataset.cog import Layout
+                >>> opts = Layout()._to_options()
+                >>> opts["BLOCKSIZE"], opts["STATISTICS"]
+                (512, 'YES')
+
+                ```
+            - An integer thread count is stringified; unset toggles drop out:
+                ```python
+                >>> opts = Layout(num_threads=4)._to_options()
+                >>> opts["NUM_THREADS"], opts["ADD_ALPHA"], opts["SPARSE_OK"]
+                ('4', None, None)
+
+                ```
+        """
+        num_threads = (
+            self.num_threads
+            if isinstance(self.num_threads, str)
+            else str(self.num_threads)
+        )
+        return {
+            "BLOCKSIZE": self.blocksize,
+            "BIGTIFF": self.bigtiff,
+            "NUM_THREADS": num_threads,
+            "ADD_ALPHA": True if self.add_mask else None,
+            "SPARSE_OK": True if self.sparse_ok else None,
+            "STATISTICS": "YES" if self.statistics else None,
+        }
 
 
 def _stringify(value: Any) -> str:

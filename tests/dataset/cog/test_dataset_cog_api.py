@@ -221,7 +221,7 @@ class TestToCogCategoricalWarning:
 
 
 class TestToCogOptionMapping:
-    """Cover the option-mapping branches of the engine's _build_cog_defaults."""
+    """Cover the option-mapping branches of the group dataclasses' _to_options."""
 
     def test_max_z_error_from_compression_field(self, small_float_dataset, tmp_path):
         """`Compression(max_z_error=...)` forwards MAX_Z_ERROR (not just via extra).
