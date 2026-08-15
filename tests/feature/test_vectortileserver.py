@@ -73,7 +73,9 @@ class TestFromVectorTileServer:
         assert str(fc.crs) == "EPSG:3857", (
             f"native tile CRS should be 3857, got {fc.crs}"
         )
-        assert len(fc) == 3, f"polygon clipped into 2 tiles + 1 point = 3 rows, got {len(fc)}"
+        assert len(fc) == 3, (
+            f"polygon clipped into 2 tiles + 1 point = 3 rows, got {len(fc)}"
+        )
         kinds = list(fc["kind"])
         assert kinds.count("polygon") == 2 and kinds.count("point") == 1, kinds
         assert set(fc["layer"]) == {served["layer_name"]}, (
@@ -146,9 +148,13 @@ class TestFromVectorTileServer:
             seen.append(tile_url)
             return _tile_bytes_for_url(tile_url.split("?")[0])
 
-        monkeypatch.setattr(FeatureCollection, "_fetch_vectortileserver_tile", classmethod(_tile))
+        monkeypatch.setattr(
+            FeatureCollection, "_fetch_vectortileserver_tile", classmethod(_tile)
+        )
         FeatureCollection.from_vectortileserver(
-            "https://h/VectorTileServer?token=abc", bbox=tuple(info["bbox_4326"]), zoom=info["zoom"]
+            "https://h/VectorTileServer?token=abc",
+            bbox=tuple(info["bbox_4326"]),
+            zoom=info["zoom"],
         )
         assert seen and all(url.endswith("?token=abc") for url in seen), seen
 
@@ -231,19 +237,29 @@ class TestVectorTileServerValidation:
         """A ``fullExtent`` reported in EPSG:4326 is reprojected, not read as metres."""
         meta = {
             "fullExtent": {
-                "xmin": -1.0, "ymin": -1.0, "xmax": 1.0, "ymax": 1.0,
+                "xmin": -1.0,
+                "ymin": -1.0,
+                "xmax": 1.0,
+                "ymax": 1.0,
                 "spatialReference": {"wkid": 4326, "latestWkid": 4326},
             }
         }
         minx, miny, maxx, maxy = _read._vts_bbox_3857(None, meta)
-        assert abs(maxx - 111319.49) < 1.0, f"1 deg lon should be ~111 km in 3857, got {maxx}"
-        assert minx < 0 < maxx and miny < 0 < maxy, "the reprojected extent straddles the origin"
+        assert abs(maxx - 111319.49) < 1.0, (
+            f"1 deg lon should be ~111 km in 3857, got {maxx}"
+        )
+        assert minx < 0 < maxx and miny < 0 < maxy, (
+            "the reprojected extent straddles the origin"
+        )
 
     def test_full_extent_in_unknown_crs_raises_service_error(self):
         """A ``fullExtent`` in an unrecognised CRS is a VectorTileServerError, not misread metres."""
         meta = {
             "fullExtent": {
-                "xmin": 0.0, "ymin": 0.0, "xmax": 1.0, "ymax": 1.0,
+                "xmin": 0.0,
+                "ymin": 0.0,
+                "xmax": 1.0,
+                "ymax": 1.0,
                 "spatialReference": {"wkid": 999999, "latestWkid": 999999},
             }
         }
@@ -265,11 +281,27 @@ class TestVectorTileServerValidation:
 
     def test_assemble_drops_exact_duplicate_rows(self):
         """Byte-identical duplicate rows are dropped; distinct rows are kept."""
-        a = gpd.GeoDataFrame({"name": ["x"], "layer": ["places"]}, geometry=[Point(0, 0)], crs="EPSG:3857")
-        dup = gpd.GeoDataFrame({"name": ["x"], "layer": ["places"]}, geometry=[Point(0, 0)], crs="EPSG:3857")
-        assert len(_read._assemble_vts_frames(FeatureCollection, [a, dup])) == 1, "exact duplicate dropped"
-        other = gpd.GeoDataFrame({"name": ["y"], "layer": ["places"]}, geometry=[Point(1, 1)], crs="EPSG:3857")
-        assert len(_read._assemble_vts_frames(FeatureCollection, [a, other])) == 2, "distinct rows kept"
+        a = gpd.GeoDataFrame(
+            {"name": ["x"], "layer": ["places"]},
+            geometry=[Point(0, 0)],
+            crs="EPSG:3857",
+        )
+        dup = gpd.GeoDataFrame(
+            {"name": ["x"], "layer": ["places"]},
+            geometry=[Point(0, 0)],
+            crs="EPSG:3857",
+        )
+        assert len(_read._assemble_vts_frames(FeatureCollection, [a, dup])) == 1, (
+            "exact duplicate dropped"
+        )
+        other = gpd.GeoDataFrame(
+            {"name": ["y"], "layer": ["places"]},
+            geometry=[Point(1, 1)],
+            crs="EPSG:3857",
+        )
+        assert len(_read._assemble_vts_frames(FeatureCollection, [a, other])) == 2, (
+            "distinct rows kept"
+        )
 
     def test_read_tile_frame_skips_empty_sublayer(self, tmp_path, monkeypatch):
         """A sub-layer that reads back with no features emits no frame."""
@@ -284,7 +316,9 @@ class TestVectorTileServerValidation:
 
     def test_tile_count_matches_covering_list(self):
         """The count that drives zoom-pick / max_tiles equals the actual covering-tile list."""
-        origin_x, origin_y, tile_size, lods, _ = _read._resolve_vts_tiling(_load_metadata())
+        origin_x, origin_y, tile_size, lods, _ = _read._resolve_vts_tiling(
+            _load_metadata()
+        )
         info = _load_fixture_info()
         bbox_3857 = _read._vts_bbox_3857(tuple(info["bbox_4326"]), {})
         level = info["zoom"]
@@ -309,7 +343,9 @@ class TestVectorTileServerValidation:
     def test_base_and_query_splits_url(self):
         """A URL with a query is split into base + query so the token survives."""
         base, query = _read._vts_base_and_query("https://h/VectorTileServer/?token=abc")
-        assert base == "https://h/VectorTileServer", f"trailing slash + query stripped from base, got {base}"
+        assert base == "https://h/VectorTileServer", (
+            f"trailing slash + query stripped from base, got {base}"
+        )
         assert query == "token=abc", f"the query is preserved, got {query}"
 
     def test_covering_tiles_matches_fixture(self):
@@ -387,7 +423,9 @@ class TestVectorTileServerFetch:
             return json.dumps({"tileInfo": {"lods": []}}).encode()
 
         monkeypatch.setattr(_read, "http_get_with_retry", _capture)
-        _read.fetch_vectortileserver_metadata("https://h/VectorTileServer?token=abc", None, 30.0)
+        _read.fetch_vectortileserver_metadata(
+            "https://h/VectorTileServer?token=abc", None, 30.0
+        )
         assert seen["url"] == "https://h/VectorTileServer?token=abc&f=json", seen["url"]
 
     def test_metadata_http_error_wraps_as_service_error(self, monkeypatch):

@@ -405,7 +405,10 @@ def _pick_vts_zoom(
     """Highest LOD whose covering-tile count fits ``max_tiles`` (else the coarsest LOD)."""
     for level in sorted(lods, reverse=True):
         tile_span = tile_size * lods[level]
-        if _vts_tile_count(bbox_3857, origin_x, origin_y, tile_span, level) <= max_tiles:
+        if (
+            _vts_tile_count(bbox_3857, origin_x, origin_y, tile_span, level)
+            <= max_tiles
+        ):
             return level
     return min(lods)
 
@@ -540,7 +543,9 @@ def from_vectortileserver(
     )
 
     base, query = _vts_base_and_query(url)
-    query_suffix = f"?{query}" if query else ""  # carry ?token=… onto every tile request
+    query_suffix = (
+        f"?{query}" if query else ""
+    )  # carry ?token=… onto every tile request
     frames: list[GeoDataFrame] = []
     with tempfile.TemporaryDirectory(prefix="pyramids_vts_") as work_dir:
         for tz, tx, ty in tiles:
