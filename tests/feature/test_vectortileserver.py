@@ -131,6 +131,26 @@ class TestFromVectorTileServer:
             )
         assert len(fc) >= 1, "the one read tile should still yield features"
 
+    def test_tile_urls_carry_an_existing_query(self, monkeypatch):
+        """A ``?token=…`` on the service URL rides on every tile request."""
+        metadata, info = _load_metadata(), _load_fixture_info()
+        monkeypatch.setattr(
+            FeatureCollection,
+            "_fetch_vectortileserver_metadata",
+            classmethod(lambda cls, url, auth, timeout: metadata),
+        )
+        seen: list[str] = []
+
+        def _tile(cls, tile_url, auth, timeout):
+            seen.append(tile_url)
+            return _tile_bytes_for_url(tile_url.split("?")[0])
+
+        monkeypatch.setattr(FeatureCollection, "_fetch_vectortileserver_tile", classmethod(_tile))
+        FeatureCollection.from_vectortileserver(
+            "https://h/VectorTileServer?token=abc", bbox=tuple(info["bbox_4326"]), zoom=info["zoom"]
+        )
+        assert seen and all(url.endswith("?token=abc") for url in seen), seen
+
     def test_bad_zoom_raises_value_error(self, served):
         """A ``zoom`` the service does not advertise is a plain ValueError."""
         with pytest.raises(ValueError, match="not an advertised LOD"):
@@ -279,6 +299,12 @@ class TestVectorTileServerValidation:
         assert (col_min, row_min) == (0, 0), "lower indices clamped to 0"
         assert (col_max, row_max) == (7, 7), "upper indices clamped to 2**3 - 1"
 
+    def test_base_and_query_splits_url(self):
+        """A URL with a query is split into base + query so the token survives."""
+        base, query = _read._vts_base_and_query("https://h/VectorTileServer/?token=abc")
+        assert base == "https://h/VectorTileServer", f"trailing slash + query stripped from base, got {base}"
+        assert query == "token=abc", f"the query is preserved, got {query}"
+
     def test_covering_tiles_matches_fixture(self):
         """The covering-tile math reproduces exactly the fixture's two tiles."""
         info = _load_fixture_info()
@@ -344,6 +370,18 @@ class TestVectorTileServerFetch:
         assert doc["name"] == "svc" and "tileInfo" in doc, (
             "the parsed service document is returned"
         )
+
+    def test_metadata_url_preserves_existing_query(self, monkeypatch):
+        """``?f=json`` is merged into an existing query rather than clobbering it."""
+        seen = {}
+
+        def _capture(request, timeout):
+            seen["url"] = request.full_url
+            return json.dumps({"tileInfo": {"lods": []}}).encode()
+
+        monkeypatch.setattr(_read, "http_get_with_retry", _capture)
+        _read.fetch_vectortileserver_metadata("https://h/VectorTileServer?token=abc", None, 30.0)
+        assert seen["url"] == "https://h/VectorTileServer?token=abc&f=json", seen["url"]
 
     def test_metadata_http_error_wraps_as_service_error(self, monkeypatch):
         """An HTTP error on the metadata fetch surfaces as VectorTileServerError."""

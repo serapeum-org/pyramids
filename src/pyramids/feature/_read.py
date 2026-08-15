@@ -36,7 +36,7 @@ from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import geopandas as gpd
 import pandas as pd
@@ -196,6 +196,18 @@ _WEBMERC_WKIDS = frozenset({3857, 102100, 102113, 900913})
 _VTS_TILE_HEADERS = {"User-Agent": "pyramids-gis VectorTileServer client"}
 
 
+def _vts_base_and_query(url: str) -> tuple[str, str]:
+    """Split a VectorTileServer URL into its ``(base_without_query, query_string)``.
+
+    ArcGIS secures services with a ``?token=…`` query on every request, so the query
+    must be preserved and re-attached to the metadata and tile URLs rather than
+    clobbered by a naive ``?f=json`` concatenation.
+    """
+    parts = urlsplit(url)
+    base = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
+    return base, parts.query
+
+
 def _vts_request(
     url: str, auth: tuple[str, str] | None, *, accept_json: bool
 ) -> urllib.request.Request:
@@ -213,7 +225,9 @@ def fetch_vectortileserver_metadata(
     url: str, auth: tuple[str, str] | None, timeout: float
 ) -> dict[str, Any]:
     """GET ``<url>?f=json`` and return the parsed ArcGIS VectorTileServer service metadata."""
-    meta_url = f"{url.rstrip('/')}?f=json"
+    base, query = _vts_base_and_query(url)
+    merged = f"{query}&f=json" if query else "f=json"
+    meta_url = f"{base}?{merged}"
     try:
         payload = http_get_with_retry(
             _vts_request(meta_url, auth, accept_json=True), timeout
@@ -525,11 +539,12 @@ def from_vectortileserver(
         bbox_3857, level, origin_x, origin_y, tile_span, max_tiles
     )
 
-    base = url.rstrip("/")
+    base, query = _vts_base_and_query(url)
+    query_suffix = f"?{query}" if query else ""  # carry ?token=… onto every tile request
     frames: list[GeoDataFrame] = []
     with tempfile.TemporaryDirectory(prefix="pyramids_vts_") as work_dir:
         for tz, tx, ty in tiles:
-            tile_url = f"{base}/{template.format(z=tz, x=tx, y=ty)}"
+            tile_url = f"{base}/{template.format(z=tz, x=tx, y=ty)}{query_suffix}"
             tile_bytes = fc_cls._fetch_vectortileserver_tile(tile_url, auth, timeout)
             if not tile_bytes:
                 continue

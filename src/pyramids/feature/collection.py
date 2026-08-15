@@ -1424,17 +1424,22 @@ class FeatureCollection(GeoDataFrame):
 
         Args:
             url: The VectorTileServer root URL, e.g.
-                ``https://<host>/arcgis/rest/services/<name>/VectorTileServer``.
+                ``https://<host>/arcgis/rest/services/<name>/VectorTileServer``. Any existing query string
+                (such as a ``?token=…``) is preserved on the metadata request and on every tile request.
             layer: The MVT *sourceLayer* name to read, or ``None`` (default) to read every sub-layer in each
-                tile. The source sub-layer is recorded in a ``"layer"`` column on the result.
+                tile. The source sub-layer is recorded in a ``"layer"`` column on the result (a same-named
+                source attribute, if any, is overwritten by this tag).
             bbox: ``(west, south, east, north)`` in EPSG:4326 lon/lat. ``None`` (default) uses the service
-                ``fullExtent``.
+                ``fullExtent`` (reprojected to the tile CRS when it is reported in another CRS).
             zoom: The level of detail to read. ``None`` (default) picks the highest advertised LOD whose
                 covering-tile count for ``bbox`` fits ``max_tiles`` (the most detail within the cap).
             output_crs: CRS to reproject the result to (any form geopandas accepts). ``None`` (default)
                 returns the native tile CRS, EPSG:3857.
             max_tiles: Safety cap on the number of tiles fetched. Defaults to 1000.
-            auth: Optional ``(user, password)`` for a secured service; sent as preemptive HTTP Basic auth.
+            auth: Optional ``(user, password)`` sent as preemptive HTTP **Basic** auth — for a Basic-protected
+                proxy in front of the service. ArcGIS's own security is **token**-based: for a token-secured
+                service pass the token in ``url`` as a query parameter (``...VectorTileServer?token=abc``),
+                which is preserved on every request.
             timeout: Per-request timeout in seconds. Defaults to 60.
 
         Returns:
