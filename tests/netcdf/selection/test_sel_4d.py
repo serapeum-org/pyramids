@@ -287,33 +287,39 @@ class TestRootContainer4DSpatialOps:
     def test_create_from_array_extra_dims_mutually_exclusive_with_legacy(self):
         """`extra_dims` and `extra_dim_values` together raise `ValueError`."""
         arr = np.zeros((3, 5, 6), dtype=np.float64)
+        geo_ref = GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0))
+        dims = ExtraDimensions(values=[1, 2, 3], dims=[("time", [1, 2, 3])])
         with pytest.raises(ValueError, match="mutually exclusive"):
             NetCDF.create_from_array(
                 arr=arr,
-                geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0)),
-                dims=ExtraDimensions(values=[1, 2, 3], dims=[("time", [1, 2, 3])]),
+                geo_ref=geo_ref,
+                dims=dims,
                 variable_name="temp",
             )
 
     def test_create_from_array_extra_dims_length_validated(self):
         """`extra_dims` length must equal `arr.ndim - 2`."""
         arr = np.zeros((2, 3, 5, 6), dtype=np.float64)
+        geo_ref = GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0))
+        dims = ExtraDimensions(dims=[("time", [1, 2])])  # only 1 entry, need 2
         with pytest.raises(ValueError, match="must have 2 entries"):
             NetCDF.create_from_array(
                 arr=arr,
-                geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0)),
-                dims=ExtraDimensions(dims=[("time", [1, 2])]),  # only 1 entry, need 2
+                geo_ref=geo_ref,
+                dims=dims,
                 variable_name="temp",
             )
 
     def test_create_from_array_extra_dims_values_length_validated(self):
         """Each per-dim values list must match `arr.shape[i]`."""
         arr = np.zeros((2, 3, 5, 6), dtype=np.float64)
+        geo_ref = GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0))
+        dims = ExtraDimensions(dims=[("time", [1, 2, 3]), ("level", [1, 2, 3])])
         with pytest.raises(ValueError, match="does not match arr.shape"):
             NetCDF.create_from_array(
                 arr=arr,
-                geo_ref=GeoReference(geo=(0.0, 1.0, 0, 5.0, 0, -1.0)),
-                dims=ExtraDimensions(dims=[("time", [1, 2, 3]), ("level", [1, 2, 3])]),
+                geo_ref=geo_ref,
+                dims=dims,
                 variable_name="temp",
             )
 

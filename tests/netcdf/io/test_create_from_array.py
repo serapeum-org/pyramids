@@ -325,12 +325,14 @@ class TestCreateFromArrayValidation:
             Pass 2 values for a 3-slice array -> ``ValueError``.
         """
         arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
+        geo_ref = GeoReference(geo=GEO)
+        dims = ExtraDimensions(name="time", values=[0, 6])
         with pytest.raises(ValueError, match="values length.*does not match size"):
             NetCDF.create_from_array(
                 arr=arr,
-                geo_ref=GeoReference(geo=GEO),
+                geo_ref=geo_ref,
                 variable_name="v",
-                dims=ExtraDimensions(name="time", values=[0, 6]),
+                dims=dims,
                 path=None,
             )
 
@@ -341,12 +343,14 @@ class TestCreateFromArrayValidation:
             Pass ``extra_dim_name=""`` for a 3-D array -> ``ValueError``.
         """
         arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
+        geo_ref = GeoReference(geo=GEO)
+        dims = ExtraDimensions(name="")
         with pytest.raises(ValueError, match="name cannot be empty"):
             NetCDF.create_from_array(
                 arr=arr,
-                geo_ref=GeoReference(geo=GEO),
+                geo_ref=geo_ref,
                 variable_name="v",
-                dims=ExtraDimensions(name=""),
+                dims=dims,
                 path=None,
             )
 

@@ -132,10 +132,11 @@ class TestCreateFromArrayAlternatives:
         top_left_corner/cell_size are not both provided.
         """
         arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
+        geo_ref = GeoReference(epsg=4326)
         with pytest.raises(ValueError, match="Either 'geo'"):
             NetCDF.create_from_array(
                 arr=arr,
-                geo_ref=GeoReference(epsg=4326),
+                geo_ref=geo_ref,
                 no_data_value=-9999.0,
             )
 
