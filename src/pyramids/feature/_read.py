@@ -500,11 +500,11 @@ def _assemble_vts_frames(
     merged = gpd.GeoDataFrame(
         pd.concat(frames, ignore_index=True), geometry="geometry", crs="EPSG:3857"
     )
-    # MVT clips features at tile boundaries and buffers each tile, so a feature near a
-    # seam can appear (fully) in adjacent tiles. Drop exact-duplicate rows — same
-    # attributes and identical geometry — to remove those buffer duplicates. Fragments
-    # that were genuinely *clipped* at a seam are distinct geometries and remain as
-    # separate rows (documented on the facade).
+    # MVT clips features at tile boundaries, so a feature spanning tiles is returned as
+    # several clipped pieces (kept as distinct rows). Drop only *exact*-duplicate rows —
+    # identical attributes and byte-identical geometry. MVT quantises each tile to its own
+    # local grid, so near-seam buffer copies are usually not byte-identical and are NOT
+    # removed here: this is a cheap exact guard, not full seam reassembly (see the facade).
     merged["_wkb"] = merged.geometry.to_wkb()
     subset = [column for column in merged.columns if column != "geometry"]
     deduped = merged.drop_duplicates(subset=subset).drop(columns="_wkb")

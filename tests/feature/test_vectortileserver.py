@@ -16,7 +16,9 @@ import urllib.error
 import warnings
 from pathlib import Path
 
+import geopandas as gpd
 import pytest
+from shapely.geometry import Point
 
 from pyramids.base._errors import VectorTileServerError
 from pyramids.feature import _read
@@ -71,10 +73,9 @@ class TestFromVectorTileServer:
         assert str(fc.crs) == "EPSG:3857", (
             f"native tile CRS should be 3857, got {fc.crs}"
         )
-        assert len(fc) >= 2, f"expected features from both fixture tiles, got {len(fc)}"
-        assert set(fc["kind"]) == {"polygon", "point"}, (
-            "both source features should appear"
-        )
+        assert len(fc) == 3, f"polygon clipped into 2 tiles + 1 point = 3 rows, got {len(fc)}"
+        kinds = list(fc["kind"])
+        assert kinds.count("polygon") == 2 and kinds.count("point") == 1, kinds
         assert set(fc["layer"]) == {served["layer_name"]}, (
             "the source sub-layer is tagged"
         )
@@ -129,7 +130,7 @@ class TestFromVectorTileServer:
                 zoom=served["zoom"],
                 max_tiles=1,
             )
-        assert len(fc) >= 1, "the one read tile should still yield features"
+        assert len(fc) == 1, "only the first of the two covering tiles is read"
 
     def test_tile_urls_carry_an_existing_query(self, monkeypatch):
         """A ``?token=…`` on the service URL rides on every tile request."""
@@ -262,10 +263,16 @@ class TestVectorTileServerValidation:
         )
         assert level == 2, "the coarsest (minimum) LOD is the fallback"
 
+    def test_assemble_drops_exact_duplicate_rows(self):
+        """Byte-identical duplicate rows are dropped; distinct rows are kept."""
+        a = gpd.GeoDataFrame({"name": ["x"], "layer": ["places"]}, geometry=[Point(0, 0)], crs="EPSG:3857")
+        dup = gpd.GeoDataFrame({"name": ["x"], "layer": ["places"]}, geometry=[Point(0, 0)], crs="EPSG:3857")
+        assert len(_read._assemble_vts_frames(FeatureCollection, [a, dup])) == 1, "exact duplicate dropped"
+        other = gpd.GeoDataFrame({"name": ["y"], "layer": ["places"]}, geometry=[Point(1, 1)], crs="EPSG:3857")
+        assert len(_read._assemble_vts_frames(FeatureCollection, [a, other])) == 2, "distinct rows kept"
+
     def test_read_tile_frame_skips_empty_sublayer(self, tmp_path, monkeypatch):
         """A sub-layer that reads back with no features emits no frame."""
-        import geopandas as gpd
-
         tile_bytes = (_DATA / "tiles" / "10" / "511" / "512.pbf").read_bytes()
         monkeypatch.setattr(
             _read.gpd, "read_file", lambda *a, **k: gpd.GeoDataFrame(geometry=[])

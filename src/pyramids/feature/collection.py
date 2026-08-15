@@ -1418,9 +1418,11 @@ class FeatureCollection(GeoDataFrame):
         (parallel to :meth:`from_featureserver`'s ``max_pages``).
 
         **Tile-seam features:** MVT **clips** each feature at the tile boundary, so a feature spanning several
-        tiles comes back as several clipped pieces (there is no stable cross-tile feature id to reassemble
-        them). Features duplicated by the tiles' edge *buffer* (identical geometry and attributes in adjacent
-        tiles) are de-duplicated; genuinely clipped fragments are left as separate rows.
+        tiles is returned as several clipped pieces — there is no stable cross-tile feature id to merge them.
+        Exact-duplicate rows (identical attributes **and** byte-identical geometry) are dropped, but note that
+        MVT quantises each tile to its own local grid, so a feature repeated in adjacent tiles' edge buffers is
+        usually **not** byte-identical and may still appear more than once; de-duplicate downstream if that
+        matters.
 
         Args:
             url: The VectorTileServer root URL, e.g.
