@@ -335,3 +335,47 @@ class FacetSpec:
     col: str | None = None
     row: str | None = None
     col_wrap: int | None = None
+
+
+@dataclass(frozen=True)
+class CoordinateSpec:
+    """How a NetCDF variable's spatial axes are interpreted, for :meth:`NetCDF.plot`.
+
+    Groups the three axis-related plot options into one bag: an explicit curvilinear ``(x, y)``
+    2-D coordinate pair, or the names of the ``x`` / ``y`` dimensions when they cannot be
+    auto-resolved from CF attributes. All fields default to ``None`` (auto-detect).
+
+    Attributes:
+        coords: Explicit ``(x, y)`` coordinate arrays for a curvilinear grid, passed straight to
+            the renderer. ``None`` auto-detects from CF attributes / conventions.
+        x_dim: Name of the ``x`` (longitude / easting) dimension, when it cannot be inferred.
+            Applying it requires re-resolving the variable from its parent container.
+        y_dim: Name of the ``y`` (latitude / northing) dimension, when it cannot be inferred.
+
+    Examples:
+        - A curvilinear coordinate pair:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.plot_options import CoordinateSpec
+            >>> x2d, y2d = np.meshgrid(np.arange(4), np.arange(3))
+            >>> axes = CoordinateSpec(coords=(x2d, y2d))
+            >>> axes.coords[0].shape
+            (3, 4)
+
+            ```
+
+        - Explicit dimension names:
+
+            ```python
+            >>> from pyramids.netcdf.plot_options import CoordinateSpec
+            >>> axes = CoordinateSpec(x_dim="rlon", y_dim="rlat")
+            >>> (axes.x_dim, axes.y_dim)
+            ('rlon', 'rlat')
+
+            ```
+    """
+
+    coords: tuple | list | None = None
+    x_dim: str | None = None
+    y_dim: str | None = None
