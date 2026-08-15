@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset import Dataset, DatasetCollection, cog
 
 pytestmark = pytest.mark.core
 
@@ -91,13 +91,15 @@ class TestToCogStackOverwrite:
 class TestToCogStackKwargs:
     def test_kwargs_forwarded_compress(self, small_collection, tmp_path):
         out = tmp_path / "cog_stack"
-        paths = small_collection.to_cog_stack(out, compress="LZW")
+        paths = small_collection.to_cog_stack(
+            out, compression=cog.Compression(compress="LZW")
+        )
         info = gdal.Info(str(paths[0]))
         assert "COMPRESSION=LZW" in info
 
     def test_kwargs_forwarded_blocksize(self, small_collection, tmp_path):
         out = tmp_path / "cog_stack"
-        paths = small_collection.to_cog_stack(out, blocksize=128)
+        paths = small_collection.to_cog_stack(out, layout=cog.Layout(blocksize=128))
         reopened = gdal.Open(str(paths[0]))
         bx, _ = reopened.GetRasterBand(1).GetBlockSize()
         assert bx == 128

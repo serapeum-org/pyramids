@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, cog
 
 pytestmark = pytest.mark.core
 
@@ -86,7 +86,9 @@ class TestMultiBandRoundtrip:
 class TestEveryCompression:
     @pytest.mark.parametrize("method", ["DEFLATE", "LZW", "ZSTD", "NONE", "LERC"])
     def test_round_trip(self, float_dataset_128, tmp_path, method):
-        out = float_dataset_128.to_cog(tmp_path / f"{method}.tif", compress=method)
+        out = float_dataset_128.to_cog(
+            tmp_path / f"{method}.tif", compression=cog.Compression(compress=method)
+        )
         reopened = Dataset.read_file(out)
         reopened_arr = reopened.read_array()
         if method == "LERC":
@@ -104,7 +106,7 @@ class TestLercTolerance:
     def test_lerc_with_max_z_error(self, float_dataset_128, tmp_path):
         out = float_dataset_128.to_cog(
             tmp_path / "lerc.tif",
-            compress="LERC",
+            compression=cog.Compression(compress="LERC"),
             extra={"MAX_Z_ERROR": 0.5},
         )
         reopened = Dataset.read_file(out)
@@ -120,7 +122,7 @@ class TestLercTolerance:
 class TestWebOptimized:
     def test_google_maps_compatible_is_web_mercator(self, float_dataset_128, tmp_path):
         out = float_dataset_128.to_cog(
-            tmp_path / "web.tif", tiling_scheme="GoogleMapsCompatible"
+            tmp_path / "web.tif", tiling=cog.Tiling(scheme="GoogleMapsCompatible")
         )
         reopened = Dataset.read_file(out)
         assert reopened.epsg == 3857
@@ -131,8 +133,8 @@ class TestWebOptimized:
         """GoogleMapsCompatible + explicit blocksize=256 honored."""
         out = float_dataset_128.to_cog(
             tmp_path / "web.tif",
-            tiling_scheme="GoogleMapsCompatible",
-            blocksize=256,
+            tiling=cog.Tiling(scheme="GoogleMapsCompatible"),
+            layout=cog.Layout(blocksize=256),
         )
         reopened = gdal.Open(str(out))
         bx, _ = reopened.GetRasterBand(1).GetBlockSize()

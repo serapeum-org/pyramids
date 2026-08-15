@@ -17,6 +17,7 @@ values. GDAL is invoked only at the write call site.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 CreationOptions = Mapping[str, Any]
@@ -216,6 +217,368 @@ def validate_profile(name: str, dtype_name: str, band_count: int) -> None:
         raise ValueError(
             f"{key} profile requires {min_bands}-{max_bands} bands; got {band_count}."
         )
+
+
+@dataclass(frozen=True)
+class Compression:
+    """How pixel bytes are compressed when writing a COG.
+
+    Grouped option object for :meth:`pyramids.dataset.engines.cog.COG.to_cog`'s
+    ``compression=`` argument. The string form of that argument is a named
+    :data:`PROFILES` entry (e.g. ``"zstd"``) and is expanded into this type by
+    :meth:`coerce`, so ``to_cog(path, compression="zstd")`` and
+    ``to_cog(path, compression=Compression(compress="ZSTD", level=9))`` are
+    equivalent.
+
+    Attributes:
+        compress: Compression method (e.g. ``"DEFLATE"``, ``"ZSTD"``,
+            ``"LZW"``, ``"JPEG"``, ``"WEBP"``, ``"LERC"``, ``"NONE"``).
+            ``None`` lets ``to_cog`` apply its ``DEFLATE`` default.
+        level: Compression level (e.g. 1-12 for DEFLATE, 1-22 for ZSTD).
+        quality: Lossy quality 1-100 (JPEG/WEBP).
+        predictor: ``"YES"``/``"NO"``/``"STANDARD"``/``"FLOATING_POINT"`` or
+            ``1``/``2``/``3`` (the COG driver's ``PREDICTOR`` tokens; ``"NO"``
+            /``1`` disables it). ``None`` auto-resolves per source dtype (``2``
+            integer, ``3`` float).
+        max_z_error: Maximum per-pixel error for the LERC family.
+
+    Examples:
+        - Build an explicit compression policy and read its fields:
+            ```python
+            >>> from pyramids.dataset.cog import Compression
+            >>> comp = Compression(compress="ZSTD", level=18)
+            >>> comp.compress
+            'ZSTD'
+            >>> comp.level
+            18
+
+            ```
+        - An out-of-range quality is rejected at construction:
+            ```python
+            >>> Compression(quality=200)
+            Traceback (most recent call last):
+                ...
+            ValueError: quality must be in 1..100; got 200.
+
+            ```
+    """
+
+    compress: str | None = None
+    level: int | None = None
+    quality: int | None = None
+    predictor: str | int | None = None
+    max_z_error: float | None = None
+
+    def __post_init__(self) -> None:
+        """Validate quality and predictor ranges."""
+        if self.quality is not None and not 1 <= self.quality <= 100:
+            raise ValueError(f"quality must be in 1..100; got {self.quality}.")
+        if self.predictor is not None and self.predictor not in {
+            1,
+            2,
+            3,
+            "1",
+            "2",
+            "3",
+            "YES",
+            "NO",
+            "STANDARD",
+            "FLOATING_POINT",
+        }:
+            raise ValueError(
+                f"predictor must be one of 1/2/3 (int or str) / 'YES'/'NO'/"
+                f"'STANDARD'/'FLOATING_POINT'; got {self.predictor!r}."
+            )
+
+    @classmethod
+    def coerce(cls, value: str | Compression | None) -> Compression | None:
+        """Coerce a profile-name string or ``Compression`` into a ``Compression``.
+
+        Args:
+            value: A named :data:`PROFILES` string (e.g. ``"zstd"``), an existing
+                :class:`Compression`, or ``None``.
+
+        Returns:
+            The coerced :class:`Compression`, or ``None`` when ``value`` is
+            ``None`` (``to_cog`` then applies its ``DEFLATE`` default).
+
+        Raises:
+            ValueError: When ``value`` is a string that is not a known profile.
+
+        Examples:
+            - A profile name expands to its preset:
+                ```python
+                >>> Compression.coerce("zstd")
+                Compression(compress='ZSTD', level=9, quality=None, predictor=None, max_z_error=None)
+
+                ```
+            - ``None`` passes through:
+                ```python
+                >>> Compression.coerce(None) is None
+                True
+
+                ```
+        """
+        if value is None or isinstance(value, Compression):
+            return value
+        opts = profile_options(value)
+        return cls(
+            compress=opts.get("COMPRESS"),
+            level=opts.get("LEVEL"),
+            quality=opts.get("QUALITY"),
+            max_z_error=opts.get("MAX_Z_ERROR"),
+        )
+
+
+@dataclass(frozen=True)
+class Overviews:
+    """The internal overview pyramid written into the COG.
+
+    Grouped option object for ``to_cog``'s ``overviews=`` argument.
+
+    Attributes:
+        resampling: Overview resampling method (``nearest``, ``average``,
+            ``bilinear``, ``cubic``, ``cubicspline``, ``lanczos``, ``mode``,
+            ``rms``, ``gauss``). ``None`` auto-resolves per source dtype
+            (``mode`` for categorical, ``average`` for continuous).
+        count: Number of overview levels. ``None`` lets GDAL decide.
+        compress: Compression for the overview IFDs. ``None`` inherits the
+            full-resolution compression.
+
+    Examples:
+        - Pin an averaging pyramid with four levels:
+            ```python
+            >>> from pyramids.dataset.cog import Overviews
+            >>> ov = Overviews(resampling="average", count=4)
+            >>> ov.resampling
+            'average'
+            >>> ov.count
+            4
+
+            ```
+        - A negative overview count is rejected:
+            ```python
+            >>> Overviews(count=-1)
+            Traceback (most recent call last):
+                ...
+            ValueError: overview count must be >= 0; got -1.
+
+            ```
+    """
+
+    resampling: str | None = None
+    count: int | None = None
+    compress: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate the overview count."""
+        if self.count is not None and self.count < 0:
+            raise ValueError(f"overview count must be >= 0; got {self.count}.")
+
+
+@dataclass(frozen=True)
+class Tiling:
+    """Reprojection and web-tiling layout of the output COG.
+
+    Grouped option object for ``to_cog``'s ``tiling=`` argument. ``scheme`` and
+    ``target_srs`` are mutually exclusive: when both are set, ``scheme`` wins and
+    ``target_srs`` is ignored (``to_cog`` emits a ``UserWarning``).
+
+    Attributes:
+        target_srs: Reproject before write. An EPSG integer, or a WKT / PROJ
+            string.
+        resampling: Warp resampling used when reprojecting (``target_srs``) or
+            tiling (``scheme``). Ignored when neither is set.
+        scheme: A tiling scheme such as ``"GoogleMapsCompatible"`` for a
+            web-optimized COG (EPSG:3857).
+        zoom_level: Pin the maximum zoom level (advanced tiling-scheme knob).
+        zoom_level_strategy: ``auto`` (default), ``lower``, or ``upper``.
+        aligned_levels: Number of overview levels aligned to the tiling scheme.
+
+    Examples:
+        - Request a web-optimized tiling scheme:
+            ```python
+            >>> from pyramids.dataset.cog import Tiling
+            >>> til = Tiling(scheme="GoogleMapsCompatible")
+            >>> til.scheme
+            'GoogleMapsCompatible'
+            >>> til.zoom_level_strategy
+            'auto'
+
+            ```
+        - An unknown zoom-level strategy is rejected:
+            ```python
+            >>> Tiling(zoom_level_strategy="sideways")
+            Traceback (most recent call last):
+                ...
+            ValueError: zoom_level_strategy must be 'auto'/'lower'/'upper'; got 'sideways'.
+
+            ```
+    """
+
+    target_srs: int | str | None = None
+    resampling: str = "nearest"
+    scheme: str | None = None
+    zoom_level: int | None = None
+    zoom_level_strategy: str = "auto"
+    aligned_levels: int | None = None
+
+    def __post_init__(self) -> None:
+        """Validate the zoom-level strategy."""
+        if self.zoom_level_strategy not in {"auto", "lower", "upper"}:
+            raise ValueError(
+                f"zoom_level_strategy must be 'auto'/'lower'/'upper'; "
+                f"got {self.zoom_level_strategy!r}."
+            )
+
+
+@dataclass(frozen=True)
+class BandSelection:
+    """Band selection and pixel-dtype transform applied before the COG write.
+
+    Grouped option object for ``to_cog``'s ``bands=`` argument. Any of these
+    routes the source through an in-memory ``gdal.Translate`` so the predictor /
+    overview policy and the write itself see the *output* bands.
+
+    Attributes:
+        indexes: 0-based band indices to keep, in order (e.g. ``[3, 2, 1]`` to
+            select and reorder). ``None`` keeps all bands.
+        out_dtype: Output NumPy dtype name to cast to (e.g. ``"uint8"``).
+            ``None`` keeps the source dtype.
+        nodata: NoData value to set on the output. ``None`` keeps the source
+            NoData.
+
+    Note:
+        ``indexes`` is a plain list, so ``frozen=True`` only blocks rebinding the
+        field, not mutating the list, and an instance is not hashable once
+        ``indexes`` is populated. Treat these as option carriers, not value keys.
+
+    Examples:
+        - Select and reorder three bands, casting the output:
+            ```python
+            >>> from pyramids.dataset.cog import BandSelection
+            >>> sel = BandSelection(indexes=[2, 1, 0], out_dtype="uint8")
+            >>> sel.indexes
+            [2, 1, 0]
+            >>> sel.out_dtype
+            'uint8'
+
+            ```
+        - A negative (non-0-based) index is rejected:
+            ```python
+            >>> BandSelection(indexes=[0, -1])
+            Traceback (most recent call last):
+                ...
+            ValueError: band indexes must be >= 0 (0-based); got [0, -1].
+
+            ```
+    """
+
+    indexes: list[int] | None = None
+    out_dtype: str | None = None
+    nodata: float | int | None = None
+
+    def __post_init__(self) -> None:
+        """Validate band indices."""
+        if self.indexes is not None and any(i < 0 for i in self.indexes):
+            raise ValueError(
+                f"band indexes must be >= 0 (0-based); got {self.indexes}."
+            )
+
+
+@dataclass(frozen=True)
+class Tags:
+    """Metadata and colour table stamped onto the output COG.
+
+    Grouped option object for ``to_cog``'s ``tags=`` argument.
+
+    Attributes:
+        band_tags: Per-band metadata keyed by 0-based band index, e.g.
+            ``{0: {"name": "NDVI"}}``.
+        colormap: Palette for band 1, mapping pixel value to an ``(R, G, B, A)``
+            tuple. GeoTIFF only supports a colour table on a single-band
+            ``Byte`` / ``UInt16`` raster.
+        metadata: Dataset-level metadata items.
+
+    Note:
+        The fields are plain dicts, so ``frozen=True`` only blocks rebinding
+        them, not mutating their contents, and an instance is not hashable once such a
+        field is populated. Treat these as option carriers, not value keys.
+
+    Examples:
+        - Stamp a band description and read it back:
+            ```python
+            >>> from pyramids.dataset.cog import Tags
+            >>> tags = Tags(band_tags={0: {"name": "NDVI"}}, metadata={"source": "s2"})
+            >>> tags.band_tags[0]["name"]
+            'NDVI'
+            >>> tags.metadata["source"]
+            's2'
+
+            ```
+        - A bare instance carries nothing:
+            ```python
+            >>> Tags().colormap is None
+            True
+
+            ```
+    """
+
+    band_tags: dict[int, dict[str, Any]] | None = None
+    colormap: dict[int, tuple[int, int, int, int]] | None = None
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class Layout:
+    """Physical layout and driver behaviour of the output COG.
+
+    Grouped option object for ``to_cog``'s ``layout=`` argument.
+
+    Attributes:
+        blocksize: Internal tile size; a power of 2 in [64, 4096].
+        bigtiff: ``"IF_SAFER"`` (default), ``"YES"``, ``"NO"``, ``"IF_NEEDED"``.
+        num_threads: Worker threads; ``"ALL_CPUS"`` or an int.
+        add_mask: Add an alpha band for transparency.
+        sparse_ok: Allow sparse (unfilled) tiles.
+        statistics: Compute and embed band statistics.
+
+    Examples:
+        - Override the tile size and read the defaults it keeps:
+            ```python
+            >>> from pyramids.dataset.cog import Layout
+            >>> lay = Layout(blocksize=256)
+            >>> lay.blocksize
+            256
+            >>> lay.bigtiff
+            'IF_SAFER'
+
+            ```
+        - A non-power-of-2 blocksize is rejected at construction:
+            ```python
+            >>> Layout(blocksize=500)  # doctest: +IGNORE_EXCEPTION_DETAIL
+            Traceback (most recent call last):
+                ...
+            ValueError: blocksize must be a power of 2 in [64, 4096]; got 500...
+
+            ```
+    """
+
+    blocksize: int = 512
+    bigtiff: str = "IF_SAFER"
+    num_threads: int | str = "ALL_CPUS"
+    add_mask: bool = False
+    sparse_ok: bool = False
+    statistics: bool = True
+
+    def __post_init__(self) -> None:
+        """Validate blocksize and bigtiff."""
+        validate_blocksize(self.blocksize)
+        if self.bigtiff not in {"IF_SAFER", "YES", "NO", "IF_NEEDED"}:
+            raise ValueError(
+                f"bigtiff must be 'IF_SAFER'/'YES'/'NO'/'IF_NEEDED'; "
+                f"got {self.bigtiff!r}."
+            )
 
 
 def _stringify(value: Any) -> str:

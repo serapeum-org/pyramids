@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, cog
 from pyramids.dataset.cog import PROFILES, profile_options, validate_profile
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
@@ -126,23 +126,27 @@ class TestToCogProfile:
         Test scenario:
             The written COG's compression is ZSTD.
         """
-        out = float_dataset.to_cog(tmp_path / "z.tif", profile="zstd")
+        out = float_dataset.to_cog(tmp_path / "z.tif", compression="zstd")
         assert _compression(out) == "ZSTD", "profile should set ZSTD compression"
 
-    def test_explicit_compress_overrides_profile(self, float_dataset, tmp_path):
-        """An explicit compress kwarg wins over the profile.
+    def test_compression_object_sets_method(self, float_dataset, tmp_path):
+        """A Compression(compress=...) object sets that method directly.
 
         Args:
             float_dataset: Fixture float32 Dataset.
             tmp_path: pytest temp directory.
 
         Test scenario:
-            profile='zstd' but compress='DEFLATE' yields DEFLATE.
+            compression=Compression(compress='DEFLATE') yields DEFLATE, independent
+            of any profile string. The old profile-plus-explicit-override
+            interaction now lives only in the CLI (see test_cli.py).
         """
         out = float_dataset.to_cog(
-            tmp_path / "o.tif", profile="zstd", compress="DEFLATE"
+            tmp_path / "o.tif", compression=cog.Compression(compress="DEFLATE")
         )
-        assert _compression(out) == "DEFLATE", "explicit compress must override profile"
+        assert _compression(out) == "DEFLATE", (
+            "Compression(compress=...) sets the method"
+        )
 
     def test_lzw_profile(self, float_dataset, tmp_path):
         """profile='lzw' produces an LZW COG.
@@ -154,7 +158,7 @@ class TestToCogProfile:
         Test scenario:
             The written COG's compression is LZW.
         """
-        out = float_dataset.to_cog(tmp_path / "l.tif", profile="lzw")
+        out = float_dataset.to_cog(tmp_path / "l.tif", compression="lzw")
         assert _compression(out) == "LZW", "profile should set LZW compression"
 
     def test_jpeg_profile_rejects_float(self, float_dataset, tmp_path):
@@ -168,7 +172,7 @@ class TestToCogProfile:
             The JPEG Byte-only constraint is enforced up-front.
         """
         with pytest.raises(ValueError, match="jpeg profile requires dtype"):
-            float_dataset.to_cog(tmp_path / "j.tif", profile="jpeg")
+            float_dataset.to_cog(tmp_path / "j.tif", compression="jpeg")
 
     def test_unknown_profile_rejected(self, float_dataset, tmp_path):
         """An unknown profile name raises ValueError.
@@ -181,7 +185,7 @@ class TestToCogProfile:
             profile='nope' is not registered.
         """
         with pytest.raises(ValueError, match="unknown COG profile"):
-            float_dataset.to_cog(tmp_path / "n.tif", profile="nope")
+            float_dataset.to_cog(tmp_path / "n.tif", compression="nope")
 
     def test_profile_result_is_valid_cog(self, float_dataset, tmp_path):
         """A profile-driven write still produces a valid COG.
@@ -193,7 +197,7 @@ class TestToCogProfile:
         Test scenario:
             profile='deflate' yields a valid COG.
         """
-        out = float_dataset.to_cog(tmp_path / "d.tif", profile="deflate")
+        out = float_dataset.to_cog(tmp_path / "d.tif", compression="deflate")
         assert Dataset.read_file(str(out)).validate_cog().is_valid, (
             "profile COG invalid"
         )

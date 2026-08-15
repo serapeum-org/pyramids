@@ -17,7 +17,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base.remote import CloudConfig
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, cog
 from pyramids.dataset.cog.validate import _fallback_validate
 
 pytestmark = pytest.mark.core
@@ -78,7 +78,9 @@ class TestToCogOverviewCountBoundary:
             small rasters where overviews would be wasted bytes). The
             output should still be a valid COG.
         """
-        out = small_float_dataset.to_cog(tmp_path / "no_ovr.tif", overview_count=0)
+        out = small_float_dataset.to_cog(
+            tmp_path / "no_ovr.tif", overviews=cog.Overviews(count=0)
+        )
         assert out.exists(), f"Output file must exist: {out}"
         reopened = gdal.Open(str(out))
         try:
@@ -98,7 +100,9 @@ class TestToCogBlocksizeBoundaries:
             64 is the smallest power-of-2 in [64, 4096]; the file must
             write successfully and honor the requested block size.
         """
-        out = small_float_dataset.to_cog(tmp_path / "bs64.tif", blocksize=64)
+        out = small_float_dataset.to_cog(
+            tmp_path / "bs64.tif", layout=cog.Layout(blocksize=64)
+        )
         reopened = gdal.Open(str(out))
         try:
             bx, by = reopened.GetRasterBand(1).GetBlockSize()
@@ -109,23 +113,19 @@ class TestToCogBlocksizeBoundaries:
             reopened = None
 
     @pytest.mark.parametrize("bad", [32, 63, 65, 500, 8192])
-    def test_invalid_blocksize_rejected(self, small_float_dataset, tmp_path, bad):
-        """Test invalid blocksizes raise ValueError before I/O.
+    def test_invalid_blocksize_rejected(self, bad):
+        """Test invalid blocksizes raise ValueError at Layout construction.
 
         Args:
             bad: Illegal blocksize value to try.
 
         Test scenario:
-            Values below 64, above 4096, or non-powers-of-2 within
-            the range must be rejected up-front (no partial file
-            written).
+            Values below 64, above 4096, or non-powers-of-2 within the range are
+            rejected up-front by Layout.__post_init__ — before to_cog is ever
+            called, so no partial file can be written.
         """
-        target = tmp_path / f"bad_{bad}.tif"
         with pytest.raises(ValueError, match=r"power of 2") as exc_info:
-            small_float_dataset.to_cog(target, blocksize=bad)
-        assert not target.exists(), (
-            f"No file should be created on validation failure: {target}"
-        )
+            cog.Layout(blocksize=bad)
         assert "power of 2" in str(exc_info.value), (
             f"Error message must mention 'power of 2'; got: {exc_info.value}"
         )
@@ -144,8 +144,7 @@ class TestToCogOptionInteractions:
         """
         out = small_float_dataset.to_cog(
             tmp_path / "mask_sparse.tif",
-            add_mask=True,
-            sparse_ok=True,
+            layout=cog.Layout(add_mask=True, sparse_ok=True),
         )
         reopened = gdal.Open(str(out))
         try:
@@ -168,7 +167,9 @@ class TestToCogOptionInteractions:
             When `statistics=False`, the COG driver should not compute
             or embed `STATISTICS_*` metadata — the user opted out.
         """
-        out = small_float_dataset.to_cog(tmp_path / "no_stats.tif", statistics=False)
+        out = small_float_dataset.to_cog(
+            tmp_path / "no_stats.tif", layout=cog.Layout(statistics=False)
+        )
         reopened = gdal.Open(str(out))
         try:
             band_meta = reopened.GetRasterBand(1).GetMetadata()

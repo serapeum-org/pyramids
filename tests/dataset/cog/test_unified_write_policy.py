@@ -29,7 +29,7 @@ from pyramids.base._utils import (
     is_integer_gdal_dtype,
     resolve_cog_predictor,
 )
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, cog
 from pyramids.dataset.cog import write_cog
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
@@ -223,7 +223,9 @@ class TestToCogPredictorResolution:
         Test scenario:
             Passing predictor=1 (none) disables the predictor on a float COG.
         """
-        out = float_dataset.to_cog(tmp_path / "f1.tif", predictor=1)
+        out = float_dataset.to_cog(
+            tmp_path / "f1.tif", compression=cog.Compression(predictor=1)
+        )
         assert _read_predictor(out) in ("", "1"), "explicit predictor=1 must win"
 
 
@@ -259,8 +261,9 @@ class TestToCogResamplingGuardrail:
             When the caller themselves passes overview_resampling='average' on
             integer data, the guardrail must fire.
         """
+        overviews = cog.Overviews(resampling="average")
         with pytest.warns(UserWarning, match="categorical"):
-            int_dataset.to_cog(tmp_path / "i_avg.tif", overview_resampling="average")
+            int_dataset.to_cog(tmp_path / "i_avg.tif", overviews=overviews)
 
     def test_default_on_float_emits_no_warning(self, float_dataset, tmp_path):
         """The auto-resolved default on float data emits no categorical warning.

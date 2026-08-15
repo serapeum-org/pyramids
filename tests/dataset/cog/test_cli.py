@@ -69,6 +69,93 @@ class TestCli:
         assert "valid COG" in capsys.readouterr().out, "should report validity"
         assert out.exists(), "output file should exist"
 
+    def test_create_compress_overrides_profile(self, source_tif, tmp_path):
+        """`--compress` overrides the `--profile` seed on `cog create`.
+
+        Args:
+            source_tif: Fixture source raster.
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            `--profile deflate --compress ZSTD` writes a ZSTD COG (the explicit
+            method wins over the profile's DEFLATE), exercising the CLI
+            `replace()` override branch.
+        """
+        out = tmp_path / "override.tif"
+        code = main(
+            [
+                "cog",
+                "create",
+                source_tif,
+                str(out),
+                "--profile",
+                "deflate",
+                "--compress",
+                "ZSTD",
+                "--no-validate",
+            ]
+        )
+        assert code == 0, "create should succeed"
+        assert Dataset.read_file(str(out)).cog.info().compression == "ZSTD", (
+            "explicit --compress must override the --profile seed"
+        )
+
+    def test_create_blocksize(self, source_tif, tmp_path):
+        """`--blocksize` sets the COG internal tile size.
+
+        Args:
+            source_tif: Fixture source raster.
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            `--blocksize 256` produces a COG whose internal blocksize is 256.
+        """
+        out = tmp_path / "blk.tif"
+        code = main(
+            [
+                "cog",
+                "create",
+                source_tif,
+                str(out),
+                "--blocksize",
+                "256",
+                "--no-validate",
+            ]
+        )
+        assert code == 0, "create should succeed"
+        assert Dataset.read_file(str(out)).cog.info().blocksize == (256, 256), (
+            "--blocksize should set the internal tile size"
+        )
+
+    def test_create_profile_jpeg_validates_dtype(self, source_tif, tmp_path, capsys):
+        """`--profile jpeg` on a non-Byte source is rejected up-front (exit 1).
+
+        Args:
+            source_tif: Fixture float32 source raster.
+            tmp_path: pytest temp directory.
+            capsys: pytest stdout/stderr capture.
+
+        Test scenario:
+            The jpeg profile requires Byte, so a float source fails the friendly
+            dtype pre-check — the profile-string validation path the CLI must
+            preserve (not silently coerce away).
+        """
+        out = tmp_path / "j.tif"
+        code = main(
+            [
+                "cog",
+                "create",
+                source_tif,
+                str(out),
+                "--profile",
+                "jpeg",
+                "--no-validate",
+            ]
+        )
+        err = capsys.readouterr().err
+        assert code == 1, "jpeg on a float source should be rejected"
+        assert "jpeg profile requires" in err, f"should name the constraint: {err}"
+
     def test_create_refuses_existing_without_overwrite(
         self, source_tif, tmp_path, capsys
     ):

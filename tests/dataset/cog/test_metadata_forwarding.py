@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, cog
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -40,7 +40,9 @@ class TestMetadataForwarding:
         Test scenario:
             metadata={"SOURCE": "unit-test"} is readable on the reopened COG.
         """
-        out = byte_dataset.to_cog(tmp_path / "m.tif", metadata={"SOURCE": "unit-test"})
+        out = byte_dataset.to_cog(
+            tmp_path / "m.tif", tags=cog.Tags(metadata={"SOURCE": "unit-test"})
+        )
         ds = gdal.Open(str(out))
         got = ds.GetMetadataItem("SOURCE")
         ds = None
@@ -57,7 +59,7 @@ class TestMetadataForwarding:
             The reopened COG has a colour table whose entry 1 is red.
         """
         cmap = {0: (0, 0, 0, 255), 1: (255, 0, 0, 255)}
-        out = byte_dataset.to_cog(tmp_path / "cm.tif", colormap=cmap)
+        out = byte_dataset.to_cog(tmp_path / "cm.tif", tags=cog.Tags(colormap=cmap))
         ds = gdal.Open(str(out))
         ct = ds.GetRasterBand(1).GetColorTable()
         entry = ct.GetColorEntry(1) if ct is not None else None
@@ -75,7 +77,9 @@ class TestMetadataForwarding:
         Test scenario:
             band_tags={0: {"name": "class"}} appears on band 1 of the COG.
         """
-        out = byte_dataset.to_cog(tmp_path / "bt.tif", band_tags={0: {"name": "class"}})
+        out = byte_dataset.to_cog(
+            tmp_path / "bt.tif", tags=cog.Tags(band_tags={0: {"name": "class"}})
+        )
         ds = gdal.Open(str(out))
         got = ds.GetRasterBand(1).GetMetadataItem("name")
         ds = None
@@ -94,8 +98,10 @@ class TestMetadataForwarding:
         """
         byte_dataset.to_cog(
             tmp_path / "x.tif",
-            colormap={0: (1, 2, 3, 255)},
-            metadata={"STAMP": "yes"},
+            tags=cog.Tags(
+                colormap={0: (1, 2, 3, 255)},
+                metadata={"STAMP": "yes"},
+            ),
         )
         src_band = byte_dataset._raster.GetRasterBand(1)
         assert src_band.GetColorTable() is None, "source colour table was mutated"
@@ -116,10 +122,18 @@ class TestMetadataForwarding:
         """
         arr = np.random.default_rng(1).random((32, 32)).astype("float32")
         ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
+        tags = cog.Tags(colormap={0: (1, 2, 3, 255)})
         with pytest.raises(
             ValueError, match="colormap is only supported on Byte/UInt16"
-        ):
-            ds.to_cog(tmp_path / "f_cmap.tif", colormap={0: (1, 2, 3, 255)})
+        ) as exc_info:
+            ds.to_cog(tmp_path / "f_cmap.tif", tags=tags)
+        message = str(exc_info.value)
+        assert "bands=cog.BandSelection(out_dtype=" in message, (
+            f"guidance must name the grouped API, got: {message}"
+        )
+        assert "to_cog(..., out_dtype=" not in message, (
+            f"message must not point at the removed flat out_dtype= kwarg: {message}"
+        )
 
     def test_colormap_on_float_after_cast_succeeds(self, tmp_path):
         """Casting to uint8 first lets a colormap be applied (L2).
@@ -135,8 +149,8 @@ class TestMetadataForwarding:
         ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
         out = ds.to_cog(
             tmp_path / "cast_cmap.tif",
-            out_dtype="uint8",
-            colormap={0: (0, 0, 0, 255), 1: (255, 0, 0, 255)},
+            bands=cog.BandSelection(out_dtype="uint8"),
+            tags=cog.Tags(colormap={0: (0, 0, 0, 255), 1: (255, 0, 0, 255)}),
         )
         reopened = gdal.Open(str(out))
         ct = reopened.GetRasterBand(1).GetColorTable()
@@ -156,8 +170,10 @@ class TestMetadataForwarding:
         """
         out = byte_dataset.to_cog(
             tmp_path / "v.tif",
-            colormap={0: (0, 0, 0, 255)},
-            band_tags={0: {"name": "class"}},
-            metadata={"SOURCE": "x"},
+            tags=cog.Tags(
+                colormap={0: (0, 0, 0, 255)},
+                band_tags={0: {"name": "class"}},
+                metadata={"SOURCE": "x"},
+            ),
         )
         assert Dataset.read_file(str(out)).validate_cog().is_valid, "invalid COG"

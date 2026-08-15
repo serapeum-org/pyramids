@@ -19,6 +19,7 @@ from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset.abstract_dataset import (
     CATALOG,
 )
+from pyramids.dataset.cog import Layout
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -245,7 +246,7 @@ def _write_cog(
         )
     cog_kwargs: dict[str, Any] = {"extra": creation_options}
     if tile_length is not None:
-        cog_kwargs["blocksize"] = tile_length
+        cog_kwargs["layout"] = Layout(blocksize=tile_length)
     ds.to_cog(path, **cog_kwargs)
 
 

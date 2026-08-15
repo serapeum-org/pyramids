@@ -45,6 +45,7 @@ import operator
 import os
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -57,7 +58,7 @@ from pyramids.base.crs import crs_spec, sr_from_user_input, sr_from_wkt
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS
-from pyramids.dataset.cog import PROFILES, cog_info, validate
+from pyramids.dataset.cog import PROFILES, Compression, Layout, cog_info, validate
 from pyramids.dataset.merge import merge_rasters
 from pyramids.feature import FeatureCollection
 from pyramids.processing.cli import add_processing_commands
@@ -136,12 +137,24 @@ def _cmd_create(args: argparse.Namespace) -> int:
     _refuse_existing(args.output, args.overwrite)
     ds = Dataset.read_file(args.input)
     kwargs: dict = {}
-    if args.profile:
-        kwargs["profile"] = args.profile
+    # --profile alone is forwarded as the profile *string*, so to_cog runs the
+    # jpeg/webp dtype/band pre-check (the string path). Passing --compress builds a
+    # Compression object instead — the explicit-method escape hatch — which skips
+    # that profile-only pre-check and goes straight to GDAL, even when --compress
+    # names the same constrained method as the profile. This mirrors the library:
+    # a Compression object always bypasses the profile pre-check (issue: 4-band JPEG
+    # is valid for GDAL but outside the jpeg profile's 1-3 band convenience range).
     if args.compress:
-        kwargs["compress"] = args.compress
+        seed = Compression.coerce(args.profile) if args.profile else None
+        kwargs["compression"] = (
+            replace(seed, compress=args.compress)
+            if seed is not None
+            else Compression(compress=args.compress)
+        )
+    elif args.profile:
+        kwargs["compression"] = args.profile
     if args.blocksize:
-        kwargs["blocksize"] = args.blocksize
+        kwargs["layout"] = Layout(blocksize=args.blocksize)
     out = ds.to_cog(args.output, **kwargs)
     print(f"wrote {out}")
     if args.no_validate:
@@ -806,7 +819,11 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument(
         "--profile", choices=sorted(PROFILES), help="named compression profile"
     )
-    create.add_argument("--compress", help="compression method (e.g. DEFLATE, ZSTD)")
+    create.add_argument(
+        "--compress",
+        help="compression method (e.g. DEFLATE, ZSTD); overrides --profile and "
+        "skips its jpeg/webp dtype/band pre-check",
+    )
     create.add_argument("--blocksize", type=int, help="internal tile size")
     create.add_argument(
         "--no-validate", action="store_true", help="skip post-write validation"

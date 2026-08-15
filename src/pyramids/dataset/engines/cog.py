@@ -30,14 +30,18 @@ from pyramids.base._utils import (
 from pyramids.base.crs import crs_equal, crs_from_user_input, require_crs_spec
 from pyramids.dataset.abstract_dataset import under_gdal_env
 from pyramids.dataset.cog import (
+    BandSelection,
     COGInfo,
+    Compression,
+    Layout,
+    Overviews,
+    Tags,
+    Tiling,
     ValidationReport,
     cog_info,
     merge_options,
-    profile_options,
     translate_to_cog,
     validate,
-    validate_blocksize,
     validate_profile,
 )
 from pyramids.dataset.cog.validate import _resolve_read_config, config_context
@@ -52,6 +56,14 @@ if TYPE_CHECKING:
 _AVERAGING_RESAMPLERS: frozenset[str] = frozenset(
     {"average", "bilinear", "cubic", "cubicspline", "lanczos"}
 )
+
+
+_PREDICTOR_COMPRESSORS: frozenset[str] = frozenset({"DEFLATE", "LZW", "LZMA", "ZSTD"})
+"""Compression methods for which the GDAL ``PREDICTOR`` option is meaningful.
+
+The COG driver ignores ``PREDICTOR`` (and emits a ``RuntimeWarning``) for every
+other method — LERC, NONE, JPEG, WEBP, PACKBITS — so it is omitted there.
+"""
 
 
 _RESAMPLING_ALG: dict[str, int] = {
@@ -198,118 +210,64 @@ class COG(_Engine["Dataset"]):
         self,
         path: str | Path,
         *,
-        profile: str | None = None,
-        compress: str | None = None,
-        level: int | None = None,
-        quality: int | None = None,
-        blocksize: int = 512,
-        predictor: str | int | None = None,
-        bigtiff: str = "IF_SAFER",
-        num_threads: int | str = "ALL_CPUS",
-        overview_resampling: str | None = None,
-        overview_count: int | None = None,
-        overview_compress: str | None = None,
-        tiling_scheme: str | None = None,
-        zoom_level: int | None = None,
-        zoom_level_strategy: str = "auto",
-        aligned_levels: int | None = None,
-        resampling: str = "nearest",
-        add_mask: bool = False,
-        sparse_ok: bool = False,
-        target_srs: int | str | None = None,
-        statistics: bool = True,
-        indexes: list[int] | None = None,
-        out_dtype: str | None = None,
-        nodata: float | int | None = None,
-        band_tags: dict[int, dict[str, Any]] | None = None,
-        colormap: dict[int, tuple[int, int, int, int]] | None = None,
-        metadata: dict[str, Any] | None = None,
+        compression: str | Compression | None = None,
+        overviews: Overviews | None = None,
+        tiling: Tiling | None = None,
+        bands: BandSelection | None = None,
+        tags: Tags | None = None,
+        layout: Layout | None = None,
         config: dict[str, str] | None = None,
         extra: Mapping[str, Any] | list[str] | None = None,
     ) -> Path:
         """Save the dataset as a Cloud Optimized GeoTIFF.
 
+        The write options are organised into grouped, validated dataclasses
+        (:class:`~pyramids.dataset.cog.Compression`,
+        :class:`~pyramids.dataset.cog.Overviews`,
+        :class:`~pyramids.dataset.cog.Tiling`,
+        :class:`~pyramids.dataset.cog.BandSelection`,
+        :class:`~pyramids.dataset.cog.Tags`,
+        :class:`~pyramids.dataset.cog.Layout`) — see each class for its fields.
+        The whole set is accessible under the ``cog`` namespace, e.g.
+        ``from pyramids.dataset import cog`` then ``cog.Compression(...)``.
+
         Args:
             path: Destination path. Parent directory must exist.
-            profile: Named compression preset (case-insensitive) — one of
-                `deflate`, `zstd`, `lzw`, `packbits`, `jpeg`, `webp`,
-                `lerc`, `lerc_deflate`, `lerc_zstd`, `raw`. Seeds the
-                compression options; explicit `compress`/`level`/`quality`
-                and `extra` override it. `jpeg`/`webp` enforce dtype/band
-                constraints (Byte; 1-3 / 3-4 bands).
-            compress: Compression method. `DEFLATE`, `LZW`, and
-                `NONE` are guaranteed by every GDAL build. `JPEG`
-                is almost always available. `ZSTD`, `WEBP`,
-                `LERC`, `LERC_DEFLATE`, and `LERC_ZSTD` require
-                the GDAL build to have been compiled with the
-                corresponding library (libzstd / libwebp / LERC); on
-                a GDAL build lacking them, the COG driver will raise
-                at write time. To probe what your GDAL supports:
-
-                ```python
-                from osgeo import gdal
-                meta = gdal.GetDriverByName("GTiff").GetMetadataItem(
-                    "DMD_CREATIONOPTIONLIST"
-                )
-                print("ZSTD" in (meta or ""))
-                ```
-            level: Compression level (e.g., 1-12 for DEFLATE, 1-22 ZSTD).
-            quality: Lossy-compression quality 1-100 (JPEG/WEBP).
-            blocksize: Internal tile size; power of 2 in [64, 4096].
-            predictor: `"YES"`/`"STANDARD"`/`"FLOATING_POINT"` or 1/2/3.
-                Defaults to `None`, which auto-resolves per the source
-                dtype: `2` (horizontal differencing) for integer rasters,
-                `3` (floating-point predictor) for float rasters. Pass an
-                explicit value to override.
-            bigtiff: `"IF_SAFER"` (default), `"YES"`, `"NO"`,
-                `"IF_NEEDED"`.
-            num_threads: Worker threads; `"ALL_CPUS"` or an int.
-            overview_resampling: `nearest`, `average`, `bilinear`,
-                `cubic`, `cubicspline`, `lanczos`, `mode`,
-                `rms`, `gauss`. Defaults to `None`, which auto-resolves
-                per the source dtype: `mode` for categorical sources
-                (integer dtype or a colour table) and `average` for
-                continuous (float) sources. The categorical guardrail
-                warns only when *you* explicitly pass an averaging method
-                on categorical data — never for this auto-resolved default.
-            overview_count: Number of overview levels (default: auto).
-            overview_compress: Compression for overview IFDs.
-            tiling_scheme: e.g., `"GoogleMapsCompatible"` for a
-                web-optimized COG (EPSG:3857).
-            zoom_level: Advanced tiling-scheme knob: pin the maximum zoom level.
-            zoom_level_strategy: Advanced tiling-scheme knob: `auto` (default),
-                `lower`, or `upper` zoom-level selection.
-            aligned_levels: Advanced tiling-scheme knob: number of overview
-                levels aligned to the tiling scheme.
-            resampling: Warp resampling when `tiling_scheme` or
-                `target_srs` reprojects.
-            add_mask: Add an alpha band for transparency.
-            sparse_ok: Allow sparse (unfilled) tiles.
-            target_srs: Reproject before write. Int for EPSG or a WKT
-                / PROJ string.
-            statistics: Compute and embed band statistics.
-            indexes: 0-based band indices to keep, in order (e.g. `[3, 2, 1]`
-                to select and reorder bands). `None` keeps all bands. When
-                set, the source is pre-processed through an in-memory
-                `gdal.Translate` before the COG write.
-            out_dtype: Output NumPy dtype name to cast to (e.g. `"uint8"`,
-                `"int16"`). `None` keeps the source dtype. The dtype-aware
-                predictor is resolved from the *post-cast* dtype.
-            nodata: NoData value to set on the output. `None` keeps the
-                source NoData.
-            band_tags: Per-band metadata to stamp onto the output, keyed by
-                0-based band index, e.g. `{0: {"name": "NDVI"}}`. Useful when
-                the source is a bare array/DataArray that carries no band
-                descriptions.
-            colormap: Palette to attach to band 1, mapping pixel value to an
-                `(R, G, B, A)` tuple, e.g. `{0: (0, 0, 0, 255), 1: (255, 0, 0, 255)}`.
-            metadata: Dataset-level metadata items to stamp onto the output.
+            compression: How pixel bytes are compressed. Either a named profile
+                string (`deflate`, `zstd`, `lzw`, `packbits`, `jpeg`, `webp`,
+                `lerc`, `lerc_deflate`, `lerc_zstd`, `raw`) or a
+                :class:`~pyramids.dataset.cog.Compression`. `None` uses the
+                house `DEFLATE` default. The `jpeg`/`webp` **profile strings**
+                enforce dtype/band constraints (Byte; 1-3 / 3-4 bands) up front;
+                a direct `Compression(compress="JPEG")` is passed to GDAL
+                unchecked. The predictor auto-resolves per source dtype (`2`
+                integer, `3` float) unless set on `Compression`.
+            overviews: The internal overview pyramid, as an
+                :class:`~pyramids.dataset.cog.Overviews`. `None` builds the
+                default pyramid with dtype-aware resampling (`mode` for
+                categorical sources, `average` for continuous).
+            tiling: Reprojection / web-tiling layout, as a
+                :class:`~pyramids.dataset.cog.Tiling` (`target_srs`, `scheme`
+                e.g. `"GoogleMapsCompatible"`, warp `resampling`, zoom knobs).
+                `None` writes in the source CRS with no tiling scheme.
+            bands: Band selection / dtype cast / NoData applied before the
+                write, as a :class:`~pyramids.dataset.cog.BandSelection`. Any of
+                its fields pre-processes the source through an in-memory
+                `gdal.Translate` so the predictor/overview policy sees the
+                output bands.
+            tags: Metadata and colour table to stamp onto the output, as a
+                :class:`~pyramids.dataset.cog.Tags` (`band_tags`, `colormap`,
+                `metadata`).
+            layout: Physical layout / driver behaviour, as a
+                :class:`~pyramids.dataset.cog.Layout` (`blocksize`, `bigtiff`,
+                `num_threads`, `add_mask`, `sparse_ok`, `statistics`). `None`
+                uses the house defaults.
             config: GDAL config options (e.g. `{"GDAL_NUM_THREADS": "4"}`)
                 applied via `gdal.config_options` for the duration of the
                 write. `None` (default) applies no extra config.
             extra: Additional GDAL creation options as a mapping or
-                legacy `['KEY=VALUE',...]` list. Overrides
-                conflicting kwargs.
+                legacy `['KEY=VALUE',...]` list. Overrides conflicting
+                group fields.
 
         Returns:
             Path: The resolved destination path.
@@ -321,14 +279,10 @@ class COG(_Engine["Dataset"]):
             DriverNotExistError: GDAL build lacks the COG driver.
 
         Warnings:
-            UserWarning: When the source looks categorical (integer
-                dtype or has a color table) and `overview_resampling`
-                is an averaging method.
-
-        Note:
-            Setting `tiling_scheme` (e.g., `GoogleMapsCompatible`)
-            implies a specific SRS — `target_srs` is ignored in that
-            case. A `UserWarning` is emitted if both are provided.
+            UserWarning: When the source looks categorical (integer dtype or a
+                color table) and `overviews.resampling` is an averaging method;
+                and when both `tiling.scheme` and `tiling.target_srs` are set
+                (`scheme` wins, `target_srs` is ignored).
 
         Note:
             **Larger-than-RAM / parallel writes.** The GDAL COG driver does the
@@ -345,74 +299,196 @@ class COG(_Engine["Dataset"]):
         Examples:
             - Write a compressed COG from an in-memory Dataset:
                 ```python
-                >>> import numpy as np  # doctest: +SKIP
                 >>> from pyramids.dataset import Dataset  # doctest: +SKIP
-                >>> arr = np.random.rand(256, 256).astype("float32")  # doctest: +SKIP
-                >>> ds = Dataset.create_from_array(  # doctest: +SKIP
-                ...     arr, top_left_corner=(0, 0), cell_size=0.001, epsg=4326,
-                ... )
-                >>> out = ds.to_cog("out.tif", compress="ZSTD")  # doctest: +SKIP
+                >>> out = ds.to_cog("out.tif", compression="zstd")  # doctest: +SKIP
                 >>> out.name  # doctest: +SKIP
                 'out.tif'
 
                 ```
             - Produce a web-optimized COG for a tile server:
                 ```python
-                >>> web = ds.to_cog("web.tif", tiling_scheme="GoogleMapsCompatible")  # doctest: +SKIP
-                >>> reopened = Dataset.read_file(web)  # doctest: +SKIP
-                >>> reopened.epsg  # doctest: +SKIP
-                3857
+                >>> from pyramids.dataset import cog  # doctest: +SKIP
+                >>> web = ds.to_cog(  # doctest: +SKIP
+                ...     "web.tif", tiling=cog.Tiling(scheme="GoogleMapsCompatible"),
+                ... )
 
                 ```
-            - Forward additional GDAL options through `extra`:
+            - Select bands and forward additional GDAL options through `extra`:
                 ```python
+                >>> from pyramids.dataset import cog  # doctest: +SKIP
                 >>> _ = ds.to_cog(  # doctest: +SKIP
                 ...     "precise.tif",
-                ...     compress="LERC",
+                ...     compression="lerc",
+                ...     bands=cog.BandSelection(indexes=[2, 1, 0]),
                 ...     extra={"MAX_Z_ERROR": 0.001},
                 ... )
 
                 ```
         """
-        validate_blocksize(blocksize)
-        if tiling_scheme is not None and target_srs is not None:
+        # The jpeg/webp dtype/band check is a named-profile convenience (it mirrors
+        # the profile presets), so it fires only when the method was selected via a
+        # profile string — a direct `Compression(compress="JPEG")` goes straight to
+        # GDAL, matching the pre-refactor flat `compress="JPEG"` path (which GDAL
+        # accepts for e.g. 4-band Byte).
+        compression_from_profile = isinstance(compression, str)
+        compression = Compression.coerce(compression)
+        overviews = overviews or Overviews()
+        tiling = tiling or Tiling()
+        bands = bands or BandSelection()
+        tags = tags or Tags()
+        layout = layout or Layout()
+
+        eff_target_srs = tiling.target_srs
+        if tiling.scheme is not None and eff_target_srs is not None:
             warnings.warn(
-                "Both tiling_scheme and target_srs provided; "
-                "tiling_scheme wins and target_srs is ignored.",
+                "Both tiling.scheme and tiling.target_srs provided; "
+                "scheme wins and target_srs is ignored.",
                 UserWarning,
                 stacklevel=2,
             )
-            target_srs = None
+            eff_target_srs = None
 
         # Build the effective source (PB-4): when band-subsetting, casting the
         # dtype, or (re)setting NoData, pre-process through an in-memory
         # gdal.Translate so the predictor/overview policy below — and the COG
         # write itself — see the *output* bands, not the original source.
         source_ds, source_band0 = self._effective_source(
-            indexes, out_dtype, nodata, band_tags, colormap, metadata
+            bands.indexes,
+            bands.out_dtype,
+            bands.nodata,
+            tags.band_tags,
+            tags.colormap,
+            tags.metadata,
         )
 
-        # Resolve a named profile (PB-5): it seeds the compression options;
-        # explicit kwargs and `extra` override it. jpeg/webp enforce dtype/band
-        # constraints against the *effective* source.
-        eff_compress, eff_level, eff_quality, profile_extra = self._resolve_compression(
-            profile, compress, level, quality, source_ds, source_band0
+        # Resolve the compression (PB-5): the profile string is already expanded
+        # by Compression.coerce; jpeg/webp enforce dtype/band constraints against
+        # the *effective* source only for the named-profile path.
+        eff_compress, eff_level, eff_quality, compress_extra = (
+            self._resolve_compression(
+                compression, source_ds, source_band0, compression_from_profile
+            )
         )
 
-        # Single house policy lives here (ARC-1): `to_cog` resolves the
-        # dtype-dependent defaults so a direct `ds.to_cog(...)` and the
+        # Single house policy lives here (ARC-1): `_build_cog_defaults` resolves
+        # the dtype-dependent defaults so a direct `ds.to_cog(...)` and the
         # `write_cog(...)` facade — which now just delegates here — produce
         # identical output for identical input.
+        defaults = self._build_cog_defaults(
+            compression,
+            overviews,
+            tiling,
+            layout,
+            eff_target_srs,
+            eff_compress,
+            eff_level,
+            eff_quality,
+            compress_extra,
+            source_band0,
+        )
+
+        options = merge_options(defaults, extra)
+        with config_context(config):
+            self._translate_with_statistics_retry(path, options, src=source_ds)
+        return Path(path)
+
+    @staticmethod
+    def _resolve_compression(
+        compression: Compression | None,
+        source_ds: gdal.Dataset,
+        source_band0: Any,
+        from_profile: bool = False,
+    ) -> tuple[str, int | None, int | None, dict[str, Any]]:
+        """Resolve effective compression options from a `Compression` group.
+
+        The profile-string form is already expanded into `compression` by
+        :meth:`Compression.coerce`, so this only reads its fields. `None` yields
+        the house `DEFLATE` default.
+
+        Args:
+            compression: The coerced compression group, or `None`.
+            source_ds: Effective source dataset (for band-count validation).
+            source_band0: Band 0 of the effective source (for dtype validation).
+            from_profile: `True` when the method was selected via a profile-name
+                string. Only then are the `jpeg`/`webp` dtype/band constraints
+                enforced (they mirror the profile presets); a direct
+                `Compression(compress=...)` is passed straight to GDAL, matching
+                the pre-refactor flat-`compress=` behaviour.
+
+        Returns:
+            `(eff_compress, eff_level, eff_quality, compress_extra)` where
+            `compress_extra` holds any non-COMPRESS/LEVEL/QUALITY options
+            (currently `MAX_Z_ERROR` for the LERC family).
+        """
+        eff_compress = (
+            compression.compress
+            if compression is not None and compression.compress is not None
+            else "DEFLATE"
+        )
+        eff_level = compression.level if compression is not None else None
+        eff_quality = compression.quality if compression is not None else None
+        if from_profile:
+            # profile name == method name for the constrained profiles (jpeg/webp);
+            # unconstrained profiles pass silently.
+            validate_profile(
+                eff_compress.lower(),
+                gdal.GetDataTypeName(source_band0.DataType),
+                source_ds.RasterCount,
+            )
+        compress_extra: dict[str, Any] = {}
+        if compression is not None and compression.max_z_error is not None:
+            compress_extra["MAX_Z_ERROR"] = compression.max_z_error
+        return eff_compress, eff_level, eff_quality, compress_extra
+
+    def _build_cog_defaults(
+        self,
+        compression: Compression | None,
+        overviews: Overviews,
+        tiling: Tiling,
+        layout: Layout,
+        eff_target_srs: int | str | None,
+        eff_compress: str,
+        eff_level: int | None,
+        eff_quality: int | None,
+        compress_extra: dict[str, Any],
+        source_band0: Any,
+    ) -> dict[str, Any]:
+        """Assemble the GDAL COG creation-option dict from the resolved groups.
+
+        Resolves the dtype-dependent defaults (predictor and overview
+        resampling), emits the categorical-averaging guardrail when the caller
+        chose an averaging resampler, and maps every group field to its GDAL
+        option key.
+
+        Args:
+            compression: The coerced compression group, or `None`.
+            overviews: The overview group.
+            tiling: The tiling/reprojection group.
+            layout: The physical-layout group.
+            eff_target_srs: The effective target SRS (after the scheme conflict
+                resolution), or `None`.
+            eff_compress: Resolved compression method.
+            eff_level: Resolved compression level, or `None`.
+            eff_quality: Resolved lossy quality, or `None`.
+            compress_extra: Extra compression options (e.g. `MAX_Z_ERROR`).
+            source_band0: Band 0 of the effective source (for dtype-aware
+                predictor / overview resolution).
+
+        Returns:
+            The GDAL COG creation-option dict (before merging `extra`).
+        """
+        # Per-dtype predictor (ARC-2): 2 for integer, 3 for float. GeoTIFF bands
+        # share a dtype, so band 0 decides for the whole file. Set
+        # `Compression(predictor=...)` to override for a mixed source.
+        predictor = compression.predictor if compression is not None else None
         if predictor is None:
-            # Per-dtype predictor (ARC-2): 2 for integer, 3 for float. GeoTIFF
-            # bands share a dtype, so band 0 decides for the whole file. Pass an
-            # explicit `predictor=` to override for an (atypical) mixed source.
             predictor = resolve_cog_predictor(source_band0.DataType)
-        caller_chose_resampling = overview_resampling is not None
+        # Category-safe default (ARC-3): `mode` for integer/colour-table sources,
+        # `average` for continuous — the default never corrupts categorical
+        # rasters and never trips the guardrail below.
+        caller_chose_resampling = overviews.resampling is not None
+        overview_resampling = overviews.resampling
         if overview_resampling is None:
-            # Category-safe default (ARC-3): `mode` for integer/colour-table
-            # sources, `average` for continuous. Chosen so the default never
-            # corrupts categorical rasters and never trips the guardrail below.
             overview_resampling = default_cog_overview_resampling(
                 source_band0.DataType, source_band0.GetColorTable() is not None
             )
@@ -424,88 +500,43 @@ class COG(_Engine["Dataset"]):
             )
 
         num_threads_str = (
-            num_threads if isinstance(num_threads, str) else str(num_threads)
+            layout.num_threads
+            if isinstance(layout.num_threads, str)
+            else str(layout.num_threads)
         )
+        reprojecting = bool(tiling.scheme or eff_target_srs)
         defaults: dict[str, Any] = {
             "COMPRESS": eff_compress,
             "LEVEL": eff_level,
             "QUALITY": eff_quality,
-            **profile_extra,
-            "BLOCKSIZE": blocksize,
-            "PREDICTOR": predictor,
-            "BIGTIFF": bigtiff,
+            **compress_extra,
+            "BLOCKSIZE": layout.blocksize,
+            # PREDICTOR is only honoured by DEFLATE/LZW/LZMA/ZSTD; omit it for the
+            # others (LERC/NONE/JPEG/WEBP/...) which ignore it and warn.
+            "PREDICTOR": (
+                predictor if eff_compress.upper() in _PREDICTOR_COMPRESSORS else None
+            ),
+            "BIGTIFF": layout.bigtiff,
             "NUM_THREADS": num_threads_str,
             "OVERVIEW_RESAMPLING": overview_resampling,
-            "OVERVIEW_COUNT": overview_count,
-            "OVERVIEW_COMPRESS": overview_compress,
-            "TILING_SCHEME": tiling_scheme,
-            "ZOOM_LEVEL": zoom_level,
-            "ZOOM_LEVEL_STRATEGY": zoom_level_strategy,
-            "ALIGNED_LEVELS": aligned_levels,
-            "WARP_RESAMPLING": (resampling if (tiling_scheme or target_srs) else None),
-            "ADD_ALPHA": True if add_mask else None,
-            "SPARSE_OK": True if sparse_ok else None,
-            "STATISTICS": "YES" if statistics else None,
+            "OVERVIEW_COUNT": overviews.count,
+            "OVERVIEW_COMPRESS": overviews.compress,
+            "TILING_SCHEME": tiling.scheme,
+            "ZOOM_LEVEL": tiling.zoom_level,
+            "ZOOM_LEVEL_STRATEGY": tiling.zoom_level_strategy,
+            "ALIGNED_LEVELS": tiling.aligned_levels,
+            "WARP_RESAMPLING": tiling.resampling if reprojecting else None,
+            "ADD_ALPHA": True if layout.add_mask else None,
+            "SPARSE_OK": True if layout.sparse_ok else None,
+            "STATISTICS": "YES" if layout.statistics else None,
         }
-        if target_srs is not None:
+        if eff_target_srs is not None:
             defaults["TARGET_SRS"] = (
-                f"EPSG:{target_srs}" if isinstance(target_srs, int) else target_srs
+                f"EPSG:{eff_target_srs}"
+                if isinstance(eff_target_srs, int)
+                else eff_target_srs
             )
-
-        options = merge_options(defaults, extra)
-        with config_context(config):
-            self._translate_with_statistics_retry(path, options, src=source_ds)
-        return Path(path)
-
-    @staticmethod
-    def _resolve_compression(
-        profile: str | None,
-        compress: str | None,
-        level: int | None,
-        quality: int | None,
-        source_ds: gdal.Dataset,
-        source_band0: Any,
-    ) -> tuple[str, int | None, int | None, dict[str, Any]]:
-        """Resolve effective compression options, seeding from a named profile.
-
-        A named `profile` supplies default COMPRESS/LEVEL/QUALITY plus any extra
-        profile options; explicit `compress`/`level`/`quality` kwargs override the
-        seeded defaults. `jpeg`/`webp` profiles validate dtype/band constraints
-        against the effective source before seeding.
-
-        Args:
-            profile: Named compression preset, or None.
-            compress: Explicit compression method override, or None.
-            level: Explicit compression level override, or None.
-            quality: Explicit lossy quality override, or None.
-            source_ds: Effective source dataset (for band-count validation).
-            source_band0: Band 0 of the effective source (for dtype validation).
-
-        Returns:
-            `(eff_compress, eff_level, eff_quality, profile_extra)` where
-            `profile_extra` holds profile options other than COMPRESS/LEVEL/QUALITY.
-        """
-        profile_opts: dict[str, Any] = {}
-        if profile is not None:
-            validate_profile(
-                profile,
-                gdal.GetDataTypeName(source_band0.DataType),
-                source_ds.RasterCount,
-            )
-            profile_opts = profile_options(profile)
-        eff_compress = (
-            compress
-            if compress is not None
-            else profile_opts.get("COMPRESS", "DEFLATE")
-        )
-        eff_level = level if level is not None else profile_opts.get("LEVEL")
-        eff_quality = quality if quality is not None else profile_opts.get("QUALITY")
-        profile_extra = {
-            k: v
-            for k, v in profile_opts.items()
-            if k not in ("COMPRESS", "LEVEL", "QUALITY")
-        }
-        return eff_compress, eff_level, eff_quality, profile_extra
+        return defaults
 
     def _effective_source(
         self,
@@ -600,7 +631,8 @@ class COG(_Engine["Dataset"]):
                 raise ValueError(
                     f"colormap is only supported on Byte/UInt16 rasters; got "
                     f"{gdal.GetDataTypeName(band.DataType)}. Cast first with "
-                    f"to_cog(..., out_dtype='uint8'), or drop the colormap."
+                    f"to_cog(..., bands=cog.BandSelection(out_dtype='uint8')), "
+                    f"or drop the colormap."
                 )
             color_table = gdal.ColorTable()
             for value, rgba in colormap.items():
@@ -623,9 +655,9 @@ class COG(_Engine["Dataset"]):
         touching the local filesystem.
 
         Args:
-            **kwargs: Forwarded verbatim to :meth:`to_cog` (e.g. ``compress``,
-                ``blocksize``, ``predictor``, ``extra``). The same house
-                defaults and dtype-aware resolution apply.
+            **kwargs: Forwarded verbatim to :meth:`to_cog` (e.g.
+                ``compression``, ``layout``, ``bands``, ``extra``). The same
+                house defaults and dtype-aware resolution apply.
 
         Returns:
             bytes: The complete COG file contents.
@@ -638,7 +670,7 @@ class COG(_Engine["Dataset"]):
                 ```python
                 >>> from pyramids.dataset import Dataset  # doctest: +SKIP
                 >>> ds = Dataset.read_file("scene.tif")  # doctest: +SKIP
-                >>> blob = ds.to_cog_bytes(compress="ZSTD")  # doctest: +SKIP
+                >>> blob = ds.to_cog_bytes(compression="zstd")  # doctest: +SKIP
                 >>> len(blob) > 0  # doctest: +SKIP
                 True
                 >>> blob[:2] in (b"II", b"MM")  # TIFF byte-order marker  # doctest: +SKIP

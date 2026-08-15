@@ -248,7 +248,7 @@ sequenceDiagram
   U->>DS: ds.to_file("out.tif")
   DS->>IO: io.to_file(...)
   IO-->>U: out.tif
-  U->>DS: ds.to_cog("out.tif", compress="ZSTD")
+  U->>DS: ds.to_cog("out.tif", compression="zstd")
   DS->>CG: cog.to_cog(...)
   CG-->>U: out.tif (COG)
 ```

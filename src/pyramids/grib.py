@@ -23,6 +23,7 @@ from typing import Any, cast
 from osgeo import gdal
 
 from pyramids.base._errors import DriverNotExistError
+from pyramids.dataset.cog import BandSelection, Tiling
 from pyramids.dataset.dataset import Dataset
 
 _GRIB_DRIVER = "GRIB"
@@ -213,7 +214,7 @@ def _select_grib_band(
     """
     band_count = len(metadata)
     # `variable`, `band` and the user's band number are all 1-based; the returned
-    # index (and `to_cog(indexes=)`) is 0-based, hence the `- 1` conversions below.
+    # index (and `to_cog(bands=BandSelection(indexes=))`) is 0-based, hence the `- 1` below.
     if isinstance(variable, bool) or not isinstance(variable, (str, int, type(None))):
         raise ValueError(
             f"variable must be a band number, element name, or None; got {variable!r}."
@@ -298,10 +299,10 @@ def grib_to_cog(
             element repeated across pressure levels). `None` is allowed only when
             the file holds a single message.
         target_crs: Optional CRS to reproject to before the COG is written — an
-            EPSG `int` or a WKT `str` (forwarded to `to_cog(target_srs=...)`).
+            EPSG `int` or a WKT `str` (forwarded as `to_cog(tiling=Tiling(target_srs=...))`).
             `None` keeps the GRIB's native CRS.
         cog_profile: Named COG compression preset forwarded to
-            :meth:`~pyramids.dataset.Dataset.to_cog` (`profile=`), e.g.
+            :meth:`~pyramids.dataset.Dataset.to_cog` as `compression=`, e.g.
             `"deflate"`, `"zstd"`, `"lzw"`.
         vsi: Optional explicit archive kind forwarded to :func:`open_grib` (e.g.
             for a GRIB inside a `.zip`).
@@ -335,9 +336,9 @@ def grib_to_cog(
             Path,
             dataset.to_cog(
                 output,
-                indexes=[band_index],
-                profile=cog_profile,
-                target_srs=target_crs,
+                compression=cog_profile,
+                bands=BandSelection(indexes=[band_index]),
+                tiling=Tiling(target_srs=target_crs),
             ),
         )
     return result
