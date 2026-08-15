@@ -319,7 +319,7 @@ class Compression:
 
                 ```
         """
-        if value is None or isinstance(value, cls):
+        if value is None or isinstance(value, Compression):
             return value
         opts = profile_options(value)
         return cls(
