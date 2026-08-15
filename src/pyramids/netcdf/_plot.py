@@ -1863,12 +1863,16 @@ class NetCDFPlot:
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.netcdf import NetCDF
+              >>> from pyramids.netcdf import NetCDF, GeoReference, ExtraDimensions
               >>> from pyramids.netcdf._plot import NetCDFPlot
               >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
               >>> nc = NetCDF.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
-              ...     variable_name="t2m", extra_dim_name="time",
+              ...     arr,
+              ...     geo_ref=GeoReference(
+              ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+              ...     ),
+              ...     variable_name="t2m",
+              ...     dims=ExtraDimensions(name="time"),
               ... )
               >>> var = nc.get_variable("t2m")
               >>> NetCDFPlot(var)._resolve_time_dim_name(var)
@@ -1883,8 +1887,12 @@ class NetCDFPlot:
               ```python
               >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
               >>> nc = NetCDF.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
-              ...     variable_name="data", extra_dim_name="depth",
+              ...     arr,
+              ...     geo_ref=GeoReference(
+              ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+              ...     ),
+              ...     variable_name="data",
+              ...     dims=ExtraDimensions(name="depth"),
               ... )
               >>> var = nc.get_variable("data")
               >>> NetCDFPlot(var)._resolve_time_dim_name(var)
@@ -1931,14 +1939,16 @@ class NetCDFPlot:
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.netcdf import NetCDF
+              >>> from pyramids.netcdf import NetCDF, GeoReference, ExtraDimensions
               >>> from pyramids.netcdf._plot import NetCDFPlot
               >>> arr = np.random.rand(2, 4, 4).astype(np.float32)
               >>> nc = NetCDF.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     arr,
+              ...     geo_ref=GeoReference(
+              ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+              ...     ),
               ...     variable_name="temperature",
-              ...     extra_dim_name="pressure_level",
-              ...     extra_dim_values=[1000, 500],
+              ...     dims=ExtraDimensions(name="pressure_level", values=[1000, 500]),
               ... )
               >>> var = nc.get_variable("temperature")
               >>> NetCDFPlot(var)._resolve_level_dim_name(var)
@@ -1952,8 +1962,12 @@ class NetCDFPlot:
               ```python
               >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
               >>> nc = NetCDF.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
-              ...     variable_name="t2m", extra_dim_name="time",
+              ...     arr,
+              ...     geo_ref=GeoReference(
+              ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+              ...     ),
+              ...     variable_name="t2m",
+              ...     dims=ExtraDimensions(name="time"),
               ... )
               >>> var = nc.get_variable("t2m")
               >>> NetCDFPlot(var)._resolve_level_dim_name(var)  # doctest: +IGNORE_EXCEPTION_DETAIL
@@ -2000,14 +2014,16 @@ class NetCDFPlot:
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.netcdf import NetCDF
+              >>> from pyramids.netcdf import NetCDF, GeoReference, ExtraDimensions
               >>> from pyramids.netcdf._plot import NetCDFPlot
               >>> arr = np.random.rand(5, 4, 4).astype(np.float32)
               >>> nc = NetCDF.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     arr,
+              ...     geo_ref=GeoReference(
+              ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+              ...     ),
               ...     variable_name="t2m",
-              ...     extra_dim_name="realization",
-              ...     extra_dim_values=[0, 1, 2, 3, 4],
+              ...     dims=ExtraDimensions(name="realization", values=[0, 1, 2, 3, 4]),
               ... )
               >>> var = nc.get_variable("t2m")
               >>> NetCDFPlot(var)._resolve_member_dim_name(var)
@@ -2021,8 +2037,12 @@ class NetCDFPlot:
               ```python
               >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
               >>> nc = NetCDF.create_from_array(
-              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
-              ...     variable_name="t2m", extra_dim_name="time",
+              ...     arr,
+              ...     geo_ref=GeoReference(
+              ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+              ...     ),
+              ...     variable_name="t2m",
+              ...     dims=ExtraDimensions(name="time"),
               ... )
               >>> var = nc.get_variable("t2m")
               >>> NetCDFPlot(var)._resolve_member_dim_name(var)  # doctest: +IGNORE_EXCEPTION_DETAIL
