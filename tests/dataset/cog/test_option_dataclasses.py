@@ -165,7 +165,8 @@ class TestCompression:
         assert opts["PREDICTOR"] == 3, (
             f"float predictor should be 3, got {opts['PREDICTOR']}"
         )
-        assert opts["LEVEL"] is None and opts["QUALITY"] is None, f"unexpected: {opts}"
+        assert opts["LEVEL"] is None, f"LEVEL should be None, got {opts['LEVEL']}"
+        assert opts["QUALITY"] is None, f"QUALITY should be None, got {opts['QUALITY']}"
         assert opts["MAX_Z_ERROR"] is None, (
             f"MAX_Z_ERROR should be None, got {opts['MAX_Z_ERROR']}"
         )
@@ -254,8 +255,11 @@ class TestOverviews:
         assert opts["OVERVIEW_RESAMPLING"] == "average", (
             f"got {opts['OVERVIEW_RESAMPLING']}"
         )
-        assert opts["OVERVIEW_COUNT"] is None and opts["OVERVIEW_COMPRESS"] is None, (
-            f"unexpected: {opts}"
+        assert opts["OVERVIEW_COUNT"] is None, (
+            f"OVERVIEW_COUNT should be None, got {opts['OVERVIEW_COUNT']}"
+        )
+        assert opts["OVERVIEW_COMPRESS"] is None, (
+            f"OVERVIEW_COMPRESS should be None, got {opts['OVERVIEW_COMPRESS']}"
         )
 
     def test_to_options_default_resampling_integer_is_mode(self):
@@ -554,8 +558,11 @@ class TestLayout:
             ADD_ALPHA / SPARSE_OK truthy and drops STATISTICS (`None`).
         """
         opts = Layout(add_mask=True, sparse_ok=True, statistics=False)._to_options()
-        assert opts["ADD_ALPHA"] is True and opts["SPARSE_OK"] is True, (
-            f"toggles should be on: {opts}"
+        assert opts["ADD_ALPHA"] is True, (
+            f"ADD_ALPHA should be True, got {opts['ADD_ALPHA']}"
+        )
+        assert opts["SPARSE_OK"] is True, (
+            f"SPARSE_OK should be True, got {opts['SPARSE_OK']}"
         )
         assert opts["STATISTICS"] is None, (
             f"statistics=False should drop, got {opts['STATISTICS']}"
