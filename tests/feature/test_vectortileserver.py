@@ -10,7 +10,9 @@ smoke test is marked ``live`` and skipped by the default ``-m "not live"`` run.
 
 from __future__ import annotations
 
+import base64
 import json
+import urllib.error
 import warnings
 from pathlib import Path
 
@@ -113,6 +115,11 @@ class TestFromVectorTileServer:
         )
         assert len(fc) >= 2, "auto-picked zoom should still cover the fixture tiles"
 
+    def test_bbox_none_reads_service_full_extent(self, served):
+        """``bbox=None`` falls back to the service ``fullExtent`` and still reads the tiles."""
+        fc = FeatureCollection.from_vectortileserver("https://host/VectorTileServer")
+        assert len(fc) >= 2, "the fullExtent fallback should cover the fixture tiles"
+
     def test_max_tiles_cap_warns_and_truncates(self, served):
         """Exceeding ``max_tiles`` emits a UserWarning and reads only the capped count."""
         with pytest.warns(UserWarning, match="max_tiles"):
@@ -177,6 +184,54 @@ class TestVectorTileServerValidation:
         with pytest.raises(ValueError, match="west < east"):
             _read._vts_bbox_3857((1.0, 1.0, -1.0, -1.0), {})
 
+    def test_auth_is_sent_as_preemptive_basic_header(self):
+        """``auth`` is encoded into a preemptive ``Authorization: Basic`` header."""
+        request = _read._vts_request(
+            "https://host/x", ("ada", "s3cret"), accept_json=True
+        )
+        expected = "Basic " + base64.b64encode(b"ada:s3cret").decode()
+        assert request.get_header("Authorization") == expected, (
+            "Basic auth should be preemptive"
+        )
+
+    def test_bbox_none_uses_full_extent(self):
+        """``bbox=None`` reads the read extent from the service ``fullExtent`` (already 3857)."""
+        meta = {
+            "fullExtent": {"xmin": -100.0, "ymin": -50.0, "xmax": 100.0, "ymax": 50.0}
+        }
+        assert _read._vts_bbox_3857(None, meta) == (-100.0, -50.0, 100.0, 50.0)
+
+    def test_bbox_none_without_full_extent_raises(self):
+        """``bbox=None`` and no usable ``fullExtent`` is a clear ValueError."""
+        with pytest.raises(ValueError, match="no bbox given"):
+            _read._vts_bbox_3857(None, {})
+
+    def test_pick_zoom_falls_back_to_coarsest_when_all_exceed_cap(self):
+        """When every LOD exceeds ``max_tiles`` the coarsest advertised level is used."""
+        lods = {2: 9784.0, 5: 1223.0}
+        level = _read._pick_vts_zoom(
+            (-1000.0, -1000.0, 1000.0, 1000.0),
+            lods,
+            -_read._WEBMERC_ORIGIN,
+            _read._WEBMERC_ORIGIN,
+            512,
+            max_tiles=0,
+        )
+        assert level == 2, "the coarsest (minimum) LOD is the fallback"
+
+    def test_read_tile_frame_skips_empty_sublayer(self, tmp_path, monkeypatch):
+        """A sub-layer that reads back with no features emits no frame."""
+        import geopandas as gpd
+
+        tile_bytes = (_DATA / "tiles" / "10" / "511" / "512.pbf").read_bytes()
+        monkeypatch.setattr(
+            _read.gpd, "read_file", lambda *a, **k: gpd.GeoDataFrame(geometry=[])
+        )
+        frames = _read._read_vts_tile_frame(
+            tile_bytes, 10, 511, 512, None, str(tmp_path)
+        )
+        assert frames == [], "an empty sub-layer yields no frame"
+
     def test_covering_tiles_matches_fixture(self):
         """The covering-tile math reproduces exactly the fixture's two tiles."""
         info = _load_fixture_info()
@@ -220,7 +275,6 @@ class TestVectorTileServerFetch:
 
     def test_tile_404_returns_none(self, monkeypatch):
         """A 404 tile is treated as an empty cell (``None``), not an error."""
-        import urllib.error
 
         def _raise(request, timeout):
             raise urllib.error.HTTPError(request.full_url, 404, "not found", {}, None)
@@ -232,6 +286,65 @@ class TestVectorTileServerFetch:
             )
             is None
         )
+
+    def test_metadata_success_returns_parsed_dict(self, monkeypatch):
+        """A valid metadata body is parsed and returned as a dict."""
+        body = json.dumps({"tileInfo": {"lods": []}, "name": "svc"}).encode()
+        monkeypatch.setattr(_read, "http_get_with_retry", lambda request, timeout: body)
+        doc = _read.fetch_vectortileserver_metadata(
+            "https://host/VectorTileServer", None, 30.0
+        )
+        assert doc["name"] == "svc" and "tileInfo" in doc, (
+            "the parsed service document is returned"
+        )
+
+    def test_metadata_http_error_wraps_as_service_error(self, monkeypatch):
+        """An HTTP error on the metadata fetch surfaces as VectorTileServerError."""
+
+        def _raise(request, timeout):
+            raise urllib.error.HTTPError(request.full_url, 500, "boom", {}, None)
+
+        monkeypatch.setattr(_read, "http_get_with_retry", _raise)
+        with pytest.raises(VectorTileServerError, match="HTTP 500"):
+            _read.fetch_vectortileserver_metadata(
+                "https://host/VectorTileServer", None, 30.0
+            )
+
+    def test_metadata_transport_error_wraps_as_service_error(self, monkeypatch):
+        """A transport (OSError) failure on the metadata fetch surfaces as VectorTileServerError."""
+
+        def _raise(request, timeout):
+            raise OSError("connection reset")
+
+        monkeypatch.setattr(_read, "http_get_with_retry", _raise)
+        with pytest.raises(VectorTileServerError, match="metadata request failed"):
+            _read.fetch_vectortileserver_metadata(
+                "https://host/VectorTileServer", None, 30.0
+            )
+
+    def test_tile_non_404_http_error_wraps_as_service_error(self, monkeypatch):
+        """A non-404 HTTP error on a tile fetch surfaces as VectorTileServerError (not None)."""
+
+        def _raise(request, timeout):
+            raise urllib.error.HTTPError(request.full_url, 503, "busy", {}, None)
+
+        monkeypatch.setattr(_read, "http_get_with_retry", _raise)
+        with pytest.raises(VectorTileServerError, match="tile request failed"):
+            _read.fetch_vectortileserver_tile(
+                "https://host/tile/10/1/1.pbf", None, 30.0
+            )
+
+    def test_tile_transport_error_wraps_as_service_error(self, monkeypatch):
+        """A transport (OSError) failure on a tile fetch surfaces as VectorTileServerError."""
+
+        def _raise(request, timeout):
+            raise OSError("connection reset")
+
+        monkeypatch.setattr(_read, "http_get_with_retry", _raise)
+        with pytest.raises(VectorTileServerError, match="tile request failed"):
+            _read.fetch_vectortileserver_tile(
+                "https://host/tile/10/1/1.pbf", None, 30.0
+            )
 
 
 @pytest.mark.live
