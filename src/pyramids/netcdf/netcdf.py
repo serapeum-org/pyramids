@@ -4218,24 +4218,12 @@ class NetCDF(Dataset):
             try:
                 md_arr = rg.OpenMDArray(var)
                 if md_arr is not None:
-                    if window is not None:
-                        starts = [w[0] for w in window]
-                        counts = [w[1] for w in window]
-                        result = md_arr.ReadAsArray(
-                            array_start_idx=starts,
-                            count=counts,
-                        )
-                    else:
-                        result = md_arr.ReadAsArray()
+                    result = self._read_mdarray(md_arr, window)
                     # Normalize to the raster convention get_variable produces: row 0 = north,
                     # col 0 = west. A windowed read is returned in storage order (the window is
                     # expressed in storage indices), so it is left alone. One probe decides both axes.
                     if result is not None and result.ndim >= 2 and window is None:
-                        flip_y, flip_x = axis_flips(rg, md_arr)
-                        if flip_y:
-                            result = np.flip(result, axis=result.ndim - 2)
-                        if flip_x:
-                            result = np.flip(result, axis=result.ndim - 1)
+                        result = self._normalize_mdarray_axes(rg, md_arr, result)
             except (RuntimeError, ValueError):
                 pass  # nosec B110
             # Fall back to dimension indexing variable
@@ -4262,6 +4250,60 @@ class NetCDF(Dataset):
                 ds = None
             except (RuntimeError, AttributeError):
                 pass
+        return result
+
+    @staticmethod
+    def _read_mdarray(
+        md_arr: gdal.MDArray, window: list[tuple[int, int]] | None
+    ) -> np.typing.NDArray | None:
+        """Read an MDArray as a numpy array, windowed or in full.
+
+        A windowed read is expressed in storage indices and returned in storage
+        order (the caller is responsible for any axis normalization).
+
+        Args:
+            md_arr: The GDAL MDArray to read.
+            window: Per-dimension ``(start, count)`` tuples, or ``None`` for a
+                full read.
+
+        Returns:
+            np.ndarray or None: The read data (``None`` only if GDAL yields it).
+        """
+        result: np.typing.NDArray | None = None
+        if window is not None:
+            starts = [w[0] for w in window]
+            counts = [w[1] for w in window]
+            result = md_arr.ReadAsArray(
+                array_start_idx=starts,
+                count=counts,
+            )
+        else:
+            result = md_arr.ReadAsArray()
+        return result
+
+    @staticmethod
+    def _normalize_mdarray_axes(
+        rg: gdal.Group, md_arr: gdal.MDArray, result: np.typing.NDArray
+    ) -> np.typing.NDArray:
+        """Flip a full >=2-D read into raster convention (row 0 = north, col 0 = west).
+
+        One :func:`axis_flips` probe decides both axes. ``rg`` is accepted (not
+        just ``md_arr``) so the root group is held alive across the probe and
+        SWIG cannot garbage-collect it mid-call.
+
+        Args:
+            rg: The root group, kept alive to prevent SWIG GC.
+            md_arr: The MDArray the result was read from.
+            result: The full-read array to normalize in place of storage order.
+
+        Returns:
+            np.ndarray: The array flipped to raster convention as needed.
+        """
+        flip_y, flip_x = axis_flips(rg, md_arr)
+        if flip_y:
+            result = np.flip(result, axis=result.ndim - 2)
+        if flip_x:
+            result = np.flip(result, axis=result.ndim - 1)
         return result
 
     def _working_group(self) -> gdal.Group | None:
