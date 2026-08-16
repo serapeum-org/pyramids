@@ -498,6 +498,32 @@ class TestReadMdimVariable:
         mock_self._read_indexing_variable.assert_called_once_with("x", None)
         assert result is fallback, f"{exc.__name__} must be swallowed then fall back"
 
+    @pytest.mark.parametrize("exc", [RuntimeError, ValueError])
+    def test_read_error_after_open_falls_back(self, exc):
+        """A guarded error from ``_read_mdarray`` (post-open) is swallowed → fallback.
+
+        Args:
+            exc: The guarded exception ``_read_mdarray`` raises.
+
+        Test scenario:
+            ``OpenMDArray`` returns a non-None array, but ``_read_mdarray`` then
+            raises a guarded ``RuntimeError`` / ``ValueError``. The ``except``
+            swallows it, ``result`` stays ``None``, and the indexing-variable
+            fallback supplies the result -- a distinct raising call site from
+            ``OpenMDArray`` itself raising.
+        """
+        mock_self = self._mock_self()
+        rg = Mock()
+        rg.OpenMDArray.return_value = Mock()
+        mock_self._read_mdarray.side_effect = exc("read boom")
+        fallback = np.array([2.0])
+        mock_self._read_indexing_variable.return_value = fallback
+
+        result = NetCDF._read_mdim_variable(mock_self, rg, "x", None)
+
+        mock_self._read_indexing_variable.assert_called_once_with("x", None)
+        assert result is fallback, f"{exc.__name__} from the read must fall back"
+
     def test_fallback_failure_is_not_swallowed(self):
         """The indexing-variable fallback runs OUTSIDE the guard (R3).
 
