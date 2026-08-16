@@ -1533,78 +1533,193 @@ class DatasetCollection:
             raise ValueError(
                 "to_netcdf: cannot write an empty collection (time_length == 0)."
             )
-        if time_coords is None and self.time is not None:
-            # A dated collection (time axis parsed from the file names) exports
-            # with its own calendar axis by default; an explicit time_coords
-            # still overrides it.
-            time_coords = self.time
-
-        if time_coords is not None:
-            # Materialise generators / iterators up front so np.asarray gets a
-            # sized sequence (an iterator yields a 0-d object array, which
-            # would trip a cryptic IndexError below).
-            if not hasattr(time_coords, "__len__"):
-                time_coords = list(time_coords)
-            time_values = np.asarray(time_coords)
-            if time_values.dtype.kind == "O":
-                # pd.DatetimeIndex → datetime64 via asarray, but lists of
-                # datetime / Timestamp objects come through as dtype=object.
-                # Coerce so the datetime branch below picks them up.
-                try:
-                    time_values = np.asarray(time_values, dtype="datetime64[ns]")
-                except (TypeError, ValueError):
-                    pass
-            if time_values.shape[0] != self.time_length:
-                raise ValueError(
-                    f"time_coords has {time_values.shape[0]} entries but "
-                    f"the collection has {self.time_length} timesteps"
-                )
-            time_attrs: dict = {}
-            if time_values.shape[0] > 1 and time_values.dtype.kind in "iufM":
-                ordered = np.sort(time_values)
-                if not np.array_equal(time_values, ordered):
-                    warnings.warn(
-                        "time_coords is not monotonically increasing; some "
-                        "downstream CF readers may reorder or refuse the axis",
-                        stacklevel=2,
-                    )
-                if np.unique(time_values).size != time_values.size:
-                    warnings.warn(
-                        "time_coords contains duplicate values; downstream "
-                        "indexers may pick an arbitrary timestep",
-                        stacklevel=2,
-                    )
-            if time_values.dtype.kind == "M":
-                # GDAL's multidim writer has no native datetime64 type; encode
-                # as an int64 offset with CF `units` so a CF-aware reader can
-                # decode it back to a calendar axis on read. Use nanosecond
-                # resolution so the round-trip is lossless for the full
-                # datetime64[ns] range (the CF "nanoseconds since …" time
-                # unit).
-                epoch = np.datetime64("1970-01-01", "ns")
-                ns = (time_values.astype("datetime64[ns]") - epoch).astype("int64")
-                time_values = ns
-                time_attrs["units"] = "nanoseconds since 1970-01-01 00:00:00"
-                time_attrs["calendar"] = "proleptic_gregorian"
-        else:
-            time_values = np.arange(self.time_length, dtype="int64")
-            time_attrs = {
-                "long_name": "time index",
-                "note": "positional index, not a calendar time",
-            }
+        time_values, time_attrs = self._resolve_time_axis(time_coords)
 
         meta = self._meta
-        nodata = (meta.nodata or (None,))[0]
         band_count = int(meta.shape[0])
         names: list[str] = (
             list(meta.band_names)
             if meta.band_names
             else [f"band_{i + 1}" for i in range(band_count)]
         )
+        var_dtype = np.dtype(meta.dtype)
+        dims, coords, var_specs, root_attrs = self._build_netcdf_schema(
+            time_values,
+            time_attrs,
+            band_count=band_count,
+            names=names,
+            var_dtype=var_dtype,
+            time_dim=time_dim,
+            var_per_band=var_per_band,
+        )
 
+        # Inline import: pyramids.netcdf depends on pyramids.dataset.Dataset, so
+        # hoisting this to the module top would form a circular import through
+        # pyramids.dataset.__init__. Matches the to_kerchunk pattern (see
+        # ``to_kerchunk`` above) and CLAUDE.md's circular-import carveout.
+        from pyramids.netcdf.engines.interop import open_streaming_multidim_netcdf
+
+        # Stream one timestep at a time. read_array() returns (rows, cols) for a
+        # single-band dataset and (bands, rows, cols) for multi-band; normalise
+        # each timestep to (B, rows, cols) so the slab write is uniform.
+        with open_streaming_multidim_netcdf(
+            path, dims, coords, var_specs, root_attrs
+        ) as writer:
+            self._stream_timesteps(
+                writer,
+                band_count=band_count,
+                names=names,
+                var_dtype=var_dtype,
+                dims=dims,
+                var_per_band=var_per_band,
+            )
+
+    def _resolve_time_axis(
+        self, time_coords: Sequence[Any] | None
+    ) -> tuple[np.ndarray, dict[str, Any]]:
+        """Resolve the time axis to ``(values, CF attrs)``.
+
+        Explicit ``time_coords`` win; otherwise the collection's own :attr:`time`
+        axis is used when it has one; otherwise a positional ``0..T-1`` integer
+        index is emitted (with a ``note`` marking it as positional, not calendar).
+
+        Args:
+            time_coords: Explicit time-axis values, or ``None`` to auto-resolve.
+
+        Returns:
+            tuple: ``(time_values, time_attrs)`` — a 1-D values array plus its CF
+            coordinate attributes.
+        """
+        if time_coords is None and self.time is not None:
+            # A dated collection (time axis parsed from the file names) exports
+            # with its own calendar axis by default; an explicit time_coords
+            # still overrides it.
+            time_coords = self.time
+        if time_coords is not None:
+            result = self._encode_time_coords(time_coords)
+        else:
+            result = (
+                np.arange(self.time_length, dtype="int64"),
+                {
+                    "long_name": "time index",
+                    "note": "positional index, not a calendar time",
+                },
+            )
+        return result
+
+    def _encode_time_coords(
+        self, time_coords: Sequence[Any]
+    ) -> tuple[np.ndarray, dict[str, Any]]:
+        """Validate explicit ``time_coords`` and CF-encode a datetime64 axis.
+
+        Materialises generators, coerces object arrays of datetime / Timestamp to
+        ``datetime64``, warns on non-monotonic or duplicate values, and encodes a
+        ``datetime64`` axis as an int64 "nanoseconds since 1970-01-01" CF axis so
+        GDAL's multidim writer (which has no datetime type) can round-trip it.
+
+        Args:
+            time_coords: Explicit time-axis values (any sized sequence, a
+                generator, a ``pd.DatetimeIndex``, or a list of datetime objects).
+
+        Returns:
+            tuple: ``(time_values, time_attrs)`` — the encoded 1-D values array
+            plus its CF coordinate attributes.
+
+        Raises:
+            ValueError: When ``len(time_coords) != self.time_length``.
+        """
+        # Materialise generators / iterators up front so np.asarray gets a
+        # sized sequence (an iterator yields a 0-d object array, which
+        # would trip a cryptic IndexError below).
+        if not hasattr(time_coords, "__len__"):
+            time_coords = list(time_coords)
+        time_values = np.asarray(time_coords)
+        if time_values.dtype.kind == "O":
+            # pd.DatetimeIndex → datetime64 via asarray, but lists of
+            # datetime / Timestamp objects come through as dtype=object.
+            # Coerce so the datetime branch below picks them up.
+            try:
+                time_values = np.asarray(time_values, dtype="datetime64[ns]")
+            except (TypeError, ValueError):
+                pass
+        if time_values.shape[0] != self.time_length:
+            raise ValueError(
+                f"time_coords has {time_values.shape[0]} entries but "
+                f"the collection has {self.time_length} timesteps"
+            )
+        time_attrs: dict[str, Any] = {}
+        if time_values.shape[0] > 1 and time_values.dtype.kind in "iufM":
+            ordered = np.sort(time_values)
+            if not np.array_equal(time_values, ordered):
+                # stacklevel=4: user -> to_netcdf -> _resolve_time_axis ->
+                # _encode_time_coords, so the warning points at the caller.
+                warnings.warn(
+                    "time_coords is not monotonically increasing; some "
+                    "downstream CF readers may reorder or refuse the axis",
+                    stacklevel=4,
+                )
+            if np.unique(time_values).size != time_values.size:
+                warnings.warn(
+                    "time_coords contains duplicate values; downstream "
+                    "indexers may pick an arbitrary timestep",
+                    stacklevel=4,
+                )
+        if time_values.dtype.kind == "M":
+            # GDAL's multidim writer has no native datetime64 type; encode
+            # as an int64 offset with CF `units` so a CF-aware reader can
+            # decode it back to a calendar axis on read. Use nanosecond
+            # resolution so the round-trip is lossless for the full
+            # datetime64[ns] range (the CF "nanoseconds since …" time
+            # unit).
+            epoch = np.datetime64("1970-01-01", "ns")
+            ns = (time_values.astype("datetime64[ns]") - epoch).astype("int64")
+            time_values = ns
+            time_attrs["units"] = "nanoseconds since 1970-01-01 00:00:00"
+            time_attrs["calendar"] = "proleptic_gregorian"
+        return time_values, time_attrs
+
+    def _build_netcdf_schema(
+        self,
+        time_values: np.ndarray,
+        time_attrs: dict[str, Any],
+        *,
+        band_count: int,
+        names: list[str],
+        var_dtype: np.dtype,
+        time_dim: str,
+        var_per_band: bool,
+    ) -> tuple[
+        dict[str, int],
+        dict[str, tuple[np.ndarray, dict[str, Any]]],
+        dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
+        dict[str, Any],
+    ]:
+        """Assemble the ``(dims, coords, var_specs, root_attrs)`` for the writer.
+
+        Reads the collection template (:attr:`_meta`) and base grid
+        (:attr:`_base`) for the ``y`` / ``x`` coordinate axes, the geobox root
+        attributes, and the typed ``nodata`` attribute. One variable per band
+        (``var_per_band=True``) or a single 4-D ``data`` variable with a ``band``
+        coordinate (``False``).
+
+        Args:
+            time_values: The resolved time-axis values (from
+                :meth:`_resolve_time_axis`).
+            time_attrs: CF attributes for the time coordinate.
+            band_count: Number of bands.
+            names: Per-band variable names.
+            var_dtype: Dtype for every data variable.
+            time_dim: Name of the time dimension.
+            var_per_band: Emit one variable per band, else a single 4-D ``data``.
+
+        Returns:
+            tuple: ``(dims, coords, var_specs, root_attrs)`` ready to hand to
+            :func:`open_streaming_multidim_netcdf`.
+        """
+        meta = self._meta
+        nodata = (meta.nodata or (None,))[0]
         y_coord = np.asarray(self._base.y)
         x_coord = np.asarray(self._base.x)
-        var_dtype = np.dtype(meta.dtype)
 
         # GDAL's multidim NetCDF writer rejects ``_FillValue`` as an attribute
         # (libnetcdf wants it via the dedicated typed-fill API the writer does
@@ -1659,40 +1774,58 @@ class DatasetCollection:
             root_attrs["band_names"] = ",".join(names)
         if typed_nodata is not None:
             root_attrs["nodata"] = typed_nodata
+        return dims, coords, var_specs, root_attrs
 
-        # Inline import: pyramids.netcdf depends on pyramids.dataset.Dataset, so
-        # hoisting this to the module top would form a circular import through
-        # pyramids.dataset.__init__. Matches the to_kerchunk pattern (see
-        # ``to_kerchunk`` above) and CLAUDE.md's circular-import carveout.
-        from pyramids.netcdf.engines.interop import open_streaming_multidim_netcdf
+    def _stream_timesteps(
+        self,
+        writer,
+        *,
+        band_count: int,
+        names: list[str],
+        var_dtype: np.dtype,
+        dims: dict[str, int],
+        var_per_band: bool,
+    ) -> None:
+        """Stream each timestep into ``writer`` one slab at a time.
 
-        # Stream one timestep at a time. read_array() returns (rows, cols) for a
-        # single-band dataset and (bands, rows, cols) for multi-band; normalise
-        # each timestep to (B, rows, cols) so the slab write is uniform.
-        with open_streaming_multidim_netcdf(
-            path, dims, coords, var_specs, root_attrs
-        ) as writer:
-            expected = (band_count, dims["y"], dims["x"])
-            for t, ds in enumerate(self.datasets):
-                block = np.asarray(ds.read_array()).astype(var_dtype, copy=False)
-                if block.ndim == 2:
-                    block = block[np.newaxis, :, :]
-                if block.shape != expected:
-                    where = (
-                        self.files[t]
-                        if self.files and t < len(self.files)
-                        else f"timestep {t}"
-                    )
-                    raise AlignmentError(
-                        f"to_netcdf: {where} has shape {block.shape}, but the "
-                        f"collection template is {expected} (band, rows, cols); "
-                        f"every timestep must share the base grid and band count."
-                    )
-                if var_per_band:
-                    for i in range(band_count):
-                        writer.write_slab(names[i], t, block[i])
-                else:
-                    writer.write_slab("data", t, block)
+        Reads one dataset at a time (peak memory = a single timestep, not the
+        whole cube), normalises each to ``(band, rows, cols)``, and writes it as
+        a slab — per band when ``var_per_band`` else as one 4-D ``data`` variable.
+
+        Args:
+            writer: The streaming multidim writer yielded by
+                :func:`open_streaming_multidim_netcdf`.
+            band_count: Number of bands (the collection template's band count).
+            names: Per-band variable names (used when ``var_per_band`` is True).
+            var_dtype: Dtype every timestep is cast to before writing.
+            dims: The resolved dimension-length map (supplies ``y`` / ``x``).
+            var_per_band: Write one variable per band, else a single 4-D ``data``.
+
+        Raises:
+            AlignmentError: When a timestep's ``(band, rows, cols)`` shape differs
+                from the collection template ``(band_count, y, x)``.
+        """
+        expected = (band_count, dims["y"], dims["x"])
+        for t, ds in enumerate(self.datasets):
+            block = np.asarray(ds.read_array()).astype(var_dtype, copy=False)
+            if block.ndim == 2:
+                block = block[np.newaxis, :, :]
+            if block.shape != expected:
+                where = (
+                    self.files[t]
+                    if self.files and t < len(self.files)
+                    else f"timestep {t}"
+                )
+                raise AlignmentError(
+                    f"to_netcdf: {where} has shape {block.shape}, but the "
+                    f"collection template is {expected} (band, rows, cols); "
+                    f"every timestep must share the base grid and band count."
+                )
+            if var_per_band:
+                for i in range(band_count):
+                    writer.write_slab(names[i], t, block[i])
+            else:
+                writer.write_slab("data", t, block)
 
     @classmethod
     def from_stac(
