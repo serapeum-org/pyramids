@@ -4315,7 +4315,8 @@ class NetCDF(Dataset):
         Args:
             rg: The root group, kept alive to prevent SWIG GC.
             md_arr: The MDArray the result was read from.
-            result: The full-read array to normalize in place of storage order.
+            result: The full read (in storage order) to normalize; ``np.flip``
+                returns new views, so this array is not mutated in place.
 
         Returns:
             np.ndarray: The array flipped to raster convention as needed.
