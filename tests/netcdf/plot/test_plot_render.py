@@ -24,7 +24,11 @@ _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not ins
 Config = _cleo_config.Config
 Config.set_matplotlib_backend("Agg")
 
-from cleopatra.styling.params import Contour, DataStyle  # noqa: E402
+_cleo_params = pytest.importorskip(
+    "cleopatra.styling.params", reason="cleopatra not installed"
+)
+Contour = _cleo_params.Contour
+DataStyle = _cleo_params.DataStyle
 
 
 class TestNetCDFPlotColourForwarding:
