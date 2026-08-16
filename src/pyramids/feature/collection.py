@@ -1370,6 +1370,120 @@ class FeatureCollection(GeoDataFrame):
         )
 
     @classmethod
+    def _fetch_vectortileserver_metadata(
+        cls, url: str, auth: tuple[str, str] | None, timeout: float
+    ) -> dict:
+        """Fetch an ArcGIS VectorTileServer's ``<url>?f=json`` service metadata.
+
+        Isolated so :meth:`from_vectortileserver` can be unit-tested against a fixture
+        tileset without a live endpoint.
+        """
+        return _read.fetch_vectortileserver_metadata(url, auth, timeout)
+
+    @classmethod
+    def _fetch_vectortileserver_tile(
+        cls, tile_url: str, auth: tuple[str, str] | None, timeout: float
+    ) -> bytes | None:
+        """Fetch one ``.pbf`` vector tile, or ``None`` when the tile is absent (HTTP 404).
+
+        Isolated so :meth:`from_vectortileserver` can be unit-tested against fixture
+        tiles without a live endpoint.
+        """
+        return _read.fetch_vectortileserver_tile(tile_url, auth, timeout)
+
+    @classmethod
+    def from_vectortileserver(
+        cls,
+        url: str,
+        *,
+        layer: str | None = None,
+        bbox: tuple[float, float, float, float] | None = None,
+        zoom: int | None = None,
+        output_crs: str | None = None,
+        max_tiles: int = 1000,
+        auth: tuple[str, str] | None = None,
+        timeout: float = 60.0,
+    ) -> FeatureCollection:
+        """Read an ArcGIS **VectorTileServer** endpoint into a FeatureCollection.
+
+        The tile-based sibling of :meth:`from_featureserver`. A VectorTileServer serves Mapbox Vector Tiles
+        (MVT) plus a tiling scheme over REST. This resolves the service metadata (``<url>?f=json`` — its
+        ``tileInfo`` origin, tile size and levels of detail), computes the ``{z}/{x}/{y}`` tiles covering
+        ``bbox`` at ``zoom``, fetches each ``.pbf`` tile, reads it with GDAL's ``MVT`` driver (which
+        georeferences the tile to EPSG:3857), and concatenates the tiles into one FeatureCollection. Only the
+        Web-Mercator tiling scheme (EPSG:3857) that ArcGIS vector tiles use is supported.
+
+        ``max_tiles`` is a safety cap — a large ``bbox`` at a high ``zoom`` covers a runaway number of tiles;
+        on hitting the cap a ``UserWarning`` is emitted and only the first ``max_tiles`` tiles are read
+        (parallel to :meth:`from_featureserver`'s ``max_pages``).
+
+        **Tile-seam features:** MVT **clips** each feature at the tile boundary, so a feature spanning several
+        tiles is returned as several clipped pieces — there is no stable cross-tile feature id to merge them.
+        Exact-duplicate rows (identical attributes **and** byte-identical geometry) are dropped, but note that
+        MVT quantises each tile to its own local grid, so a feature repeated in adjacent tiles' edge buffers is
+        usually **not** byte-identical and may still appear more than once; de-duplicate downstream if that
+        matters.
+
+        Args:
+            url: The VectorTileServer root URL, e.g.
+                ``https://<host>/arcgis/rest/services/<name>/VectorTileServer``. Any existing query string
+                (such as a ``?token=…``) is preserved on the metadata request and on every tile request.
+            layer: The MVT *sourceLayer* name to read, or ``None`` (default) to read every sub-layer in each
+                tile. The source sub-layer is recorded in a ``"layer"`` column on the result (a same-named
+                source attribute, if any, is overwritten by this tag).
+            bbox: ``(west, south, east, north)`` in EPSG:4326 lon/lat. ``None`` (default) uses the service
+                ``fullExtent`` (reprojected to the tile CRS when it is reported in another CRS).
+            zoom: The level of detail to read. ``None`` (default) picks the highest advertised LOD whose
+                covering-tile count for ``bbox`` fits ``max_tiles`` (the most detail within the cap), or the
+                coarsest advertised LOD when none fit — in which case the ``max_tiles`` cap still truncates.
+            output_crs: CRS to reproject the result to (any form geopandas accepts). ``None`` (default)
+                returns the native tile CRS, EPSG:3857.
+            max_tiles: Safety cap on the number of tiles fetched. Defaults to 1000.
+            auth: Optional ``(user, password)`` sent as preemptive HTTP **Basic** auth — for a Basic-protected
+                proxy in front of the service. ArcGIS's own security is **token**-based: for a token-secured
+                service pass the token in ``url`` as a query parameter (``...VectorTileServer?token=abc``),
+                which is preserved on every request.
+            timeout: Per-request timeout in seconds. Defaults to 60.
+
+        Returns:
+            FeatureCollection: The tiles' features in EPSG:3857 (or ``output_crs``), with a ``"layer"`` column
+            naming each feature's source sub-layer. Empty if no tile in the covered area holds data.
+
+        Raises:
+            ValueError: ``max_tiles < 1``, ``bbox`` is malformed, ``zoom`` is not an advertised LOD, or the
+                service tiling CRS is not Web Mercator.
+            pyramids.base._errors.VectorTileServerError: The service metadata or a tile could not be
+                fetched, or the metadata does not describe a VectorTileServer.
+
+        Examples:
+            - Read a bbox from a public VectorTileServer (network call — skipped in doctests):
+                ```python
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection.from_vectortileserver(  # doctest: +SKIP
+                ...     "https://basemaps.arcgis.com/.../VectorTileServer",
+                ...     bbox=(-122.5, 37.7, -122.35, 37.82),
+                ...     zoom=14,
+                ... )
+
+                ```
+
+        See Also:
+            - :meth:`from_featureserver`: the query-based ArcGIS FeatureServer reader (ESRIJSON).
+            - :meth:`to_mvt` / :meth:`to_pmtiles`: write a FeatureCollection *to* vector tiles.
+        """
+        return _read.from_vectortileserver(
+            cls,
+            url,
+            layer=layer,
+            bbox=bbox,
+            zoom=zoom,
+            output_crs=output_crs,
+            max_tiles=max_tiles,
+            auth=auth,
+            timeout=timeout,
+        )
+
+    @classmethod
     def from_wfs(
         cls,
         endpoint: str,

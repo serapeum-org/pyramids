@@ -269,6 +269,25 @@ class OGCAPIError(_PyramidsError):
     """
 
 
+class VectorTileServerError(_PyramidsError):
+    """A failure talking to an ArcGIS **VectorTileServer** endpoint.
+
+    Raised by :meth:`pyramids.feature.FeatureCollection.from_vectortileserver`
+    (implementation in :mod:`pyramids.feature._read`) when the service metadata
+    (``<url>?f=json``) cannot be reached, returns a non-JSON body or one that does
+    not describe a VectorTileServer (no ``tileInfo``), or a tile request fails at
+    the transport level. A VectorTileServer serves Mapbox Vector Tiles (MVT) plus
+    tiling-scheme metadata over REST, so this is the tile-based sibling of
+    :class:`WFSError` (feature queries) — the reader that backs it is the vector-tile
+    analogue of ``from_featureserver``.
+
+    A *bad argument* (an unsupported tiling CRS, ``max_tiles < 1``, a ``zoom`` the
+    service does not advertise, or a missing ``bbox`` with no service extent) raises
+    a plain :class:`ValueError` instead, mirroring how the rest of pyramids reports a
+    bad argument as opposed to a service failure.
+    """
+
+
 class WMSError(_PyramidsError):
     """A failure talking to an OGC Web Map Service (WMS) or Web Map Tile Service (WMTS).
 

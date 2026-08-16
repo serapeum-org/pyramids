@@ -22,16 +22,21 @@ here (the input engine owns it).
 
 from __future__ import annotations
 
+import base64
+import json
 import math
 import os
+import tempfile
 import threading
+import urllib.error
+import urllib.request
 import warnings
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import geopandas as gpd
 import pandas as pd
@@ -42,7 +47,8 @@ from pyproj.exceptions import CRSError as _PyprojCRSError
 from shapely.geometry import box
 
 from pyramids import _io as _pyramids_io
-from pyramids.base._errors import FeatureError
+from pyramids.base._errors import FeatureError, VectorTileServerError
+from pyramids.base._ogc_api import http_error_detail, http_get_with_retry
 from pyramids.base._utils import import_pyarrow
 from pyramids.base.crs import _pyproj_crs_via_gdal
 from pyramids.base.remote import is_remote, to_fsspec_url
@@ -177,6 +183,384 @@ def collect_featureserver_pages(
         if count < this_page:  # last (short) page
             break
     return pages, first_crs
+
+
+# ArcGIS vector tiles use the Web Mercator (EPSG:3857) quad-tree by default. The
+# origin is the top-left corner and the world spans +/- this many metres each way.
+_WEBMERC_ORIGIN = 20037508.342789244
+_WEBMERC_WKIDS = frozenset({3857, 102100, 102113, 900913})
+_VTS_USER_AGENT = "pyramids-gis VectorTileServer client"
+
+
+def _vts_base_and_query(url: str) -> tuple[str, str]:
+    """Split a VectorTileServer URL into its ``(base_without_query, query_string)``.
+
+    ArcGIS secures services with a ``?token=…`` query on every request, so the query
+    must be preserved and re-attached to the metadata and tile URLs rather than
+    clobbered by a naive ``?f=json`` concatenation.
+    """
+    parts = urlsplit(url)
+    base = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
+    return base, parts.query
+
+
+def _vts_request(
+    url: str, auth: tuple[str, str] | None, *, accept_json: bool
+) -> urllib.request.Request:
+    """Build the urllib request for a VectorTileServer fetch, sending Basic auth preemptively."""
+    headers = {
+        "User-Agent": _VTS_USER_AGENT
+    }  # one UA for the metadata and tile requests
+    if accept_json:
+        headers["Accept"] = "application/json"
+    if auth is not None:
+        # Preemptive Basic auth (matches from_wfs / from_ogc_features): a service that
+        # 403s without a 401 challenge, or blocks the default urllib UA, still authenticates.
+        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
+        headers["Authorization"] = f"Basic {token}"
+    return urllib.request.Request(url, headers=headers)
+
+
+def fetch_vectortileserver_metadata(
+    url: str, auth: tuple[str, str] | None, timeout: float
+) -> dict[str, Any]:
+    """GET ``<url>?f=json`` and return the parsed ArcGIS VectorTileServer service metadata."""
+    base, query = _vts_base_and_query(url)
+    merged = f"{query}&f=json" if query else "f=json"
+    meta_url = f"{base}?{merged}"
+    try:
+        payload = http_get_with_retry(
+            _vts_request(meta_url, auth, accept_json=True), timeout
+        )
+    except urllib.error.HTTPError as exc:
+        raise VectorTileServerError(
+            f"VectorTileServer metadata request failed for {url!r}: HTTP {exc.code} {http_error_detail(exc)}"
+        ) from exc
+    except OSError as exc:
+        raise VectorTileServerError(
+            f"VectorTileServer metadata request failed for {url!r}: {exc}"
+        ) from exc
+    try:
+        doc = json.loads(payload)
+    except (ValueError, TypeError) as exc:
+        raise VectorTileServerError(
+            f"VectorTileServer metadata returned a non-JSON body from {url!r}: {exc}"
+        ) from exc
+    if not isinstance(doc, dict) or "tileInfo" not in doc:
+        raise VectorTileServerError(
+            f"{url!r} does not describe an ArcGIS VectorTileServer "
+            "(no 'tileInfo' in the service metadata)."
+        )
+    return doc
+
+
+def fetch_vectortileserver_tile(
+    tile_url: str, auth: tuple[str, str] | None, timeout: float
+) -> bytes | None:
+    """GET one ``.pbf`` tile; return its bytes, or ``None`` when the tile is absent (HTTP 404)."""
+    try:
+        return http_get_with_retry(
+            _vts_request(tile_url, auth, accept_json=False), timeout
+        )
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None  # a missing tile just means the covered cell holds no data
+        raise VectorTileServerError(
+            f"VectorTileServer tile request failed for {tile_url!r}: HTTP {exc.code} {http_error_detail(exc)}"
+        ) from exc
+    except OSError as exc:
+        raise VectorTileServerError(
+            f"VectorTileServer tile request failed for {tile_url!r}: {exc}"
+        ) from exc
+
+
+def _resolve_vts_tiling(
+    meta: dict[str, Any],
+) -> tuple[float, float, int, dict[int, float], str]:
+    """Return ``(origin_x, origin_y, tile_size, lods, tile_template)`` from the service metadata.
+
+    ``lods`` maps each level-of-detail integer to its resolution (map units per pixel).
+
+    Raises:
+        ValueError: The tiling CRS is not Web Mercator (the only scheme GDAL's MVT
+            georeferencing supports).
+        VectorTileServerError: The metadata carries no levels of detail.
+    """
+    tile_info = meta.get("tileInfo") or {}
+    spatial_ref = tile_info.get("spatialReference") or {}
+    wkid = int(spatial_ref.get("latestWkid") or spatial_ref.get("wkid") or 3857)
+    if wkid not in _WEBMERC_WKIDS:
+        raise ValueError(
+            "from_vectortileserver supports only Web Mercator vector tiles (EPSG:3857); "
+            f"the service tiling CRS is wkid={wkid}."
+        )
+    origin = tile_info.get("origin") or {}
+    origin_x = float(origin.get("x", -_WEBMERC_ORIGIN))
+    origin_y = float(origin.get("y", _WEBMERC_ORIGIN))
+    tile_size = int(tile_info.get("cols") or tile_info.get("rows") or 512)
+    lods = {
+        int(lod["level"]): float(lod["resolution"])
+        for lod in tile_info.get("lods", [])
+        if "level" in lod and "resolution" in lod
+    }
+    if not lods:
+        raise VectorTileServerError(
+            "VectorTileServer metadata has no tileInfo.lods (levels of detail); cannot compute tiles."
+        )
+    templates = meta.get("tiles") or ["tile/{z}/{y}/{x}.pbf"]
+    return origin_x, origin_y, tile_size, lods, templates[0]
+
+
+def _vts_bbox_3857(
+    bbox: tuple[float, float, float, float] | None, meta: dict[str, Any]
+) -> tuple[float, float, float, float]:
+    """Resolve the read extent in EPSG:3857 from a lon/lat ``bbox`` or the service full extent."""
+    if bbox is not None:
+        west, south, east, north = (float(v) for v in bbox)
+        if not (west < east and south < north):
+            raise ValueError(
+                "from_vectortileserver: bbox must be (west, south, east, north) in EPSG:4326 with "
+                f"west < east and south < north; got {bbox!r}."
+            )
+        transformer = pyproj.Transformer.from_crs(4326, 3857, always_xy=True)
+        # transform_bounds densifies the edges, so the 3857 box spans the whole extent
+        # (exact for 4326, and correct for a rotated / non-axis-aligned source CRS below).
+        minx, miny, maxx, maxy = transformer.transform_bounds(west, south, east, north)
+        return minx, miny, maxx, maxy
+    extent = meta.get("fullExtent") or meta.get("initialExtent") or {}
+    try:
+        xmin, ymin, xmax, ymax = (
+            float(extent[key]) for key in ("xmin", "ymin", "xmax", "ymax")
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "from_vectortileserver: no bbox given and the service metadata has no usable fullExtent; "
+            "pass bbox=(west, south, east, north)."
+        ) from exc
+    # fullExtent is usually already in the tile-matrix CRS (Web Mercator), but some
+    # services report it in the data's own CRS (e.g. 4326 or a projected SR). Honour its
+    # spatialReference instead of assuming metres, reprojecting the corners to 3857 when
+    # it is not Web Mercator so the tile maths stay in the tile CRS.
+    spatial_ref = extent.get("spatialReference") or {}
+    wkid = int(spatial_ref.get("latestWkid") or spatial_ref.get("wkid") or 3857)
+    if wkid in _WEBMERC_WKIDS:
+        return xmin, ymin, xmax, ymax
+    try:
+        transformer = pyproj.Transformer.from_crs(wkid, 3857, always_xy=True)
+    except _PyprojCRSError as exc:
+        raise VectorTileServerError(
+            f"VectorTileServer fullExtent is in an unrecognised CRS (wkid={wkid}); "
+            "pass an explicit bbox=(west, south, east, north) in EPSG:4326."
+        ) from exc
+    # transform_bounds over all four edges, so a projected (possibly non-axis-aligned)
+    # fullExtent is fully covered rather than under-spanned by two corners.
+    minx, miny, maxx, maxy = transformer.transform_bounds(xmin, ymin, xmax, ymax)
+    return minx, miny, maxx, maxy
+
+
+def _vts_tile_range(
+    bbox_3857: tuple[float, float, float, float],
+    origin_x: float,
+    origin_y: float,
+    tile_span: float,
+) -> tuple[int, int, int, int]:
+    """Inclusive ``(col_min, col_max, row_min, row_max)``, clamped to the valid grid.
+
+    The grid dimension is derived from ``tile_span`` (the Web Mercator world span divided
+    by the tile span in metres), *not* from ``2**level`` — so it stays correct for a
+    service that advertises a non-canonical LOD numbering or resolution rather than the
+    standard zoom-exponent scheme, using the same ``origin`` / ``tile_span`` values the
+    ranges are computed from. Clamping keeps the covering-tile list, the count that drives
+    the zoom-pick / ``max_tiles`` cap, and the fetch in agreement, and stops the reader
+    requesting out-of-world tiles that would only 404.
+    """
+    minx, miny, maxx, maxy = bbox_3857
+    last = max(0, round((2 * _WEBMERC_ORIGIN) / tile_span) - 1)
+    col_min = max(0, int(math.floor((minx - origin_x) / tile_span)))
+    col_max = min(last, int(math.floor((maxx - origin_x) / tile_span)))
+    # y grows downward from the top-left origin, so the north edge maps to the smallest row.
+    row_min = max(0, int(math.floor((origin_y - maxy) / tile_span)))
+    row_max = min(last, int(math.floor((origin_y - miny) / tile_span)))
+    return col_min, col_max, row_min, row_max
+
+
+def _vts_tile_count(
+    bbox_3857: tuple[float, float, float, float],
+    origin_x: float,
+    origin_y: float,
+    tile_span: float,
+) -> int:
+    """Number of in-grid tiles covering ``bbox_3857`` at ``tile_span`` (matches the fetched set)."""
+    col_min, col_max, row_min, row_max = _vts_tile_range(
+        bbox_3857, origin_x, origin_y, tile_span
+    )
+    return max(0, col_max - col_min + 1) * max(0, row_max - row_min + 1)
+
+
+def _pick_vts_zoom(
+    bbox_3857: tuple[float, float, float, float],
+    lods: dict[int, float],
+    origin_x: float,
+    origin_y: float,
+    tile_size: int,
+    max_tiles: int,
+) -> int:
+    """Highest LOD whose covering-tile count fits ``max_tiles`` (else the coarsest LOD)."""
+    for level in sorted(lods, reverse=True):
+        tile_span = tile_size * lods[level]
+        if _vts_tile_count(bbox_3857, origin_x, origin_y, tile_span) <= max_tiles:
+            return level
+    return min(lods)
+
+
+def _resolve_vts_level(
+    zoom: int | None,
+    bbox_3857: tuple[float, float, float, float],
+    lods: dict[int, float],
+    origin_x: float,
+    origin_y: float,
+    tile_size: int,
+    max_tiles: int,
+    url: str,
+) -> int:
+    """Validate an explicit ``zoom`` against the advertised LODs, or auto-pick one."""
+    if zoom is not None:
+        if zoom not in lods:
+            raise ValueError(
+                f"from_vectortileserver: zoom {zoom} is not an advertised LOD of {url!r}; "
+                f"available levels: {sorted(lods)}."
+            )
+        return zoom
+    return _pick_vts_zoom(bbox_3857, lods, origin_x, origin_y, tile_size, max_tiles)
+
+
+def _covering_vts_tiles(
+    bbox_3857: tuple[float, float, float, float],
+    level: int,
+    origin_x: float,
+    origin_y: float,
+    tile_span: float,
+    max_tiles: int,
+) -> list[tuple[int, int, int]]:
+    """List ``(z, x, y)`` tiles covering ``bbox_3857`` at ``level``; warn + truncate past ``max_tiles``."""
+    col_min, col_max, row_min, row_max = _vts_tile_range(
+        bbox_3857, origin_x, origin_y, tile_span
+    )
+    # The range is already clamped to the valid, in-world grid, so every index here is a
+    # real tile — the count above (which drove the zoom-pick / cap) matches this list.
+    tiles = [
+        (level, x, y)
+        for x in range(col_min, col_max + 1)
+        for y in range(row_min, row_max + 1)
+    ]
+    if len(tiles) > max_tiles:
+        warnings.warn(
+            f"from_vectortileserver: bbox at zoom {level} covers {len(tiles)} tiles, over the "
+            f"max_tiles={max_tiles} cap; reading the first {max_tiles}. Raise max_tiles or use a "
+            "smaller bbox / lower zoom to read the rest.",
+            stacklevel=2,
+        )
+        tiles = tiles[:max_tiles]
+    return tiles
+
+
+def _read_vts_tile_frame(
+    tile_bytes: bytes, z: int, x: int, y: int, layer: str | None, work_dir: str
+) -> list[GeoDataFrame]:
+    """Parse one MVT tile's bytes into EPSG:3857 GeoDataFrames (one per read sub-layer).
+
+    GDAL's MVT driver georeferences a tile to EPSG:3857 when the file path ends in
+    ``/{z}/{x}/{y}.pbf`` (verified against GDAL 3.13), so the tile is written under
+    that structure and read with geopandas — no manual coordinate maths.
+    """
+    tile_path = os.path.join(work_dir, str(z), str(x), f"{y}.pbf")
+    os.makedirs(os.path.dirname(tile_path), exist_ok=True)
+    with open(tile_path, "wb") as handle:
+        handle.write(tile_bytes)
+    available = [row[0] for row in pyogrio.list_layers(tile_path)]
+    names = [layer] if layer is not None else available
+    frames: list[GeoDataFrame] = []
+    for name in names:
+        if name not in available:
+            continue  # this tile does not carry the requested sub-layer
+        gdf = gpd.read_file(tile_path, engine="pyogrio", layer=name)
+        if len(gdf) == 0:
+            continue
+        # ``mvt_id`` is GDAL's per-tile feature id — not stable across tiles, so it is
+        # not a cross-tile key. Drop it and tag the source sub-layer instead.
+        gdf = gdf.drop(columns=["mvt_id"], errors="ignore")
+        gdf["layer"] = name
+        frames.append(gdf)
+    return frames
+
+
+def _assemble_vts_frames(
+    fc_cls: type[FeatureCollection], frames: list[GeoDataFrame]
+) -> FeatureCollection:
+    """Concatenate per-tile frames into one EPSG:3857 FeatureCollection, dropping seam duplicates."""
+    if not frames:
+        return fc_cls(gpd.GeoDataFrame(geometry=[], crs="EPSG:3857"))
+    merged = gpd.GeoDataFrame(
+        pd.concat(frames, ignore_index=True), geometry="geometry", crs="EPSG:3857"
+    )
+    # MVT clips features at tile boundaries, so a feature spanning tiles is returned as
+    # several clipped pieces (kept as distinct rows). Drop only *exact*-duplicate rows —
+    # identical attributes and byte-identical geometry. MVT quantises each tile to its own
+    # local grid, so near-seam buffer copies are usually not byte-identical and are NOT
+    # removed here: this is a cheap exact guard, not full seam reassembly (see the facade).
+    merged["_wkb"] = merged.geometry.to_wkb()
+    subset = [column for column in merged.columns if column != "geometry"]
+    deduped = merged.drop_duplicates(subset=subset).drop(columns="_wkb")
+    return fc_cls(deduped.reset_index(drop=True))
+
+
+def from_vectortileserver(
+    fc_cls: type[FeatureCollection],
+    url: str,
+    *,
+    layer: str | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+    zoom: int | None = None,
+    output_crs: str | None = None,
+    max_tiles: int = 1000,
+    auth: tuple[str, str] | None = None,
+    timeout: float = 60.0,
+) -> FeatureCollection:
+    """Read an ArcGIS VectorTileServer endpoint (see FeatureCollection.from_vectortileserver)."""
+    if max_tiles < 1:
+        raise ValueError(
+            f"from_vectortileserver: max_tiles must be >= 1, got {max_tiles}."
+        )
+    meta = fc_cls._fetch_vectortileserver_metadata(url, auth, timeout)
+    origin_x, origin_y, tile_size, lods, template = _resolve_vts_tiling(meta)
+    bbox_3857 = _vts_bbox_3857(bbox, meta)
+    level = _resolve_vts_level(
+        zoom, bbox_3857, lods, origin_x, origin_y, tile_size, max_tiles, url
+    )
+    tile_span = tile_size * lods[level]
+    tiles = _covering_vts_tiles(
+        bbox_3857, level, origin_x, origin_y, tile_span, max_tiles
+    )
+
+    base, query = _vts_base_and_query(url)
+    query_suffix = (
+        f"?{query}" if query else ""
+    )  # carry ?token=… onto every tile request
+    frames: list[GeoDataFrame] = []
+    with tempfile.TemporaryDirectory(prefix="pyramids_vts_") as work_dir:
+        for tz, tx, ty in tiles:
+            tile_url = f"{base}/{template.format(z=tz, x=tx, y=ty)}{query_suffix}"
+            tile_bytes = fc_cls._fetch_vectortileserver_tile(tile_url, auth, timeout)
+            if not tile_bytes:
+                continue
+            frames.extend(_read_vts_tile_frame(tile_bytes, tz, tx, ty, layer, work_dir))
+
+    result = _assemble_vts_frames(fc_cls, frames)
+    if output_crs is not None:
+        result = result.to_crs(
+            output_crs
+        )  # to_crs preserves the FeatureCollection subclass
+    return result
 
 
 def _resolve_lazy_partitioning(
