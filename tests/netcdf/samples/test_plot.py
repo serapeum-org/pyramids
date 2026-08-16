@@ -49,9 +49,7 @@ def test_plot_with_colour_options(sample):
     """Loose colour kwargs (cmap / robust limits) are accepted by plot."""
     nc = NetCDF.read_file(sample(RHUM))
     try:
-        assert (
-            nc.plot(variable="rhum", cmap="viridis", robust=True) is not None
-        )
+        assert nc.plot(variable="rhum", cmap="viridis", robust=True) is not None
     finally:
         plt.close("all")
         nc.close()
