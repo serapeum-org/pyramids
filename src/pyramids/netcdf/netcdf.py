@@ -4212,26 +4212,47 @@ class NetCDF(Dataset):
             np.ndarray or None: The variable data, or None if the
                 variable is not found.
         """
-        result = None
         rg = self._working_group()
         if rg is not None:
-            try:
-                md_arr = rg.OpenMDArray(var)
-                if md_arr is not None:
-                    result = self._read_mdarray(md_arr, window)
-                    # Normalize to the raster convention get_variable produces: row 0 = north,
-                    # col 0 = west. A windowed read is returned in storage order (the window is
-                    # expressed in storage indices), so it is left alone. One probe decides both axes.
-                    if result is not None and result.ndim >= 2 and window is None:
-                        result = self._normalize_mdarray_axes(rg, md_arr, result)
-            except (RuntimeError, ValueError):
-                pass  # nosec B110
-            # Fall back to the dimension indexing variable. This stays OUTSIDE the
-            # guard above so a genuine failure here is not silently swallowed.
-            if result is None:
-                result = self._read_indexing_variable(var, window)
+            result = self._read_mdim_variable(rg, var, window)
         else:
             result = self._read_classic_variable(var)
+        return result
+
+    def _read_mdim_variable(
+        self, rg: gdal.Group, var: str, window: list[tuple[int, int]] | None
+    ) -> np.typing.NDArray | None:
+        """Read ``var`` in MDIM mode: MDArray first, indexing-variable fallback.
+
+        The MDArray open+read+normalize is guarded against GDAL raising for a
+        missing or non-numeric array; the indexing-variable fallback runs
+        *outside* that guard so a genuine failure there is not swallowed. A full
+        (unwindowed) >=2-D read is normalized to raster convention; a windowed
+        read is returned in storage order.
+
+        Args:
+            rg: The working group ``var`` is resolved against (kept alive across
+                the axis-flip probe).
+            var: Variable (or dimension) name to read.
+            window: Per-dimension ``(start, count)`` tuples, or ``None`` for a
+                full read.
+
+        Returns:
+            np.ndarray or None: The variable data, or ``None`` if not found.
+        """
+        result: np.typing.NDArray | None = None
+        try:
+            md_arr = rg.OpenMDArray(var)
+            if md_arr is not None:
+                result = self._read_mdarray(md_arr, window)
+                # A full >=2-D read is normalized to raster convention (row 0 =
+                # north, col 0 = west); a windowed read stays in storage order.
+                if result is not None and result.ndim >= 2 and window is None:
+                    result = self._normalize_mdarray_axes(rg, md_arr, result)
+        except (RuntimeError, ValueError):
+            pass  # nosec B110
+        if result is None:
+            result = self._read_indexing_variable(var, window)
         return result
 
     @staticmethod
