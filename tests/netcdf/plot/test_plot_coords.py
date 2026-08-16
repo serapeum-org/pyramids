@@ -37,14 +37,16 @@ class TestNetCDFPlotCoordAxes:
     def test_invalid_coords_x_raises(self):
         """`coords=("nope", "t2m")` is rejected because "nope" is unknown."""
         nc = make_plot_3d_nc()
+        axes = CoordinateSpec(coords=("nope", "t2m"))
         with pytest.raises(ValueError, match=r"coords x="):
-            nc.plot(variable="t2m", axes=CoordinateSpec(coords=("nope", "t2m")))
+            nc.plot(variable="t2m", axes=axes)
 
     def test_invalid_coords_y_raises(self):
         """`coords=("t2m", "nope")` is rejected because "nope" is unknown."""
         nc = make_plot_3d_nc()
+        axes = CoordinateSpec(coords=("t2m", "nope"))
         with pytest.raises(ValueError, match=r"coords y="):
-            nc.plot(variable="t2m", axes=CoordinateSpec(coords=("t2m", "nope")))
+            nc.plot(variable="t2m", axes=axes)
 
     def test_valid_coords_render(self):
         """`coords=(<valid>, <valid>)` passes validation and renders.
@@ -71,8 +73,9 @@ class TestNetCDFPlotCoordAxesExtra:
     def test_invalid_coords_x_with_valid_y_raises_on_x_first(self):
         """`coords=("bogus", "t2m")` raises on the x axis first."""
         nc = make_plot_3d_nc()
+        axes = CoordinateSpec(coords=("bogus", "t2m"))
         with pytest.raises(ValueError, match=r"coords x=") as exc_info:
-            nc.plot(variable="t2m", axes=CoordinateSpec(coords=("bogus", "t2m")))
+            nc.plot(variable="t2m", axes=axes)
         assert "bogus" in str(exc_info.value), (
             f"Error must echo the bad name, got: {exc_info.value}"
         )
@@ -236,8 +239,9 @@ class TestCurvilinearCoords:
     def test_invalid_coords_one_tuple_raises(self):
         """`coords=("nonexistent",)` (length-1) is rejected as malformed."""
         nc, _, _, _ = _make_curvilinear_nc()
+        axes = CoordinateSpec(coords=("nonexistent",))
         with pytest.raises(ValueError, match=r"length-2 sequence"):
-            nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=("nonexistent",)))
+            nc.plot(variable="CANWAT", axes=axes)
 
     def test_coords_override_auto_detection(self):
         """`coords=("XLONG", "XLAT")` overrides auto-detection.
@@ -619,8 +623,9 @@ class TestCurvilinearCoordsEdges:
             the error.
         """
         nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
+        axes = CoordinateSpec(coords=("missing", "XLAT"))
         with pytest.raises(ValueError, match=r"missing") as exc_info:
-            nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=("missing", "XLAT")))
+            nc.plot(variable="CANWAT", axes=axes)
         assert "Available" in str(exc_info.value), (
             f"Error must list available variables, got: {exc_info.value}"
         )
@@ -656,8 +661,9 @@ class TestCurvilinearCoordsEdges:
         nc, _, _, _ = _make_curvilinear_nc(rows=4, cols=5)
         x_nan = np.full((4, 5), np.nan, dtype=np.float32)
         y_nan = np.full((4, 5), np.nan, dtype=np.float32)
+        axes = CoordinateSpec(coords=(x_nan, y_nan))
         with pytest.raises(ValueError, match=r"non-finite"):
-            nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=(x_nan, y_nan)))
+            nc.plot(variable="CANWAT", axes=axes)
 
     def test_kind_auto_no_curvilinear_uses_imshow_path(self):
         """`kind="auto"` on a regular grid leaves coords None (imshow path).
