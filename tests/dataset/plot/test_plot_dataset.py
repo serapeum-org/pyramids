@@ -713,7 +713,7 @@ class TestNetCDFPlot:
         ``tests/dataset/test_plot_resolution.py::TestNetCDFPlotPolicy`` (the
         parametrised forbidden-kwarg / default-band matrix) and the full
         ``tests/netcdf/test_plot.py`` suite (the post-PR-2 aligned
-        signature in depth — ``Selectors``/``ColourOpts``/``FacetSpec``,
+        signature in depth — ``Selectors``/``CoordinateSpec``/``FacetSpec``,
         curvilinear coords, faceting, animate, lazy). This class holds the
         original PR-1/D-0 cases.
     """

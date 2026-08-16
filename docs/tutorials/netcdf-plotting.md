@@ -1,13 +1,13 @@
 # Plotting NetCDF data
 
-`NetCDF.plot` is a dedicated, **labeled-array-style** plotting surface — it does *not* inherit
-`Dataset.plot`'s GeoTIFF / Sentinel-imagery semantics. Instead of `band=<int>` you pick a
-*variable*; instead of loose keyword soup you pass small, frozen option dataclasses; and you get
-first-class support for selecting along non-spatial dimensions, curvilinear grids, contour/pcolormesh
-artists, small-multiples (facets), animation, and lazy (dask-backed) reads.
+`NetCDF.plot` mirrors `Dataset.plot`'s signature, adding labeled-array conveniences. Instead of
+`band=<int>` you pick a *variable*; you slice along non-spatial dimensions, faceting, and coordinates
+through small, frozen option dataclasses; and colour is expressed with the same loose keyword arguments
+as `Dataset.plot`. You get first-class support for selecting along non-spatial dimensions, curvilinear
+grids, contour/pcolormesh artists, small-multiples (facets), animation, and lazy (dask-backed) reads.
 
 ```python
-from pyramids.netcdf import Selectors, ColourOpts, FacetSpec
+from pyramids.netcdf import Selectors, CoordinateSpec, FacetSpec
 from pyramids.netcdf import NetCDF
 
 nc = NetCDF.read_file("era5.nc")
@@ -26,21 +26,20 @@ The full signature:
 NetCDF.plot(
     variable=None, *,
     selectors=None,   # Selectors(time=, level=, member=, sel=, isel=)
-    colour=None,      # ColourOpts(cmap=, vmin=, vmax=, robust=, levels=, norm=, center=, extend=, add_colorbar=, cbar_kwargs=)
     facet=None,       # FacetSpec(col=, row=, col_wrap=)
-    coords=None,      # (x_2d, y_2d) curvilinear coordinates -> pcolormesh
+    axes=None,        # CoordinateSpec(coords=(x_2d, y_2d), x_dim=, y_dim=) -> pcolormesh
     kind="auto",      # "auto" | "imshow" | "pcolormesh" | "contour" | "contourf"
     animate=None,     # True | dimension name
     chunks=None,      # dask chunks -> lazy read
     basemap=None,     # True | provider name
     exclude_value=None,
-    title=None, ax=None, figsize=None,
-    **kwargs,         # forwarded to cleopatra's ArrayGlyph (color_scale, cbar_label, ...)
+    title=None,
+    **kwargs,         # loose colour kwargs (cmap, vmin, vmax, robust, ...) + colorbar=/data_style= bags, ax, figsize
 )
 ```
 
 See the [Plotting reference](../reference/netcdf/plot.md) for the parameter table and the
-auto-generated `Selectors` / `ColourOpts` / `FacetSpec` docs, and the
+auto-generated `Selectors` / `CoordinateSpec` / `FacetSpec` docs, and the
 [NetCDF Class reference](../reference/netcdf/index.md) for the rendered method docstring.
 
 ## 1. Pick a variable
@@ -78,23 +77,31 @@ it becomes the frame axis — see below).
 
 ## 3. Colour mapping
 
-Group all colour options under `ColourOpts` — these mirror the labeled-array plotting kwargs:
+Colour is expressed with loose keyword arguments, exactly as `Dataset.plot` — `cmap`, `vmin`, `vmax`,
+`robust`, `center`, `extend`, `levels`, `norm`:
 
 ```python
-from pyramids.netcdf import ColourOpts
-
 # robust limits (2nd / 98th percentile), a diverging cmap centred on zero
-nc.plot("t2m_anomaly", colour=ColourOpts(cmap="RdBu_r", robust=True, center=0.0))
+nc.plot("t2m_anomaly", cmap="RdBu_r", robust=True, center=0.0)
 
 # explicit limits + discrete levels + extend arrows on the colorbar
-nc.plot("tp", colour=ColourOpts(vmin=0, vmax=50, levels=11, extend="max"))
+nc.plot("tp", vmin=0, vmax=50, levels=11, extend="max")
 
 # pass a custom matplotlib Normalize
 import matplotlib.colors as mcolors
-nc.plot("chlor_a", colour=ColourOpts(norm=mcolors.LogNorm(vmin=0.01, vmax=10)))
+nc.plot("chlor_a", norm=mcolors.LogNorm(vmin=0.01, vmax=10))
 
 # suppress the colorbar entirely
-nc.plot("t2m", colour=ColourOpts(add_colorbar=False))
+nc.plot("t2m", colorbar=False)
+```
+
+For colour-bar styling and data-style presets, pass the cleopatra render bags (`colorbar=ColorBar(...)`,
+`data_style=DataStyle(...)`) just as you would on `Dataset.plot`:
+
+```python
+from pyramids.plot import ColorBar, DataStyle
+
+nc.plot("t2m", cmap="coolwarm", colorbar=ColorBar(label="2 m temperature (K)"))
 ```
 
 For the legacy `color_scale` / `gamma` / `line_threshold` / `line_scale` / `bounds` / `midpoint`
@@ -121,13 +128,16 @@ Valid kinds: `"auto"`, `"imshow"`, `"pcolormesh"`, `"contour"`, `"contourf"`.
 ## 5. Curvilinear grids
 
 WRF, ROMS, NEMO and other models store 2-D latitude/longitude arrays rather than 1-D axes. Pass them
-explicitly via `coords=(x_2d, y_2d)` (which forces `pcolormesh`):
+explicitly via `axes=CoordinateSpec(coords=(x_2d, y_2d))` (which forces `pcolormesh`); you can also
+name the horizontal dimensions with `x_dim=` / `y_dim=`:
 
 ```python
-nc.plot("T2", coords=(XLONG, XLAT))
+from pyramids.netcdf import CoordinateSpec
+
+nc.plot("T2", axes=CoordinateSpec(coords=(XLONG, XLAT)))
 ```
 
-If you don't pass `coords`, pyramids tries to auto-detect them from the variable's CF `coordinates`
+If you don't pass `axes`, pyramids tries to auto-detect the coordinates from the variable's CF `coordinates`
 attribute and from the common model conventions (`XLAT`/`XLONG` for WRF, `lat_rho`/`lon_rho` for
 ROMS, `nav_lat`/`nav_lon` for NEMO). When auto-detection falls back to the bounding-box extent
 instead, a `logging.WARNING` is emitted so you know the rendering used the regular-grid path.
@@ -210,7 +220,7 @@ that points at the replacement:
 |--------------------------------|-----------------------------------|
 | `band=<int>`                   | `variable=` + `selectors=`        |
 | `rgb=`, `surface_reflectance=`, `cutoff=` | (no NetCDF equivalent — true-colour composites are a raster concept) |
-| `percentile=`                  | `colour=ColourOpts(robust=True)`  |
+| `percentile=`                  | `robust=True`                     |
 | `overview=`, `overview_index=` | (NetCDF has no GDAL overview pyramids) |
 
 ## Under the hood

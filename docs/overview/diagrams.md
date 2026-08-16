@@ -36,7 +36,7 @@ classDiagram
     +get_variable(name)
     +read_array(band, window, unpack)
     +time_stamp
-    +plot(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+    +plot(variable, *, selectors, facet, axes, kind, animate, chunks, **kwargs)
   }
   class _Engine {
     <<abstract>>
@@ -78,7 +78,7 @@ classDiagram
 The shared `pyramids.dataset._plot_helpers` module owns the cleopatra dispatch (`render_array` for
 arrays, `mesh_render` for meshes); `pyramids.netcdf._plot.NetCDFPlot` does the NetCDF-specific
 variable/selector/curvilinear/facet/animate resolution and feeds `render_array`; `Selectors` /
-`ColourOpts` / `FacetSpec` (in `pyramids.netcdf.plot_options`, re-exported from
+`CoordinateSpec` / `FacetSpec` (in `pyramids.netcdf.plot_options`, re-exported from
 `pyramids.netcdf`) are the grouped option dataclasses; `pyramids.basemap.add_basemap` is a thin
 wrapper over `cleopatra.tiles.add_tiles`.
 
@@ -89,7 +89,7 @@ classDiagram
     +_resolve_plot_band(band, rgb)
   }
   class NetCDF {
-    +plot(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+    +plot(variable, *, selectors, facet, axes, kind, animate, chunks, **kwargs)
   }
   class DatasetCollection {
     +plot(...)
@@ -102,7 +102,7 @@ classDiagram
     +plot(band, ...)
   }
   class NetCDFPlot {
-    +run(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+    +run(variable, *, selectors, facet, axes, kind, animate, chunks, **kwargs)
     -_resolve_selectors()
     -_build_render_kwargs()
     -_build_facet_stack()
@@ -124,18 +124,11 @@ classDiagram
     +sel
     +isel
   }
-  class ColourOpts {
+  class CoordinateSpec {
     <<frozen dataclass>>
-    +cmap
-    +vmin
-    +vmax
-    +robust
-    +levels
-    +norm
-    +center
-    +extend
-    +add_colorbar
-    +cbar_kwargs
+    +coords
+    +x_dim
+    +y_dim
   }
   class FacetSpec {
     <<frozen dataclass>>
@@ -168,7 +161,7 @@ classDiagram
   NetCDF ..> NetCDFPlot : delegates plot
   NetCDFPlot ..> plot_helpers : render_array
   NetCDFPlot ..> Selectors : uses
-  NetCDFPlot ..> ColourOpts : uses
+  NetCDFPlot ..> CoordinateSpec : uses
   NetCDFPlot ..> FacetSpec : uses
   DatasetCollection ..> plot_helpers : render_array(mode="animate")
   UgridDataset ..> plot_helpers : mesh_render
@@ -412,7 +405,7 @@ classDiagram
         +create_from_array(arr, geo, ...)
         +add_variable(dataset, variable_name)
         +remove_variable(variable_name)
-        +plot(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+        +plot(variable, *, selectors, facet, axes, kind, animate, chunks, **kwargs)
     }
 
     %% UgridDataset
@@ -449,7 +442,7 @@ classDiagram
         +mesh_render(mesh, data, location, basemap, ...)
     }
     class netcdf_NetCDFPlot {
-        +run(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+        +run(variable, *, selectors, facet, axes, kind, animate, chunks, **kwargs)
         -_resolve_selectors()
         -_build_render_kwargs()
         -_build_facet_stack()
@@ -462,10 +455,9 @@ classDiagram
         <<frozen dataclass>>
         +time · level · member · sel · isel
     }
-    class netcdf_ColourOpts {
+    class netcdf_CoordinateSpec {
         <<frozen dataclass>>
-        +cmap · vmin · vmax · robust · levels
-        +norm · center · extend · add_colorbar · cbar_kwargs
+        +coords · x_dim · y_dim
     }
     class netcdf_FacetSpec {
         <<frozen dataclass>>
@@ -567,7 +559,7 @@ classDiagram
     %% plotting layer relations
     netcdf_NetCDF ..> netcdf_NetCDFPlot : delegates plot()
     netcdf_NetCDFPlot ..> netcdf_Selectors : uses
-    netcdf_NetCDFPlot ..> netcdf_ColourOpts : uses
+    netcdf_NetCDFPlot ..> netcdf_CoordinateSpec : uses
     netcdf_NetCDFPlot ..> netcdf_FacetSpec : uses
     netcdf_NetCDFPlot ..> plot_helpers_module : render_array
     engines_Analysis ..> plot_helpers_module : render_array

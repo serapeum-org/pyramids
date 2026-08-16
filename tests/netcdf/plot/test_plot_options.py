@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pytest
 
 import pyramids
-from pyramids.netcdf import ColorOpts, ColourOpts, FacetSpec, Selectors
+from pyramids.netcdf import CoordinateSpec, FacetSpec, Selectors
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_plot_3d_nc
 from tests.netcdf.plot._plot_helpers import _make_fake_render
@@ -41,27 +41,19 @@ class TestPlotOptionDataclasses:
         assert sel.sel is None
         assert sel.isel is None
 
-    def test_colour_opts_defaults(self):
-        """``ColourOpts()`` constructs with cleopatra-default colour state.
+    def test_coordinate_spec_defaults_are_all_none(self):
+        """``CoordinateSpec()`` constructs with every field ``None``.
 
         Test scenario:
-            Every colour control is ``None`` except ``robust`` (``False``)
-            and ``add_colorbar`` (``True``), matching the
-            defaults the old loose signature exposed.
+            A bare ``CoordinateSpec`` is a no-op axis spec so
+            ``NetCDF.plot`` auto-detects the spatial axes; the fields
+            hold an explicit curvilinear ``coords`` pair or the
+            ``x_dim`` / ``y_dim`` names when set.
         """
-        colour = ColourOpts()
-        assert colour.cmap is None
-        assert colour.vmin is None
-        assert colour.vmax is None
-        assert colour.robust is False
-        assert colour.levels is None
-        assert colour.norm is None
-        assert colour.center is None
-        assert colour.extend is None
-        assert colour.add_colorbar is True
-        assert colour.cbar_kwargs is None
-        assert colour.style is None
-        assert colour.hillshade is None
+        axes = CoordinateSpec()
+        assert axes.coords is None
+        assert axes.x_dim is None
+        assert axes.y_dim is None
 
     def test_facet_spec_defaults_are_all_none(self):
         """``FacetSpec()`` constructs with every field ``None``.
@@ -81,8 +73,8 @@ class TestPlotOptionDataclasses:
         [
             (lambda: Selectors(time=0), "time", 1),
             (lambda: Selectors(), "sel", {"time": 0}),
-            (lambda: ColourOpts(cmap="viridis"), "cmap", "magma"),
-            (lambda: ColourOpts(), "add_colorbar", False),
+            (lambda: CoordinateSpec(x_dim="rlon"), "x_dim", "rlat"),
+            (lambda: CoordinateSpec(), "y_dim", "rlat"),
             (lambda: FacetSpec(col="time"), "col", "level"),
             (lambda: FacetSpec(), "col_wrap", 3),
         ],
@@ -112,7 +104,7 @@ class TestPlotOptionReExports:
         """``from pyramids import Selectors`` is intentionally NOT supported.
 
         Test scenario:
-            Earlier versions exposed ``Selectors`` / ``ColourOpts`` /
+            Earlier versions exposed ``Selectors`` / ``CoordinateSpec`` /
             ``FacetSpec`` directly on ``pyramids`` — an inconsistency
             because every other class (``Dataset``, ``NetCDF``,
             ``FeatureCollection``, …) required its full subpackage
@@ -120,9 +112,9 @@ class TestPlotOptionReExports:
             and only live under ``pyramids.netcdf``.
         """
         assert not hasattr(pyramids, "Selectors")
-        assert not hasattr(pyramids, "ColourOpts")
+        assert not hasattr(pyramids, "CoordinateSpec")
         assert not hasattr(pyramids, "FacetSpec")
-        assert {"Selectors", "ColourOpts", "FacetSpec"}.isdisjoint(
+        assert {"Selectors", "CoordinateSpec", "FacetSpec"}.isdisjoint(
             set(pyramids.__all__)
         )
 
@@ -137,9 +129,9 @@ class TestPlotOptionReExports:
         ncpkg = pyramids.netcdf
 
         assert ncpkg.Selectors is Selectors
-        assert ncpkg.ColourOpts is ColourOpts
+        assert ncpkg.CoordinateSpec is CoordinateSpec
         assert ncpkg.FacetSpec is FacetSpec
-        assert {"Selectors", "ColourOpts", "FacetSpec"} <= set(ncpkg.__all__)
+        assert {"Selectors", "CoordinateSpec", "FacetSpec"} <= set(ncpkg.__all__)
 
 
 class TestPlotConsumesOptionDataclasses:
@@ -166,32 +158,32 @@ class TestPlotConsumesOptionDataclasses:
         assert none_band == default_band
 
     def test_colour_field_forwarded_to_engine(self):
-        """``colour=ColourOpts(cmap="viridis")`` forwards ``cmap`` flattened.
+        """``cmap="viridis"`` forwards as a loose kwarg to the engine.
 
         Test scenario:
-            The dataclass unpacking happens inside ``NetCDF.plot``; the
-            engine still receives the flat ``cmap=`` kwarg.
+            Colour controls are loose keywords on ``NetCDF.plot`` (parity
+            with ``Dataset.plot``); the engine receives the flat ``cmap=``
+            kwarg.
         """
         nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
-            var.plot(variable="t2m", colour=ColourOpts(cmap="viridis"))
+            var.plot(variable="t2m", cmap="viridis")
         assert mock_plot.call_args.kwargs["cmap"] == "viridis"
 
-    def test_colour_none_is_treated_as_empty(self):
-        """``plot(..., colour=None)`` does not forward any colour kwarg.
+    def test_no_colour_kwargs_forwarded_by_default(self):
+        """A bare ``plot`` does not forward any colour kwarg.
 
         Test scenario:
-            A missing ``colour=`` normalises to ``ColourOpts()`` whose
-            fields are all ``None``/default, so no colour kwarg leaks to
-            the engine (only the always-present ``rgb=None`` default).
+            With no loose colour keywords given, no ``cmap`` / ``vmin`` /
+            ``robust`` kwarg leaks to the engine.
         """
         nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
-            var.plot(variable="t2m", colour=None)
+            var.plot(variable="t2m")
         forwarded = mock_plot.call_args.kwargs
         assert "cmap" not in forwarded
         assert "vmin" not in forwarded
@@ -213,42 +205,43 @@ class TestPlotConsumesOptionDataclasses:
         assert "_facet_stack" not in mock_plot.call_args.kwargs
 
     def test_style_and_hillshade_forwarded_to_engine(self):
-        """``ColorOpts(style=..., hillshade=...)`` forwards a ``DataStyle`` group (#737).
+        """``data_style=DataStyle(style=..., hillshade=...)`` forwards verbatim (#737).
 
         Test scenario:
-            The cleopatra data-style preset name and the hillshade blend are
-            ``ColorOpts`` fields; cleopatra 0.30 moved them onto the typed
-            ``DataStyle`` group, so the unpacking inside ``NetCDF.plot`` must hand the
-            engine a single ``data_style=DataStyle(style=..., hillshade=...)`` kwarg.
+            The cleopatra data-style preset name and the hillshade blend live on the
+            typed ``DataStyle`` group; ``NetCDF.plot`` forwards the group straight to
+            the engine as a single ``data_style=`` kwarg.
         """
+        from cleopatra.styling.params import DataStyle
+
         nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
             var.plot(
                 variable="t2m",
-                colour=ColorOpts(style="flow_accumulation", hillshade={"vert_exag": 8}),
+                data_style=DataStyle(
+                    style="flow_accumulation", hillshade={"vert_exag": 8}
+                ),
             )
         forwarded = mock_plot.call_args.kwargs
         assert forwarded["data_style"].style == "flow_accumulation"
         assert forwarded["data_style"].hillshade == {"vert_exag": 8}
 
-    def test_style_and_hillshade_default_not_forwarded(self):
-        """An unset ``style`` / ``hillshade`` leaks no kwarg to the engine.
+    def test_data_style_default_not_forwarded(self):
+        """An unset ``data_style`` leaks no kwarg to the engine.
 
         Test scenario:
-            Both fields default to ``None``, and ``_build_render_kwargs``
-            only forwards non-``None`` colour fields, so a plain
-            ``ColorOpts()`` must not inject ``style=`` / ``hillshade=``.
+            ``data_style`` defaults to ``None`` and is only forwarded when
+            set, so a bare ``plot`` must not inject ``data_style=``.
         """
         nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
-            var.plot(variable="t2m", colour=ColorOpts())
+            var.plot(variable="t2m")
         forwarded = mock_plot.call_args.kwargs
-        assert "style" not in forwarded
-        assert "hillshade" not in forwarded
+        assert "data_style" not in forwarded
 
     def test_style_and_hillshade_survive_animate(self):
         """The ``data_style`` group reaches the animate render call (#737).
@@ -256,11 +249,12 @@ class TestPlotConsumesOptionDataclasses:
         Test scenario:
             The animate path drops the static-only kwargs listed in
             ``_ANIMATE_DROP_KWARGS`` before calling ``render_array`` with
-            ``mode="animate"``. The ``data_style`` group built from a
-            ``ColorOpts(style=..., hillshade=...)`` is *not* in that drop-set, so it
-            must survive into the animated frames (cleopatra >= 0.24 shades every
+            ``mode="animate"``. The ``data_style`` group is *not* in that drop-set, so
+            it must survive into the animated frames (cleopatra >= 0.24 shades every
             frame).
         """
+        from cleopatra.styling.params import DataStyle
+
         nc = make_plot_3d_nc(n_times=3)
         captured: dict = {}
         with patch(
@@ -270,7 +264,7 @@ class TestPlotConsumesOptionDataclasses:
             nc.plot(
                 variable="t2m",
                 animate=True,
-                colour=ColorOpts(style="topography", hillshade=True),
+                data_style=DataStyle(style="topography", hillshade=True),
             )
         assert captured["kw"]["mode"] == "animate"
         assert captured["kw"]["data_style"].style == "topography"

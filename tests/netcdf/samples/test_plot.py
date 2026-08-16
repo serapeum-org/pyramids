@@ -1,11 +1,11 @@
-"""Plotting (headless, Agg): NetCDF.plot across shapes + Selectors/ColourOpts/FacetSpec and band plots.
+"""Plotting (headless, Agg): NetCDF.plot across shapes + Selectors/FacetSpec, loose colour kwargs and band plots.
 
 Marked ``plot`` and run under the Agg backend; requires the optional viz dependency (cleopatra).
 """
 
 import pytest
 
-from pyramids.netcdf import ColourOpts, FacetSpec, NetCDF, Selectors
+from pyramids.netcdf import FacetSpec, NetCDF, Selectors
 from tests.netcdf.samples.conftest import RHUM
 
 pytestmark = pytest.mark.plot
@@ -46,12 +46,11 @@ def test_plot_every_gridded_file(sample_name, sample):
 
 
 def test_plot_with_colour_options(sample):
-    """``ColourOpts`` (cmap / robust limits) is accepted by plot."""
+    """Loose colour kwargs (cmap / robust limits) are accepted by plot."""
     nc = NetCDF.read_file(sample(RHUM))
     try:
         assert (
-            nc.plot(variable="rhum", colour=ColourOpts(cmap="viridis", robust=True))
-            is not None
+            nc.plot(variable="rhum", cmap="viridis", robust=True) is not None
         )
     finally:
         plt.close("all")

@@ -14,7 +14,7 @@ import threading
 import warnings
 import weakref
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Unpack, cast
 
 import numpy as np
 import pandas as pd
@@ -69,12 +69,12 @@ from pyramids.netcdf.engines.selection import Selection
 from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
-from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
+from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 from pyramids.netcdf.utils import _read_attributes, create_time_conversion_func
 
 if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
-    from cleopatra.glyphs.gridded.array_glyph import PointOverlay
+    from cleopatra.glyphs.gridded.array_glyph import PlotKwargs, PointOverlay
     from cleopatra.styling.colorbar import ColorBar
     from cleopatra.styling.params import CellValues, Contour, DataStyle
     from cleopatra.styling.scaling import ColorScaling
@@ -1643,38 +1643,36 @@ class NetCDF(Dataset):
         variable: str | None = None,
         *,
         selectors: Selectors | None = None,
-        colour: ColorOpts | None = None,
         facet: FacetSpec | None = None,
-        coords: tuple | list | None = None,
-        x_dim: str | None = None,
-        y_dim: str | None = None,
+        axes: CoordinateSpec | None = None,
         kind: str = "auto",
         animate: bool | str | None = None,
         chunks: Any | None = None,
         basemap: bool | str | dict[str, Any] | Basemap | None = None,
         exclude_value: Any | None = None,
         title: str | None = None,
-        ax: Any | None = None,
-        figsize: tuple[float, float] | None = None,
         colorbar: bool | ColorBar | None = None,
         points: np.ndarray | PointOverlay | None = None,
         color: ColorScaling | None = None,
         contour: Contour | None = None,
         cells: CellValues | None = None,
         data_style: DataStyle | None = None,
-        **kwargs: Any,
+        **kwargs: Unpack[PlotKwargs],
     ):
         """Plot a 2-D slice of a NetCDF variable using the plot vocabulary.
 
         The public surface is shaped around **variables** and **dimensions** — ``band``
         is not a NetCDF concept and has been removed from the signature. Variable
         selection is by name; the slice to render is pinned via a :class:`Selectors`
-        option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel``); colour
-        controls live on a :class:`ColorOpts` bag (``cmap`` / ``vmin`` / ``vmax`` /
-        ``robust`` / ``levels`` / ``norm`` / ``center`` / ``extend`` / ``add_colorbar``
-        / ``cbar_kwargs``); multi-panel layout is described by a :class:`FacetSpec`
-        bag (``col`` / ``row`` / ``col_wrap``). Each bag is a frozen dataclass —
-        construct it inline at the call site.
+        option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel``); multi-panel
+        layout is described by a :class:`FacetSpec` bag (``col`` / ``row`` / ``col_wrap``);
+        and the spatial-axis interpretation by a :class:`CoordinateSpec` bag (``coords`` /
+        ``x_dim`` / ``y_dim``). Each is a frozen dataclass — construct it inline at the call
+        site. Colour and the render options mirror :meth:`Dataset.plot`: pass ``cmap`` /
+        ``vmin`` / ``vmax`` / ``robust`` / ``extend`` as loose keywords and the grouped
+        ``color`` / ``colorbar`` / ``contour`` / ``cells`` / ``data_style`` bags (all
+        cleopatra's), so no NetCDF-specific colour bag is needed. ``colorbar=False`` drops
+        the colour bar.
 
         On a **root MDIM container** the ``variable=`` argument is required:
 
@@ -1696,42 +1694,23 @@ class NetCDF(Dataset):
                 Dim-selector bag. See :class:`Selectors` for the field list. A
                 missing bag is treated as :class:`Selectors`\\ () (all fields
                 ``None``). Defaults to None.
-            colour (ColorOpts, optional):
-                Colour-control bag. See :class:`ColorOpts` for the field list. A
-                missing bag is treated as :class:`ColorOpts`\\ () (cleopatra
-                defaults). Defaults to None.
             facet (FacetSpec, optional):
                 Faceting bag. See :class:`FacetSpec` for the field list. A missing
                 bag (or one where both ``col`` and ``row`` are ``None``) routes
                 the call to the single-panel static-plot path. Defaults to None.
-            coords (tuple or list, optional):
-                Explicit curvilinear ``(x, y)`` coordinate spec for the
-                pcolormesh path. Accepts two forms:
-
-                - A length-2 sequence of strings — each is looked up as a
-                  variable name via ``_read_variable`` on the parent
-                  container.
-                - A length-2 sequence of numpy arrays — passed straight
-                  through to cleopatra. Each array is 1-D (length matches
-                  the data x/y axis) or 2-D matching ``(rows, cols)``.
-
-                When ``coords=`` is omitted, pyramids auto-detects
-                curvilinear coords via the CF ``coordinates`` attribute on
-                the variable, then via the well-known naming conventions
-                (WRF ``XLAT`` / ``XLONG``, ROMS ``lat_rho`` / ``lon_rho``,
-                NEMO ``nav_lat`` / ``nav_lon``). When nothing matches, the
-                renderer falls back to ``extent=self.bbox`` (imshow).
-                Defaults to None.
-            x_dim (str, optional):
-                Name of the dimension to plot on the X axis. Forwarded to
-                :meth:`get_variable`. By default the longitude dimension is
-                auto-detected from CF coordinate attributes (else the last
-                dimension is used). Set this for variables whose lon/lat are
-                not the trailing dimensions and carry no CF axis metadata
-                (e.g. CAM ``T(time, lat, lev, lon)``). Defaults to None.
-            y_dim (str, optional):
-                Name of the dimension to plot on the Y axis (the latitude
-                dimension by default). Defaults to None.
+            axes (CoordinateSpec, optional):
+                Spatial-axis interpretation bag (:class:`CoordinateSpec`): an explicit
+                curvilinear ``(x, y)`` coord pair (``coords=``), or the ``x_dim`` / ``y_dim``
+                dimension names when they cannot be auto-resolved. ``coords`` accepts a
+                length-2 sequence of variable-name strings (looked up on the parent
+                container) or of numpy arrays (1-D matching the data x/y axis, or 2-D
+                matching ``(rows, cols)``); when omitted, curvilinear coords are auto-detected
+                from the CF ``coordinates`` attribute, then the well-known conventions (WRF
+                ``XLAT``/``XLONG``, ROMS ``lat_rho``/``lon_rho``, NEMO ``nav_lat``/``nav_lon``),
+                else the renderer falls back to ``extent=self.bbox`` (imshow). ``x_dim`` /
+                ``y_dim`` set the lon/lat dimensions for variables whose axes aren't trailing
+                and carry no CF metadata (e.g. CAM ``T(time, lat, lev, lon)``). Defaults to
+                None.
             kind (str, optional):
                 Render kind forwarded to cleopatra's ``ArrayGlyph.plot``.
                 One of ``"auto"``, ``"imshow"``, ``"pcolormesh"``,
@@ -1768,10 +1747,6 @@ class NetCDF(Dataset):
                 Pixel value to mask out before plotting. Defaults to None.
             title (str, optional):
                 Plot title. Defaults to None.
-            ax (Any, optional):
-                Existing matplotlib Axes to draw into. Defaults to None.
-            figsize (tuple, optional):
-                Figure size in inches. Defaults to None.
             colorbar (bool or ColorBar, optional):
                 Colour-bar spec. A ``pyramids.plot.ColorBar(label=…, …)``
                 draws a configured bar; ``False`` hides it and
@@ -1796,11 +1771,12 @@ class NetCDF(Dataset):
             data_style (DataStyle, optional):
                 Data-style / relief spec ``pyramids.plot.DataStyle(style=…, hillshade=…)``.
                 Default ``None``.
-            **kwargs:
-                Additional keyword arguments forwarded to
-                :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`.
-                The legacy ``band=`` kwarg is accepted here for backward
-                compatibility but emits a :class:`DeprecationWarning`.
+            **kwargs (Unpack[PlotKwargs]):
+                cleopatra's typed plot keywords, forwarded verbatim to
+                :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>` — the
+                xarray-aligned colour options (``cmap`` / ``vmin`` / ``vmax`` / ``robust`` /
+                ``extend``), appearance (``ax`` / ``figsize``), and colorbar options. This
+                mirrors :meth:`Dataset.plot`'s ``**kwargs``.
 
         Returns:
             ArrayGlyph: A cleopatra ``ArrayGlyph`` wrapping the rendered figure. Use the glyph's
@@ -1828,7 +1804,7 @@ class NetCDF(Dataset):
                 ``variable=``, if ``variable=`` is passed on a subset and
                 does not match the pinned variable name, if the resolved
                 selectors do not pin to a single 2-D slice, or if
-                ``coords=`` is malformed.
+                ``axes.coords`` is malformed.
 
         Examples:
             - Plot the first time step of a variable on a container. Tagged
@@ -1976,8 +1952,10 @@ class NetCDF(Dataset):
               WRF / ROMS / NEMO:
 
               ```python
+              >>> from pyramids.netcdf import CoordinateSpec
               >>> cleo = nc.plot(  # doctest: +SKIP
-              ...     variable="CANWAT", coords=("XLONG", "XLAT"),
+              ...     variable="CANWAT",
+              ...     axes=CoordinateSpec(coords=("XLONG", "XLAT")),
               ... )
 
               ```
@@ -1986,21 +1964,21 @@ class NetCDF(Dataset):
               filled contours from the same data; ``"auto"`` (the
               default) picks ``pcolormesh`` when curvilinear coords are
               present, else falls back to ``imshow``. Discrete contour
-              levels live on :class:`ColorOpts`:
+              levels live on a :class:`~cleopatra.styling.params.Contour` bag:
 
               ```python
-              >>> from pyramids.netcdf import ColorOpts
+              >>> from cleopatra.styling.params import Contour
               >>> cleo = nc.plot(  # doctest: +SKIP
               ...     variable="t2m",
               ...     kind="contourf",
-              ...     colour=ColorOpts(levels=10),
+              ...     contour=Contour(levels=10),
               ... )
 
               ```
 
-            - Render with explicit 2-D coord arrays passed directly via
-              ``coords=``. The arrays bypass the CF / convention
-              auto-detection step and route the renderer to
+            - Render with explicit 2-D coord arrays via
+              ``axes=CoordinateSpec(coords=(x, y))``. The arrays bypass the CF /
+              convention auto-detection step and route the renderer to
               ``pcolormesh``:
 
               ```python
@@ -2014,32 +1992,32 @@ class NetCDF(Dataset):
               ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
               ...     variable_name="t2m",
               ... )
+              >>> from pyramids.netcdf import CoordinateSpec
               >>> cleo = nc_curv.plot(  # doctest: +SKIP
-              ...     variable="t2m", coords=(x2d, y2d),
+              ...     variable="t2m", axes=CoordinateSpec(coords=(x2d, y2d)),
               ... )
 
               ```
 
             - Robust (percentile-based) colour limits — clip to the 2nd / 98th
-              percentile of the rendered slice. Colour controls live
-              on :class:`ColorOpts`:
+              percentile of the rendered slice. Colour controls are loose
+              keywords, mirroring :meth:`Dataset.plot`:
 
               ```python
-              >>> from pyramids.netcdf import ColorOpts
               >>> cleo = nc.plot(  # doctest: +SKIP
               ...     variable="t2m",
-              ...     colour=ColorOpts(cmap="viridis", robust=True),
+              ...     cmap="viridis",
+              ...     robust=True,
               ... )
 
               ```
 
-            - Disable the colorbar — the facade removes it post-render
-              because cleopatra always attaches one:
+            - Disable the colorbar with ``colorbar=False`` (cleopatra renders
+              no bar), mirroring :meth:`Dataset.plot`:
 
               ```python
-              >>> from pyramids.netcdf import ColorOpts
               >>> cleo = nc.plot(  # doctest: +SKIP
-              ...     variable="t2m", colour=ColorOpts(add_colorbar=False),
+              ...     variable="t2m", colorbar=False,
               ... )
 
               ```
@@ -2156,36 +2134,31 @@ class NetCDF(Dataset):
         """
         # ``colorbar``/``points`` and the typed render groups (``color`` / ``contour`` /
         # ``cells`` / ``data_style``) are hoisted to explicit params for parity with
-        # ``Dataset.plot`` / ``DatasetCollection.plot``; forward them through the same
-        # ``**kwargs`` channel the multi-mode render path already consumes. Only inject
-        # when set — the facet path rejects ``points`` outright, so a default ``None``
-        # must not reach it, and an unset group must not override cleopatra's backend
-        # default for that group.
-        if colorbar is not None:
-            kwargs["colorbar"] = colorbar
-        if points is not None:
-            kwargs["points"] = points
-        kwargs.update(
-            nonnull_group_kwargs(
-                color=color, contour=contour, cells=cells, data_style=data_style
-            )
+        # ``Dataset.plot``. Spread the explicitly-set ones as their own ``**`` — kept in a
+        # separate dict, not merged into the typed ``**kwargs`` (whose ``PlotKwargs``
+        # TypedDict has no group keys) — so the multi-mode render path consumes them.
+        # Only inject when set: the facet path rejects ``points`` outright, so a default
+        # ``None`` must not reach it, and an unset group must not override cleopatra's
+        # backend default for that group.
+        group_kwargs = nonnull_group_kwargs(
+            color=color, contour=contour, cells=cells, data_style=data_style
         )
+        if colorbar is not None:
+            group_kwargs["colorbar"] = colorbar
+        if points is not None:
+            group_kwargs["points"] = points
         return NetCDFPlot(self).run(
             variable,
             selectors=selectors,
-            colour=colour,
             facet=facet,
-            coords=coords,
-            x_dim=x_dim,
-            y_dim=y_dim,
+            axes=axes,
             kind=kind,
             animate=animate,
             chunks=chunks,
             basemap=basemap,
             exclude_value=exclude_value,
             title=title,
-            ax=ax,
-            figsize=figsize,
+            **group_kwargs,
             **kwargs,
         )
 

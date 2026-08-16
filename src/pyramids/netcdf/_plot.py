@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 
 from pyramids.dataset._plot_helpers import render_array as _render_array
-from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
+from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 
 if TYPE_CHECKING:
     from cleopatra.basemap.geo import Basemap
@@ -55,11 +55,11 @@ _FORBIDDEN_PLOT_KWARGS: dict[str, str] = {
     ),
     "cutoff": (
         "NetCDF.plot() does not accept `cutoff=`: `cutoff` is Sentinel-only; "
-        "use `ColorOpts(vmin=, vmax=, robust=True)` instead."
+        "pass `vmin=`, `vmax=`, or `robust=True` directly instead."
     ),
     "percentile": (
         "NetCDF.plot() does not accept `percentile=`: `percentile` is "
-        "Sentinel-only; use `ColorOpts(robust=True)` (2nd/98th percentile)."
+        "Sentinel-only; pass `robust=True` (2nd/98th percentile) instead."
     ),
     "overview": (
         "NetCDF.plot() does not accept `overview=`: Overviews are a "
@@ -155,27 +155,22 @@ class NetCDFPlot:
         variable: str | None = None,
         *,
         selectors: Selectors | None = None,
-        colour: ColorOpts | None = None,
         facet: FacetSpec | None = None,
-        coords: tuple | list | None = None,
-        x_dim: str | None = None,
-        y_dim: str | None = None,
+        axes: CoordinateSpec | None = None,
         kind: str = "auto",
         animate: bool | str | None = None,
         chunks: Any | None = None,
         basemap: bool | str | dict[str, Any] | Basemap | None = None,
         exclude_value: Any | None = None,
         title: str | None = None,
-        ax: Any | None = None,
-        figsize: tuple[float, float] | None = None,
         **kwargs: Any,
     ):
         """Implement :meth:`NetCDF.plot`. See there for the public docstring."""
         nc = self.nc
         _reject_forbidden_kwargs(kwargs)
         selectors = selectors or Selectors()
-        colour = colour or ColorOpts()
         facet = facet or FacetSpec()
+        axes = axes or CoordinateSpec()
 
         if nc._is_md_array and not nc._is_subset and nc.band_count == 0:
             # Forward every plot kwarg verbatim to the variable subset.
@@ -208,28 +203,27 @@ class NetCDFPlot:
         # the variable from its parent container with those axes, then plot that. When
         # the subset has no parent to re-resolve from, raise instead of silently ignoring
         # the kwargs (which is what happened before).
-        if x_dim is not None or y_dim is not None:
+        if axes.x_dim is not None or axes.y_dim is not None:
             if nc._parent_nc is None or nc._source_var_name is None:
                 raise ValueError(
-                    "x_dim / y_dim require a parent container to re-resolve the "
+                    "axes.x_dim / axes.y_dim require a parent container to re-resolve the "
                     "variable's spatial axes; plot via the container instead, e.g. "
-                    "`container.plot(variable=..., x_dim=..., y_dim=...)`."
+                    "`container.plot(variable=..., axes=CoordinateSpec(x_dim=..., y_dim=...))`."
                 )
+            # x_dim / y_dim are applied here via get_variable; forward only the coord pair so the
+            # re-resolved subset does not try to re-apply axes it already has.
             return nc._parent_nc.get_variable(
-                nc._source_var_name, x_dim=x_dim, y_dim=y_dim
+                nc._source_var_name, x_dim=axes.x_dim, y_dim=axes.y_dim
             ).plot(
                 selectors=selectors,
-                colour=colour,
                 facet=facet,
-                coords=coords,
+                axes=CoordinateSpec(coords=axes.coords),
                 kind=kind,
                 animate=animate,
                 chunks=chunks,
                 basemap=basemap,
                 exclude_value=exclude_value,
                 title=title,
-                ax=ax,
-                figsize=figsize,
                 **kwargs,
             )
 
@@ -268,11 +262,8 @@ class NetCDFPlot:
 
         analysis_kwargs = self._build_render_kwargs(
             pinned,
-            colour=colour,
-            coords=coords,
+            coords=axes.coords,
             kind=kind,
-            ax=ax,
-            figsize=figsize,
             title=title,
             base_kwargs=kwargs,
         )
@@ -326,8 +317,6 @@ class NetCDFPlot:
                 **analysis_kwargs,
             )
 
-        if not colour.add_colorbar:
-            self._remove_colorbar(result)
         return result
 
     def _delegate_to_variable(
@@ -335,8 +324,7 @@ class NetCDFPlot:
         nc: NetCDF,
         variable: str | None,
         *,
-        x_dim: str | None = None,
-        y_dim: str | None = None,
+        axes: CoordinateSpec | None = None,
         **plot_kwargs: Any,
     ) -> Any:
         """Drill into ``variable`` on a root MDIM container, then re-dispatch :meth:`run`.
@@ -362,7 +350,12 @@ class NetCDFPlot:
                 f"container. Available: {nc.variable_names}. Or call "
                 "`nc.get_variable('name').plot(...)`."
             )
-        return nc.get_variable(variable, x_dim=x_dim, y_dim=y_dim).plot(**plot_kwargs)
+        axes = axes or CoordinateSpec()
+        # x_dim / y_dim are applied here via get_variable; forward only the coord pair so the
+        # subset's plot does not re-resolve axes it already has.
+        return nc.get_variable(variable, x_dim=axes.x_dim, y_dim=axes.y_dim).plot(
+            axes=CoordinateSpec(coords=axes.coords), **plot_kwargs
+        )
 
     def _resolve_selectors(self, nc: NetCDF, selectors: Selectors) -> dict[str, Any]:
         """Flatten a :class:`Selectors` into a ``{dim_name: label}`` dict.
@@ -458,83 +451,38 @@ class NetCDFPlot:
         self,
         pinned: NetCDF,
         *,
-        colour: ColorOpts,
         coords: tuple | list | None,
         kind: str,
-        ax: Any | None,
-        figsize: tuple[float, float] | None,
         title: str | None,
         base_kwargs: dict[str, Any],
     ) -> dict[str, Any]:
         """Assemble the kwargs dict handed to :meth:`Analysis.plot`.
 
-        Starts from ``base_kwargs`` (the caller's ``**kwargs`` pass-through
-        to cleopatra), then layers on: the non-default :class:`ColorOpts`
-        fields (``cmap`` / ``vmin`` / ``vmax`` / ``levels`` / ``norm`` /
-        ``center`` / ``extend`` / ``cbar_kwargs`` / ``style`` / ``hillshade``,
-        plus ``robust`` only when explicitly enabled — ``add_colorbar`` is
-        intentionally *not* forwarded; it's applied post-render via
-        :meth:`_remove_colorbar`);
-        ``ax`` / ``figsize`` / ``title``; the curvilinear coord pair when
-        one resolves; and the ``kind`` dispatch hint. A ``rgb=None``
-        default is set so the engine's RGB branch stays off.
+        Starts from ``base_kwargs`` (the caller's typed ``**kwargs`` pass-through to cleopatra —
+        colour keys such as ``cmap`` / ``vmin`` / ``vmax`` / ``robust`` / ``extend`` and the grouped
+        ``color`` / ``colorbar`` / ``contour`` / ``cells`` / ``data_style`` render bags all live
+        there, exactly as for :meth:`Dataset.plot`), then layers on the plot ``title``, the
+        curvilinear coord pair when one resolves, and the ``kind`` dispatch hint. A ``rgb=None``
+        default keeps the engine's RGB branch off.
 
         Args:
-            pinned: The 2-D variable subset being rendered (needed for
-                curvilinear coord resolution).
-            colour: The caller's :class:`ColorOpts` (or ``ColorOpts()``).
-            coords: Explicit ``(x, y)`` coord spec from the caller, or
+            pinned: The 2-D variable subset being rendered (needed for curvilinear coord
+                resolution).
+            coords: Explicit ``(x, y)`` coord spec from the caller's :class:`CoordinateSpec`, or
                 ``None`` (auto-detect from CF attrs / conventions).
             kind: The render-kind hint (``"auto"`` / ``"imshow"`` / ...).
-            ax: Pre-existing matplotlib Axes, or ``None``.
-            figsize: Figure size tuple, or ``None``.
             title: Plot title, or ``None``.
-            base_kwargs: The caller's leftover ``**kwargs`` (forwarded
-                verbatim to cleopatra).
+            base_kwargs: The caller's typed ``**kwargs``, forwarded verbatim to cleopatra.
 
         Returns:
             dict[str, Any]: The merged kwargs dict for the engine call.
         """
         out: dict[str, Any] = dict(base_kwargs)
-        for key, value in (
-            ("cmap", colour.cmap),
-            ("vmin", colour.vmin),
-            ("vmax", colour.vmax),
-            ("norm", colour.norm),
-            ("center", colour.center),
-            ("extend", colour.extend),
-            ("cbar_kwargs", colour.cbar_kwargs),
-            ("ax", ax),
-            ("figsize", figsize),
-            ("title", title),
-        ):
-            if value is not None:
-                out[key] = value
-        if colour.robust:
-            out["robust"] = True
-        # cleopatra 0.30 moved ``levels`` / ``style`` / ``hillshade`` off the loose kwargs
-        # onto the typed render groups, so build them from the ColorOpts bag here (a no-op
-        # ``style=None`` / falsy ``hillshade`` is dropped, matching the render-group rules).
-        # The cleopatra import is deferred to the branch that actually builds a group, so a
-        # plain NetCDF plot (no levels/style/hillshade) never imports it. An explicit hoisted
-        # ``contour=`` / ``data_style=`` (already in ``out`` via ``base_kwargs``) wins — the
-        # ColorOpts-derived group only fills the slot when the caller left it unset.
-        if colour.levels is not None and "contour" not in out:
-            from cleopatra.styling.params import Contour
-
-            out["contour"] = Contour(levels=colour.levels)
-        data_style_fields: dict[str, Any] = {}
-        if colour.style is not None:
-            data_style_fields["style"] = colour.style
-        if colour.hillshade is not None and colour.hillshade is not False:
-            data_style_fields["hillshade"] = colour.hillshade
-        if data_style_fields and "data_style" not in out:
-            from cleopatra.styling.params import DataStyle
-
-            out["data_style"] = DataStyle(**data_style_fields)
+        if title is not None:
+            out["title"] = title
 
         # Curvilinear coord resolution. Priority (highest first):
-        # 1. Explicit user `coords=`.
+        # 1. Explicit user `coords=` (via `axes=CoordinateSpec(coords=...)`).
         # 2. CF `coordinates` attribute + well-known conventions
         #    (XLAT/XLONG, lat_rho/lon_rho, nav_lat/nav_lon, yc/xc).
         # When nothing resolves the engine falls back to `extent=bbox`.
@@ -553,44 +501,6 @@ class NetCDFPlot:
 
         out.setdefault("rgb", None)
         return out
-
-    @staticmethod
-    def _remove_colorbar(result: Any) -> None:
-        """Drop the colorbar from a rendered cleopatra result.
-
-        Honours the ``add_colorbar=False`` switch on
-        :meth:`NetCDF.plot`. Cleopatra always attaches a colorbar to its
-        :class:`~cleopatra.glyphs.gridded.array_glyph.ArrayGlyph` /
-        :class:`~cleopatra.glyphs.gridded.array_glyph.FacetGrid` results, so pyramids
-        applies the removal here after the render returns. The helper
-        is defensive — it leaves ``result`` untouched when no
-        ``.cbar`` attribute exists, when the attribute is already
-        ``None``, when the underlying matplotlib :class:`Colorbar` has
-        already been removed, or when ``.cbar`` is a read-only
-        property.
-
-        Args:
-            result: Whatever cleopatra returned (typically an
-                ``ArrayGlyph`` for static / animate plots or a
-                ``FacetGrid`` for facets). Must not be ``None``.
-
-        Returns:
-            None
-        """
-        cbar = getattr(result, "cbar", None)
-        if cbar is None:
-            return
-        remove = getattr(cbar, "remove", None)
-        if remove is None:
-            return
-        try:
-            remove()
-        except Exception:
-            return
-        try:
-            result.cbar = None
-        except AttributeError:
-            return
 
     def _validate_facet_dims(
         self,

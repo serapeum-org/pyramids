@@ -64,7 +64,7 @@ graph LR
         FeatureCollection
         subgraph Engines["Dataset engines (ds.io · ds.spatial · ds.bands · ds.analysis · ds.cell · ds.vectorize · ds.cog)"]
         end
-        subgraph Plotting["Plotting layer — _plot_helpers.render_array · mesh_render · NetCDFPlot · Selectors / ColourOpts / FacetSpec · basemap"]
+        subgraph Plotting["Plotting layer — _plot_helpers.render_array · mesh_render · NetCDFPlot · Selectors / CoordinateSpec / FacetSpec · basemap"]
         end
     end
     Dataset -->|crop · reproject · align| Dataset
@@ -128,20 +128,20 @@ over a shared core in `pyramids.dataset._plot_helpers` (`render_array` for array
 for meshes), which builds a [cleopatra](https://github.com/serapeum-org/cleopatra) glyph and
 dispatches to `plot` / `facet` / `animate`. `NetCDF.plot` adds the NetCDF-specific resolver
 `pyramids.netcdf._plot.NetCDFPlot` (variable / selector / curvilinear-coord / facet / animate
-resolution) and the grouped option dataclasses `Selectors` / `ColourOpts` / `FacetSpec`
+resolution) and the grouped option dataclasses `Selectors` / `CoordinateSpec` / `FacetSpec`
 (`pyramids.netcdf.plot_options`, re-exported from `pyramids.netcdf`).
 `pyramids.basemap.add_basemap` / `get_provider` are thin wrappers over `cleopatra.tiles`.
 
 ```mermaid
 graph LR
     DS["Dataset.plot<br/>(band, rgb_options, basemap)"]
-    NC["NetCDF.plot<br/>(variable, selectors, colour,<br/>facet, coords, kind, animate, chunks)"]
+    NC["NetCDF.plot<br/>(variable, selectors, facet,<br/>axes, kind, animate, chunks, **kwargs)"]
     DC["DatasetCollection.plot<br/>(animate mode)"]
     UG["UgridDataset.plot / plot_outline"]
     AN["Analysis.plot<br/>(generic engine)"]
 
     NCP["netcdf._plot.NetCDFPlot<br/>resolve variable · selectors<br/>curvilinear coords · facet · animate"]
-    OPTS["netcdf.plot_options<br/>Selectors · ColourOpts · FacetSpec"]
+    OPTS["netcdf.plot_options<br/>Selectors · CoordinateSpec · FacetSpec"]
     RC["dataset._plot_helpers<br/>render_array · mesh_render"]
     BM["basemap<br/>add_basemap · get_provider"]
     CLEO(["cleopatra<br/>ArrayGlyph (plot · facet · animate)<br/>MeshGlyph · styles.ColorScale · tiles"])

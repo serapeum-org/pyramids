@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from pyramids.netcdf import GeoReference, Selectors
+from pyramids.netcdf import CoordinateSpec, GeoReference, Selectors
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_plot_3d_nc
 from tests.netcdf.plot._plot_helpers import (
@@ -38,13 +38,13 @@ class TestNetCDFPlotCoordAxes:
         """`coords=("nope", "t2m")` is rejected because "nope" is unknown."""
         nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"coords x="):
-            nc.plot(variable="t2m", coords=("nope", "t2m"))
+            nc.plot(variable="t2m", axes=CoordinateSpec(coords=("nope", "t2m")))
 
     def test_invalid_coords_y_raises(self):
         """`coords=("t2m", "nope")` is rejected because "nope" is unknown."""
         nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"coords y="):
-            nc.plot(variable="t2m", coords=("t2m", "nope"))
+            nc.plot(variable="t2m", axes=CoordinateSpec(coords=("t2m", "nope")))
 
     def test_valid_coords_render(self):
         """`coords=(<valid>, <valid>)` passes validation and renders.
@@ -59,7 +59,7 @@ class TestNetCDFPlotCoordAxes:
             shape does not match the slice's 2-D shape.
         """
         nc = make_plot_3d_nc()
-        result = nc.plot(variable="t2m", coords=("t2m", "t2m"))
+        result = nc.plot(variable="t2m", axes=CoordinateSpec(coords=("t2m", "t2m")))
         assert isinstance(result, ArrayGlyph), (
             f"Expected ArrayGlyph from valid-coords render, got {type(result).__name__}"
         )
@@ -72,7 +72,7 @@ class TestNetCDFPlotCoordAxesExtra:
         """`coords=("bogus", "t2m")` raises on the x axis first."""
         nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"coords x=") as exc_info:
-            nc.plot(variable="t2m", coords=("bogus", "t2m"))
+            nc.plot(variable="t2m", axes=CoordinateSpec(coords=("bogus", "t2m")))
         assert "bogus" in str(exc_info.value), (
             f"Error must echo the bad name, got: {exc_info.value}"
         )
@@ -87,7 +87,7 @@ class TestNetCDFPlotCoordAxesExtra:
             ladder, and the final render returns an ArrayGlyph.
         """
         nc = make_plot_3d_nc()
-        result = nc.plot(variable="t2m", coords=("t2m", "t2m"))
+        result = nc.plot(variable="t2m", axes=CoordinateSpec(coords=("t2m", "t2m")))
         assert isinstance(result, ArrayGlyph), "coords=(<valid>, <valid>) should render"
 
 
@@ -221,14 +221,14 @@ class TestCurvilinearCoords:
     def test_explicit_coords_by_name(self):
         """`coords=("XLONG", "XLAT")` looks up coord variables by name."""
         nc = _make_curvilinear_nc(rows=5, cols=6)[0]
-        cleo = nc.plot(variable="CANWAT", coords=("XLONG", "XLAT"))
+        cleo = nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=("XLONG", "XLAT")))
         assert cleo.coords is not None
         assert cleo.coords[0].shape == (5, 6)
 
     def test_explicit_coords_by_array(self):
         """`coords=(x_array, y_array)` passes arrays through untouched."""
         nc, x_2d, y_2d, _ = _make_curvilinear_nc(rows=4, cols=5)
-        cleo = nc.plot(variable="CANWAT", coords=(x_2d, y_2d))
+        cleo = nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=(x_2d, y_2d)))
         assert cleo.coords is not None
         np.testing.assert_array_equal(cleo.coords[0], x_2d)
         np.testing.assert_array_equal(cleo.coords[1], y_2d)
@@ -237,7 +237,7 @@ class TestCurvilinearCoords:
         """`coords=("nonexistent",)` (length-1) is rejected as malformed."""
         nc, _, _, _ = _make_curvilinear_nc()
         with pytest.raises(ValueError, match=r"length-2 sequence"):
-            nc.plot(variable="CANWAT", coords=("nonexistent",))
+            nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=("nonexistent",)))
 
     def test_coords_override_auto_detection(self):
         """`coords=("XLONG", "XLAT")` overrides auto-detection.
@@ -249,7 +249,7 @@ class TestCurvilinearCoords:
             cleopatra (i.e. the explicit path uses the same arrays).
         """
         nc = _make_curvilinear_nc(rows=5, cols=6)[0]
-        cleo = nc.plot(variable="CANWAT", coords=("XLONG", "XLAT"))
+        cleo = nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=("XLONG", "XLAT")))
         assert cleo.coords is not None
         assert cleo.coords[0].shape == (5, 6)
 
@@ -429,7 +429,9 @@ class TestCurvilinearCoordsEdges:
         bad_x = np.zeros((3, 3), dtype=np.float64)
         bad_y = np.zeros((3, 3), dtype=np.float64)
         with caplog.at_level(logging.WARNING, logger="pyramids.netcdf._plot"):
-            cleo = nc.plot(variable="surface", coords=(bad_x, bad_y))
+            cleo = nc.plot(
+                variable="surface", axes=CoordinateSpec(coords=(bad_x, bad_y))
+            )
         assert cleo.coords is None, (
             "mismatched explicit coords must be dropped, not used; "
             f"got {getattr(cleo, 'coords', None)!r}"
@@ -618,7 +620,7 @@ class TestCurvilinearCoordsEdges:
         """
         nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
         with pytest.raises(ValueError, match=r"missing") as exc_info:
-            nc.plot(variable="CANWAT", coords=("missing", "XLAT"))
+            nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=("missing", "XLAT")))
         assert "Available" in str(exc_info.value), (
             f"Error must list available variables, got: {exc_info.value}"
         )
@@ -634,7 +636,7 @@ class TestCurvilinearCoordsEdges:
             cleopatra.
         """
         nc, x_2d, y_2d, _ = _make_curvilinear_nc(rows=4, cols=5)
-        cleo = nc.plot(variable="CANWAT", coords=("XLONG", y_2d))
+        cleo = nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=("XLONG", y_2d)))
         assert cleo.coords is not None, "Mixed-form coords must resolve"
         np.testing.assert_array_equal(cleo.coords[0], x_2d)
         np.testing.assert_array_equal(cleo.coords[1], y_2d)
@@ -655,7 +657,7 @@ class TestCurvilinearCoordsEdges:
         x_nan = np.full((4, 5), np.nan, dtype=np.float32)
         y_nan = np.full((4, 5), np.nan, dtype=np.float32)
         with pytest.raises(ValueError, match=r"non-finite"):
-            nc.plot(variable="CANWAT", coords=(x_nan, y_nan))
+            nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=(x_nan, y_nan)))
 
     def test_kind_auto_no_curvilinear_uses_imshow_path(self):
         """`kind="auto"` on a regular grid leaves coords None (imshow path).
@@ -700,7 +702,7 @@ class TestCurvilinearCoordsEdges:
         nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
         x_1d = np.linspace(-1.0, 1.0, 6, dtype=np.float32)
         y_1d = np.linspace(0.0, 1.0, 5, dtype=np.float32)
-        cleo = nc.plot(variable="CANWAT", coords=(x_1d, y_1d))
+        cleo = nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=(x_1d, y_1d)))
         assert cleo.coords is not None
         assert cleo.coords[0].shape == (6,), (
             f"x should be 1-D of length 6, got {cleo.coords[0].shape}"
@@ -723,7 +725,7 @@ class TestCurvilinearCoordsEdges:
         nc = make_plot_3d_nc(n_times=1, rows=5, cols=6)
         x_wrong = np.linspace(-1.0, 1.0, 5, dtype=np.float32)
         y_wrong = np.linspace(0.0, 1.0, 6, dtype=np.float32)
-        cleo = nc.plot(variable="t2m", coords=(x_wrong, y_wrong))
+        cleo = nc.plot(variable="t2m", axes=CoordinateSpec(coords=(x_wrong, y_wrong)))
         assert cleo.coords is None, (
             "Swapped-length 1-D coords must skip and fall back to extent"
         )
@@ -741,7 +743,7 @@ class TestCurvilinearCoordsEdges:
         nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
         x_2d = np.random.default_rng(99).random((5, 6)).astype(np.float32)
         y_1d = np.linspace(0.0, 1.0, 5, dtype=np.float32)
-        cleo = nc.plot(variable="CANWAT", coords=(x_2d, y_1d))
+        cleo = nc.plot(variable="CANWAT", axes=CoordinateSpec(coords=(x_2d, y_1d)))
         assert cleo.coords is not None, "Mixed (2D, 1D) coords must resolve"
         assert cleo.coords[0].shape == (5, 6)
         assert cleo.coords[1].shape == (5,)
