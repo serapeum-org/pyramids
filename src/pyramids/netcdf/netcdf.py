@@ -4226,30 +4226,12 @@ class NetCDF(Dataset):
                         result = self._normalize_mdarray_axes(rg, md_arr, result)
             except (RuntimeError, ValueError):
                 pass  # nosec B110
-            # Fall back to dimension indexing variable
+            # Fall back to the dimension indexing variable. This stays OUTSIDE the
+            # guard above so a genuine failure here is not silently swallowed.
             if result is None:
-                dim = self._get_dimension(var)
-                if dim is not None:
-                    iv = dim.GetIndexingVariable()
-                    if iv is not None:
-                        if window is not None and len(window) == 1:
-                            starts = [window[0][0]]
-                            counts = [window[0][1]]
-                            result = iv.ReadAsArray(
-                                array_start_idx=starts,
-                                count=counts,
-                            )
-                        else:
-                            result = iv.ReadAsArray()
+                result = self._read_indexing_variable(var, window)
         else:
-            # Classic mode: open via subdataset string
-            try:
-                ds = gdal.Open(f"NETCDF:{self.file_name}:{var}")
-                if ds is not None:
-                    result = ds.ReadAsArray()
-                ds = None
-            except (RuntimeError, AttributeError):
-                pass
+            result = self._read_classic_variable(var)
         return result
 
     @staticmethod
@@ -4304,6 +4286,64 @@ class NetCDF(Dataset):
             result = np.flip(result, axis=result.ndim - 2)
         if flip_x:
             result = np.flip(result, axis=result.ndim - 1)
+        return result
+
+    def _read_indexing_variable(
+        self, var: str, window: list[tuple[int, int]] | None
+    ) -> np.typing.NDArray | None:
+        """Read ``var``'s dimension indexing variable (a 1-D coordinate).
+
+        Used as the fallback when ``var`` is not an MDArray but names a
+        dimension whose indexing variable holds the coordinate values. A
+        1-element ``window`` selects a slice of that 1-D coordinate; any other
+        window shape reads the coordinate in full.
+
+        Args:
+            var: The dimension name whose indexing variable to read.
+            window: Per-dimension ``(start, count)`` tuples, or ``None``. Only a
+                length-1 window is applied (the indexing variable is 1-D).
+
+        Returns:
+            np.ndarray or None: The coordinate values, or ``None`` when ``var``
+                has no dimension or indexing variable.
+        """
+        result: np.typing.NDArray | None = None
+        dim = self._get_dimension(var)
+        if dim is not None:
+            iv = dim.GetIndexingVariable()
+            if iv is not None:
+                if window is not None and len(window) == 1:
+                    starts = [window[0][0]]
+                    counts = [window[0][1]]
+                    result = iv.ReadAsArray(
+                        array_start_idx=starts,
+                        count=counts,
+                    )
+                else:
+                    result = iv.ReadAsArray()
+        return result
+
+    def _read_classic_variable(self, var: str) -> np.typing.NDArray | None:
+        """Read ``var`` in classic (non-MDIM) mode via the subdataset string.
+
+        Opens ``NETCDF:<file>:<var>`` and reads it in full. The ``window`` is not
+        supported in classic mode and is intentionally not accepted here.
+
+        Args:
+            var: Variable name to read from the classic subdataset.
+
+        Returns:
+            np.ndarray or None: The variable data, or ``None`` when the
+                subdataset cannot be opened or read.
+        """
+        result: np.typing.NDArray | None = None
+        try:
+            ds = gdal.Open(f"NETCDF:{self.file_name}:{var}")
+            if ds is not None:
+                result = ds.ReadAsArray()
+            ds = None
+        except (RuntimeError, AttributeError):
+            pass
         return result
 
     def _working_group(self) -> gdal.Group | None:
