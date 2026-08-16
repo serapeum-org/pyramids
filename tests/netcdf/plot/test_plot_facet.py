@@ -7,7 +7,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from pyramids.netcdf import ColourOpts, FacetSpec, Selectors
+from pyramids.netcdf import CoordinateSpec, FacetSpec, Selectors
 from pyramids.netcdf._plot import NetCDFPlot
 from tests.netcdf.conftest import make_plot_3d_nc
 from tests.netcdf.plot._plot_helpers import _make_4d_nc, _make_curvilinear_nc
@@ -270,7 +270,7 @@ class TestNetCDFPlotFacetingEdges:
             nc.plot(
                 variable="CANWAT",
                 facet=FacetSpec(col="time"),
-                coords=("XLONG", "XLAT"),
+                axes=CoordinateSpec(coords=("XLONG", "XLAT")),
             )
         call_kwargs = mock_plot.call_args.kwargs
         assert "facet_kwargs" in call_kwargs, "facet_kwargs missing"
@@ -297,7 +297,7 @@ class TestNetCDFPlotFacetingEdges:
             nc.plot(
                 variable="t2m",
                 facet=FacetSpec(col="time"),
-                colour=ColourOpts(robust=True),
+                robust=True,
             )
         call_kwargs = mock_plot.call_args.kwargs
         assert call_kwargs.get("robust") is True, (

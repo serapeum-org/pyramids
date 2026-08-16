@@ -113,13 +113,14 @@ extra) for the `to_xarray` / `from_xarray` round-trip helpers.
 
 ## Plotting
 
-`NetCDF.plot` exposes a labeled-array-style plotting API — `variable=`, the grouped
-`selectors=` / `colour=` / `facet=` dataclasses, curvilinear `coords=`, `kind=`,
+`NetCDF.plot` exposes a labeled-array-style plotting API that mirrors `Dataset.plot` — `variable=`, the grouped
+`selectors=` / `facet=` dataclasses, curvilinear coordinates via `axes=CoordinateSpec(...)`, loose colour
+kwargs (`cmap`, `vmin`, `vmax`, `robust`, `center`, `extend`, `levels`, `norm`), `kind=`,
 `animate=`, and `chunks=` (lazy). It does **not** inherit `Dataset.plot`'s
 GeoTIFF / Sentinel kwargs (`band`, `rgb`, `surface_reflectance`, `cutoff`,
 `percentile`, `overview`, `overview_index`) — passing any of them raises `TypeError`.
 See the [Plotting reference](plot.md) for the full surface and the `Selectors` /
-`ColourOpts` / `FacetSpec` dataclasses, and the
+`CoordinateSpec` / `FacetSpec` dataclasses, and the
 [Plotting NetCDF data](../../tutorials/netcdf-plotting.md) tutorial for worked examples.
 Requires the `[viz]` extra.
 

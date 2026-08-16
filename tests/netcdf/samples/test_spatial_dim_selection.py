@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import CoordinateSpec, NetCDF
 from pyramids.netcdf._axis import axis_role_of_dimension
 from tests.netcdf.samples.conftest import AIR as CF
 
@@ -81,13 +81,16 @@ def test_x_dim_y_dim_same_dimension_raises(sample):
 
 @pytest.mark.plot
 def test_plot_with_x_dim_y_dim(sample):
-    """`plot` forwards x_dim/y_dim so a non-standard-ordered variable renders as a map."""
+    """`plot` forwards axes=CoordinateSpec(x_dim/y_dim) so a non-standard variable renders as a map."""
     pytest.importorskip("cleopatra")
     plt = pytest.importorskip("matplotlib.pyplot")
 
     nc = NetCDF.read_file(sample(NONSTD))
     try:
-        assert nc.plot(variable="T", x_dim="lon", y_dim="lat") is not None
+        assert (
+            nc.plot(variable="T", axes=CoordinateSpec(x_dim="lon", y_dim="lat"))
+            is not None
+        )
     finally:
         plt.close("all")
         nc.close()

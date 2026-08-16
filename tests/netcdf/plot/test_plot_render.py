@@ -9,8 +9,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from pyramids.netcdf import ColorOpts, ColourOpts, GeoReference, Selectors
-from pyramids.netcdf._plot import NetCDFPlot
+from pyramids.netcdf import GeoReference, Selectors
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_plot_3d_nc
 from tests.netcdf.plot._plot_helpers import _make_4d_nc
@@ -25,6 +24,12 @@ _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not ins
 Config = _cleo_config.Config
 Config.set_matplotlib_backend("Agg")
 
+_cleo_params = pytest.importorskip(
+    "cleopatra.styling.params", reason="cleopatra not installed"
+)
+Contour = _cleo_params.Contour
+DataStyle = _cleo_params.DataStyle
+
 
 class TestNetCDFPlotColourForwarding:
     """Tests that the colour kwargs forward to cleopatra."""
@@ -35,7 +40,7 @@ class TestNetCDFPlotColourForwarding:
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
-            nc.plot(variable="t2m", colour=ColourOpts(robust=True))
+            nc.plot(variable="t2m", robust=True)
         assert mock_plot.call_args.kwargs.get("robust") is True
 
     def test_center_forwarded(self):
@@ -44,7 +49,7 @@ class TestNetCDFPlotColourForwarding:
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
-            nc.plot(variable="t2m", colour=ColourOpts(center=0.0))
+            nc.plot(variable="t2m", center=0.0)
         assert mock_plot.call_args.kwargs.get("center") == pytest.approx(0.0)
 
     def test_robust_default_not_forwarded(self):
@@ -60,8 +65,8 @@ class TestNetCDFPlotColourForwarding:
         """`levels` folds into a `Contour` group; `extend`/`cbar_kwargs` stay loose.
 
         cleopatra 0.30 moved `levels` onto the typed `contour=Contour(levels=...)`
-        group, so `NetCDF.plot` builds that from `ColourOpts.levels`; `extend` and the
-        raw `cbar_kwargs` passthrough are still forwarded verbatim.
+        group, passed directly to `NetCDF.plot`; `extend` and the raw `cbar_kwargs`
+        passthrough are still forwarded verbatim as loose kwargs.
         """
         nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
@@ -70,7 +75,9 @@ class TestNetCDFPlotColourForwarding:
             mock_plot.return_value = "ok"
             nc.plot(
                 variable="t2m",
-                colour=ColourOpts(levels=5, extend="both", cbar_kwargs=cbar),
+                contour=Contour(levels=5),
+                extend="both",
+                cbar_kwargs=cbar,
             )
         kw = mock_plot.call_args.kwargs
         assert kw.get("contour").levels == 5
@@ -94,11 +101,11 @@ class TestNetCDFPlotDefaultRender:
     def test_returned_glyph_supports_apply_style(self):
         """The glyph from `NetCDF.plot` can be restyled in place (cleopatra 0.25).
 
-        `ColorOpts.style` documents that the glyph `NetCDF.plot` returns exposes
-        `apply_style`; verify the round trip via the documented ColorOpts path.
+        `DataStyle.style` documents that the glyph `NetCDF.plot` returns exposes
+        `apply_style`; verify the round trip via the documented data_style path.
         """
         nc = make_plot_3d_nc()
-        glyph = nc.plot(variable="t2m", colour=ColorOpts(style="flow_accumulation"))
+        glyph = nc.plot(variable="t2m", data_style=DataStyle(style="flow_accumulation"))
         assert glyph.style == "flow_accumulation"
         glyph.apply_style("topography")
         assert glyph.style == "topography", "apply_style must restyle in place"
@@ -200,7 +207,7 @@ class TestNetCDFPlotForwardingExtra:
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
-            nc.plot(variable="t2m", colour=ColourOpts(cmap="viridis"))
+            nc.plot(variable="t2m", cmap="viridis")
         assert mock_plot.call_args.kwargs.get("cmap") == "viridis", (
             f"cmap must be forwarded, got: {mock_plot.call_args.kwargs}"
         )
@@ -211,7 +218,7 @@ class TestNetCDFPlotForwardingExtra:
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
-            nc.plot(variable="t2m", colour=ColourOpts(vmin=0.0, vmax=1.0))
+            nc.plot(variable="t2m", vmin=0.0, vmax=1.0)
         kw = mock_plot.call_args.kwargs
         assert kw.get("vmin") == pytest.approx(0.0), f"vmin not forwarded: {kw}"
         assert kw.get("vmax") == pytest.approx(1.0), f"vmax not forwarded: {kw}"
@@ -263,55 +270,41 @@ class TestNetCDFPlotAddColorbar:
             f"got cbar={getattr(cleo, 'cbar', None)!r}"
         )
 
-    def test_add_colorbar_false_removes_cbar(self):
-        """``add_colorbar=False`` removes the colorbar from the rendered result.
+    def test_colorbar_false_removes_cbar(self):
+        """``colorbar=False`` removes the colorbar from the rendered result.
 
         Test scenario:
-            The plot contract: a user who passes
-            ``add_colorbar=False`` expects no colorbar in the output.
-            Cleopatra always attaches one; the pyramids facade must
-            remove it post-render. We assert the ``.cbar`` attribute
-            is dropped to ``None``.
+            The plot contract: a user who passes ``colorbar=False``
+            expects no colorbar in the output. cleopatra renders no
+            colorbar natively when the hoisted ``colorbar=False`` is
+            forwarded. We assert the ``.cbar`` attribute is ``None``.
         """
         nc = make_plot_3d_nc()
-        cleo = nc.plot(variable="t2m", colour=ColourOpts(add_colorbar=False))
+        cleo = nc.plot(variable="t2m", colorbar=False)
         assert getattr(cleo, "cbar", None) is None, (
-            "add_colorbar=False must remove the colorbar; "
+            "colorbar=False must yield no colorbar; "
             f"got cbar={getattr(cleo, 'cbar', None)!r}"
         )
 
-    def test_add_colorbar_false_engine_call_does_not_receive_kwarg(self):
-        """The facade applies removal post-render; cleopatra is not asked.
+    def test_colorbar_false_forwarded_to_engine(self):
+        """``colorbar=False`` reaches ``Analysis.plot`` as a hoisted kwarg.
 
         Test scenario:
-            Cleopatra's ArrayGlyph signature does not accept
-            ``add_colorbar=``. The facade must not forward it to
-            ``Analysis.plot`` (which would forward to cleopatra and
-            raise ``"Unknown option"``). Patch the engine and confirm
-            ``add_colorbar`` never appears in its kwargs.
+            cleopatra drops the colorbar natively, so ``NetCDF.plot``
+            forwards the hoisted ``colorbar`` value straight through to
+            the engine. Patch the engine and confirm ``colorbar=False``
+            appears in its kwargs.
         """
         nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = SimpleNamespace(cbar=None)
-            nc.plot(variable="t2m", colour=ColourOpts(add_colorbar=False))
+            nc.plot(variable="t2m", colorbar=False)
         kw = mock_plot.call_args.kwargs
-        assert "add_colorbar" not in kw, (
-            "add_colorbar must not be forwarded to cleopatra; "
+        assert kw.get("colorbar") is False, (
+            "colorbar=False must be forwarded to the engine; "
             f"engine call kwargs were: {kw}"
         )
-
-    def test_remove_colorbar_is_defensive_when_cbar_missing(self):
-        """``_remove_colorbar`` is a silent no-op when ``.cbar`` is absent.
-
-        Test scenario:
-            Future cleopatra releases may drop or rename ``.cbar``.
-            The helper must not raise — it returns silently so the
-            user's render call still succeeds even if the colorbar
-            cannot be removed.
-        """
-        NetCDFPlot._remove_colorbar(SimpleNamespace())
-        NetCDFPlot._remove_colorbar(SimpleNamespace(cbar=None))
 
 
 class TestNetCDFPlotContainerBehaviour:

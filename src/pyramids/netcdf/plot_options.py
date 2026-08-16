@@ -1,16 +1,17 @@
 """Frozen-dataclass option groups for :meth:`pyramids.netcdf.NetCDF.plot`.
 
-The :meth:`NetCDF.plot` method groups its many keyword arguments into
-three concern-aligned containers:
+The :meth:`NetCDF.plot` method groups its NetCDF-specific keyword arguments into
+concern-aligned containers (colour and the render bags mirror :meth:`Dataset.plot`
+and come from cleopatra — `color`/`colorbar`/`data_style` plus the loose
+`cmap`/`vmin`/`vmax`/`robust`/`extend` kwargs — so they are *not* re-declared here):
 
 - :class:`Selectors` — label / positional selectors that pin a multi-dim
   variable down to a single 2-D slice (or to the residual stack the
   facet / animate paths walk).
-- :class:`ColorOpts` — colour controls forwarded
-  verbatim to cleopatra's :class:`~cleopatra.glyphs.gridded.array_glyph.ArrayGlyph`
-  constructor.
 - :class:`FacetSpec` — multi-panel facet layout description forwarded
   to :meth:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.facet`.
+- :class:`CoordinateSpec` — how the spatial axes are interpreted
+  (curvilinear ``(x, y)`` coords, or the ``x`` / ``y`` dimension names).
 
 Each dataclass is :func:`~dataclasses.dataclass` with ``frozen=True``
 so callers cannot mutate the option bag once it has been handed to
@@ -33,8 +34,7 @@ Examples:
 
 from __future__ import annotations
 
-import warnings
-from dataclasses import astuple, dataclass
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -116,167 +116,6 @@ class Selectors:
 
 
 @dataclass(frozen=True)
-class ColorOpts:
-    """Colour controls for :meth:`NetCDF.plot`.
-
-    Mirrors common plotting colour kwargs. All fields
-    are optional. Non-``None`` values are forwarded verbatim to
-    cleopatra's :class:`~cleopatra.glyphs.gridded.array_glyph.ArrayGlyph`; the
-    ``add_colorbar`` switch is applied post-render on the pyramids
-    side because cleopatra does not accept the kwarg today.
-
-    Attributes:
-        cmap: Matplotlib colormap name. Defaults to None.
-        vmin: Lower colour limit. Defaults to None.
-        vmax: Upper colour limit. Defaults to None.
-        robust: When True, clip colour limits to the 2nd / 98th
-            percentile. Defaults to False.
-        levels: int (number of discrete levels) or explicit edge list.
-            Defaults to None.
-        norm: Custom matplotlib :class:`~matplotlib.colors.Normalize`
-            instance. Defaults to None.
-        center: Diverging-cmap centre value (for example ``0.0`` for
-            anomaly maps). Defaults to None.
-        extend: Colorbar arrow extension — one of ``"neither"`` /
-            ``"both"`` / ``"min"`` / ``"max"``. Defaults to None.
-        add_colorbar: When False, drop the colorbar from the rendered
-            result. Defaults to True.
-        cbar_kwargs: Extra dict forwarded to :meth:`Figure.colorbar`.
-            Defaults to None.
-        style: Name of a cleopatra data-style preset (a key of
-            ``cleopatra.glyphs.gridded.array_glyph.DATA_STYLES`` — e.g. ``"flow_accumulation"``,
-            ``"topography"``) to colour the variable by. Forwarded to
-            :class:`~cleopatra.glyphs.gridded.array_glyph.ArrayGlyph`; requires
-            cleopatra >= 0.24. Defaults to None (no preset). The rendered glyph
-            that ``plot`` returns exposes ``glyph.apply_style(style)`` (cleopatra
-            >= 0.25) to re-apply a preset by name in place without re-plotting.
-        hillshade: Relief-shade the rendered field. ``True`` blends a
-            default hillshade over the colours; a dict passes hillshade
-            parameters through (e.g. ``{"vert_exag": 8}``). Distinct from
-            :meth:`pyramids.dataset.Dataset.hillshade`, which *returns* a
-            shaded-relief array — this is a render-time blend. Forwarded to
-            cleopatra; requires cleopatra >= 0.24. Defaults to None.
-
-    Examples:
-        - The default constructor is a no-op forward — every colour
-          control is left at its cleopatra default:
-
-            ```python
-            >>> from pyramids.netcdf.plot_options import ColorOpts
-            >>> opts = ColorOpts()
-            >>> opts.cmap is None
-            True
-            >>> opts.add_colorbar
-            True
-
-            ```
-
-        - Build a robust (percentile-based) colormap with a diverging
-          centre at zero:
-
-            ```python
-            >>> from pyramids.netcdf.plot_options import ColorOpts
-            >>> opts = ColorOpts(cmap="RdBu_r", robust=True, center=0.0)
-            >>> opts.cmap
-            'RdBu_r'
-            >>> opts.robust
-            True
-            >>> opts.center
-            0.0
-
-            ```
-
-        - Disable the colorbar — the facade removes it post-render:
-
-            ```python
-            >>> from pyramids.netcdf.plot_options import ColorOpts
-            >>> opts = ColorOpts(add_colorbar=False)
-            >>> opts.add_colorbar
-            False
-
-            ```
-    """
-
-    cmap: str | None = None
-    vmin: float | None = None
-    vmax: float | None = None
-    robust: bool = False
-    levels: int | list[float] | None = None
-    norm: Any | None = None
-    center: float | None = None
-    extend: str | None = None
-    add_colorbar: bool = True
-    cbar_kwargs: dict | None = None
-    style: str | None = None
-    hillshade: bool | dict | None = None
-
-
-@dataclass(frozen=True)
-class ColourOpts(ColorOpts):
-    """Deprecated British-spelling alias for :class:`ColorOpts`.
-
-    Retained for backward compatibility; instantiating it emits a
-    :class:`DeprecationWarning`. Use :class:`ColorOpts` instead — it matches the
-    ``color_scale`` / ``cmap`` spelling used elsewhere in the API. The alias is a
-    subclass, so existing ``isinstance(x, ColourOpts)`` checks and any code passing a
-    ``ColourOpts`` to ``NetCDF.plot`` keep working.
-
-    Examples:
-        - Constructing it warns but otherwise behaves exactly like ``ColorOpts``:
-
-            ```python
-            >>> import warnings
-            >>> from pyramids.netcdf.plot_options import ColourOpts, ColorOpts
-            >>> with warnings.catch_warnings():
-            ...     warnings.simplefilter("ignore")
-            ...     opts = ColourOpts(cmap="viridis")
-            >>> opts.cmap
-            'viridis'
-            >>> isinstance(opts, ColorOpts)
-            True
-
-            ```
-        - It compares equal, by value, to the same ``ColorOpts`` (back-compat):
-
-            ```python
-            >>> import warnings
-            >>> from pyramids.netcdf.plot_options import ColourOpts, ColorOpts
-            >>> with warnings.catch_warnings():
-            ...     warnings.simplefilter("ignore")
-            ...     ColourOpts(cmap="viridis") == ColorOpts(cmap="viridis")
-            True
-
-            ```
-    """
-
-    def __post_init__(self) -> None:
-        """Emit a deprecation warning; the dataclass fields are already set."""
-        warnings.warn(
-            "ColourOpts is deprecated; use ColorOpts instead "
-            "(same fields, US spelling).",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-    def __eq__(self, other: object) -> bool:
-        """Compare by field value against any ``ColorOpts`` (back-compat with the pre-split class).
-
-        Before ``ColourOpts`` became a subclass it *was* ``ColorOpts``, so equal field values
-        compared equal. The dataclass-generated ``__eq__`` enforces an exact class match, which
-        would silently make ``ColourOpts(cmap="x") == ColorOpts(cmap="x")`` False. Compare on the
-        field tuple instead so value-equality is preserved in both directions (``ColorOpts.__eq__``
-        returns ``NotImplemented`` for the cross-class case, so Python defers to this method).
-        """
-        if isinstance(other, ColorOpts):
-            return astuple(self) == astuple(other)
-        return NotImplemented
-
-    # A dataclass that defines __eq__ loses the auto-generated __hash__; restore the
-    # frozen field-based hash (class-independent, so it matches an equal ColorOpts).
-    __hash__ = ColorOpts.__hash__
-
-
-@dataclass(frozen=True)
 class FacetSpec:
     """Faceting specification for :meth:`NetCDF.plot`.
 
@@ -335,3 +174,47 @@ class FacetSpec:
     col: str | None = None
     row: str | None = None
     col_wrap: int | None = None
+
+
+@dataclass(frozen=True)
+class CoordinateSpec:
+    """How a NetCDF variable's spatial axes are interpreted, for :meth:`NetCDF.plot`.
+
+    Groups the three axis-related plot options into one bag: an explicit curvilinear ``(x, y)``
+    2-D coordinate pair, or the names of the ``x`` / ``y`` dimensions when they cannot be
+    auto-resolved from CF attributes. All fields default to ``None`` (auto-detect).
+
+    Attributes:
+        coords: Explicit ``(x, y)`` coordinate arrays for a curvilinear grid, passed straight to
+            the renderer. ``None`` auto-detects from CF attributes / conventions.
+        x_dim: Name of the ``x`` (longitude / easting) dimension, when it cannot be inferred.
+            Applying it requires re-resolving the variable from its parent container.
+        y_dim: Name of the ``y`` (latitude / northing) dimension, when it cannot be inferred.
+
+    Examples:
+        - A curvilinear coordinate pair:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf.plot_options import CoordinateSpec
+            >>> x2d, y2d = np.meshgrid(np.arange(4), np.arange(3))
+            >>> axes = CoordinateSpec(coords=(x2d, y2d))
+            >>> axes.coords[0].shape
+            (3, 4)
+
+            ```
+
+        - Explicit dimension names:
+
+            ```python
+            >>> from pyramids.netcdf.plot_options import CoordinateSpec
+            >>> axes = CoordinateSpec(x_dim="rlon", y_dim="rlat")
+            >>> (axes.x_dim, axes.y_dim)
+            ('rlon', 'rlat')
+
+            ```
+    """
+
+    coords: tuple | list | None = None
+    x_dim: str | None = None
+    y_dim: str | None = None

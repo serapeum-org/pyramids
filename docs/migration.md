@@ -324,7 +324,7 @@ Introduces the `Container` / `Variable` type split plus a wave of API consolidat
 | `LabeledDataset.read_file(engine=...)` validates `engine` | breaking | pass a valid engine name |
 | `NetCDF(gdal_dataset)` direct construction | deprecated | use `read_file` / `get_variable` |
 | `get_variable_names()` | deprecated | `variable_names` property |
-| `ColourOpts` | deprecated | `ColorOpts` |
+| `NetCDF.plot(colour=...)` | breaking | loose colour kwargs + `axes=CoordinateSpec(...)` |
 | `MetaData` / `DimMetaData` | deprecated | `ClassicDimMetadata` / `ClassicDimensionInfo` |
 | kerchunk `backend="kerchunk"` | deprecated | `backend="legacy"` |
 | `_LabeledArray` / `_apply_unpack` | renamed | `LabeledArray` / `apply_unpack` |
@@ -402,16 +402,23 @@ names = nc.get_variable_names()
 names = nc.variable_names
 ```
 
-**7. `ColourOpts` -> `ColorOpts`.**
+**7. `NetCDF.plot` mirrors `Dataset.plot` — `colour=` is gone; colour is loose kwargs and coordinates group
+into `axes=CoordinateSpec(...)`.** The `colour=` parameter and both the `ColorOpts` dataclass and its British
+alias `ColourOpts` have been removed from `pyramids.netcdf`. Pass the colour knobs (`cmap`, `vmin`, `vmax`,
+`robust`, `center`, `extend`, `levels`, `norm`) as loose keyword arguments, and group the curvilinear-coordinate
+parameters (`coords`, `x_dim`, `y_dim`) into the new frozen `CoordinateSpec` dataclass passed as `axes=`.
 
 ```python
 # Before
 from pyramids.netcdf import ColourOpts
-opts = ColourOpts(cmap="viridis")
+nc.plot("t2m", colour=ColourOpts(cmap="viridis", robust=True), x_dim="rlon", y_dim="rlat")
 # After
-from pyramids.netcdf import ColorOpts
-opts = ColorOpts(cmap="viridis")
+from pyramids.netcdf import CoordinateSpec
+nc.plot("t2m", cmap="viridis", robust=True, axes=CoordinateSpec(x_dim="rlon", y_dim="rlat"))
 ```
+
+For colour-bar styling and data-style presets, pass the cleopatra bags exactly as `Dataset.plot` does —
+`colorbar=ColorBar(...)` (or `colorbar=False` to hide it) and `data_style=DataStyle(...)`.
 
 **8. Classic dimension models renamed.**
 

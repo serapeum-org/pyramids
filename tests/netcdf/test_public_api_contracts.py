@@ -1,4 +1,4 @@
-"""Regression tests for the Wave A/B public-API changes (API-3/4/6/8/9/10/11).
+"""Regression tests for the Wave A/B public-API changes (API-3/6/8/9/10/11).
 
 These pin the deprecation-alias, validation, and immutability contracts so a future change
 cannot silently revert them. They are unit-level — the ``subset() -> NetCDF`` return-type
@@ -12,7 +12,7 @@ import warnings
 import numpy as np
 import pytest
 
-from pyramids.netcdf import ColorOpts, ColourOpts, GeoReference, LabeledArray, NetCDF
+from pyramids.netcdf import GeoReference, LabeledArray, NetCDF
 from pyramids.netcdf._kerchunk_facade import _normalize_backend
 from pyramids.netcdf.labeled import _is_zarr_store, _LabeledArray
 from pyramids.netcdf.models import CFInfo
@@ -31,58 +31,6 @@ def small_nc():
         geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
         variable_name="t",
     )
-
-
-class TestColorOptsAlias:
-    """API-4: ColorOpts canonical, ColourOpts deprecated alias."""
-
-    def test_color_opts_is_canonical(self):
-        """``ColorOpts`` constructs without any warning and stores its fields.
-
-        Test scenario:
-            ``ColorOpts(cmap=...)`` is the canonical class — no DeprecationWarning.
-        """
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            opts = ColorOpts(cmap="viridis", robust=True)
-        assert opts.cmap == "viridis", f"cmap not stored: {opts.cmap}"
-        assert opts.robust is True, "robust flag not stored"
-
-    def test_colour_opts_warns_and_is_subclass(self):
-        """``ColourOpts`` warns on construction and remains a ``ColorOpts`` subclass.
-
-        Test scenario:
-            Instantiating the British-spelling alias emits a DeprecationWarning, yields a
-            working ``ColorOpts`` instance (isinstance holds), and keeps its fields.
-        """
-        with pytest.warns(DeprecationWarning, match="ColourOpts is deprecated"):
-            opts = ColourOpts(cmap="magma")
-        assert isinstance(opts, ColorOpts), "ColourOpts must subclass ColorOpts"
-        assert opts.cmap == "magma", f"cmap not stored on alias: {opts.cmap}"
-
-    def test_colour_opts_compares_equal_to_colour_opts_by_value(self):
-        """``ColourOpts`` keeps value-equality (both directions) with an equal ``ColorOpts`` (M3).
-
-        Test scenario:
-            Before the alias became a subclass it *was* ``ColorOpts``, so equal fields
-            compared equal. The dataclass ``__eq__`` enforces an exact class match, which would
-            silently break ``ColourOpts(cmap="x") == ColorOpts(cmap="x")``. The alias overrides
-            ``__eq__``/``__hash__`` to compare by field value, so equality holds in both
-            directions, hashes match, and they dedupe in a set.
-        """
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            colour = ColourOpts(cmap="viridis", robust=True)
-        color = ColorOpts(cmap="viridis", robust=True)
-        assert colour == color, "ColourOpts should equal an identical ColorOpts"
-        assert color == colour, "equality must be symmetric"
-        assert hash(colour) == hash(color), "equal options must hash equally"
-        assert len({colour, color}) == 1, "equal options must dedupe in a set"
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            other = ColourOpts(cmap="magma")
-        assert colour != other, "different fields must not compare equal"
 
 
 class TestVariableNamesDeprecation:

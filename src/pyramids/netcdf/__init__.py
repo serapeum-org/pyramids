@@ -20,8 +20,7 @@ from pyramids.netcdf.models import (
 )
 from pyramids.netcdf.netcdf import Container, NetCDF, Variable
 from pyramids.netcdf.plot_options import (
-    ColorOpts,
-    ColourOpts,
+    CoordinateSpec,
     FacetSpec,
     Selectors,
 )
@@ -45,8 +44,7 @@ __all__ = [
     "GroupInfo",
     "StructuralInfo",
     "Selectors",
-    "ColorOpts",
-    "ColourOpts",
+    "CoordinateSpec",
     "FacetSpec",
     "get_metadata",
     "to_json",
