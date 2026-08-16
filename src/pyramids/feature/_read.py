@@ -48,11 +48,7 @@ from shapely.geometry import box
 
 from pyramids import _io as _pyramids_io
 from pyramids.base._errors import FeatureError, VectorTileServerError
-from pyramids.base._ogc_api import (
-    DISCOVERY_HEADERS,
-    http_error_detail,
-    http_get_with_retry,
-)
+from pyramids.base._ogc_api import http_error_detail, http_get_with_retry
 from pyramids.base._utils import import_pyarrow
 from pyramids.base.crs import _pyproj_crs_via_gdal
 from pyramids.base.remote import is_remote, to_fsspec_url
@@ -193,7 +189,7 @@ def collect_featureserver_pages(
 # origin is the top-left corner and the world spans +/- this many metres each way.
 _WEBMERC_ORIGIN = 20037508.342789244
 _WEBMERC_WKIDS = frozenset({3857, 102100, 102113, 900913})
-_VTS_TILE_HEADERS = {"User-Agent": "pyramids-gis VectorTileServer client"}
+_VTS_USER_AGENT = "pyramids-gis VectorTileServer client"
 
 
 def _vts_base_and_query(url: str) -> tuple[str, str]:
@@ -212,7 +208,9 @@ def _vts_request(
     url: str, auth: tuple[str, str] | None, *, accept_json: bool
 ) -> urllib.request.Request:
     """Build the urllib request for a VectorTileServer fetch, sending Basic auth preemptively."""
-    headers = dict(DISCOVERY_HEADERS) if accept_json else dict(_VTS_TILE_HEADERS)
+    headers = {"User-Agent": _VTS_USER_AGENT}  # one UA for the metadata and tile requests
+    if accept_json:
+        headers["Accept"] = "application/json"
     if auth is not None:
         # Preemptive Basic auth (matches from_wfs / from_ogc_features): a service that
         # 403s without a 401 challenge, or blocks the default urllib UA, still authenticates.

@@ -1434,7 +1434,8 @@ class FeatureCollection(GeoDataFrame):
             bbox: ``(west, south, east, north)`` in EPSG:4326 lon/lat. ``None`` (default) uses the service
                 ``fullExtent`` (reprojected to the tile CRS when it is reported in another CRS).
             zoom: The level of detail to read. ``None`` (default) picks the highest advertised LOD whose
-                covering-tile count for ``bbox`` fits ``max_tiles`` (the most detail within the cap).
+                covering-tile count for ``bbox`` fits ``max_tiles`` (the most detail within the cap), or the
+                coarsest advertised LOD when none fit — in which case the ``max_tiles`` cap still truncates.
             output_crs: CRS to reproject the result to (any form geopandas accepts). ``None`` (default)
                 returns the native tile CRS, EPSG:3857.
             max_tiles: Safety cap on the number of tiles fetched. Defaults to 1000.

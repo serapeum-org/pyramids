@@ -250,6 +250,16 @@ class TestVectorTileServerValidation:
             "Basic auth should be preemptive"
         )
 
+    def test_requests_use_a_consistent_user_agent(self):
+        """Metadata and tile requests advertise the same VectorTileServer User-Agent."""
+        meta_req = _read._vts_request("https://h/x?f=json", None, accept_json=True)
+        tile_req = _read._vts_request("https://h/tile/1/1/1.pbf", None, accept_json=False)
+        ua = "pyramids-gis VectorTileServer client"
+        assert meta_req.get_header("User-agent") == ua, meta_req.header_items()
+        assert tile_req.get_header("User-agent") == ua, tile_req.header_items()
+        assert meta_req.get_header("Accept") == "application/json", "metadata negotiates JSON"
+        assert tile_req.get_header("Accept") is None, "a tile request does not force JSON"
+
     def test_bbox_none_uses_full_extent(self):
         """``bbox=None`` reads the read extent from the service ``fullExtent`` (already 3857)."""
         meta = {
