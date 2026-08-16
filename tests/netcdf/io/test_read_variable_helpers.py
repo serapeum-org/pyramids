@@ -104,6 +104,23 @@ class TestNormalizeMdarrayAxes:
         af.assert_called_once()
         assert np.array_equal(result, arr), "no-flip must return the array unchanged"
 
+    def test_forwards_rg_and_mdarray_to_axis_flips(self, arr):
+        """``rg`` and ``md_arr`` are forwarded, in order, to ``axis_flips``.
+
+        Test scenario:
+            The helper takes ``rg`` (not just ``md_arr``) so the root group is held
+            alive across the probe and SWIG cannot GC it. A regression that dropped
+            ``rg`` and called ``axis_flips(md_arr)`` must be caught here, so assert
+            the exact positional forwarding rather than a bare call count.
+        """
+        rg = Mock(name="rg")
+        md_arr = Mock(name="md_arr")
+        with patch(
+            "pyramids.netcdf.netcdf.axis_flips", return_value=(False, False)
+        ) as af:
+            NetCDF._normalize_mdarray_axes(rg, md_arr, arr)
+        af.assert_called_once_with(rg, md_arr)
+
     def test_flip_y_only(self, arr):
         """``(True, False)`` flips the row axis (``ndim - 2``) only.
 
@@ -321,7 +338,15 @@ class TestReadMdimVariable:
 
         result = NetCDF._read_mdim_variable(mock_self, rg, "t2m", None)
 
-        mock_self._normalize_mdarray_axes.assert_called_once()
+        mock_self._read_mdarray.assert_called_once_with(
+            rg.OpenMDArray.return_value, None
+        )
+        norm_args = mock_self._normalize_mdarray_axes.call_args.args
+        assert norm_args[0] is rg, "rg must be forwarded to _normalize_mdarray_axes"
+        assert norm_args[1] is rg.OpenMDArray.return_value, "md_arr must be forwarded"
+        assert norm_args[2] is mock_self._read_mdarray.return_value, (
+            "the read result must be forwarded to _normalize_mdarray_axes"
+        )
         mock_self._read_indexing_variable.assert_not_called()
         assert result is normalized, "full 2-D read must be normalized"
 
@@ -359,6 +384,9 @@ class TestReadMdimVariable:
 
         result = NetCDF._read_mdim_variable(mock_self, rg, "t2m", [(0, 2), (0, 2)])
 
+        mock_self._read_mdarray.assert_called_once_with(
+            rg.OpenMDArray.return_value, [(0, 2), (0, 2)]
+        )
         mock_self._normalize_mdarray_axes.assert_not_called()
         assert result is windowed, "windowed read must not be flipped"
 
