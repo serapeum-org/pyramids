@@ -77,7 +77,8 @@ class TestFromVectorTileServer:
             f"polygon clipped into 2 tiles + 1 point = 3 rows, got {len(fc)}"
         )
         kinds = list(fc["kind"])
-        assert kinds.count("polygon") == 2 and kinds.count("point") == 1, kinds
+        assert kinds.count("polygon") == 2, kinds
+        assert kinds.count("point") == 1, kinds
         assert set(fc["layer"]) == {served["layer_name"]}, (
             "the source sub-layer is tagged"
         )
@@ -85,16 +86,10 @@ class TestFromVectorTileServer:
         lods = _read._resolve_vts_tiling(_load_metadata())[3]
         pad = 512 * lods[served["zoom"]]  # one tile span of slack for MVT edge clipping
         minx, miny, maxx, maxy = fc.total_bounds
-        assert expected[0] - pad <= minx and maxx <= expected[2] + pad, (
-            minx,
-            maxx,
-            expected,
-        )
-        assert expected[1] - pad <= miny and maxy <= expected[3] + pad, (
-            miny,
-            maxy,
-            expected,
-        )
+        assert expected[0] - pad <= minx, (minx, expected)
+        assert maxx <= expected[2] + pad, (maxx, expected)
+        assert expected[1] - pad <= miny, (miny, expected)
+        assert maxy <= expected[3] + pad, (maxy, expected)
 
     def test_output_crs_reprojects(self, served):
         """``output_crs`` reprojects the result off the native 3857 tiles."""
@@ -104,9 +99,8 @@ class TestFromVectorTileServer:
             zoom=served["zoom"],
             output_crs="EPSG:4326",
         )
-        assert fc.crs is not None and fc.crs.to_epsg() == 4326, (
-            f"expected EPSG:4326, got {fc.crs}"
-        )
+        assert fc.crs is not None, f"expected a CRS, got {fc.crs}"
+        assert fc.crs.to_epsg() == 4326, f"expected EPSG:4326, got {fc.crs}"
 
     def test_layer_filter_selects_sublayer(self, served):
         """A matching ``layer`` reads it; a missing one yields an empty collection."""
@@ -172,7 +166,8 @@ class TestFromVectorTileServer:
             bbox=tuple(info["bbox_4326"]),
             zoom=info["zoom"],
         )
-        assert seen and all(url.endswith("?token=abc") for url in seen), seen
+        assert seen, "tiles were requested"
+        assert all(url.endswith("?token=abc") for url in seen), seen
 
     def test_absent_tile_is_skipped(self, monkeypatch):
         """A covering tile that comes back absent (``None``) is skipped, not fatal."""
@@ -226,7 +221,8 @@ class TestVectorTileServerValidation:
         )
         assert (round(origin_x), round(origin_y)) == (-20037508, 20037508)
         assert tile_size == 512
-        assert 0 in lods and 10 in lods, "levels of detail should be parsed"
+        assert 0 in lods, "level 0 parsed"
+        assert 10 in lods, "level 10 parsed"
         assert template == "tile/{z}/{y}/{x}.pbf"
 
     def test_non_web_mercator_tiling_raises(self):
@@ -246,9 +242,8 @@ class TestVectorTileServerValidation:
     def test_bbox_lonlat_to_3857_and_ordering(self):
         """A lon/lat bbox is reprojected to 3857; a bad ordering raises ValueError."""
         minx, miny, maxx, maxy = _read._vts_bbox_3857((-1.0, -1.0, 1.0, 1.0), {})
-        assert minx < 0 < maxx and miny < 0 < maxy, (
-            "bbox should straddle the 3857 origin"
-        )
+        assert minx < 0 < maxx, (minx, maxx)
+        assert miny < 0 < maxy, (miny, maxy)
         with pytest.raises(ValueError, match="west < east"):
             _read._vts_bbox_3857((1.0, 1.0, -1.0, -1.0), {})
 
@@ -305,9 +300,8 @@ class TestVectorTileServerValidation:
         assert abs(maxx - 111319.49) < 1.0, (
             f"1 deg lon should be ~111 km in 3857, got {maxx}"
         )
-        assert minx < 0 < maxx and miny < 0 < maxy, (
-            "the reprojected extent straddles the origin"
-        )
+        assert minx < 0 < maxx, (minx, maxx)
+        assert miny < 0 < maxy, (miny, maxy)
 
     def test_full_extent_in_unknown_crs_raises_service_error(self):
         """A ``fullExtent`` in an unrecognised CRS is a VectorTileServerError, not misread metres."""
@@ -477,9 +471,8 @@ class TestVectorTileServerFetch:
         doc = _read.fetch_vectortileserver_metadata(
             "https://host/VectorTileServer", None, 30.0
         )
-        assert doc["name"] == "svc" and "tileInfo" in doc, (
-            "the parsed service document is returned"
-        )
+        assert doc["name"] == "svc", doc
+        assert "tileInfo" in doc, doc
 
     def test_metadata_url_preserves_existing_query(self, monkeypatch):
         """``?f=json`` is merged into an existing query rather than clobbering it."""
