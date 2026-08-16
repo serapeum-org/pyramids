@@ -323,8 +323,9 @@ def _vts_bbox_3857(
                 f"west < east and south < north; got {bbox!r}."
             )
         transformer = pyproj.Transformer.from_crs(4326, 3857, always_xy=True)
-        minx, miny = transformer.transform(west, south)
-        maxx, maxy = transformer.transform(east, north)
+        # transform_bounds densifies the edges, so the 3857 box spans the whole extent
+        # (exact for 4326, and correct for a rotated / non-axis-aligned source CRS below).
+        minx, miny, maxx, maxy = transformer.transform_bounds(west, south, east, north)
         return minx, miny, maxx, maxy
     extent = meta.get("fullExtent") or meta.get("initialExtent") or {}
     try:
@@ -351,8 +352,9 @@ def _vts_bbox_3857(
             f"VectorTileServer fullExtent is in an unrecognised CRS (wkid={wkid}); "
             "pass an explicit bbox=(west, south, east, north) in EPSG:4326."
         ) from exc
-    minx, miny = transformer.transform(xmin, ymin)
-    maxx, maxy = transformer.transform(xmax, ymax)
+    # transform_bounds over all four edges, so a projected (possibly non-axis-aligned)
+    # fullExtent is fully covered rather than under-spanned by two corners.
+    minx, miny, maxx, maxy = transformer.transform_bounds(xmin, ymin, xmax, ymax)
     return minx, miny, maxx, maxy
 
 
