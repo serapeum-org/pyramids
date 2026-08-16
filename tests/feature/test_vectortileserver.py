@@ -158,6 +158,29 @@ class TestFromVectorTileServer:
         )
         assert seen and all(url.endswith("?token=abc") for url in seen), seen
 
+    def test_absent_tile_is_skipped(self, monkeypatch):
+        """A covering tile that comes back absent (``None``) is skipped, not fatal."""
+        metadata, info = _load_metadata(), _load_fixture_info()
+        monkeypatch.setattr(
+            FeatureCollection,
+            "_fetch_vectortileserver_metadata",
+            classmethod(lambda cls, url, auth, timeout: metadata),
+        )
+        calls = {"n": 0}
+
+        def _tile(cls, tile_url, auth, timeout):
+            calls["n"] += 1
+            return _tile_bytes_for_url(tile_url) if calls["n"] == 1 else None
+
+        monkeypatch.setattr(
+            FeatureCollection, "_fetch_vectortileserver_tile", classmethod(_tile)
+        )
+        fc = FeatureCollection.from_vectortileserver(
+            "https://host/VectorTileServer", bbox=tuple(info["bbox_4326"]), zoom=info["zoom"]
+        )
+        assert calls["n"] == 2, "both covering tiles are requested"
+        assert len(fc) >= 1, "the present tile's features survive the absent one"
+
     def test_bad_zoom_raises_value_error(self, served):
         """A ``zoom`` the service does not advertise is a plain ValueError."""
         with pytest.raises(ValueError, match="not an advertised LOD"):
