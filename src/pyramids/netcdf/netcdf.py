@@ -4149,7 +4149,7 @@ class NetCDF(Dataset):
         """
         return self._get_dimension_names()
 
-    def _get_dimension(self, name: str) -> gdal.Dimension:
+    def _get_dimension(self, name: str) -> gdal.Dimension | None:
         dim = None
         for candidate in self._working_group_dimensions():
             if candidate.GetName() == name:
@@ -4211,57 +4211,179 @@ class NetCDF(Dataset):
         Returns:
             np.ndarray or None: The variable data, or None if the
                 variable is not found.
+
+        See Also:
+            _read_mdim_variable: The MDIM path (guarded MDArray read plus the
+                dimension indexing-variable fallback).
+            _read_classic_variable: The classic ``NETCDF:file:var`` subdataset
+                path used when no MDIM working group is available.
+            _read_mdarray: The windowed/full MDArray read.
+            _normalize_mdarray_axes: The full-read axis-flip normalization (where
+                the Y/X flip happens).
+            _read_indexing_variable: The dimension indexing-variable fallback read.
         """
-        result = None
         rg = self._working_group()
         if rg is not None:
-            try:
-                md_arr = rg.OpenMDArray(var)
-                if md_arr is not None:
-                    if window is not None:
-                        starts = [w[0] for w in window]
-                        counts = [w[1] for w in window]
-                        result = md_arr.ReadAsArray(
-                            array_start_idx=starts,
-                            count=counts,
-                        )
-                    else:
-                        result = md_arr.ReadAsArray()
-                    # Normalize to the raster convention get_variable produces: row 0 = north,
-                    # col 0 = west. A windowed read is returned in storage order (the window is
-                    # expressed in storage indices), so it is left alone. One probe decides both axes.
-                    if result is not None and result.ndim >= 2 and window is None:
-                        flip_y, flip_x = axis_flips(rg, md_arr)
-                        if flip_y:
-                            result = np.flip(result, axis=result.ndim - 2)
-                        if flip_x:
-                            result = np.flip(result, axis=result.ndim - 1)
-            except (RuntimeError, ValueError):
-                pass  # nosec B110
-            # Fall back to dimension indexing variable
-            if result is None:
-                dim = self._get_dimension(var)
-                if dim is not None:
-                    iv = dim.GetIndexingVariable()
-                    if iv is not None:
-                        if window is not None and len(window) == 1:
-                            starts = [window[0][0]]
-                            counts = [window[0][1]]
-                            result = iv.ReadAsArray(
-                                array_start_idx=starts,
-                                count=counts,
-                            )
-                        else:
-                            result = iv.ReadAsArray()
+            result = self._read_mdim_variable(rg, var, window)
         else:
-            # Classic mode: open via subdataset string
-            try:
-                ds = gdal.Open(f"NETCDF:{self.file_name}:{var}")
-                if ds is not None:
-                    result = ds.ReadAsArray()
-                ds = None
-            except (RuntimeError, AttributeError):
-                pass
+            result = self._read_classic_variable(var)
+        return result
+
+    def _read_mdim_variable(
+        self, rg: gdal.Group, var: str, window: list[tuple[int, int]] | None
+    ) -> np.typing.NDArray | None:
+        """Read ``var`` in MDIM mode: MDArray first, indexing-variable fallback.
+
+        The MDArray open+read+normalize is guarded against GDAL raising for a
+        missing or non-numeric array; the indexing-variable fallback runs
+        *outside* that guard so a genuine failure there is not swallowed. A full
+        (unwindowed) >=2-D read is normalized to raster convention; a windowed
+        read is returned in storage order.
+
+        Args:
+            rg: The working group ``var`` is resolved against (kept alive across
+                the axis-flip probe).
+            var: Variable (or dimension) name to read.
+            window: Per-dimension ``(start, count)`` tuples, or ``None`` for a
+                full read.
+
+        Returns:
+            np.ndarray or None: The variable data, or ``None`` if not found.
+
+        Note:
+            This method raises nothing of its own but it does not catch
+            everything. The MDArray branch swallows only ``RuntimeError`` /
+            ``ValueError`` (from ``OpenMDArray``, the read, or normalization), so
+            any other exception type propagates unchanged; and the
+            indexing-variable fallback runs outside that guard, so any error it
+            raises propagates too rather than being masked as a missing variable.
+        """
+        result: np.typing.NDArray | None = None
+        try:
+            md_arr = rg.OpenMDArray(var)
+            if md_arr is not None:
+                result = self._read_mdarray(md_arr, window)
+                # A full >=2-D read is normalized to raster convention (row 0 =
+                # north, col 0 = west); a windowed read stays in storage order.
+                if result is not None and result.ndim >= 2 and window is None:
+                    result = self._normalize_mdarray_axes(rg, md_arr, result)
+        except (RuntimeError, ValueError):
+            pass  # nosec B110
+        if result is None:
+            result = self._read_indexing_variable(var, window)
+        return result
+
+    @staticmethod
+    def _read_mdarray(
+        md_arr: gdal.MDArray, window: list[tuple[int, int]] | None
+    ) -> np.typing.NDArray | None:
+        """Read an MDArray as a numpy array, windowed or in full.
+
+        A windowed read is expressed in storage indices and returned in storage
+        order (the caller is responsible for any axis normalization).
+
+        Args:
+            md_arr: The GDAL MDArray to read.
+            window: Per-dimension ``(start, count)`` tuples, or ``None`` for a
+                full read.
+
+        Returns:
+            np.ndarray or None: The read data (``None`` only if GDAL yields it).
+        """
+        result: np.typing.NDArray | None
+        if window is not None:
+            starts = [w[0] for w in window]
+            counts = [w[1] for w in window]
+            result = md_arr.ReadAsArray(
+                array_start_idx=starts,
+                count=counts,
+            )
+        else:
+            result = md_arr.ReadAsArray()
+        return result
+
+    @staticmethod
+    def _normalize_mdarray_axes(
+        rg: gdal.Group, md_arr: gdal.MDArray, result: np.typing.NDArray
+    ) -> np.typing.NDArray:
+        """Flip a full >=2-D read into raster convention (row 0 = north, col 0 = west).
+
+        One :func:`axis_flips` probe decides both axes. ``rg`` is accepted (not
+        just ``md_arr``) so the root group is held alive across the probe and
+        SWIG cannot garbage-collect it mid-call.
+
+        Args:
+            rg: The root group, kept alive to prevent SWIG GC.
+            md_arr: The MDArray the result was read from.
+            result: The full read (in storage order) to normalize; ``np.flip``
+                returns new views, so this array is not mutated in place.
+
+        Returns:
+            np.ndarray: The array flipped to raster convention as needed.
+        """
+        flip_y, flip_x = axis_flips(rg, md_arr)
+        if flip_y:
+            result = np.flip(result, axis=result.ndim - 2)
+        if flip_x:
+            result = np.flip(result, axis=result.ndim - 1)
+        return result
+
+    def _read_indexing_variable(
+        self, var: str, window: list[tuple[int, int]] | None
+    ) -> np.typing.NDArray | None:
+        """Read ``var``'s dimension indexing variable (a 1-D coordinate).
+
+        Used as the fallback when ``var`` is not an MDArray but names a
+        dimension whose indexing variable holds the coordinate values. A
+        1-element ``window`` selects a slice of that 1-D coordinate; any other
+        window shape reads the coordinate in full.
+
+        Args:
+            var: The dimension name whose indexing variable to read.
+            window: Per-dimension ``(start, count)`` tuples, or ``None``. Only a
+                length-1 window is applied (the indexing variable is 1-D).
+
+        Returns:
+            np.ndarray or None: The coordinate values, or ``None`` when ``var``
+                has no dimension or indexing variable.
+        """
+        result: np.typing.NDArray | None = None
+        dim = self._get_dimension(var)
+        if dim is not None:
+            iv = dim.GetIndexingVariable()
+            if iv is not None:
+                if window is not None and len(window) == 1:
+                    starts = [window[0][0]]
+                    counts = [window[0][1]]
+                    result = iv.ReadAsArray(
+                        array_start_idx=starts,
+                        count=counts,
+                    )
+                else:
+                    result = iv.ReadAsArray()
+        return result
+
+    def _read_classic_variable(self, var: str) -> np.typing.NDArray | None:
+        """Read ``var`` in classic (non-MDIM) mode via the subdataset string.
+
+        Opens ``NETCDF:<file>:<var>`` and reads it in full. The ``window`` is not
+        supported in classic mode and is intentionally not accepted here.
+
+        Args:
+            var: Variable name to read from the classic subdataset.
+
+        Returns:
+            np.ndarray or None: The variable data, or ``None`` when the
+                subdataset cannot be opened or read.
+        """
+        result: np.typing.NDArray | None = None
+        try:
+            ds = gdal.Open(f"NETCDF:{self.file_name}:{var}")
+            if ds is not None:
+                result = ds.ReadAsArray()
+            ds = None
+        except (RuntimeError, AttributeError):
+            pass
         return result
 
     def _working_group(self) -> gdal.Group | None:
