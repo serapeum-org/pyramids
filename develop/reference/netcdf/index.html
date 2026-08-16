@@ -17745,13 +17745,13 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-4250" name="__codelineno-0-4250"></a><span class="sd">        Returns:</span>
 <a id="__codelineno-0-4251" name="__codelineno-0-4251"></a><span class="sd">            np.ndarray or None: The variable data, or ``None`` if not found.</span>
 <a id="__codelineno-0-4252" name="__codelineno-0-4252"></a>
-<a id="__codelineno-0-4253" name="__codelineno-0-4253"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-4254" name="__codelineno-0-4254"></a><span class="sd">            Exception: Propagates unchanged from two places. The MDArray branch</span>
-<a id="__codelineno-0-4255" name="__codelineno-0-4255"></a><span class="sd">                only swallows ``RuntimeError`` / ``ValueError`` (from</span>
-<a id="__codelineno-0-4256" name="__codelineno-0-4256"></a><span class="sd">                ``OpenMDArray``, the read, or normalization); any other exception</span>
-<a id="__codelineno-0-4257" name="__codelineno-0-4257"></a><span class="sd">                type surfaces to the caller. And the indexing-variable fallback</span>
-<a id="__codelineno-0-4258" name="__codelineno-0-4258"></a><span class="sd">                runs outside that guard, so any error it raises propagates too,</span>
-<a id="__codelineno-0-4259" name="__codelineno-0-4259"></a><span class="sd">                rather than being masked as a missing variable.</span>
+<a id="__codelineno-0-4253" name="__codelineno-0-4253"></a><span class="sd">        Note:</span>
+<a id="__codelineno-0-4254" name="__codelineno-0-4254"></a><span class="sd">            This method raises nothing of its own but it does not catch</span>
+<a id="__codelineno-0-4255" name="__codelineno-0-4255"></a><span class="sd">            everything. The MDArray branch swallows only ``RuntimeError`` /</span>
+<a id="__codelineno-0-4256" name="__codelineno-0-4256"></a><span class="sd">            ``ValueError`` (from ``OpenMDArray``, the read, or normalization), so</span>
+<a id="__codelineno-0-4257" name="__codelineno-0-4257"></a><span class="sd">            any other exception type propagates unchanged; and the</span>
+<a id="__codelineno-0-4258" name="__codelineno-0-4258"></a><span class="sd">            indexing-variable fallback runs outside that guard, so any error it</span>
+<a id="__codelineno-0-4259" name="__codelineno-0-4259"></a><span class="sd">            raises propagates too rather than being masked as a missing variable.</span>
 <a id="__codelineno-0-4260" name="__codelineno-0-4260"></a><span class="sd">        &quot;&quot;&quot;</span>
 <a id="__codelineno-0-4261" name="__codelineno-0-4261"></a>        <span class="n">result</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <a id="__codelineno-0-4262" name="__codelineno-0-4262"></a>        <span class="k">try</span><span class="p">:</span>
