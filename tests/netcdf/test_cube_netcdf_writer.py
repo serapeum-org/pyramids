@@ -259,6 +259,22 @@ class TestCubeNetCDFWriterBuildSchema:
         )
         assert "crs_wkt" not in root_attrs, "no crs => no crs_wkt attr"
 
+    def test_crs_without_to_wkt_is_swallowed(self):
+        """_build_schema swallows a non-None CRS that lacks a to_wkt() (AttributeError guard).
+
+        Test scenario:
+            A crs object without a ``to_wkt`` attribute triggers the
+            ``except AttributeError`` guard, leaving no ``crs_wkt`` root attr.
+        """
+        writer = _schema_writer(crs=object(), band_count=1, names=("b1",))
+        axis = TimeAxis(np.array([0]), {})
+        _dims, _coords, _var_specs, root_attrs = writer._build_schema(
+            axis, time_dim="time", var_per_band=True
+        )
+        assert "crs_wkt" not in root_attrs, (
+            "a crs without to_wkt() must be swallowed, not written"
+        )
+
 
 class TestCubeNetCDFWriterStream:
     """Tests for ``_stream``."""

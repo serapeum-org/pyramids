@@ -164,15 +164,18 @@ class TestTimeAxis:
         assert axis.attrs["units"].startswith("nanoseconds since"), "missing CF units"
 
     def test_encode_uncoercible_object_passes_through(self):
-        """_encode() leaves a non-datetime object array unencoded (coercion swallowed).
+        """_encode() swallows a failed datetime64 coercion and passes the object axis through.
 
         Test scenario:
-            Strings cannot coerce to ``datetime64``; the ``TypeError``/``ValueError``
-            is swallowed, the axis stays object dtype, and no CF attrs are added.
+            An object-dtype array of plain objects hits the ``dtype.kind == 'O'``
+            branch; ``np.asarray(..., dtype='datetime64[ns]')`` raises, the
+            ``except (TypeError, ValueError)`` swallows it, and the axis stays object
+            dtype with no CF attrs (this is the exact swallow branch the string case
+            never reached, since ``["a", "b"]`` is a ``U``-dtype array).
         """
-        axis = TimeAxis._encode(["a", "b"], length=2)
-        assert axis.values.dtype.kind == "U" or axis.values.dtype.kind == "O", (
-            f"non-datetime strings must not be CF-encoded, got {axis.values.dtype}"
+        axis = TimeAxis._encode([object(), object()], length=2)
+        assert axis.values.dtype.kind == "O", (
+            f"an uncoercible object axis must stay object dtype, got {axis.values.dtype}"
         )
         assert axis.attrs == {}, (
             f"uncoercible axis must carry no CF attrs, got {axis.attrs}"
