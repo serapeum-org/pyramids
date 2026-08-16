@@ -81,6 +81,12 @@ class TestFromVectorTileServer:
         assert set(fc["layer"]) == {served["layer_name"]}, (
             "the source sub-layer is tagged"
         )
+        expected = _read._vts_bbox_3857(tuple(served["bbox_4326"]), {})
+        lods = _read._resolve_vts_tiling(_load_metadata())[3]
+        pad = 512 * lods[served["zoom"]]  # one tile span of slack for MVT edge clipping
+        minx, miny, maxx, maxy = fc.total_bounds
+        assert expected[0] - pad <= minx and maxx <= expected[2] + pad, (minx, maxx, expected)
+        assert expected[1] - pad <= miny and maxy <= expected[3] + pad, (miny, maxy, expected)
 
     def test_output_crs_reprojects(self, served):
         """``output_crs`` reprojects the result off the native 3857 tiles."""
@@ -102,7 +108,7 @@ class TestFromVectorTileServer:
             zoom=served["zoom"],
             layer=served["layer_name"],
         )
-        assert len(hit) >= 2, "the real sub-layer should read features"
+        assert len(hit) == 3, "the real sub-layer reads all 3 rows (2 polygon pieces + point)"
         miss = FeatureCollection.from_vectortileserver(
             "https://host/VectorTileServer",
             bbox=tuple(served["bbox_4326"]),
@@ -116,12 +122,12 @@ class TestFromVectorTileServer:
         fc = FeatureCollection.from_vectortileserver(
             "https://host/VectorTileServer", bbox=tuple(served["bbox_4326"])
         )
-        assert len(fc) >= 2, "auto-picked zoom should still cover the fixture tiles"
+        assert len(fc) == 3, "auto-picked zoom covers the fixture tiles (3 rows)"
 
     def test_bbox_none_reads_service_full_extent(self, served):
         """``bbox=None`` falls back to the service ``fullExtent`` and still reads the tiles."""
         fc = FeatureCollection.from_vectortileserver("https://host/VectorTileServer")
-        assert len(fc) >= 2, "the fullExtent fallback should cover the fixture tiles"
+        assert len(fc) == 3, "the fullExtent fallback covers the fixture tiles (3 rows)"
 
     def test_max_tiles_cap_warns_and_truncates(self, served):
         """Exceeding ``max_tiles`` emits a UserWarning and reads only the capped count."""
@@ -179,7 +185,7 @@ class TestFromVectorTileServer:
             "https://host/VectorTileServer", bbox=tuple(info["bbox_4326"]), zoom=info["zoom"]
         )
         assert calls["n"] == 2, "both covering tiles are requested"
-        assert len(fc) >= 1, "the present tile's features survive the absent one"
+        assert len(fc) == 1, "only the present tile's single polygon fragment survives"
 
     def test_bad_zoom_raises_value_error(self, served):
         """A ``zoom`` the service does not advertise is a plain ValueError."""
