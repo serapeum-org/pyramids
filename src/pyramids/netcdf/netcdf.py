@@ -4211,6 +4211,12 @@ class NetCDF(Dataset):
         Returns:
             np.ndarray or None: The variable data, or None if the
                 variable is not found.
+
+        See Also:
+            _read_mdim_variable: The MDIM path (guarded MDArray read plus the
+                dimension indexing-variable fallback).
+            _read_classic_variable: The classic ``NETCDF:file:var`` subdataset
+                path used when no MDIM working group is available.
         """
         rg = self._working_group()
         if rg is not None:
@@ -4239,6 +4245,14 @@ class NetCDF(Dataset):
 
         Returns:
             np.ndarray or None: The variable data, or ``None`` if not found.
+
+        Raises:
+            Exception: Propagates any error raised by the indexing-variable
+                fallback. The MDArray read is guarded (``RuntimeError`` /
+                ``ValueError`` are swallowed so the fallback can run), but the
+                fallback itself is deliberately left unguarded, so a genuine
+                failure there surfaces to the caller instead of being masked as a
+                missing variable.
         """
         result: np.typing.NDArray | None = None
         try:
