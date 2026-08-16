@@ -4250,13 +4250,13 @@ class NetCDF(Dataset):
         Returns:
             np.ndarray or None: The variable data, or ``None`` if not found.
 
-        Raises:
-            Exception: Propagates unchanged from two places. The MDArray branch
-                only swallows ``RuntimeError`` / ``ValueError`` (from
-                ``OpenMDArray``, the read, or normalization); any other exception
-                type surfaces to the caller. And the indexing-variable fallback
-                runs outside that guard, so any error it raises propagates too,
-                rather than being masked as a missing variable.
+        Note:
+            This method raises nothing of its own but it does not catch
+            everything. The MDArray branch swallows only ``RuntimeError`` /
+            ``ValueError`` (from ``OpenMDArray``, the read, or normalization), so
+            any other exception type propagates unchanged; and the
+            indexing-variable fallback runs outside that guard, so any error it
+            raises propagates too rather than being masked as a missing variable.
         """
         result: np.typing.NDArray | None = None
         try:
