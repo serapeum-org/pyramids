@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -17746,12 +17746,12 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-4251" name="__codelineno-0-4251"></a><span class="sd">            np.ndarray or None: The variable data, or ``None`` if not found.</span>
 <a id="__codelineno-0-4252" name="__codelineno-0-4252"></a>
 <a id="__codelineno-0-4253" name="__codelineno-0-4253"></a><span class="sd">        Raises:</span>
-<a id="__codelineno-0-4254" name="__codelineno-0-4254"></a><span class="sd">            Exception: Any error raised by ``_read_indexing_variable`` propagates</span>
-<a id="__codelineno-0-4255" name="__codelineno-0-4255"></a><span class="sd">                unchanged. The MDArray branch is guarded (``RuntimeError`` /</span>
-<a id="__codelineno-0-4256" name="__codelineno-0-4256"></a><span class="sd">                ``ValueError`` from ``OpenMDArray`` or the read are swallowed so</span>
-<a id="__codelineno-0-4257" name="__codelineno-0-4257"></a><span class="sd">                the fallback can run), but the fallback call sits outside that</span>
-<a id="__codelineno-0-4258" name="__codelineno-0-4258"></a><span class="sd">                guard, so a genuine failure there surfaces to the caller instead</span>
-<a id="__codelineno-0-4259" name="__codelineno-0-4259"></a><span class="sd">                of being masked as a missing variable.</span>
+<a id="__codelineno-0-4254" name="__codelineno-0-4254"></a><span class="sd">            Exception: Propagates unchanged from two places. The MDArray branch</span>
+<a id="__codelineno-0-4255" name="__codelineno-0-4255"></a><span class="sd">                only swallows ``RuntimeError`` / ``ValueError`` (from</span>
+<a id="__codelineno-0-4256" name="__codelineno-0-4256"></a><span class="sd">                ``OpenMDArray``, the read, or normalization); any other exception</span>
+<a id="__codelineno-0-4257" name="__codelineno-0-4257"></a><span class="sd">                type surfaces to the caller. And the indexing-variable fallback</span>
+<a id="__codelineno-0-4258" name="__codelineno-0-4258"></a><span class="sd">                runs outside that guard, so any error it raises propagates too,</span>
+<a id="__codelineno-0-4259" name="__codelineno-0-4259"></a><span class="sd">                rather than being masked as a missing variable.</span>
 <a id="__codelineno-0-4260" name="__codelineno-0-4260"></a><span class="sd">        &quot;&quot;&quot;</span>
 <a id="__codelineno-0-4261" name="__codelineno-0-4261"></a>        <span class="n">result</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <a id="__codelineno-0-4262" name="__codelineno-0-4262"></a>        <span class="k">try</span><span class="p">:</span>
@@ -17785,7 +17785,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-4290" name="__codelineno-0-4290"></a><span class="sd">        Returns:</span>
 <a id="__codelineno-0-4291" name="__codelineno-0-4291"></a><span class="sd">            np.ndarray or None: The read data (``None`` only if GDAL yields it).</span>
 <a id="__codelineno-0-4292" name="__codelineno-0-4292"></a><span class="sd">        &quot;&quot;&quot;</span>
-<a id="__codelineno-0-4293" name="__codelineno-0-4293"></a>        <span class="n">result</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-4293" name="__codelineno-0-4293"></a>        <span class="n">result</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">typing</span><span class="o">.</span><span class="n">NDArray</span> <span class="o">|</span> <span class="kc">None</span>
 <a id="__codelineno-0-4294" name="__codelineno-0-4294"></a>        <span class="k">if</span> <span class="n">window</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-4295" name="__codelineno-0-4295"></a>            <span class="n">starts</span> <span class="o">=</span> <span class="p">[</span><span class="n">w</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">window</span><span class="p">]</span>
 <a id="__codelineno-0-4296" name="__codelineno-0-4296"></a>            <span class="n">counts</span> <span class="o">=</span> <span class="p">[</span><span class="n">w</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">window</span><span class="p">]</span>
