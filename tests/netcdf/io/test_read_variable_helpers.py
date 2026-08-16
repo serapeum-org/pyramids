@@ -308,6 +308,28 @@ class TestReadClassicVariable:
 
         assert result is None, f"{exc.__name__} must be swallowed to None"
 
+    @pytest.mark.parametrize("exc", [RuntimeError, AttributeError])
+    def test_swallows_read_errors_after_successful_open(self, exc):
+        """RuntimeError/AttributeError from ``ReadAsArray`` (post-open) yield ``None``.
+
+        Args:
+            exc: The exception type ``ReadAsArray`` raises.
+
+        Test scenario:
+            ``gdal.Open`` returns a dataset, but its ``ReadAsArray`` then raises a
+            guarded error; the ``except`` must swallow it and produce ``None`` -- a
+            distinct sub-branch from ``gdal.Open`` itself raising.
+        """
+        mock_self = Mock()
+        mock_self.file_name = "file.nc"
+        ds = Mock()
+        ds.ReadAsArray.side_effect = exc("boom")
+
+        with patch("pyramids.netcdf.netcdf.gdal.Open", return_value=ds):
+            result = NetCDF._read_classic_variable(mock_self, "salt")
+
+        assert result is None, f"{exc.__name__} from ReadAsArray must yield None"
+
 
 class TestReadMdimVariable:
     """Tests for ``NetCDF._read_mdim_variable`` orchestration and scoping."""
