@@ -323,8 +323,9 @@ class TestCubeNetCDFWriterStream:
         ds = Mock()
         ds.read_array.return_value = np.zeros((2, 4, 5))
         writer = _stream_writer(datasets=[ds], files=["bad.tif"], band_count=1)
+        sink = Mock()
         with pytest.raises(AlignmentError, match="bad.tif"):
-            writer._stream(Mock(), dims={"y": 4, "x": 5}, var_per_band=True)
+            writer._stream(sink, dims={"y": 4, "x": 5}, var_per_band=True)
 
     def test_stream_mismatch_without_files_names_timestep(self):
         """_stream falls back to 'timestep N' in the error when files is None.
@@ -335,5 +336,6 @@ class TestCubeNetCDFWriterStream:
         ds = Mock()
         ds.read_array.return_value = np.zeros((3, 4, 5))
         writer = _stream_writer(datasets=[ds], files=None, band_count=1)
+        sink = Mock()
         with pytest.raises(AlignmentError, match="timestep 0"):
-            writer._stream(Mock(), dims={"y": 4, "x": 5}, var_per_band=True)
+            writer._stream(sink, dims={"y": 4, "x": 5}, var_per_band=True)
