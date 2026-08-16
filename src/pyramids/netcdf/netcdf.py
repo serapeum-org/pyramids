@@ -4149,7 +4149,7 @@ class NetCDF(Dataset):
         """
         return self._get_dimension_names()
 
-    def _get_dimension(self, name: str) -> gdal.Dimension:
+    def _get_dimension(self, name: str) -> gdal.Dimension | None:
         dim = None
         for candidate in self._working_group_dimensions():
             if candidate.GetName() == name:
@@ -4217,6 +4217,10 @@ class NetCDF(Dataset):
                 dimension indexing-variable fallback).
             _read_classic_variable: The classic ``NETCDF:file:var`` subdataset
                 path used when no MDIM working group is available.
+            _read_mdarray: The windowed/full MDArray read.
+            _normalize_mdarray_axes: The full-read axis-flip normalization (where
+                the Y/X flip happens).
+            _read_indexing_variable: The dimension indexing-variable fallback read.
         """
         rg = self._working_group()
         if rg is not None:
@@ -4247,12 +4251,12 @@ class NetCDF(Dataset):
             np.ndarray or None: The variable data, or ``None`` if not found.
 
         Raises:
-            Exception: Propagates any error raised by the indexing-variable
-                fallback. The MDArray read is guarded (``RuntimeError`` /
-                ``ValueError`` are swallowed so the fallback can run), but the
-                fallback itself is deliberately left unguarded, so a genuine
-                failure there surfaces to the caller instead of being masked as a
-                missing variable.
+            Exception: Any error raised by ``_read_indexing_variable`` propagates
+                unchanged. The MDArray branch is guarded (``RuntimeError`` /
+                ``ValueError`` from ``OpenMDArray`` or the read are swallowed so
+                the fallback can run), but the fallback call sits outside that
+                guard, so a genuine failure there surfaces to the caller instead
+                of being masked as a missing variable.
         """
         result: np.typing.NDArray | None = None
         try:
