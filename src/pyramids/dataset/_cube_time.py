@@ -17,9 +17,14 @@ from typing import Any
 import numpy as np
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class TimeAxis:
     """A datacube's time axis: 1-D coordinate values plus their CF attributes.
+
+    ``eq=False`` (so instances compare/hash by identity): the auto-generated
+    ``__eq__`` / ``__hash__`` over an ``np.ndarray`` field would raise (array truth
+    value is ambiguous / arrays are unhashable). Nothing compares or hashes a
+    ``TimeAxis`` today; identity semantics avoid that footgun.
 
     ``values`` is the encoded axis — a positional integer index, a numeric axis
     passed through as-is, or a ``datetime64`` axis CF-encoded to ``int64``
@@ -58,6 +63,8 @@ class TimeAxis:
         time_coords: Sequence[Any] | None,
         length: int,
         collection_time: Sequence[Any] | None,
+        *,
+        warn_stacklevel: int = 5,
     ) -> TimeAxis:
         """Resolve a cube's time axis to a :class:`TimeAxis`.
 
@@ -71,6 +78,12 @@ class TimeAxis:
             collection_time: The collection's own time axis (used when
                 ``time_coords`` is ``None`` and the collection is dated), else
                 ``None``.
+            warn_stacklevel: ``stacklevel`` for the non-monotonic / duplicate
+                ``time_coords`` warnings, so they point at the caller's own call
+                site. The default (5) is tuned for the ``to_netcdf`` chain
+                (``user -> to_netcdf -> CubeNetCDFWriter.write -> resolve ->
+                _encode -> warn``); a caller at a different depth (e.g. ``to_zarr``)
+                passes its own.
 
         Returns:
             TimeAxis: the resolved, CF-encoded axis.
@@ -114,7 +127,7 @@ class TimeAxis:
             # own calendar axis by default; an explicit time_coords overrides it.
             time_coords = collection_time
         if time_coords is not None:
-            axis = cls._encode(time_coords, length)
+            axis = cls._encode(time_coords, length, warn_stacklevel=warn_stacklevel)
         else:
             axis = cls(
                 np.arange(length, dtype="int64"),
@@ -126,7 +139,9 @@ class TimeAxis:
         return axis
 
     @classmethod
-    def _encode(cls, time_coords: Sequence[Any], length: int) -> TimeAxis:
+    def _encode(
+        cls, time_coords: Sequence[Any], length: int, *, warn_stacklevel: int = 5
+    ) -> TimeAxis:
         """Validate explicit ``time_coords`` and CF-encode a ``datetime64`` axis.
 
         Materialises generators, coerces object arrays of datetime / Timestamp to
@@ -138,6 +153,8 @@ class TimeAxis:
             time_coords: Explicit time-axis values (any sized sequence, a
                 generator, a ``pd.DatetimeIndex``, or a list of datetime objects).
             length: Number of timesteps the axis must match.
+            warn_stacklevel: ``stacklevel`` for the non-monotonic / duplicate
+                warnings (see :meth:`resolve`).
 
         Returns:
             TimeAxis: the encoded axis.
@@ -166,20 +183,20 @@ class TimeAxis:
             )
         attrs: dict[str, Any] = {}
         if values.shape[0] > 1 and values.dtype.kind in "iufM":
-            # stacklevel=5: warn -> _encode -> resolve -> CubeNetCDFWriter.write ->
-            # DatasetCollection.to_netcdf -> user's call site, so the warning is
-            # attributed to the caller of to_netcdf rather than to pyramids.
+            # warn_stacklevel is caller-supplied so the warning points at the
+            # caller's own call site (default 5 for the to_netcdf chain: warn ->
+            # _encode -> resolve -> CubeNetCDFWriter.write -> to_netcdf -> user).
             if not np.array_equal(values, np.sort(values)):
                 warnings.warn(
                     "time_coords is not monotonically increasing; some "
                     "downstream CF readers may reorder or refuse the axis",
-                    stacklevel=5,
+                    stacklevel=warn_stacklevel,
                 )
             if np.unique(values).size != values.size:
                 warnings.warn(
                     "time_coords contains duplicate values; downstream "
                     "indexers may pick an arbitrary timestep",
-                    stacklevel=5,
+                    stacklevel=warn_stacklevel,
                 )
         if values.dtype.kind == "M":
             # GDAL's multidim writer has no native datetime64 type; encode as an
