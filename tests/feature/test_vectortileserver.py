@@ -85,8 +85,16 @@ class TestFromVectorTileServer:
         lods = _read._resolve_vts_tiling(_load_metadata())[3]
         pad = 512 * lods[served["zoom"]]  # one tile span of slack for MVT edge clipping
         minx, miny, maxx, maxy = fc.total_bounds
-        assert expected[0] - pad <= minx and maxx <= expected[2] + pad, (minx, maxx, expected)
-        assert expected[1] - pad <= miny and maxy <= expected[3] + pad, (miny, maxy, expected)
+        assert expected[0] - pad <= minx and maxx <= expected[2] + pad, (
+            minx,
+            maxx,
+            expected,
+        )
+        assert expected[1] - pad <= miny and maxy <= expected[3] + pad, (
+            miny,
+            maxy,
+            expected,
+        )
 
     def test_output_crs_reprojects(self, served):
         """``output_crs`` reprojects the result off the native 3857 tiles."""
@@ -108,7 +116,9 @@ class TestFromVectorTileServer:
             zoom=served["zoom"],
             layer=served["layer_name"],
         )
-        assert len(hit) == 3, "the real sub-layer reads all 3 rows (2 polygon pieces + point)"
+        assert len(hit) == 3, (
+            "the real sub-layer reads all 3 rows (2 polygon pieces + point)"
+        )
         miss = FeatureCollection.from_vectortileserver(
             "https://host/VectorTileServer",
             bbox=tuple(served["bbox_4326"]),
@@ -182,7 +192,9 @@ class TestFromVectorTileServer:
             FeatureCollection, "_fetch_vectortileserver_tile", classmethod(_tile)
         )
         fc = FeatureCollection.from_vectortileserver(
-            "https://host/VectorTileServer", bbox=tuple(info["bbox_4326"]), zoom=info["zoom"]
+            "https://host/VectorTileServer",
+            bbox=tuple(info["bbox_4326"]),
+            zoom=info["zoom"],
         )
         assert calls["n"] == 2, "both covering tiles are requested"
         assert len(fc) == 1, "only the present tile's single polygon fragment survives"
@@ -253,12 +265,18 @@ class TestVectorTileServerValidation:
     def test_requests_use_a_consistent_user_agent(self):
         """Metadata and tile requests advertise the same VectorTileServer User-Agent."""
         meta_req = _read._vts_request("https://h/x?f=json", None, accept_json=True)
-        tile_req = _read._vts_request("https://h/tile/1/1/1.pbf", None, accept_json=False)
+        tile_req = _read._vts_request(
+            "https://h/tile/1/1/1.pbf", None, accept_json=False
+        )
         ua = "pyramids-gis VectorTileServer client"
         assert meta_req.get_header("User-agent") == ua, meta_req.header_items()
         assert tile_req.get_header("User-agent") == ua, tile_req.header_items()
-        assert meta_req.get_header("Accept") == "application/json", "metadata negotiates JSON"
-        assert tile_req.get_header("Accept") is None, "a tile request does not force JSON"
+        assert meta_req.get_header("Accept") == "application/json", (
+            "metadata negotiates JSON"
+        )
+        assert tile_req.get_header("Accept") is None, (
+            "a tile request does not force JSON"
+        )
 
     def test_bbox_none_uses_full_extent(self):
         """``bbox=None`` reads the read extent from the service ``fullExtent`` (already 3857)."""
@@ -385,7 +403,9 @@ class TestVectorTileServerValidation:
         span = (2 * origin) / 4  # a 4x4 grid — regardless of any advertised LOD integer
         huge = (-3 * origin, -3 * origin, 3 * origin, 3 * origin)
         _, col_max, _, row_max = _read._vts_tile_range(huge, -origin, origin, span)
-        assert (col_max, row_max) == (3, 3), "grid dimension (4) is derived from tile_span"
+        assert (col_max, row_max) == (3, 3), (
+            "grid dimension (4) is derived from tile_span"
+        )
 
     def test_base_and_query_splits_url(self):
         """A URL with a query is split into base + query so the token survives."""

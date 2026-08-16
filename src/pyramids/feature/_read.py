@@ -208,7 +208,9 @@ def _vts_request(
     url: str, auth: tuple[str, str] | None, *, accept_json: bool
 ) -> urllib.request.Request:
     """Build the urllib request for a VectorTileServer fetch, sending Basic auth preemptively."""
-    headers = {"User-Agent": _VTS_USER_AGENT}  # one UA for the metadata and tile requests
+    headers = {
+        "User-Agent": _VTS_USER_AGENT
+    }  # one UA for the metadata and tile requests
     if accept_json:
         headers["Accept"] = "application/json"
     if auth is not None:
