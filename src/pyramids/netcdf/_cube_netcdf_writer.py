@@ -16,6 +16,7 @@ circular-import carveout (see :meth:`DatasetCollection.to_netcdf`).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -73,7 +74,7 @@ class CubeNetCDFWriter:
         path: str | Path,
         *,
         time_dim: str = "time",
-        time_coords: Any = None,
+        time_coords: Sequence[Any] | None = None,
         var_per_band: bool = True,
     ) -> None:
         """Write the collection's cube to a single multidim NetCDF at ``path``.
@@ -91,12 +92,18 @@ class CubeNetCDFWriter:
                 ``len(time_coords) != time_length``.
             AlignmentError: When a timestep's shape or band count differs from the
                 collection template.
+            RuntimeError: When the GDAL multidim NetCDF writer fails to write the
+                file.
         """
         collection = self._collection
         if collection.time_length == 0:
             raise ValueError(
                 "to_netcdf: cannot write an empty collection (time_length == 0)."
             )
+        # Resolve (and length-validate) the time axis before deriving the band
+        # state, matching the original to_netcdf order so the same error wins when
+        # both the axis and the template are in play.
+        axis = TimeAxis.resolve(time_coords, collection.time_length, collection.time)
         meta = collection._meta
         self._meta = meta
         self.band_count = int(meta.shape[0])
@@ -107,7 +114,6 @@ class CubeNetCDFWriter:
         )
         self.var_dtype = np.dtype(meta.dtype)
 
-        axis = TimeAxis.resolve(time_coords, collection.time_length, collection.time)
         dims, coords, var_specs, root_attrs = self._build_schema(
             axis, time_dim=time_dim, var_per_band=var_per_band
         )
