@@ -4251,12 +4251,12 @@ class NetCDF(Dataset):
             np.ndarray or None: The variable data, or ``None`` if not found.
 
         Raises:
-            Exception: Any error raised by ``_read_indexing_variable`` propagates
-                unchanged. The MDArray branch is guarded (``RuntimeError`` /
-                ``ValueError`` from ``OpenMDArray`` or the read are swallowed so
-                the fallback can run), but the fallback call sits outside that
-                guard, so a genuine failure there surfaces to the caller instead
-                of being masked as a missing variable.
+            Exception: Propagates unchanged from two places. The MDArray branch
+                only swallows ``RuntimeError`` / ``ValueError`` (from
+                ``OpenMDArray``, the read, or normalization); any other exception
+                type surfaces to the caller. And the indexing-variable fallback
+                runs outside that guard, so any error it raises propagates too,
+                rather than being masked as a missing variable.
         """
         result: np.typing.NDArray | None = None
         try:
@@ -4290,7 +4290,7 @@ class NetCDF(Dataset):
         Returns:
             np.ndarray or None: The read data (``None`` only if GDAL yields it).
         """
-        result: np.typing.NDArray | None = None
+        result: np.typing.NDArray | None
         if window is not None:
             starts = [w[0] for w in window]
             counts = [w[1] for w in window]
