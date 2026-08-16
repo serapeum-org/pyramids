@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6419,7 +6419,7 @@ Hold "Ctrl" to enable pan &amp; zoom
     +get_variable(name)
     +read_array(band, window, unpack)
     +time_stamp
-    +plot(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+    +plot(variable, *, selectors, facet, axes, kind, animate, chunks, **kwargs)
   }
   class _Engine {
     &lt;&lt;abstract&gt;&gt;
@@ -6460,7 +6460,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 The shared <code>pyramids.dataset._plot_helpers</code> module owns the cleopatra dispatch (<code>render_array</code> for
 arrays, <code>mesh_render</code> for meshes); <code>pyramids.netcdf._plot.NetCDFPlot</code> does the NetCDF-specific
 variable/selector/curvilinear/facet/animate resolution and feeds <code>render_array</code>; <code>Selectors</code> /
-<code>ColourOpts</code> / <code>FacetSpec</code> (in <code>pyramids.netcdf.plot_options</code>, re-exported from
+<code>CoordinateSpec</code> / <code>FacetSpec</code> (in <code>pyramids.netcdf.plot_options</code>, re-exported from
 <code>pyramids.netcdf</code>) are the grouped option dataclasses; <code>pyramids.basemap.add_basemap</code> is a thin
 wrapper over <code>cleopatra.tiles.add_tiles</code>.</p>
 <div class="panzoom-box" data-key="ctrl" id="panzoom0" oncontextmenu="return false;">
@@ -6492,7 +6492,7 @@ Hold "Ctrl" to enable pan &amp; zoom
     +_resolve_plot_band(band, rgb)
   }
   class NetCDF {
-    +plot(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+    +plot(variable, *, selectors, facet, axes, kind, animate, chunks, **kwargs)
   }
   class DatasetCollection {
     +plot(...)
@@ -6505,7 +6505,7 @@ Hold "Ctrl" to enable pan &amp; zoom
     +plot(band, ...)
   }
   class NetCDFPlot {
-    +run(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+    +run(variable, *, selectors, facet, axes, kind, animate, chunks, **kwargs)
     -_resolve_selectors()
     -_build_render_kwargs()
     -_build_facet_stack()
@@ -6527,18 +6527,11 @@ Hold "Ctrl" to enable pan &amp; zoom
     +sel
     +isel
   }
-  class ColourOpts {
+  class CoordinateSpec {
     &lt;&lt;frozen dataclass&gt;&gt;
-    +cmap
-    +vmin
-    +vmax
-    +robust
-    +levels
-    +norm
-    +center
-    +extend
-    +add_colorbar
-    +cbar_kwargs
+    +coords
+    +x_dim
+    +y_dim
   }
   class FacetSpec {
     &lt;&lt;frozen dataclass&gt;&gt;
@@ -6571,7 +6564,7 @@ Hold "Ctrl" to enable pan &amp; zoom
   NetCDF ..&gt; NetCDFPlot : delegates plot
   NetCDFPlot ..&gt; plot_helpers : render_array
   NetCDFPlot ..&gt; Selectors : uses
-  NetCDFPlot ..&gt; ColourOpts : uses
+  NetCDFPlot ..&gt; CoordinateSpec : uses
   NetCDFPlot ..&gt; FacetSpec : uses
   DatasetCollection ..&gt; plot_helpers : render_array(mode="animate")
   UgridDataset ..&gt; plot_helpers : mesh_render
@@ -7003,7 +6996,7 @@ Hold "Ctrl" to enable pan &amp; zoom
         +create_from_array(arr, geo, ...)
         +add_variable(dataset, variable_name)
         +remove_variable(variable_name)
-        +plot(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+        +plot(variable, *, selectors, facet, axes, kind, animate, chunks, **kwargs)
     }
 
     %% UgridDataset
@@ -7040,7 +7033,7 @@ Hold "Ctrl" to enable pan &amp; zoom
         +mesh_render(mesh, data, location, basemap, ...)
     }
     class netcdf_NetCDFPlot {
-        +run(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+        +run(variable, *, selectors, facet, axes, kind, animate, chunks, **kwargs)
         -_resolve_selectors()
         -_build_render_kwargs()
         -_build_facet_stack()
@@ -7053,10 +7046,9 @@ Hold "Ctrl" to enable pan &amp; zoom
         &lt;&lt;frozen dataclass&gt;&gt;
         +time · level · member · sel · isel
     }
-    class netcdf_ColourOpts {
+    class netcdf_CoordinateSpec {
         &lt;&lt;frozen dataclass&gt;&gt;
-        +cmap · vmin · vmax · robust · levels
-        +norm · center · extend · add_colorbar · cbar_kwargs
+        +coords · x_dim · y_dim
     }
     class netcdf_FacetSpec {
         &lt;&lt;frozen dataclass&gt;&gt;
@@ -7158,7 +7150,7 @@ Hold "Ctrl" to enable pan &amp; zoom
     %% plotting layer relations
     netcdf_NetCDF ..&gt; netcdf_NetCDFPlot : delegates plot()
     netcdf_NetCDFPlot ..&gt; netcdf_Selectors : uses
-    netcdf_NetCDFPlot ..&gt; netcdf_ColourOpts : uses
+    netcdf_NetCDFPlot ..&gt; netcdf_CoordinateSpec : uses
     netcdf_NetCDFPlot ..&gt; netcdf_FacetSpec : uses
     netcdf_NetCDFPlot ..&gt; plot_helpers_module : render_array
     engines_Analysis ..&gt; plot_helpers_module : render_array

@@ -60,7 +60,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6854,7 +6854,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="kn">from</span><span class="w"> </span><span class="nn">shapely.geometry</span><span class="w"> </span><span class="kn">import</span> <span class="n">Polygon</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureCollection</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ColorOpts</span><span class="p">,</span> <span class="n">GeoReference</span><span class="p">,</span> <span class="n">NetCDF</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">CoordinateSpec</span><span class="p">,</span> <span class="n">GeoReference</span><span class="p">,</span> <span class="n">NetCDF</span>
 
 <span class="n">DATA</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s1">'../../../../examples/data/netcdf/samples'</span><span class="p">)</span>
 </pre></div>
@@ -6867,7 +6867,7 @@ import numpy as np
 from shapely.geometry import Polygon
 
 from pyramids.feature import FeatureCollection
-from pyramids.netcdf import ColorOpts, GeoReference, NetCDF
+from pyramids.netcdf import CoordinateSpec, GeoReference, NetCDF
 
 DATA = Path('../../../../examples/data/netcdf/samples')</div>
 </div>
@@ -7146,7 +7146,7 @@ print(meta)</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># clamp the colour scale to the open-ocean range: the coastal freshwater plumes</span>
 <span class="c1"># pull the default min down to ~9 PSU, which flattens the offshore salinity</span>
 <span class="c1"># structure into near-uniform blue</span>
-<span class="n">glyph</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s1">'salt'</span><span class="p">,</span> <span class="n">colour</span><span class="o">=</span><span class="n">ColorOpts</span><span class="p">(</span><span class="n">vmin</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">vmax</span><span class="o">=</span><span class="mi">37</span><span class="p">))</span>
+<span class="n">glyph</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s1">'salt'</span><span class="p">,</span> <span class="n">vmin</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">vmax</span><span class="o">=</span><span class="mi">37</span><span class="p">)</span>
 <span class="c1"># the glyph carries the variable's CRS (issue #630), so the Natural Earth coastline</span>
 <span class="c1"># overlay lines up with this curvilinear lon/lat grid without restating crs=</span>
 <span class="n">glyph</span><span class="o">.</span><span class="n">add_features</span><span class="p">(</span><span class="s2">"coastline"</span><span class="p">,</span> <span class="s2">"50m"</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
@@ -7154,7 +7154,7 @@ print(meta)</div>
 <div class="clipboard-copy-txt" id="cell-5"># clamp the colour scale to the open-ocean range: the coastal freshwater plumes
 # pull the default min down to ~9 PSU, which flattens the offshore salinity
 # structure into near-uniform blue
-glyph = nc.plot(variable='salt', colour=ColorOpts(vmin=30, vmax=37))
+glyph = nc.plot(variable='salt', vmin=30, vmax=37)
 # the glyph carries the variable's CRS (issue #630), so the Natural Earth coastline
 # overlay lines up with this curvilinear lon/lat grid without restating crs=
 glyph.add_features("coastline", "50m", zorder=5)</div>
@@ -7774,7 +7774,9 @@ print(meta)</div>
     <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tair</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span>
     <span class="n">variable_name</span><span class="o">=</span><span class="s1">'Tair'</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="n">glyph</span> <span class="o">=</span> <span class="n">patch</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s1">'Tair'</span><span class="p">,</span> <span class="n">coords</span><span class="o">=</span><span class="p">(</span><span class="n">xc</span><span class="p">[:,</span> <span class="n">cols</span><span class="p">],</span> <span class="n">yc</span><span class="p">[:,</span> <span class="n">cols</span><span class="p">]))</span>
+<span class="n">glyph</span> <span class="o">=</span> <span class="n">patch</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+    <span class="n">variable</span><span class="o">=</span><span class="s1">'Tair'</span><span class="p">,</span> <span class="n">axes</span><span class="o">=</span><span class="n">CoordinateSpec</span><span class="p">(</span><span class="n">coords</span><span class="o">=</span><span class="p">(</span><span class="n">xc</span><span class="p">[:,</span> <span class="n">cols</span><span class="p">],</span> <span class="n">yc</span><span class="p">[:,</span> <span class="n">cols</span><span class="p">]))</span>
+<span class="p">)</span>
 <span class="n">glyph</span><span class="o">.</span><span class="n">add_features</span><span class="p">(</span><span class="s2">"coastline"</span><span class="p">,</span> <span class="s2">"50m"</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-14"># This RASM grid wraps 0–360° longitude: its easternmost columns cross the 0/360
@@ -7794,7 +7796,9 @@ patch = NetCDF.create_from_array(
     geo_ref=GeoReference(geo=(0, 1, 0, tair.shape[0], 0, -1), epsg=4326),
     variable_name='Tair',
 )
-glyph = patch.plot(variable='Tair', coords=(xc[:, cols], yc[:, cols]))
+glyph = patch.plot(
+    variable='Tair', axes=CoordinateSpec(coords=(xc[:, cols], yc[:, cols]))
+)
 glyph.add_features("coastline", "50m", zorder=5)</div>
 </div>
 </div>
@@ -8321,7 +8325,7 @@ print(meta)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[22]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f3337adfbb0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f7ff0fa7950&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">

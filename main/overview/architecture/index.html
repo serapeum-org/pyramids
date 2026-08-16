@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6314,7 +6314,7 @@ Hold "Ctrl" to enable pan &amp; zoom
         FeatureCollection
         subgraph Engines["Dataset engines (ds.io · ds.spatial · ds.bands · ds.analysis · ds.cell · ds.vectorize · ds.cog)"]
         end
-        subgraph Plotting["Plotting layer — _plot_helpers.render_array · mesh_render · NetCDFPlot · Selectors / ColourOpts / FacetSpec · basemap"]
+        subgraph Plotting["Plotting layer — _plot_helpers.render_array · mesh_render · NetCDFPlot · Selectors / CoordinateSpec / FacetSpec · basemap"]
         end
     end
     Dataset --&gt;|crop · reproject · align| Dataset
@@ -6398,7 +6398,7 @@ over a shared core in <code>pyramids.dataset._plot_helpers</code> (<code>render_
 for meshes), which builds a <a href="https://github.com/serapeum-org/cleopatra">cleopatra</a> glyph and
 dispatches to <code>plot</code> / <code>facet</code> / <code>animate</code>. <code>NetCDF.plot</code> adds the NetCDF-specific resolver
 <code>pyramids.netcdf._plot.NetCDFPlot</code> (variable / selector / curvilinear-coord / facet / animate
-resolution) and the grouped option dataclasses <code>Selectors</code> / <code>ColourOpts</code> / <code>FacetSpec</code>
+resolution) and the grouped option dataclasses <code>Selectors</code> / <code>CoordinateSpec</code> / <code>FacetSpec</code>
 (<code>pyramids.netcdf.plot_options</code>, re-exported from <code>pyramids.netcdf</code>).
 <code>pyramids.basemap.add_basemap</code> / <code>get_provider</code> are thin wrappers over <code>cleopatra.tiles</code>.</p>
 <div class="panzoom-box" data-key="ctrl" id="panzoom0" oncontextmenu="return false;">
@@ -6426,13 +6426,13 @@ Hold "Ctrl" to enable pan &amp; zoom
     </nav>
     <pre class="mermaid"><code>graph LR
     DS["Dataset.plot&lt;br/&gt;(band, rgb_options, basemap)"]
-    NC["NetCDF.plot&lt;br/&gt;(variable, selectors, colour,&lt;br/&gt;facet, coords, kind, animate, chunks)"]
+    NC["NetCDF.plot&lt;br/&gt;(variable, selectors, facet,&lt;br/&gt;axes, kind, animate, chunks, **kwargs)"]
     DC["DatasetCollection.plot&lt;br/&gt;(animate mode)"]
     UG["UgridDataset.plot / plot_outline"]
     AN["Analysis.plot&lt;br/&gt;(generic engine)"]
 
     NCP["netcdf._plot.NetCDFPlot&lt;br/&gt;resolve variable · selectors&lt;br/&gt;curvilinear coords · facet · animate"]
-    OPTS["netcdf.plot_options&lt;br/&gt;Selectors · ColourOpts · FacetSpec"]
+    OPTS["netcdf.plot_options&lt;br/&gt;Selectors · CoordinateSpec · FacetSpec"]
     RC["dataset._plot_helpers&lt;br/&gt;render_array · mesh_render"]
     BM["basemap&lt;br/&gt;add_basemap · get_provider"]
     CLEO(["cleopatra&lt;br/&gt;ArrayGlyph (plot · facet · animate)&lt;br/&gt;MeshGlyph · styles.ColorScale · tiles"])
