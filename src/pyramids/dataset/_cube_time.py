@@ -34,6 +34,19 @@ class TimeAxis:
     Attributes:
         values: 1-D array of time-coordinate values.
         attrs: CF attributes for the time coordinate. Defaults to empty.
+
+    Examples:
+        - Build a positional axis and read its values and CF note:
+
+            ```python
+            >>> from pyramids.dataset._cube_time import TimeAxis
+            >>> axis = TimeAxis.resolve(None, length=3, collection_time=None)
+            >>> axis.values.tolist()
+            [0, 1, 2]
+            >>> axis.attrs["long_name"]
+            'time index'
+
+            ```
     """
 
     values: np.ndarray
@@ -61,6 +74,40 @@ class TimeAxis:
 
         Returns:
             TimeAxis: the resolved, CF-encoded axis.
+
+        Examples:
+            - Explicit numeric coordinates pass through unencoded:
+
+                ```python
+                >>> from pyramids.dataset._cube_time import TimeAxis
+                >>> axis = TimeAxis.resolve([10, 20, 30], length=3, collection_time=None)
+                >>> axis.values.tolist()
+                [10, 20, 30]
+                >>> axis.attrs
+                {}
+
+                ```
+            - A datetime64 axis is CF-encoded to int64 nanoseconds-since-epoch:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset._cube_time import TimeAxis
+                >>> dates = np.array(["2020-01-01", "2020-01-02"], dtype="datetime64[ns]")
+                >>> axis = TimeAxis.resolve(dates, length=2, collection_time=None)
+                >>> axis.values.tolist()
+                [1577836800000000000, 1577923200000000000]
+                >>> axis.attrs["units"]
+                'nanoseconds since 1970-01-01 00:00:00'
+
+                ```
+            - With no coordinates, a positional ``0..length-1`` index is emitted:
+
+                ```python
+                >>> from pyramids.dataset._cube_time import TimeAxis
+                >>> TimeAxis.resolve(None, length=2, collection_time=None).values.tolist()
+                [0, 1]
+
+                ```
         """
         if time_coords is None and collection_time is not None:
             # A dated collection (time parsed from file names) exports with its

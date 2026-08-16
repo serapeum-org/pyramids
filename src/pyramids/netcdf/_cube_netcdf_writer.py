@@ -41,6 +41,18 @@ class CubeNetCDFWriter:
         band_count: Number of bands (the collection template's band count).
         names: Per-band variable names.
         var_dtype: Dtype every variable is written at (each timestep is cast to it).
+
+    Examples:
+        - Drive a write from a collection (the engine behind
+          :meth:`DatasetCollection.to_netcdf`; needs a real collection so it is not
+          run here):
+
+            ```python
+            >>> CubeNetCDFWriter(collection).write(  # doctest: +SKIP
+            ...     "cube.nc", time_dim="time", var_per_band=True
+            ... )
+
+            ```
     """
 
     _meta: RasterMeta
