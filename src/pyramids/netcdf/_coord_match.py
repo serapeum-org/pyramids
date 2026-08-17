@@ -164,9 +164,11 @@ def coord_shapes_match(
 
             ```
     """
-    if data_shape is None:
-        return False
-    return matches_x_axis(x_arr, data_shape) and matches_y_axis(y_arr, data_shape)
+    return (
+        data_shape is not None
+        and matches_x_axis(x_arr, data_shape)
+        and matches_y_axis(y_arr, data_shape)
+    )
 
 
 def values_within_latitude(arr: np.ndarray) -> bool:
@@ -179,8 +181,8 @@ def values_within_latitude(arr: np.ndarray) -> bool:
     values returns ``False`` (it cannot be confirmed as a latitude).
 
     Args:
-        arr (np.ndarray): Coordinate array to classify. Non-finite entries
-            (``NaN`` / ``inf``) are ignored.
+        arr: Coordinate array to classify. Non-finite entries (``NaN`` / ``inf``)
+            are ignored.
 
     Returns:
         bool: ``True`` when at least one value is finite and all finite values fall
