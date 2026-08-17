@@ -1,4 +1,4 @@
-"""Unit tests for ``_CFCoordinateCandidates`` (CF auxiliary-coordinate pairing).
+"""Unit tests for ``CFCoordinateCandidates`` (CF auxiliary-coordinate pairing).
 
 The value object holds the classified x / y coordinate candidates for a data slice
 and owns the two-pass ``(x, y)`` pairing. These tests drive it in isolation with
@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from pyramids.netcdf._plot import NetCDFPlot, _CFCoordinateCandidates
+from pyramids.netcdf._plot import CFCoordinateCandidates, NetCDFPlot
 
 _SHAPE = (4, 5)  # (rows, cols)
 
@@ -56,7 +56,7 @@ def _lon2d():
 
 
 class TestCFCoordinateCandidates:
-    """Tests for ``_CFCoordinateCandidates`` gather + pairing."""
+    """Tests for ``CFCoordinateCandidates`` gather + pairing."""
 
     def test_gather_classifies_x_and_y(self):
         """gather classifies 1-D cols/rows and 2-D coords into the x / y lists.
@@ -66,7 +66,7 @@ class TestCFCoordinateCandidates:
             ``grid`` matches both axes so it appears in both lists.
         """
         parent = _FakeParent({"lon": _lon1d(), "lat": _lat1d(), "grid": _lat2d()})
-        candidates = _CFCoordinateCandidates.gather(
+        candidates = CFCoordinateCandidates.gather(
             ["lon", "lat", "grid"], parent, _SHAPE
         )
         x_names = {n for n, _ in candidates._x}
@@ -82,7 +82,7 @@ class TestCFCoordinateCandidates:
             up in the resolved arrays.
         """
         parent = _FakeParent({"lon": _lon1d(), "bad": None})
-        candidates = _CFCoordinateCandidates.gather(
+        candidates = CFCoordinateCandidates.gather(
             ["lon", "bad", "absent"], parent, _SHAPE
         )
         assert set(candidates.arrays_by_name()) == {"lon"}, (
@@ -96,7 +96,7 @@ class TestCFCoordinateCandidates:
             A ``(2, 4, 5)`` coord is reduced to ``(4, 5)`` during gather.
         """
         parent = _FakeParent({"c3": np.zeros((2, 4, 5))})
-        candidates = _CFCoordinateCandidates.gather(["c3"], parent, _SHAPE)
+        candidates = CFCoordinateCandidates.gather(["c3"], parent, _SHAPE)
         assert candidates.arrays_by_name()["c3"].shape == _SHAPE, (
             "3-D coord must be squeezed"
         )
@@ -111,7 +111,7 @@ class TestCFCoordinateCandidates:
         east, lon = np.arange(5.0), np.arange(5.0) + 100
         north, lat = np.arange(4.0), np.arange(4.0) + 100
         parent = _FakeParent({"east": east, "lon": lon, "north": north, "lat": lat})
-        candidates = _CFCoordinateCandidates.gather(
+        candidates = CFCoordinateCandidates.gather(
             ["east", "lon", "north", "lat"], parent, _SHAPE
         )
         pair = candidates.best_pair()
@@ -127,7 +127,7 @@ class TestCFCoordinateCandidates:
             guard rejects ``grid``/``grid``, so best_pair returns ``None``.
         """
         parent = _FakeParent({"grid": _lat2d()})
-        candidates = _CFCoordinateCandidates.gather(["grid"], parent, _SHAPE)
+        candidates = CFCoordinateCandidates.gather(["grid"], parent, _SHAPE)
         assert candidates.best_pair() is None, (
             "a single 2-D coord must not collapse onto both axes"
         )
@@ -141,7 +141,7 @@ class TestCFCoordinateCandidates:
         """
         lon2d, lat2d = _lon2d(), _lat2d()
         parent = _FakeParent({"a": lon2d, "b": lat2d})
-        candidates = _CFCoordinateCandidates.gather(["a", "b"], parent, _SHAPE)
+        candidates = CFCoordinateCandidates.gather(["a", "b"], parent, _SHAPE)
         pair = candidates.best_pair()
         assert pair is not None, "a 2-D pair must be found"
         assert pair[0] is lon2d, "the longitude-valued array must be x"
@@ -156,7 +156,7 @@ class TestCFCoordinateCandidates:
         """
         east, north = _lon1d(), _lat1d()
         parent = _FakeParent({"east": east, "north": north})
-        candidates = _CFCoordinateCandidates.gather(["east", "north"], parent, _SHAPE)
+        candidates = CFCoordinateCandidates.gather(["east", "north"], parent, _SHAPE)
         pair = candidates.best_pair()
         assert pair is not None, "a distinct 1-D pair must be found"
         assert pair[0] is east, "the cols-length array must be x"
@@ -169,7 +169,7 @@ class TestCFCoordinateCandidates:
             A wrong-shaped array matches neither axis, so there is no pair.
         """
         parent = _FakeParent({"bad": np.zeros((2, 2))})
-        candidates = _CFCoordinateCandidates.gather(["bad"], parent, _SHAPE)
+        candidates = CFCoordinateCandidates.gather(["bad"], parent, _SHAPE)
         assert candidates.best_pair() is None, "no viable candidates must yield None"
 
     def test_assign_2d_by_latitude_is_symmetric(self):
@@ -180,8 +180,8 @@ class TestCFCoordinateCandidates:
             ``(longitude, latitude)`` — the assignment is order-independent.
         """
         lon2d, lat2d = _lon2d(), _lat2d()
-        forward = _CFCoordinateCandidates._assign_2d_by_latitude("a", lat2d, "b", lon2d)
-        reverse = _CFCoordinateCandidates._assign_2d_by_latitude("a", lon2d, "b", lat2d)
+        forward = CFCoordinateCandidates._assign_2d_by_latitude("a", lat2d, "b", lon2d)
+        reverse = CFCoordinateCandidates._assign_2d_by_latitude("a", lon2d, "b", lat2d)
         assert forward[0] is lon2d, "lat-first: x must be the longitude array"
         assert forward[1] is lat2d, "lat-first: y must be the latitude array"
         assert reverse[0] is lon2d, "lon-first: x must be the longitude array"
@@ -197,7 +197,7 @@ class TestCFCoordinateCandidates:
         """
         a, b = _lat2d(), _lat2d() + 1.0
         with caplog.at_level(logging.DEBUG, logger="pyramids.netcdf._plot"):
-            pair = _CFCoordinateCandidates._assign_2d_by_latitude("a", a, "b", b)
+            pair = CFCoordinateCandidates._assign_2d_by_latitude("a", a, "b", b)
         assert pair[0] is a, "ambiguous roles: first candidate stays x"
         assert pair[1] is b, "ambiguous roles: second candidate stays y"
         hints = [r for r in caplog.records if r.name == "pyramids.netcdf._plot"]
@@ -215,7 +215,7 @@ class TestCFCoordinateCandidates:
             The gathered arrays are returned keyed by name.
         """
         lon = _lon1d()
-        candidates = _CFCoordinateCandidates.gather(
+        candidates = CFCoordinateCandidates.gather(
             ["lon"], _FakeParent({"lon": lon}), _SHAPE
         )
         assert candidates.arrays_by_name()["lon"] is lon, (

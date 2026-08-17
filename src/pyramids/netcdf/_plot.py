@@ -121,7 +121,7 @@ _ANIMATE_DROP_KWARGS = frozenset(
 )
 
 
-class _CFCoordinateCandidates:
+class CFCoordinateCandidates:
     """The CF auxiliary-coordinate candidates for one data slice.
 
     Groups the coord arrays that read as an x axis and those that read as a y axis
@@ -158,7 +158,7 @@ class _CFCoordinateCandidates:
         names: list[str],
         parent: NetCDF,
         data_shape: tuple[int, int],
-    ) -> _CFCoordinateCandidates:
+    ) -> CFCoordinateCandidates:
         """Read each named coord var off ``parent``, squeeze it, and classify x / y.
 
         Args:
@@ -167,7 +167,7 @@ class _CFCoordinateCandidates:
             data_shape: ``(rows, cols)`` of the data slice.
 
         Returns:
-            _CFCoordinateCandidates: the classified x / y candidate lists.
+            CFCoordinateCandidates: the classified x / y candidate lists.
         """
         arrays: dict[str, np.ndarray] = {}
         for name in names:
@@ -1624,8 +1624,8 @@ class NetCDFPlot:
         attribute off ``nc._variable_attrs`` (populated by
         :meth:`NetCDF.get_variable`), gathers and classifies the named
         coord arrays, and delegates the ``(x, y)`` pairing to
-        :class:`_CFCoordinateCandidates` — see its class docstring and
-        :meth:`_CFCoordinateCandidates.best_pair` for the two-pass
+        :class:`CFCoordinateCandidates` — see its class docstring and
+        :meth:`CFCoordinateCandidates.best_pair` for the two-pass
         matching algorithm (name heuristic, then a distinct-pair fallback
         that disambiguates 2-D curvilinear candidates by latitude range).
         When the attribute is missing or no valid pair is found it returns
@@ -1647,7 +1647,7 @@ class NetCDFPlot:
         names = self._cf_coordinate_names(nc)
         data_shape = nc.shape[-2:] if nc.shape else None
         if names and data_shape is not None:
-            candidates = _CFCoordinateCandidates.gather(names, parent, data_shape)
+            candidates = CFCoordinateCandidates.gather(names, parent, data_shape)
             result = candidates.best_pair()
             if result is None:
                 logger.debug(
