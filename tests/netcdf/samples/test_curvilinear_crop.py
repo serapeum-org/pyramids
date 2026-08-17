@@ -14,7 +14,7 @@ from osgeo import gdal
 from shapely.geometry import MultiPolygon, Polygon
 
 from pyramids.feature import FeatureCollection
-from pyramids.netcdf import GeoReference, NetCDF
+from pyramids.netcdf import GeoReference, NetCDF, _coord_match
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.engines.selection import _lon_cell_size
 from tests.netcdf.samples.conftest import TOS as RECTILINEAR
@@ -305,10 +305,10 @@ def test_rasm_crop_lazy_matches_eager(sample):
     ],
 )
 def test_values_within_latitude(values, expected):
-    """`_values_within_latitude` flags arrays bounded to [-90, 90] (latitudes) and rejects longitudes."""
-    result = NetCDFPlot._values_within_latitude(np.array(values, dtype=float))
+    """`values_within_latitude` flags arrays bounded to [-90, 90] (latitudes) and rejects longitudes."""
+    result = _coord_match.values_within_latitude(np.array(values, dtype=float))
     assert result == expected, (
-        f"_values_within_latitude({values}) -> {result}, expected {expected}"
+        f"values_within_latitude({values}) -> {result}, expected {expected}"
     )
 
 

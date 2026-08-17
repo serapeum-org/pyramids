@@ -17,9 +17,12 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 
 from pyramids.dataset._plot_helpers import render_array as _render_array
+from pyramids.netcdf import _coord_match
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from cleopatra.basemap.geo import Basemap
 
     from pyramids.netcdf.netcdf import NetCDF
@@ -116,6 +119,184 @@ _ANIMATE_DROP_KWARGS = frozenset(
         "_extent",
     }
 )
+
+
+class _CFCoordinateCandidates:
+    """The CF auxiliary-coordinate candidates for one data slice.
+
+    Groups the coord arrays that read as an x axis and those that read as a y axis
+    (plus the 2-D data shape they must line up with) and owns the two-pass pairing
+    that turns them into an ``(x, y)`` pair: a name-heuristic pass, then a
+    distinct-pair fallback that disambiguates two 2-D curvilinear candidates by
+    latitude range. A 2-D coord matches both axes, so it appears in both lists; the
+    pairing guards against collapsing it onto one axis.
+    """
+
+    def __init__(
+        self,
+        x_candidates: list[tuple[str, np.ndarray]],
+        y_candidates: list[tuple[str, np.ndarray]],
+        arrays: dict[str, np.ndarray],
+        data_shape: tuple[int, int],
+    ) -> None:
+        """Store the classified candidate lists and the slice shape.
+
+        Args:
+            x_candidates: ``(name, array)`` pairs that read as an x axis.
+            y_candidates: ``(name, array)`` pairs that read as a y axis.
+            arrays: All resolved candidate arrays by name (for the no-match log).
+            data_shape: ``(rows, cols)`` of the data slice the coords must match.
+        """
+        self._x = x_candidates
+        self._y = y_candidates
+        self._arrays = arrays
+        self._data_shape = data_shape
+
+    @classmethod
+    def gather(
+        cls,
+        names: list[str],
+        parent: NetCDF,
+        data_shape: tuple[int, int],
+    ) -> _CFCoordinateCandidates:
+        """Read each named coord var off ``parent``, squeeze it, and classify x / y.
+
+        Args:
+            names: The coordinate variable names from the CF ``coordinates`` attr.
+            parent: NetCDF container the coord vars are read from.
+            data_shape: ``(rows, cols)`` of the data slice.
+
+        Returns:
+            _CFCoordinateCandidates: the classified x / y candidate lists.
+        """
+        arrays: dict[str, np.ndarray] = {}
+        for name in names:
+            if name in parent.variable_names:
+                arr = parent._read_variable(name)
+                if arr is not None:
+                    arrays[name] = _coord_match.squeeze_leading_axes(arr, data_shape)
+        x_candidates = [
+            (n, a)
+            for n, a in arrays.items()
+            if _coord_match.matches_x_axis(a, data_shape)
+        ]
+        y_candidates = [
+            (n, a)
+            for n, a in arrays.items()
+            if _coord_match.matches_y_axis(a, data_shape)
+        ]
+        return cls(x_candidates, y_candidates, arrays, data_shape)
+
+    def arrays_by_name(self) -> dict[str, np.ndarray]:
+        """Return the resolved candidate arrays by name (for the caller's no-match log).
+
+        Returns a shallow copy so callers cannot mutate the value object's internal
+        mapping; the arrays themselves are shared (read-only at every call site).
+        """
+        return dict(self._arrays)
+
+    def best_pair(self) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+        """Return the best ``(x, y)`` pair from the candidates, or ``None``.
+
+        Runs the two passes in order. Pass 1 (:meth:`_named_pair`) picks the first
+        pair of distinct candidates whose shapes line up with the data slice **and**
+        whose names match the lon/lat heuristic. Pass 2 (:meth:`_distinct_pair`) runs
+        only when Pass 1 finds nothing: it takes the first shape-matching pair of
+        distinct candidates, disambiguating two 2-D curvilinear candidates by
+        latitude range (:meth:`_assign_2d_by_latitude`). That assignment is
+        **symmetric** — whichever 2-D array is within-latitude (``[-90.5, 90.5]``,
+        the ±0.5 pole slack of :func:`_coord_match.values_within_latitude`) becomes
+        the y axis regardless of candidate order, so e.g. rasm's ``xc`` / ``yc`` are
+        neither collapsed onto one axis nor swapped. When both or neither 2-D
+        candidate looks like a latitude the roles are genuinely ambiguous, so
+        candidate order is kept and a debug hint is logged. Returns ``None`` when no
+        distinct pair matches, so the caller falls back to conventional naming.
+
+        Returns:
+            tuple or None: The chosen x/y arrays, or ``None`` when nothing matched.
+        """
+        pair = self._named_pair()
+        if pair is None:
+            pair = self._distinct_pair()
+        return pair
+
+    def _candidate_pairs(
+        self,
+    ) -> Iterator[tuple[str, np.ndarray, str, np.ndarray]]:
+        """Yield ``(x_name, x_arr, y_name, y_arr)`` for distinct, shape-matching pairs.
+
+        Walks the x candidates against the y candidates, skipping a pair that names
+        the same variable for both axes (so a 2-D coord present in both lists is never
+        collapsed onto one axis) and any pair whose shapes do not line up with the
+        data slice. Both pairing passes iterate this one shared sequence, in x-then-y
+        candidate order.
+        """
+        for x_name, x_arr in self._x:
+            for y_name, y_arr in self._y:
+                if x_name == y_name:
+                    continue
+                if _coord_match.coord_shapes_match(x_arr, y_arr, self._data_shape):
+                    yield x_name, x_arr, y_name, y_arr
+
+    def _named_pair(self) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+        """First distinct pair whose names match the lon/lat heuristic and shapes line up."""
+        result = None
+        for x_name, x_arr, y_name, y_arr in self._candidate_pairs():
+            if _coord_match.looks_like_x_then_y(x_name, y_name):
+                result = (x_arr, y_arr)
+                break
+        return result
+
+    def _distinct_pair(self) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+        """First viable pair of **distinct** candidates; two 2-D candidates disambiguated by latitude.
+
+        A 2-D coord matches both axes, so it lands in both lists — the ``x_name ==
+        y_name`` guard in :meth:`_candidate_pairs` stops it being picked for both axes
+        (which would collapse a curvilinear grid like rasm's ``xc``/``yc`` onto one
+        axis). 1-D candidates are already separated by length.
+        """
+        result = None
+        for x_name, x_arr, y_name, y_arr in self._candidate_pairs():
+            if x_arr.ndim == 2 and y_arr.ndim == 2:
+                result = self._assign_2d_by_latitude(x_name, x_arr, y_name, y_arr)
+            else:
+                result = (x_arr, y_arr)
+            break
+        return result
+
+    @staticmethod
+    def _assign_2d_by_latitude(
+        x_name: str,
+        x_arr: np.ndarray,
+        y_name: str,
+        y_arr: np.ndarray,
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray]:
+        """Assign x/y roles for two 2-D candidates by latitude range.
+
+        Symmetric: whichever array is within latitude (``[-90.5, 90.5]``, the ±0.5
+        pole slack of :func:`_coord_match.values_within_latitude`) becomes the y
+        axis, regardless of candidate order. When both or neither look like a
+        latitude the roles are genuinely ambiguous, so keep candidate order and log
+        a debug hint (pass ``x_dim`` / ``y_dim`` or ``coords=`` to override).
+        """
+        x_is_lat = _coord_match.values_within_latitude(x_arr)
+        y_is_lat = _coord_match.values_within_latitude(y_arr)
+        if x_is_lat and not y_is_lat:
+            pair = (y_arr, x_arr)
+        elif y_is_lat and not x_is_lat:
+            pair = (x_arr, y_arr)
+        else:
+            logger.debug(
+                "curvilinear x/y roles ambiguous for %r/%r "
+                "(within-latitude: %s/%s); keeping candidate order — pass "
+                "x_dim/y_dim or coords= to override.",
+                x_name,
+                y_name,
+                x_is_lat,
+                y_is_lat,
+            )
+            pair = (x_arr, y_arr)
+        return pair
 
 
 class NetCDFPlot:
@@ -1314,7 +1495,7 @@ class NetCDFPlot:
             x_in, y_in = user_coords
             x_arr = self._coerce_coord_spec(x_in, parent, "x")
             y_arr = self._coerce_coord_spec(y_in, parent, "y")
-            if self._coord_shapes_match(x_arr, y_arr, data_shape):
+            if _coord_match.coord_shapes_match(x_arr, y_arr, data_shape):
                 result = (x_arr, y_arr)
             else:
                 logger.warning(
@@ -1333,14 +1514,14 @@ class NetCDFPlot:
             if stored is not None:
                 x_arr = np.asarray(stored[0])
                 y_arr = np.asarray(stored[1])
-                if self._coord_shapes_match(x_arr, y_arr, data_shape):
+                if _coord_match.coord_shapes_match(x_arr, y_arr, data_shape):
                     result = (x_arr, y_arr)
 
         if result is None and data_shape is not None:
             cf_pair = self._cf_coordinates_pair(nc, parent)
             if cf_pair is not None:
                 x_arr, y_arr = cf_pair
-                if self._coord_shapes_match(x_arr, y_arr, data_shape):
+                if _coord_match.coord_shapes_match(x_arr, y_arr, data_shape):
                     result = (x_arr, y_arr)
 
         if result is None and data_shape is not None:
@@ -1350,8 +1531,8 @@ class NetCDFPlot:
                     yv = parent._read_variable(y_name)
                     if xv is None or yv is None:
                         continue
-                    x_arr = self._squeeze_leading_axes(xv, data_shape)
-                    y_arr = self._squeeze_leading_axes(yv, data_shape)
+                    x_arr = _coord_match.squeeze_leading_axes(xv, data_shape)
+                    y_arr = _coord_match.squeeze_leading_axes(yv, data_shape)
                     if require_2d and (x_arr.ndim != 2 or y_arr.ndim != 2):
                         # A generic name pair (e.g. xc/yc) is trusted only when
                         # BOTH arrays are genuinely 2-D. A 1-D pair (or a 1-D/2-D
@@ -1362,7 +1543,7 @@ class NetCDFPlot:
                         # the CF `coordinates` attribute or explicit `coords=` for
                         # those.
                         continue
-                    if self._coord_shapes_match(x_arr, y_arr, data_shape):
+                    if _coord_match.coord_shapes_match(x_arr, y_arr, data_shape):
                         warnings.warn(
                             "Resolving curvilinear coordinates by hardcoded "
                             f"model-specific names ({x_name!r}, {y_name!r}) is "
@@ -1430,107 +1611,27 @@ class NetCDFPlot:
             result = np.asarray(spec)
         return result
 
-    @staticmethod
-    def _squeeze_leading_axes(
-        arr: np.ndarray,
-        data_shape: tuple[int, int],
-    ) -> np.typing.NDArray:
-        """Drop leading singleton/time axes so a coord matches the slice shape.
-
-        WRF stores `XLAT` / `XLONG` as `(time, lat, lon)` even though the
-        same grid is shared across time — taking time-step 0 gives a 2-D
-        view that lines up with the data slice.
-
-        Args:
-            arr: Coord array, typically 2-D or 3-D ``(extra, rows, cols)``.
-            data_shape: Target shape ``(rows, cols)`` of the data slice.
-
-        Returns:
-            np.ndarray: Either ``arr`` unchanged (already 1-D / 2-D
-                matching) or the time-step-0 slice of a 3-D array.
-        """
-        rows, cols = data_shape
-        if arr.ndim == 3 and arr.shape[-2:] == (rows, cols):
-            result = arr[0]
-        else:
-            result = arr
-        return cast("np.typing.NDArray", result)
-
-    @staticmethod
-    def _matches_x_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:
-        """True when ``arr`` can serve as the x axis for ``data_shape`` (1-D cols or 2-D slice)."""
-        _, cols = data_shape
-        return (arr.ndim == 1 and arr.shape[0] == cols) or (
-            arr.ndim == 2 and arr.shape == data_shape
-        )
-
-    @staticmethod
-    def _matches_y_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:
-        """True when ``arr`` can serve as the y axis for ``data_shape`` (1-D rows or 2-D slice)."""
-        rows, _ = data_shape
-        return (arr.ndim == 1 and arr.shape[0] == rows) or (
-            arr.ndim == 2 and arr.shape == data_shape
-        )
-
-    @staticmethod
-    def _coord_shapes_match(
-        x_arr: np.ndarray,
-        y_arr: np.ndarray,
-        data_shape: tuple[int, int] | None,
-    ) -> bool:
-        """Return True when ``(x_arr, y_arr)`` line up with ``data_shape``.
-
-        Accepts the same shape rules as cleopatra's `ArrayGlyph(coords=)`:
-
-        * ``x_arr`` is 1-D matching ``cols`` or 2-D matching the slice.
-        * ``y_arr`` is 1-D matching ``rows`` or 2-D matching the slice.
-
-        Args:
-            x_arr: Candidate x coordinate array.
-            y_arr: Candidate y coordinate array.
-            data_shape: ``(rows, cols)`` of the data slice. ``None`` →
-                cannot validate, returns ``False``.
-
-        Returns:
-            bool: ``True`` when both arrays line up with ``data_shape``.
-        """
-        if data_shape is None:
-            return False
-        return NetCDFPlot._matches_x_axis(
-            x_arr, data_shape
-        ) and NetCDFPlot._matches_y_axis(y_arr, data_shape)
-
     def _cf_coordinates_pair(
         self,
         nc: NetCDF,
         parent: NetCDF,
     ) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
-        """Parse the CF `coordinates` attribute into an `(x, y)` array pair.
+        """Parse the CF ``coordinates`` attribute into an ``(x, y)`` array pair.
 
         The CF Conventions allow a data variable to declare auxiliary
         coordinate variables via its ``coordinates`` attribute (a
         space-separated string of variable names). Pyramids reads the
         attribute off ``nc._variable_attrs`` (populated by
-        :meth:`NetCDF.get_variable`), then resolves each name to an
-        array.
-
-        For each pair (n choose 2 from the listed coord vars) the helper
-        picks the first one where one name reads as the x axis (1-D
-        ``cols`` or 2-D matching) and the other as the y axis (1-D
-        ``rows`` or 2-D matching), preferring a pair whose names match
-        the lon/lat heuristic. If none matches the name heuristic, it
-        falls back to the first pair of **distinct** candidates — and
-        because a 2-D coord matches both axes, it disambiguates the x/y
-        roles by range: latitude is bounded to ±90 (via
-        :meth:`_values_within_latitude`). The assignment is **symmetric**
-        — whichever of the two 2-D candidates is within-latitude becomes
-        the y axis regardless of candidate order, so e.g. rasm's ``xc`` /
-        ``yc`` are neither collapsed onto one axis nor swapped. When both
-        or neither candidate looks like a latitude the roles are genuinely
-        ambiguous, so it keeps candidate order and logs a debug message
-        (pass ``coords=`` / ``x_dim`` / ``y_dim`` to override). When the
-        attribute is missing or no valid pair is found returns ``None`` so
-        the caller can fall back to the well-known-naming pass.
+        :meth:`NetCDF.get_variable`), gathers and classifies the named
+        coord arrays, and delegates the ``(x, y)`` pairing to
+        :class:`_CFCoordinateCandidates` — see its class docstring and
+        :meth:`_CFCoordinateCandidates.best_pair` for the two-pass
+        matching algorithm (name heuristic, then a distinct-pair fallback
+        that disambiguates 2-D curvilinear candidates by latitude range).
+        When the attribute is missing or no valid pair is found it returns
+        ``None`` so the caller can fall back to the well-known-naming
+        pass, logging the attempted names and candidate shapes at debug
+        level.
 
         Args:
             nc: The variable subset being plotted — the CF attribute is
@@ -1543,77 +1644,12 @@ class NetCDFPlot:
                 pair, or ``None`` when nothing matched.
         """
         result = None
-        attrs = getattr(nc, "_variable_attrs", None) or {}
-        coord_attr = attrs.get("coordinates")
+        names = self._cf_coordinate_names(nc)
         data_shape = nc.shape[-2:] if nc.shape else None
-        if isinstance(coord_attr, str) and data_shape is not None:
-            names = [n for n in coord_attr.split() if n]
-            candidate_arrays: dict[str, np.ndarray] = {}
-            for name in names:
-                if name in parent.variable_names:
-                    arr = parent._read_variable(name)
-                    if arr is not None:
-                        candidate_arrays[name] = self._squeeze_leading_axes(
-                            arr,
-                            data_shape,
-                        )
-            x_candidates: list[tuple[str, np.ndarray]] = []
-            y_candidates: list[tuple[str, np.ndarray]] = []
-            for name, arr in candidate_arrays.items():
-                if self._matches_x_axis(arr, data_shape):
-                    x_candidates.append((name, arr))
-                if self._matches_y_axis(arr, data_shape):
-                    y_candidates.append((name, arr))
-            for x_name, x_arr in x_candidates:
-                for y_name, y_arr in y_candidates:
-                    if x_name == y_name:
-                        continue
-                    if self._coord_shapes_match(x_arr, y_arr, data_shape):
-                        if self._looks_like_x_then_y(x_name, y_name):
-                            result = (x_arr, y_arr)
-                            break
-                if result is not None:
-                    break
-            if result is None and x_candidates and y_candidates:
-                # Fallback: first viable pair of **distinct** candidates. A 2-D coord matches both
-                # axes, so it lands in both lists — guard against picking the same array for x and y
-                # (which would collapse a curvilinear grid like rasm's ``xc``/``yc`` onto one axis).
-                # When both are 2-D the x/y roles are ambiguous, so disambiguate by range: latitude
-                # is bounded to [-90, 90]. 1-D candidates are already separated by length.
-                for x_name, x_arr in x_candidates:
-                    for y_name, y_arr in y_candidates:
-                        if x_name == y_name:
-                            continue
-                        if not self._coord_shapes_match(x_arr, y_arr, data_shape):
-                            continue
-                        if x_arr.ndim == 2 and y_arr.ndim == 2:
-                            # Both 2-D: the x/y roles are ambiguous by shape, so assign by range —
-                            # latitude is bounded to [-90, 90]. Symmetric: whichever of the two is
-                            # within-latitude is the y axis, regardless of candidate order. Only when
-                            # both or neither look like latitude do we fall back to candidate order.
-                            x_is_lat = self._values_within_latitude(x_arr)
-                            y_is_lat = self._values_within_latitude(y_arr)
-                            if x_is_lat and not y_is_lat:
-                                result = (y_arr, x_arr)
-                            elif y_is_lat and not x_is_lat:
-                                result = (x_arr, y_arr)
-                            else:
-                                logger.debug(
-                                    "curvilinear x/y roles ambiguous for %r/%r "
-                                    "(within-latitude: %s/%s); keeping candidate order — pass "
-                                    "x_dim/y_dim or coords= to override.",
-                                    x_name,
-                                    y_name,
-                                    x_is_lat,
-                                    y_is_lat,
-                                )
-                                result = (x_arr, y_arr)
-                        else:
-                            result = (x_arr, y_arr)
-                        break
-                    if result is not None:
-                        break
-            if result is None and names:
+        if names and data_shape is not None:
+            candidates = _CFCoordinateCandidates.gather(names, parent, data_shape)
+            result = candidates.best_pair()
+            if result is None:
                 logger.debug(
                     "CF `coordinates` attr %r on variable %r did not yield a "
                     "coord pair matching the data slice shape %s (candidate "
@@ -1621,82 +1657,29 @@ class NetCDFPlot:
                     names,
                     getattr(nc, "_source_var_name", None),
                     data_shape,
-                    {n: a.shape for n, a in candidate_arrays.items()},
+                    {n: a.shape for n, a in candidates.arrays_by_name().items()},
                 )
         return result
 
     @staticmethod
-    def _values_within_latitude(arr: np.ndarray) -> bool:
-        """Return whether every finite value lies in ``[-90, 90]`` — i.e. the array reads as latitude.
+    def _cf_coordinate_names(nc: NetCDF) -> list[str]:
+        """Return the CF ``coordinates`` variable names declared on ``nc``, or ``[]``.
 
-        Used to disambiguate the x/y roles of two 2-D coordinate arrays (e.g. rasm's ``xc`` / ``yc``)
-        when neither name matches the lon/lat heuristic: longitudes routinely exceed ±90 (``0..360``
-        or beyond), latitudes never do. The ±0.5 slack tolerates cell-edge coordinates that graze the
-        pole. An array with no finite values returns ``False`` (it cannot be confirmed as a latitude).
+        Reads the space-separated ``coordinates`` attribute off
+        ``nc._variable_attrs`` and splits it; a missing / non-string attribute
+        yields an empty list.
 
         Args:
-            arr (np.ndarray): Coordinate array to classify. Non-finite entries (``NaN`` / ``inf``)
-                are ignored.
+            nc: The variable subset being plotted.
 
         Returns:
-            bool: ``True`` when at least one value is finite and all finite values fall within
-                ``[-90.5, 90.5]``; ``False`` otherwise.
-
-        Examples:
-            - A latitude array (bounded to ±90) is recognised:
-                ```python
-                >>> import numpy as np
-                >>> from pyramids.netcdf._plot import NetCDFPlot
-                >>> NetCDFPlot._values_within_latitude(np.array([-89.0, 0.0, 89.0]))
-                True
-
-                ```
-            - A ``0..360`` longitude array is rejected (it exceeds ±90):
-                ```python
-                >>> import numpy as np
-                >>> from pyramids.netcdf._plot import NetCDFPlot
-                >>> NetCDFPlot._values_within_latitude(np.array([0.0, 180.0, 360.0]))
-                False
-
-                ```
-            - An all-``NaN`` array is rejected (nothing finite to confirm):
-                ```python
-                >>> import numpy as np
-                >>> from pyramids.netcdf._plot import NetCDFPlot
-                >>> NetCDFPlot._values_within_latitude(np.array([np.nan, np.nan]))
-                False
-
-                ```
+            list[str]: The declared coordinate variable names (possibly empty).
         """
-        finite = arr[np.isfinite(arr)]
+        attrs = getattr(nc, "_variable_attrs", None) or {}
+        coord_attr = attrs.get("coordinates")
         return (
-            bool(finite.size)
-            and float(finite.min()) >= -90.5
-            and float(finite.max()) <= 90.5
+            [n for n in coord_attr.split() if n] if isinstance(coord_attr, str) else []
         )
-
-    @staticmethod
-    def _looks_like_x_then_y(x_name: str, y_name: str) -> bool:
-        """Heuristic name check: x looks like a longitude, y like a latitude.
-
-        Used to disambiguate the CF `coordinates` attribute when the
-        list has two viable candidates per axis. Returns ``True`` when
-        ``x_name`` contains ``"lon"`` / ``"long"`` and ``y_name``
-        contains ``"lat"`` (case-insensitive). Used purely as a tiebreaker;
-        a failed match falls back to the first viable pair.
-
-        Args:
-            x_name: Candidate x variable name.
-            y_name: Candidate y variable name.
-
-        Returns:
-            bool: ``True`` when the names follow the lon/lat convention.
-        """
-        xl = x_name.lower()
-        yl = y_name.lower()
-        x_is_lon = "lon" in xl or "long" in xl
-        y_is_lat = "lat" in yl
-        return x_is_lon and y_is_lat
 
     def _resolve_band_dim_name(
         self,
