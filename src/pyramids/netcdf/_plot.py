@@ -186,14 +186,28 @@ class _CFCoordinateCandidates:
         return cls(x_candidates, y_candidates, arrays, data_shape)
 
     def arrays_by_name(self) -> dict[str, np.ndarray]:
-        """Return the resolved candidate arrays by name (for the caller's no-match log)."""
-        return self._arrays
+        """Return the resolved candidate arrays by name (for the caller's no-match log).
+
+        Returns a shallow copy so callers cannot mutate the value object's internal
+        mapping; the arrays themselves are shared (read-only at every call site).
+        """
+        return dict(self._arrays)
 
     def best_pair(self) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
-        """Return the best ``(x, y)`` pair, or ``None``.
+        """Return the best ``(x, y)`` pair from the candidates, or ``None``.
 
-        The name-heuristic pass runs first; the distinct-pair fallback runs only
-        when the heuristic pass finds nothing.
+        Runs the two passes in order. Pass 1 (:meth:`_named_pair`) picks the first
+        pair of distinct candidates whose shapes line up with the data slice **and**
+        whose names match the lon/lat heuristic. Pass 2 (:meth:`_distinct_pair`) runs
+        only when Pass 1 finds nothing: it takes the first shape-matching pair of
+        distinct candidates, disambiguating two 2-D curvilinear candidates by
+        latitude range (:meth:`_assign_2d_by_latitude`). That assignment is
+        **symmetric** — whichever 2-D array is within-latitude (``[-90, 90]``) becomes
+        the y axis regardless of candidate order, so e.g. rasm's ``xc`` / ``yc`` are
+        neither collapsed onto one axis nor swapped. When both or neither 2-D
+        candidate looks like a latitude the roles are genuinely ambiguous, so
+        candidate order is kept and a debug hint is logged. Returns ``None`` when no
+        distinct pair matches, so the caller falls back to conventional naming.
 
         Returns:
             tuple or None: The chosen x/y arrays, or ``None`` when nothing matched.
@@ -1593,32 +1607,22 @@ class NetCDFPlot:
         nc: NetCDF,
         parent: NetCDF,
     ) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
-        """Parse the CF `coordinates` attribute into an `(x, y)` array pair.
+        """Parse the CF ``coordinates`` attribute into an ``(x, y)`` array pair.
 
         The CF Conventions allow a data variable to declare auxiliary
         coordinate variables via its ``coordinates`` attribute (a
         space-separated string of variable names). Pyramids reads the
         attribute off ``nc._variable_attrs`` (populated by
-        :meth:`NetCDF.get_variable`), then resolves each name to an
-        array.
-
-        For each pair (n choose 2 from the listed coord vars) the helper
-        picks the first one where one name reads as the x axis (1-D
-        ``cols`` or 2-D matching) and the other as the y axis (1-D
-        ``rows`` or 2-D matching), preferring a pair whose names match
-        the lon/lat heuristic. If none matches the name heuristic, it
-        falls back to the first pair of **distinct** candidates — and
-        because a 2-D coord matches both axes, it disambiguates the x/y
-        roles by range: latitude is bounded to ±90 (via
-        :meth:`_values_within_latitude`). The assignment is **symmetric**
-        — whichever of the two 2-D candidates is within-latitude becomes
-        the y axis regardless of candidate order, so e.g. rasm's ``xc`` /
-        ``yc`` are neither collapsed onto one axis nor swapped. When both
-        or neither candidate looks like a latitude the roles are genuinely
-        ambiguous, so it keeps candidate order and logs a debug message
-        (pass ``coords=`` / ``x_dim`` / ``y_dim`` to override). When the
-        attribute is missing or no valid pair is found returns ``None`` so
-        the caller can fall back to the well-known-naming pass.
+        :meth:`NetCDF.get_variable`), gathers and classifies the named
+        coord arrays, and delegates the ``(x, y)`` pairing to
+        :class:`_CFCoordinateCandidates` — see its class docstring and
+        :meth:`_CFCoordinateCandidates.best_pair` for the two-pass
+        matching algorithm (name heuristic, then a distinct-pair fallback
+        that disambiguates 2-D curvilinear candidates by latitude range).
+        When the attribute is missing or no valid pair is found it returns
+        ``None`` so the caller can fall back to the well-known-naming
+        pass, logging the attempted names and candidate shapes at debug
+        level.
 
         Args:
             nc: The variable subset being plotted — the CF attribute is
@@ -1650,7 +1654,7 @@ class NetCDFPlot:
 
     @staticmethod
     def _cf_coordinate_names(nc: NetCDF) -> list[str]:
-        """Return the CF `coordinates` variable names declared on `nc`, or `[]`.
+        """Return the CF ``coordinates`` variable names declared on ``nc``, or ``[]``.
 
         Reads the space-separated ``coordinates`` attribute off
         ``nc._variable_attrs`` and splits it; a missing / non-string attribute
@@ -1667,11 +1671,6 @@ class NetCDFPlot:
         return (
             [n for n in coord_attr.split() if n] if isinstance(coord_attr, str) else []
         )
-
-    # `values_within_latitude` lives in `_coord_match`; alias it here so the
-    # direct unit test (tests/netcdf/samples/test_curvilinear_crop.py) can keep
-    # calling it as `NetCDFPlot._values_within_latitude`.
-    _values_within_latitude = staticmethod(_coord_match.values_within_latitude)
 
     def _resolve_band_dim_name(
         self,
