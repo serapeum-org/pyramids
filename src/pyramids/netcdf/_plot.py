@@ -202,7 +202,8 @@ class _CFCoordinateCandidates:
         only when Pass 1 finds nothing: it takes the first shape-matching pair of
         distinct candidates, disambiguating two 2-D curvilinear candidates by
         latitude range (:meth:`_assign_2d_by_latitude`). That assignment is
-        **symmetric** — whichever 2-D array is within-latitude (``[-90, 90]``) becomes
+        **symmetric** — whichever 2-D array is within-latitude (``[-90.5, 90.5]``,
+        the ±0.5 pole slack of :func:`_coord_match.values_within_latitude`) becomes
         the y axis regardless of candidate order, so e.g. rasm's ``xc`` / ``yc`` are
         neither collapsed onto one axis nor swapped. When both or neither 2-D
         candidate looks like a latitude the roles are genuinely ambiguous, so
@@ -265,7 +266,8 @@ class _CFCoordinateCandidates:
     ) -> tuple[np.typing.NDArray, np.typing.NDArray]:
         """Assign x/y roles for two 2-D candidates by latitude range.
 
-        Symmetric: whichever array is within latitude (``[-90, 90]``) becomes the y
+        Symmetric: whichever array is within latitude (``[-90.5, 90.5]``, the ±0.5
+        pole slack of :func:`_coord_match.values_within_latitude`) becomes the y
         axis, regardless of candidate order. When both or neither look like a
         latitude the roles are genuinely ambiguous, so keep candidate order and log
         a debug hint (pass ``x_dim`` / ``y_dim`` or ``coords=`` to override).
