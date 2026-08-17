@@ -1587,7 +1587,9 @@ class NetCDFPlot:
         against the rendered slice. Shapes that do not match silently
         skip — the next candidate gets a chance. When nothing resolves
         to a valid pair the helper returns ``None`` so the caller falls
-        back to the geotransform-derived ``extent``.
+        back to the geotransform-derived ``extent``. The per-source logic
+        lives in :class:`CurvilinearCoordResolver`; this method is a thin
+        facade delegating to it.
 
         Args:
             nc: The variable subset being plotted.
