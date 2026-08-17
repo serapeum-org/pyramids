@@ -116,7 +116,8 @@ class TestCFCoordinateCandidates:
         )
         pair = candidates.best_pair()
         assert pair is not None, "a lon/lat pair must be found"
-        assert pair[0] is lon and pair[1] is lat, "the lon/lat named pair must win"
+        assert pair[0] is lon, "x must be the lon array"
+        assert pair[1] is lat, "y must be the lat array"
 
     def test_distinct_pair_does_not_collapse_a_single_2d_coord(self):
         """A lone 2-D coord (in both lists) is not paired with itself.
@@ -142,9 +143,9 @@ class TestCFCoordinateCandidates:
         parent = _FakeParent({"a": lon2d, "b": lat2d})
         candidates = _CFCoordinateCandidates.gather(["a", "b"], parent, _SHAPE)
         pair = candidates.best_pair()
-        assert pair is not None and pair[0] is lon2d and pair[1] is lat2d, (
-            "the within-latitude 2-D array must become y"
-        )
+        assert pair is not None, "a 2-D pair must be found"
+        assert pair[0] is lon2d, "the longitude-valued array must be x"
+        assert pair[1] is lat2d, "the within-latitude 2-D array must become y"
 
     def test_distinct_pair_1d_fallback(self):
         """Distinct 1-D candidates with non-lon/lat names still pair (x, y).
@@ -157,9 +158,9 @@ class TestCFCoordinateCandidates:
         parent = _FakeParent({"east": east, "north": north})
         candidates = _CFCoordinateCandidates.gather(["east", "north"], parent, _SHAPE)
         pair = candidates.best_pair()
-        assert pair is not None and pair[0] is east and pair[1] is north, (
-            "distinct 1-D candidates must pair as (x, y)"
-        )
+        assert pair is not None, "a distinct 1-D pair must be found"
+        assert pair[0] is east, "the cols-length array must be x"
+        assert pair[1] is north, "the rows-length array must be y"
 
     def test_best_pair_none_when_no_candidates(self):
         """best_pair returns ``None`` when nothing classifies as a coord.
@@ -181,12 +182,10 @@ class TestCFCoordinateCandidates:
         lon2d, lat2d = _lon2d(), _lat2d()
         forward = _CFCoordinateCandidates._assign_2d_by_latitude("a", lat2d, "b", lon2d)
         reverse = _CFCoordinateCandidates._assign_2d_by_latitude("a", lon2d, "b", lat2d)
-        assert forward[0] is lon2d and forward[1] is lat2d, (
-            "lat-first still yields (lon, lat)"
-        )
-        assert reverse[0] is lon2d and reverse[1] is lat2d, (
-            "lon-first still yields (lon, lat)"
-        )
+        assert forward[0] is lon2d, "lat-first: x must be the longitude array"
+        assert forward[1] is lat2d, "lat-first: y must be the latitude array"
+        assert reverse[0] is lon2d, "lon-first: x must be the longitude array"
+        assert reverse[1] is lat2d, "lon-first: y must be the latitude array"
 
     def test_assign_2d_by_latitude_ambiguous_keeps_order(self, caplog):
         """Ambiguous roles keep candidate order and log a DEBUG hint on the _plot logger.
@@ -199,9 +198,8 @@ class TestCFCoordinateCandidates:
         a, b = _lat2d(), _lat2d() + 1.0
         with caplog.at_level(logging.DEBUG, logger="pyramids.netcdf._plot"):
             pair = _CFCoordinateCandidates._assign_2d_by_latitude("a", a, "b", b)
-        assert pair[0] is a and pair[1] is b, (
-            "ambiguous roles must keep candidate order"
-        )
+        assert pair[0] is a, "ambiguous roles: first candidate stays x"
+        assert pair[1] is b, "ambiguous roles: second candidate stays y"
         hints = [r for r in caplog.records if r.name == "pyramids.netcdf._plot"]
         assert hints, (
             "an ambiguous-roles DEBUG record must be emitted on the _plot logger"
