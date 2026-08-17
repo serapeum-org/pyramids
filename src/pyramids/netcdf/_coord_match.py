@@ -30,6 +30,24 @@ def squeeze_leading_axes(
     Returns:
         np.ndarray: Either ``arr`` unchanged (already 1-D / 2-D matching) or the
             time-step-0 slice of a 3-D array.
+
+    Examples:
+        - A 3-D ``(time, rows, cols)`` coord collapses to its first plane:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf._coord_match import squeeze_leading_axes
+            >>> squeeze_leading_axes(np.zeros((2, 4, 5)), (4, 5)).shape
+            (4, 5)
+
+            ```
+        - A 1-D coord passes through unchanged:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf._coord_match import squeeze_leading_axes
+            >>> squeeze_leading_axes(np.arange(5), (4, 5)).shape
+            (5,)
+
+            ```
     """
     rows, cols = data_shape
     if arr.ndim == 3 and arr.shape[-2:] == (rows, cols):
@@ -40,7 +58,33 @@ def squeeze_leading_axes(
 
 
 def matches_x_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:
-    """True when ``arr`` can serve as the x axis for ``data_shape`` (1-D cols or 2-D slice)."""
+    """True when ``arr`` can serve as the x axis for ``data_shape`` (1-D cols or 2-D slice).
+
+    Args:
+        arr: Candidate coordinate array.
+        data_shape: ``(rows, cols)`` of the data slice.
+
+    Returns:
+        bool: ``True`` when ``arr`` is 1-D of length ``cols`` or 2-D matching the slice.
+
+    Examples:
+        - A 1-D array whose length equals the column count is an x axis:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf._coord_match import matches_x_axis
+            >>> matches_x_axis(np.arange(5), (4, 5))
+            True
+
+            ```
+        - A 1-D array of a different length is not:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf._coord_match import matches_x_axis
+            >>> matches_x_axis(np.arange(4), (4, 5))
+            False
+
+            ```
+    """
     _, cols = data_shape
     return (arr.ndim == 1 and arr.shape[0] == cols) or (
         arr.ndim == 2 and arr.shape == data_shape
@@ -48,7 +92,33 @@ def matches_x_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:
 
 
 def matches_y_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:
-    """True when ``arr`` can serve as the y axis for ``data_shape`` (1-D rows or 2-D slice)."""
+    """True when ``arr`` can serve as the y axis for ``data_shape`` (1-D rows or 2-D slice).
+
+    Args:
+        arr: Candidate coordinate array.
+        data_shape: ``(rows, cols)`` of the data slice.
+
+    Returns:
+        bool: ``True`` when ``arr`` is 1-D of length ``rows`` or 2-D matching the slice.
+
+    Examples:
+        - A 1-D array whose length equals the row count is a y axis:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf._coord_match import matches_y_axis
+            >>> matches_y_axis(np.arange(4), (4, 5))
+            True
+
+            ```
+        - A 1-D array of a different length is not:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf._coord_match import matches_y_axis
+            >>> matches_y_axis(np.arange(5), (4, 5))
+            False
+
+            ```
+    """
     rows, _ = data_shape
     return (arr.ndim == 1 and arr.shape[0] == rows) or (
         arr.ndim == 2 and arr.shape == data_shape
@@ -75,6 +145,24 @@ def coord_shapes_match(
 
     Returns:
         bool: ``True`` when both arrays line up with ``data_shape``.
+
+    Examples:
+        - A 1-D cols x and 1-D rows y line up with the slice:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf._coord_match import coord_shapes_match
+            >>> coord_shapes_match(np.arange(5), np.arange(4), (4, 5))
+            True
+
+            ```
+        - A ``None`` slice shape cannot be validated:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.netcdf._coord_match import coord_shapes_match
+            >>> coord_shapes_match(np.arange(5), np.arange(4), None)
+            False
+
+            ```
     """
     if data_shape is None:
         return False
@@ -146,6 +234,22 @@ def looks_like_x_then_y(x_name: str, y_name: str) -> bool:
 
     Returns:
         bool: ``True`` when the names follow the lon/lat convention.
+
+    Examples:
+        - Lon-then-lat names match (case-insensitive):
+            ```python
+            >>> from pyramids.netcdf._coord_match import looks_like_x_then_y
+            >>> looks_like_x_then_y("LONGITUDE", "LATITUDE")
+            True
+
+            ```
+        - The reversed order (lat as x) does not:
+            ```python
+            >>> from pyramids.netcdf._coord_match import looks_like_x_then_y
+            >>> looks_like_x_then_y("lat", "lon")
+            False
+
+            ```
     """
     xl = x_name.lower()
     yl = y_name.lower()
