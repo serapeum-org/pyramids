@@ -9,10 +9,11 @@ is covered by ``tests/netcdf/plot/test_plot_coords.py``.
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import numpy as np
 
-from pyramids.netcdf._plot import _CFCoordinateCandidates
+from pyramids.netcdf._plot import NetCDFPlot, _CFCoordinateCandidates
 
 _SHAPE = (4, 5)  # (rows, cols)
 
@@ -221,4 +222,31 @@ class TestCFCoordinateCandidates:
         )
         assert candidates.arrays_by_name()["lon"] is lon, (
             "resolved array must be exposed by name"
+        )
+
+
+class TestCFCoordinatesPairOrchestrator:
+    """Tests for ``NetCDFPlot._cf_coordinates_pair`` (the thin orchestrator)."""
+
+    def test_logs_and_returns_none_on_no_match(self, caplog):
+        """No matching pair returns None and logs the candidate shapes on the _plot logger.
+
+        Test scenario:
+            A CF ``coordinates`` attr whose only named var matches neither axis yields
+            no pair, so the orchestrator returns ``None`` and emits its "did not yield"
+            DEBUG record (formatting the candidate shapes) on ``pyramids.netcdf._plot``.
+        """
+        nc = SimpleNamespace(
+            _variable_attrs={"coordinates": "bad"},
+            shape=_SHAPE,
+            _source_var_name="v",
+        )
+        parent = _FakeParent({"bad": np.zeros((2, 2))})
+        with caplog.at_level(logging.DEBUG, logger="pyramids.netcdf._plot"):
+            result = NetCDFPlot(nc)._cf_coordinates_pair(nc, parent)
+        assert result is None, "an unmatchable coordinates attr must yield None"
+        logs = [r for r in caplog.records if r.name == "pyramids.netcdf._plot"]
+        assert logs, "a no-match DEBUG record must be emitted on the _plot logger"
+        assert "did not yield" in logs[0].getMessage(), (
+            f"unexpected no-match log message: {logs[0].getMessage()}"
         )
