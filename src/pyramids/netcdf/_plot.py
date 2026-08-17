@@ -121,7 +121,7 @@ _ANIMATE_DROP_KWARGS = frozenset(
 )
 
 
-class _CFCoordinateCandidates:
+class CFCoordinateCandidates:
     """The CF auxiliary-coordinate candidates for one data slice.
 
     Groups the coord arrays that read as an x axis and those that read as a y axis
@@ -158,7 +158,7 @@ class _CFCoordinateCandidates:
         names: list[str],
         parent: NetCDF,
         data_shape: tuple[int, int],
-    ) -> _CFCoordinateCandidates:
+    ) -> CFCoordinateCandidates:
         """Read each named coord var off ``parent``, squeeze it, and classify x / y.
 
         Args:
@@ -167,7 +167,7 @@ class _CFCoordinateCandidates:
             data_shape: ``(rows, cols)`` of the data slice.
 
         Returns:
-            _CFCoordinateCandidates: the classified x / y candidate lists.
+            CFCoordinateCandidates: the classified x / y candidate lists.
         """
         arrays: dict[str, np.ndarray] = {}
         for name in names:
@@ -299,19 +299,16 @@ class _CFCoordinateCandidates:
         return pair
 
 
-class NetCDFPlot:
-    """Owns the plotting pipeline for a :class:`~pyramids.netcdf.netcdf.NetCDF`.
+class CurvilinearCoordResolver:
+    """Resolve the curvilinear ``(x, y)`` coordinate arrays for one rendered slice.
 
-    Constructed per :meth:`NetCDF.plot` call. Holds a strong reference to the
-    NetCDF (or variable subset) being rendered — unlike the long-lived weakref
-    engines on :class:`~pyramids.dataset.Dataset`, this object is created fresh
-    each call and discarded once :meth:`run` returns, so there is no
-    GDAL-handle-leak concern.
-
-    The methods mirror what used to be private methods on ``NetCDF`` itself —
-    the bodies are copied verbatim, with ``self`` (the NetCDF) replaced by
-    ``self.nc`` (or by an explicit ``nc`` argument where the old code operated
-    on a pinned subset rather than the original instance).
+    Tries an ordered list of sources — explicit ``coords=`` → stored crop coords → the CF
+    ``coordinates`` attribute → conventional model name-pairs — and returns the first pair
+    whose shapes line up with the data slice, else ``None`` so the caller falls back to the
+    geotransform-derived extent. Holds the resolution context ``(nc, parent, data_shape)``
+    shared by every source, and reuses :mod:`pyramids.netcdf._coord_match` for shape
+    validation and :class:`CFCoordinateCandidates` (via
+    :meth:`NetCDFPlot._cf_coordinates_pair`) for the CF pairing.
     """
 
     # Conventional curvilinear coordinate-variable name triples, each
@@ -327,6 +324,222 @@ class NetCDFPlot:
         ("nav_lon", "nav_lat", False),
         ("xc", "yc", True),
     )
+
+    def __init__(self, nc: NetCDF) -> None:
+        """Derive and hold the resolution context from the rendered slice ``nc``.
+
+        Args:
+            nc: The variable subset being plotted; ``parent`` (where coord variables are
+                read) and ``data_shape`` (the ``(rows, cols)`` the coords must match) are
+                derived from it.
+        """
+        self.nc = nc
+        self.parent = nc._parent_nc if nc._parent_nc is not None else nc
+        self.data_shape = nc.shape[-2:] if nc.shape else None
+
+    def resolve(
+        self, coords: tuple | list | None
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+        """Return the first shape-valid ``(x, y)`` pair across the sources, or ``None``.
+
+        Source priority: explicit ``coords=`` first (it may raise on a malformed spec);
+        then, only when ``data_shape`` is known, the stored-crop, CF-attribute, and
+        conventional-names sources in that order. Returns ``None`` when nothing resolves,
+        so the caller falls back to the geotransform-derived extent.
+
+        Args:
+            coords: Explicit ``(x, y)`` spec (two names or two arrays), or ``None``.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray] or None: The resolved curvilinear pair, or
+                ``None``.
+        """
+        result = self._from_explicit(coords)
+        if result is None and self.data_shape is not None:
+            for source in (self._from_stored, self._from_cf, self._from_conventional):
+                result = source()
+                if result is not None:
+                    break
+        return result
+
+    def _validated(
+        self, x_arr: np.ndarray, y_arr: np.ndarray
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+        """Return ``(x_arr, y_arr)`` when they line up with ``data_shape``, else ``None``."""
+        return (
+            (x_arr, y_arr)
+            if _coord_match.coord_shapes_match(x_arr, y_arr, self.data_shape)
+            else None
+        )
+
+    def _from_explicit(
+        self, coords: tuple | list | None
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+        """Source 1: an explicit user ``coords=`` spec (two names or two arrays).
+
+        Raises on a spec that is not a length-2 sequence; a shape-mismatching pair is
+        rejected (logging a warning) so the resolver falls through to auto-detection.
+        """
+        result = None
+        if coords is not None:
+            if not isinstance(coords, (tuple, list)) or len(coords) != 2:
+                raise ValueError(
+                    "`coords=` must be a length-2 sequence (x, y). Got "
+                    f"{type(coords).__name__} of length "
+                    f"{len(coords) if hasattr(coords, '__len__') else '?'}."
+                )
+            x_arr = self._coerce(coords[0], "x")
+            y_arr = self._coerce(coords[1], "y")
+            result = self._validated(x_arr, y_arr)
+            if result is None:
+                logger.warning(
+                    "Explicit `coords=` shapes %s / %s don't match the data "
+                    "slice shape %s; ignoring the supplied coords and falling "
+                    "back to auto-detection / the geotransform extent.",
+                    x_arr.shape,
+                    y_arr.shape,
+                    self.data_shape,
+                )
+        return result
+
+    def _from_stored(self) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+        """Source 2: the ``_curvilinear_coords`` stashed on a curvilinear-crop result.
+
+        :meth:`NetCDF.crop` stores the windowed 2-D lon/lat arrays on a cropped
+        2-D-coordinate grid so the subset still replots on its real curvilinear geometry.
+        """
+        result = None
+        stored = getattr(self.nc, "_curvilinear_coords", None)
+        if stored is not None:
+            result = self._validated(np.asarray(stored[0]), np.asarray(stored[1]))
+        return result
+
+    def _from_cf(self) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+        """Source 3: the CF ``coordinates`` attribute, via :meth:`NetCDFPlot._cf_coordinates_pair`.
+
+        Delegates the two-pass pairing to :class:`CFCoordinateCandidates` (no logic
+        duplicated) and re-checks the resolved pair against the slice shape.
+        """
+        result = None
+        cf_pair = NetCDFPlot._cf_coordinates_pair(self.nc, self.parent)
+        if cf_pair is not None:
+            result = self._validated(cf_pair[0], cf_pair[1])
+        return result
+
+    def _from_conventional(self) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+        """Source 4: well-known model name-pairs (WRF/ROMS/NEMO/RASM), first shape-valid wins.
+
+        Emits a :class:`DeprecationWarning` on a hit — these model-specific name heuristics
+        are domain knowledge, not a generic GIS convention. A present-but-wrong-shape pair
+        logs a debug hint and the search moves on to the next pair.
+        """
+        result = None
+        for x_name, y_name, require_2d in self._CURVILINEAR_NAME_PAIRS:
+            arrays = self._conventional_pair_arrays(x_name, y_name, require_2d)
+            if arrays is not None:
+                pair = self._validated(arrays[0], arrays[1])
+                if pair is not None:
+                    warnings.warn(
+                        "Resolving curvilinear coordinates by hardcoded "
+                        f"model-specific names ({x_name!r}, {y_name!r}) is "
+                        "deprecated and will be removed: model-specific name "
+                        "heuristics (WRF, ROMS, NEMO, RASM) are domain "
+                        "knowledge, not a generic GIS convention. Set the CF "
+                        "`coordinates` attribute, or pass `coords=` explicitly.",
+                        DeprecationWarning,
+                        stacklevel=5,
+                    )
+                    result = pair
+                    break
+                logger.debug(
+                    "Conventional curvilinear coord pair (%r, %r) is "
+                    "present on the NetCDF but shapes %s / %s don't match "
+                    "the data slice shape %s; skipping this pair.",
+                    x_name,
+                    y_name,
+                    arrays[0].shape,
+                    arrays[1].shape,
+                    self.data_shape,
+                )
+        return result
+
+    def _conventional_pair_arrays(
+        self, x_name: str, y_name: str, require_2d: bool
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+        """Read and squeeze a conventional name-pair to its 2-D arrays, or ``None`` if unusable.
+
+        Returns ``None`` when the slice shape is unknown (``data_shape`` is ``None``), either
+        name is absent from the parent, either variable reads back ``None``, or the
+        ``require_2d`` gate rejects a non-2-D generic pair (e.g. 1-D ``xc``/``yc`` projected
+        axes). Shape validation against the slice is left to the caller.
+        """
+        result = None
+        present = (
+            x_name in self.parent.variable_names
+            and y_name in self.parent.variable_names
+        )
+        if present and self.data_shape is not None:
+            xv = self.parent._read_variable(x_name)
+            yv = self.parent._read_variable(y_name)
+            if xv is not None and yv is not None:
+                x_arr = _coord_match.squeeze_leading_axes(xv, self.data_shape)
+                y_arr = _coord_match.squeeze_leading_axes(yv, self.data_shape)
+                # A generic name pair (e.g. xc/yc) is trusted only when BOTH arrays are
+                # genuinely 2-D. A 1-D pair (or a 1-D/2-D mix) means projected/rectilinear
+                # axes, not curvilinear coords, so skip it. The gate is ndim-only: 2-D
+                # xc/yc in projected metres cannot be told apart from 2-D lon/lat here — use
+                # the CF `coordinates` attribute or explicit `coords=` for those.
+                if not (require_2d and (x_arr.ndim != 2 or y_arr.ndim != 2)):
+                    result = (x_arr, y_arr)
+        return result
+
+    def _coerce(self, spec: Any, axis_label: str) -> np.typing.NDArray:
+        """Convert one coord spec (variable name ``str`` or array-like) to a numpy array.
+
+        Args:
+            spec: A variable name looked up on the parent container, or an array-like
+                converted via :func:`numpy.asarray`.
+            axis_label: ``"x"`` or ``"y"``, used in the error messages.
+
+        Returns:
+            np.ndarray: The resolved coordinate array.
+
+        Raises:
+            ValueError: If a string name is absent from the parent's ``variable_names`` or
+                :meth:`NetCDF._read_variable` returns ``None``.
+        """
+        if isinstance(spec, str):
+            if spec not in self.parent.variable_names:
+                raise ValueError(
+                    f"coords {axis_label}={spec!r} is not a variable of "
+                    f"the parent NetCDF. Available: {self.parent.variable_names}."
+                )
+            arr = self.parent._read_variable(spec)
+            if arr is None:
+                raise ValueError(
+                    f"coords {axis_label}={spec!r} could not be read via "
+                    "`_read_variable`."
+                )
+            result = arr
+        else:
+            result = np.asarray(spec)
+        return result
+
+
+class NetCDFPlot:
+    """Owns the plotting pipeline for a :class:`~pyramids.netcdf.netcdf.NetCDF`.
+
+    Constructed per :meth:`NetCDF.plot` call. Holds a strong reference to the
+    NetCDF (or variable subset) being rendered — unlike the long-lived weakref
+    engines on :class:`~pyramids.dataset.Dataset`, this object is created fresh
+    each call and discarded once :meth:`run` returns, so there is no
+    GDAL-handle-leak concern.
+
+    The methods mirror what used to be private methods on ``NetCDF`` itself —
+    the bodies are copied verbatim, with ``self`` (the NetCDF) replaced by
+    ``self.nc`` (or by an explicit ``nc`` argument where the old code operated
+    on a pinned subset rather than the original instance).
+    """
 
     def __init__(self, nc: NetCDF) -> None:
         self.nc = nc
@@ -1374,7 +1587,9 @@ class NetCDFPlot:
         against the rendered slice. Shapes that do not match silently
         skip — the next candidate gets a chance. When nothing resolves
         to a valid pair the helper returns ``None`` so the caller falls
-        back to the geotransform-derived ``extent``.
+        back to the geotransform-derived ``extent``. The per-source logic
+        lives in :class:`CurvilinearCoordResolver`; this method is a thin
+        facade delegating to it.
 
         Args:
             nc: The variable subset being plotted.
@@ -1475,144 +1690,10 @@ class NetCDFPlot:
 
                 ```
         """
-        result: tuple[np.ndarray, np.ndarray] | None = None
-
-        parent = nc._parent_nc if nc._parent_nc is not None else nc
-        data_shape = nc.shape[-2:] if nc.shape else None
-
-        if coords is not None:
-            if not isinstance(coords, (tuple, list)) or len(coords) != 2:
-                raise ValueError(
-                    "`coords=` must be a length-2 sequence (x, y). Got "
-                    f"{type(coords).__name__} of length "
-                    f"{len(coords) if hasattr(coords, '__len__') else '?'}."
-                )
-            user_coords: tuple | None = tuple(coords)
-        else:
-            user_coords = None
-
-        if user_coords is not None:
-            x_in, y_in = user_coords
-            x_arr = self._coerce_coord_spec(x_in, parent, "x")
-            y_arr = self._coerce_coord_spec(y_in, parent, "y")
-            if _coord_match.coord_shapes_match(x_arr, y_arr, data_shape):
-                result = (x_arr, y_arr)
-            else:
-                logger.warning(
-                    "Explicit `coords=` shapes %s / %s don't match the data "
-                    "slice shape %s; ignoring the supplied coords and falling "
-                    "back to auto-detection / the geotransform extent.",
-                    x_arr.shape,
-                    y_arr.shape,
-                    data_shape,
-                )
-
-        if result is None and data_shape is not None:
-            # A curvilinear crop result (NetCDF.crop on a 2-D-coordinate grid) carries its windowed
-            # lon/lat arrays here so the cropped subset still plots on its real curvilinear geometry.
-            stored = getattr(nc, "_curvilinear_coords", None)
-            if stored is not None:
-                x_arr = np.asarray(stored[0])
-                y_arr = np.asarray(stored[1])
-                if _coord_match.coord_shapes_match(x_arr, y_arr, data_shape):
-                    result = (x_arr, y_arr)
-
-        if result is None and data_shape is not None:
-            cf_pair = self._cf_coordinates_pair(nc, parent)
-            if cf_pair is not None:
-                x_arr, y_arr = cf_pair
-                if _coord_match.coord_shapes_match(x_arr, y_arr, data_shape):
-                    result = (x_arr, y_arr)
-
-        if result is None and data_shape is not None:
-            for x_name, y_name, require_2d in self._CURVILINEAR_NAME_PAIRS:
-                if x_name in parent.variable_names and y_name in parent.variable_names:
-                    xv = parent._read_variable(x_name)
-                    yv = parent._read_variable(y_name)
-                    if xv is None or yv is None:
-                        continue
-                    x_arr = _coord_match.squeeze_leading_axes(xv, data_shape)
-                    y_arr = _coord_match.squeeze_leading_axes(yv, data_shape)
-                    if require_2d and (x_arr.ndim != 2 or y_arr.ndim != 2):
-                        # A generic name pair (e.g. xc/yc) is trusted only when
-                        # BOTH arrays are genuinely 2-D. A 1-D pair (or a 1-D/2-D
-                        # mix) means projected/rectilinear axes, not curvilinear
-                        # coords, so skip it and fall back to the geotransform
-                        # extent. The gate is ndim-only: 2-D xc/yc in projected
-                        # metres cannot be told apart from 2-D lon/lat here — use
-                        # the CF `coordinates` attribute or explicit `coords=` for
-                        # those.
-                        continue
-                    if _coord_match.coord_shapes_match(x_arr, y_arr, data_shape):
-                        warnings.warn(
-                            "Resolving curvilinear coordinates by hardcoded "
-                            f"model-specific names ({x_name!r}, {y_name!r}) is "
-                            "deprecated and will be removed: model-specific name "
-                            "heuristics (WRF, ROMS, NEMO, RASM) are domain "
-                            "knowledge, not a generic GIS convention. Set the CF "
-                            "`coordinates` attribute, or pass `coords=` explicitly.",
-                            DeprecationWarning,
-                            stacklevel=3,
-                        )
-                        result = (x_arr, y_arr)
-                        break
-                    logger.debug(
-                        "Conventional curvilinear coord pair (%r, %r) is "
-                        "present on the NetCDF but shapes %s / %s don't match "
-                        "the data slice shape %s; skipping this pair.",
-                        x_name,
-                        y_name,
-                        x_arr.shape,
-                        y_arr.shape,
-                        data_shape,
-                    )
-
-        return result
+        return CurvilinearCoordResolver(nc).resolve(coords)
 
     @staticmethod
-    def _coerce_coord_spec(
-        spec: Any,
-        parent: NetCDF,
-        axis_label: str,
-    ) -> np.typing.NDArray:
-        """Convert a single coord spec (str or array) to a numpy array.
-
-        Args:
-            spec: Either a variable name (str) to look up on the parent
-                container, or an array-like that is converted via
-                :func:`numpy.asarray`.
-            parent: NetCDF container used to resolve string names via
-                :meth:`NetCDF._read_variable`.
-            axis_label: ``"x"`` or ``"y"``; used in error messages so the
-                caller can spot which axis failed.
-
-        Returns:
-            np.ndarray: The resolved coordinate array.
-
-        Raises:
-            ValueError: If a string name is not in the parent's
-                ``variable_names`` or :meth:`NetCDF._read_variable`
-                returns ``None``.
-        """
-        if isinstance(spec, str):
-            if spec not in parent.variable_names:
-                raise ValueError(
-                    f"coords {axis_label}={spec!r} is not a variable of "
-                    f"the parent NetCDF. Available: {parent.variable_names}."
-                )
-            arr = parent._read_variable(spec)
-            if arr is None:
-                raise ValueError(
-                    f"coords {axis_label}={spec!r} could not be read via "
-                    "`_read_variable`."
-                )
-            result = arr
-        else:
-            result = np.asarray(spec)
-        return result
-
     def _cf_coordinates_pair(
-        self,
         nc: NetCDF,
         parent: NetCDF,
     ) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
@@ -1624,8 +1705,8 @@ class NetCDFPlot:
         attribute off ``nc._variable_attrs`` (populated by
         :meth:`NetCDF.get_variable`), gathers and classifies the named
         coord arrays, and delegates the ``(x, y)`` pairing to
-        :class:`_CFCoordinateCandidates` — see its class docstring and
-        :meth:`_CFCoordinateCandidates.best_pair` for the two-pass
+        :class:`CFCoordinateCandidates` — see its class docstring and
+        :meth:`CFCoordinateCandidates.best_pair` for the two-pass
         matching algorithm (name heuristic, then a distinct-pair fallback
         that disambiguates 2-D curvilinear candidates by latitude range).
         When the attribute is missing or no valid pair is found it returns
@@ -1644,10 +1725,10 @@ class NetCDFPlot:
                 pair, or ``None`` when nothing matched.
         """
         result = None
-        names = self._cf_coordinate_names(nc)
+        names = NetCDFPlot._cf_coordinate_names(nc)
         data_shape = nc.shape[-2:] if nc.shape else None
         if names and data_shape is not None:
-            candidates = _CFCoordinateCandidates.gather(names, parent, data_shape)
+            candidates = CFCoordinateCandidates.gather(names, parent, data_shape)
             result = candidates.best_pair()
             if result is None:
                 logger.debug(

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import types
+import warnings
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -55,7 +57,7 @@ class TestNetCDFPlotCoordAxes:
             On this in-memory NetCDF the only variable name is the
             data variable itself. Passing the same name on both axes
             exercises the variable-name lookup branch of
-            ``_coerce_coord_spec`` without needing a separate coord
+            ``CurvilinearCoordResolver._coerce`` without needing a separate coord
             variable; shape validation falls through to the
             geotransform-derived extent because the data variable's
             shape does not match the slice's 2-D shape.
@@ -85,7 +87,7 @@ class TestNetCDFPlotCoordAxesExtra:
 
         Test scenario:
             Pass the data variable's own name on both axes. The lookup
-            via ``_coerce_coord_spec`` succeeds for both; shape
+            via ``CurvilinearCoordResolver._coerce`` succeeds for both; shape
             validation then falls back through the auto-detection
             ladder, and the final render returns an ArrayGlyph.
         """
@@ -305,6 +307,39 @@ class TestCurvilinearCoords:
         # The two arrays live in disjoint ranges, so a swap would fail here.
         np.testing.assert_allclose(cleo.coords[0], x_2d)
         np.testing.assert_allclose(cleo.coords[1], y_2d)
+
+    def test_conventional_deprecation_warning_attributed_to_run_frame(self):
+        """The model-specific-names DeprecationWarning lands on run()'s _build_render_kwargs call.
+
+        Test scenario:
+            A real ``nc.plot()`` on an xc/yc grid fires the deprecation warning; via its
+            ``stacklevel`` it must be attributed to the ``run`` frame's
+            ``self._build_render_kwargs(...)`` call site in ``_plot.py``, pinning the real
+            production chain (the mimic-frame characterization test in
+            ``test_curvilinear_coord_resolver.py`` guards only the resolver-internal depth).
+        """
+        nc = _make_curvilinear_nc(rows=5, cols=6, x_name="xc", y_name="yc")[0]
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            nc.plot(variable="CANWAT")
+        depr = [
+            w
+            for w in caught
+            if issubclass(w.category, DeprecationWarning)
+            and "model-specific" in str(w.message)
+        ]
+        assert depr, "the conventional-names path must emit a DeprecationWarning"
+        rec = depr[0]
+        assert rec.filename.endswith("_plot.py"), (
+            f"warning not attributed to _plot.py: {rec.filename}"
+        )
+        src_line = (
+            Path(rec.filename).read_text(encoding="utf-8").splitlines()[rec.lineno - 1]
+        )
+        assert "_build_render_kwargs" in src_line, (
+            f"production stacklevel drift: warning at {rec.filename}:{rec.lineno} -> "
+            f"{src_line.strip()!r}; expected run()'s _build_render_kwargs call site"
+        )
 
     def test_1d_xc_yc_not_auto_detected(self):
         """1-D `xc`/`yc` (projected axes) are not treated as curvilinear (#633).
