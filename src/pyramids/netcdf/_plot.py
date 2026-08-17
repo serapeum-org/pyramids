@@ -468,17 +468,17 @@ class CurvilinearCoordResolver:
     ) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
         """Read and squeeze a conventional name-pair to its 2-D arrays, or ``None`` if unusable.
 
-        Returns ``None`` when either name is absent from the parent, either variable reads
-        back ``None``, or the ``require_2d`` gate rejects a non-2-D generic pair (e.g. 1-D
-        ``xc``/``yc`` projected axes). Shape validation against the slice is left to the
-        caller.
+        Returns ``None`` when the slice shape is unknown (``data_shape`` is ``None``), either
+        name is absent from the parent, either variable reads back ``None``, or the
+        ``require_2d`` gate rejects a non-2-D generic pair (e.g. 1-D ``xc``/``yc`` projected
+        axes). Shape validation against the slice is left to the caller.
         """
         result = None
         present = (
             x_name in self.parent.variable_names
             and y_name in self.parent.variable_names
         )
-        if present:
+        if present and self.data_shape is not None:
             xv = self.parent._read_variable(x_name)
             yv = self.parent._read_variable(y_name)
             if xv is not None and yv is not None:

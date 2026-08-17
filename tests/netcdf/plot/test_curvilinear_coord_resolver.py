@@ -446,3 +446,13 @@ class TestCurvilinearCoordResolver:
         assert debugs, (
             "the early wrong-shape pair must log a debug skip before the later pair resolves"
         )
+
+    def test_conventional_pair_arrays_none_data_shape_returns_none(self):
+        """A direct call with ``data_shape=None`` returns ``None`` (not TypeError), like the siblings."""
+        fake = _FakeNC({"xc": _grid_2d(200.0), "yc": _grid_2d(45.0)}, shape=())
+        result = CurvilinearCoordResolver(fake)._conventional_pair_arrays(
+            "xc", "yc", True
+        )
+        assert result is None, (
+            "a None data_shape must yield None, consistent with the other sources"
+        )
