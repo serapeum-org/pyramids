@@ -55,7 +55,7 @@ class TestNetCDFPlotCoordAxes:
             On this in-memory NetCDF the only variable name is the
             data variable itself. Passing the same name on both axes
             exercises the variable-name lookup branch of
-            ``_coerce_coord_spec`` without needing a separate coord
+            ``CurvilinearCoordResolver._coerce`` without needing a separate coord
             variable; shape validation falls through to the
             geotransform-derived extent because the data variable's
             shape does not match the slice's 2-D shape.
@@ -85,7 +85,7 @@ class TestNetCDFPlotCoordAxesExtra:
 
         Test scenario:
             Pass the data variable's own name on both axes. The lookup
-            via ``_coerce_coord_spec`` succeeds for both; shape
+            via ``CurvilinearCoordResolver._coerce`` succeeds for both; shape
             validation then falls back through the auto-detection
             ladder, and the final render returns an ArrayGlyph.
         """
