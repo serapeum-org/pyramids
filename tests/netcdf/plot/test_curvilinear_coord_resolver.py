@@ -183,9 +183,9 @@ class TestCurvilinearCoordResolver:
     def test_resolve_falls_through_to_conventional(self):
         """With no explicit/stored/CF coords, resolve reaches the conventional source."""
         xc, yc = _grid_2d(200.0), _grid_2d(45.0)
-        fake = _FakeNC({"xc": xc, "yc": yc})
+        resolver = CurvilinearCoordResolver(_FakeNC({"xc": xc, "yc": yc}))
         with pytest.warns(DeprecationWarning, match="model-specific"):
-            pair = CurvilinearCoordResolver(fake).resolve(None)
+            pair = resolver.resolve(None)
         assert pair is not None, "xc/yc must resolve via the conventional source"
         assert pair[0] is xc, "x must be xc"
         assert pair[1] is yc, "y must be yc"
@@ -203,8 +203,9 @@ class TestCurvilinearCoordResolver:
         Args:
             coords: A malformed ``coords=`` value (wrong length or wrong type).
         """
+        resolver = CurvilinearCoordResolver(_FakeNC({}))
         with pytest.raises(ValueError, match="length-2 sequence") as exc:
-            CurvilinearCoordResolver(_FakeNC({}))._from_explicit(coords)
+            resolver._from_explicit(coords)
         assert "length-2 sequence" in str(exc.value), f"unexpected message: {exc.value}"
 
     def test_from_explicit_two_names_resolves(self):
@@ -369,14 +370,16 @@ class TestCurvilinearCoordResolver:
 
     def test_coerce_unknown_name_raises(self):
         """An unknown coord name raises ``ValueError``."""
+        resolver = CurvilinearCoordResolver(_FakeNC({"lon": _cols_1d()}))
         with pytest.raises(ValueError, match="is not a variable") as exc:
-            CurvilinearCoordResolver(_FakeNC({"lon": _cols_1d()}))._coerce("nope", "x")
+            resolver._coerce("nope", "x")
         assert "nope" in str(exc.value), f"error must echo the bad name: {exc.value}"
 
     def test_coerce_unreadable_name_raises(self):
         """A name present but reading back ``None`` raises ``ValueError``."""
+        resolver = CurvilinearCoordResolver(_FakeNC({"lon": None}))
         with pytest.raises(ValueError, match="could not be read"):
-            CurvilinearCoordResolver(_FakeNC({"lon": None}))._coerce("lon", "y")
+            resolver._coerce("lon", "y")
 
     def test_coerce_array_like_passthrough(self):
         """An array-like spec is converted via ``numpy.asarray``."""
@@ -431,10 +434,12 @@ class TestCurvilinearCoordResolver:
             resolves + warns, proving the loop does not stop at the debug-skip.
         """
         xc, yc = _grid_2d(200.0), _grid_2d(45.0)
-        fake = _FakeNC({"XLONG": _bad_2d(), "XLAT": _bad_2d(), "xc": xc, "yc": yc})
+        resolver = CurvilinearCoordResolver(
+            _FakeNC({"XLONG": _bad_2d(), "XLAT": _bad_2d(), "xc": xc, "yc": yc})
+        )
         with caplog.at_level(logging.DEBUG, logger="pyramids.netcdf._plot"):
             with pytest.warns(DeprecationWarning, match="model-specific"):
-                pair = CurvilinearCoordResolver(fake)._from_conventional()
+                pair = resolver._from_conventional()
         assert pair is not None, "the valid later pair must resolve"
         assert pair[0] is xc, "x must be xc from the later pair"
         assert pair[1] is yc, "y must be yc from the later pair"
