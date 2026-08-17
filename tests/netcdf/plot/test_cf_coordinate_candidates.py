@@ -8,6 +8,8 @@ is covered by ``tests/netcdf/plot/test_plot_coords.py``.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 from pyramids.netcdf._plot import _CFCoordinateCandidates
@@ -185,16 +187,26 @@ class TestCFCoordinateCandidates:
             "lon-first still yields (lon, lat)"
         )
 
-    def test_assign_2d_by_latitude_ambiguous_keeps_order(self):
-        """When both or neither array reads as latitude, candidate order is kept.
+    def test_assign_2d_by_latitude_ambiguous_keeps_order(self, caplog):
+        """Ambiguous roles keep candidate order and log a DEBUG hint on the _plot logger.
 
         Test scenario:
-            Two within-latitude arrays (ambiguous) return in the given order.
+            Two within-latitude arrays (ambiguous) return in the given order, and a
+            debug record is emitted on the name-preserved ``pyramids.netcdf._plot``
+            logger so the diagnostic cannot be silently renamed by a later edit.
         """
         a, b = _lat2d(), _lat2d() + 1.0
-        pair = _CFCoordinateCandidates._assign_2d_by_latitude("a", a, "b", b)
+        with caplog.at_level(logging.DEBUG, logger="pyramids.netcdf._plot"):
+            pair = _CFCoordinateCandidates._assign_2d_by_latitude("a", a, "b", b)
         assert pair[0] is a and pair[1] is b, (
             "ambiguous roles must keep candidate order"
+        )
+        hints = [r for r in caplog.records if r.name == "pyramids.netcdf._plot"]
+        assert hints, (
+            "an ambiguous-roles DEBUG record must be emitted on the _plot logger"
+        )
+        assert "ambiguous" in hints[0].getMessage(), (
+            f"unexpected ambiguous-roles log message: {hints[0].getMessage()}"
         )
 
     def test_arrays_by_name_returns_resolved_arrays(self):
