@@ -387,3 +387,62 @@ class TestCurvilinearCoordResolver:
             f"expected ndarray, got {type(result).__name__}"
         )
         assert result.shape == (2, 2), f"expected (2, 2), got {result.shape}"
+
+    def test_resolve_stored_wins_over_cf_and_conventional(self):
+        """Stored crop coords (source 2) take precedence over CF (3) and conventional (4).
+
+        Test scenario:
+            The slice has stored coords AND a resolvable CF ``coordinates`` attr AND
+            conventional xc/yc all present; the stored pair wins and no DeprecationWarning
+            fires, proving sources 3-4 are not reached.
+        """
+        stored_x, stored_y = _grid_2d(1.0), _grid_2d(2.0)
+        fake = _FakeNC(
+            {
+                "xc": _grid_2d(200.0),
+                "yc": _grid_2d(45.0),
+                "lon": _cols_1d(),
+                "lat": _rows_1d(),
+            },
+            variable_attrs={"coordinates": "lon lat"},
+            curvilinear_coords=(stored_x, stored_y),
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            pair = CurvilinearCoordResolver(fake).resolve(None)
+        assert pair is not None, "stored coords must resolve"
+        assert np.array_equal(pair[0], stored_x), (
+            "x must be the stored array (source 2 wins)"
+        )
+        assert np.array_equal(pair[1], stored_y), (
+            "y must be the stored array (source 2 wins)"
+        )
+        deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert not deprecations, (
+            "conventional source must not run when stored coords win"
+        )
+
+    def test_from_conventional_skips_wrong_shape_then_matches_later_pair(self, caplog):
+        """A present-but-wrong-shape early pair is skipped (debug) and a valid later pair resolves.
+
+        Test scenario:
+            XLONG/XLAT (first name-pair) are present but wrong-shape -> one debug skip; xc/yc
+            (last name-pair) are present and valid -> the loop continues past the skip and
+            resolves + warns, proving the loop does not stop at the debug-skip.
+        """
+        xc, yc = _grid_2d(200.0), _grid_2d(45.0)
+        fake = _FakeNC({"XLONG": _bad_2d(), "XLAT": _bad_2d(), "xc": xc, "yc": yc})
+        with caplog.at_level(logging.DEBUG, logger="pyramids.netcdf._plot"):
+            with pytest.warns(DeprecationWarning, match="model-specific"):
+                pair = CurvilinearCoordResolver(fake)._from_conventional()
+        assert pair is not None, "the valid later pair must resolve"
+        assert pair[0] is xc, "x must be xc from the later pair"
+        assert pair[1] is yc, "y must be yc from the later pair"
+        debugs = [
+            r
+            for r in caplog.records
+            if "don't match the data slice shape" in r.getMessage()
+        ]
+        assert debugs, (
+            "the early wrong-shape pair must log a debug skip before the later pair resolves"
+        )
