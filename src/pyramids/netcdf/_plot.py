@@ -21,6 +21,8 @@ from pyramids.netcdf import _coord_match
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from cleopatra.basemap.geo import Basemap
 
     from pyramids.netcdf.netcdf import NetCDF
@@ -218,18 +220,30 @@ class _CFCoordinateCandidates:
             pair = self._distinct_pair()
         return pair
 
-    def _named_pair(self) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
-        """First distinct pair whose names match the lon/lat heuristic and shapes line up."""
-        result = None
+    def _candidate_pairs(
+        self,
+    ) -> Iterator[tuple[str, np.ndarray, str, np.ndarray]]:
+        """Yield ``(x_name, x_arr, y_name, y_arr)`` for distinct, shape-matching pairs.
+
+        Walks the x candidates against the y candidates, skipping a pair that names
+        the same variable for both axes (so a 2-D coord present in both lists is never
+        collapsed onto one axis) and any pair whose shapes do not line up with the
+        data slice. Both pairing passes iterate this one shared sequence, in x-then-y
+        candidate order.
+        """
         for x_name, x_arr in self._x:
             for y_name, y_arr in self._y:
                 if x_name == y_name:
                     continue
                 if _coord_match.coord_shapes_match(x_arr, y_arr, self._data_shape):
-                    if _coord_match.looks_like_x_then_y(x_name, y_name):
-                        result = (x_arr, y_arr)
-                        break
-            if result is not None:
+                    yield x_name, x_arr, y_name, y_arr
+
+    def _named_pair(self) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+        """First distinct pair whose names match the lon/lat heuristic and shapes line up."""
+        result = None
+        for x_name, x_arr, y_name, y_arr in self._candidate_pairs():
+            if _coord_match.looks_like_x_then_y(x_name, y_name):
+                result = (x_arr, y_arr)
                 break
         return result
 
@@ -237,24 +251,17 @@ class _CFCoordinateCandidates:
         """First viable pair of **distinct** candidates; two 2-D candidates disambiguated by latitude.
 
         A 2-D coord matches both axes, so it lands in both lists — the ``x_name ==
-        y_name`` guard stops it being picked for both axes (which would collapse a
-        curvilinear grid like rasm's ``xc``/``yc`` onto one axis). 1-D candidates are
-        already separated by length.
+        y_name`` guard in :meth:`_candidate_pairs` stops it being picked for both axes
+        (which would collapse a curvilinear grid like rasm's ``xc``/``yc`` onto one
+        axis). 1-D candidates are already separated by length.
         """
         result = None
-        for x_name, x_arr in self._x:
-            for y_name, y_arr in self._y:
-                if x_name == y_name:
-                    continue
-                if not _coord_match.coord_shapes_match(x_arr, y_arr, self._data_shape):
-                    continue
-                if x_arr.ndim == 2 and y_arr.ndim == 2:
-                    result = self._assign_2d_by_latitude(x_name, x_arr, y_name, y_arr)
-                else:
-                    result = (x_arr, y_arr)
-                break
-            if result is not None:
-                break
+        for x_name, x_arr, y_name, y_arr in self._candidate_pairs():
+            if x_arr.ndim == 2 and y_arr.ndim == 2:
+                result = self._assign_2d_by_latitude(x_name, x_arr, y_name, y_arr)
+            else:
+                result = (x_arr, y_arr)
+            break
         return result
 
     @staticmethod
