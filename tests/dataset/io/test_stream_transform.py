@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from hpc.indexing import get_pixels2
 
+from pyramids.base._domain import inside_domain
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
 
@@ -486,7 +487,9 @@ class TestStreamedConsumers:
         # Whole-band baseline: read the full band and count the domain at once.
         tracemalloc.start()
         whole = Dataset.read_file(str(src_path)).read_array()
-        whole_count = int((whole != -9999.0).sum())
+        # Mirror count_domain_cells' own domain definition (np.isclose / NaN-aware)
+        # so the baseline and the code under test cannot diverge on tolerance or NaN.
+        whole_count = int(inside_domain(whole, -9999.0).sum())
         _, whole_peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
         del whole
