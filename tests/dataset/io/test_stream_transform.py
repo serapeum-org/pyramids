@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 from hpc.indexing import get_pixels2
 
-from pyramids.base._domain import inside_domain
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
 
@@ -484,12 +483,11 @@ class TestStreamedConsumers:
             no_data_value=-9999.0,
             path=str(src_path),
         ).close()
-        # Whole-band baseline: read the full band and count the domain at once.
+        # Whole-band baseline: materialise the full band at once (the non-stripped
+        # upper bound). The exact-count assertion below already pins correctness, so
+        # the baseline only needs to establish the whole-band memory peak.
         tracemalloc.start()
         whole = Dataset.read_file(str(src_path)).read_array()
-        # Mirror count_domain_cells' own domain definition (np.isclose / NaN-aware)
-        # so the baseline and the code under test cannot diverge on tolerance or NaN.
-        whole_count = int(inside_domain(whole, -9999.0).sum())
         _, whole_peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
         del whole
@@ -502,7 +500,6 @@ class TestStreamedConsumers:
         tracemalloc.stop()
 
         assert count == rows * cols - 2000 * 250, f"wrong domain count {count}"
-        assert count == whole_count, "stripped count diverged from the whole-band count"
         assert stripped_peak < whole_peak, (
             f"count_domain_cells peaked at {stripped_peak / 1e6:.1f} MB, not below the "
             f"whole-band pass's {whole_peak / 1e6:.1f} MB — the read was not stripped"
