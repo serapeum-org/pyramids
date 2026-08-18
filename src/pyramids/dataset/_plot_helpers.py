@@ -468,7 +468,10 @@ def _split_render_kwargs(
     ``kind`` is the one override: it is a ``DEFAULT_OPTIONS`` key *and* an
     explicit ``ArrayGlyph.plot`` / ``.facet`` parameter that the render method
     unconditionally rewrites, so a constructor-set ``kind`` would be clobbered
-    back to ``"auto"`` — it must reach the render call instead.
+    back to ``"auto"`` — it must reach the render call instead. Other
+    dual-membership keys (notably ``title``) need no override: the render method
+    only overwrites ``default_options[key]`` when its own arg is non-``None``, so
+    a constructor-routed value survives and staying on the constructor is correct.
 
     On the ``"animate"`` path cleopatra's ``ArrayGlyph.animate`` re-validates
     every kwarg, so the two buckets are merged and the constructor bucket is
@@ -845,6 +848,10 @@ def render_array(request: RenderRequest, **kwargs: Any) -> ArrayGlyph:
     # deprecated dict-basemap alias below. A truthy basemap of any form needs a CRS,
     # so validating first keeps the coercion — which only rewrites the local
     # ``basemap`` that ``BasemapPlan.resolve`` consumes — out of the guard's reasoning.
+    # This intentionally reorders only invalid-input paths vs the old
+    # coerce-then-validate flow: a malformed dict or a missing CRS raises a clear
+    # ValueError here before the deprecation warning fires, instead of warning (or
+    # raising a coercion TypeError) first. Every such case was — and stays — an error.
     request.validate()
     # Translate the deprecated ``dict`` basemap alias to a ``Basemap``.
     if isinstance(basemap, dict) and basemap:
