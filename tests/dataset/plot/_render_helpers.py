@@ -8,6 +8,7 @@ internal kwarg routing and predate that change, so this thin adapter rebuilds a
 New tests should construct :class:`RenderRequest` directly.
 """
 
+from dataclasses import fields
 from typing import Any
 
 from pyramids.dataset._plot_helpers import (
@@ -17,13 +18,12 @@ from pyramids.dataset._plot_helpers import (
 )
 from pyramids.dataset._plot_helpers import render_array as _render_array
 
-_REQUEST_FIELDS = frozenset(
-    {"arr", "extent", "coords", "exclude_value", "ax", "fig", "basemap", "basemap_epsg"}
-)
-_RGB_FIELDS = frozenset({"rgb", "surface_reflectance", "cutoff", "percentile"})
-_MODE_FIELDS = frozenset(
-    {"mode", "animation_axis_values", "data_getter", "facet_kwargs"}
-)
+# Derive the field-name sets from the dataclasses so the loose-kwarg split can never
+# drift from RenderRequest / RgbSpec / ModeSpec when a field is added or renamed.
+_RGB_FIELDS = frozenset(f.name for f in fields(RgbSpec))
+_MODE_FIELDS = frozenset(f.name for f in fields(ModeSpec))
+# The RenderRequest-level fields, minus the two sub-object fields built separately.
+_REQUEST_FIELDS = frozenset(f.name for f in fields(RenderRequest)) - {"rgb", "mode"}
 
 
 def render_array(**kwargs: Any) -> Any:
