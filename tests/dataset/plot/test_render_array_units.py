@@ -19,27 +19,32 @@ from pyramids.dataset._plot_helpers import (
 )
 
 
-class _FakeArrayGlyph:
-    """Stand-in for cleopatra's ArrayGlyph used by RgbSpec.composite_animate_frames."""
+def _fake_array_glyph():
+    """Return a (fake ArrayGlyph class, calls list) for RgbSpec.composite_animate_frames.
 
+    The compositor instantiates the class internally, so the per-frame stretch kwargs
+    are recorded into a closed-over ``calls`` list rather than shared class state — a
+    fresh list per factory call keeps tests isolated.
+    """
     calls: list = []
 
-    def __init__(self, array):
-        """Record construction; the compositor builds one with a dummy array."""
-        self.array = array
+    class _Fake:
+        def __init__(self, array):
+            self.array = array
 
-    def prepare_array(self, frame, *, rgb, surface_reflectance, cutoff, percentile):
-        """Record the per-frame stretch kwargs and return a display-ready RGB frame."""
-        _FakeArrayGlyph.calls.append(
-            {
-                "rgb": rgb,
-                "surface_reflectance": surface_reflectance,
-                "cutoff": cutoff,
-                "percentile": percentile,
-            }
-        )
-        rows, cols = frame.shape[-2:]
-        return np.zeros((rows, cols, 3), dtype="float32")
+        def prepare_array(self, frame, *, rgb, surface_reflectance, cutoff, percentile):
+            calls.append(
+                {
+                    "rgb": rgb,
+                    "surface_reflectance": surface_reflectance,
+                    "cutoff": cutoff,
+                    "percentile": percentile,
+                }
+            )
+            rows, cols = frame.shape[-2:]
+            return np.zeros((rows, cols, 3), dtype="float32")
+
+    return _Fake, calls
 
 
 class _FakeRgbBands:
@@ -55,11 +60,6 @@ class _FakeRgbBands:
 
 class TestSplitRenderKwargs:
     """Tests for _split_render_kwargs."""
-
-    @pytest.fixture(autouse=True)
-    def _reset(self):
-        """No shared state; present for symmetry with other fixtures."""
-        yield
 
     def test_plot_routes_options_to_ctor_and_rest_to_render(self):
         """Option keys land on the ctor bucket; non-option keys on the render bucket.
@@ -126,10 +126,6 @@ class TestSplitRenderKwargs:
 class TestRgbSpec:
     """Tests for the RgbSpec value object."""
 
-    def setup_method(self):
-        """Reset the fake glyph's recorded calls before each test."""
-        _FakeArrayGlyph.calls = []
-
     def test_is_set_false_by_default_true_with_rgb(self):
         """``is_set`` reflects whether an rgb band list was supplied.
 
@@ -170,12 +166,13 @@ class TestRgbSpec:
             Each timestep is prepared via the injected glyph and stacked on axis 0;
             the stretch kwargs reach ``prepare_array`` for every frame.
         """
+        fake_cls, calls = _fake_array_glyph()
         spec = RgbSpec(rgb=[0, 1, 2], percentile=2)
         arr = np.zeros((4, 3, 5, 6), dtype="float32")
-        out = spec.composite_animate_frames(arr, _FakeArrayGlyph)
+        out = spec.composite_animate_frames(arr, fake_cls)
         assert out.shape == (4, 5, 6, 3), f"composited shape wrong: {out.shape}"
-        assert len(_FakeArrayGlyph.calls) == 4, "prepare_array must run once per frame"
-        assert _FakeArrayGlyph.calls[0]["percentile"] == 2, "stretch kwargs not forwarded"
+        assert len(calls) == 4, "prepare_array must run once per frame"
+        assert calls[0]["percentile"] == 2, "stretch kwargs not forwarded"
 
     @pytest.mark.parametrize("arr", [None, np.zeros((4, 5, 6), dtype="float32")])
     def test_composite_animate_frames_rejects_non_4d(self, arr):
@@ -187,8 +184,9 @@ class TestRgbSpec:
         Test scenario:
             Guards the #538 frame loss by refusing a single-band 3-D stack (or None).
         """
+        fake_cls, _ = _fake_array_glyph()
         with pytest.raises(ValueError, match="4-D"):
-            RgbSpec(rgb=[0, 1, 2]).composite_animate_frames(arr, _FakeArrayGlyph)
+            RgbSpec(rgb=[0, 1, 2]).composite_animate_frames(arr, fake_cls)
 
 
 class TestModeSpec:
