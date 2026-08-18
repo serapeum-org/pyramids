@@ -2707,7 +2707,12 @@ class DatasetCollection:
             return render_array(
                 RenderRequest(
                     arr=data,
-                    rgb=RgbSpec(rgb, surface_reflectance, cutoff, percentile),
+                    rgb=RgbSpec(
+                        rgb=rgb,
+                        surface_reflectance=surface_reflectance,
+                        cutoff=cutoff,
+                        percentile=percentile,
+                    ),
                     mode=ModeSpec(mode="animate", animation_axis_values=axis_values),
                     basemap=basemap,
                     basemap_epsg=self.base.epsg,

@@ -2357,7 +2357,12 @@ class Analysis(_Engine["Dataset"]):
                 extent=effective_extent,
                 coords=coords,
                 exclude_value=exclude_value,
-                rgb=RgbSpec(rgb, surface_reflectance, cutoff, percentile),
+                rgb=RgbSpec(
+                    rgb=rgb,
+                    surface_reflectance=surface_reflectance,
+                    cutoff=cutoff,
+                    percentile=percentile,
+                ),
                 mode=ModeSpec(mode=mode, facet_kwargs=facet_kwargs),
                 ax=ax,
                 fig=fig,
