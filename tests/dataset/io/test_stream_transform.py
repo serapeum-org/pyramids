@@ -319,12 +319,14 @@ class TestStreamReduce:
         ).close()
 
         def domain_sum(acc, strip, _w):
-            return acc + int(strip.sum())
+            # int64 accumulation on both sides so the == assertion below is
+            # independent of the platform's default int16.sum() accumulator width.
+            return acc + int(strip.sum(dtype="int64"))
 
         # Whole-array baseline: read the full array and reduce it at once.
         tracemalloc.start()
         whole = Dataset.read_file(str(src_path)).read_array()
-        whole_result = int(whole.sum())
+        whole_result = int(whole.sum(dtype="int64"))
         _, whole_peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
         del whole
