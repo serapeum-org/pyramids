@@ -301,9 +301,9 @@ class TestStreamReduce:
         """Reducing a disk raster peaks below a whole-array pass, proving the strip read.
 
         Test scenario:
-            Count the domain of a 1000x1000 raster with 64-row strips, and compare the traced
-            Python peak against a whole-array pass (read the whole array and reduce at once) in
-            the same process. The stripped peak must stay below the whole-array peak. This is a
+            Sum a 1000x1000 raster in 64-row strips, and compare the traced Python peak
+            against a whole-array pass (read the whole array and reduce at once) in the same
+            process. The stripped peak must stay below the whole-array peak. This is a
             build-agnostic check on purpose: the absolute figures depend on the GDAL build
             (tracemalloc only sees the Python heap, not GDAL's C buffers), but the same
             reduction done all-at-once is always an upper bound on the stripped version.
@@ -318,7 +318,7 @@ class TestStreamReduce:
             path=str(src_path),
         ).close()
 
-        def domain_sum(acc, strip, _w):
+        def value_sum(acc, strip, _w):
             # int64 accumulation on both sides so the == assertion below is
             # independent of the platform's default int16.sum() accumulator width.
             return acc + int(strip.sum(dtype="int64"))
@@ -334,7 +334,7 @@ class TestStreamReduce:
         # Stripped reduction.
         ds = Dataset.read_file(str(src_path))
         tracemalloc.start()
-        stripped_result = ds.io.stream_reduce(domain_sum, 0, strip_rows=64)
+        stripped_result = ds.io.stream_reduce(value_sum, 0, strip_rows=64)
         _, stripped_peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
 
