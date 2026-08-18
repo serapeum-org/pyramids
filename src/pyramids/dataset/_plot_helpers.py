@@ -693,6 +693,110 @@ class RenderRequest:
             raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
 
 
+def _translate_facet_kwargs(
+    facet_kwargs: dict[str, Any], panel_labels_cls: Any
+) -> dict[str, Any]:
+    """Translate the loose NetCDF facet kwargs to cleopatra 0.30's facet names.
+
+    cleopatra 0.30 renamed facet's ``figsize`` to ``figure_size`` and moved the
+    per-panel coordinate labels onto a ``PanelLabels`` group (``col`` / ``row``);
+    the NetCDF facet builder still emits the historical ``col_coords`` /
+    ``row_coords`` / ``figsize`` spelling, so translate it here.
+
+    Args:
+        facet_kwargs: The loose facet kwargs from the NetCDF facet path.
+        panel_labels_cls: cleopatra's ``PanelLabels`` (injected).
+
+    Returns:
+        A new dict suitable for ``ArrayGlyph.facet(**...)``.
+    """
+    facet_call = dict(facet_kwargs)
+    col_coords = facet_call.pop("col_coords", None)
+    row_coords = facet_call.pop("row_coords", None)
+    if col_coords is not None or row_coords is not None:
+        facet_call["labels"] = panel_labels_cls(col=col_coords, row=row_coords)
+    if "figsize" in facet_call:
+        facet_call["figure_size"] = facet_call.pop("figsize")
+    return facet_call
+
+
+def _dispatch_render(
+    cleo: Any,
+    mode: ModeSpec,
+    render_kwargs: dict[str, Any],
+    animate_kwargs: dict[str, Any],
+    basemap_plan: BasemapPlan,
+    panel_labels_cls: Any,
+) -> Any:
+    """Run the ``plot`` / ``animate`` / ``facet`` render call for a built glyph.
+
+    Only the render-call-only kwargs reach the render method — the constructor
+    already absorbed every ``default_options`` key. A cleopatra relief basemap
+    rides along on the render call (``basemap_plan.cleo_kwarg``); a pyramids
+    web-tile basemap is drawn afterwards on the plot/animate Axes or under every
+    visible facet panel. A cleopatra ``Basemap`` is unsupported on the facet path
+    and raises.
+
+    Args:
+        cleo: The built cleopatra ``ArrayGlyph``.
+        mode: The render mode + its mode-specific inputs.
+        render_kwargs: Render-call-only kwargs (plot / facet).
+        animate_kwargs: The merged kwargs for the animate call.
+        basemap_plan: The resolved basemap dispatch.
+        panel_labels_cls: cleopatra's ``PanelLabels`` (injected for the facet path).
+
+    Returns:
+        cleopatra's return for that mode — an ``ArrayGlyph`` (plot / animate) or a
+        ``FacetGrid`` (facet).
+
+    Raises:
+        ValueError: If a cleopatra ``Basemap`` reference layer is passed on the
+            facet path.
+    """
+    if mode.mode == "plot":
+        cleo.plot(**render_kwargs, **basemap_plan.cleo_kwarg)
+        result: Any = cleo
+        if basemap_plan.tile:
+            basemap_plan.apply_to(cleo.ax)
+    elif mode.mode == "animate":
+        if mode.data_getter is not None:
+            cleo.animate(
+                mode.animation_axis_values,
+                data_getter=mode.data_getter,
+                **animate_kwargs,
+                **basemap_plan.cleo_kwarg,
+            )
+        else:
+            cleo.animate(
+                mode.animation_axis_values, **animate_kwargs, **basemap_plan.cleo_kwarg
+            )
+        result = cleo
+        if basemap_plan.tile:
+            # cleopatra's ``animate`` only updates the raster via ``im.set_data``
+            # (blit=True) and never clears the Axes, so a tile underlay drawn now is
+            # captured in the blit background and persists across every frame.
+            basemap_plan.apply_to(cleo.ax)
+    else:
+        # The guard at the top of ``render_array`` already proved facet_kwargs is set.
+        assert mode.facet_kwargs is not None
+        if basemap_plan.forwards_cleo_basemap:
+            # cleopatra's ``ArrayGlyph.facet`` has no ``basemap=`` param, so a
+            # relief/features reference layer cannot be drawn per panel.
+            raise ValueError(
+                "A cleopatra `Basemap` (or equivalent dict) reference layer is not "
+                "supported on the faceted plot path. Use a web-tile basemap "
+                "(basemap='<provider>') for per-panel tiles, or plot without faceting "
+                "for a relief/features basemap."
+            )
+        facet_call = _translate_facet_kwargs(mode.facet_kwargs, panel_labels_cls)
+        result = cleo.facet(**facet_call, **render_kwargs)
+        if basemap_plan.tile:
+            # Every facet panel renders the same spatial domain, so each visible
+            # panel gets the same tile layer underneath (one fetch per panel).
+            basemap_plan.apply_to_facets(result)
+    return result
+
+
 def render_array(request: RenderRequest, **kwargs: Any) -> ArrayGlyph:
     """Build an ArrayGlyph from a :class:`RenderRequest` and dispatch by mode.
 
@@ -824,9 +928,6 @@ def render_array(request: RenderRequest, **kwargs: Any) -> ArrayGlyph:
     # Unpack the grouped request into the working locals the dispatch uses.
     arr = request.arr
     mode = request.mode.mode
-    animation_axis_values = request.mode.animation_axis_values
-    data_getter = request.mode.data_getter
-    facet_kwargs = request.mode.facet_kwargs
     rgb_spec = request.rgb
     coords = request.coords
     extent = request.extent
@@ -937,72 +1038,10 @@ def render_array(request: RenderRequest, **kwargs: Any) -> ArrayGlyph:
     # truthy basemap always has a CRS here.)
     basemap_plan = BasemapPlan.resolve(basemap, basemap_epsg)
 
-    if mode == "plot":
-        # Only render-call-only kwargs reach ``cleo.plot`` — the constructor
-        # already absorbed every option meaningful to cleopatra's
-        # ``default_options`` machinery. A cleopatra relief basemap rides along
-        # on the render call; a pyramids tile basemap is drawn afterwards.
-        cleo.plot(**render_kwargs, **basemap_plan.cleo_kwarg)
-        result: Any = cleo
-        if basemap_plan.tile:
-            basemap_plan.apply_to(cleo.ax)
-    elif mode == "animate":
-        if data_getter is not None:
-            cleo.animate(
-                animation_axis_values,
-                data_getter=data_getter,
-                **animate_kwargs,
-                **basemap_plan.cleo_kwarg,
-            )
-        else:
-            cleo.animate(
-                animation_axis_values, **animate_kwargs, **basemap_plan.cleo_kwarg
-            )
-        result = cleo
-        if basemap_plan.tile:
-            # A pyramids web-tile basemap draws on the animation's single
-            # persistent Axes, mirroring the plot path — so ``basemap=`` behaves
-            # the same whether the caller renders a single frame or an animation
-            # (e.g. ``DatasetCollection.plot`` / ``NetCDF.plot`` on a time stack).
-            # cleopatra's ``animate`` only updates the raster via ``im.set_data``
-            # (blit=True) and never clears the Axes, so the underlay drawn now is
-            # captured in the blit background and persists across frames.
-            basemap_plan.apply_to(cleo.ax)
-    else:
-        # Facet path: cleopatra's ``ArrayGlyph.facet`` accepts every
-        # option that ``ArrayGlyph.plot`` does (it allocates one Axes
-        # per panel and calls ``imshow``/``pcolormesh`` under the hood).
-        # Forward only the render-call-only set; the rest is already on
-        # the constructor. The guard at the top of this function already
-        # proved facet_kwargs is set for mode == "facet".
-        assert facet_kwargs is not None
-        if basemap_plan.forwards_cleo_basemap:
-            # cleopatra's ``ArrayGlyph.facet`` has no ``basemap=`` param, so a
-            # relief/features reference layer cannot be drawn per panel. Fail
-            # loudly rather than forward an unsupported kwarg.
-            raise ValueError(
-                "A cleopatra `Basemap` (or equivalent dict) reference layer is not "
-                "supported on the faceted plot path. Use a web-tile basemap "
-                "(basemap='<provider>') for per-panel tiles, or plot without faceting "
-                "for a relief/features basemap."
-            )
-        # cleopatra 0.30 renamed facet's ``figsize`` to ``figure_size`` and moved the
-        # per-panel coordinate labels onto a ``PanelLabels`` group (``col`` / ``row``).
-        # Translate the loose facet_kwargs (built by the NetCDF facet path) into the new
-        # names so the NetCDF facet builder can keep emitting the historical spelling.
-        facet_call = dict(facet_kwargs)
-        col_coords = facet_call.pop("col_coords", None)
-        row_coords = facet_call.pop("row_coords", None)
-        if col_coords is not None or row_coords is not None:
-            facet_call["labels"] = PanelLabels(col=col_coords, row=row_coords)
-        if "figsize" in facet_call:
-            facet_call["figure_size"] = facet_call.pop("figsize")
-        result = cleo.facet(**facet_call, **render_kwargs)
-        if basemap_plan.tile:
-            # Every facet panel renders the same spatial domain, so each visible
-            # panel gets the same tile layer underneath (one fetch per panel).
-            basemap_plan.apply_to_facets(result)
-    return result
+    # Run the plot / animate / facet render call and draw any tile basemap.
+    return _dispatch_render(
+        cleo, request.mode, render_kwargs, animate_kwargs, basemap_plan, PanelLabels
+    )
 
 
 def mesh_render(
