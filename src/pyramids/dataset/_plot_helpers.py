@@ -12,8 +12,10 @@ The mesh counterpart lives in :mod:`pyramids.netcdf.ugrid.plot` as
 ``plot_mesh_data`` / ``plot_mesh_outline`` (N-6) — same contract,
 different cleopatra glyph (``MeshGlyph`` vs ``ArrayGlyph``).
 
-The helper takes an explicit ``mode`` argument so callers can pick
-between three render shapes:
+:func:`render_array` takes a single :class:`RenderRequest` — composing an
+:class:`RgbSpec` band spec and a :class:`ModeSpec` that carries the render mode
+plus its mode-specific inputs — so callers hand over one grouped object rather
+than a long parameter list. ``ModeSpec.mode`` picks between three render shapes:
 
 * ``"plot"`` — `ArrayGlyph(...).plot(**kwargs)` for a single 2-D slice.
 * ``"animate"`` — `ArrayGlyph(...).animate(animation_axis_values,
@@ -31,8 +33,9 @@ Cleopatra's ``ArrayGlyph`` validates every kwarg twice: the constructor
 stores style/colour options into ``self.default_options``, and
 ``ArrayGlyph.plot`` writes the same dict again. Forwarding the *same*
 kwargs dict to both call sites was the original D-4 smell — harmless
-(values were just re-assigned) but confusing. PR-6 splits the
-incoming ``**kwargs`` into two buckets, and the split is sourced from
+(values were just re-assigned) but confusing. :func:`_split_render_kwargs`
+splits the incoming ``**kwargs`` into constructor / render / animate buckets,
+and the split is sourced from
 ``ArrayGlyph.option_keys()`` (cleopatra's own declared set of
 constructor options, resolvable without building an instance) rather
 than a hand-maintained enumeration — so the routing tracks cleopatra
@@ -79,6 +82,7 @@ from pyramids.base.crs import crs_from_user_input
 from pyramids.basemap import basemap as _basemap_module
 
 if TYPE_CHECKING:
+    from cleopatra.basemap.geo import Basemap
     from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
 
 # N-6 — Mesh rendering shares this module's "data in, glyph out"
@@ -324,14 +328,15 @@ class RgbSpec:
         Returns:
             An ``RgbBands`` instance, or None for the single-band path.
         """
-        if not self.is_set:
-            return None
-        return rgb_bands_cls(
-            self.rgb,
-            surface_reflectance=self.surface_reflectance,
-            cutoff=self.cutoff,
-            percentile=self.percentile,
-        )
+        bands = None
+        if self.is_set:
+            bands = rgb_bands_cls(
+                self.rgb,
+                surface_reflectance=self.surface_reflectance,
+                cutoff=self.cutoff,
+                percentile=self.percentile,
+            )
+        return bands
 
 
 @dataclass(frozen=True)
@@ -411,9 +416,10 @@ class BasemapPlan:
     @property
     def cleo_kwarg(self) -> dict[str, Any]:
         """The ``basemap=`` kwarg for cleopatra's render call (empty if none)."""
-        if self.cleo_basemap is None:
-            return {}
-        return {"basemap": self.cleo_basemap}
+        kwarg: dict[str, Any] = {}
+        if self.cleo_basemap is not None:
+            kwarg = {"basemap": self.cleo_basemap}
+        return kwarg
 
     @property
     def forwards_cleo_basemap(self) -> bool:
@@ -621,7 +627,7 @@ class RenderRequest:
     exclude_value: list | None = None
     ax: Any = None
     fig: Any = None
-    basemap: bool | str | dict[str, Any] | Any = None
+    basemap: bool | str | dict[str, Any] | Basemap | None = None
     basemap_epsg: int | None = None
 
     def validate(self) -> None:
@@ -835,6 +841,11 @@ def render_array(request: RenderRequest, **kwargs: Any) -> ArrayGlyph:
     # forms — which cleopatra still tolerates — are rejected here so pyramids exposes a
     # single typed colour-bar surface (``colorbar=ColorBar``).
     _reject_replaced_cbar_kwargs(kwargs)
+    # Validate the request as given (the user's raw intent) before translating the
+    # deprecated dict-basemap alias below. A truthy basemap of any form needs a CRS,
+    # so validating first keeps the coercion — which only rewrites the local
+    # ``basemap`` that ``BasemapPlan.resolve`` consumes — out of the guard's reasoning.
+    request.validate()
     # Translate the deprecated ``dict`` basemap alias to a ``Basemap``.
     if isinstance(basemap, dict) and basemap:
         warnings.warn(
@@ -844,8 +855,6 @@ def render_array(request: RenderRequest, **kwargs: Any) -> ArrayGlyph:
             stacklevel=2,
         )
         basemap = Basemap(**basemap)
-
-    request.validate()
 
     if mode == "animate" and rgb_spec.is_set:
         # cleopatra's ``ArrayGlyph.animate`` renders a 4-D ``(time, rows, cols,
