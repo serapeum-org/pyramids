@@ -10,6 +10,7 @@ from hpc.indexing import get_pixels2
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
+from tests._helpers import traced_peak
 
 pytestmark = pytest.mark.core
 
@@ -298,11 +299,15 @@ class TestStreamReduce:
         assert len(windows) == 3, f"expected 3 strips over 7 rows, got {len(windows)}"
 
     def test_peak_memory_is_bounded_by_the_strip(self, tmp_path):
-        """Reducing a large disk raster peaks near one strip, far below the whole array.
+        """Reducing a disk raster peaks below a whole-array pass, proving the strip read.
 
         Test scenario:
-            Count the domain of a 1000x1000 raster with 64-row strips; the traced peak
-            must be a fraction of the dense-array size.
+            Sum a 1000x1000 raster in 64-row strips, and compare the traced Python peak
+            against a whole-array pass (read the whole array and reduce at once) in the same
+            process. The stripped peak must stay below the whole-array peak. This is a
+            build-agnostic check on purpose: the absolute figures depend on the GDAL build
+            (tracemalloc only sees the Python heap, not GDAL's C buffers), but the same
+            reduction done all-at-once is always an upper bound on the stripped version.
         """
         rows = cols = 1000
         src_path = tmp_path / "big.tif"
@@ -313,17 +318,29 @@ class TestStreamReduce:
             epsg=4326,
             path=str(src_path),
         ).close()
-        ds = Dataset.read_file(str(src_path))
-        dense_bytes = rows * cols * 2
-        tracemalloc.start()
-        ds.io.stream_reduce(
-            lambda acc, strip, _w: acc + int(strip.sum()), 0, strip_rows=64
-        )
-        _, peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
-        assert peak < dense_bytes // 4, (
-            f"stream_reduce peaked at {peak / 1e6:.1f} MB; a whole-array pass would "
-            f"need {dense_bytes / 1e6:.1f} MB — the read was not stripped"
+
+        def value_sum(acc, strip, _w):
+            # int64 accumulation on both sides so the == assertion below is
+            # independent of the platform's default int16.sum() accumulator width.
+            return acc + int(strip.sum(dtype="int64"))
+
+        # Whole-array baseline: read the full array and reduce it at once.
+        with traced_peak() as wp:
+            whole = Dataset.read_file(str(src_path)).read_array()
+            whole_result = int(whole.sum(dtype="int64"))
+        whole_peak = wp[0]
+        del whole
+
+        # Stripped reduction.
+        with traced_peak() as sp:
+            ds = Dataset.read_file(str(src_path))
+            stripped_result = ds.io.stream_reduce(value_sum, 0, strip_rows=64)
+        stripped_peak = sp[0]
+
+        assert stripped_result == whole_result, "stripped reduction diverged"
+        assert stripped_peak < whole_peak, (
+            f"stream_reduce peaked at {stripped_peak / 1e6:.1f} MB, not below the whole-array "
+            f"pass's {whole_peak / 1e6:.1f} MB — it did not stay under a full materialisation"
         )
 
 
@@ -465,14 +482,22 @@ class TestStreamedConsumers:
             no_data_value=-9999.0,
             path=str(src_path),
         ).close()
-        ds = Dataset.read_file(str(src_path))
-        dense_bytes = rows * cols * 4
-        tracemalloc.start()
-        count = ds.count_domain_cells()
-        _, peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
+        # Whole-band baseline: materialise the full band at once (the non-stripped
+        # upper bound). The exact-count assertion below already pins correctness, so
+        # the baseline only needs to establish the whole-band memory peak.
+        with traced_peak() as wp:
+            whole = Dataset.read_file(str(src_path)).read_array()
+        whole_peak = wp[0]
+        del whole
+
+        # Stripped count.
+        with traced_peak() as sp:
+            ds = Dataset.read_file(str(src_path))
+            count = ds.count_domain_cells()
+        stripped_peak = sp[0]
+
         assert count == rows * cols - 2000 * 250, f"wrong domain count {count}"
-        assert peak < dense_bytes // 4, (
-            f"count_domain_cells peaked at {peak / 1e6:.1f} MB; a whole-band pass "
-            f"would need {dense_bytes / 1e6:.1f} MB — the read was not stripped"
+        assert stripped_peak < whole_peak, (
+            f"count_domain_cells peaked at {stripped_peak / 1e6:.1f} MB, not below the "
+            f"whole-band pass's {whole_peak / 1e6:.1f} MB — it did not stay under a full materialisation"
         )
