@@ -60,7 +60,7 @@ and pass nothing to the constructor.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -229,6 +229,88 @@ def nonnull_group_kwargs(**groups: Any) -> dict[str, Any]:
         A dict of only the groups whose value is not ``None``.
     """
     return {name: value for name, value in groups.items() if value is not None}
+
+
+def _split_render_kwargs(
+    kwargs: dict[str, Any], mode: str, option_keys: Collection[str]
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Route render kwargs into constructor / render-call / animate buckets.
+
+    cleopatra's ``ArrayGlyph`` validates every kwarg twice — once on the
+    constructor (against ``DEFAULT_OPTIONS``) and again on the render call — so
+    pyramids sends each kwarg to exactly one place. The split is driven by
+    ``option_keys`` (``ArrayGlyph.option_keys()``, cleopatra's declared
+    constructor-option set): a key in that set lands on the constructor; any
+    other key (a render-only param such as ``points``, or an unknown key the
+    render method should reject) lands on the render call.
+
+    ``kind`` is the one override: it is a ``DEFAULT_OPTIONS`` key *and* an
+    explicit ``ArrayGlyph.plot`` / ``.facet`` parameter that the render method
+    unconditionally rewrites, so a constructor-set ``kind`` would be clobbered
+    back to ``"auto"`` — it must reach the render call instead.
+
+    On the ``"animate"`` path cleopatra's ``ArrayGlyph.animate`` re-validates
+    every kwarg, so the two buckets are merged and the constructor bucket is
+    emptied (animate flows everything through ``animate(...)``, and keys like
+    ``interval`` are valid for animate but not in ``DEFAULT_OPTIONS``).
+
+    Args:
+        kwargs: The caller's render kwargs — already stripped of the rejected
+            loose ``cbar_*`` forms, with any bare points array wrapped in a
+            ``PointOverlay``.
+        mode: One of ``"plot"`` / ``"animate"`` / ``"facet"``.
+        option_keys: cleopatra's declared constructor-option names.
+
+    Returns:
+        ``(ctor_kwargs, render_kwargs, animate_kwargs)``. For ``"plot"`` /
+        ``"facet"`` the animate bucket is empty; for ``"animate"`` the
+        constructor bucket is empty and the animate bucket carries the merge.
+
+    Examples:
+        - A constructor option and a render-only key split apart:
+
+            ```python
+            >>> from pyramids.dataset._plot_helpers import _split_render_kwargs
+            >>> ctor, render, animate = _split_render_kwargs(
+            ...     {"cmap": "viridis", "points": [[1, 2, 3]]},
+            ...     "plot",
+            ...     {"cmap", "vmin"},
+            ... )
+            >>> ctor, render, animate
+            ({'cmap': 'viridis'}, {'points': [[1, 2, 3]]}, {})
+
+            ```
+
+        - ``kind`` is force-routed to the render call even though it is an
+          option key, and ``"animate"`` empties the constructor bucket:
+
+            ```python
+            >>> ctor, render, animate = _split_render_kwargs(
+            ...     {"cmap": "viridis", "kind": "contourf"},
+            ...     "animate",
+            ...     {"cmap", "kind"},
+            ... )
+            >>> ctor
+            {}
+            >>> animate == {"cmap": "viridis", "kind": "contourf"}
+            True
+
+            ```
+    """
+    render_only_overrides = {"kind"}
+    ctor_kwargs: dict[str, Any] = {}
+    render_kwargs: dict[str, Any] = {}
+    for key, value in kwargs.items():
+        if key in option_keys and key not in render_only_overrides:
+            ctor_kwargs[key] = value
+        else:
+            render_kwargs[key] = value
+    result: tuple[dict[str, Any], dict[str, Any], dict[str, Any]]
+    if mode == "animate":
+        result = ({}, render_kwargs, {**ctor_kwargs, **render_kwargs})
+    else:
+        result = (ctor_kwargs, render_kwargs, {})
+    return result
 
 
 def render_array(
@@ -557,60 +639,13 @@ def render_array(
     # `extent` when curvilinear coords are present.
     effective_extent = None if coords is not None else extent
 
-    # D-4 split: keep figure/colour/scale options on the constructor
-    # (they land in cleopatra's ``default_options`` once) and route the
-    # render-call-only kwargs (``points``, ``kind``) to
-    # ``cleo.plot``/``cleo.animate``/``cleo.facet``. Before
-    # PR-6 the same ``kwargs`` dict was passed to both call sites; that
-    # double-forward was harmless (cleopatra re-assigned the same values
-    # into ``default_options``) but obscured which kwargs belonged where.
-    # The split is driven by ``ArrayGlyph.option_keys()`` — cleopatra's
-    # own declared set of constructor options, resolvable without building
-    # an instance — so pyramids tracks cleopatra automatically instead of
-    # hand-maintaining the render-only list. The render-only method params
-    # (``points`` — an array or a ``PointOverlay``) are not in that set,
-    # so they fall to ``render_kwargs`` on their own; an invalid key does
-    # too, so the render method rejects it instead of being silently dropped.
-    #
-    # ``kind`` is the one exception that needs an override: it lives in BOTH
-    # places — a ``default_options`` key *and* an explicit
-    # ``ArrayGlyph.plot``/``.facet`` parameter (default ``"auto"``) — and the
-    # render method *unconditionally* writes its own ``kind`` arg into
-    # ``default_options`` (``array_glyph.py``: ``default_options["kind"] =
-    # kind``). So routing a constructor ``kind`` would be clobbered back to
-    # ``"auto"``; it must reach the render call instead.
-    #
-    # ``title`` is also dual-membership, but it does NOT need an override: the
-    # render method only overwrites ``default_options["title"]`` when its
-    # ``title`` arg is not ``None``, so a constructor-set title survives and
-    # routing it to the constructor (via ``option_keys()``) is correct.
-    # ``kind`` is force-routed to the render call. The loose cbar_* kwargs no longer
-    # need force-routing: they are rejected up front by ``_reject_replaced_cbar_kwargs``
-    # (``colorbar=ColorBar`` is the only colour-bar surface), so they never reach the split.
-    RENDER_ONLY_OVERRIDES = {"kind"}
-    # Reuse the option set resolved for the style/hillshade guard above — it is
-    # cleopatra's declared constructor options and does not change within a call.
-    ctor_option_keys = option_keys
-    ctor_kwargs: dict[str, Any] = {}
-    render_kwargs: dict[str, Any] = {}
-    for key, value in kwargs.items():
-        if key in ctor_option_keys and key not in RENDER_ONLY_OVERRIDES:
-            ctor_kwargs[key] = value
-        else:
-            render_kwargs[key] = value
-    # The cleopatra render groups (``color`` / ``contour`` / ``cells`` / ``data_style``) the
-    # facades pass are not constructor options, so the split above already routed them to
-    # ``render_kwargs`` — they ride on the plot / animate / facet call as-is.
-    # The ``"animate"`` path only flows kwargs into ``cleo.animate(...)``,
-    # not the constructor — keys like ``interval`` are valid for animate
-    # but not in cleopatra's ``DEFAULT_OPTIONS`` and would trigger an
-    # "Unknown option" ValueError on the constructor pass. Merge the two
-    # buckets back together for the animate call.
-    if mode == "animate":
-        animate_kwargs = {**ctor_kwargs, **render_kwargs}
-        ctor_kwargs = {}
-    else:
-        animate_kwargs = {}
+    # D-4 split: route each render kwarg to exactly one cleopatra call site
+    # (constructor options vs the render call), driven by cleopatra's own
+    # declared option set. ``_split_render_kwargs`` owns the ``kind`` override
+    # and the animate-path merge (see its docstring).
+    ctor_kwargs, render_kwargs, animate_kwargs = _split_render_kwargs(
+        kwargs, mode, option_keys
+    )
 
     # cleopatra 0.31 (serapeum-org/cleopatra#291) grouped the four loose RGB
     # band-prep keywords (``rgb`` / ``surface_reflectance`` / ``cutoff`` /
