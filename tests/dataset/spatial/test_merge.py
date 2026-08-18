@@ -201,6 +201,9 @@ class TestMergeMethod:
 
         # Whole-union baseline: read both sources and reduce the full float64 union
         # cube at once (the non-stripped equivalent), holding every array together.
+        # Assumes the two sources are co-registered on the same grid (as the fixture
+        # writes them), so `np.maximum` aligns them directly; a non-overlapping pair
+        # would need the union grid built first.
         tracemalloc.start()
         a = Dataset.read_file(str(pa)).read_array().astype("float64")
         b = Dataset.read_file(str(pb)).read_array().astype("float64")
