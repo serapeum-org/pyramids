@@ -631,6 +631,45 @@ class RenderRequest:
             ValueError: If ``mode.mode`` is not one of the accepted values, if a
                 required mode-specific argument is missing, or if ``basemap`` is
                 truthy while ``basemap_epsg`` is ``None``.
+
+        Examples:
+            - A default plot request validates silently (returns ``None``):
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset._plot_helpers import RenderRequest
+                >>> RenderRequest(arr=np.zeros((4, 4))).validate() is None
+                True
+
+                ```
+
+            - An unknown mode is rejected:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset._plot_helpers import ModeSpec, RenderRequest
+                >>> RenderRequest(  # doctest: +IGNORE_EXCEPTION_DETAIL
+                ...     arr=np.zeros((4, 4)), mode=ModeSpec(mode="bogus")
+                ... ).validate()
+                Traceback (most recent call last):
+                    ...
+                ValueError: Invalid mode='bogus'...
+
+                ```
+
+            - A truthy basemap without a CRS is rejected:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset._plot_helpers import RenderRequest
+                >>> RenderRequest(  # doctest: +IGNORE_EXCEPTION_DETAIL
+                ...     arr=np.zeros((4, 4)), basemap="OpenStreetMap"
+                ... ).validate()
+                Traceback (most recent call last):
+                    ...
+                ValueError: Dataset must have a CRS (epsg) to use basemap.
+
+                ```
         """
         valid_modes = ("plot", "animate", "facet")
         if self.mode.mode not in valid_modes:
