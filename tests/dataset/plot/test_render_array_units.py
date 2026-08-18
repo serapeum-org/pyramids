@@ -185,8 +185,9 @@ class TestRgbSpec:
             Guards the #538 frame loss by refusing a single-band 3-D stack (or None).
         """
         fake_cls, _ = _fake_array_glyph()
+        spec = RgbSpec(rgb=[0, 1, 2])
         with pytest.raises(ValueError, match="4-D"):
-            RgbSpec(rgb=[0, 1, 2]).composite_animate_frames(arr, fake_cls)
+            spec.composite_animate_frames(arr, fake_cls)
 
 
 class TestModeSpec:
@@ -233,8 +234,9 @@ class TestRenderRequest:
         Test scenario:
             ``mode.mode`` outside plot/animate/facet raises naming the bad value.
         """
+        request = RenderRequest(arr=np.zeros((4, 4)), mode=ModeSpec(mode="bogus"))
         with pytest.raises(ValueError, match="Invalid mode='bogus'"):
-            RenderRequest(arr=np.zeros((4, 4)), mode=ModeSpec(mode="bogus")).validate()
+            request.validate()
 
     def test_validate_requires_animation_axis_values(self):
         """Animate mode requires animation_axis_values.
@@ -242,8 +244,9 @@ class TestRenderRequest:
         Test scenario:
             ``mode='animate'`` without axis values raises.
         """
+        request = RenderRequest(arr=np.zeros((4, 4)), mode=ModeSpec(mode="animate"))
         with pytest.raises(ValueError, match="animation_axis_values"):
-            RenderRequest(arr=np.zeros((4, 4)), mode=ModeSpec(mode="animate")).validate()
+            request.validate()
 
     def test_validate_requires_facet_kwargs(self):
         """Facet mode requires facet_kwargs.
@@ -251,8 +254,9 @@ class TestRenderRequest:
         Test scenario:
             ``mode='facet'`` with no facet_kwargs raises.
         """
+        request = RenderRequest(arr=np.zeros((4, 4)), mode=ModeSpec(mode="facet"))
         with pytest.raises(ValueError, match="facet_kwargs"):
-            RenderRequest(arr=np.zeros((4, 4)), mode=ModeSpec(mode="facet")).validate()
+            request.validate()
 
     def test_validate_requires_epsg_for_basemap(self):
         """A truthy basemap without a CRS is rejected.
@@ -260,8 +264,9 @@ class TestRenderRequest:
         Test scenario:
             ``basemap`` set while ``basemap_epsg`` is None raises the CRS error.
         """
+        request = RenderRequest(arr=np.zeros((4, 4)), basemap="OpenStreetMap")
         with pytest.raises(ValueError, match="CRS"):
-            RenderRequest(arr=np.zeros((4, 4)), basemap="OpenStreetMap").validate()
+            request.validate()
 
 
 class _FakePanel:
@@ -306,7 +311,8 @@ class TestBasemapPlan:
             ``basemap=True`` means tile mode with ``source=None`` (default provider).
         """
         plan = BasemapPlan.resolve(True, 3857)
-        assert plan.tile is True and plan.source is None, f"unexpected plan: {plan}"
+        assert plan.tile is True, f"True must resolve to a tile plan: {plan}"
+        assert plan.source is None, f"True must use the default provider: {plan}"
 
     @pytest.mark.parametrize("value", ["", None, False, {}])
     def test_resolve_falsy_is_no_basemap(self, value):
