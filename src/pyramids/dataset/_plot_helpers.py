@@ -233,6 +233,109 @@ def nonnull_group_kwargs(**groups: Any) -> dict[str, Any]:
 
 
 @dataclass(frozen=True)
+class RgbSpec:
+    """RGB band selection + stretch for a :func:`render_array` call.
+
+    Groups the four Sentinel RGB band-prep values — the ``[r, g, b]`` band
+    indices and the stretch controls — that select colour channels and stretch
+    them. ``is_set`` is False when no ``rgb`` list was given (the single-band
+    colormapped path); the two operations are meaningful only when ``is_set``.
+
+    The cleopatra classes the operations need (``ArrayGlyph`` for compositing,
+    ``RgbBands`` for the constructor) are passed in rather than imported, so this
+    value object stays independent of the optional ``[viz]`` extra — the caller
+    has already imported them after ``require_cleopatra()``.
+
+    Attributes:
+        rgb: Three- or four-element list of band indices, or None.
+        surface_reflectance: Sentinel surface-reflectance scale factor, or None.
+        cutoff: Sentinel per-band clip values, or None.
+        percentile: Sentinel percentile-stretch value, or None.
+
+    Examples:
+        - An empty spec is the single-band (non-RGB) case:
+
+            ```python
+            >>> from pyramids.dataset._plot_helpers import RgbSpec
+            >>> RgbSpec().is_set
+            False
+            >>> RgbSpec(rgb=[0, 1, 2]).is_set
+            True
+
+            ```
+    """
+
+    rgb: list[int] | None = None
+    surface_reflectance: int | None = None
+    cutoff: list | None = None
+    percentile: int | None = None
+
+    @property
+    def is_set(self) -> bool:
+        """True when an ``rgb`` band list was provided."""
+        return self.rgb is not None
+
+    def composite_animate_frames(
+        self, arr: np.ndarray | None, array_glyph_cls: Any
+    ) -> np.ndarray:
+        """Composite a 4-D ``(time, bands, rows, cols)`` stack into true-colour frames.
+
+        cleopatra's ``ArrayGlyph.animate`` renders a 4-D ``(time, rows, cols,
+        3|4)`` stack as true colour only when each frame is already
+        display-ready, so pyramids composites each timestep with the same
+        ``prepare_array`` cleopatra uses for the single-frame plot RGB path.
+        Requires a 4-D stack — a single-band 3-D stack is rejected up front so
+        the time axis is never read as the colour channels (guards the #538
+        frame loss).
+
+        Args:
+            arr: The ``(time, bands, rows, cols)`` stack to composite.
+            array_glyph_cls: cleopatra's ``ArrayGlyph`` (injected).
+
+        Returns:
+            A ``(time, rows, cols, 3|4)`` display-ready stack.
+        """
+        if arr is None or arr.ndim != 4:
+            raise ValueError(
+                "RGB animate requires a 4-D (time, bands, rows, cols) array; "
+                f"got {None if arr is None else arr.ndim}-D. Pass rgb only with "
+                "a multi-band temporal stack."
+            )
+        compositor = array_glyph_cls(np.zeros((1, 1)))
+        return np.stack(
+            [
+                compositor.prepare_array(
+                    arr[frame],
+                    rgb=self.rgb,
+                    surface_reflectance=self.surface_reflectance,
+                    cutoff=self.cutoff,
+                    percentile=self.percentile,
+                )
+                for frame in range(arr.shape[0])
+            ],
+            axis=0,
+        )
+
+    def to_cleo_bands(self, rgb_bands_cls: Any) -> Any:
+        """Build cleopatra's ``RgbBands`` from this spec, or None when not set.
+
+        Args:
+            rgb_bands_cls: cleopatra's ``RgbBands`` (injected).
+
+        Returns:
+            An ``RgbBands`` instance, or None for the single-band path.
+        """
+        if not self.is_set:
+            return None
+        return rgb_bands_cls(
+            self.rgb,
+            surface_reflectance=self.surface_reflectance,
+            cutoff=self.cutoff,
+            percentile=self.percentile,
+        )
+
+
+@dataclass(frozen=True)
 class BasemapPlan:
     """Resolved basemap dispatch for a single :func:`render_array` call.
 
@@ -694,39 +797,17 @@ def render_array(
     if basemap and basemap_epsg is None:
         raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
 
-    # RGB animate: cleopatra's ``ArrayGlyph.animate`` renders a 4-D
-    # ``(time, rows, cols, 3|4)`` stack as true colour only when each frame is
-    # already display-ready (floats in ``[0, 1]`` / ``uint8``). We own that
-    # compositing here — the single backend abstraction — so the constructor
-    # receives a finished stack and must NOT re-run its own ``rgb`` preparation
-    # (which would re-collapse the first axis). We composite each timestep's
-    # ``(bands, rows, cols)`` slice with the same ``prepare_array`` cleopatra
-    # uses for the single-frame ``plot`` RGB path, then drop ``rgb`` so the
-    # 4-D stack flows straight through.
-    if mode == "animate" and rgb is not None:
-        if arr is None or arr.ndim != 4:
-            raise ValueError(
-                "RGB animate requires a 4-D (time, bands, rows, cols) array; "
-                f"got {None if arr is None else arr.ndim}-D. Pass rgb only with "
-                "a multi-band temporal stack."
-            )
-        compositor = ArrayGlyph(np.zeros((1, 1)))
-        arr = np.stack(
-            [
-                compositor.prepare_array(
-                    arr[frame],
-                    rgb=rgb,
-                    surface_reflectance=surface_reflectance,
-                    cutoff=cutoff,
-                    percentile=percentile,
-                )
-                for frame in range(arr.shape[0])
-            ],
-            axis=0,
-        )
-        # The stretch parameters have been consumed by ``prepare_array`` above;
-        # null them so the constructor call below cannot re-read inert values.
-        rgb = surface_reflectance = cutoff = percentile = None
+    # RGB band selection + stretch, grouped as one value object.
+    rgb_spec = RgbSpec(rgb, surface_reflectance, cutoff, percentile)
+    if mode == "animate" and rgb_spec.is_set:
+        # cleopatra's ``ArrayGlyph.animate`` renders a 4-D ``(time, rows, cols,
+        # 3|4)`` stack as true colour only when each frame is already
+        # display-ready, so composite here. After compositing, the constructor
+        # must NOT re-run RGB preparation — clear the spec so ``to_cleo_bands``
+        # yields ``rgb_bands=None`` and the finished 4-D stack flows straight
+        # through (mirrors the old "null the stretch params" step).
+        arr = rgb_spec.composite_animate_frames(arr, ArrayGlyph)
+        rgb_spec = RgbSpec()
     # A bare ``(N, 3)`` points array is no longer auto-wrapped by cleopatra (it raises on
     # the overlay-drawing kinds, and is silently ignored on contour); wrap it in a
     # ``PointOverlay`` so pyramids callers can keep passing a plain array (the ``points``
@@ -760,22 +841,10 @@ def render_array(
         kwargs, mode, option_keys
     )
 
-    # cleopatra 0.31 (serapeum-org/cleopatra#291) grouped the four loose RGB
-    # band-prep keywords (``rgb`` / ``surface_reflectance`` / ``cutoff`` /
-    # ``percentile``) into an ``RgbBands`` object; the constructor takes only
-    # ``rgb_bands=``. ``rgb`` is ``None`` on the single-band path (and on the
-    # animate path, where ``prepare_array`` already consumed the stretch above),
-    # so pass ``rgb_bands=None`` there.
-    rgb_bands = (
-        RgbBands(
-            rgb,
-            surface_reflectance=surface_reflectance,
-            cutoff=cutoff,
-            percentile=percentile,
-        )
-        if rgb is not None
-        else None
-    )
+    # cleopatra 0.31 (serapeum-org/cleopatra#291) takes the grouped
+    # ``rgb_bands=`` on the constructor; the empty spec (single-band, or the
+    # already-composited animate stack) yields ``None``.
+    rgb_bands = rgb_spec.to_cleo_bands(RgbBands)
     cleo = ArrayGlyph(
         arr,
         exclude_value=exclude_value if exclude_value is not None else np.nan,
