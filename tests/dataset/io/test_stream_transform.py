@@ -481,14 +481,24 @@ class TestStreamedConsumers:
             no_data_value=-9999.0,
             path=str(src_path),
         ).close()
+        # Whole-band baseline: read the full band and count the domain at once.
+        tracemalloc.start()
+        whole = Dataset.read_file(str(src_path)).read_array()
+        whole_count = int((whole != -9999.0).sum())
+        _, whole_peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        del whole
+
+        # Stripped count.
         ds = Dataset.read_file(str(src_path))
-        dense_bytes = rows * cols * 4
         tracemalloc.start()
         count = ds.count_domain_cells()
-        _, peak = tracemalloc.get_traced_memory()
+        _, stripped_peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
+
         assert count == rows * cols - 2000 * 250, f"wrong domain count {count}"
-        assert peak < dense_bytes // 4, (
-            f"count_domain_cells peaked at {peak / 1e6:.1f} MB; a whole-band pass "
-            f"would need {dense_bytes / 1e6:.1f} MB — the read was not stripped"
+        assert count == whole_count, "stripped count diverged from the whole-band count"
+        assert stripped_peak < whole_peak, (
+            f"count_domain_cells peaked at {stripped_peak / 1e6:.1f} MB, not below the "
+            f"whole-band pass's {whole_peak / 1e6:.1f} MB — the read was not stripped"
         )
