@@ -266,6 +266,6 @@ class TestPlotConsumesOptionDataclasses:
                 animate=True,
                 data_style=DataStyle(style="topography", hillshade=True),
             )
-        assert captured["kw"]["mode"] == "animate"
+        assert captured["request"].mode.mode == "animate"
         assert captured["kw"]["data_style"].style == "topography"
         assert captured["kw"]["data_style"].hillshade is True

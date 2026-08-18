@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from pyramids.dataset._plot_helpers import ModeSpec, RenderRequest
 from pyramids.dataset._plot_helpers import render_array as _render_array
 from pyramids.netcdf import _coord_match
 from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
@@ -1442,16 +1443,20 @@ class NetCDFPlot:
         ax = animate_kwargs.pop("ax", None)
         fig = animate_kwargs.pop("fig", None)
         return _render_array(
-            arr=template,
-            extent=nc.bbox,
-            exclude_value=resolved_exclude,
-            mode="animate",
-            animation_axis_values=frame_labels,
-            data_getter=_data_getter,
-            ax=ax,
-            fig=fig,
-            basemap=basemap,
-            basemap_epsg=nc.epsg,
+            RenderRequest(
+                arr=template,
+                extent=nc.bbox,
+                exclude_value=resolved_exclude,
+                mode=ModeSpec(
+                    mode="animate",
+                    animation_axis_values=frame_labels,
+                    data_getter=_data_getter,
+                ),
+                ax=ax,
+                fig=fig,
+                basemap=basemap,
+                basemap_epsg=nc.epsg,
+            ),
             **animate_kwargs,
         )
 

@@ -23,7 +23,12 @@ from pyramids.base._domain import inside_domain, is_no_data
 from pyramids.base._errors import AlignmentError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._utils import gdal_to_numpy_dtype, require_cleopatra
 from pyramids.dataset._mask import MaskFlags
-from pyramids.dataset._plot_helpers import render_array
+from pyramids.dataset._plot_helpers import (
+    ModeSpec,
+    RenderRequest,
+    RgbSpec,
+    render_array,
+)
 from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
@@ -2347,20 +2352,18 @@ class Analysis(_Engine["Dataset"]):
                 kwargs["cmap"] = cmap
                 kwargs["color"] = ColorScaling.boundary(bounds=bounds)
         return render_array(
-            arr=arr,
-            extent=effective_extent,
-            coords=coords,
-            exclude_value=exclude_value,
-            rgb=rgb,
-            surface_reflectance=surface_reflectance,
-            cutoff=cutoff,
-            percentile=percentile,
-            mode=mode,
-            facet_kwargs=facet_kwargs,
-            ax=ax,
-            fig=fig,
-            basemap=basemap,
-            basemap_epsg=self._ds.epsg,
+            RenderRequest(
+                arr=arr,
+                extent=effective_extent,
+                coords=coords,
+                exclude_value=exclude_value,
+                rgb=RgbSpec(rgb, surface_reflectance, cutoff, percentile),
+                mode=ModeSpec(mode=mode, facet_kwargs=facet_kwargs),
+                ax=ax,
+                fig=fig,
+                basemap=basemap,
+                basemap_epsg=self._ds.epsg,
+            ),
             **kwargs,
         )
 

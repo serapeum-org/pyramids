@@ -463,12 +463,12 @@ class TestNetCDFPlotFacetingEdges:
         with patch("pyramids.dataset.engines.analysis.render_array") as mock_render:
             mock_render.return_value = "ok"
             nc.plot(variable="t2m", facet=FacetSpec(col="time"))
-        extent = mock_render.call_args.kwargs.get("extent")
+        extent = mock_render.call_args.args[0].extent
         assert extent == var.bbox, (
             f"facet render extent must be the pinned subset's bbox "
             f"{var.bbox}, got {extent}"
         )
-        assert mock_render.call_args.kwargs.get("mode") == "facet", (
+        assert mock_render.call_args.args[0].mode.mode == "facet", (
             "this should have gone through the facet render path"
         )
 
@@ -486,8 +486,8 @@ class TestNetCDFPlotFacetingEdges:
         with patch("pyramids.dataset.engines.analysis.render_array") as mock_render:
             mock_render.return_value = "ok"
             nc.plot(variable="t2m")
-        extent = mock_render.call_args.kwargs.get("extent")
+        extent = mock_render.call_args.args[0].extent
         assert extent == var.bbox, (
             f"static render extent should be self._ds.bbox {var.bbox}, got {extent}"
         )
-        assert mock_render.call_args.kwargs.get("mode") == "plot"
+        assert mock_render.call_args.args[0].mode.mode == "plot"

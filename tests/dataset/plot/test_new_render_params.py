@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset
-from pyramids.dataset._plot_helpers import render_array
+from ._render_helpers import render_array
 
 pytestmark = pytest.mark.plot
 

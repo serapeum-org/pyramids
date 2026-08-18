@@ -57,7 +57,7 @@ class TestPlotAnimationAxisValues:
         assert cube.time is None
         with patch("pyramids.dataset.collection.render_array") as render:
             cube.plot(band=0)
-        assert render.call_args.kwargs["animation_axis_values"] == [0, 1, 2]
+        assert render.call_args.args[0].mode.animation_axis_values == [0, 1, 2]
 
     def test_forwards_basemap_epsg_from_the_base_raster(self):
         """`plot` forwards the base raster's EPSG so a basemap does not falsely
@@ -65,7 +65,7 @@ class TestPlotAnimationAxisValues:
         cube = _collection(3)
         with patch("pyramids.dataset.collection.render_array") as render:
             cube.plot(band=0, basemap="CartoDB.Positron")
-        assert render.call_args.kwargs["basemap_epsg"] == cube.base.epsg
+        assert render.call_args.args[0].basemap_epsg == cube.base.epsg
 
     def test_forwards_named_basemap_and_frame_label(self):
         """`plot` forwards the named `basemap` and `frame_label` to `render_array`."""
@@ -74,7 +74,7 @@ class TestPlotAnimationAxisValues:
         with patch("pyramids.dataset.collection.render_array") as render:
             cube.plot(band=0, basemap="CartoDB.Positron", frame_label=marker)
         kwargs = render.call_args.kwargs
-        assert kwargs["basemap"] == "CartoDB.Positron"
+        assert render.call_args.args[0].basemap == "CartoDB.Positron"
         assert kwargs["frame_label"] is marker
 
     def test_forwards_named_basemap_and_frame_label_rgb(self):
@@ -88,7 +88,7 @@ class TestPlotAnimationAxisValues:
                 frame_label=marker,
             )
         kwargs = render.call_args.kwargs
-        assert kwargs["basemap"] == "CartoDB.Positron"
+        assert render.call_args.args[0].basemap == "CartoDB.Positron"
         assert kwargs["frame_label"] is marker
 
     def test_frame_label_omitted_when_none(self):
@@ -104,7 +104,7 @@ class TestPlotAnimationAxisValues:
         cube.time = [2000, 2001, 2002]
         with patch("pyramids.dataset.collection.render_array") as render:
             cube.plot(band=0)
-        assert render.call_args.kwargs["animation_axis_values"] == [2000, 2001, 2002]
+        assert render.call_args.args[0].mode.animation_axis_values == [2000, 2001, 2002]
 
     def test_explicit_axis_values_respected(self):
         """An explicit ``animation_axis_values`` wins over the default.
@@ -117,7 +117,7 @@ class TestPlotAnimationAxisValues:
         cube.time = [2000, 2001, 2002]  # override must beat the time axis too
         with patch("pyramids.dataset.collection.render_array") as render:
             cube.plot(band=0, animation_axis_values=[7, 8, 9])
-        assert render.call_args.kwargs["animation_axis_values"] == [7, 8, 9]
+        assert render.call_args.args[0].mode.animation_axis_values == [7, 8, 9]
 
     def test_explicit_axis_values_respected_rgb(self):
         """The override also reaches the RGB (true-colour) animation branch."""
@@ -128,7 +128,7 @@ class TestPlotAnimationAxisValues:
                 rgb_options={"rgb": [0, 1, 2], "surface_reflectance": 255},
                 animation_axis_values=labels,
             )
-        assert render.call_args.kwargs["animation_axis_values"] == labels
+        assert render.call_args.args[0].mode.animation_axis_values == labels
 
     def test_wrong_length_axis_values_raises(self):
         """An explicit override whose length != frame count raises a clear error."""
@@ -160,7 +160,7 @@ class TestPlotAnimationAxisValues:
         )
         with patch("pyramids.dataset.collection.render_array") as render:
             cube.plot(band=0)
-        assert render.call_args.kwargs["animation_axis_values"] == [
+        assert render.call_args.args[0].mode.animation_axis_values == [
             dt.datetime(2000, 1, 1),
             dt.datetime(2001, 1, 1),
             dt.datetime(2002, 1, 1),

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection
-from pyramids.dataset._plot_helpers import render_array
+from ._render_helpers import render_array
 from pyramids.dataset.engines import Analysis
 from pyramids.netcdf.netcdf import NetCDF
 
@@ -298,7 +298,7 @@ class TestPlotPR6Cleanups:
         """
         from unittest.mock import patch as _patch
 
-        from pyramids.dataset._plot_helpers import render_array as _rarr
+        from ._render_helpers import render_array as _rarr
 
         rng = np.random.default_rng(7)
         arr = rng.random((4, 4)).astype("float32")

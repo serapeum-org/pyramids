@@ -61,7 +61,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable, Collection
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -79,7 +79,6 @@ from pyramids.base.crs import crs_from_user_input
 from pyramids.basemap import basemap as _basemap_module
 
 if TYPE_CHECKING:
-    from cleopatra.basemap.geo import Basemap
     from cleopatra.glyphs.gridded.array_glyph import ArrayGlyph
 
 # N-6 — Mesh rendering shares this module's "data in, glyph out"
@@ -529,179 +528,202 @@ def _split_render_kwargs(
     return result
 
 
-def render_array(
-    *,
-    arr: np.ndarray | None,
-    extent: list | None = None,
-    coords: tuple | list | None = None,
-    exclude_value: list | None = None,
-    rgb: list[int] | None = None,
-    surface_reflectance: int | None = None,
-    cutoff: list | None = None,
-    percentile: int | None = None,
-    mode: str = "plot",
-    animation_axis_values: list[Any] | None = None,
-    data_getter: Callable[[int], np.ndarray] | None = None,
-    facet_kwargs: dict[str, Any] | None = None,
-    ax: Any | None = None,
-    fig: Any | None = None,
-    basemap: bool | str | dict[str, Any] | Basemap | None = None,
-    basemap_epsg: int | None = None,
-    **kwargs: Any,
-) -> ArrayGlyph:
-    """Build an ArrayGlyph and dispatch to the right cleopatra render path.
+@dataclass(frozen=True)
+class ModeSpec:
+    """Render mode plus its mode-specific inputs for :func:`render_array`.
 
-    Args:
-        arr: Data array. Shape rules depend on ``mode``:
+    Groups the ``mode`` selector with the parameters only one mode consumes, so
+    the render request carries a single ``mode`` field instead of four loose
+    ones.
 
-            * ``"plot"`` — 2-D ``(rows, cols)``; or 3-D
-              ``(bands, rows, cols)`` when ``rgb`` is set so cleopatra
-              can pick the colour channels.
-            * ``"animate"`` — 3-D ``(time, rows, cols)`` for a
-              single-band colormapped time-lapse; or 4-D
-              ``(time, bands, rows, cols)`` when ``rgb`` is set, which
-              this helper composites into display-ready true-colour
-              frames before handing cleopatra a
-              ``(time, rows, cols, 3|4)`` stack.
-            * ``"facet"`` — 3-D ``(N, rows, cols)`` or 4-D
-              ``(Ncol, Nrow, rows, cols)``.
-        extent: Optional ``[xmin, ymin, xmax, ymax]`` extent. Mutually
-            exclusive with ``coords`` (cleopatra's contract). Suppressed
-            automatically when ``coords`` is supplied.
-        coords: Optional ``(x, y)`` curvilinear coordinate pair. When
-            set the renderer routes via pcolormesh.
-        exclude_value: Per-band no-data values to mask before rendering.
-        rgb: Three- or four-element list of band indices for RGB
-            compositing. Sentinel-only; meaningful for ``"plot"`` (a
-            single true-colour still) and ``"animate"`` (a true-colour
-            time-lapse, which requires a 4-D ``(time, bands, rows,
-            cols)`` ``arr``).
-        surface_reflectance: Sentinel surface-reflectance scale factor.
-        cutoff: Sentinel per-band clip values.
-        percentile: Sentinel percentile-stretch value.
+    Attributes:
         mode: One of ``"plot"`` / ``"animate"`` / ``"facet"``.
-        animation_axis_values: Frame labels for the animation path.
-            Required when ``mode == "animate"``.
-        data_getter: Optional callable ``f(i) -> ndarray`` forwarded to
-            :meth:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph.animate` as the
-            ``data_getter`` kwarg. When set the animation streams each
-            frame lazily through this callback instead of slicing the
-            pre-materialised ``arr`` stack — used by
-            :meth:`pyramids.netcdf.NetCDF.plot` to avoid building a 3-D
-            stack up front. The callable must return a 2-D array
-            matching ``arr.shape[-2:]``. Only meaningful when
-            ``mode == "animate"``.
-        facet_kwargs: Keyword args forwarded to ``ArrayGlyph.facet``
-            (``col``, ``row``, ``col_wrap``, ``col_coords``,
-            ``row_coords``, ``kind``). Required when
-            ``mode == "facet"``.
-        ax: Optional pre-existing matplotlib Axes.
-        fig: Optional pre-existing matplotlib Figure.
-        basemap: Reference layer, dispatched by type. ``True`` or a
-            non-empty web-tile / basemap provider string adds a pyramids web-tile
-            basemap underneath the rendered plot (tile mode is applied on
-            ``"plot"`` and per-panel on ``"facet"``). A
-            :class:`cleopatra.basemap.geo.Basemap` is cleopatra's relief/features
-            reference layer, forwarded to the glyph's own ``basemap=`` on the
-            ``"plot"``/``"animate"`` render call; it is **not** supported on
-            ``"facet"`` (raises). A ``dict`` is a deprecated alias translated to
-            ``Basemap`` up front (emits a ``DeprecationWarning``). An empty string
-            or empty ``dict`` is treated as no basemap.
-        basemap_epsg: CRS code passed to
-            :func:`pyramids.basemap.basemap.add_basemap` (and stamped on the
-            glyph so cleopatra's own reference layers default to it). When
-            ``basemap`` is truthy and this is ``None`` the helper
-            raises :class:`ValueError`.
-        **kwargs: Forwarded to the cleopatra entry point selected by
-            ``mode`` (including render params such as ``colorbar=`` /
-            ``full_bleed=``).
-
-    Returns:
-        The result object cleopatra returns for that mode — typically a
-        :class:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph` for ``"plot"`` and
-        ``"animate"``, and a :class:`cleopatra.glyphs.gridded.array_glyph.FacetGrid`
-        for ``"facet"``.
-
-    Raises:
-        ValueError: If ``mode`` is not one of the accepted values, if a
-            required mode-specific argument is missing, if ``basemap`` is
-            truthy and ``basemap_epsg`` is ``None``, if a cleopatra
-            ``Basemap`` (or equivalent dict) is passed on the ``"facet"``
-            path, or if a removed loose colour-bar kwarg (``cbar_*`` /
-            ``ticks_spacing``) is passed. A removed loose styling kwarg
-            (``color_scale`` / ``style`` / ``levels`` / ``point_*`` / ...)
-            surfaces cleopatra's own "moved onto a grouped parameter object"
-            ``ValueError`` from the render call.
+        animation_axis_values: Frame labels for the animation path — required
+            when ``mode == "animate"``.
+        data_getter: Optional ``f(i) -> ndarray`` streamed frame-by-frame into
+            cleopatra's ``ArrayGlyph.animate`` (used by ``NetCDF.plot`` to avoid
+            materialising a 3-D stack). Only meaningful when
+            ``mode == "animate"``; the callable must return a 2-D array matching
+            ``arr.shape[-2:]``.
+        facet_kwargs: Keyword args forwarded to ``ArrayGlyph.facet`` (``col`` /
+            ``row`` / ``col_wrap`` / ``col_coords`` / ``row_coords`` / ``kind``)
+            — required when ``mode == "facet"``.
 
     Examples:
-        - Single-slice plot path. Tagged ``+SKIP`` because the call
-          touches cleopatra / matplotlib (the helper short-circuits
-          on ``mode`` validation before that, but rendering itself
-          requires the optional ``[viz]`` extra):
+        - The default is a bare ``"plot"`` request:
+
+            ```python
+            >>> from pyramids.dataset._plot_helpers import ModeSpec
+            >>> ModeSpec().mode
+            'plot'
+
+            ```
+    """
+
+    mode: str = "plot"
+    animation_axis_values: list[Any] | None = None
+    data_getter: Callable[[int], np.ndarray] | None = None
+    facet_kwargs: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class RenderRequest:
+    """The full input to :func:`render_array`, grouped from its loose parameters.
+
+    Introducing this parameter object (composing :class:`RgbSpec` and
+    :class:`ModeSpec`) collapses ``render_array``'s signature to
+    ``render_array(request, **kwargs)`` — the styling ``**kwargs`` still ride
+    separately because they are forwarded verbatim to cleopatra.
+
+    Attributes:
+        arr: Data array. Shape rules depend on ``mode.mode``: ``"plot"`` — 2-D
+            ``(rows, cols)`` (or 3-D ``(bands, rows, cols)`` with an RGB spec);
+            ``"animate"`` — 3-D ``(time, rows, cols)`` (or 4-D
+            ``(time, bands, rows, cols)`` with an RGB spec, composited into
+            true-colour frames); ``"facet"`` — 3-D ``(N, rows, cols)`` or 4-D
+            ``(Ncol, Nrow, rows, cols)``.
+        rgb: RGB band selection + stretch (see :class:`RgbSpec`); the default
+            empty spec is the single-band colormapped path.
+        mode: Render mode + its mode-specific inputs (see :class:`ModeSpec`).
+        extent: Optional ``[xmin, ymin, xmax, ymax]`` — mutually exclusive with
+            ``coords`` (suppressed automatically when ``coords`` is supplied).
+        coords: Optional ``(x, y)`` curvilinear coordinate pair (routes via
+            pcolormesh).
+        exclude_value: Per-band no-data values to mask before rendering.
+        ax: Optional pre-existing matplotlib Axes.
+        fig: Optional pre-existing matplotlib Figure.
+        basemap: Reference layer dispatched by type — ``True`` / a provider
+            string adds a pyramids web-tile basemap; a
+            :class:`cleopatra.basemap.geo.Basemap` is forwarded to the glyph's
+            own ``basemap=``; a ``dict`` is the deprecated alias for ``Basemap``;
+            an empty string / dict means none.
+        basemap_epsg: CRS code for the tile fetch and stamped on the glyph.
+            Required (raises) when ``basemap`` is truthy.
+
+    Examples:
+        - A minimal single-band plot request:
 
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset._plot_helpers import render_array
-            >>> arr = np.random.rand(8, 8).astype(np.float32)
-            >>> cleo = render_array(  # doctest: +SKIP
-            ...     arr=arr,
-            ...     extent=[0, 0, 8, 8],
-            ...     mode="plot",
+            >>> from pyramids.dataset._plot_helpers import RenderRequest
+            >>> req = RenderRequest(arr=np.zeros((4, 4)), extent=[0, 0, 4, 4])
+            >>> req.mode.mode, req.rgb.is_set
+            ('plot', False)
+
+            ```
+    """
+
+    arr: np.ndarray | None
+    rgb: RgbSpec = field(default_factory=RgbSpec)
+    mode: ModeSpec = field(default_factory=ModeSpec)
+    extent: list | None = None
+    coords: tuple | list | None = None
+    exclude_value: list | None = None
+    ax: Any = None
+    fig: Any = None
+    basemap: bool | str | dict[str, Any] | Any = None
+    basemap_epsg: int | None = None
+
+    def validate(self) -> None:
+        """Reject an invalid mode, a missing mode-specific arg, or basemap-without-CRS.
+
+        Raises:
+            ValueError: If ``mode.mode`` is not one of the accepted values, if a
+                required mode-specific argument is missing, or if ``basemap`` is
+                truthy while ``basemap_epsg`` is ``None``.
+        """
+        valid_modes = ("plot", "animate", "facet")
+        if self.mode.mode not in valid_modes:
+            raise ValueError(
+                f"Invalid mode={self.mode.mode!r}; expected one of {valid_modes}."
+            )
+        if self.mode.mode == "animate" and self.mode.animation_axis_values is None:
+            raise ValueError("`animation_axis_values` is required when mode='animate'.")
+        if self.mode.mode == "facet" and not self.mode.facet_kwargs:
+            raise ValueError("`facet_kwargs` is required when mode='facet'.")
+        if self.basemap and self.basemap_epsg is None:
+            raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
+
+
+def render_array(request: RenderRequest, **kwargs: Any) -> ArrayGlyph:
+    """Build an ArrayGlyph from a :class:`RenderRequest` and dispatch by mode.
+
+    Thin orchestrator: validate the request, composite RGB animate frames, route
+    the styling ``**kwargs`` to the right cleopatra call site, build the glyph,
+    resolve the basemap, and run the ``plot`` / ``animate`` / ``facet`` dispatch.
+    The per-field contract lives on :class:`RenderRequest`, :class:`RgbSpec`, and
+    :class:`ModeSpec`.
+
+    Args:
+        request: The grouped render input (see :class:`RenderRequest`).
+        **kwargs: Styling forwarded to the cleopatra entry point selected by
+            ``request.mode.mode`` — constructor options (``cmap`` / ``vmin`` /
+            ``colorbar=`` / ...) and render-call params (``points`` / ``kind`` /
+            ``full_bleed`` / the typed render groups). The removed loose
+            ``cbar_*`` / ``ticks_spacing`` forms are rejected here (use
+            ``colorbar=ColorBar``); a form cleopatra dropped (``color_scale`` /
+            ``style`` / ``levels`` / ``point_*`` / ...) surfaces cleopatra's own
+            "moved onto a grouped parameter object" error from the render call.
+
+    Returns:
+        The object cleopatra returns for that mode — an
+        :class:`cleopatra.glyphs.gridded.array_glyph.ArrayGlyph` for ``"plot"``
+        and ``"animate"``, a
+        :class:`cleopatra.glyphs.gridded.array_glyph.FacetGrid` for ``"facet"``.
+
+    Raises:
+        ValueError: If the request is invalid (see
+            :meth:`RenderRequest.validate`), if RGB animate gets a non-4-D
+            stack, if a cleopatra ``Basemap`` is passed on the ``"facet"`` path,
+            or if a removed loose colour-bar kwarg is passed.
+        OptionalPackageDoesNotExist: If the installed cleopatra is too old to
+            provide ``RgbBands``.
+
+    Examples:
+        - Single-slice plot request (``+SKIP`` — rendering needs the ``[viz]``
+          extra):
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset._plot_helpers import RenderRequest, render_array
+            >>> req = RenderRequest(
+            ...     arr=np.random.rand(8, 8).astype(np.float32), extent=[0, 0, 8, 8]
             ... )
-            >>> cleo.fig  # doctest: +SKIP
-            <Figure size 800x800 with 2 Axes>
+            >>> cleo = render_array(req)  # doctest: +SKIP
 
             ```
 
-        - Animation path used by
-          :meth:`pyramids.dataset.collection.DatasetCollection.plot`.
-          The 3-D stack is ``(time, rows, cols)`` and the frame
-          labels are passed via ``animation_axis_values``:
+        - RGB animation request — a 4-D ``(time, bands, rows, cols)`` stack with
+          an :class:`RgbSpec` selecting the channels:
 
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset._plot_helpers import render_array
-            >>> stack = np.random.rand(4, 8, 8).astype(np.float32)
-            >>> cleo = render_array(  # doctest: +SKIP
-            ...     arr=stack,
-            ...     mode="animate",
-            ...     animation_axis_values=[0, 1, 2, 3],
+            >>> from pyramids.dataset._plot_helpers import (
+            ...     ModeSpec, RenderRequest, RgbSpec, render_array,
             ... )
+            >>> req = RenderRequest(
+            ...     arr=np.random.rand(4, 3, 8, 8).astype(np.float32),
+            ...     rgb=RgbSpec(rgb=[0, 1, 2], percentile=2),
+            ...     mode=ModeSpec(mode="animate", animation_axis_values=[0, 1, 2, 3]),
+            ... )
+            >>> cleo = render_array(req)  # doctest: +SKIP
 
             ```
 
-        - RGB animation path. The stack is 4-D
-          ``(time, bands, rows, cols)`` and ``rgb`` selects the colour
-          channels; the helper composites each timestep into a
-          display-ready true-colour frame before cleopatra renders it:
+        - Passing an RGB spec with a single-band 3-D stack is rejected before
+          any compositing (guards the #538 frame loss):
 
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset._plot_helpers import render_array
-            >>> stack = np.random.rand(4, 3, 8, 8).astype(np.float32)
-            >>> cleo = render_array(  # doctest: +SKIP
-            ...     arr=stack,
-            ...     rgb=[0, 1, 2],
-            ...     percentile=2,
-            ...     mode="animate",
-            ...     animation_axis_values=[0, 1, 2, 3],
+            >>> from pyramids.dataset._plot_helpers import (
+            ...     ModeSpec, RenderRequest, RgbSpec, render_array,
             ... )
-
-            ```
-
-        - Passing ``rgb`` with a single-band 3-D stack is rejected
-          before any compositing, so the time axis is never silently
-          read as the colour channels (guards the #538 frame loss):
-
-            ```python
-            >>> import numpy as np
-            >>> from pyramids.dataset._plot_helpers import render_array
-            >>> bad = np.random.rand(4, 8, 8).astype(np.float32)
             >>> render_array(  # doctest: +IGNORE_EXCEPTION_DETAIL
-            ...     arr=bad,
-            ...     rgb=[0, 1, 2],
-            ...     mode="animate",
-            ...     animation_axis_values=[0, 1, 2, 3],
+            ...     RenderRequest(
+            ...         arr=np.random.rand(4, 8, 8).astype(np.float32),
+            ...         rgb=RgbSpec(rgb=[0, 1, 2]),
+            ...         mode=ModeSpec(mode="animate", animation_axis_values=[0, 1, 2, 3]),
+            ...     )
             ... )
             Traceback (most recent call last):
                 ...
@@ -709,36 +731,18 @@ def render_array(
 
             ```
 
-        - Facet path used by :meth:`pyramids.netcdf.NetCDF.plot`. The
-          caller pre-builds the stack with ``_build_facet_stack`` and
-          passes the matching ``facet_kwargs`` dict (containing
-          ``col``, ``col_coords``, optionally ``row`` / ``row_coords``
-          / ``col_wrap``):
+        - Invalid ``mode`` values are rejected up-front:
 
             ```python
             >>> import numpy as np
-            >>> from pyramids.dataset._plot_helpers import render_array
-            >>> stack = np.random.rand(3, 8, 8).astype(np.float32)
-            >>> grid = render_array(  # doctest: +SKIP
-            ...     arr=stack,
-            ...     mode="facet",
-            ...     facet_kwargs={
-            ...         "col": "time",
-            ...         "col_coords": [0, 1, 2],
-            ...     },
+            >>> from pyramids.dataset._plot_helpers import (
+            ...     ModeSpec, RenderRequest, render_array,
             ... )
-
-            ```
-
-        - Invalid ``mode`` values are rejected up-front so caller
-          mistakes surface without touching cleopatra:
-
-            ```python
-            >>> import numpy as np
-            >>> from pyramids.dataset._plot_helpers import render_array
-            >>> arr = np.random.rand(4, 4).astype(np.float32)
             >>> render_array(  # doctest: +IGNORE_EXCEPTION_DETAIL
-            ...     arr=arr, mode="bogus",
+            ...     RenderRequest(
+            ...         arr=np.random.rand(4, 4).astype(np.float32),
+            ...         mode=ModeSpec(mode="bogus"),
+            ...     )
             ... )
             Traceback (most recent call last):
                 ...
@@ -769,6 +773,21 @@ def render_array(
             "to satisfy the version pinned in pyproject.toml."
         ) from exc
 
+    # Unpack the grouped request into the working locals the dispatch uses.
+    arr = request.arr
+    mode = request.mode.mode
+    animation_axis_values = request.mode.animation_axis_values
+    data_getter = request.mode.data_getter
+    facet_kwargs = request.mode.facet_kwargs
+    rgb_spec = request.rgb
+    coords = request.coords
+    extent = request.extent
+    exclude_value = request.exclude_value
+    ax = request.ax
+    fig = request.fig
+    basemap = request.basemap
+    basemap_epsg = request.basemap_epsg
+
     # The loose styling kwargs are no longer translated here: they moved onto the typed
     # render groups (color=ColorScaling / contour=Contour / cells=CellValues /
     # data_style=DataStyle / points=PointOverlay / colorbar=ColorBar). Passing a form
@@ -787,18 +806,8 @@ def render_array(
         )
         basemap = Basemap(**basemap)
 
-    valid_modes = ("plot", "animate", "facet")
-    if mode not in valid_modes:
-        raise ValueError(f"Invalid mode={mode!r}; expected one of {valid_modes}.")
-    if mode == "animate" and animation_axis_values is None:
-        raise ValueError("`animation_axis_values` is required when mode='animate'.")
-    if mode == "facet" and not facet_kwargs:
-        raise ValueError("`facet_kwargs` is required when mode='facet'.")
-    if basemap and basemap_epsg is None:
-        raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
+    request.validate()
 
-    # RGB band selection + stretch, grouped as one value object.
-    rgb_spec = RgbSpec(rgb, surface_reflectance, cutoff, percentile)
     if mode == "animate" and rgb_spec.is_set:
         # cleopatra's ``ArrayGlyph.animate`` renders a 4-D ``(time, rows, cols,
         # 3|4)`` stack as true colour only when each frame is already
