@@ -221,7 +221,7 @@ class TestMergeMethod:
 
         assert stripped_peak < whole_peak, (
             f"merge peaked at {stripped_peak / 1e6:.1f} MB, not below the whole-union "
-            f"pass's {whole_peak / 1e6:.1f} MB — the reduction was not stripped"
+            f"pass's {whole_peak / 1e6:.1f} MB — it did not stay under a full materialisation"
         )
 
     def test_default_method_is_last(self, overlapping_pair, tmp_path):

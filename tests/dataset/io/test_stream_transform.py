@@ -341,7 +341,7 @@ class TestStreamReduce:
         assert stripped_result == whole_result, "stripped reduction diverged"
         assert stripped_peak < whole_peak, (
             f"stream_reduce peaked at {stripped_peak / 1e6:.1f} MB, not below the whole-array "
-            f"pass's {whole_peak / 1e6:.1f} MB — the read was not stripped"
+            f"pass's {whole_peak / 1e6:.1f} MB — it did not stay under a full materialisation"
         )
 
 
@@ -502,5 +502,5 @@ class TestStreamedConsumers:
         assert count == rows * cols - 2000 * 250, f"wrong domain count {count}"
         assert stripped_peak < whole_peak, (
             f"count_domain_cells peaked at {stripped_peak / 1e6:.1f} MB, not below the "
-            f"whole-band pass's {whole_peak / 1e6:.1f} MB — the read was not stripped"
+            f"whole-band pass's {whole_peak / 1e6:.1f} MB — it did not stay under a full materialisation"
         )
