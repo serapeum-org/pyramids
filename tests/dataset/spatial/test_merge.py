@@ -11,7 +11,6 @@ covers the reproject-before-composite behaviour and its ``_prepare_sources`` /
 
 from __future__ import annotations
 
-import tracemalloc
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -31,7 +30,7 @@ from pyramids.dataset.merge import (
     merge_rasters,
     stack_bands,
 )
-from tests._helpers import write_raster
+from tests._helpers import traced_peak, write_raster
 
 pytestmark = pytest.mark.core
 
@@ -204,20 +203,20 @@ class TestMergeMethod:
         # Assumes the two sources are co-registered on the same grid (as the fixture
         # writes them), so `np.maximum` aligns them directly; a non-overlapping pair
         # would need the union grid built first.
-        tracemalloc.start()
-        a = Dataset.read_file(str(pa)).read_array().astype("float64")
-        b = Dataset.read_file(str(pb)).read_array().astype("float64")
-        whole = np.maximum(a, b)
-        _, whole_peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
+        with traced_peak() as wp:
+            a = Dataset.read_file(str(pa)).read_array().astype("float64")
+            b = Dataset.read_file(str(pb)).read_array().astype("float64")
+            whole = np.maximum(a, b)
+        whole_peak = wp[0]
         del a, b, whole
 
         # Stripped merge.
         monkeypatch.setattr(merge_mod, "_MERGE_STRIP_ROWS", 128)
-        tracemalloc.start()
-        merge_rasters([pa, pb], tmp_path / "big.tif", no_data_value=-1.0, method="max")
-        _, stripped_peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
+        with traced_peak() as sp:
+            merge_rasters(
+                [pa, pb], tmp_path / "big.tif", no_data_value=-1.0, method="max"
+            )
+        stripped_peak = sp[0]
 
         assert stripped_peak < whole_peak, (
             f"merge peaked at {stripped_peak / 1e6:.1f} MB, not below the whole-union "

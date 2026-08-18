@@ -2,7 +2,43 @@
 
 from __future__ import annotations
 
+import tracemalloc
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 from pyramids.dataset import Dataset
+
+
+@contextmanager
+def traced_peak() -> Iterator[list[int]]:
+    """Trace Python-heap allocations in the block and capture their peak.
+
+    Always stops tracing -- even if the block raises -- so a failing measured
+    operation cannot leave `tracemalloc` running and pollute a later test's baseline.
+
+    Yields:
+        list[int]: A one-element list; once the block exits it holds the traced peak
+        (in bytes) of the allocations made inside the block.
+
+    Examples:
+        - Measure the peak of a block:
+
+          ```python
+          >>> import numpy as np
+          >>> with traced_peak() as peak:
+          ...     buf = np.ones(10_000, dtype="int64")
+          >>> peak[0] > 0
+          True
+
+          ```
+    """
+    tracemalloc.start()
+    out: list[int] = []
+    try:
+        yield out
+    finally:
+        out.append(tracemalloc.get_traced_memory()[1])
+        tracemalloc.stop()
 
 
 def write_raster(path, arr, top_left, *, epsg=4326, cell_size=1.0, nodata=-9999.0):

@@ -10,6 +10,7 @@ from hpc.indexing import get_pixels2
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.io import IO
+from tests._helpers import traced_peak
 
 pytestmark = pytest.mark.core
 
@@ -324,19 +325,17 @@ class TestStreamReduce:
             return acc + int(strip.sum(dtype="int64"))
 
         # Whole-array baseline: read the full array and reduce it at once.
-        tracemalloc.start()
-        whole = Dataset.read_file(str(src_path)).read_array()
-        whole_result = int(whole.sum(dtype="int64"))
-        _, whole_peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
+        with traced_peak() as wp:
+            whole = Dataset.read_file(str(src_path)).read_array()
+            whole_result = int(whole.sum(dtype="int64"))
+        whole_peak = wp[0]
         del whole
 
         # Stripped reduction.
-        ds = Dataset.read_file(str(src_path))
-        tracemalloc.start()
-        stripped_result = ds.io.stream_reduce(value_sum, 0, strip_rows=64)
-        _, stripped_peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
+        with traced_peak() as sp:
+            ds = Dataset.read_file(str(src_path))
+            stripped_result = ds.io.stream_reduce(value_sum, 0, strip_rows=64)
+        stripped_peak = sp[0]
 
         assert stripped_result == whole_result, "stripped reduction diverged"
         assert stripped_peak < whole_peak, (
@@ -486,18 +485,16 @@ class TestStreamedConsumers:
         # Whole-band baseline: materialise the full band at once (the non-stripped
         # upper bound). The exact-count assertion below already pins correctness, so
         # the baseline only needs to establish the whole-band memory peak.
-        tracemalloc.start()
-        whole = Dataset.read_file(str(src_path)).read_array()
-        _, whole_peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
+        with traced_peak() as wp:
+            whole = Dataset.read_file(str(src_path)).read_array()
+        whole_peak = wp[0]
         del whole
 
         # Stripped count.
-        ds = Dataset.read_file(str(src_path))
-        tracemalloc.start()
-        count = ds.count_domain_cells()
-        _, stripped_peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
+        with traced_peak() as sp:
+            ds = Dataset.read_file(str(src_path))
+            count = ds.count_domain_cells()
+        stripped_peak = sp[0]
 
         assert count == rows * cols - 2000 * 250, f"wrong domain count {count}"
         assert stripped_peak < whole_peak, (
