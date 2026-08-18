@@ -336,7 +336,7 @@ class TestStreamReduce:
         _, stripped_peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
 
-        assert stripped_result == whole_result, "stripped reduction diverged from the whole"
+        assert stripped_result == whole_result, "stripped reduction diverged"
         assert stripped_peak < whole_peak, (
             f"stream_reduce peaked at {stripped_peak / 1e6:.1f} MB, not below the whole-array "
             f"pass's {whole_peak / 1e6:.1f} MB — the read was not stripped"
