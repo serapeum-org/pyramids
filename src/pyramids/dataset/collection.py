@@ -71,6 +71,10 @@ if TYPE_CHECKING:
 
 _DEFAULT_GLOB = "*.tif"
 _EMPTY_RANGE_MSG = "no files fall within the given start/end range"
+# GDAL raster sidecar suffixes. When a folder holds any of these, ``from_files``
+# keeps GDAL's per-open directory scan on so the sidecar is still discovered;
+# a folder with none lets it default ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``.
+_SIDECAR_SUFFIXES = (".aux.xml", ".ovr", ".msk", ".prj", ".tfw", ".wld", ".rrd")
 
 
 class _GroupedCollection:
@@ -1733,6 +1737,16 @@ class DatasetCollection:
         sequence of paths. Only the first file is opened eagerly (to derive
         :class:`RasterMeta`); the rest are opened lazily on demand.
 
+        For a folder with no GDAL sidecars (``.aux.xml`` / ``.ovr`` / ..., see
+        :data:`_SIDECAR_SUFFIXES`), the reader defaults
+        ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`` so each raster open skips GDAL's
+        per-open directory rescan. On high-latency network storage (SMB / NFS) that
+        rescan is a remote listing per file and otherwise dominates the read — the cost
+        scales with the folder size, not the file size. The default is applied only when
+        the single directory listing this method already performs confirms there is no
+        sidecar to discover; a folder that has any, an explicit file / sequence, or an
+        explicit ``gdal_env`` value, leaves the rescan on.
+
         When ``date_format`` is given, a date is parsed out of each file *name* and
         the timesteps are sorted by it, and those dates become the collection's
         :attr:`time` axis (used by :meth:`plot` as the frame labels). ``start`` /
@@ -1758,7 +1772,9 @@ class DatasetCollection:
                 file when omitted.
             gdal_env: Optional GDAL config (e.g. a signer's ``gdal_env()``) installed
                 around every open of the backing files, including the eager template
-                open, and persisted on the collection for the lazy reads.
+                open, and persisted on the collection for the lazy reads. Any key here
+                overrides the sidecar-scan default described above (e.g. pass
+                ``{"GDAL_DISABLE_READDIR_ON_OPEN": "FALSE"}`` to force the rescan on).
             validate: When ``True``, check every file's header shape/dtype against the
                 template and raise :class:`AlignmentError` on a mismatch instead of
                 lazily corrupting the cube. Default ``False``.
@@ -1792,7 +1808,14 @@ class DatasetCollection:
 
               ```
         """
-        resolved = cls._resolve_files(files, glob)
+        resolved, scan_safe = cls._resolve_files_and_scan_safe(files, glob)
+        # On high-latency network storage GDAL's per-open directory rescan (for
+        # sidecar discovery) dominates the read; skip it when the folder has none.
+        # A caller's gdal_env value always wins over this auto-default.
+        effective_env: dict[str, str] = (
+            {"GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR"} if scan_safe else {}
+        )
+        effective_env.update(gdal_env or {})
         time_axis: list[datetime] | None = None
         if date_format is not None:
             dates = [
@@ -1817,7 +1840,11 @@ class DatasetCollection:
                 "start/end filtering needs date_format to parse the file-name dates"
             )
         return cls._build(
-            resolved, time_axis, meta=meta, gdal_env=gdal_env, validate=validate
+            resolved,
+            time_axis,
+            meta=meta,
+            gdal_env=effective_env or None,
+            validate=validate,
         )
 
     @classmethod
@@ -1866,24 +1893,45 @@ class DatasetCollection:
         returned as-is — order preserved, so callers such as ``from_stac`` keep their
         temporally-ordered list.
         """
+        return DatasetCollection._resolve_files_and_scan_safe(files, glob)[0]
+
+    @staticmethod
+    def _resolve_files_and_scan_safe(
+        files: str | Path | Sequence[str | Path], glob: str
+    ) -> tuple[list[str], bool]:
+        """Resolve ``files`` and report whether GDAL's per-open directory scan is skippable.
+
+        Returns ``(resolved, scan_safe)``. ``resolved`` is the path list documented on
+        :meth:`_resolve_files`. ``scan_safe`` is ``True`` **only** when ``files`` is a
+        folder that a single :meth:`~pathlib.Path.iterdir` listing shows holds no GDAL
+        sidecars (:data:`_SIDECAR_SUFFIXES` — ``.aux.xml`` / ``.ovr`` / ...); then
+        :meth:`from_files` may safely default ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``
+        so each raster open skips the (remote-latency-bound) directory rescan. For a
+        single explicit file or a sequence there is no listing to trust, so ``scan_safe``
+        is ``False`` — leave the rescan on, so any real sidecar is still discovered.
+        """
         if isinstance(files, (str, Path)):
             folder = Path(files)
             if not folder.exists():
                 raise FileNotFoundError(f"The path does not exist: {folder}")
             if folder.is_file():
-                return [str(folder)]
+                return [str(folder)], False
+            entries = list(folder.iterdir())
             matched = sorted(
                 str(folder / entry.name)
-                for entry in folder.iterdir()
+                for entry in entries
                 if fnmatch.fnmatch(entry.name, glob)
             )
             if not matched:
                 raise FileNotFoundError(f"No file in {folder} matched glob {glob!r}")
-            return matched
+            scan_safe = not any(
+                entry.name.endswith(_SIDECAR_SUFFIXES) for entry in entries
+            )
+            return matched, scan_safe
         resolved = [str(p) for p in files]
         if not resolved:
             raise ValueError("files must contain at least one path")
-        return resolved
+        return resolved, False
 
     @staticmethod
     def _parse_date(name: str, regex: str, fmt: str) -> datetime:
