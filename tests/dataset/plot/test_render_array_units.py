@@ -50,7 +50,9 @@ def _fake_array_glyph():
 class _FakeRgbBands:
     """Stand-in for cleopatra's RgbBands recording the constructor arguments."""
 
-    def __init__(self, indices, *, surface_reflectance=None, cutoff=None, percentile=None):
+    def __init__(
+        self, indices, *, surface_reflectance=None, cutoff=None, percentile=None
+    ):
         """Store the band indices and stretch controls verbatim."""
         self.indices = indices
         self.surface_reflectance = surface_reflectance
@@ -142,7 +144,9 @@ class TestRgbSpec:
             ``to_cleo_bands`` returns None for the single-band path so the ctor gets
             ``rgb_bands=None``.
         """
-        assert RgbSpec().to_cleo_bands(_FakeRgbBands) is None, "unset spec must give None"
+        assert RgbSpec().to_cleo_bands(_FakeRgbBands) is None, (
+            "unset spec must give None"
+        )
 
     def test_to_cleo_bands_builds_populated_bands(self):
         """A set spec builds bands echoing indices and stretch controls.
@@ -152,7 +156,10 @@ class TestRgbSpec:
             by keyword.
         """
         bands = RgbSpec(
-            rgb=[2, 1, 0], surface_reflectance=10000, cutoff=[0.1, 0.2, 0.3], percentile=2
+            rgb=[2, 1, 0],
+            surface_reflectance=10000,
+            cutoff=[0.1, 0.2, 0.3],
+            percentile=2,
         ).to_cleo_bands(_FakeRgbBands)
         assert bands.indices == [2, 1, 0], f"indices wrong: {bands.indices}"
         assert bands.surface_reflectance == 10000, "surface_reflectance not forwarded"
@@ -301,7 +308,9 @@ class TestBasemapPlan:
         plan = BasemapPlan.resolve("OpenStreetMap", 4326)
         assert plan.tile is True, "string basemap must be a tile plan"
         assert plan.source == "OpenStreetMap", f"source wrong: {plan.source}"
-        assert plan.forwards_cleo_basemap is False, "string must not forward a cleo basemap"
+        assert plan.forwards_cleo_basemap is False, (
+            "string must not forward a cleo basemap"
+        )
         assert plan.cleo_kwarg == {}, "no cleo basemap -> empty kwarg"
 
     def test_resolve_true_is_default_provider_tile(self):
@@ -338,7 +347,9 @@ class TestBasemapPlan:
         plan = BasemapPlan.resolve(marker, 4326)
         assert plan.tile is False, "an object basemap must not tile"
         assert plan.forwards_cleo_basemap is True, "an object basemap must forward"
-        assert plan.cleo_kwarg == {"basemap": marker}, f"cleo_kwarg wrong: {plan.cleo_kwarg}"
+        assert plan.cleo_kwarg == {"basemap": marker}, (
+            f"cleo_kwarg wrong: {plan.cleo_kwarg}"
+        )
 
     def test_apply_to_calls_add_basemap(self, monkeypatch):
         """``apply_to`` draws the tile basemap on the given axes via add_basemap.
@@ -373,7 +384,9 @@ class TestBasemapPlan:
             lambda ax, *, crs, source: drawn.append(ax),
             raising=True,
         )
-        grid = _FakeGrid(np.array([_FakePanel(True), _FakePanel(False), None], dtype=object))
+        grid = _FakeGrid(
+            np.array([_FakePanel(True), _FakePanel(False), None], dtype=object)
+        )
         BasemapPlan.resolve("OpenStreetMap", 4326).apply_to_facets(grid)
         assert len(drawn) == 1, f"only the visible panel must be drawn: {len(drawn)}"
 

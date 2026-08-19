@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection
+
 from ._render_helpers import render_array
 
 pytestmark = pytest.mark.plot
