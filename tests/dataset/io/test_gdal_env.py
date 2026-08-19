@@ -456,6 +456,27 @@ class TestFromFilesDirScanDefault:
             f"a file sequence must not default EMPTY_DIR, got {col._gdal_env}"
         )
 
+    def test_sidecar_folder_still_takes_the_caller_env(self, tmp_path):
+        """A sidecar folder suppresses EMPTY_DIR but still persists the caller's gdal_env.
+
+        Test scenario:
+            The auto-default and the caller's env compose independently: the sidecar
+            withholds EMPTY_DIR, yet an explicit caller key is still installed.
+        """
+        _write_folder_of_tifs(tmp_path)
+        (tmp_path / "t0.tif.aux.xml").write_text(
+            "<PAMDataset></PAMDataset>", encoding="utf-8"
+        )
+        col = DatasetCollection.from_files(
+            str(tmp_path), gdal_env={"AWS_REQUEST_PAYER": "requester"}
+        )
+        assert _READDIR not in col._gdal_env, (
+            f"a sidecar folder must not add EMPTY_DIR: {col._gdal_env}"
+        )
+        assert col._gdal_env.get("AWS_REQUEST_PAYER") == "requester", (
+            "the caller's env must still be persisted"
+        )
+
 
 class TestResolveFilesAndScanSafe:
     """Unit tests for `_resolve_files_and_scan_safe` and the `_resolve_files` delegate."""
@@ -470,6 +491,17 @@ class TestResolveFilesAndScanSafe:
             f"resolved list wrong: {resolved}"
         )
         assert scan_safe is True, "no sidecars -> scan is safe to skip"
+
+    def test_accepts_a_path_object(self, tmp_path):
+        """A ``pathlib.Path`` folder (not a str) resolves the same as its str form."""
+        _write_folder_of_tifs(tmp_path)
+        resolved, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
+            tmp_path, "*.tif"
+        )
+        assert [Path(p).name for p in resolved] == ["t0.tif", "t1.tif"], (
+            f"a Path folder should resolve like its str form: {resolved}"
+        )
+        assert scan_safe is True, "a sidecar-free Path folder is scan-safe"
 
     @pytest.mark.parametrize("suffix", _SIDECAR_SUFFIXES)
     def test_each_sidecar_suffix_is_detected(self, tmp_path, suffix):
