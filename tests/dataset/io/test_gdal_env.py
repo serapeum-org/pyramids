@@ -401,6 +401,19 @@ class TestFromFilesDirScanDefault:
             "timesteps must inherit the directory-scan default"
         )
 
+    def test_lazy_index_open_carries_the_env(self, tmp_path):
+        """The single-index lazy path (iloc -> _dataset_at) also carries EMPTY_DIR.
+
+        Test scenario:
+            iloc opens one timestep without materialising the bulk ``datasets`` list,
+            so its handle must still inherit the directory-scan default.
+        """
+        _write_folder_of_tifs(tmp_path)
+        col = DatasetCollection.from_files(str(tmp_path))
+        assert col.iloc(0).gdal_env.get(_READDIR) == "EMPTY_DIR", (
+            "the single-index lazy open must inherit the directory-scan default"
+        )
+
     def test_folder_with_aux_xml_leaves_scan_on(self, tmp_path):
         """A folder holding a .aux.xml sidecar keeps the per-open rescan on (no EMPTY_DIR)."""
         _write_folder_of_tifs(tmp_path)
@@ -458,7 +471,25 @@ class TestResolveFilesAndScanSafe:
         assert scan_safe is True, "no sidecars -> scan is safe to skip"
 
     @pytest.mark.parametrize(
-        "sidecar", ["d.aux.xml", "d.ovr", "d.msk", "d.prj", "d.tfw", "d.wld", "d.rrd"]
+        "sidecar",
+        [
+            "d.aux.xml",
+            "d.aux",
+            "d.ovr",
+            "d.msk",
+            "d.rrd",
+            "d.prj",
+            "d.wld",
+            "d.hdr",
+            "d.tfw",
+            "d.tifw",
+            "d.jgw",
+            "d.pgw",
+            "d.gfw",
+            "d.j2w",
+            "d.jp2w",
+            "d.jpw",
+        ],
     )
     def test_each_sidecar_suffix_is_detected(self, tmp_path, sidecar):
         """Any recognised sidecar suffix in the folder flips scan_safe to False.
@@ -472,6 +503,35 @@ class TestResolveFilesAndScanSafe:
             str(tmp_path), "*.tif"
         )
         assert scan_safe is False, f"{sidecar!r} must keep the directory scan on"
+
+    def test_uppercase_sidecar_is_detected(self, tmp_path):
+        """An uppercase sidecar is detected (case-insensitive match, #1010 M1).
+
+        Test scenario:
+            On case-insensitive filesystems GDAL discovers ``T0.TIF.OVR`` regardless
+            of case, so the scan must stay on even though the suffix is upper-case.
+        """
+        _write_folder_of_tifs(tmp_path)
+        (tmp_path / "T0.TIF.OVR").write_text("", encoding="utf-8")
+        _, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
+            str(tmp_path), "*.tif"
+        )
+        assert scan_safe is False, (
+            "an uppercase sidecar must keep the directory scan on"
+        )
+
+    def test_non_tiff_world_file_is_detected(self, tmp_path):
+        """A format-specific world file (.pgw for PNG) blocks the scan-skip (#1010 M2)."""
+        (tmp_path / "a.png").write_text("", encoding="utf-8")
+        (tmp_path / "b.png").write_text("", encoding="utf-8")
+        (tmp_path / "a.pgw").write_text("", encoding="utf-8")
+        resolved, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
+            str(tmp_path), "*.png"
+        )
+        assert [Path(p).name for p in resolved] == ["a.png", "b.png"], (
+            f"only the .png rasters should resolve: {resolved}"
+        )
+        assert scan_safe is False, "a .pgw world file must keep the directory scan on"
 
     def test_sidecar_not_matching_glob_still_counts(self, tmp_path):
         """A sidecar is detected even though it does not match the raster glob."""
