@@ -71,10 +71,32 @@ if TYPE_CHECKING:
 
 _DEFAULT_GLOB = "*.tif"
 _EMPTY_RANGE_MSG = "no files fall within the given start/end range"
-# GDAL raster sidecar suffixes. When a folder holds any of these, ``from_files``
-# keeps GDAL's per-open directory scan on so the sidecar is still discovered;
-# a folder with none lets it default ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``.
-_SIDECAR_SUFFIXES = (".aux.xml", ".ovr", ".msk", ".prj", ".tfw", ".wld", ".rrd")
+# GDAL raster sidecar / companion suffixes, matched case-insensitively. When a
+# folder holds any of these, ``from_files`` keeps GDAL's per-open directory scan on
+# so the companion is still discovered; a folder with none lets it default
+# ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``. Covers PAM stats (.aux.xml / legacy
+# .aux), overviews (.ovr), masks (.msk), reduced-resolution (.rrd), projection
+# (.prj), the generic (.wld) and per-format world files (TIFF/JPEG/PNG/GIF/JP2),
+# and the ENVI header (.hdr). An exotic format whose companion is not listed should
+# pass ``gdal_env`` explicitly to keep the rescan on.
+_SIDECAR_SUFFIXES = (
+    ".aux.xml",
+    ".aux",
+    ".ovr",
+    ".msk",
+    ".rrd",
+    ".prj",
+    ".wld",
+    ".hdr",
+    ".tfw",
+    ".tifw",
+    ".jgw",
+    ".pgw",
+    ".gfw",
+    ".j2w",
+    ".jp2w",
+    ".jpw",
+)
 
 
 class _GroupedCollection:
@@ -1745,7 +1767,10 @@ class DatasetCollection:
         scales with the folder size, not the file size. The default is applied only when
         the single directory listing this method already performs confirms there is no
         sidecar to discover; a folder that has any, an explicit file / sequence, or an
-        explicit ``gdal_env`` value, leaves the rescan on.
+        explicit ``gdal_env`` value, leaves the rescan on. The sidecar set
+        (:data:`_SIDECAR_SUFFIXES`, matched case-insensitively) covers the common
+        raster companions; for an exotic format whose companion is not listed, pass
+        ``gdal_env`` explicitly to keep the rescan on.
 
         When ``date_format`` is given, a date is parsed out of each file *name* and
         the timesteps are sorted by it, and those dates become the collection's
@@ -1915,23 +1940,31 @@ class DatasetCollection:
             if not folder.exists():
                 raise FileNotFoundError(f"The path does not exist: {folder}")
             if folder.is_file():
-                return [str(folder)], False
-            entries = list(folder.iterdir())
-            matched = sorted(
-                str(folder / entry.name)
-                for entry in entries
-                if fnmatch.fnmatch(entry.name, glob)
-            )
-            if not matched:
-                raise FileNotFoundError(f"No file in {folder} matched glob {glob!r}")
-            scan_safe = not any(
-                entry.name.endswith(_SIDECAR_SUFFIXES) for entry in entries
-            )
-            return matched, scan_safe
-        resolved = [str(p) for p in files]
-        if not resolved:
-            raise ValueError("files must contain at least one path")
-        return resolved, False
+                resolved, scan_safe = [str(folder)], False
+            else:
+                entries = list(folder.iterdir())
+                resolved = sorted(
+                    str(folder / entry.name)
+                    for entry in entries
+                    if fnmatch.fnmatch(entry.name, glob)
+                )
+                if not resolved:
+                    raise FileNotFoundError(
+                        f"No file in {folder} matched glob {glob!r}"
+                    )
+                # Match case-insensitively: the target filesystems (Windows / macOS)
+                # are case-insensitive and GDAL discovers a sidecar regardless of its
+                # extension case, so an uppercase ``DATA.TIF.OVR`` must still block the
+                # scan-skip. ``_SIDECAR_SUFFIXES`` is lower-case.
+                scan_safe = not any(
+                    entry.name.lower().endswith(_SIDECAR_SUFFIXES) for entry in entries
+                )
+        else:
+            resolved = [str(p) for p in files]
+            if not resolved:
+                raise ValueError("files must contain at least one path")
+            scan_safe = False
+        return resolved, scan_safe
 
     @staticmethod
     def _parse_date(name: str, regex: str, fmt: str) -> datetime:
