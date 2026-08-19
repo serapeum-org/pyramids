@@ -26,6 +26,7 @@ import base64
 import json
 import math
 import os
+import shutil
 import tempfile
 import threading
 import urllib.error
@@ -676,6 +677,25 @@ def read_file(
     **kwargs: Any,
 ) -> FeatureCollection | LazyFeatureCollection:
     """Read a vector file into a FeatureCollection (see FeatureCollection.read_file)."""
+    # Only pass kwargs that were actually supplied — passing the unset
+    # defaults (None) confuses some geopandas engines (ARC-72).
+    passthrough = _compact(
+        {
+            "layer": layer,
+            "bbox": bbox,
+            "mask": mask,
+            "rows": rows,
+            "columns": columns,
+            "where": where,
+        }
+    )
+    passthrough.update(kwargs)
+    if backend == "pandas" and _is_remote_geojson(path):
+        # A remote GeoJSON is staged to a local file and read from there (#1008):
+        # streaming a *redirecting* remote GeoJSON over GDAL's /vsicurl/ can segfault
+        # the interpreter in a build whose bundled libcurl/OpenSSL differs from the
+        # interpreter's. GeoJSON has no spatial index, so this loses no read pushdown.
+        return _read_remote_geojson_staged(fc_cls, path, passthrough)
     resolved = _pyramids_io._parse_path(path)
     if backend == "dask":
         return read_file_dask(
@@ -691,20 +711,67 @@ def read_file(
         )
     if backend != "pandas":
         raise ValueError(f"backend must be 'pandas' or 'dask', got {backend!r}")
-    # Only pass kwargs that were actually supplied — passing the unset
-    # defaults (None) confuses some geopandas engines (ARC-72).
-    passthrough = _compact(
-        {
-            "layer": layer,
-            "bbox": bbox,
-            "mask": mask,
-            "rows": rows,
-            "columns": columns,
-            "where": where,
-        }
-    )
-    passthrough.update(kwargs)
     gdf = _read_file_healing_crs(resolved, passthrough)
+    return fc_cls(gdf)
+
+
+_GEOJSON_SUFFIXES = (".geojson", ".json")
+"""File extensions treated as GeoJSON for the remote-staging fallback (:func:`_is_remote_geojson`)."""
+
+
+def _is_remote_geojson(path: str | Path) -> bool:
+    """True for a remote GeoJSON URL, bare or ``/vsicurl/``-wrapped (issue #1008).
+
+    Only ``http(s)://`` GeoJSON qualifies: those are the reads that stream a
+    *redirecting* URL through GDAL's ``/vsicurl/`` and can segfault a build whose
+    bundled libcurl/OpenSSL differs from the interpreter's. A local path, an
+    ``s3://``/``gs://`` object, or any non-GeoJSON remote file returns ``False`` and
+    keeps its normal read path.
+
+    Args:
+        path: The path or URL handed to :func:`read_file`.
+
+    Returns:
+        bool: Whether the path is a remote GeoJSON that should be staged locally.
+    """
+    text = str(path)
+    url = text[len("/vsicurl/") :] if text.startswith("/vsicurl/") else text
+    if not url.lower().startswith(("http://", "https://")):
+        return False
+    stem = url.split("?", 1)[0].rstrip("/").lower()
+    return stem.endswith(_GEOJSON_SUFFIXES)
+
+
+def _read_remote_geojson_staged(
+    fc_cls: type[FeatureCollection],
+    path: str | Path,
+    passthrough: dict[str, Any],
+) -> FeatureCollection:
+    """Download a remote GeoJSON and read the local copy, avoiding a ``/vsicurl/`` read.
+
+    Streaming a redirecting remote GeoJSON over GDAL's ``/vsicurl/`` can segfault the
+    interpreter in a build whose bundled libcurl/OpenSSL differs from the interpreter's
+    (issue #1008 — the manylinux wheel, whose vendored OpenSSL 3 clashes with CPython's).
+    The bytes are fetched with :mod:`urllib` (Python's own TLS, which follows the
+    redirect) and GDAL is handed a plain local file, so GDAL never does the remote read.
+
+    Args:
+        fc_cls: The FeatureCollection class to wrap the result in.
+        path: The remote GeoJSON path (bare ``http(s)://`` or ``/vsicurl/``-wrapped).
+        passthrough: Keyword arguments for :func:`geopandas.read_file`.
+
+    Returns:
+        FeatureCollection: The features read from the staged local copy.
+    """
+    text = str(path)
+    url = text[len("/vsicurl/") :] if text.startswith("/vsicurl/") else text
+    request = urllib.request.Request(url, headers={"User-Agent": "pyramids-gis"})
+    with tempfile.TemporaryDirectory(prefix="pyramids_geojson_") as work_dir:
+        local = os.path.join(work_dir, "remote.geojson")
+        with urllib.request.urlopen(request) as response:  # nosec B310 - http(s) enforced by _is_remote_geojson
+            with open(local, "wb") as handle:
+                shutil.copyfileobj(response, handle)
+        gdf = _read_file_healing_crs(local, passthrough)
     return fc_cls(gdf)
 
 
