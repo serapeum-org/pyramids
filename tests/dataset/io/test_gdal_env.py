@@ -518,3 +518,21 @@ class TestResolveFilesAndScanSafe:
         assert DatasetCollection._resolve_files(str(tmp_path), "*.tif") == expected, (
             "_resolve_files must still return the plain resolved list"
         )
+
+    def test_missing_folder_raises(self, tmp_path):
+        """A folder that does not exist raises ``FileNotFoundError``."""
+        with pytest.raises(FileNotFoundError, match="does not exist"):
+            DatasetCollection._resolve_files_and_scan_safe(
+                str(tmp_path / "nope"), "*.tif"
+            )
+
+    def test_no_glob_match_raises(self, tmp_path):
+        """A folder with no file matching ``glob`` raises ``FileNotFoundError``."""
+        (tmp_path / "note.txt").write_text("", encoding="utf-8")
+        with pytest.raises(FileNotFoundError, match="matched glob"):
+            DatasetCollection._resolve_files_and_scan_safe(str(tmp_path), "*.tif")
+
+    def test_empty_sequence_raises(self):
+        """An empty sequence raises ``ValueError``."""
+        with pytest.raises(ValueError, match="at least one path"):
+            DatasetCollection._resolve_files_and_scan_safe([], "*.tif")
