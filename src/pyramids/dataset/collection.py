@@ -1834,6 +1834,17 @@ class DatasetCollection:
               ... )
 
               ```
+            - Override the sidecar-scan default — force GDAL's per-open rescan back
+              on for a folder whose companions are not in the recognised set:
+
+              ```python
+              >>> from pyramids.dataset import DatasetCollection
+              >>> cube = DatasetCollection.from_files(  # doctest: +SKIP
+              ...     "rasters",
+              ...     gdal_env={"GDAL_DISABLE_READDIR_ON_OPEN": "FALSE"},
+              ... )
+
+              ```
         """
         resolved, scan_safe = cls._resolve_files_and_scan_safe(files, glob)
         # On high-latency network storage GDAL's per-open directory rescan (for
