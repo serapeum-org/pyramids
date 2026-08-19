@@ -718,13 +718,21 @@ def read_file(
 _GEOJSON_SUFFIXES = (".geojson", ".json")
 """File extensions treated as GeoJSON for the remote-staging fallback (:func:`_is_remote_geojson`)."""
 
+_VSICURL_PREFIX = "/vsicurl/"
+"""GDAL virtual-filesystem prefix for a streamed remote read (:func:`_strip_vsicurl`)."""
+
+
+def _strip_vsicurl(text: str) -> str:
+    """Return the bare URL behind a ``/vsicurl/`` wrapper, else ``text`` unchanged."""
+    return text[len(_VSICURL_PREFIX) :] if text.startswith(_VSICURL_PREFIX) else text
+
 
 def _is_remote_geojson(path: str | Path) -> bool:
-    """True for a remote GeoJSON URL, bare or ``/vsicurl/``-wrapped (issue #1008).
+    """True for an ``https://`` GeoJSON URL, bare or ``/vsicurl/``-wrapped (issue #1008).
 
-    Only ``http(s)://`` GeoJSON qualifies: those are the reads that stream a
-    *redirecting* URL through GDAL's ``/vsicurl/`` and can segfault a build whose
-    bundled libcurl/OpenSSL differs from the interpreter's. A local path, an
+    Only an ``https://`` GeoJSON qualifies: the segfault is a TLS/OpenSSL clash while
+    GDAL's ``/vsicurl/`` follows a redirect, so it is the *TLS* read that must be kept
+    away from GDAL. A plain ``http://`` read carries no TLS, and a local path, an
     ``s3://``/``gs://`` object, or any non-GeoJSON remote file returns ``False`` and
     keeps its normal read path.
 
@@ -734,9 +742,8 @@ def _is_remote_geojson(path: str | Path) -> bool:
     Returns:
         bool: Whether the path is a remote GeoJSON that should be staged locally.
     """
-    text = str(path)
-    url = text[len("/vsicurl/") :] if text.startswith("/vsicurl/") else text
-    if not url.lower().startswith(("http://", "https://")):
+    url = _strip_vsicurl(str(path))
+    if not url.lower().startswith("https://"):
         return False
     stem = url.split("?", 1)[0].rstrip("/").lower()
     return stem.endswith(_GEOJSON_SUFFIXES)
@@ -757,18 +764,17 @@ def _read_remote_geojson_staged(
 
     Args:
         fc_cls: The FeatureCollection class to wrap the result in.
-        path: The remote GeoJSON path (bare ``http(s)://`` or ``/vsicurl/``-wrapped).
+        path: The remote GeoJSON path (bare ``https://`` or ``/vsicurl/``-wrapped).
         passthrough: Keyword arguments for :func:`geopandas.read_file`.
 
     Returns:
         FeatureCollection: The features read from the staged local copy.
     """
-    text = str(path)
-    url = text[len("/vsicurl/") :] if text.startswith("/vsicurl/") else text
+    url = _strip_vsicurl(str(path))
     request = urllib.request.Request(url, headers={"User-Agent": "pyramids-gis"})
     with tempfile.TemporaryDirectory(prefix="pyramids_geojson_") as work_dir:
         local = os.path.join(work_dir, "remote.geojson")
-        with urllib.request.urlopen(request) as response:  # nosec B310 - http(s) enforced by _is_remote_geojson
+        with urllib.request.urlopen(request) as response:  # nosec B310 - https enforced by _is_remote_geojson
             with open(local, "wb") as handle:
                 shutil.copyfileobj(response, handle)
         gdf = _read_file_healing_crs(local, passthrough)

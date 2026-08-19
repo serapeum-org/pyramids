@@ -36,9 +36,9 @@ _POINT_GEOJSON = (
     [
         ("/vsicurl/https://host/x.geojson", True),
         ("https://host/x.geojson", True),
-        ("http://host/x.geojson", True),
         ("https://host/x.json", True),
         ("https://host/data.geojson?token=abc", True),
+        ("http://host/x.geojson", False),
         ("/vsicurl/https://host/x.gpkg", False),
         ("https://host/x.tif", False),
         ("/data/local/x.geojson", False),
@@ -46,7 +46,7 @@ _POINT_GEOJSON = (
     ],
 )
 def test_is_remote_geojson_detection(path: str, expected: bool):
-    """Only ``http(s)://`` GeoJSON (bare or ``/vsicurl/``-wrapped) is staged."""
+    """Only an ``https://`` GeoJSON (bare or ``/vsicurl/``-wrapped) is staged."""
     assert _read._is_remote_geojson(path) is expected
 
 
@@ -67,7 +67,9 @@ def test_remote_geojson_is_staged_not_streamed(monkeypatch: pytest.MonkeyPatch):
     fc = FeatureCollection.read_file(_GEOBOUNDARIES_KEN_ADM1)
 
     assert len(fc) == 1
-    assert "/vsicurl/" not in seen["path"], f"read a local copy, not /vsicurl/: {seen['path']}"
+    assert "/vsicurl/" not in seen["path"], (
+        f"read a local copy, not /vsicurl/: {seen['path']}"
+    )
     assert seen["path"].endswith(".geojson")
 
 
