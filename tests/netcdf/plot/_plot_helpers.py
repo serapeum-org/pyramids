@@ -21,9 +21,10 @@ def _make_capture(captured: dict):
 
 
 def _make_fake_render(captured: dict):
-    """Return a side-effect for patching _render_array that stores the call kwargs."""
+    """Return a side-effect for patching _render_array; stores the RenderRequest + kwargs."""
 
-    def _inner(**kw):
+    def _inner(request=None, **kw):
+        captured["request"] = request
         captured["kw"] = kw
         return "ok"
 

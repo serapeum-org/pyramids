@@ -7,8 +7,9 @@ import pytest
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset
-from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset.engines import Analysis
+
+from ._render_helpers import render_array
 
 pytestmark = pytest.mark.plot
 

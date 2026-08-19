@@ -30,7 +30,13 @@ from pyramids.base._utils import (
 )
 from pyramids.base.crs import crs_spec, epsg_from_user_input
 from pyramids.base.remote import cloud_config_from_env
-from pyramids.dataset._plot_helpers import nonnull_group_kwargs, render_array
+from pyramids.dataset._plot_helpers import (
+    ModeSpec,
+    RenderRequest,
+    RgbSpec,
+    nonnull_group_kwargs,
+    render_array,
+)
 from pyramids.dataset._reduce_ops import resolve_dask_op
 from pyramids.dataset._stac import from_point as _from_point
 from pyramids.dataset._stac import from_stac as _from_stac
@@ -2667,14 +2673,12 @@ class DatasetCollection:
                 f"animation_axis_values has {len(axis_values)} labels but the "
                 f"collection has {self.time_length} timesteps."
             )
-        # Forward the basemap + typed animate spec once to both render paths.
-        # ``basemap`` type-dispatches in render_array (str/True -> web tiles,
-        # ``Basemap`` -> relief); ``basemap_epsg`` comes from the base raster so a
-        # collection basemap always has a CRS. ``frame_label`` is only forwarded when
-        # set, so cleopatra keeps its default per-frame label otherwise.
+        # Styling kwargs forwarded once to both render paths as render_array's
+        # ``**kwargs``. ``basemap`` / ``basemap_epsg`` are RenderRequest fields
+        # (set on the request below), not styling kwargs. ``frame_label`` is only
+        # forwarded when set, so cleopatra keeps its default per-frame label
+        # otherwise.
         animate_extras: dict[str, Any] = {
-            "basemap": basemap,
-            "basemap_epsg": self.base.epsg,
             "colorbar": colorbar,
             "points": points,
         }
@@ -2701,13 +2705,18 @@ class DatasetCollection:
             self._validate_rgb_animation(rgb, exclude_value)
             data = np.stack([ds.read_array(band=None) for ds in self.datasets], axis=0)
             return render_array(
-                arr=data,
-                rgb=rgb,
-                surface_reflectance=surface_reflectance,
-                cutoff=cutoff,
-                percentile=percentile,
-                mode="animate",
-                animation_axis_values=axis_values,
+                RenderRequest(
+                    arr=data,
+                    rgb=RgbSpec(
+                        rgb=rgb,
+                        surface_reflectance=surface_reflectance,
+                        cutoff=cutoff,
+                        percentile=percentile,
+                    ),
+                    mode=ModeSpec(mode="animate", animation_axis_values=axis_values),
+                    basemap=basemap,
+                    basemap_epsg=self.base.epsg,
+                ),
                 **animate_extras,
                 **kwargs,
             )
@@ -2725,10 +2734,13 @@ class DatasetCollection:
             else [no_data_value[band]]
         )
         return render_array(
-            arr=data,
-            exclude_value=exclude_value,
-            mode="animate",
-            animation_axis_values=axis_values,
+            RenderRequest(
+                arr=data,
+                exclude_value=exclude_value,
+                mode=ModeSpec(mode="animate", animation_axis_values=axis_values),
+                basemap=basemap,
+                basemap_epsg=self.base.epsg,
+            ),
             **animate_extras,
             **kwargs,
         )

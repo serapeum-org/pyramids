@@ -138,8 +138,8 @@ class TestNetCDFPlotAnimate:
                 side_effect=_make_fake_render(captured),
             ):
                 nc.plot(variable="t2m", animate=True)
-        assert captured["kw"]["mode"] == "animate"
-        assert captured["kw"]["animation_axis_values"] == labels
+        assert captured["request"].mode.mode == "animate"
+        assert captured["request"].mode.animation_axis_values == labels
 
     @pytest.mark.skipif(FrameLabel is None, reason="cleopatra < 0.26 has no FrameLabel")
     def test_animate_forwards_frame_label_to_render_array(self):
@@ -160,7 +160,7 @@ class TestNetCDFPlotAnimate:
             side_effect=_make_fake_render(captured),
         ):
             nc.plot(variable="t2m", animate=True, frame_label=spec)
-        assert captured["kw"]["mode"] == "animate"
+        assert captured["request"].mode.mode == "animate"
         assert captured["kw"]["frame_label"] is spec, (
             "frame_label must forward through NetCDF.plot's **kwargs to the animate render"
         )
@@ -184,7 +184,7 @@ class TestNetCDFPlotAnimate:
             side_effect=_make_fake_render(captured),
         ):
             nc.plot(variable="t2m", animate=True)
-        getter = captured["kw"]["data_getter"]
+        getter = captured["request"].mode.data_getter
         var = nc.get_variable("t2m")
         full = var.read_array()
         for i in range(4):
@@ -214,7 +214,7 @@ class TestNetCDFPlotAnimate:
             side_effect=_make_fake_render(captured),
         ):
             nc.plot(variable="t2m", animate=True)
-        template = captured["kw"]["arr"]
+        template = captured["request"].arr
         assert template.ndim == 2, (
             f"Template handed to render_array must be 2-D, got {template.shape}"
         )
@@ -249,11 +249,11 @@ class TestNetCDFPlotAnimateEdges:
                 selectors=Selectors(sel={"pressure_level": 500}),
                 animate=True,
             )
-        assert captured["kw"]["mode"] == "animate", (
+        assert captured["request"].mode.mode == "animate", (
             f"Pinning level via sel must still resolve animate, got "
-            f"mode={captured['kw'].get('mode')!r}"
+            f"mode={captured['request'].mode.mode!r}"
         )
-        labels = captured["kw"]["animation_axis_values"]
+        labels = captured["request"].mode.animation_axis_values
         assert list(labels) == [
             0,
             6,
@@ -294,7 +294,7 @@ class TestNetCDFPlotAnimateEdges:
                 selectors=Selectors(time=0),
                 animate="pressure_level",
             )
-        labels = captured["kw"]["animation_axis_values"]
+        labels = captured["request"].mode.animation_axis_values
         assert list(labels) == [
             1000,
             500,
@@ -339,7 +339,7 @@ class TestNetCDFPlotAnimateEdges:
             side_effect=_make_fake_render(captured),
         ):
             nc.plot(variable="t2m", animate=True)
-        getter = captured["kw"]["data_getter"]
+        getter = captured["request"].mode.data_getter
         var_cls = type(nc.get_variable("t2m"))
         orig_read = var_cls.read_array
 
@@ -379,7 +379,7 @@ class TestNetCDFPlotAnimateEdges:
                 "animate path must not allocate per-frame sel() subsets; "
                 f"sel was called {sel_mock.call_count} time(s)"
             )
-        getter = captured["kw"]["data_getter"]
+        getter = captured["request"].mode.data_getter
         var = nc.get_variable("t2m")
         for i in range(4):
             assert_array_equal(
