@@ -723,7 +723,17 @@ _VSICURL_PREFIX = "/vsicurl/"
 
 
 def _strip_vsicurl(text: str) -> str:
-    """Return the bare URL behind a ``/vsicurl/`` wrapper, else ``text`` unchanged."""
+    """Return the bare URL behind a leading ``/vsicurl/`` wrapper.
+
+    Only a *leading* prefix is removed, so a chained virtual path such as
+    ``/vsizip//vsicurl/…`` is left untouched.
+
+    Args:
+        text: A path or URL, optionally wrapped in ``/vsicurl/``.
+
+    Returns:
+        str: The URL with a leading ``/vsicurl/`` removed, or ``text`` unchanged.
+    """
     return text[len(_VSICURL_PREFIX) :] if text.startswith(_VSICURL_PREFIX) else text
 
 
