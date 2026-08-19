@@ -18,6 +18,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.collection import _SIDECAR_SUFFIXES
 from pyramids.dataset.engines import io as io_engine
 from tests._helpers import write_raster
 
@@ -470,39 +471,22 @@ class TestResolveFilesAndScanSafe:
         )
         assert scan_safe is True, "no sidecars -> scan is safe to skip"
 
-    @pytest.mark.parametrize(
-        "sidecar",
-        [
-            "d.aux.xml",
-            "d.aux",
-            "d.ovr",
-            "d.msk",
-            "d.rrd",
-            "d.prj",
-            "d.wld",
-            "d.hdr",
-            "d.tfw",
-            "d.tifw",
-            "d.jgw",
-            "d.pgw",
-            "d.gfw",
-            "d.j2w",
-            "d.jp2w",
-            "d.jpw",
-        ],
-    )
-    def test_each_sidecar_suffix_is_detected(self, tmp_path, sidecar):
-        """Any recognised sidecar suffix in the folder flips scan_safe to False.
+    @pytest.mark.parametrize("suffix", _SIDECAR_SUFFIXES)
+    def test_each_sidecar_suffix_is_detected(self, tmp_path, suffix):
+        """Every companion suffix in _SIDECAR_SUFFIXES flips scan_safe to False.
 
         Args:
-            sidecar: A sidecar file name written alongside the rasters.
+            suffix: A recognised companion suffix, derived from the constant so a new
+                suffix added to _SIDECAR_SUFFIXES is covered automatically.
         """
         _write_folder_of_tifs(tmp_path)
-        (tmp_path / sidecar).write_text("", encoding="utf-8")
+        (tmp_path / f"d{suffix}").write_text("", encoding="utf-8")
         _, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
             str(tmp_path), "*.tif"
         )
-        assert scan_safe is False, f"{sidecar!r} must keep the directory scan on"
+        assert scan_safe is False, (
+            f"a {suffix!r} companion must keep the directory scan on"
+        )
 
     def test_uppercase_sidecar_is_detected(self, tmp_path):
         """An uppercase sidecar is detected (case-insensitive match, #1010 M1).
