@@ -801,6 +801,10 @@ def _read_remote_geojson_staged(
         FeatureCollection: The features read from the staged local copy.
     """
     url = _strip_vsicurl(str(path))
+    if not url.lower().startswith("https://"):
+        # Self-guard the https invariant so the helper cannot become an
+        # http/file/ftp fetch if the routing in read_file ever changes.
+        raise ValueError(f"remote GeoJSON staging requires an https:// URL, got {url!r}")
     request = urllib.request.Request(url, headers={"User-Agent": "pyramids-gis"})
     with tempfile.TemporaryDirectory(prefix="pyramids_geojson_") as work_dir:
         local = os.path.join(work_dir, "remote.geojson")

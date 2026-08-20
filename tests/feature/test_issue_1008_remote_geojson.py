@@ -226,6 +226,16 @@ class TestReadRemoteGeojsonStaged:
         with pytest.raises(urllib.error.URLError, match="boom"):
             _read._read_remote_geojson_staged(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {})
 
+    def test_rejects_non_https_url(self):
+        """Refuse a non-https URL as a self-guard on the https invariant.
+
+        Test scenario:
+            Reaching the helper directly with a plain `http://` URL raises `ValueError`
+            rather than silently fetching over an unintended scheme.
+        """
+        with pytest.raises(ValueError, match="https://"):
+            _read._read_remote_geojson_staged(FeatureCollection, "http://host/x.geojson", {})
+
     def test_download_uses_an_explicit_timeout(self, monkeypatch: pytest.MonkeyPatch):
         """Pass an explicit `timeout` so a stalled TLS server cannot hang the read forever.
 
