@@ -53,7 +53,7 @@ from pyramids.base._errors import FeatureError, VectorTileServerError
 from pyramids.base._ogc_api import http_error_detail, http_get_with_retry
 from pyramids.base._utils import import_pyarrow
 from pyramids.base.crs import _pyproj_crs_via_gdal
-from pyramids.base.remote import is_remote, to_fsspec_url
+from pyramids.base.remote import _ARCHIVE_MARKER_RE, is_remote, to_fsspec_url
 
 if TYPE_CHECKING:
     from pyramids.feature._lazy_collection import LazyFeatureCollection
@@ -762,6 +762,11 @@ def _is_remote_geojson(path: str | Path) -> bool:
     if not url.lower().startswith("https://"):
         return False
     stem = url.split("?", 1)[0].rstrip("/").lower()
+    if _ARCHIVE_MARKER_RE.search(stem):
+        # A GeoJSON *inside* a remote archive (`.zip/inner.geojson`) must keep the
+        # /vsizip//vsicurl/ chain `_parse_path` builds — staging would fetch the
+        # member URL directly and 404. Leave archive members on the normal path.
+        return False
     return stem.endswith(_GEOJSON_SUFFIXES)
 
 
