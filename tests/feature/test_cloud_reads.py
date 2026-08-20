@@ -103,6 +103,23 @@ class TestHttpRewrite:
             f"expected a /vsicurl/ rewrite log; got: {messages}"
         )
 
+    def test_http_geojson_still_rewrites_to_vsicurl(self, monkeypatch):
+        """An `http://…geojson` URL is not staged (staging is https-only) and reaches `/vsicurl/`."""
+        captured: dict[str, object] = {}
+
+        def fake_read_file(path, **kwargs):
+            captured["path"] = path
+            return self._fake_gdf()
+
+        monkeypatch.setattr("pyramids.feature.collection.gpd.read_file", fake_read_file)
+
+        url = "http://example.invalid/points.geojson"
+        FeatureCollection.read_file(url)
+
+        assert captured["path"] == f"/vsicurl/{url}", (
+            f"http GeoJSON should stay on /vsicurl/, got: {captured['path']}"
+        )
+
 
 class TestFileUrlRead:
     """``file://`` URLs are rewritten to plain local paths (no network)."""
