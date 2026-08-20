@@ -861,7 +861,6 @@ class NetCDF(Dataset):
             # they differ on non-square grids (e.g. 2° lon, 1° lat), so a single `cell_size` for
             # both axes would stretch the latitude axis. Y is reported north-up: the top edge is the
             # northernmost latitude plus half a cell, and pixel height is negative.
-            x_cell = self.cell_size
             if len(self.lat) >= 2:
                 y_cell = abs(float(self.lat[1] - self.lat[0]))
                 y_top = max(float(self.lat[0]), float(self.lat[-1])) + y_cell / 2
@@ -870,10 +869,14 @@ class NetCDF(Dataset):
                 y_top = float(self.lat[0]) + y_cell / 2
             # West edge = min(lon) - half a cell, mirroring the north-up lat branch above. Taking
             # `lon[0]` unguarded put the origin at the EAST edge for a descending-longitude container,
-            # mirroring the X origin (ARC-32).
+            # mirroring the X origin (ARC-32). The X pixel size comes from the real lon spacing too:
+            # `self.cell_size` tracks GDAL's index-space geotransform (pixel width 1.0) for a
+            # multidim-opened container, which silently mis-georeferenced the X axis (#1014).
             if len(self.lon) >= 2:
+                x_cell = abs(float(self.lon[1] - self.lon[0]))
                 x_west = min(float(self.lon[0]), float(self.lon[-1])) - x_cell / 2
             else:
+                x_cell = self.cell_size
                 x_west = float(self.lon[0]) - x_cell / 2
             return (
                 x_west,
@@ -4051,6 +4054,51 @@ class NetCDF(Dataset):
                     )
                     time_stamp = list(map(func, time_vals.reshape(-1)))
         return time_stamp
+
+    def _decode_time_labels(
+        self,
+        var_name: str,
+        raw_values: list[Any],
+        time_format: str = "%Y-%m-%d",
+    ) -> list[str] | None:
+        """Decode already-read raw time values into formatted date strings.
+
+        Unlike :meth:`get_time_variable`, which reads the *full* stored axis, this
+        decodes the specific ``raw_values`` handed to it, using the CF ``units`` /
+        ``calendar`` for ``var_name`` resolved from this cube's own dimension
+        metadata or, failing that, its parent container's. A variable subset built
+        by :meth:`get_variable` keeps its (possibly subsetted) raw coordinate values
+        in ``_band_dim_values_map`` but loses the root group's dimension attributes,
+        so its own metadata is empty while the parent still carries the units —
+        which is why the animate frame labels came back as raw integers (#1013).
+        Decoding the passed values (not the parent's full axis) keeps the labels
+        aligned with a time-subsetted view.
+
+        Args:
+            var_name: Name of the time coordinate / dimension.
+            raw_values: The raw coordinate values to decode (one per frame).
+            time_format: strftime format for the output strings. Defaults to
+                ``"%Y-%m-%d"``.
+
+        Returns:
+            list[str] or None: One formatted string per value, or ``None`` when no
+            parseable ``units`` attribute is available on this cube or its parent.
+        """
+        labels: list[str] | None = None
+        for owner in (self, getattr(self, "_parent_nc", None)):
+            if owner is None:
+                continue
+            time_dim = owner.meta_data.get_dimension(var_name)
+            if time_dim is None:
+                continue
+            units = time_dim.attrs.get("units")
+            if units is None:
+                continue
+            calendar = time_dim.attrs.get("calendar", "standard")
+            func = create_time_conversion_func(units, time_format, calendar=calendar)
+            labels = [func(value) for value in raw_values]
+            break
+        return labels
 
     @property
     def dimension_sizes(self) -> dict[str, int]:

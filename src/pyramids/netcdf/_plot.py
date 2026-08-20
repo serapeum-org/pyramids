@@ -1393,8 +1393,14 @@ class NetCDFPlot:
         if dim_values_raw is None:
             frame_labels: list[Any] = list(range(nc._band_dim_sizes[animate_axis]))
         else:
+            # Decode the subset's own (possibly subsetted) raw time values rather
+            # than calling `get_time_variable`, which reads the full stored axis and
+            # returns None on a `get_variable` subset that has lost the root group's
+            # dimension metadata — the reason the labels were the raw encoded integers
+            # (#1013). cleopatra's animate label is `str(label)[:10]`, so a decoded
+            # "1979-01-01" renders correctly while a raw int is truncated mid-number.
             decoded = (
-                nc.get_time_variable(animate_dim)
+                nc._decode_time_labels(animate_dim, list(dim_values_raw))
                 if animate_dim.lower() in ("time", "valid_time", "t")
                 else None
             )
@@ -1406,6 +1412,24 @@ class NetCDFPlot:
             if exclude_value is not None
             else [no_data_value[0]]
         )
+        # cleopatra masks the constructor template via `exclude_value` (so the colour
+        # scale is right) but blits each streamed frame verbatim with `im.set_data`,
+        # leaving no-data drawn at the scale extreme. Mask here — replace the exclude
+        # values with NaN, which matplotlib renders transparent — so every animation
+        # frame masks no-data exactly like the static path (#1013). The template still
+        # goes to cleopatra raw so its `exclude_value` masking sizes the colour scale.
+        mask_values = [
+            value
+            for value in resolved_exclude
+            if value is not None
+            and not (isinstance(value, float) and math.isnan(value))
+        ]
+
+        def _mask_frame(frame: np.typing.NDArray) -> np.typing.NDArray:
+            if not mask_values:
+                return frame
+            floated = np.asarray(frame, dtype=float)
+            return np.where(np.isin(floated, mask_values), np.nan, floated)
 
         # Per-frame data fetch. Rather than allocating a fresh `sel()`
         # subset for every frame — which re-resolves the variable and
@@ -1424,8 +1448,10 @@ class NetCDFPlot:
 
         def _data_getter(i: int) -> np.typing.NDArray:
             if i == 0:
-                return _frame_zero.copy()
-            return cast("np.typing.NDArray", nc.read_array(band=i * frame_stride))
+                return _mask_frame(_frame_zero.copy())
+            return _mask_frame(
+                cast("np.typing.NDArray", nc.read_array(band=i * frame_stride))
+            )
 
         template = _frame_zero
 
