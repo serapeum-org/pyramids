@@ -75,7 +75,9 @@ class TestStripVsicurl:
             A `/vsicurl_streaming/https://…` path returns the bare `https://…` URL.
         """
         result = _read._strip_vsicurl("/vsicurl_streaming/https://host/x.geojson")
-        assert result == "https://host/x.geojson", f"streaming prefix not stripped: {result}"
+        assert result == "https://host/x.geojson", (
+            f"streaming prefix not stripped: {result}"
+        )
 
     def test_only_leading_prefix_is_stripped(self):
         """Strip only a *leading* ``/vsicurl/``, never one nested mid-path.
@@ -85,7 +87,9 @@ class TestStripVsicurl:
             is returned unchanged.
         """
         chained = "/vsizip//vsicurl/https://host/x.zip"
-        assert _read._strip_vsicurl(chained) == chained, "nested prefix wrongly stripped"
+        assert _read._strip_vsicurl(chained) == chained, (
+            "nested prefix wrongly stripped"
+        )
 
 
 class TestIsRemoteGeojson:
@@ -156,18 +160,28 @@ class TestReadRemoteGeojsonStaged:
             return real_read_file(target, **kwargs)
 
         monkeypatch.setattr(
-            _read.urllib.request, "urlopen", lambda request, **_: io.BytesIO(_POINT_GEOJSON)
+            _read.urllib.request,
+            "urlopen",
+            lambda request, **_: io.BytesIO(_POINT_GEOJSON),
         )
         monkeypatch.setattr(_read.gpd, "read_file", _spy_read_file)
 
-        fc = _read._read_remote_geojson_staged(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {})
+        fc = _read._read_remote_geojson_staged(
+            FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {}
+        )
 
         assert isinstance(fc, FeatureCollection), f"wrong return type: {type(fc)}"
         assert len(fc) == 1, f"expected one feature, got {len(fc)}"
-        assert "/vsicurl/" not in seen["path"], f"read a local copy, not /vsicurl/: {seen['path']}"
-        assert seen["path"].endswith(".geojson"), f"staged file is not .geojson: {seen['path']}"
+        assert "/vsicurl/" not in seen["path"], (
+            f"read a local copy, not /vsicurl/: {seen['path']}"
+        )
+        assert seen["path"].endswith(".geojson"), (
+            f"staged file is not .geojson: {seen['path']}"
+        )
 
-    def test_request_strips_vsicurl_and_sets_user_agent(self, monkeypatch: pytest.MonkeyPatch):
+    def test_request_strips_vsicurl_and_sets_user_agent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Fetch the bare URL (``/vsicurl/`` removed) with an explicit User-Agent.
 
         Test scenario:
@@ -183,11 +197,17 @@ class TestReadRemoteGeojsonStaged:
 
         monkeypatch.setattr(_read.urllib.request, "urlopen", _fake_urlopen)
 
-        _read._read_remote_geojson_staged(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {})
+        _read._read_remote_geojson_staged(
+            FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {}
+        )
 
         expected_url = _GEOBOUNDARIES_KEN_ADM1[len("/vsicurl/") :]
-        assert captured["url"] == expected_url, f"unexpected fetch URL: {captured['url']}"
-        assert captured["ua"] == "pyramids-gis", f"missing/incorrect UA header: {captured['ua']}"
+        assert captured["url"] == expected_url, (
+            f"unexpected fetch URL: {captured['url']}"
+        )
+        assert captured["ua"] == "pyramids-gis", (
+            f"missing/incorrect UA header: {captured['ua']}"
+        )
 
     def test_passthrough_kwargs_reach_the_reader(self, monkeypatch: pytest.MonkeyPatch):
         """Forward filter kwargs to ``gpd.read_file`` on the staged local file.
@@ -203,16 +223,24 @@ class TestReadRemoteGeojsonStaged:
             return _fake_gdf()
 
         monkeypatch.setattr(
-            _read.urllib.request, "urlopen", lambda request, **_: io.BytesIO(_POINT_GEOJSON)
+            _read.urllib.request,
+            "urlopen",
+            lambda request, **_: io.BytesIO(_POINT_GEOJSON),
         )
         monkeypatch.setattr(_read.gpd, "read_file", _spy_read_file)
 
         passthrough = {"columns": ["n"], "where": "n = 1"}
-        _read._read_remote_geojson_staged(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, passthrough)
+        _read._read_remote_geojson_staged(
+            FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, passthrough
+        )
 
-        assert captured["kwargs"] == passthrough, f"kwargs not forwarded: {captured['kwargs']}"
+        assert captured["kwargs"] == passthrough, (
+            f"kwargs not forwarded: {captured['kwargs']}"
+        )
 
-    def test_download_error_is_wrapped_in_feature_error(self, monkeypatch: pytest.MonkeyPatch):
+    def test_download_error_is_wrapped_in_feature_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """A download failure surfaces as `FeatureError`, chaining the original `URLError`.
 
         Test scenario:
@@ -227,7 +255,9 @@ class TestReadRemoteGeojsonStaged:
         monkeypatch.setattr(_read.urllib.request, "urlopen", _boom)
 
         with pytest.raises(_read.FeatureError, match="failed to download") as exc_info:
-            _read._read_remote_geojson_staged(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {})
+            _read._read_remote_geojson_staged(
+                FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {}
+            )
         assert isinstance(exc_info.value.__cause__, urllib.error.URLError), (
             "the original URLError should be chained as the cause"
         )
@@ -240,7 +270,9 @@ class TestReadRemoteGeojsonStaged:
             rather than silently fetching over an unintended scheme.
         """
         with pytest.raises(ValueError, match="https://"):
-            _read._read_remote_geojson_staged(FeatureCollection, "http://host/x.geojson", {})
+            _read._read_remote_geojson_staged(
+                FeatureCollection, "http://host/x.geojson", {}
+            )
 
     def test_download_uses_an_explicit_timeout(self, monkeypatch: pytest.MonkeyPatch):
         """Pass an explicit `timeout` so a stalled TLS server cannot hang the read forever.
@@ -257,7 +289,9 @@ class TestReadRemoteGeojsonStaged:
 
         monkeypatch.setattr(_read.urllib.request, "urlopen", _fake_urlopen)
 
-        _read._read_remote_geojson_staged(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {})
+        _read._read_remote_geojson_staged(
+            FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {}
+        )
 
         assert captured["timeout"] == _read._REMOTE_READ_TIMEOUT, (
             f"expected an explicit timeout, got {captured['timeout']}"
@@ -276,7 +310,9 @@ class TestReadFileRemoteGeojsonRouting:
         """
         sentinel = object()
         monkeypatch.setattr(
-            _read, "_read_remote_geojson_staged", lambda cls, path, passthrough: sentinel
+            _read,
+            "_read_remote_geojson_staged",
+            lambda cls, path, passthrough: sentinel,
         )
 
         result = _read.read_file(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1)
@@ -295,11 +331,15 @@ class TestReadFileRemoteGeojsonRouting:
             raise AssertionError("non-GeoJSON remote should not be staged")
 
         monkeypatch.setattr(_read, "_read_remote_geojson_staged", _must_not_stage)
-        monkeypatch.setattr(_read, "_read_file_healing_crs", lambda resolved, passthrough: _fake_gdf())
+        monkeypatch.setattr(
+            _read, "_read_file_healing_crs", lambda resolved, passthrough: _fake_gdf()
+        )
 
         result = _read.read_file(FeatureCollection, "https://host/x.gpkg")
 
-        assert isinstance(result, FeatureCollection), f"wrong return type: {type(result)}"
+        assert isinstance(result, FeatureCollection), (
+            f"wrong return type: {type(result)}"
+        )
 
     def test_dask_backend_bypasses_staging(self, monkeypatch: pytest.MonkeyPatch):
         """Never stage on the dask backend, even for a remote GeoJSON.
@@ -316,7 +356,9 @@ class TestReadFileRemoteGeojsonRouting:
         monkeypatch.setattr(_read, "_read_remote_geojson_staged", _must_not_stage)
         monkeypatch.setattr(_read, "read_file_dask", lambda *a, **k: sentinel)
 
-        result = _read.read_file(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, backend="dask")
+        result = _read.read_file(
+            FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, backend="dask"
+        )
 
         assert result is sentinel, "dask backend did not bypass staging"
 
@@ -356,7 +398,9 @@ class TestGdalHttpOptionsGuard:
             "GetConfigOption",
             lambda key: "Bearer x" if key == "GDAL_HTTP_HEADERS" else None,
         )
-        assert _read._gdal_http_options_active() is True, "set option should read as active"
+        assert _read._gdal_http_options_active() is True, (
+            "set option should read as active"
+        )
 
     def test_active_for_bearer_only_config(self, monkeypatch: pytest.MonkeyPatch):
         """A bearer-only config (`GDAL_HTTP_BEARER`) is detected so the token still reaches GDAL.
@@ -369,7 +413,9 @@ class TestGdalHttpOptionsGuard:
             "GetConfigOption",
             lambda key: "tok" if key == "GDAL_HTTP_BEARER" else None,
         )
-        assert _read._gdal_http_options_active() is True, "bearer token should read as active"
+        assert _read._gdal_http_options_active() is True, (
+            "bearer token should read as active"
+        )
 
     def test_inactive_when_no_option_is_set(self, monkeypatch: pytest.MonkeyPatch):
         """`_gdal_http_options_active` is False when no GDAL HTTP option is set.
@@ -378,9 +424,13 @@ class TestGdalHttpOptionsGuard:
             With every option unset, the guard reports inactive and staging may proceed.
         """
         monkeypatch.setattr(_read.gdal, "GetConfigOption", lambda key: None)
-        assert _read._gdal_http_options_active() is False, "unset options should read inactive"
+        assert _read._gdal_http_options_active() is False, (
+            "unset options should read inactive"
+        )
 
-    def test_read_file_skips_staging_when_option_active(self, monkeypatch: pytest.MonkeyPatch):
+    def test_read_file_skips_staging_when_option_active(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """A set GDAL HTTP option keeps the remote GeoJSON on the `/vsicurl/` reader.
 
         Test scenario:
@@ -389,12 +439,18 @@ class TestGdalHttpOptionsGuard:
         """
 
         def _must_not_stage(*_args, **_kwargs):
-            raise AssertionError("staging must be skipped when a GDAL HTTP option is set")
+            raise AssertionError(
+                "staging must be skipped when a GDAL HTTP option is set"
+            )
 
         monkeypatch.setattr(_read, "_gdal_http_options_active", lambda: True)
         monkeypatch.setattr(_read, "_read_remote_geojson_staged", _must_not_stage)
-        monkeypatch.setattr(_read, "_read_file_healing_crs", lambda resolved, passthrough: _fake_gdf())
+        monkeypatch.setattr(
+            _read, "_read_file_healing_crs", lambda resolved, passthrough: _fake_gdf()
+        )
 
         result = _read.read_file(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1)
 
-        assert isinstance(result, FeatureCollection), f"wrong return type: {type(result)}"
+        assert isinstance(result, FeatureCollection), (
+            f"wrong return type: {type(result)}"
+        )

@@ -691,7 +691,11 @@ def read_file(
         }
     )
     passthrough.update(kwargs)
-    if backend == "pandas" and _is_remote_geojson(path) and not _gdal_http_options_active():
+    if (
+        backend == "pandas"
+        and _is_remote_geojson(path)
+        and not _gdal_http_options_active()
+    ):
         # A remote GeoJSON is staged to a local file and read from there (#1008):
         # streaming a *redirecting* remote GeoJSON over GDAL's /vsicurl/ can segfault
         # the interpreter in a build whose bundled libcurl/OpenSSL differs from the
@@ -807,7 +811,9 @@ def _read_remote_geojson_staged(
     if not url.lower().startswith("https://"):
         # Self-guard the https invariant so the helper cannot become an
         # http/file/ftp fetch if the routing in read_file ever changes.
-        raise ValueError(f"remote GeoJSON staging requires an https:// URL, got {url!r}")
+        raise ValueError(
+            f"remote GeoJSON staging requires an https:// URL, got {url!r}"
+        )
     request = urllib.request.Request(url, headers={"User-Agent": "pyramids-gis"})
     with tempfile.TemporaryDirectory(prefix="pyramids_geojson_") as work_dir:
         local = os.path.join(work_dir, "remote.geojson")
@@ -820,7 +826,9 @@ def _read_remote_geojson_staged(
         except urllib.error.URLError as error:
             # Surface a download failure as the module's error type, mirroring the
             # GDAL/pyogrio error the /vsicurl/ path would have raised.
-            raise FeatureError(f"failed to download remote GeoJSON {url!r}: {error}") from error
+            raise FeatureError(
+                f"failed to download remote GeoJSON {url!r}: {error}"
+            ) from error
         gdf = _read_file_healing_crs(local, passthrough)
     return fc_cls(gdf)
 
