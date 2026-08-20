@@ -726,7 +726,8 @@ _VSICURL_PREFIXES = ("/vsicurl_streaming/", "/vsicurl/")
 """GDAL virtual-filesystem prefixes for a streamed remote read (:func:`_strip_vsicurl`)."""
 
 _REMOTE_READ_TIMEOUT = 60.0
-"""Seconds a staged remote GeoJSON download may block before it aborts (issue #1008 review M2)."""
+"""Per-read socket timeout (seconds) for a staged remote GeoJSON download (issue #1008 review M2);
+it bounds each blocking read, not the whole transfer."""
 
 
 def _strip_vsicurl(text: str) -> str:
