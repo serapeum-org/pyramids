@@ -422,10 +422,9 @@ class TestFromFilesDirScanDefault:
             "<PAMDataset></PAMDataset>", encoding="utf-8"
         )
         col = DatasetCollection.from_files(str(tmp_path))
-        assert _READDIR not in col._gdal_env, (
-            f"a folder with a sidecar must not disable the scan: {col._gdal_env}"
+        assert col._gdal_env == {}, (
+            f"a sidecar folder must install no env (no EMPTY_DIR): {col._gdal_env}"
         )
-        assert col._gdal_env == {}, f"no env should be installed, got {col._gdal_env}"
 
     def test_explicit_gdal_env_overrides_default(self, tmp_path):
         """A caller's GDAL_DISABLE_READDIR_ON_OPEN wins over the sidecar-free default."""
