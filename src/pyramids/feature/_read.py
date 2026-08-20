@@ -44,6 +44,7 @@ import pandas as pd
 import pyogrio
 import pyproj
 from geopandas import GeoDataFrame
+from osgeo import gdal
 from pyproj.exceptions import CRSError as _PyprojCRSError
 from shapely.geometry import box
 
@@ -690,11 +691,13 @@ def read_file(
         }
     )
     passthrough.update(kwargs)
-    if backend == "pandas" and _is_remote_geojson(path):
+    if backend == "pandas" and _is_remote_geojson(path) and not _gdal_http_options_active():
         # A remote GeoJSON is staged to a local file and read from there (#1008):
         # streaming a *redirecting* remote GeoJSON over GDAL's /vsicurl/ can segfault
         # the interpreter in a build whose bundled libcurl/OpenSSL differs from the
         # interpreter's. GeoJSON has no spatial index, so this loses no read pushdown.
+        # Staging is skipped when a GDAL HTTP option is set so the caller's auth/TLS
+        # tuning still reaches GDAL's /vsicurl/ reader (urllib would drop it).
         return _read_remote_geojson_staged(fc_cls, path, passthrough)
     resolved = _pyramids_io._parse_path(path)
     if backend == "dask":
@@ -789,6 +792,40 @@ def _read_remote_geojson_staged(
                 shutil.copyfileobj(response, handle)
         gdf = _read_file_healing_crs(local, passthrough)
     return fc_cls(gdf)
+
+
+_GDAL_HTTP_OPTION_KEYS = (
+    "GDAL_HTTP_HEADERS",
+    "GDAL_HTTP_HEADER_FILE",
+    "GDAL_HTTP_AUTH",
+    "GDAL_HTTP_USERPWD",
+    "GDAL_HTTP_COOKIE",
+    "GDAL_HTTP_COOKIEFILE",
+    "GDAL_HTTP_PROXY",
+    "GDAL_HTTP_PROXYUSERPWD",
+    "GDAL_HTTP_UNSAFESSL",
+    "GDAL_HTTP_CAPATH",
+    "GDAL_HTTP_CACERT",
+    "GDAL_HTTP_SSLCERT",
+    "GDAL_HTTP_SSLKEY",
+    "CPL_VSIL_CURL_USERPWD",
+)
+"""GDAL HTTP config options a ``/vsicurl/`` read honours (:func:`_gdal_http_options_active`)."""
+
+
+def _gdal_http_options_active() -> bool:
+    """True when a GDAL HTTP auth/TLS config option is set (issue #1008 review M1).
+
+    The staging fallback fetches with :mod:`urllib` and cannot see GDAL config options,
+    so a caller who supplied credentials or TLS tuning through environment variables or
+    :class:`pyramids.base.remote.CloudConfig` must keep the ``/vsicurl/`` path. When any
+    such option is set, :func:`read_file` skips staging and lets GDAL do the read so the
+    caller's options still apply.
+
+    Returns:
+        bool: Whether any GDAL HTTP auth/TLS config option is currently set.
+    """
+    return any(gdal.GetConfigOption(key) for key in _GDAL_HTTP_OPTION_KEYS)
 
 
 _CRS_HEALING_LOCK = threading.Lock()

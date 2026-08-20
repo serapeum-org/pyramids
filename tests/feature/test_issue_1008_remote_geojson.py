@@ -291,3 +291,48 @@ class TestReadFileRemoteGeojsonRouting:
         """
         fc = FeatureCollection.read_file(_GEOBOUNDARIES_KEN_ADM1)
         assert len(fc) > 0, "geoBoundaries KEN ADM1 should read as non-empty polygons"
+
+
+class TestGdalHttpOptionsGuard:
+    """Tests for the GDAL-HTTP-options guard that keeps authed reads on `/vsicurl/` (#1008 M1)."""
+
+    def test_active_when_an_option_is_set(self, monkeypatch: pytest.MonkeyPatch):
+        """`_gdal_http_options_active` is True when any GDAL HTTP option is set.
+
+        Test scenario:
+            A set `GDAL_HTTP_HEADERS` (e.g. a bearer token) makes the guard report active.
+        """
+        monkeypatch.setattr(
+            _read.gdal,
+            "GetConfigOption",
+            lambda key: "Bearer x" if key == "GDAL_HTTP_HEADERS" else None,
+        )
+        assert _read._gdal_http_options_active() is True, "set option should read as active"
+
+    def test_inactive_when_no_option_is_set(self, monkeypatch: pytest.MonkeyPatch):
+        """`_gdal_http_options_active` is False when no GDAL HTTP option is set.
+
+        Test scenario:
+            With every option unset, the guard reports inactive and staging may proceed.
+        """
+        monkeypatch.setattr(_read.gdal, "GetConfigOption", lambda key: None)
+        assert _read._gdal_http_options_active() is False, "unset options should read inactive"
+
+    def test_read_file_skips_staging_when_option_active(self, monkeypatch: pytest.MonkeyPatch):
+        """A set GDAL HTTP option keeps the remote GeoJSON on the `/vsicurl/` reader.
+
+        Test scenario:
+            When the guard is active, `read_file` does not stage — the caller's GDAL auth
+            still reaches GDAL — and the read flows through the normal reader.
+        """
+
+        def _must_not_stage(*_args, **_kwargs):
+            raise AssertionError("staging must be skipped when a GDAL HTTP option is set")
+
+        monkeypatch.setattr(_read, "_gdal_http_options_active", lambda: True)
+        monkeypatch.setattr(_read, "_read_remote_geojson_staged", _must_not_stage)
+        monkeypatch.setattr(_read, "_read_file_healing_crs", lambda resolved, passthrough: _fake_gdf())
+
+        result = _read.read_file(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1)
+
+        assert isinstance(result, FeatureCollection), f"wrong return type: {type(result)}"
