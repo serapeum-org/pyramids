@@ -244,6 +244,30 @@ class TestNetCDFPlotAnimate:
             "1979-01-03",
         ]
 
+    def test_animate_without_no_data_leaves_frames_unmasked(self):
+        """A variable with no no-data introduces no spurious NaN into the frames.
+
+        Test scenario:
+            When ``no_data_value`` is unset and no ``exclude_value`` is passed the
+            frame mask is empty, so ``_data_getter`` returns each frame untouched —
+            covers the empty-mask branch of the animate masking.
+        """
+        nc = make_plot_3d_nc(n_times=3)
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(variable="t2m", animate=True)
+        frame0 = np.asarray(captured["request"].mode.data_getter(0))
+        expected = np.asarray(nc.get_variable("t2m").read_array(band=0))
+        assert not np.any(np.isnan(frame0)), "no no-data means no NaN introduced"
+        assert_array_equal(
+            frame0,
+            expected,
+            err_msg="frame should be returned unchanged when the mask is empty",
+        )
+
     @pytest.mark.skipif(FrameLabel is None, reason="cleopatra < 0.26 has no FrameLabel")
     def test_animate_forwards_frame_label_to_render_array(self):
         """``frame_label=FrameLabel(...)`` forwards through NetCDF.plot to the animate render.

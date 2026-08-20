@@ -9,9 +9,32 @@ import pytest
 from shapely.geometry import box
 
 from tests.netcdf.conftest import make_2d_nc
-from tests.netcdf.unit._netcdf_unit_helpers import _make_3d_nc
+from tests.netcdf.unit._netcdf_unit_helpers import (
+    _make_3d_nc,
+    _make_nc_with_time_units,
+)
 
 pytestmark = pytest.mark.core
+
+
+class TestGeotransformAxisSpacing:
+    """Tests for the geotransform property's per-axis cell-size derivation."""
+
+    def test_single_column_falls_back_to_cell_size_on_x(self):
+        """A one-column grid derives the x pixel size from ``cell_size``, not spacing.
+
+        Test scenario:
+            With a single longitude value there is no ``lon[1] - lon[0]`` spacing,
+            so the x branch falls back to ``self.cell_size`` and places the west
+            edge half a cell left of the lone centre — covers the ``len(lon) < 2``
+            fallback added alongside the #1014 fix.
+        """
+        nc = _make_nc_with_time_units(rows=4, cols=1, n_times=2)
+        assert len(nc.lon) == 1, f"precondition: expected one lon value, got {nc.lon}"
+        gt = nc.geotransform
+        assert gt == (0.0, 1.0, 0, 4.0, 0, -1.0), (
+            f"single-column geotransform fallback wrong: {gt}"
+        )
 
 
 class TestGeotransformFallback:

@@ -229,6 +229,77 @@ class TestGetTimeVariableWithUnits:
         assert len(result) == 2, f"Expected 2 timestamps, got {len(result)}"
 
 
+class TestDecodeTimeLabels:
+    """Tests for NetCDF._decode_time_labels (the animate frame-label decoder)."""
+
+    def test_decodes_passed_values_via_own_units(self):
+        """The container decodes the passed raw values through its own CF units.
+
+        Test scenario:
+            A container whose ``time`` dim carries ``units="days since
+            1979-01-01"`` decodes the passed offsets into ``YYYY-MM-DD`` strings.
+        """
+        nc = _make_nc_with_time_units(n_times=3)
+        result = nc._decode_time_labels("time", [0, 1, 2])
+        assert result == ["1979-01-01", "1979-01-02", "1979-01-03"], (
+            f"unexpected decoded labels: {result}"
+        )
+
+    def test_decodes_only_the_passed_values_not_the_full_axis(self):
+        """Only the passed values are decoded, keeping a subsetted view aligned.
+
+        Test scenario:
+            Passing a two-element slice of a three-step axis returns exactly two
+            labels, so a time-subsetted animation stays aligned with its frames.
+        """
+        nc = _make_nc_with_time_units(n_times=3)
+        result = nc._decode_time_labels("time", [1, 2])
+        assert result == ["1979-01-02", "1979-01-03"], (
+            f"expected only the two passed offsets decoded, got: {result}"
+        )
+
+    def test_subset_decodes_via_parent_container(self):
+        """A get_variable subset decodes its labels through the parent container.
+
+        Test scenario:
+            The subset has lost the time dim's CF units, so ``_decode_time_labels``
+            falls back to the parent container's units — the #1013 fix path.
+        """
+        nc = _make_nc_with_time_units(n_times=3)
+        var = nc.get_variable("temperature")
+        assert var.meta_data.get_dimension("time") is None, (
+            "precondition: the subset should not carry the time dim metadata"
+        )
+        result = var._decode_time_labels("time", [0, 1, 2])
+        assert result == ["1979-01-01", "1979-01-02", "1979-01-03"], (
+            f"subset did not decode via the parent container: {result}"
+        )
+
+    def test_returns_none_without_parseable_units(self):
+        """Returns None when neither the cube nor its parent carries time units.
+
+        Test scenario:
+            A container whose ``time`` dim has no ``units`` attribute (and no
+            parent) yields None, so the animate path keeps the raw coord labels.
+        """
+        nc = _make_3d_nc()
+        result = nc._decode_time_labels("time", [0, 1, 2])
+        assert result is None, f"expected None without units, got {result}"
+
+    def test_custom_time_format(self):
+        """Honours a custom strftime format.
+
+        Test scenario:
+            Passing ``time_format="%Y/%m/%d"`` renders the decoded dates with the
+            requested separator.
+        """
+        nc = _make_nc_with_time_units(n_times=2)
+        result = nc._decode_time_labels("time", [0, 1], time_format="%Y/%m/%d")
+        assert result == ["1979/01/01", "1979/01/02"], (
+            f"custom format not applied: {result}"
+        )
+
+
 class TestCubeDimensionNames:
     """`get_variable(...).dimension_names` must mirror the container's view.
 
