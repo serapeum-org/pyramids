@@ -11,12 +11,14 @@ those re-opens installs it again.
 from __future__ import annotations
 
 import pickle
+from pathlib import Path
 
 import numpy as np
 import pytest
 from osgeo import gdal
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.collection import _SIDECAR_SUFFIXES
 from pyramids.dataset.engines import io as io_engine
 from tests._helpers import write_raster
 
@@ -366,3 +368,246 @@ class TestGdalEnvOnEveryReadPath:
         ds = Dataset.read_file(cog_path, gdal_env=ENV)
         payer = self._payer_during(lambda: ds.cog.preview(max_size=8))
         assert payer == "requester", f"COG preview ran without the config: {payer}"
+
+
+_READDIR = "GDAL_DISABLE_READDIR_ON_OPEN"
+
+
+def _write_folder_of_tifs(folder, count=2):
+    """Write ``count`` tiny 3x3 GeoTIFFs into ``folder`` and return their paths."""
+    return [
+        write_raster(
+            folder / f"t{i}.tif", np.full((3, 3), float(i), "float32"), (0.0, 3.0)
+        )
+        for i in range(count)
+    ]
+
+
+class TestFromFilesDirScanDefault:
+    """`from_files` defaults GDAL_DISABLE_READDIR_ON_OPEN for sidecar-free folders (#1010)."""
+
+    def test_sidecar_free_folder_defaults_empty_dir(self, tmp_path):
+        """A folder with no sidecars gets GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR.
+
+        Test scenario:
+            The auto-default is persisted on the collection and handed to every timestep,
+            so each open skips GDAL's per-open directory rescan.
+        """
+        _write_folder_of_tifs(tmp_path)
+        col = DatasetCollection.from_files(str(tmp_path))
+        assert col._gdal_env.get(_READDIR) == "EMPTY_DIR", (
+            f"sidecar-free folder should default EMPTY_DIR, got {col._gdal_env}"
+        )
+        assert all(ds.gdal_env.get(_READDIR) == "EMPTY_DIR" for ds in col.datasets), (
+            "timesteps must inherit the directory-scan default"
+        )
+
+    def test_lazy_index_open_carries_the_env(self, tmp_path):
+        """The single-index lazy path (iloc -> _dataset_at) also carries EMPTY_DIR.
+
+        Test scenario:
+            iloc opens one timestep without materialising the bulk ``datasets`` list,
+            so its handle must still inherit the directory-scan default.
+        """
+        _write_folder_of_tifs(tmp_path)
+        col = DatasetCollection.from_files(str(tmp_path))
+        assert col.iloc(0).gdal_env.get(_READDIR) == "EMPTY_DIR", (
+            "the single-index lazy open must inherit the directory-scan default"
+        )
+
+    def test_folder_with_aux_xml_leaves_scan_on(self, tmp_path):
+        """A folder holding a .aux.xml sidecar keeps the per-open rescan on (no EMPTY_DIR)."""
+        _write_folder_of_tifs(tmp_path)
+        (tmp_path / "t0.tif.aux.xml").write_text(
+            "<PAMDataset></PAMDataset>", encoding="utf-8"
+        )
+        col = DatasetCollection.from_files(str(tmp_path))
+        assert col._gdal_env == {}, (
+            f"a sidecar folder must install no env (no EMPTY_DIR): {col._gdal_env}"
+        )
+
+    def test_explicit_gdal_env_overrides_default(self, tmp_path):
+        """A caller's GDAL_DISABLE_READDIR_ON_OPEN wins over the sidecar-free default."""
+        _write_folder_of_tifs(tmp_path)
+        col = DatasetCollection.from_files(str(tmp_path), gdal_env={_READDIR: "FALSE"})
+        assert col._gdal_env.get(_READDIR) == "FALSE", (
+            f"an explicit gdal_env value must override the default, got {col._gdal_env}"
+        )
+
+    def test_explicit_gdal_env_merges_with_default(self, tmp_path):
+        """An unrelated caller key is layered on top of the sidecar-free default."""
+        _write_folder_of_tifs(tmp_path)
+        col = DatasetCollection.from_files(
+            str(tmp_path), gdal_env={"AWS_REQUEST_PAYER": "requester"}
+        )
+        assert col._gdal_env.get(_READDIR) == "EMPTY_DIR", (
+            "the auto-default should remain"
+        )
+        assert col._gdal_env.get("AWS_REQUEST_PAYER") == "requester", (
+            "the caller's key should be merged in"
+        )
+
+    def test_explicit_sequence_leaves_scan_on(self, tmp_path):
+        """An explicit file sequence gets no directory-scan default (no listing to trust)."""
+        paths = _write_folder_of_tifs(tmp_path)
+        col = DatasetCollection.from_files(paths)
+        assert col._gdal_env == {}, (
+            f"a file sequence must not default EMPTY_DIR, got {col._gdal_env}"
+        )
+
+    def test_sidecar_folder_still_takes_the_caller_env(self, tmp_path):
+        """A sidecar folder suppresses EMPTY_DIR but still persists the caller's gdal_env.
+
+        Test scenario:
+            The auto-default and the caller's env compose independently: the sidecar
+            withholds EMPTY_DIR, yet an explicit caller key is still installed.
+        """
+        _write_folder_of_tifs(tmp_path)
+        (tmp_path / "t0.tif.aux.xml").write_text(
+            "<PAMDataset></PAMDataset>", encoding="utf-8"
+        )
+        col = DatasetCollection.from_files(
+            str(tmp_path), gdal_env={"AWS_REQUEST_PAYER": "requester"}
+        )
+        assert _READDIR not in col._gdal_env, (
+            f"a sidecar folder must not add EMPTY_DIR: {col._gdal_env}"
+        )
+        assert col._gdal_env.get("AWS_REQUEST_PAYER") == "requester", (
+            "the caller's env must still be persisted"
+        )
+
+
+class TestResolveFilesAndScanSafe:
+    """Unit tests for `_resolve_files_and_scan_safe` and the `_resolve_files` delegate."""
+
+    def test_folder_without_sidecars_is_scan_safe(self, tmp_path):
+        """A folder of plain rasters resolves the matched list with scan_safe True."""
+        _write_folder_of_tifs(tmp_path)
+        resolved, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
+            str(tmp_path), "*.tif"
+        )
+        assert [Path(p).name for p in resolved] == ["t0.tif", "t1.tif"], (
+            f"resolved list wrong: {resolved}"
+        )
+        assert scan_safe is True, "no sidecars -> scan is safe to skip"
+
+    def test_accepts_a_path_object(self, tmp_path):
+        """A ``pathlib.Path`` folder (not a str) resolves the same as its str form."""
+        _write_folder_of_tifs(tmp_path)
+        resolved, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
+            tmp_path, "*.tif"
+        )
+        assert [Path(p).name for p in resolved] == ["t0.tif", "t1.tif"], (
+            f"a Path folder should resolve like its str form: {resolved}"
+        )
+        assert scan_safe is True, "a sidecar-free Path folder is scan-safe"
+
+    @pytest.mark.parametrize("suffix", _SIDECAR_SUFFIXES)
+    def test_each_sidecar_suffix_is_detected(self, tmp_path, suffix):
+        """Every companion suffix in _SIDECAR_SUFFIXES flips scan_safe to False.
+
+        Args:
+            suffix: A recognised companion suffix, derived from the constant so a new
+                suffix added to _SIDECAR_SUFFIXES is covered automatically.
+        """
+        _write_folder_of_tifs(tmp_path)
+        (tmp_path / f"d{suffix}").write_text("", encoding="utf-8")
+        _, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
+            str(tmp_path), "*.tif"
+        )
+        assert scan_safe is False, (
+            f"a {suffix!r} companion must keep the directory scan on"
+        )
+
+    def test_uppercase_sidecar_is_detected(self, tmp_path):
+        """An uppercase sidecar is detected (case-insensitive match, #1010 M1).
+
+        Test scenario:
+            On case-insensitive filesystems GDAL discovers ``T0.TIF.OVR`` regardless
+            of case, so the scan must stay on even though the suffix is upper-case.
+        """
+        _write_folder_of_tifs(tmp_path)
+        (tmp_path / "T0.TIF.OVR").write_text("", encoding="utf-8")
+        _, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
+            str(tmp_path), "*.tif"
+        )
+        assert scan_safe is False, (
+            "an uppercase sidecar must keep the directory scan on"
+        )
+
+    def test_non_tiff_world_file_is_detected(self, tmp_path):
+        """A format-specific world file (.pgw for PNG) blocks the scan-skip (#1010 M2)."""
+        (tmp_path / "a.png").write_text("", encoding="utf-8")
+        (tmp_path / "b.png").write_text("", encoding="utf-8")
+        (tmp_path / "a.pgw").write_text("", encoding="utf-8")
+        resolved, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
+            str(tmp_path), "*.png"
+        )
+        assert [Path(p).name for p in resolved] == ["a.png", "b.png"], (
+            f"only the .png rasters should resolve: {resolved}"
+        )
+        assert scan_safe is False, "a .pgw world file must keep the directory scan on"
+
+    def test_sidecar_not_matching_glob_still_counts(self, tmp_path):
+        """A sidecar is detected even though it does not match the raster glob."""
+        _write_folder_of_tifs(tmp_path)
+        (tmp_path / "overviews.ovr").write_text("", encoding="utf-8")
+        resolved, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
+            str(tmp_path), "*.tif"
+        )
+        assert all(p.endswith(".tif") for p in resolved), (
+            "the .ovr must not be a timestep"
+        )
+        assert scan_safe is False, "a non-matching sidecar must still be detected"
+
+    def test_single_file_is_not_scan_safe(self, tmp_path):
+        """A single explicit file resolves with scan_safe False (nothing scanned)."""
+        path = write_raster(
+            tmp_path / "one.tif", np.zeros((2, 2), "float32"), (0.0, 2.0)
+        )
+        resolved, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
+            path, "*.tif"
+        )
+        assert [Path(p).name for p in resolved] == ["one.tif"], (
+            f"wrong resolved: {resolved}"
+        )
+        assert scan_safe is False, "an explicit file is never auto-skipped"
+
+    def test_sequence_is_not_scan_safe(self, tmp_path):
+        """An explicit sequence resolves (order preserved) with scan_safe False."""
+        paths = _write_folder_of_tifs(tmp_path)
+        resolved, scan_safe = DatasetCollection._resolve_files_and_scan_safe(
+            paths, "*.tif"
+        )
+        assert [Path(p).name for p in resolved] == ["t0.tif", "t1.tif"], (
+            f"sequence order should be preserved: {resolved}"
+        )
+        assert scan_safe is False, "an explicit sequence is never auto-skipped"
+
+    def test_resolve_files_delegates_and_returns_list(self, tmp_path):
+        """`_resolve_files` returns exactly the path list from the scan-safe resolver."""
+        _write_folder_of_tifs(tmp_path)
+        expected, _ = DatasetCollection._resolve_files_and_scan_safe(
+            str(tmp_path), "*.tif"
+        )
+        assert DatasetCollection._resolve_files(str(tmp_path), "*.tif") == expected, (
+            "_resolve_files must still return the plain resolved list"
+        )
+
+    def test_missing_folder_raises(self, tmp_path):
+        """A folder that does not exist raises ``FileNotFoundError``."""
+        with pytest.raises(FileNotFoundError, match="does not exist"):
+            DatasetCollection._resolve_files_and_scan_safe(
+                str(tmp_path / "nope"), "*.tif"
+            )
+
+    def test_no_glob_match_raises(self, tmp_path):
+        """A folder with no file matching ``glob`` raises ``FileNotFoundError``."""
+        (tmp_path / "note.txt").write_text("", encoding="utf-8")
+        with pytest.raises(FileNotFoundError, match="matched glob"):
+            DatasetCollection._resolve_files_and_scan_safe(str(tmp_path), "*.tif")
+
+    def test_empty_sequence_raises(self):
+        """An empty sequence raises ``ValueError``."""
+        with pytest.raises(ValueError, match="at least one path"):
+            DatasetCollection._resolve_files_and_scan_safe([], "*.tif")

@@ -71,6 +71,44 @@ if TYPE_CHECKING:
 
 _DEFAULT_GLOB = "*.tif"
 _EMPTY_RANGE_MSG = "no files fall within the given start/end range"
+# GDAL raster sidecar / companion suffixes, matched case-insensitively. When a
+# folder holds any of these, ``from_files`` keeps GDAL's per-open directory scan on
+# so the companion is still discovered; a folder with none lets it default
+# ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``. Covers PAM stats (.aux.xml / legacy
+# .aux), overviews (.ovr), masks (.msk), reduced-resolution (.rrd), projection
+# (.prj), the generic (.wld) and per-format world files (TIFF/JPEG/PNG/GIF/JP2),
+# the ENVI header (.hdr), statistics sidecars (.stx / .sta), the ESRI raster attribute
+# table (.vat.dbf) and satellite RPC / IMD metadata (.rpb / .rpc / .imd / .pvl /
+# _rpc.txt). An exotic format whose companion is not listed should pass ``gdal_env``
+# explicitly to keep the rescan on.
+_SIDECAR_SUFFIXES = (
+    ".aux.xml",
+    ".aux",
+    ".ovr",
+    ".msk",
+    ".rrd",
+    ".prj",
+    ".wld",
+    ".hdr",
+    ".tfw",
+    ".tifw",
+    ".jgw",
+    ".pgw",
+    ".gfw",
+    ".j2w",
+    ".jp2w",
+    ".jpw",
+    ".jpgw",
+    ".jpegw",
+    ".stx",
+    ".sta",
+    ".vat.dbf",
+    ".rpb",
+    ".rpc",
+    ".imd",
+    ".pvl",
+    "_rpc.txt",
+)
 
 
 class _GroupedCollection:
@@ -1733,6 +1771,19 @@ class DatasetCollection:
         sequence of paths. Only the first file is opened eagerly (to derive
         :class:`RasterMeta`); the rest are opened lazily on demand.
 
+        For a folder with no GDAL sidecars (``.aux.xml`` / ``.ovr`` / ..., see
+        :data:`_SIDECAR_SUFFIXES`), the reader defaults
+        ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`` so each raster open skips GDAL's
+        per-open directory rescan. On high-latency network storage (SMB / NFS) that
+        rescan is a remote listing per file and otherwise dominates the read — the cost
+        scales with the folder size, not the file size. The default is applied only when
+        the single directory listing this method already performs confirms there is no
+        sidecar to discover; a folder that has any, an explicit file / sequence, or an
+        explicit ``gdal_env`` value, leaves the rescan on. The sidecar set
+        (:data:`_SIDECAR_SUFFIXES`, matched case-insensitively) covers the common
+        raster companions; for an exotic format whose companion is not listed, pass
+        ``gdal_env`` explicitly to keep the rescan on.
+
         When ``date_format`` is given, a date is parsed out of each file *name* and
         the timesteps are sorted by it, and those dates become the collection's
         :attr:`time` axis (used by :meth:`plot` as the frame labels). ``start`` /
@@ -1758,7 +1809,9 @@ class DatasetCollection:
                 file when omitted.
             gdal_env: Optional GDAL config (e.g. a signer's ``gdal_env()``) installed
                 around every open of the backing files, including the eager template
-                open, and persisted on the collection for the lazy reads.
+                open, and persisted on the collection for the lazy reads. Any key here
+                overrides the sidecar-scan default described above (e.g. pass
+                ``{"GDAL_DISABLE_READDIR_ON_OPEN": "FALSE"}`` to force the rescan on).
             validate: When ``True``, check every file's header shape/dtype against the
                 template and raise :class:`AlignmentError` on a mismatch instead of
                 lazily corrupting the cube. Default ``False``.
@@ -1791,8 +1844,26 @@ class DatasetCollection:
               ... )
 
               ```
+            - Override the sidecar-scan default — force GDAL's per-open rescan back
+              on for a folder whose companions are not in the recognised set:
+
+              ```python
+              >>> from pyramids.dataset import DatasetCollection
+              >>> cube = DatasetCollection.from_files(  # doctest: +SKIP
+              ...     "rasters",
+              ...     gdal_env={"GDAL_DISABLE_READDIR_ON_OPEN": "FALSE"},
+              ... )
+
+              ```
         """
-        resolved = cls._resolve_files(files, glob)
+        resolved, scan_safe = cls._resolve_files_and_scan_safe(files, glob)
+        # On high-latency network storage GDAL's per-open directory rescan (for
+        # sidecar discovery) dominates the read; skip it when the folder has none.
+        # A caller's gdal_env value always wins over this auto-default.
+        effective_env: dict[str, str] = (
+            {"GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR"} if scan_safe else {}
+        )
+        effective_env.update(gdal_env or {})
         time_axis: list[datetime] | None = None
         if date_format is not None:
             dates = [
@@ -1817,7 +1888,11 @@ class DatasetCollection:
                 "start/end filtering needs date_format to parse the file-name dates"
             )
         return cls._build(
-            resolved, time_axis, meta=meta, gdal_env=gdal_env, validate=validate
+            resolved,
+            time_axis,
+            meta=meta,
+            gdal_env=effective_env or None,
+            validate=validate,
         )
 
     @classmethod
@@ -1866,24 +1941,53 @@ class DatasetCollection:
         returned as-is — order preserved, so callers such as ``from_stac`` keep their
         temporally-ordered list.
         """
+        return DatasetCollection._resolve_files_and_scan_safe(files, glob)[0]
+
+    @staticmethod
+    def _resolve_files_and_scan_safe(
+        files: str | Path | Sequence[str | Path], glob: str
+    ) -> tuple[list[str], bool]:
+        """Resolve ``files`` and report whether GDAL's per-open directory scan is skippable.
+
+        Returns ``(resolved, scan_safe)``. ``resolved`` is the path list documented on
+        :meth:`_resolve_files`. ``scan_safe`` is ``True`` **only** when ``files`` is a
+        folder that a single :meth:`~pathlib.Path.iterdir` listing shows holds no GDAL
+        sidecars (:data:`_SIDECAR_SUFFIXES` — ``.aux.xml`` / ``.ovr`` / ...); then
+        :meth:`from_files` may safely default ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``
+        so each raster open skips the (remote-latency-bound) directory rescan. For a
+        single explicit file or a sequence there is no listing to trust, so ``scan_safe``
+        is ``False`` — leave the rescan on, so any real sidecar is still discovered.
+        """
         if isinstance(files, (str, Path)):
             folder = Path(files)
             if not folder.exists():
                 raise FileNotFoundError(f"The path does not exist: {folder}")
             if folder.is_file():
-                return [str(folder)]
-            matched = sorted(
-                str(folder / entry.name)
-                for entry in folder.iterdir()
-                if fnmatch.fnmatch(entry.name, glob)
-            )
-            if not matched:
-                raise FileNotFoundError(f"No file in {folder} matched glob {glob!r}")
-            return matched
-        resolved = [str(p) for p in files]
-        if not resolved:
-            raise ValueError("files must contain at least one path")
-        return resolved
+                resolved, scan_safe = [str(folder)], False
+            else:
+                entries = list(folder.iterdir())
+                resolved = sorted(
+                    str(folder / entry.name)
+                    for entry in entries
+                    if fnmatch.fnmatch(entry.name, glob)
+                )
+                if not resolved:
+                    raise FileNotFoundError(
+                        f"No file in {folder} matched glob {glob!r}"
+                    )
+                # Match case-insensitively: the target filesystems (Windows / macOS)
+                # are case-insensitive and GDAL discovers a sidecar regardless of its
+                # extension case, so an uppercase ``DATA.TIF.OVR`` must still block the
+                # scan-skip. ``_SIDECAR_SUFFIXES`` is lower-case.
+                scan_safe = not any(
+                    entry.name.lower().endswith(_SIDECAR_SUFFIXES) for entry in entries
+                )
+        else:
+            resolved = [str(p) for p in files]
+            if not resolved:
+                raise ValueError("files must contain at least one path")
+            scan_safe = False
+        return resolved, scan_safe
 
     @staticmethod
     def _parse_date(name: str, regex: str, fmt: str) -> datetime:
