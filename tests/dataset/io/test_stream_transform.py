@@ -302,14 +302,22 @@ class TestStreamReduce:
         """Reducing a disk raster peaks below a whole-array pass, proving the strip read.
 
         Test scenario:
-            Sum a 1000x1000 raster in 64-row strips, and compare the traced Python peak
+            Sum an 8000x1000 raster in 64-row strips, and compare the traced Python peak
             against a whole-array pass (read the whole array and reduce at once) in the same
             process. The stripped peak must stay below the whole-array peak. This is a
             build-agnostic check on purpose: the absolute figures depend on the GDAL build
             (tracemalloc only sees the Python heap, not GDAL's C buffers), but the same
             reduction done all-at-once is always an upper bound on the stripped version.
+
+            The raster is deliberately tall and narrow. `stream_reduce`'s peak is a *fixed*
+            per-strip overhead that does not grow with the raster but does vary sharply by
+            build (measured ~0.3 MB on conda vs ~4 MB on the pip wheel), while the
+            whole-array peak scales with total size. Sizing the raster so a full
+            materialisation (~16 MB here) dwarfs that overhead keeps the `<` bound true on
+            every build — at 1000x1000 the 2 MB whole-array pass sat *under* the wheel's
+            strip overhead and the bound flipped (#1008 follow-up).
         """
-        rows = cols = 1000
+        rows, cols = 8000, 1000
         src_path = tmp_path / "big.tif"
         Dataset.create_from_array(
             np.arange(rows * cols, dtype="int16").reshape(rows, cols),
