@@ -354,6 +354,19 @@ class TestGdalHttpOptionsGuard:
         )
         assert _read._gdal_http_options_active() is True, "set option should read as active"
 
+    def test_active_for_bearer_only_config(self, monkeypatch: pytest.MonkeyPatch):
+        """A bearer-only config (`GDAL_HTTP_BEARER`) is detected so the token still reaches GDAL.
+
+        Test scenario:
+            A token-gated read authenticated purely with `GDAL_HTTP_BEARER` is not staged.
+        """
+        monkeypatch.setattr(
+            _read.gdal,
+            "GetConfigOption",
+            lambda key: "tok" if key == "GDAL_HTTP_BEARER" else None,
+        )
+        assert _read._gdal_http_options_active() is True, "bearer token should read as active"
+
     def test_inactive_when_no_option_is_set(self, monkeypatch: pytest.MonkeyPatch):
         """`_gdal_http_options_active` is False when no GDAL HTTP option is set.
 

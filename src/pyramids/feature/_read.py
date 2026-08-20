@@ -823,6 +823,7 @@ _GDAL_HTTP_OPTION_KEYS = (
     "GDAL_HTTP_HEADERS",
     "GDAL_HTTP_HEADER_FILE",
     "GDAL_HTTP_AUTH",
+    "GDAL_HTTP_BEARER",
     "GDAL_HTTP_USERPWD",
     "GDAL_HTTP_COOKIE",
     "GDAL_HTTP_COOKIEFILE",
@@ -833,6 +834,7 @@ _GDAL_HTTP_OPTION_KEYS = (
     "GDAL_HTTP_CACERT",
     "GDAL_HTTP_SSLCERT",
     "GDAL_HTTP_SSLKEY",
+    "GDAL_HTTP_SSLKEYPASSWORD",
     "CPL_VSIL_CURL_USERPWD",
 )
 """GDAL HTTP config options a ``/vsicurl/`` read honours (:func:`_gdal_http_options_active`)."""
@@ -846,6 +848,10 @@ def _gdal_http_options_active() -> bool:
     :class:`pyramids.base.remote.CloudConfig` must keep the ``/vsicurl/`` path. When any
     such option is set, :func:`read_file` skips staging and lets GDAL do the read so the
     caller's options still apply.
+
+    Any non-empty value counts as set — an explicitly falsy value (e.g.
+    ``GDAL_HTTP_UNSAFESSL=NO``) still keeps the ``/vsicurl/`` path, a deliberately
+    conservative choice that never strips a caller's HTTP configuration.
 
     Returns:
         bool: Whether any GDAL HTTP auth/TLS config option is currently set.
