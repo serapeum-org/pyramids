@@ -87,8 +87,8 @@ class TestIsRemoteGeojson:
         [
             ("/vsicurl/https://host/x.geojson", True),
             ("https://host/x.geojson", True),
-            ("https://host/x.json", True),
             ("https://host/data.geojson?token=abc", True),
+            ("https://host/x.json", False),
             ("https://host/x.geojson/", True),
             ("HTTPS://host/x.geojson", True),
             ("https://host/X.GEOJSON", True),

@@ -718,8 +718,9 @@ def read_file(
     return fc_cls(gdf)
 
 
-_GEOJSON_SUFFIXES = (".geojson", ".json")
-"""File extensions treated as GeoJSON for the remote-staging fallback (:func:`_is_remote_geojson`)."""
+_GEOJSON_SUFFIXES = (".geojson",)
+"""Extension staged as remote GeoJSON (:func:`_is_remote_geojson`); bare ``.json`` is too broad
+(TopoJSON/ESRIJSON/plain JSON) so it keeps the normal ``/vsicurl/`` reader."""
 
 _VSICURL_PREFIX = "/vsicurl/"
 """GDAL virtual-filesystem prefix for a streamed remote read (:func:`_strip_vsicurl`)."""
