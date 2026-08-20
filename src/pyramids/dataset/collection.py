@@ -77,9 +77,9 @@ _EMPTY_RANGE_MSG = "no files fall within the given start/end range"
 # ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``. Covers PAM stats (.aux.xml / legacy
 # .aux), overviews (.ovr), masks (.msk), reduced-resolution (.rrd), projection
 # (.prj), the generic (.wld) and per-format world files (TIFF/JPEG/PNG/GIF/JP2),
-# the ENVI header (.hdr), and the ESRI raster attribute table (.vat.dbf). An exotic
-# format whose companion is not listed should pass ``gdal_env`` explicitly to keep
-# the rescan on.
+# the ENVI header (.hdr), statistics sidecars (.stx / .sta) and the ESRI raster
+# attribute table (.vat.dbf). An exotic format whose companion is not listed should
+# pass ``gdal_env`` explicitly to keep the rescan on.
 _SIDECAR_SUFFIXES = (
     ".aux.xml",
     ".aux",
@@ -97,6 +97,10 @@ _SIDECAR_SUFFIXES = (
     ".j2w",
     ".jp2w",
     ".jpw",
+    ".jpgw",
+    ".jpegw",
+    ".stx",
+    ".sta",
     ".vat.dbf",
 )
 
