@@ -212,12 +212,13 @@ class TestReadRemoteGeojsonStaged:
 
         assert captured["kwargs"] == passthrough, f"kwargs not forwarded: {captured['kwargs']}"
 
-    def test_download_error_propagates(self, monkeypatch: pytest.MonkeyPatch):
-        """Let a download failure surface as the original ``URLError``.
+    def test_download_error_is_wrapped_in_feature_error(self, monkeypatch: pytest.MonkeyPatch):
+        """A download failure surfaces as `FeatureError`, chaining the original `URLError`.
 
         Test scenario:
-            When ``urlopen`` raises :class:`urllib.error.URLError`, the staging helper
-            does not swallow it — the caller sees the network error.
+            When `urlopen` raises `URLError`, the helper re-raises the module's
+            `FeatureError` (so remote-read failures share one error type) with the
+            original network error kept as the cause.
         """
 
         def _boom(request, **_):
@@ -225,8 +226,11 @@ class TestReadRemoteGeojsonStaged:
 
         monkeypatch.setattr(_read.urllib.request, "urlopen", _boom)
 
-        with pytest.raises(urllib.error.URLError, match="boom"):
+        with pytest.raises(_read.FeatureError, match="failed to download") as exc_info:
             _read._read_remote_geojson_staged(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {})
+        assert isinstance(exc_info.value.__cause__, urllib.error.URLError), (
+            "the original URLError should be chained as the cause"
+        )
 
     def test_rejects_non_https_url(self):
         """Refuse a non-https URL as a self-guard on the https invariant.

@@ -811,11 +811,16 @@ def _read_remote_geojson_staged(
     request = urllib.request.Request(url, headers={"User-Agent": "pyramids-gis"})
     with tempfile.TemporaryDirectory(prefix="pyramids_geojson_") as work_dir:
         local = os.path.join(work_dir, "remote.geojson")
-        with urllib.request.urlopen(  # nosec B310 - https enforced by _is_remote_geojson
-            request, timeout=_REMOTE_READ_TIMEOUT
-        ) as response:
-            with open(local, "wb") as handle:
-                shutil.copyfileobj(response, handle)
+        try:
+            with urllib.request.urlopen(  # nosec B310 - https enforced above
+                request, timeout=_REMOTE_READ_TIMEOUT
+            ) as response:
+                with open(local, "wb") as handle:
+                    shutil.copyfileobj(response, handle)
+        except urllib.error.URLError as error:
+            # Surface a download failure as the module's error type, mirroring the
+            # GDAL/pyogrio error the /vsicurl/ path would have raised.
+            raise FeatureError(f"failed to download remote GeoJSON {url!r}: {error}") from error
         gdf = _read_file_healing_crs(local, passthrough)
     return fc_cls(gdf)
 
