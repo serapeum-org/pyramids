@@ -214,6 +214,27 @@ class TestReadRemoteGeojsonStaged:
         with pytest.raises(urllib.error.URLError, match="boom"):
             _read._read_remote_geojson_staged(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {})
 
+    def test_download_uses_an_explicit_timeout(self, monkeypatch: pytest.MonkeyPatch):
+        """Pass an explicit `timeout` so a stalled TLS server cannot hang the read forever.
+
+        Test scenario:
+            `urlopen` receives `timeout=_REMOTE_READ_TIMEOUT` rather than the unbounded
+            process default.
+        """
+        captured: dict[str, object] = {}
+
+        def _fake_urlopen(request, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+            return io.BytesIO(_POINT_GEOJSON)
+
+        monkeypatch.setattr(_read.urllib.request, "urlopen", _fake_urlopen)
+
+        _read._read_remote_geojson_staged(FeatureCollection, _GEOBOUNDARIES_KEN_ADM1, {})
+
+        assert captured["timeout"] == _read._REMOTE_READ_TIMEOUT, (
+            f"expected an explicit timeout, got {captured['timeout']}"
+        )
+
 
 class TestReadFileRemoteGeojsonRouting:
     """Tests for the remote-GeoJSON routing branch in :func:`pyramids.feature._read.read_file`."""

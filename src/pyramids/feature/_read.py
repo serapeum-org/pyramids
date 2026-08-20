@@ -724,6 +724,9 @@ _GEOJSON_SUFFIXES = (".geojson", ".json")
 _VSICURL_PREFIX = "/vsicurl/"
 """GDAL virtual-filesystem prefix for a streamed remote read (:func:`_strip_vsicurl`)."""
 
+_REMOTE_READ_TIMEOUT = 60.0
+"""Seconds a staged remote GeoJSON download may block before it aborts (issue #1008 review M2)."""
+
 
 def _strip_vsicurl(text: str) -> str:
     """Return the bare URL behind a leading ``/vsicurl/`` wrapper.
@@ -787,7 +790,9 @@ def _read_remote_geojson_staged(
     request = urllib.request.Request(url, headers={"User-Agent": "pyramids-gis"})
     with tempfile.TemporaryDirectory(prefix="pyramids_geojson_") as work_dir:
         local = os.path.join(work_dir, "remote.geojson")
-        with urllib.request.urlopen(request) as response:  # nosec B310 - https enforced by _is_remote_geojson
+        with urllib.request.urlopen(  # nosec B310 - https enforced by _is_remote_geojson
+            request, timeout=_REMOTE_READ_TIMEOUT
+        ) as response:
             with open(local, "wb") as handle:
                 shutil.copyfileobj(response, handle)
         gdf = _read_file_healing_crs(local, passthrough)
