@@ -68,6 +68,15 @@ class TestStripVsicurl:
         result = _read._strip_vsicurl("https://host/x.geojson")
         assert result == "https://host/x.geojson", f"bare URL altered: {result}"
 
+    def test_strips_streaming_prefix(self):
+        """Strip a leading `/vsicurl_streaming/` wrapper as well as `/vsicurl/`.
+
+        Test scenario:
+            A `/vsicurl_streaming/https://…` path returns the bare `https://…` URL.
+        """
+        result = _read._strip_vsicurl("/vsicurl_streaming/https://host/x.geojson")
+        assert result == "https://host/x.geojson", f"streaming prefix not stripped: {result}"
+
     def test_only_leading_prefix_is_stripped(self):
         """Strip only a *leading* ``/vsicurl/``, never one nested mid-path.
 
@@ -86,6 +95,7 @@ class TestIsRemoteGeojson:
         "path,expected",
         [
             ("/vsicurl/https://host/x.geojson", True),
+            ("/vsicurl_streaming/https://host/x.geojson", True),
             ("https://host/x.geojson", True),
             ("https://host/data.geojson?token=abc", True),
             ("https://host/x.json", False),

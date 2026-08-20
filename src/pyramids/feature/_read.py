@@ -722,26 +722,33 @@ _GEOJSON_SUFFIXES = (".geojson",)
 """Extension staged as remote GeoJSON (:func:`_is_remote_geojson`); bare ``.json`` is too broad
 (TopoJSON/ESRIJSON/plain JSON) so it keeps the normal ``/vsicurl/`` reader."""
 
-_VSICURL_PREFIX = "/vsicurl/"
-"""GDAL virtual-filesystem prefix for a streamed remote read (:func:`_strip_vsicurl`)."""
+_VSICURL_PREFIXES = ("/vsicurl_streaming/", "/vsicurl/")
+"""GDAL virtual-filesystem prefixes for a streamed remote read (:func:`_strip_vsicurl`)."""
 
 _REMOTE_READ_TIMEOUT = 60.0
 """Seconds a staged remote GeoJSON download may block before it aborts (issue #1008 review M2)."""
 
 
 def _strip_vsicurl(text: str) -> str:
-    """Return the bare URL behind a leading ``/vsicurl/`` wrapper.
+    """Return the bare URL behind a leading ``/vsicurl/`` or ``/vsicurl_streaming/`` wrapper.
 
     Only a *leading* prefix is removed, so a chained virtual path such as
-    ``/vsizip//vsicurl/…`` is left untouched.
+    ``/vsizip//vsicurl/…`` is left untouched. GDAL's ``/vsicurl?url=`` query form is not
+    decoded here, so a caller who uses that spelling — or reads on the ``dask`` backend —
+    is not diverted to local staging and still reaches GDAL's ``/vsicurl/`` reader.
 
     Args:
-        text: A path or URL, optionally wrapped in ``/vsicurl/``.
+        text: A path or URL, optionally wrapped in a ``/vsicurl*`` prefix.
 
     Returns:
-        str: The URL with a leading ``/vsicurl/`` removed, or ``text`` unchanged.
+        str: The URL with a leading ``/vsicurl*`` prefix removed, or ``text`` unchanged.
     """
-    return text[len(_VSICURL_PREFIX) :] if text.startswith(_VSICURL_PREFIX) else text
+    stripped = text
+    for prefix in _VSICURL_PREFIXES:
+        if text.startswith(prefix):
+            stripped = text[len(prefix) :]
+            break
+    return stripped
 
 
 def _is_remote_geojson(path: str | Path) -> bool:
