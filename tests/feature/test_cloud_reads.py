@@ -41,7 +41,9 @@ class TestHttpRewrite:
     """Assert that ``http://`` URLs reach ``gpd.read_file`` as ``/vsicurl/...``.
 
     Mocks ``geopandas.read_file`` so no network traffic is issued. The
-    point of the test is the rewrite, not GDAL's curl behavior.
+    point of the test is the rewrite, not GDAL's curl behavior. A GeoPackage
+    URL is used because remote GeoJSON is deliberately staged to a local file
+    instead of streamed over ``/vsicurl/`` (issue #1008).
     """
 
     def _fake_gdf(self) -> gpd.GeoDataFrame:
@@ -62,7 +64,7 @@ class TestHttpRewrite:
 
         monkeypatch.setattr("pyramids.feature.collection.gpd.read_file", fake_read_file)
 
-        url = "http://example.invalid/points.geojson"
+        url = "http://example.invalid/points.gpkg"
         fc = FeatureCollection.read_file(url)
 
         assert captured["path"] == f"/vsicurl/{url}"
@@ -79,7 +81,7 @@ class TestHttpRewrite:
 
         monkeypatch.setattr("pyramids.feature.collection.gpd.read_file", fake_read_file)
 
-        url = "https://example.invalid/points.geojson"
+        url = "https://example.invalid/points.gpkg"
         FeatureCollection.read_file(url)
 
         assert captured["path"] == f"/vsicurl/{url}"
@@ -92,13 +94,30 @@ class TestHttpRewrite:
 
         monkeypatch.setattr("pyramids.feature.collection.gpd.read_file", fake_read_file)
 
-        url = "http://example.invalid/points.geojson"
+        url = "http://example.invalid/points.gpkg"
         with caplog.at_level(logging.DEBUG, logger="pyramids.base.remote"):
             FeatureCollection.read_file(url)
 
         messages = [rec.getMessage() for rec in caplog.records]
         assert any("rewritten" in m and "/vsicurl/" in m for m in messages), (
             f"expected a /vsicurl/ rewrite log; got: {messages}"
+        )
+
+    def test_http_geojson_still_rewrites_to_vsicurl(self, monkeypatch):
+        """An `http://…geojson` URL is not staged (staging is https-only) and reaches `/vsicurl/`."""
+        captured: dict[str, object] = {}
+
+        def fake_read_file(path, **kwargs):
+            captured["path"] = path
+            return self._fake_gdf()
+
+        monkeypatch.setattr("pyramids.feature.collection.gpd.read_file", fake_read_file)
+
+        url = "http://example.invalid/points.geojson"
+        FeatureCollection.read_file(url)
+
+        assert captured["path"] == f"/vsicurl/{url}", (
+            f"http GeoJSON should stay on /vsicurl/, got: {captured['path']}"
         )
 
 

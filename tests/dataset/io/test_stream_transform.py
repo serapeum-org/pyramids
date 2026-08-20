@@ -298,49 +298,59 @@ class TestStreamReduce:
         )
         assert len(windows) == 3, f"expected 3 strips over 7 rows, got {len(windows)}"
 
-    def test_peak_memory_is_bounded_by_the_strip(self, tmp_path):
-        """Reducing a disk raster peaks below a whole-array pass, proving the strip read.
+    def test_peak_memory_does_not_scale_with_raster_size(self, tmp_path):
+        """stream_reduce's peak stays flat as the raster grows 8x, proving the strip read.
 
         Test scenario:
-            Sum a 1000x1000 raster in 64-row strips, and compare the traced Python peak
-            against a whole-array pass (read the whole array and reduce at once) in the same
-            process. The stripped peak must stay below the whole-array peak. This is a
-            build-agnostic check on purpose: the absolute figures depend on the GDAL build
-            (tracemalloc only sees the Python heap, not GDAL's C buffers), but the same
-            reduction done all-at-once is always an upper bound on the stripped version.
+            Run the same 64-row-strip reduction over a 1000-row raster and an 8000-row
+            raster and compare the two traced Python-heap peaks. A strip read holds one
+            strip at a time, so its peak is a fixed per-strip overhead that does not grow
+            with the raster; an implementation that materialised the whole array would grow
+            ~8x with it.
+
+            This is build-agnostic by construction and carries no tight, build-sensitive
+            threshold: whatever the per-strip overhead is (measured ~0.3 MB on conda, ~4 MB
+            on the pip wheel), it cancels because both measurements share it — the assertion
+            only asks that the peak not scale with the raster, with generous headroom for
+            allocator noise. The previous zero-margin `stripped < whole` check on a single
+            1000x1000 raster flaked precisely because the wheel's ~4 MB strip overhead
+            exceeded that raster's 2 MB whole-array pass (#1008 follow-up).
         """
-        rows = cols = 1000
-        src_path = tmp_path / "big.tif"
-        Dataset.create_from_array(
-            np.arange(rows * cols, dtype="int16").reshape(rows, cols),
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.01,
-            epsg=4326,
-            path=str(src_path),
-        ).close()
+        cols = 1000
 
         def value_sum(acc, strip, _w):
-            # int64 accumulation on both sides so the == assertion below is
-            # independent of the platform's default int16.sum() accumulator width.
+            # int64 accumulation so the result is independent of the platform's default
+            # int16.sum() accumulator width.
             return acc + int(strip.sum(dtype="int64"))
 
-        # Whole-array baseline: read the full array and reduce it at once.
-        with traced_peak() as wp:
-            whole = Dataset.read_file(str(src_path)).read_array()
-            whole_result = int(whole.sum(dtype="int64"))
-        whole_peak = wp[0]
-        del whole
+        def reduce_peak(rows):
+            arr = np.arange(rows * cols, dtype="int16").reshape(rows, cols)
+            src_path = tmp_path / f"strip_{rows}.tif"
+            Dataset.create_from_array(
+                arr,
+                top_left_corner=(0.0, 0.0),
+                cell_size=0.01,
+                epsg=4326,
+                path=str(src_path),
+            ).close()
+            # `arr` is allocated before tracing starts, so it never enters the peak below.
+            expected = int(arr.sum(dtype="int64"))
+            with traced_peak() as peak:
+                ds = Dataset.read_file(str(src_path))
+                result = ds.io.stream_reduce(value_sum, 0, strip_rows=64)
+            assert result == expected, f"stripped reduction diverged at {rows} rows"
+            return peak[0]
 
-        # Stripped reduction.
-        with traced_peak() as sp:
-            ds = Dataset.read_file(str(src_path))
-            stripped_result = ds.io.stream_reduce(value_sum, 0, strip_rows=64)
-        stripped_peak = sp[0]
+        small_peak = reduce_peak(1000)
+        large_peak = reduce_peak(8000)
 
-        assert stripped_result == whole_result, "stripped reduction diverged"
-        assert stripped_peak < whole_peak, (
-            f"stream_reduce peaked at {stripped_peak / 1e6:.1f} MB, not below the whole-array "
-            f"pass's {whole_peak / 1e6:.1f} MB — it did not stay under a full materialisation"
+        # The raster grew 8x; a whole-array reduction's peak would grow with it. The strip
+        # read's peak must stay flat — allow generous headroom (4x) for allocator noise
+        # while still catching an implementation that materialises the whole raster.
+        assert large_peak < small_peak * 4, (
+            f"stream_reduce peak grew from {small_peak / 1e6:.1f} MB at 1000 rows to "
+            f"{large_peak / 1e6:.1f} MB at 8000 rows — it scales with the raster instead "
+            "of reading one strip at a time"
         )
 
 

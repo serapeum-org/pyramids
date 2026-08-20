@@ -26,6 +26,7 @@ import base64
 import json
 import math
 import os
+import shutil
 import tempfile
 import threading
 import urllib.error
@@ -43,6 +44,7 @@ import pandas as pd
 import pyogrio
 import pyproj
 from geopandas import GeoDataFrame
+from osgeo import gdal
 from pyproj.exceptions import CRSError as _PyprojCRSError
 from shapely.geometry import box
 
@@ -51,7 +53,7 @@ from pyramids.base._errors import FeatureError, VectorTileServerError
 from pyramids.base._ogc_api import http_error_detail, http_get_with_retry
 from pyramids.base._utils import import_pyarrow
 from pyramids.base.crs import _pyproj_crs_via_gdal
-from pyramids.base.remote import is_remote, to_fsspec_url
+from pyramids.base.remote import _ARCHIVE_MARKER_RE, is_remote, to_fsspec_url
 
 if TYPE_CHECKING:
     from pyramids.feature._lazy_collection import LazyFeatureCollection
@@ -676,6 +678,31 @@ def read_file(
     **kwargs: Any,
 ) -> FeatureCollection | LazyFeatureCollection:
     """Read a vector file into a FeatureCollection (see FeatureCollection.read_file)."""
+    # Only pass kwargs that were actually supplied — passing the unset
+    # defaults (None) confuses some geopandas engines (ARC-72).
+    passthrough = _compact(
+        {
+            "layer": layer,
+            "bbox": bbox,
+            "mask": mask,
+            "rows": rows,
+            "columns": columns,
+            "where": where,
+        }
+    )
+    passthrough.update(kwargs)
+    if (
+        backend == "pandas"
+        and _is_remote_geojson(path)
+        and not _gdal_http_options_active()
+    ):
+        # A remote GeoJSON is staged to a local file and read from there (#1008):
+        # streaming a *redirecting* remote GeoJSON over GDAL's /vsicurl/ can segfault
+        # the interpreter in a build whose bundled libcurl/OpenSSL differs from the
+        # interpreter's. GeoJSON has no spatial index, so this loses no read pushdown.
+        # Staging is skipped when a GDAL HTTP option is set so the caller's auth/TLS
+        # tuning still reaches GDAL's /vsicurl/ reader (urllib would drop it).
+        return _read_remote_geojson_staged(fc_cls, path, passthrough)
     resolved = _pyramids_io._parse_path(path)
     if backend == "dask":
         return read_file_dask(
@@ -691,21 +718,162 @@ def read_file(
         )
     if backend != "pandas":
         raise ValueError(f"backend must be 'pandas' or 'dask', got {backend!r}")
-    # Only pass kwargs that were actually supplied — passing the unset
-    # defaults (None) confuses some geopandas engines (ARC-72).
-    passthrough = _compact(
-        {
-            "layer": layer,
-            "bbox": bbox,
-            "mask": mask,
-            "rows": rows,
-            "columns": columns,
-            "where": where,
-        }
-    )
-    passthrough.update(kwargs)
     gdf = _read_file_healing_crs(resolved, passthrough)
     return fc_cls(gdf)
+
+
+_GEOJSON_SUFFIXES = (".geojson",)
+"""Extension staged as remote GeoJSON (:func:`_is_remote_geojson`); bare ``.json`` is too broad
+(TopoJSON/ESRIJSON/plain JSON) so it keeps the normal ``/vsicurl/`` reader."""
+
+_VSICURL_PREFIXES = ("/vsicurl_streaming/", "/vsicurl/")
+"""GDAL virtual-filesystem prefixes for a streamed remote read (:func:`_strip_vsicurl`)."""
+
+_HTTPS_SCHEME = "https://"
+"""The only URL scheme staged locally; a plain ``http://`` read carries no TLS to divert."""
+
+_REMOTE_READ_TIMEOUT = 60.0
+"""Per-read socket timeout (seconds) for a staged remote GeoJSON download (issue #1008 review M2);
+it bounds each blocking read, not the whole transfer."""
+
+
+def _strip_vsicurl(text: str) -> str:
+    """Return the bare URL behind a leading ``/vsicurl/`` or ``/vsicurl_streaming/`` wrapper.
+
+    Only a *leading* prefix is removed, so a chained virtual path such as
+    ``/vsizip//vsicurl/…`` is left untouched. GDAL's ``/vsicurl?url=`` query form is not
+    decoded here, so a caller who uses that spelling — or reads on the ``dask`` backend —
+    is not diverted to local staging and still reaches GDAL's ``/vsicurl/`` reader.
+
+    Args:
+        text: A path or URL, optionally wrapped in a ``/vsicurl*`` prefix.
+
+    Returns:
+        str: The URL with a leading ``/vsicurl*`` prefix removed, or ``text`` unchanged.
+    """
+    stripped = text
+    for prefix in _VSICURL_PREFIXES:
+        if text.startswith(prefix):
+            stripped = text[len(prefix) :]
+            break
+    return stripped
+
+
+def _is_remote_geojson(path: str | Path) -> bool:
+    """True for an ``https://`` GeoJSON URL, bare or ``/vsicurl/``-wrapped (issue #1008).
+
+    Only an ``https://`` GeoJSON qualifies: the segfault is a TLS/OpenSSL clash while
+    GDAL's ``/vsicurl/`` follows a redirect, so it is the *TLS* read that must be kept
+    away from GDAL. A plain ``http://`` read carries no TLS, and a local path, an
+    ``s3://``/``gs://`` object, or any non-GeoJSON remote file returns ``False`` and
+    keeps its normal read path.
+
+    Args:
+        path: The path or URL handed to :func:`read_file`.
+
+    Returns:
+        bool: Whether the path is a remote GeoJSON that should be staged locally.
+    """
+    url = _strip_vsicurl(str(path))
+    without_query = url.split("?", 1)[0].rstrip("/")
+    stem = without_query.lower()
+    # A GeoJSON *inside* a remote archive (`.zip/inner.geojson`) is excluded so it keeps
+    # the /vsizip//vsicurl/ chain `_parse_path` builds. Scan only the URL *path* so an
+    # archive-extension host (the `.zip` TLD) is not mistaken for an archive member.
+    archive_member = _ARCHIVE_MARKER_RE.search(urlsplit(without_query).path.lower())
+    result = (
+        url.lower().startswith(_HTTPS_SCHEME)
+        and stem.endswith(_GEOJSON_SUFFIXES)
+        and not archive_member
+    )
+    return result
+
+
+def _read_remote_geojson_staged(
+    fc_cls: type[FeatureCollection],
+    path: str | Path,
+    passthrough: dict[str, Any],
+) -> FeatureCollection:
+    """Download a remote GeoJSON and read the local copy, avoiding a ``/vsicurl/`` read.
+
+    Streaming a redirecting remote GeoJSON over GDAL's ``/vsicurl/`` can segfault the
+    interpreter in a build whose bundled libcurl/OpenSSL differs from the interpreter's
+    (issue #1008 — the manylinux wheel, whose vendored OpenSSL 3 clashes with CPython's).
+    The bytes are fetched with :mod:`urllib` (Python's own TLS, which follows the
+    redirect) and GDAL is handed a plain local file, so GDAL never does the remote read.
+
+    Args:
+        fc_cls: The FeatureCollection class to wrap the result in.
+        path: The remote GeoJSON path (bare ``https://`` or ``/vsicurl/``-wrapped).
+        passthrough: Keyword arguments for :func:`geopandas.read_file`.
+
+    Returns:
+        FeatureCollection: The features read from the staged local copy.
+    """
+    url = _strip_vsicurl(str(path))
+    if not url.lower().startswith(_HTTPS_SCHEME):
+        # Self-guard the https invariant so the helper cannot become an
+        # http/file/ftp fetch if the routing in read_file ever changes.
+        raise ValueError(
+            f"remote GeoJSON staging requires an https:// URL, got {url!r}"
+        )
+    request = urllib.request.Request(url, headers={"User-Agent": "pyramids-gis"})
+    with tempfile.TemporaryDirectory(prefix="pyramids_geojson_") as work_dir:
+        local = os.path.join(work_dir, "remote.geojson")
+        try:
+            with urllib.request.urlopen(  # nosec B310 - https enforced above
+                request, timeout=_REMOTE_READ_TIMEOUT
+            ) as response:
+                with open(local, "wb") as handle:
+                    shutil.copyfileobj(response, handle)
+        except urllib.error.URLError as error:
+            # Surface a download failure as the module's error type, mirroring the
+            # GDAL/pyogrio error the /vsicurl/ path would have raised.
+            raise FeatureError(
+                f"failed to download remote GeoJSON {url!r}: {error}"
+            ) from error
+        gdf = _read_file_healing_crs(local, passthrough)
+    return fc_cls(gdf)
+
+
+_GDAL_HTTP_OPTION_KEYS = (
+    "GDAL_HTTP_HEADERS",
+    "GDAL_HTTP_HEADER_FILE",
+    "GDAL_HTTP_AUTH",
+    "GDAL_HTTP_BEARER",
+    "GDAL_HTTP_USERPWD",
+    "GDAL_HTTP_COOKIE",
+    "GDAL_HTTP_COOKIEFILE",
+    "GDAL_HTTP_PROXY",
+    "GDAL_HTTP_PROXYUSERPWD",
+    "GDAL_HTTP_UNSAFESSL",
+    "GDAL_HTTP_CAPATH",
+    "GDAL_HTTP_CACERT",
+    "GDAL_HTTP_SSLCERT",
+    "GDAL_HTTP_SSLKEY",
+    "GDAL_HTTP_SSLKEYPASSWORD",
+    "CPL_VSIL_CURL_USERPWD",
+)
+"""GDAL HTTP config options a ``/vsicurl/`` read honours (:func:`_gdal_http_options_active`)."""
+
+
+def _gdal_http_options_active() -> bool:
+    """True when a GDAL HTTP auth/TLS config option is set (issue #1008 review M1).
+
+    The staging fallback fetches with :mod:`urllib` and cannot see GDAL config options,
+    so a caller who supplied credentials or TLS tuning through environment variables or
+    :class:`pyramids.base.remote.CloudConfig` must keep the ``/vsicurl/`` path. When any
+    such option is set, :func:`read_file` skips staging and lets GDAL do the read so the
+    caller's options still apply.
+
+    Any non-empty value counts as set — an explicitly falsy value (e.g.
+    ``GDAL_HTTP_UNSAFESSL=NO``) still keeps the ``/vsicurl/`` path, a deliberately
+    conservative choice that never strips a caller's HTTP configuration.
+
+    Returns:
+        bool: Whether any GDAL HTTP auth/TLS config option is currently set.
+    """
+    return any(gdal.GetConfigOption(key) for key in _GDAL_HTTP_OPTION_KEYS)
 
 
 _CRS_HEALING_LOCK = threading.Lock()
