@@ -1297,14 +1297,19 @@ class NetCDFPlot:
     ) -> Any:
         """Build the lazy ``data_getter`` and dispatch the animation render.
 
-        Resolves the per-frame coord labels (with CF time decoding when
-        applicable), builds a ``data_getter(i)`` closure that calls
-        :meth:`NetCDF.sel` + :meth:`NetCDF.read_array` once per frame,
+        Resolves the per-frame coord labels (CF time axes are decoded via
+        :meth:`NetCDF._decode_time_labels`, which falls back to the parent
+        container so a ``get_variable`` subset still yields calendar dates),
+        builds a ``data_getter(i)`` closure that reads one 2-D slice per frame,
         and forwards everything to
         :func:`pyramids.dataset._plot_helpers.render_array` with
-        ``mode="animate"``. The first frame doubles as the cleopatra
-        shape template so the ``ArrayGlyph`` constructor has a 2-D array
-        to size its axes against.
+        ``mode="animate"``. Each streamed frame is masked first — the
+        variable's no-data and any ``exclude_value`` are replaced with ``NaN``
+        (rendered transparent) — because cleopatra's animate masks only the
+        constructor template and blits every other frame verbatim, so raw
+        no-data would otherwise paint at the colour-scale extreme. The first
+        frame doubles as the cleopatra shape template so the ``ArrayGlyph``
+        constructor has a 2-D array to size its axes against.
 
         Args:
             nc: The variable subset being animated.
@@ -1316,7 +1321,10 @@ class NetCDFPlot:
                 :meth:`Analysis.plot` (e.g. ``rgb``, ``kind``,
                 ``coords``, ``_facet_stack``) before forwarding to
                 cleopatra's animate entry point.
-            exclude_value: Per-frame mask value forwarded to cleopatra.
+            exclude_value: An extra value to mask alongside the variable's
+                no-data. Both are replaced with ``NaN`` in every streamed frame
+                (and passed to cleopatra as the template ``exclude_value``), so a
+                caller value takes effect rather than being dropped.
             basemap: Forwarded to :func:`render_array`. A web-tile basemap
                 (``str`` / ``True``) draws on the animation's single
                 persistent ``Axes`` underneath the frames; a cleopatra
