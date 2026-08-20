@@ -767,14 +767,16 @@ def _is_remote_geojson(path: str | Path) -> bool:
         bool: Whether the path is a remote GeoJSON that should be staged locally.
     """
     url = _strip_vsicurl(str(path))
-    stem = url.split("?", 1)[0].rstrip("/").lower()
-    # A GeoJSON *inside* a remote archive (`.zip/inner.geojson`) is excluded: staging
-    # would fetch the member URL directly and 404, so it must keep the /vsizip//vsicurl/
-    # chain `_parse_path` builds.
+    without_query = url.split("?", 1)[0].rstrip("/")
+    stem = without_query.lower()
+    # A GeoJSON *inside* a remote archive (`.zip/inner.geojson`) is excluded so it keeps
+    # the /vsizip//vsicurl/ chain `_parse_path` builds. Scan only the URL *path* so an
+    # archive-extension host (the `.zip` TLD) is not mistaken for an archive member.
+    archive_member = _ARCHIVE_MARKER_RE.search(urlsplit(without_query).path.lower())
     result = (
         url.lower().startswith("https://")
         and stem.endswith(_GEOJSON_SUFFIXES)
-        and not _ARCHIVE_MARKER_RE.search(stem)
+        and not archive_member
     )
     return result
 

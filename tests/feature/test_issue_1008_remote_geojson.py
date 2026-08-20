@@ -111,6 +111,8 @@ class TestIsRemoteGeojson:
             ("gs://bucket/x.geojson", False),
             ("https://host/data.zip/inner.geojson", False),
             ("https://host/data.tar.gz/inner.geojson", False),
+            ("https://my.zip/data.geojson", True),
+            ("https://host.gz/data.geojson", True),
         ],
     )
     def test_detection_matrix(self, path: str, expected: bool):
