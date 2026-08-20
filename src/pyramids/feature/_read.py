@@ -729,6 +729,9 @@ _GEOJSON_SUFFIXES = (".geojson",)
 _VSICURL_PREFIXES = ("/vsicurl_streaming/", "/vsicurl/")
 """GDAL virtual-filesystem prefixes for a streamed remote read (:func:`_strip_vsicurl`)."""
 
+_HTTPS_SCHEME = "https://"
+"""The only URL scheme staged locally; a plain ``http://`` read carries no TLS to divert."""
+
 _REMOTE_READ_TIMEOUT = 60.0
 """Per-read socket timeout (seconds) for a staged remote GeoJSON download (issue #1008 review M2);
 it bounds each blocking read, not the whole transfer."""
@@ -779,7 +782,7 @@ def _is_remote_geojson(path: str | Path) -> bool:
     # archive-extension host (the `.zip` TLD) is not mistaken for an archive member.
     archive_member = _ARCHIVE_MARKER_RE.search(urlsplit(without_query).path.lower())
     result = (
-        url.lower().startswith("https://")
+        url.lower().startswith(_HTTPS_SCHEME)
         and stem.endswith(_GEOJSON_SUFFIXES)
         and not archive_member
     )
@@ -808,7 +811,7 @@ def _read_remote_geojson_staged(
         FeatureCollection: The features read from the staged local copy.
     """
     url = _strip_vsicurl(str(path))
-    if not url.lower().startswith("https://"):
+    if not url.lower().startswith(_HTTPS_SCHEME):
         # Self-guard the https invariant so the helper cannot become an
         # http/file/ftp fetch if the routing in read_file ever changes.
         raise ValueError(
