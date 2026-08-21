@@ -876,6 +876,10 @@ class NetCDF(Dataset):
                 x_cell = abs(float(self.lon[1] - self.lon[0]))
                 x_west = min(float(self.lon[0]), float(self.lon[-1])) - x_cell / 2
             else:
+                # A single longitude gives no spacing to measure, so fall back to
+                # `self.cell_size`. On a multidim-opened container that is the
+                # index-space 1.0 — a projected one-column grid cannot recover its
+                # real cell size from a lone coordinate (same limit as the y branch).
                 x_cell = self.cell_size
                 x_west = float(self.lon[0]) - x_cell / 2
             return (
@@ -4101,16 +4105,19 @@ class NetCDF(Dataset):
                 func = create_time_conversion_func(
                     units, time_format, calendar=calendar
                 )
-                labels = [func(value) for value in raw_values]
             except Exception:
-                # A present-but-non-CF `units` (e.g. "gregorian", or "days" with no
-                # "since <origin>") cannot be parsed into a time origin;
-                # `create_time_conversion_func` / cftime raise on it. This is a
-                # display-label nicety, so degrade to the raw labels (return None)
-                # instead of crashing the plot — honouring the "returns None"
-                # contract and matching the pre-#1013 subset behaviour.
+                # Guard only the parse: a present-but-non-CF `units` (e.g.
+                # "gregorian", or "days" with no "since <origin>") cannot be parsed
+                # into a time origin; `create_time_conversion_func` / cftime raise on
+                # it. This is a display-label nicety, so degrade to the raw labels
+                # (return None) instead of crashing the plot — honouring the "returns
+                # None" contract and matching the pre-#1013 subset behaviour.
                 labels = None
                 continue
+            # The value conversion runs outside the guard, so a genuinely malformed
+            # coordinate value surfaces as an error rather than being hidden behind
+            # a silent raw-label fallback.
+            labels = [func(value) for value in raw_values]
             break
         return labels
 
