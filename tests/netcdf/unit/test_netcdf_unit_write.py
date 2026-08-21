@@ -95,6 +95,35 @@ class TestMetaDataSetter:
 class TestAddMdArrayToGroupFallback:
     """Tests for _add_md_array_to_group NoData handling."""
 
+    @staticmethod
+    def _copy_elevation_with_nodata(nodata):
+        """Copy ``make_2d_nc``'s ``elevation`` into a fresh MEM group.
+
+        The source's ``GetNoDataValue`` is patched to ``nodata`` for the copy, so
+        the caller controls whether the source appears to define a no-data value.
+
+        Args:
+            nodata: The value ``GetNoDataValue`` should report on the source
+                (``None`` for a source with no no-data defined).
+
+        Returns:
+            The copied ``copied_var`` MDArray in the destination group.
+        """
+        nc = make_2d_nc()
+        src_arr = nc._raster.GetRootGroup().OpenMDArray("elevation")
+        dst_rg = (
+            gdal.GetDriverByName("MEM").CreateMultiDimensional("dst").GetRootGroup()
+        )
+        dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+        for d in src_arr.GetDimensions():
+            iv = d.GetIndexingVariable()
+            NetCDF.create_main_dimension(dst_rg, d.GetName(), dtype, iv.ReadAsArray())
+
+        with patch.object(type(src_arr), "GetNoDataValue", return_value=nodata):
+            NetCDF._add_md_array_to_group(dst_rg, "copied_var", src_arr)
+
+        return dst_rg.OpenMDArray("copied_var")
+
     def test_no_nodata_when_source_has_none(self):
         """When source has no nodata, the copy should also have no nodata.
 
@@ -102,25 +131,23 @@ class TestAddMdArrayToGroupFallback:
             Source variable with GetNoDataValue() returning None should
             not produce a phantom -9999 sentinel on the copy.
         """
-        nc = make_2d_nc()
-        src_rg = nc._raster.GetRootGroup()
-        src_arr = src_rg.OpenMDArray("elevation")
-
-        dst = gdal.GetDriverByName("MEM").CreateMultiDimensional("dst")
-        dst_rg = dst.GetRootGroup()
-        dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
-        for d in src_arr.GetDimensions():
-            iv = d.GetIndexingVariable()
-            NetCDF.create_main_dimension(dst_rg, d.GetName(), dtype, iv.ReadAsArray())
-
-        # Patch GetNoDataValue to return None (no nodata on source)
-        with patch.object(type(src_arr), "GetNoDataValue", return_value=None):
-            NetCDF._add_md_array_to_group(dst_rg, "copied_var", src_arr)
-
-        copied = dst_rg.OpenMDArray("copied_var")
+        copied = self._copy_elevation_with_nodata(None)
         assert copied is not None, "Copied variable should exist"
         ndv = copied.GetNoDataValue()
         assert ndv is None, f"Expected no nodata (None), got {ndv}"
+
+    def test_preserves_nodata_when_source_has_value(self):
+        """When source defines a nodata value, the copy should preserve it.
+
+        Test scenario:
+            Source variable with GetNoDataValue() returning a concrete value
+            (255.0) should carry that exact value onto the copy, not drop it
+            or replace it with a sentinel.
+        """
+        copied = self._copy_elevation_with_nodata(255.0)
+        assert copied is not None, "Copied variable should exist"
+        ndv = copied.GetNoDataValue()
+        assert ndv == pytest.approx(255.0), f"Expected nodata 255.0, got {ndv}"
 
 
 class TestSetVariableAttributes:
