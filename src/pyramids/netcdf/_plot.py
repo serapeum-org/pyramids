@@ -527,6 +527,86 @@ class CurvilinearCoordResolver:
         return result
 
 
+def _mask_exclude_values(
+    frame: np.typing.NDArray, mask_values: list[Any]
+) -> np.typing.NDArray:
+    """Return ``frame`` with every ``mask_values`` cell set to ``NaN``.
+
+    Values are matched in the frame's own dtype, so a fill that is not exactly
+    representable after a float64 promotion (a float32 CF fill) still matches and the
+    mask agrees with cleopatra's native-dtype template mask. A value the frame dtype
+    cannot hold exactly — a fractional or out-of-range ``exclude_value`` on an integer
+    frame — is skipped rather than truncating to the wrong cells or raising
+    ``OverflowError``. The masked result is a fresh float array, so the read frame is
+    never mutated; with nothing to mask the frame is returned unchanged.
+
+    Args:
+        frame: The 2-D data array for one animation frame.
+        mask_values: Values (the no-data plus any ``exclude_value``) to mask out.
+
+    Returns:
+        numpy.ndarray: ``frame`` with masked cells set to ``NaN`` (a float array), or
+        ``frame`` unchanged when there is nothing to mask.
+    """
+    result = np.asarray(frame)
+    if mask_values:
+        selected = np.zeros(result.shape, dtype=bool)
+        for value in mask_values:
+            try:
+                cast_value = np.asarray(value, dtype=result.dtype)
+            except (OverflowError, ValueError):
+                # An out-of-range or NaN `exclude_value` for an integer frame cannot
+                # occur in the frame, so it masks nothing (rather than raising).
+                continue
+            if result.dtype.kind in "iu" and not np.array_equal(
+                cast_value, np.asarray(value)
+            ):
+                # A fractional `exclude_value` truncates when cast to an integer dtype
+                # (10.7 -> 10) and would mask the wrong cells; skip what the frame's
+                # dtype cannot hold exactly.
+                continue
+            selected = selected | (result == cast_value)
+        # Lift to float only afterwards, to hold NaN in the masked cells.
+        result = result.astype(float)
+        result[selected] = np.nan
+    return result
+
+
+def _resolve_animate_labels(
+    nc: NetCDF, animate_dim: str, animate_axis: int
+) -> list[Any]:
+    """Resolve the per-frame labels for an animation axis.
+
+    Uses the axis's own raw coordinate values, CF-decoding them to calendar dates via
+    :meth:`NetCDF._decode_time_labels` when the dim resolves a parseable time
+    ``units`` (so ``time`` / ``time_counter`` / ``forecast_period`` label as dates)
+    and keeping the raw values otherwise. Falls back to positional indices when the
+    axis carries no stored coordinate values.
+
+    Args:
+        nc: The variable subset being animated.
+        animate_dim: Name of the band dim walked by the animation.
+        animate_axis: Index of ``animate_dim`` among the band dims.
+
+    Returns:
+        list: One label per frame — decoded date strings, raw coordinate values, or
+        positional indices.
+    """
+    dim_values_raw = nc._band_dim_values_map.get(animate_dim)
+    if dim_values_raw is None:
+        labels: list[Any] = list(range(nc._band_dim_sizes[animate_axis]))
+    else:
+        # Decode the subset's own (possibly subsetted) raw time values rather than
+        # `get_time_variable`, which reads the full stored axis and returns None on a
+        # `get_variable` subset that has lost the root group's dimension metadata (the
+        # reason the labels were raw encoded integers, #1013). cleopatra renders the
+        # label as `str(label)[:10]`, so a decoded "1979-01-01" shows while a raw int
+        # is truncated mid-number.
+        decoded = nc._decode_time_labels(animate_dim, list(dim_values_raw))
+        labels = decoded if decoded is not None else list(dim_values_raw)
+    return labels
+
+
 class NetCDFPlot:
     """Owns the plotting pipeline for a :class:`~pyramids.netcdf.netcdf.NetCDF`.
 
@@ -1397,71 +1477,27 @@ class NetCDFPlot:
                 ```
         """
         animate_axis = nc._band_dim_names.index(animate_dim)
-        dim_values_raw = nc._band_dim_values_map.get(animate_dim)
-        if dim_values_raw is None:
-            frame_labels: list[Any] = list(range(nc._band_dim_sizes[animate_axis]))
-        else:
-            # Decode the subset's own (possibly subsetted) raw time values rather
-            # than calling `get_time_variable`, which reads the full stored axis and
-            # returns None on a `get_variable` subset that has lost the root group's
-            # dimension metadata — the reason the labels were the raw encoded integers
-            # (#1013). cleopatra's animate label is `str(label)[:10]`, so a decoded
-            # "1979-01-01" renders correctly while a raw int is truncated mid-number.
-            # Try to decode any axis (not just names like "time"): `_decode_time_labels`
-            # returns the dates when the dim resolves a parseable CF time `units` — so
-            # model axes such as `time_counter` / `forecast_period` decode too — and
-            # None for a non-time axis, which then keeps the raw coordinate labels.
-            decoded = nc._decode_time_labels(animate_dim, list(dim_values_raw))
-            frame_labels = decoded if decoded is not None else list(dim_values_raw)
+        frame_labels = _resolve_animate_labels(nc, animate_dim, animate_axis)
 
+        # cleopatra masks the constructor template via `exclude_value` (so the colour
+        # scale is right) but blits each streamed frame verbatim with `im.set_data`,
+        # leaving no-data drawn at the scale extreme. Mask each streamed frame here —
+        # via `_mask_exclude_values`, replacing the exclude values with NaN, which
+        # matplotlib renders transparent — so every animation frame masks no-data
+        # exactly like the static path (#1013). The template still goes to cleopatra
+        # raw so its own `exclude_value` masking sizes the colour scale.
         no_data_value = [np.nan if v is None else v for v in nc.no_data_value]
         resolved_exclude = (
             [no_data_value[0], exclude_value]
             if exclude_value is not None
             else [no_data_value[0]]
         )
-        # cleopatra masks the constructor template via `exclude_value` (so the colour
-        # scale is right) but blits each streamed frame verbatim with `im.set_data`,
-        # leaving no-data drawn at the scale extreme. Mask here — replace the exclude
-        # values with NaN, which matplotlib renders transparent — so every animation
-        # frame masks no-data exactly like the static path (#1013). The template still
-        # goes to cleopatra raw so its `exclude_value` masking sizes the colour scale.
         mask_values = [
             value
             for value in resolved_exclude
             if value is not None
             and not (isinstance(value, (float, np.floating)) and math.isnan(value))
         ]
-
-        def _mask_frame(frame: np.typing.NDArray) -> np.typing.NDArray:
-            result = np.asarray(frame)
-            if mask_values:
-                selected = np.zeros(result.shape, dtype=bool)
-                for value in mask_values:
-                    try:
-                        # Compare in the frame's own dtype so a fill that is not
-                        # exactly representable after a float64 promotion (a float32
-                        # CF fill) still matches, agreeing with cleopatra's
-                        # native-dtype template mask.
-                        cast = np.asarray(value, dtype=result.dtype)
-                    except (OverflowError, ValueError):
-                        # An out-of-range or NaN `exclude_value` for an integer frame
-                        # cannot occur in the frame, so it masks nothing (rather than
-                        # raising OverflowError mid-animation).
-                        continue
-                    if result.dtype.kind in "iu" and not np.array_equal(
-                        cast, np.asarray(value)
-                    ):
-                        # A fractional `exclude_value` truncates when cast to an
-                        # integer dtype (10.7 -> 10) and would mask the wrong cells;
-                        # skip a value the frame's dtype cannot hold exactly.
-                        continue
-                    selected = selected | (result == cast)
-                # Lift to float only afterwards, to hold NaN in the masked cells (a
-                # fresh array, so the read frame is never mutated).
-                result = result.astype(float)
-                result[selected] = np.nan
-            return result
 
         # Per-frame data fetch. Rather than allocating a fresh `sel()`
         # subset for every frame — which re-resolves the variable and
@@ -1479,11 +1515,12 @@ class NetCDFPlot:
         _frame_zero = np.asarray(nc.read_array(band=0))
 
         def _data_getter(i: int) -> np.typing.NDArray:
-            if i == 0:
-                return _mask_frame(_frame_zero.copy())
-            return _mask_frame(
-                cast("np.typing.NDArray", nc.read_array(band=i * frame_stride))
+            frame = (
+                _frame_zero.copy()
+                if i == 0
+                else cast("np.typing.NDArray", nc.read_array(band=i * frame_stride))
             )
+            return _mask_exclude_values(np.asarray(frame), mask_values)
 
         template = _frame_zero
 
