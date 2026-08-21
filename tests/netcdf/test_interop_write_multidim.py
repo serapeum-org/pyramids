@@ -213,6 +213,35 @@ class TestWriteMultidimNetcdf:
         )
         assert "bogus" not in _array_names(str(out)), "non-dim coord was written"
 
+    def test_crs_wkt_writes_cf_coords_and_grid_mapping(self, tmp_path):
+        """Passing crs_wkt stamps CF x/y attrs and a grid_mapping via the CreateCopy path.
+
+        Test scenario:
+            A geographic ``crs_wkt`` — expected: ``x``/``y`` carry CF ``standard_name`` /
+            ``axis`` and the data variable references a ``grid_mapping`` variable (the
+            ``_build_multidim`` + ``SetSpatialRef`` path, distinct from the streaming writer).
+        """
+        from osgeo import osr
+
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        out = tmp_path / "crs.nc"
+        write_multidim_netcdf(
+            out,
+            dims={"y": 2, "x": 3},
+            coords={
+                "y": (np.array([20.0, 10.0]), {}),
+                "x": (np.array([1.0, 2.0, 3.0]), {}),
+            },
+            data_vars={"temp": (("y", "x"), np.zeros((2, 3), "float32"), {})},
+            global_attrs={},
+            crs_wkt=srs.ExportToWkt(),
+        )
+        md = gdal.Open(str(out)).GetMetadata()
+        assert md.get("x#standard_name") == "longitude", md.get("x#standard_name")
+        assert md.get("x#axis") == "X"
+        assert md.get("temp#grid_mapping"), "data var should reference a grid_mapping"
+
     def test_units_attr_is_routed_to_the_unit_slot(self, tmp_path):
         """A ``units`` attribute is applied via ``SetUnit``, not as a plain attr.
 
@@ -674,6 +703,15 @@ class TestCfCoordinateHelpers:
         assert out is not None, "expected a parsed SRS"
         assert out.IsGeographic(), "expected a geographic SRS"
 
+    def test_srs_from_wkt_non_str_returns_none(self):
+        """A non-str, non-falsy input degrades to None instead of raising TypeError.
+
+        Test scenario:
+            Passing an int (outside the ``str | None`` contract) is caught and
+            returns None rather than propagating ``TypeError``.
+        """
+        assert interop.srs_from_wkt(12345) is None
+
     def test_cf_coord_attrs_geographic_x(self):
         """A geographic x axis gets degrees_east / longitude / X.
 
@@ -778,6 +816,22 @@ class TestCfCoordinateHelpers:
         ds = xr.Dataset(
             {"t": (("y", "x"), np.zeros((2, 2)))},
             coords={"spatial_ref": ((), 0, {"crs_wkt": wkt})},
+        )
+        assert interop._crs_wkt_from_xarray(ds) == wkt
+
+    def test_crs_wkt_from_xarray_crs_var_spatial_ref_attr(self):
+        """The CRS is read from a `crs` variable's `spatial_ref` attribute (fallback name/attr).
+
+        Test scenario:
+            No `spatial_ref` variable and no `crs_wkt` attr — a `crs` variable whose
+            `spatial_ref` attribute holds the WKT is used (exercises both the second
+            variable name and the `spatial_ref`-attr fallback).
+        """
+        xr = pytest.importorskip("xarray")
+        wkt = self._srs(4326).ExportToWkt()
+        ds = xr.Dataset(
+            {"t": (("y", "x"), np.zeros((2, 2)))},
+            coords={"crs": ((), 0, {"spatial_ref": wkt})},
         )
         assert interop._crs_wkt_from_xarray(ds) == wkt
 
