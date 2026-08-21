@@ -21,7 +21,9 @@ def _default_interior(i: int) -> float:
     return 10.0 + i
 
 
-def _dated_projected_nc(tmp_path, *, dtype="float32", nodata=-9999.0, interior=None) -> NetCDF:
+def _dated_projected_nc(
+    tmp_path, *, dtype="float32", nodata=-9999.0, interior=None
+) -> NetCDF:
     """Round-trip a dated projected collection through ``to_netcdf`` and reopen it.
 
     Writes three 5x4 rasters on a projected 5000 m grid (EPSG:4647) with a
@@ -253,7 +255,9 @@ class TestNetCDFPlotAnimate:
             nc.plot(variable="Band_1", animate=True, exclude_value=0.1)
         frame0 = np.asarray(captured["request"].mode.data_getter(0))
         assert np.any(frame0 == np.float32(0.2)), "the 0.2 data value must survive"
-        assert not np.any(frame0 == np.float32(0.1)), "0.1 must be masked in native dtype"
+        assert not np.any(frame0 == np.float32(0.1)), (
+            "0.1 must be masked in native dtype"
+        )
 
     def test_animate_masks_integer_frame_no_data(self, tmp_path):
         """An integer variable's no-data is promoted to float and masked to NaN.

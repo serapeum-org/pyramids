@@ -1011,4 +1011,6 @@ class TestToNetcdfRoundTrip:
         assert got == pytest.approx(expected), (
             f"geotransform did not round-trip: {got} != {expected}"
         )
-        assert got[1] == pytest.approx(cell), f"x pixel size not the real spacing: {got[1]}"
+        assert got[1] == pytest.approx(cell), (
+            f"x pixel size not the real spacing: {got[1]}"
+        )
