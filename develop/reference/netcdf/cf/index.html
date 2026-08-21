@@ -6614,8 +6614,7 @@ Hold "Ctrl" to enable pan &amp; zoom
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/cf.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-772">772</a></span>
-<span class="normal"><a href="#__codelineno-0-773">773</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-773">773</a></span>
 <span class="normal"><a href="#__codelineno-0-774">774</a></span>
 <span class="normal"><a href="#__codelineno-0-775">775</a></span>
 <span class="normal"><a href="#__codelineno-0-776">776</a></span>
@@ -6640,33 +6639,34 @@ Hold "Ctrl" to enable pan &amp; zoom
 <span class="normal"><a href="#__codelineno-0-795">795</a></span>
 <span class="normal"><a href="#__codelineno-0-796">796</a></span>
 <span class="normal"><a href="#__codelineno-0-797">797</a></span>
-<span class="normal"><a href="#__codelineno-0-798">798</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-772" name="__codelineno-0-772"></a><span class="k">def</span><span class="w"> </span><span class="nf">classify_variables</span><span class="p">(</span>
-<a id="__codelineno-0-773" name="__codelineno-0-773"></a>    <span class="n">variables</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
-<a id="__codelineno-0-774" name="__codelineno-0-774"></a>    <span class="n">dimensions</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
-<a id="__codelineno-0-775" name="__codelineno-0-775"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
-<a id="__codelineno-0-776" name="__codelineno-0-776"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Classify each variable&#39;s CF role by cross-referencing attributes.</span>
-<a id="__codelineno-0-777" name="__codelineno-0-777"></a>
-<a id="__codelineno-0-778" name="__codelineno-0-778"></a><span class="sd">    Must be called AFTER all variables are collected.</span>
-<a id="__codelineno-0-779" name="__codelineno-0-779"></a>
-<a id="__codelineno-0-780" name="__codelineno-0-780"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-781" name="__codelineno-0-781"></a><span class="sd">        variables: Dict of `{name: VariableInfo}` from metadata.</span>
-<a id="__codelineno-0-782" name="__codelineno-0-782"></a><span class="sd">        dimensions: Dict of `{name: DimensionInfo}` from metadata.</span>
-<a id="__codelineno-0-783" name="__codelineno-0-783"></a>
-<a id="__codelineno-0-784" name="__codelineno-0-784"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-785" name="__codelineno-0-785"></a><span class="sd">        Dict of `{variable_name: cf_role_string}`.</span>
-<a id="__codelineno-0-786" name="__codelineno-0-786"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-787" name="__codelineno-0-787"></a>    <span class="n">dim_names</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
-<a id="__codelineno-0-788" name="__codelineno-0-788"></a>    <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">dimensions</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
-<a id="__codelineno-0-789" name="__codelineno-0-789"></a>        <span class="n">dim_names</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
-<a id="__codelineno-0-790" name="__codelineno-0-790"></a>        <span class="n">dim_names</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">full_name</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">))</span>
-<a id="__codelineno-0-791" name="__codelineno-0-791"></a>
-<a id="__codelineno-0-792" name="__codelineno-0-792"></a>    <span class="n">refs</span> <span class="o">=</span> <span class="n">_collect_reference_vars</span><span class="p">(</span><span class="n">variables</span><span class="p">)</span>
-<a id="__codelineno-0-793" name="__codelineno-0-793"></a>
-<a id="__codelineno-0-794" name="__codelineno-0-794"></a>    <span class="n">roles</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-<a id="__codelineno-0-795" name="__codelineno-0-795"></a>    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">var</span> <span class="ow">in</span> <span class="n">variables</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-<a id="__codelineno-0-796" name="__codelineno-0-796"></a>        <span class="n">roles</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">_classify_one</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">var</span><span class="o">.</span><span class="n">attributes</span><span class="p">,</span> <span class="n">dim_names</span><span class="p">,</span> <span class="n">refs</span><span class="p">)</span>
-<a id="__codelineno-0-797" name="__codelineno-0-797"></a>
-<a id="__codelineno-0-798" name="__codelineno-0-798"></a>    <span class="k">return</span> <span class="n">roles</span>
+<span class="normal"><a href="#__codelineno-0-798">798</a></span>
+<span class="normal"><a href="#__codelineno-0-799">799</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-773" name="__codelineno-0-773"></a><span class="k">def</span><span class="w"> </span><span class="nf">classify_variables</span><span class="p">(</span>
+<a id="__codelineno-0-774" name="__codelineno-0-774"></a>    <span class="n">variables</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<a id="__codelineno-0-775" name="__codelineno-0-775"></a>    <span class="n">dimensions</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<a id="__codelineno-0-776" name="__codelineno-0-776"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-777" name="__codelineno-0-777"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Classify each variable&#39;s CF role by cross-referencing attributes.</span>
+<a id="__codelineno-0-778" name="__codelineno-0-778"></a>
+<a id="__codelineno-0-779" name="__codelineno-0-779"></a><span class="sd">    Must be called AFTER all variables are collected.</span>
+<a id="__codelineno-0-780" name="__codelineno-0-780"></a>
+<a id="__codelineno-0-781" name="__codelineno-0-781"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-782" name="__codelineno-0-782"></a><span class="sd">        variables: Dict of `{name: VariableInfo}` from metadata.</span>
+<a id="__codelineno-0-783" name="__codelineno-0-783"></a><span class="sd">        dimensions: Dict of `{name: DimensionInfo}` from metadata.</span>
+<a id="__codelineno-0-784" name="__codelineno-0-784"></a>
+<a id="__codelineno-0-785" name="__codelineno-0-785"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-786" name="__codelineno-0-786"></a><span class="sd">        Dict of `{variable_name: cf_role_string}`.</span>
+<a id="__codelineno-0-787" name="__codelineno-0-787"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-788" name="__codelineno-0-788"></a>    <span class="n">dim_names</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+<a id="__codelineno-0-789" name="__codelineno-0-789"></a>    <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">dimensions</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+<a id="__codelineno-0-790" name="__codelineno-0-790"></a>        <span class="n">dim_names</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+<a id="__codelineno-0-791" name="__codelineno-0-791"></a>        <span class="n">dim_names</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">full_name</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">))</span>
+<a id="__codelineno-0-792" name="__codelineno-0-792"></a>
+<a id="__codelineno-0-793" name="__codelineno-0-793"></a>    <span class="n">refs</span> <span class="o">=</span> <span class="n">_collect_reference_vars</span><span class="p">(</span><span class="n">variables</span><span class="p">)</span>
+<a id="__codelineno-0-794" name="__codelineno-0-794"></a>
+<a id="__codelineno-0-795" name="__codelineno-0-795"></a>    <span class="n">roles</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-0-796" name="__codelineno-0-796"></a>    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">var</span> <span class="ow">in</span> <span class="n">variables</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-0-797" name="__codelineno-0-797"></a>        <span class="n">roles</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">_classify_one</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">var</span><span class="o">.</span><span class="n">attributes</span><span class="p">,</span> <span class="n">dim_names</span><span class="p">,</span> <span class="n">refs</span><span class="p">)</span>
+<a id="__codelineno-0-798" name="__codelineno-0-798"></a>
+<a id="__codelineno-0-799" name="__codelineno-0-799"></a>    <span class="k">return</span> <span class="n">roles</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6785,8 +6785,7 @@ no <code>crs_wkt</code> is available.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/cf.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-420">420</a></span>
-<span class="normal"><a href="#__codelineno-0-421">421</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-421">421</a></span>
 <span class="normal"><a href="#__codelineno-0-422">422</a></span>
 <span class="normal"><a href="#__codelineno-0-423">423</a></span>
 <span class="normal"><a href="#__codelineno-0-424">424</a></span>
@@ -6811,33 +6810,34 @@ no <code>crs_wkt</code> is available.</p>
 <span class="normal"><a href="#__codelineno-0-443">443</a></span>
 <span class="normal"><a href="#__codelineno-0-444">444</a></span>
 <span class="normal"><a href="#__codelineno-0-445">445</a></span>
-<span class="normal"><a href="#__codelineno-0-446">446</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-420" name="__codelineno-0-420"></a><span class="k">def</span><span class="w"> </span><span class="nf">grid_mapping_to_srs</span><span class="p">(</span>
-<a id="__codelineno-0-421" name="__codelineno-0-421"></a>    <span class="n">grid_mapping_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<a id="__codelineno-0-422" name="__codelineno-0-422"></a>    <span class="n">params</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
-<a id="__codelineno-0-423" name="__codelineno-0-423"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">osr</span><span class="o">.</span><span class="n">SpatialReference</span><span class="p">:</span>
-<a id="__codelineno-0-424" name="__codelineno-0-424"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert CF grid_mapping attributes to an OGR SpatialReference.</span>
-<a id="__codelineno-0-425" name="__codelineno-0-425"></a>
-<a id="__codelineno-0-426" name="__codelineno-0-426"></a><span class="sd">    Tries `crs_wkt` first (fast path). Falls back to reconstructing</span>
-<a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="sd">    the SRS from individual CF parameters.</span>
-<a id="__codelineno-0-428" name="__codelineno-0-428"></a>
-<a id="__codelineno-0-429" name="__codelineno-0-429"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">        grid_mapping_name: CF `grid_mapping_name` attribute value.</span>
-<a id="__codelineno-0-431" name="__codelineno-0-431"></a><span class="sd">        params: All attributes from the grid_mapping variable.</span>
-<a id="__codelineno-0-432" name="__codelineno-0-432"></a>
-<a id="__codelineno-0-433" name="__codelineno-0-433"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-434" name="__codelineno-0-434"></a><span class="sd">        osr.SpatialReference: The reconstructed spatial reference.</span>
-<a id="__codelineno-0-435" name="__codelineno-0-435"></a>
-<a id="__codelineno-0-436" name="__codelineno-0-436"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-437" name="__codelineno-0-437"></a><span class="sd">        ValueError: If the grid_mapping_name is not supported and</span>
-<a id="__codelineno-0-438" name="__codelineno-0-438"></a><span class="sd">            no `crs_wkt` is available.</span>
-<a id="__codelineno-0-439" name="__codelineno-0-439"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-440" name="__codelineno-0-440"></a>    <span class="n">crs_wkt</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;crs_wkt&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-441" name="__codelineno-0-441"></a>    <span class="k">if</span> <span class="n">crs_wkt</span><span class="p">:</span>
-<a id="__codelineno-0-442" name="__codelineno-0-442"></a>        <span class="n">srs</span> <span class="o">=</span> <span class="n">sr_from_wkt</span><span class="p">(</span><span class="n">crs_wkt</span><span class="p">)</span>
-<a id="__codelineno-0-443" name="__codelineno-0-443"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-444" name="__codelineno-0-444"></a>        <span class="n">srs</span> <span class="o">=</span> <span class="n">_build_srs_from_cf_params</span><span class="p">(</span><span class="n">grid_mapping_name</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
-<a id="__codelineno-0-445" name="__codelineno-0-445"></a>
-<a id="__codelineno-0-446" name="__codelineno-0-446"></a>    <span class="k">return</span> <span class="n">srs</span>
+<span class="normal"><a href="#__codelineno-0-446">446</a></span>
+<span class="normal"><a href="#__codelineno-0-447">447</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-421" name="__codelineno-0-421"></a><span class="k">def</span><span class="w"> </span><span class="nf">grid_mapping_to_srs</span><span class="p">(</span>
+<a id="__codelineno-0-422" name="__codelineno-0-422"></a>    <span class="n">grid_mapping_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-423" name="__codelineno-0-423"></a>    <span class="n">params</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<a id="__codelineno-0-424" name="__codelineno-0-424"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">osr</span><span class="o">.</span><span class="n">SpatialReference</span><span class="p">:</span>
+<a id="__codelineno-0-425" name="__codelineno-0-425"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert CF grid_mapping attributes to an OGR SpatialReference.</span>
+<a id="__codelineno-0-426" name="__codelineno-0-426"></a>
+<a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="sd">    Tries `crs_wkt` first (fast path). Falls back to reconstructing</span>
+<a id="__codelineno-0-428" name="__codelineno-0-428"></a><span class="sd">    the SRS from individual CF parameters.</span>
+<a id="__codelineno-0-429" name="__codelineno-0-429"></a>
+<a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-431" name="__codelineno-0-431"></a><span class="sd">        grid_mapping_name: CF `grid_mapping_name` attribute value.</span>
+<a id="__codelineno-0-432" name="__codelineno-0-432"></a><span class="sd">        params: All attributes from the grid_mapping variable.</span>
+<a id="__codelineno-0-433" name="__codelineno-0-433"></a>
+<a id="__codelineno-0-434" name="__codelineno-0-434"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-435" name="__codelineno-0-435"></a><span class="sd">        osr.SpatialReference: The reconstructed spatial reference.</span>
+<a id="__codelineno-0-436" name="__codelineno-0-436"></a>
+<a id="__codelineno-0-437" name="__codelineno-0-437"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-438" name="__codelineno-0-438"></a><span class="sd">        ValueError: If the grid_mapping_name is not supported and</span>
+<a id="__codelineno-0-439" name="__codelineno-0-439"></a><span class="sd">            no `crs_wkt` is available.</span>
+<a id="__codelineno-0-440" name="__codelineno-0-440"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-441" name="__codelineno-0-441"></a>    <span class="n">crs_wkt</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;crs_wkt&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-442" name="__codelineno-0-442"></a>    <span class="k">if</span> <span class="n">crs_wkt</span><span class="p">:</span>
+<a id="__codelineno-0-443" name="__codelineno-0-443"></a>        <span class="n">srs</span> <span class="o">=</span> <span class="n">sr_from_wkt</span><span class="p">(</span><span class="n">crs_wkt</span><span class="p">)</span>
+<a id="__codelineno-0-444" name="__codelineno-0-444"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-445" name="__codelineno-0-445"></a>        <span class="n">srs</span> <span class="o">=</span> <span class="n">_build_srs_from_cf_params</span><span class="p">(</span><span class="n">grid_mapping_name</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+<a id="__codelineno-0-446" name="__codelineno-0-446"></a>
+<a id="__codelineno-0-447" name="__codelineno-0-447"></a>    <span class="k">return</span> <span class="n">srs</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6918,8 +6918,7 @@ with only ellipsoid parameters.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/cf.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-236">236</a></span>
-<span class="normal"><a href="#__codelineno-0-237">237</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-237">237</a></span>
 <span class="normal"><a href="#__codelineno-0-238">238</a></span>
 <span class="normal"><a href="#__codelineno-0-239">239</a></span>
 <span class="normal"><a href="#__codelineno-0-240">240</a></span>
@@ -6954,43 +6953,44 @@ with only ellipsoid parameters.</p>
 <span class="normal"><a href="#__codelineno-0-269">269</a></span>
 <span class="normal"><a href="#__codelineno-0-270">270</a></span>
 <span class="normal"><a href="#__codelineno-0-271">271</a></span>
-<span class="normal"><a href="#__codelineno-0-272">272</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-236" name="__codelineno-0-236"></a><span class="k">def</span><span class="w"> </span><span class="nf">srs_to_grid_mapping</span><span class="p">(</span>
-<a id="__codelineno-0-237" name="__codelineno-0-237"></a>    <span class="n">srs</span><span class="p">:</span> <span class="n">osr</span><span class="o">.</span><span class="n">SpatialReference</span><span class="p">,</span>
-<a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
-<a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert an OGR SpatialReference to CF grid_mapping name and params.</span>
-<a id="__codelineno-0-240" name="__codelineno-0-240"></a>
-<a id="__codelineno-0-241" name="__codelineno-0-241"></a><span class="sd">    Returns the CF `grid_mapping_name` and a dict of CF projection</span>
-<a id="__codelineno-0-242" name="__codelineno-0-242"></a><span class="sd">    parameters (including `crs_wkt` for interoperability). For</span>
-<a id="__codelineno-0-243" name="__codelineno-0-243"></a><span class="sd">    geographic CRS (no projection), returns `&quot;latitude_longitude&quot;`</span>
-<a id="__codelineno-0-244" name="__codelineno-0-244"></a><span class="sd">    with only ellipsoid parameters.</span>
-<a id="__codelineno-0-245" name="__codelineno-0-245"></a>
-<a id="__codelineno-0-246" name="__codelineno-0-246"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-247" name="__codelineno-0-247"></a><span class="sd">        srs: An OGR SpatialReference object.</span>
-<a id="__codelineno-0-248" name="__codelineno-0-248"></a>
-<a id="__codelineno-0-249" name="__codelineno-0-249"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-250" name="__codelineno-0-250"></a><span class="sd">        Tuple of `(grid_mapping_name, params_dict)`.</span>
-<a id="__codelineno-0-251" name="__codelineno-0-251"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-252" name="__codelineno-0-252"></a>    <span class="n">params</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-<a id="__codelineno-0-253" name="__codelineno-0-253"></a>    <span class="n">params</span><span class="p">[</span><span class="s2">&quot;crs_wkt&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">srs</span><span class="o">.</span><span class="n">ExportToWkt</span><span class="p">()</span>
-<a id="__codelineno-0-254" name="__codelineno-0-254"></a>    <span class="n">params</span><span class="p">[</span><span class="s2">&quot;semi_major_axis&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">srs</span><span class="o">.</span><span class="n">GetSemiMajor</span><span class="p">()</span>
-<a id="__codelineno-0-255" name="__codelineno-0-255"></a>    <span class="n">inv_flat</span> <span class="o">=</span> <span class="n">srs</span><span class="o">.</span><span class="n">GetInvFlattening</span><span class="p">()</span>
-<a id="__codelineno-0-256" name="__codelineno-0-256"></a>    <span class="k">if</span> <span class="n">inv_flat</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-257" name="__codelineno-0-257"></a>        <span class="n">params</span><span class="p">[</span><span class="s2">&quot;inverse_flattening&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">inv_flat</span>
-<a id="__codelineno-0-258" name="__codelineno-0-258"></a>
-<a id="__codelineno-0-259" name="__codelineno-0-259"></a>    <span class="n">proj_name</span> <span class="o">=</span> <span class="n">srs</span><span class="o">.</span><span class="n">GetAttrValue</span><span class="p">(</span><span class="s2">&quot;PROJECTION&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-260" name="__codelineno-0-260"></a>    <span class="k">if</span> <span class="n">proj_name</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-261" name="__codelineno-0-261"></a>        <span class="n">grid_mapping_name</span> <span class="o">=</span> <span class="s2">&quot;latitude_longitude&quot;</span>
-<a id="__codelineno-0-262" name="__codelineno-0-262"></a>    <span class="k">elif</span> <span class="n">proj_name</span> <span class="ow">in</span> <span class="n">_GDAL_PROJ_TO_CF</span><span class="p">:</span>
-<a id="__codelineno-0-263" name="__codelineno-0-263"></a>        <span class="n">grid_mapping_name</span> <span class="o">=</span> <span class="n">_GDAL_PROJ_TO_CF</span><span class="p">[</span><span class="n">proj_name</span><span class="p">]</span>
-<a id="__codelineno-0-264" name="__codelineno-0-264"></a>        <span class="n">params</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_extract_proj_params</span><span class="p">(</span><span class="n">srs</span><span class="p">,</span> <span class="n">proj_name</span><span class="p">))</span>
-<a id="__codelineno-0-265" name="__codelineno-0-265"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-266" name="__codelineno-0-266"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
-<a id="__codelineno-0-267" name="__codelineno-0-267"></a>            <span class="sa">f</span><span class="s2">&quot;Projection &#39;</span><span class="si">{</span><span class="n">proj_name</span><span class="si">}</span><span class="s2">&#39; is not in the CF grid mapping table. &quot;</span>
-<a id="__codelineno-0-268" name="__codelineno-0-268"></a>            <span class="sa">f</span><span class="s2">&quot;Only crs_wkt will be written for CRS interoperability.&quot;</span>
-<a id="__codelineno-0-269" name="__codelineno-0-269"></a>        <span class="p">)</span>
-<a id="__codelineno-0-270" name="__codelineno-0-270"></a>        <span class="n">grid_mapping_name</span> <span class="o">=</span> <span class="s2">&quot;latitude_longitude&quot;</span>
-<a id="__codelineno-0-271" name="__codelineno-0-271"></a>
-<a id="__codelineno-0-272" name="__codelineno-0-272"></a>    <span class="k">return</span> <span class="n">grid_mapping_name</span><span class="p">,</span> <span class="n">params</span>
+<span class="normal"><a href="#__codelineno-0-272">272</a></span>
+<span class="normal"><a href="#__codelineno-0-273">273</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-237" name="__codelineno-0-237"></a><span class="k">def</span><span class="w"> </span><span class="nf">srs_to_grid_mapping</span><span class="p">(</span>
+<a id="__codelineno-0-238" name="__codelineno-0-238"></a>    <span class="n">srs</span><span class="p">:</span> <span class="n">osr</span><span class="o">.</span><span class="n">SpatialReference</span><span class="p">,</span>
+<a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<a id="__codelineno-0-240" name="__codelineno-0-240"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert an OGR SpatialReference to CF grid_mapping name and params.</span>
+<a id="__codelineno-0-241" name="__codelineno-0-241"></a>
+<a id="__codelineno-0-242" name="__codelineno-0-242"></a><span class="sd">    Returns the CF `grid_mapping_name` and a dict of CF projection</span>
+<a id="__codelineno-0-243" name="__codelineno-0-243"></a><span class="sd">    parameters (including `crs_wkt` for interoperability). For</span>
+<a id="__codelineno-0-244" name="__codelineno-0-244"></a><span class="sd">    geographic CRS (no projection), returns `&quot;latitude_longitude&quot;`</span>
+<a id="__codelineno-0-245" name="__codelineno-0-245"></a><span class="sd">    with only ellipsoid parameters.</span>
+<a id="__codelineno-0-246" name="__codelineno-0-246"></a>
+<a id="__codelineno-0-247" name="__codelineno-0-247"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-248" name="__codelineno-0-248"></a><span class="sd">        srs: An OGR SpatialReference object.</span>
+<a id="__codelineno-0-249" name="__codelineno-0-249"></a>
+<a id="__codelineno-0-250" name="__codelineno-0-250"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-251" name="__codelineno-0-251"></a><span class="sd">        Tuple of `(grid_mapping_name, params_dict)`.</span>
+<a id="__codelineno-0-252" name="__codelineno-0-252"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-253" name="__codelineno-0-253"></a>    <span class="n">params</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-0-254" name="__codelineno-0-254"></a>    <span class="n">params</span><span class="p">[</span><span class="s2">&quot;crs_wkt&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">srs</span><span class="o">.</span><span class="n">ExportToWkt</span><span class="p">()</span>
+<a id="__codelineno-0-255" name="__codelineno-0-255"></a>    <span class="n">params</span><span class="p">[</span><span class="s2">&quot;semi_major_axis&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">srs</span><span class="o">.</span><span class="n">GetSemiMajor</span><span class="p">()</span>
+<a id="__codelineno-0-256" name="__codelineno-0-256"></a>    <span class="n">inv_flat</span> <span class="o">=</span> <span class="n">srs</span><span class="o">.</span><span class="n">GetInvFlattening</span><span class="p">()</span>
+<a id="__codelineno-0-257" name="__codelineno-0-257"></a>    <span class="k">if</span> <span class="n">inv_flat</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-258" name="__codelineno-0-258"></a>        <span class="n">params</span><span class="p">[</span><span class="s2">&quot;inverse_flattening&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">inv_flat</span>
+<a id="__codelineno-0-259" name="__codelineno-0-259"></a>
+<a id="__codelineno-0-260" name="__codelineno-0-260"></a>    <span class="n">proj_name</span> <span class="o">=</span> <span class="n">srs</span><span class="o">.</span><span class="n">GetAttrValue</span><span class="p">(</span><span class="s2">&quot;PROJECTION&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-261" name="__codelineno-0-261"></a>    <span class="k">if</span> <span class="n">proj_name</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-262" name="__codelineno-0-262"></a>        <span class="n">grid_mapping_name</span> <span class="o">=</span> <span class="s2">&quot;latitude_longitude&quot;</span>
+<a id="__codelineno-0-263" name="__codelineno-0-263"></a>    <span class="k">elif</span> <span class="n">proj_name</span> <span class="ow">in</span> <span class="n">_GDAL_PROJ_TO_CF</span><span class="p">:</span>
+<a id="__codelineno-0-264" name="__codelineno-0-264"></a>        <span class="n">grid_mapping_name</span> <span class="o">=</span> <span class="n">_GDAL_PROJ_TO_CF</span><span class="p">[</span><span class="n">proj_name</span><span class="p">]</span>
+<a id="__codelineno-0-265" name="__codelineno-0-265"></a>        <span class="n">params</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_extract_proj_params</span><span class="p">(</span><span class="n">srs</span><span class="p">,</span> <span class="n">proj_name</span><span class="p">))</span>
+<a id="__codelineno-0-266" name="__codelineno-0-266"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-267" name="__codelineno-0-267"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+<a id="__codelineno-0-268" name="__codelineno-0-268"></a>            <span class="sa">f</span><span class="s2">&quot;Projection &#39;</span><span class="si">{</span><span class="n">proj_name</span><span class="si">}</span><span class="s2">&#39; is not in the CF grid mapping table. &quot;</span>
+<a id="__codelineno-0-269" name="__codelineno-0-269"></a>            <span class="sa">f</span><span class="s2">&quot;Only crs_wkt will be written for CRS interoperability.&quot;</span>
+<a id="__codelineno-0-270" name="__codelineno-0-270"></a>        <span class="p">)</span>
+<a id="__codelineno-0-271" name="__codelineno-0-271"></a>        <span class="n">grid_mapping_name</span> <span class="o">=</span> <span class="s2">&quot;latitude_longitude&quot;</span>
+<a id="__codelineno-0-272" name="__codelineno-0-272"></a>
+<a id="__codelineno-0-273" name="__codelineno-0-273"></a>    <span class="k">return</span> <span class="n">grid_mapping_name</span><span class="p">,</span> <span class="n">params</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7585,8 +7585,7 @@ GDAL preserves the on-disk key casing and some writers capitalize them.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/cf.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-641">641</a></span>
-<span class="normal"><a href="#__codelineno-0-642">642</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-642">642</a></span>
 <span class="normal"><a href="#__codelineno-0-643">643</a></span>
 <span class="normal"><a href="#__codelineno-0-644">644</a></span>
 <span class="normal"><a href="#__codelineno-0-645">645</a></span>
@@ -7667,89 +7666,90 @@ GDAL preserves the on-disk key casing and some writers capitalize them.</p>
 <span class="normal"><a href="#__codelineno-0-720">720</a></span>
 <span class="normal"><a href="#__codelineno-0-721">721</a></span>
 <span class="normal"><a href="#__codelineno-0-722">722</a></span>
-<span class="normal"><a href="#__codelineno-0-723">723</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-641" name="__codelineno-0-641"></a><span class="k">def</span><span class="w"> </span><span class="nf">detect_axis</span><span class="p">(</span>
-<a id="__codelineno-0-642" name="__codelineno-0-642"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<a id="__codelineno-0-643" name="__codelineno-0-643"></a>    <span class="n">attrs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
-<a id="__codelineno-0-644" name="__codelineno-0-644"></a>    <span class="n">units</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-645" name="__codelineno-0-645"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-646" name="__codelineno-0-646"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Detect CF axis type from a variable&#39;s attributes.</span>
-<a id="__codelineno-0-647" name="__codelineno-0-647"></a>
-<a id="__codelineno-0-648" name="__codelineno-0-648"></a><span class="sd">    Applies heuristics in priority order:</span>
-<a id="__codelineno-0-649" name="__codelineno-0-649"></a><span class="sd">    1. Explicit `axis` attribute (`&quot;X&quot;`, `&quot;Y&quot;`, `&quot;Z&quot;`, `&quot;T&quot;`)</span>
-<a id="__codelineno-0-650" name="__codelineno-0-650"></a><span class="sd">    2. `standard_name` lookup against CF conventions</span>
-<a id="__codelineno-0-651" name="__codelineno-0-651"></a><span class="sd">    3. Unit string matching (`degrees_north` -&gt; Y, etc.)</span>
-<a id="__codelineno-0-652" name="__codelineno-0-652"></a><span class="sd">    4. Variable name pattern matching (`lat` -&gt; Y, `lon` -&gt; X)</span>
-<a id="__codelineno-0-653" name="__codelineno-0-653"></a>
-<a id="__codelineno-0-654" name="__codelineno-0-654"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-655" name="__codelineno-0-655"></a><span class="sd">        name: Variable or dimension short name.</span>
-<a id="__codelineno-0-656" name="__codelineno-0-656"></a><span class="sd">        attrs: Variable attribute dictionary. Attribute *names* are matched</span>
-<a id="__codelineno-0-657" name="__codelineno-0-657"></a><span class="sd">            case-insensitively (``Axis``/``AXIS`` are treated as ``axis``), since</span>
-<a id="__codelineno-0-658" name="__codelineno-0-658"></a><span class="sd">            GDAL preserves the on-disk key casing and some writers capitalize them.</span>
-<a id="__codelineno-0-659" name="__codelineno-0-659"></a><span class="sd">        units: Unit string (separate from attrs for flexibility).</span>
-<a id="__codelineno-0-660" name="__codelineno-0-660"></a>
-<a id="__codelineno-0-661" name="__codelineno-0-661"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-662" name="__codelineno-0-662"></a><span class="sd">        One of `&quot;X&quot;`, `&quot;Y&quot;`, `&quot;Z&quot;`, `&quot;T&quot;`, or None.</span>
-<a id="__codelineno-0-663" name="__codelineno-0-663"></a>
-<a id="__codelineno-0-664" name="__codelineno-0-664"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-665" name="__codelineno-0-665"></a><span class="sd">        - An explicit ``axis`` attribute wins over everything else:</span>
-<a id="__codelineno-0-666" name="__codelineno-0-666"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-667" name="__codelineno-0-667"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.cf import detect_axis</span>
-<a id="__codelineno-0-668" name="__codelineno-0-668"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;foo&quot;, {&quot;axis&quot;: &quot;X&quot;})</span>
-<a id="__codelineno-0-669" name="__codelineno-0-669"></a><span class="sd">            &#39;X&#39;</span>
-<a id="__codelineno-0-670" name="__codelineno-0-670"></a>
-<a id="__codelineno-0-671" name="__codelineno-0-671"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-672" name="__codelineno-0-672"></a><span class="sd">        - A ``standard_name`` is matched against the CF table:</span>
-<a id="__codelineno-0-673" name="__codelineno-0-673"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-674" name="__codelineno-0-674"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;foo&quot;, {&quot;standard_name&quot;: &quot;latitude&quot;})</span>
-<a id="__codelineno-0-675" name="__codelineno-0-675"></a><span class="sd">            &#39;Y&#39;</span>
-<a id="__codelineno-0-676" name="__codelineno-0-676"></a>
-<a id="__codelineno-0-677" name="__codelineno-0-677"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-678" name="__codelineno-0-678"></a><span class="sd">        - A ``units`` string of the form ``&lt;period&gt; since &lt;epoch&gt;`` marks a time axis:</span>
-<a id="__codelineno-0-679" name="__codelineno-0-679"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-680" name="__codelineno-0-680"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;foo&quot;, {&quot;units&quot;: &quot;days since 1970-01-01&quot;})</span>
-<a id="__codelineno-0-681" name="__codelineno-0-681"></a><span class="sd">            &#39;T&#39;</span>
-<a id="__codelineno-0-682" name="__codelineno-0-682"></a>
-<a id="__codelineno-0-683" name="__codelineno-0-683"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-684" name="__codelineno-0-684"></a><span class="sd">        - With no attributes, the variable *name* is matched by pattern:</span>
-<a id="__codelineno-0-685" name="__codelineno-0-685"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-686" name="__codelineno-0-686"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;lon&quot;, {})</span>
-<a id="__codelineno-0-687" name="__codelineno-0-687"></a><span class="sd">            &#39;X&#39;</span>
-<a id="__codelineno-0-688" name="__codelineno-0-688"></a>
-<a id="__codelineno-0-689" name="__codelineno-0-689"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-690" name="__codelineno-0-690"></a><span class="sd">        - Attribute *names* are matched case-insensitively, so capitalized keys</span>
-<a id="__codelineno-0-691" name="__codelineno-0-691"></a><span class="sd">            (e.g. ``Axis``) still classify the coordinate:</span>
-<a id="__codelineno-0-692" name="__codelineno-0-692"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-693" name="__codelineno-0-693"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;foo&quot;, {&quot;Axis&quot;: &quot;Y&quot;})</span>
-<a id="__codelineno-0-694" name="__codelineno-0-694"></a><span class="sd">            &#39;Y&#39;</span>
-<a id="__codelineno-0-695" name="__codelineno-0-695"></a>
-<a id="__codelineno-0-696" name="__codelineno-0-696"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-697" name="__codelineno-0-697"></a><span class="sd">        - An unrecognized name with no usable attributes returns ``None``:</span>
-<a id="__codelineno-0-698" name="__codelineno-0-698"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-699" name="__codelineno-0-699"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;ensemble&quot;, {}) is None</span>
-<a id="__codelineno-0-700" name="__codelineno-0-700"></a><span class="sd">            True</span>
-<a id="__codelineno-0-701" name="__codelineno-0-701"></a>
-<a id="__codelineno-0-702" name="__codelineno-0-702"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-703" name="__codelineno-0-703"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-704" name="__codelineno-0-704"></a>    <span class="n">result</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-705" name="__codelineno-0-705"></a>
-<a id="__codelineno-0-706" name="__codelineno-0-706"></a>    <span class="c1"># CF attribute names are conventionally lowercase, but some writers emit</span>
-<a id="__codelineno-0-707" name="__codelineno-0-707"></a>    <span class="c1"># capitalized keys (e.g. ``Axis``, ``Standard_Name``, ``Units``). Match the</span>
-<a id="__codelineno-0-708" name="__codelineno-0-708"></a>    <span class="c1"># attribute *names* case-insensitively so attribute-based detection is not</span>
-<a id="__codelineno-0-709" name="__codelineno-0-709"></a>    <span class="c1"># silently skipped — GDAL preserves the on-disk key casing, and the values</span>
-<a id="__codelineno-0-710" name="__codelineno-0-710"></a>    <span class="c1"># below are already case-folded where it matters.</span>
-<a id="__codelineno-0-711" name="__codelineno-0-711"></a>    <span class="k">if</span> <span class="n">attrs</span><span class="p">:</span>
-<a id="__codelineno-0-712" name="__codelineno-0-712"></a>        <span class="n">attrs</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-0-713" name="__codelineno-0-713"></a>            <span class="p">(</span><span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="n">k</span><span class="p">):</span> <span class="n">_coerce_cf_attr</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
-<a id="__codelineno-0-714" name="__codelineno-0-714"></a>            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">attrs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
-<a id="__codelineno-0-715" name="__codelineno-0-715"></a>        <span class="p">}</span>
-<a id="__codelineno-0-716" name="__codelineno-0-716"></a>
-<a id="__codelineno-0-717" name="__codelineno-0-717"></a>    <span class="n">axis</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;axis&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-718" name="__codelineno-0-718"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">axis</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">axis</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;X&quot;</span><span class="p">,</span> <span class="s2">&quot;Y&quot;</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-719" name="__codelineno-0-719"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">axis</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-720" name="__codelineno-0-720"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-721" name="__codelineno-0-721"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">_detect_axis_from_metadata</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">attrs</span><span class="p">,</span> <span class="n">units</span><span class="p">)</span>
-<a id="__codelineno-0-722" name="__codelineno-0-722"></a>
-<a id="__codelineno-0-723" name="__codelineno-0-723"></a>    <span class="k">return</span> <span class="n">result</span>
+<span class="normal"><a href="#__codelineno-0-723">723</a></span>
+<span class="normal"><a href="#__codelineno-0-724">724</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-642" name="__codelineno-0-642"></a><span class="k">def</span><span class="w"> </span><span class="nf">detect_axis</span><span class="p">(</span>
+<a id="__codelineno-0-643" name="__codelineno-0-643"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-644" name="__codelineno-0-644"></a>    <span class="n">attrs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<a id="__codelineno-0-645" name="__codelineno-0-645"></a>    <span class="n">units</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-646" name="__codelineno-0-646"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-647" name="__codelineno-0-647"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Detect CF axis type from a variable&#39;s attributes.</span>
+<a id="__codelineno-0-648" name="__codelineno-0-648"></a>
+<a id="__codelineno-0-649" name="__codelineno-0-649"></a><span class="sd">    Applies heuristics in priority order:</span>
+<a id="__codelineno-0-650" name="__codelineno-0-650"></a><span class="sd">    1. Explicit `axis` attribute (`&quot;X&quot;`, `&quot;Y&quot;`, `&quot;Z&quot;`, `&quot;T&quot;`)</span>
+<a id="__codelineno-0-651" name="__codelineno-0-651"></a><span class="sd">    2. `standard_name` lookup against CF conventions</span>
+<a id="__codelineno-0-652" name="__codelineno-0-652"></a><span class="sd">    3. Unit string matching (`degrees_north` -&gt; Y, etc.)</span>
+<a id="__codelineno-0-653" name="__codelineno-0-653"></a><span class="sd">    4. Variable name pattern matching (`lat` -&gt; Y, `lon` -&gt; X)</span>
+<a id="__codelineno-0-654" name="__codelineno-0-654"></a>
+<a id="__codelineno-0-655" name="__codelineno-0-655"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-656" name="__codelineno-0-656"></a><span class="sd">        name: Variable or dimension short name.</span>
+<a id="__codelineno-0-657" name="__codelineno-0-657"></a><span class="sd">        attrs: Variable attribute dictionary. Attribute *names* are matched</span>
+<a id="__codelineno-0-658" name="__codelineno-0-658"></a><span class="sd">            case-insensitively (``Axis``/``AXIS`` are treated as ``axis``), since</span>
+<a id="__codelineno-0-659" name="__codelineno-0-659"></a><span class="sd">            GDAL preserves the on-disk key casing and some writers capitalize them.</span>
+<a id="__codelineno-0-660" name="__codelineno-0-660"></a><span class="sd">        units: Unit string (separate from attrs for flexibility).</span>
+<a id="__codelineno-0-661" name="__codelineno-0-661"></a>
+<a id="__codelineno-0-662" name="__codelineno-0-662"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-663" name="__codelineno-0-663"></a><span class="sd">        One of `&quot;X&quot;`, `&quot;Y&quot;`, `&quot;Z&quot;`, `&quot;T&quot;`, or None.</span>
+<a id="__codelineno-0-664" name="__codelineno-0-664"></a>
+<a id="__codelineno-0-665" name="__codelineno-0-665"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-666" name="__codelineno-0-666"></a><span class="sd">        - An explicit ``axis`` attribute wins over everything else:</span>
+<a id="__codelineno-0-667" name="__codelineno-0-667"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-668" name="__codelineno-0-668"></a><span class="sd">            &gt;&gt;&gt; from pyramids.netcdf.cf import detect_axis</span>
+<a id="__codelineno-0-669" name="__codelineno-0-669"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;foo&quot;, {&quot;axis&quot;: &quot;X&quot;})</span>
+<a id="__codelineno-0-670" name="__codelineno-0-670"></a><span class="sd">            &#39;X&#39;</span>
+<a id="__codelineno-0-671" name="__codelineno-0-671"></a>
+<a id="__codelineno-0-672" name="__codelineno-0-672"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-673" name="__codelineno-0-673"></a><span class="sd">        - A ``standard_name`` is matched against the CF table:</span>
+<a id="__codelineno-0-674" name="__codelineno-0-674"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-675" name="__codelineno-0-675"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;foo&quot;, {&quot;standard_name&quot;: &quot;latitude&quot;})</span>
+<a id="__codelineno-0-676" name="__codelineno-0-676"></a><span class="sd">            &#39;Y&#39;</span>
+<a id="__codelineno-0-677" name="__codelineno-0-677"></a>
+<a id="__codelineno-0-678" name="__codelineno-0-678"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-679" name="__codelineno-0-679"></a><span class="sd">        - A ``units`` string of the form ``&lt;period&gt; since &lt;epoch&gt;`` marks a time axis:</span>
+<a id="__codelineno-0-680" name="__codelineno-0-680"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-681" name="__codelineno-0-681"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;foo&quot;, {&quot;units&quot;: &quot;days since 1970-01-01&quot;})</span>
+<a id="__codelineno-0-682" name="__codelineno-0-682"></a><span class="sd">            &#39;T&#39;</span>
+<a id="__codelineno-0-683" name="__codelineno-0-683"></a>
+<a id="__codelineno-0-684" name="__codelineno-0-684"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-685" name="__codelineno-0-685"></a><span class="sd">        - With no attributes, the variable *name* is matched by pattern:</span>
+<a id="__codelineno-0-686" name="__codelineno-0-686"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-687" name="__codelineno-0-687"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;lon&quot;, {})</span>
+<a id="__codelineno-0-688" name="__codelineno-0-688"></a><span class="sd">            &#39;X&#39;</span>
+<a id="__codelineno-0-689" name="__codelineno-0-689"></a>
+<a id="__codelineno-0-690" name="__codelineno-0-690"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-691" name="__codelineno-0-691"></a><span class="sd">        - Attribute *names* are matched case-insensitively, so capitalized keys</span>
+<a id="__codelineno-0-692" name="__codelineno-0-692"></a><span class="sd">            (e.g. ``Axis``) still classify the coordinate:</span>
+<a id="__codelineno-0-693" name="__codelineno-0-693"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-694" name="__codelineno-0-694"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;foo&quot;, {&quot;Axis&quot;: &quot;Y&quot;})</span>
+<a id="__codelineno-0-695" name="__codelineno-0-695"></a><span class="sd">            &#39;Y&#39;</span>
+<a id="__codelineno-0-696" name="__codelineno-0-696"></a>
+<a id="__codelineno-0-697" name="__codelineno-0-697"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-698" name="__codelineno-0-698"></a><span class="sd">        - An unrecognized name with no usable attributes returns ``None``:</span>
+<a id="__codelineno-0-699" name="__codelineno-0-699"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-700" name="__codelineno-0-700"></a><span class="sd">            &gt;&gt;&gt; detect_axis(&quot;ensemble&quot;, {}) is None</span>
+<a id="__codelineno-0-701" name="__codelineno-0-701"></a><span class="sd">            True</span>
+<a id="__codelineno-0-702" name="__codelineno-0-702"></a>
+<a id="__codelineno-0-703" name="__codelineno-0-703"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-704" name="__codelineno-0-704"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-705" name="__codelineno-0-705"></a>    <span class="n">result</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-706" name="__codelineno-0-706"></a>
+<a id="__codelineno-0-707" name="__codelineno-0-707"></a>    <span class="c1"># CF attribute names are conventionally lowercase, but some writers emit</span>
+<a id="__codelineno-0-708" name="__codelineno-0-708"></a>    <span class="c1"># capitalized keys (e.g. ``Axis``, ``Standard_Name``, ``Units``). Match the</span>
+<a id="__codelineno-0-709" name="__codelineno-0-709"></a>    <span class="c1"># attribute *names* case-insensitively so attribute-based detection is not</span>
+<a id="__codelineno-0-710" name="__codelineno-0-710"></a>    <span class="c1"># silently skipped — GDAL preserves the on-disk key casing, and the values</span>
+<a id="__codelineno-0-711" name="__codelineno-0-711"></a>    <span class="c1"># below are already case-folded where it matters.</span>
+<a id="__codelineno-0-712" name="__codelineno-0-712"></a>    <span class="k">if</span> <span class="n">attrs</span><span class="p">:</span>
+<a id="__codelineno-0-713" name="__codelineno-0-713"></a>        <span class="n">attrs</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-0-714" name="__codelineno-0-714"></a>            <span class="p">(</span><span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="n">k</span><span class="p">):</span> <span class="n">_coerce_cf_attr</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+<a id="__codelineno-0-715" name="__codelineno-0-715"></a>            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">attrs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+<a id="__codelineno-0-716" name="__codelineno-0-716"></a>        <span class="p">}</span>
+<a id="__codelineno-0-717" name="__codelineno-0-717"></a>
+<a id="__codelineno-0-718" name="__codelineno-0-718"></a>    <span class="n">axis</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;axis&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-719" name="__codelineno-0-719"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">axis</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">axis</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;X&quot;</span><span class="p">,</span> <span class="s2">&quot;Y&quot;</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">):</span>
+<a id="__codelineno-0-720" name="__codelineno-0-720"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">axis</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-721" name="__codelineno-0-721"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-722" name="__codelineno-0-722"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">_detect_axis_from_metadata</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">attrs</span><span class="p">,</span> <span class="n">units</span><span class="p">)</span>
+<a id="__codelineno-0-723" name="__codelineno-0-723"></a>
+<a id="__codelineno-0-724" name="__codelineno-0-724"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7829,8 +7829,7 @@ tested version (<code>1.11</code>).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/cf.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-897">897</a></span>
-<span class="normal"><a href="#__codelineno-0-898">898</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-898">898</a></span>
 <span class="normal"><a href="#__codelineno-0-899">899</a></span>
 <span class="normal"><a href="#__codelineno-0-900">900</a></span>
 <span class="normal"><a href="#__codelineno-0-901">901</a></span>
@@ -7864,42 +7863,43 @@ tested version (<code>1.11</code>).</p>
 <span class="normal"><a href="#__codelineno-0-929">929</a></span>
 <span class="normal"><a href="#__codelineno-0-930">930</a></span>
 <span class="normal"><a href="#__codelineno-0-931">931</a></span>
-<span class="normal"><a href="#__codelineno-0-932">932</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-897" name="__codelineno-0-897"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_conventions</span><span class="p">(</span><span class="n">conventions_str</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
-<a id="__codelineno-0-898" name="__codelineno-0-898"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse a Conventions global attribute string.</span>
-<a id="__codelineno-0-899" name="__codelineno-0-899"></a>
-<a id="__codelineno-0-900" name="__codelineno-0-900"></a><span class="sd">    Logs a warning if the CF version is higher than the highest</span>
-<a id="__codelineno-0-901" name="__codelineno-0-901"></a><span class="sd">    tested version (`1.11`).</span>
-<a id="__codelineno-0-902" name="__codelineno-0-902"></a>
-<a id="__codelineno-0-903" name="__codelineno-0-903"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-904" name="__codelineno-0-904"></a><span class="sd">        conventions_str: Space-separated conventions string, e.g.</span>
-<a id="__codelineno-0-905" name="__codelineno-0-905"></a><span class="sd">            `&quot;CF-1.8 UGRID-1.0 Deltares-0.10&quot;`.</span>
-<a id="__codelineno-0-906" name="__codelineno-0-906"></a>
-<a id="__codelineno-0-907" name="__codelineno-0-907"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-908" name="__codelineno-0-908"></a><span class="sd">        Dict of `{convention_name: version_string}`.</span>
-<a id="__codelineno-0-909" name="__codelineno-0-909"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-910" name="__codelineno-0-910"></a>    <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-<a id="__codelineno-0-911" name="__codelineno-0-911"></a>    <span class="k">if</span> <span class="n">conventions_str</span><span class="p">:</span>
-<a id="__codelineno-0-912" name="__codelineno-0-912"></a>        <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">conventions_str</span><span class="o">.</span><span class="n">split</span><span class="p">():</span>
-<a id="__codelineno-0-913" name="__codelineno-0-913"></a>            <span class="k">if</span> <span class="s2">&quot;-&quot;</span> <span class="ow">in</span> <span class="n">token</span><span class="p">:</span>
-<a id="__codelineno-0-914" name="__codelineno-0-914"></a>                <span class="n">name</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">version</span> <span class="o">=</span> <span class="n">token</span><span class="o">.</span><span class="n">partition</span><span class="p">(</span><span class="s2">&quot;-&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-915" name="__codelineno-0-915"></a>                <span class="n">result</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">version</span>
-<a id="__codelineno-0-916" name="__codelineno-0-916"></a>            <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-917" name="__codelineno-0-917"></a>                <span class="n">result</span><span class="p">[</span><span class="n">token</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
-<a id="__codelineno-0-918" name="__codelineno-0-918"></a>        <span class="n">cf_version</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;CF&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-919" name="__codelineno-0-919"></a>        <span class="k">if</span> <span class="n">cf_version</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-920" name="__codelineno-0-920"></a>            <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-921" name="__codelineno-0-921"></a>                <span class="n">parts</span> <span class="o">=</span> <span class="n">cf_version</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-922" name="__codelineno-0-922"></a>                <span class="n">tested_parts</span> <span class="o">=</span> <span class="n">_MAX_TESTED_CF_VERSION</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-923" name="__codelineno-0-923"></a>                <span class="k">if</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">]</span> <span class="o">&gt;</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">tested_parts</span><span class="p">]:</span>
-<a id="__codelineno-0-924" name="__codelineno-0-924"></a>                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
-<a id="__codelineno-0-925" name="__codelineno-0-925"></a>                        <span class="sa">f</span><span class="s2">&quot;CF version </span><span class="si">{</span><span class="n">cf_version</span><span class="si">}</span><span class="s2"> is newer than the &quot;</span>
-<a id="__codelineno-0-926" name="__codelineno-0-926"></a>                        <span class="sa">f</span><span class="s2">&quot;highest tested version &quot;</span>
-<a id="__codelineno-0-927" name="__codelineno-0-927"></a>                        <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">_MAX_TESTED_CF_VERSION</span><span class="si">}</span><span class="s2">). &quot;</span>
-<a id="__codelineno-0-928" name="__codelineno-0-928"></a>                        <span class="sa">f</span><span class="s2">&quot;Some features may not be supported.&quot;</span>
-<a id="__codelineno-0-929" name="__codelineno-0-929"></a>                    <span class="p">)</span>
-<a id="__codelineno-0-930" name="__codelineno-0-930"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
-<a id="__codelineno-0-931" name="__codelineno-0-931"></a>                <span class="k">pass</span>
-<a id="__codelineno-0-932" name="__codelineno-0-932"></a>    <span class="k">return</span> <span class="n">result</span>
+<span class="normal"><a href="#__codelineno-0-932">932</a></span>
+<span class="normal"><a href="#__codelineno-0-933">933</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-898" name="__codelineno-0-898"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_conventions</span><span class="p">(</span><span class="n">conventions_str</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-899" name="__codelineno-0-899"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse a Conventions global attribute string.</span>
+<a id="__codelineno-0-900" name="__codelineno-0-900"></a>
+<a id="__codelineno-0-901" name="__codelineno-0-901"></a><span class="sd">    Logs a warning if the CF version is higher than the highest</span>
+<a id="__codelineno-0-902" name="__codelineno-0-902"></a><span class="sd">    tested version (`1.11`).</span>
+<a id="__codelineno-0-903" name="__codelineno-0-903"></a>
+<a id="__codelineno-0-904" name="__codelineno-0-904"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-905" name="__codelineno-0-905"></a><span class="sd">        conventions_str: Space-separated conventions string, e.g.</span>
+<a id="__codelineno-0-906" name="__codelineno-0-906"></a><span class="sd">            `&quot;CF-1.8 UGRID-1.0 Deltares-0.10&quot;`.</span>
+<a id="__codelineno-0-907" name="__codelineno-0-907"></a>
+<a id="__codelineno-0-908" name="__codelineno-0-908"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-909" name="__codelineno-0-909"></a><span class="sd">        Dict of `{convention_name: version_string}`.</span>
+<a id="__codelineno-0-910" name="__codelineno-0-910"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-911" name="__codelineno-0-911"></a>    <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-0-912" name="__codelineno-0-912"></a>    <span class="k">if</span> <span class="n">conventions_str</span><span class="p">:</span>
+<a id="__codelineno-0-913" name="__codelineno-0-913"></a>        <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">conventions_str</span><span class="o">.</span><span class="n">split</span><span class="p">():</span>
+<a id="__codelineno-0-914" name="__codelineno-0-914"></a>            <span class="k">if</span> <span class="s2">&quot;-&quot;</span> <span class="ow">in</span> <span class="n">token</span><span class="p">:</span>
+<a id="__codelineno-0-915" name="__codelineno-0-915"></a>                <span class="n">name</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">version</span> <span class="o">=</span> <span class="n">token</span><span class="o">.</span><span class="n">partition</span><span class="p">(</span><span class="s2">&quot;-&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-916" name="__codelineno-0-916"></a>                <span class="n">result</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">version</span>
+<a id="__codelineno-0-917" name="__codelineno-0-917"></a>            <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-918" name="__codelineno-0-918"></a>                <span class="n">result</span><span class="p">[</span><span class="n">token</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+<a id="__codelineno-0-919" name="__codelineno-0-919"></a>        <span class="n">cf_version</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;CF&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-920" name="__codelineno-0-920"></a>        <span class="k">if</span> <span class="n">cf_version</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-921" name="__codelineno-0-921"></a>            <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-922" name="__codelineno-0-922"></a>                <span class="n">parts</span> <span class="o">=</span> <span class="n">cf_version</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-923" name="__codelineno-0-923"></a>                <span class="n">tested_parts</span> <span class="o">=</span> <span class="n">_MAX_TESTED_CF_VERSION</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-924" name="__codelineno-0-924"></a>                <span class="k">if</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">]</span> <span class="o">&gt;</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">tested_parts</span><span class="p">]:</span>
+<a id="__codelineno-0-925" name="__codelineno-0-925"></a>                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+<a id="__codelineno-0-926" name="__codelineno-0-926"></a>                        <span class="sa">f</span><span class="s2">&quot;CF version </span><span class="si">{</span><span class="n">cf_version</span><span class="si">}</span><span class="s2"> is newer than the &quot;</span>
+<a id="__codelineno-0-927" name="__codelineno-0-927"></a>                        <span class="sa">f</span><span class="s2">&quot;highest tested version &quot;</span>
+<a id="__codelineno-0-928" name="__codelineno-0-928"></a>                        <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">_MAX_TESTED_CF_VERSION</span><span class="si">}</span><span class="s2">). &quot;</span>
+<a id="__codelineno-0-929" name="__codelineno-0-929"></a>                        <span class="sa">f</span><span class="s2">&quot;Some features may not be supported.&quot;</span>
+<a id="__codelineno-0-930" name="__codelineno-0-930"></a>                    <span class="p">)</span>
+<a id="__codelineno-0-931" name="__codelineno-0-931"></a>            <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+<a id="__codelineno-0-932" name="__codelineno-0-932"></a>                <span class="k">pass</span>
+<a id="__codelineno-0-933" name="__codelineno-0-933"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8004,8 +8004,7 @@ tested version (<code>1.11</code>).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/cf.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-935">935</a></span>
-<span class="normal"><a href="#__codelineno-0-936">936</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-936">936</a></span>
 <span class="normal"><a href="#__codelineno-0-937">937</a></span>
 <span class="normal"><a href="#__codelineno-0-938">938</a></span>
 <span class="normal"><a href="#__codelineno-0-939">939</a></span>
@@ -8064,67 +8063,68 @@ tested version (<code>1.11</code>).</p>
 <span class="normal"><a href="#__codelineno-0-992">992</a></span>
 <span class="normal"><a href="#__codelineno-0-993">993</a></span>
 <span class="normal"><a href="#__codelineno-0-994">994</a></span>
-<span class="normal"><a href="#__codelineno-0-995">995</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-935" name="__codelineno-0-935"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_cell_methods</span><span class="p">(</span><span class="n">cell_methods_str</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
-<a id="__codelineno-0-936" name="__codelineno-0-936"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse a CF `cell_methods` attribute string.</span>
-<a id="__codelineno-0-937" name="__codelineno-0-937"></a>
-<a id="__codelineno-0-938" name="__codelineno-0-938"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-939" name="__codelineno-0-939"></a><span class="sd">        cell_methods_str: CF cell_methods string, e.g.</span>
-<a id="__codelineno-0-940" name="__codelineno-0-940"></a><span class="sd">            `&quot;time: mean area: sum where land&quot;`.</span>
-<a id="__codelineno-0-941" name="__codelineno-0-941"></a>
-<a id="__codelineno-0-942" name="__codelineno-0-942"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-943" name="__codelineno-0-943"></a><span class="sd">        List of dicts with keys `&quot;dimensions&quot;`, `&quot;method&quot;`,</span>
-<a id="__codelineno-0-944" name="__codelineno-0-944"></a><span class="sd">        and optionally `&quot;where&quot;` and `&quot;over&quot;`.</span>
-<a id="__codelineno-0-945" name="__codelineno-0-945"></a>
-<a id="__codelineno-0-946" name="__codelineno-0-946"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-947" name="__codelineno-0-947"></a><span class="sd">        - A single dimension and method:</span>
-<a id="__codelineno-0-948" name="__codelineno-0-948"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-949" name="__codelineno-0-949"></a><span class="sd">            &gt;&gt;&gt; parse_cell_methods(&quot;time: mean&quot;)</span>
-<a id="__codelineno-0-950" name="__codelineno-0-950"></a><span class="sd">            [{&#39;dimensions&#39;: &#39;time&#39;, &#39;method&#39;: &#39;mean&#39;}]</span>
-<a id="__codelineno-0-951" name="__codelineno-0-951"></a>
-<a id="__codelineno-0-952" name="__codelineno-0-952"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="sd">        - Several dimensions sharing one method are all captured:</span>
-<a id="__codelineno-0-954" name="__codelineno-0-954"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-955" name="__codelineno-0-955"></a><span class="sd">            &gt;&gt;&gt; parse_cell_methods(&quot;lat: lon: mean&quot;)</span>
-<a id="__codelineno-0-956" name="__codelineno-0-956"></a><span class="sd">            [{&#39;dimensions&#39;: &#39;lat lon&#39;, &#39;method&#39;: &#39;mean&#39;}]</span>
-<a id="__codelineno-0-957" name="__codelineno-0-957"></a>
-<a id="__codelineno-0-958" name="__codelineno-0-958"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-959" name="__codelineno-0-959"></a><span class="sd">        - Independent entries, with a `where` qualifier:</span>
-<a id="__codelineno-0-960" name="__codelineno-0-960"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-961" name="__codelineno-0-961"></a><span class="sd">            &gt;&gt;&gt; parse_cell_methods(&quot;time: mean area: sum where land&quot;)</span>
-<a id="__codelineno-0-962" name="__codelineno-0-962"></a><span class="sd">            [{&#39;dimensions&#39;: &#39;time&#39;, &#39;method&#39;: &#39;mean&#39;}, {&#39;dimensions&#39;: &#39;area&#39;, &#39;method&#39;: &#39;sum&#39;, &#39;where&#39;: &#39;land&#39;}]</span>
-<a id="__codelineno-0-963" name="__codelineno-0-963"></a>
-<a id="__codelineno-0-964" name="__codelineno-0-964"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-965" name="__codelineno-0-965"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-966" name="__codelineno-0-966"></a>    <span class="n">results</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-967" name="__codelineno-0-967"></a>    <span class="c1"># A cell_methods entry is `name: [name: ...] method [where ...] [over ...]` — one OR MORE</span>
-<a id="__codelineno-0-968" name="__codelineno-0-968"></a>    <span class="c1"># `name:` groups precede the method. Capturing them as a single group and splitting on `:` lets</span>
-<a id="__codelineno-0-969" name="__codelineno-0-969"></a>    <span class="c1"># `&quot;lat: lon: mean&quot;` parse to dimensions `lat lon` / method `mean` instead of mis-reading `lon`</span>
-<a id="__codelineno-0-970" name="__codelineno-0-970"></a>    <span class="c1"># as the method (ARC-30). The `where`/`over` qualifiers are parsed from the text between one</span>
-<a id="__codelineno-0-971" name="__codelineno-0-971"></a>    <span class="c1"># method and the next entry so the core pattern stays simple.</span>
-<a id="__codelineno-0-972" name="__codelineno-0-972"></a>    <span class="n">entry_pattern</span> <span class="o">=</span> <span class="sa">r</span><span class="s1">&#39;((?:\w+\s*:\s*)+)(\w+)&#39;</span>
-<a id="__codelineno-0-973" name="__codelineno-0-973"></a>    <span class="n">matches</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">finditer</span><span class="p">(</span><span class="n">entry_pattern</span><span class="p">,</span> <span class="n">cell_methods_str</span><span class="p">))</span>
-<a id="__codelineno-0-974" name="__codelineno-0-974"></a>    <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">match</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">matches</span><span class="p">):</span>
-<a id="__codelineno-0-975" name="__codelineno-0-975"></a>        <span class="n">dims</span> <span class="o">=</span> <span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
-<a id="__codelineno-0-976" name="__codelineno-0-976"></a>            <span class="n">part</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">part</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-<a id="__codelineno-0-977" name="__codelineno-0-977"></a>        <span class="p">)</span>
-<a id="__codelineno-0-978" name="__codelineno-0-978"></a>        <span class="n">entry</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-0-979" name="__codelineno-0-979"></a>            <span class="s2">&quot;dimensions&quot;</span><span class="p">:</span> <span class="n">dims</span><span class="p">,</span>
-<a id="__codelineno-0-980" name="__codelineno-0-980"></a>            <span class="s2">&quot;method&quot;</span><span class="p">:</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span>
-<a id="__codelineno-0-981" name="__codelineno-0-981"></a>        <span class="p">}</span>
-<a id="__codelineno-0-982" name="__codelineno-0-982"></a>        <span class="n">tail_end</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-0-983" name="__codelineno-0-983"></a>            <span class="n">matches</span><span class="p">[</span><span class="n">idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
-<a id="__codelineno-0-984" name="__codelineno-0-984"></a>            <span class="k">if</span> <span class="n">idx</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">)</span>
-<a id="__codelineno-0-985" name="__codelineno-0-985"></a>            <span class="k">else</span> <span class="nb">len</span><span class="p">(</span><span class="n">cell_methods_str</span><span class="p">)</span>
-<a id="__codelineno-0-986" name="__codelineno-0-986"></a>        <span class="p">)</span>
-<a id="__codelineno-0-987" name="__codelineno-0-987"></a>        <span class="n">tail</span> <span class="o">=</span> <span class="n">cell_methods_str</span><span class="p">[</span><span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">()</span> <span class="p">:</span> <span class="n">tail_end</span><span class="p">]</span>
-<a id="__codelineno-0-988" name="__codelineno-0-988"></a>        <span class="n">where</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;\bwhere\s+(\w+)&quot;</span><span class="p">,</span> <span class="n">tail</span><span class="p">)</span>
-<a id="__codelineno-0-989" name="__codelineno-0-989"></a>        <span class="k">if</span> <span class="n">where</span><span class="p">:</span>
-<a id="__codelineno-0-990" name="__codelineno-0-990"></a>            <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;where&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">where</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-991" name="__codelineno-0-991"></a>        <span class="n">over</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;\bover\s+(\w+)&quot;</span><span class="p">,</span> <span class="n">tail</span><span class="p">)</span>
-<a id="__codelineno-0-992" name="__codelineno-0-992"></a>        <span class="k">if</span> <span class="n">over</span><span class="p">:</span>
-<a id="__codelineno-0-993" name="__codelineno-0-993"></a>            <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;over&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">over</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-994" name="__codelineno-0-994"></a>        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
-<a id="__codelineno-0-995" name="__codelineno-0-995"></a>    <span class="k">return</span> <span class="n">results</span>
+<span class="normal"><a href="#__codelineno-0-995">995</a></span>
+<span class="normal"><a href="#__codelineno-0-996">996</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-936" name="__codelineno-0-936"></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_cell_methods</span><span class="p">(</span><span class="n">cell_methods_str</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<a id="__codelineno-0-937" name="__codelineno-0-937"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse a CF `cell_methods` attribute string.</span>
+<a id="__codelineno-0-938" name="__codelineno-0-938"></a>
+<a id="__codelineno-0-939" name="__codelineno-0-939"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-940" name="__codelineno-0-940"></a><span class="sd">        cell_methods_str: CF cell_methods string, e.g.</span>
+<a id="__codelineno-0-941" name="__codelineno-0-941"></a><span class="sd">            `&quot;time: mean area: sum where land&quot;`.</span>
+<a id="__codelineno-0-942" name="__codelineno-0-942"></a>
+<a id="__codelineno-0-943" name="__codelineno-0-943"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-944" name="__codelineno-0-944"></a><span class="sd">        List of dicts with keys `&quot;dimensions&quot;`, `&quot;method&quot;`,</span>
+<a id="__codelineno-0-945" name="__codelineno-0-945"></a><span class="sd">        and optionally `&quot;where&quot;` and `&quot;over&quot;`.</span>
+<a id="__codelineno-0-946" name="__codelineno-0-946"></a>
+<a id="__codelineno-0-947" name="__codelineno-0-947"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-948" name="__codelineno-0-948"></a><span class="sd">        - A single dimension and method:</span>
+<a id="__codelineno-0-949" name="__codelineno-0-949"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-950" name="__codelineno-0-950"></a><span class="sd">            &gt;&gt;&gt; parse_cell_methods(&quot;time: mean&quot;)</span>
+<a id="__codelineno-0-951" name="__codelineno-0-951"></a><span class="sd">            [{&#39;dimensions&#39;: &#39;time&#39;, &#39;method&#39;: &#39;mean&#39;}]</span>
+<a id="__codelineno-0-952" name="__codelineno-0-952"></a>
+<a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-954" name="__codelineno-0-954"></a><span class="sd">        - Several dimensions sharing one method are all captured:</span>
+<a id="__codelineno-0-955" name="__codelineno-0-955"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-956" name="__codelineno-0-956"></a><span class="sd">            &gt;&gt;&gt; parse_cell_methods(&quot;lat: lon: mean&quot;)</span>
+<a id="__codelineno-0-957" name="__codelineno-0-957"></a><span class="sd">            [{&#39;dimensions&#39;: &#39;lat lon&#39;, &#39;method&#39;: &#39;mean&#39;}]</span>
+<a id="__codelineno-0-958" name="__codelineno-0-958"></a>
+<a id="__codelineno-0-959" name="__codelineno-0-959"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-960" name="__codelineno-0-960"></a><span class="sd">        - Independent entries, with a `where` qualifier:</span>
+<a id="__codelineno-0-961" name="__codelineno-0-961"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-962" name="__codelineno-0-962"></a><span class="sd">            &gt;&gt;&gt; parse_cell_methods(&quot;time: mean area: sum where land&quot;)</span>
+<a id="__codelineno-0-963" name="__codelineno-0-963"></a><span class="sd">            [{&#39;dimensions&#39;: &#39;time&#39;, &#39;method&#39;: &#39;mean&#39;}, {&#39;dimensions&#39;: &#39;area&#39;, &#39;method&#39;: &#39;sum&#39;, &#39;where&#39;: &#39;land&#39;}]</span>
+<a id="__codelineno-0-964" name="__codelineno-0-964"></a>
+<a id="__codelineno-0-965" name="__codelineno-0-965"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-966" name="__codelineno-0-966"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-967" name="__codelineno-0-967"></a>    <span class="n">results</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-968" name="__codelineno-0-968"></a>    <span class="c1"># A cell_methods entry is `name: [name: ...] method [where ...] [over ...]` — one OR MORE</span>
+<a id="__codelineno-0-969" name="__codelineno-0-969"></a>    <span class="c1"># `name:` groups precede the method. Capturing them as a single group and splitting on `:` lets</span>
+<a id="__codelineno-0-970" name="__codelineno-0-970"></a>    <span class="c1"># `&quot;lat: lon: mean&quot;` parse to dimensions `lat lon` / method `mean` instead of mis-reading `lon`</span>
+<a id="__codelineno-0-971" name="__codelineno-0-971"></a>    <span class="c1"># as the method (ARC-30). The `where`/`over` qualifiers are parsed from the text between one</span>
+<a id="__codelineno-0-972" name="__codelineno-0-972"></a>    <span class="c1"># method and the next entry so the core pattern stays simple.</span>
+<a id="__codelineno-0-973" name="__codelineno-0-973"></a>    <span class="n">entry_pattern</span> <span class="o">=</span> <span class="sa">r</span><span class="s1">&#39;((?:\w+\s*:\s*)+)(\w+)&#39;</span>
+<a id="__codelineno-0-974" name="__codelineno-0-974"></a>    <span class="n">matches</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">finditer</span><span class="p">(</span><span class="n">entry_pattern</span><span class="p">,</span> <span class="n">cell_methods_str</span><span class="p">))</span>
+<a id="__codelineno-0-975" name="__codelineno-0-975"></a>    <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">match</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">matches</span><span class="p">):</span>
+<a id="__codelineno-0-976" name="__codelineno-0-976"></a>        <span class="n">dims</span> <span class="o">=</span> <span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+<a id="__codelineno-0-977" name="__codelineno-0-977"></a>            <span class="n">part</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">part</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+<a id="__codelineno-0-978" name="__codelineno-0-978"></a>        <span class="p">)</span>
+<a id="__codelineno-0-979" name="__codelineno-0-979"></a>        <span class="n">entry</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-0-980" name="__codelineno-0-980"></a>            <span class="s2">&quot;dimensions&quot;</span><span class="p">:</span> <span class="n">dims</span><span class="p">,</span>
+<a id="__codelineno-0-981" name="__codelineno-0-981"></a>            <span class="s2">&quot;method&quot;</span><span class="p">:</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span>
+<a id="__codelineno-0-982" name="__codelineno-0-982"></a>        <span class="p">}</span>
+<a id="__codelineno-0-983" name="__codelineno-0-983"></a>        <span class="n">tail_end</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-0-984" name="__codelineno-0-984"></a>            <span class="n">matches</span><span class="p">[</span><span class="n">idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+<a id="__codelineno-0-985" name="__codelineno-0-985"></a>            <span class="k">if</span> <span class="n">idx</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">)</span>
+<a id="__codelineno-0-986" name="__codelineno-0-986"></a>            <span class="k">else</span> <span class="nb">len</span><span class="p">(</span><span class="n">cell_methods_str</span><span class="p">)</span>
+<a id="__codelineno-0-987" name="__codelineno-0-987"></a>        <span class="p">)</span>
+<a id="__codelineno-0-988" name="__codelineno-0-988"></a>        <span class="n">tail</span> <span class="o">=</span> <span class="n">cell_methods_str</span><span class="p">[</span><span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">()</span> <span class="p">:</span> <span class="n">tail_end</span><span class="p">]</span>
+<a id="__codelineno-0-989" name="__codelineno-0-989"></a>        <span class="n">where</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;\bwhere\s+(\w+)&quot;</span><span class="p">,</span> <span class="n">tail</span><span class="p">)</span>
+<a id="__codelineno-0-990" name="__codelineno-0-990"></a>        <span class="k">if</span> <span class="n">where</span><span class="p">:</span>
+<a id="__codelineno-0-991" name="__codelineno-0-991"></a>            <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;where&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">where</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-992" name="__codelineno-0-992"></a>        <span class="n">over</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;\bover\s+(\w+)&quot;</span><span class="p">,</span> <span class="n">tail</span><span class="p">)</span>
+<a id="__codelineno-0-993" name="__codelineno-0-993"></a>        <span class="k">if</span> <span class="n">over</span><span class="p">:</span>
+<a id="__codelineno-0-994" name="__codelineno-0-994"></a>            <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;over&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">over</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-995" name="__codelineno-0-995"></a>        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+<a id="__codelineno-0-996" name="__codelineno-0-996"></a>    <span class="k">return</span> <span class="n">results</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8267,8 +8267,7 @@ with <code>fill_value</code>.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/cf.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-998"> 998</a></span>
-<span class="normal"><a href="#__codelineno-0-999"> 999</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-999"> 999</a></span>
 <span class="normal"><a href="#__codelineno-0-1000">1000</a></span>
 <span class="normal"><a href="#__codelineno-0-1001">1001</a></span>
 <span class="normal"><a href="#__codelineno-0-1002">1002</a></span>
@@ -8297,37 +8296,38 @@ with <code>fill_value</code>.</p>
 <span class="normal"><a href="#__codelineno-0-1025">1025</a></span>
 <span class="normal"><a href="#__codelineno-0-1026">1026</a></span>
 <span class="normal"><a href="#__codelineno-0-1027">1027</a></span>
-<span class="normal"><a href="#__codelineno-0-1028">1028</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-998" name="__codelineno-0-998"></a><span class="k">def</span><span class="w"> </span><span class="nf">apply_valid_range_mask</span><span class="p">(</span>
-<a id="__codelineno-0-999" name="__codelineno-0-999"></a>    <span class="n">arr</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-<a id="__codelineno-0-1000" name="__codelineno-0-1000"></a>    <span class="n">valid_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1001" name="__codelineno-0-1001"></a>    <span class="n">valid_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1002" name="__codelineno-0-1002"></a>    <span class="n">valid_range</span><span class="p">:</span> <span class="nb">tuple</span> <span class="o">|</span> <span class="nb">list</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1003" name="__codelineno-0-1003"></a>    <span class="n">fill_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;nan&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-1004" name="__codelineno-0-1004"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<a id="__codelineno-0-1005" name="__codelineno-0-1005"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Mask values outside the CF valid range.</span>
-<a id="__codelineno-0-1006" name="__codelineno-0-1006"></a>
-<a id="__codelineno-0-1007" name="__codelineno-0-1007"></a><span class="sd">    Values below `valid_min` or above `valid_max` are replaced</span>
-<a id="__codelineno-0-1008" name="__codelineno-0-1008"></a><span class="sd">    with `fill_value`.</span>
-<a id="__codelineno-0-1009" name="__codelineno-0-1009"></a>
-<a id="__codelineno-0-1010" name="__codelineno-0-1010"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-1011" name="__codelineno-0-1011"></a><span class="sd">        arr: Input numpy array.</span>
-<a id="__codelineno-0-1012" name="__codelineno-0-1012"></a><span class="sd">        valid_min: Minimum valid value.</span>
-<a id="__codelineno-0-1013" name="__codelineno-0-1013"></a><span class="sd">        valid_max: Maximum valid value.</span>
-<a id="__codelineno-0-1014" name="__codelineno-0-1014"></a><span class="sd">        valid_range: `[min, max]`. Overrides valid_min/max.</span>
-<a id="__codelineno-0-1015" name="__codelineno-0-1015"></a><span class="sd">        fill_value: Replacement value. Defaults to NaN.</span>
-<a id="__codelineno-0-1016" name="__codelineno-0-1016"></a>
-<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a><span class="sd">        A copy of `arr` with out-of-range values replaced.</span>
-<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1020" name="__codelineno-0-1020"></a>    <span class="k">if</span> <span class="n">valid_range</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>        <span class="n">valid_min</span> <span class="o">=</span> <span class="n">valid_range</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-<a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>        <span class="n">valid_max</span> <span class="o">=</span> <span class="n">valid_range</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
-<a id="__codelineno-0-1023" name="__codelineno-0-1023"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">arr</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-<a id="__codelineno-0-1024" name="__codelineno-0-1024"></a>    <span class="k">if</span> <span class="n">valid_min</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1025" name="__codelineno-0-1025"></a>        <span class="n">result</span><span class="p">[</span><span class="n">result</span> <span class="o">&lt;</span> <span class="n">valid_min</span><span class="p">]</span> <span class="o">=</span> <span class="n">fill_value</span>
-<a id="__codelineno-0-1026" name="__codelineno-0-1026"></a>    <span class="k">if</span> <span class="n">valid_max</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>        <span class="n">result</span><span class="p">[</span><span class="n">result</span> <span class="o">&gt;</span> <span class="n">valid_max</span><span class="p">]</span> <span class="o">=</span> <span class="n">fill_value</span>
-<a id="__codelineno-0-1028" name="__codelineno-0-1028"></a>    <span class="k">return</span> <span class="n">result</span>
+<span class="normal"><a href="#__codelineno-0-1028">1028</a></span>
+<span class="normal"><a href="#__codelineno-0-1029">1029</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-999" name="__codelineno-0-999"></a><span class="k">def</span><span class="w"> </span><span class="nf">apply_valid_range_mask</span><span class="p">(</span>
+<a id="__codelineno-0-1000" name="__codelineno-0-1000"></a>    <span class="n">arr</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<a id="__codelineno-0-1001" name="__codelineno-0-1001"></a>    <span class="n">valid_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1002" name="__codelineno-0-1002"></a>    <span class="n">valid_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1003" name="__codelineno-0-1003"></a>    <span class="n">valid_range</span><span class="p">:</span> <span class="nb">tuple</span> <span class="o">|</span> <span class="nb">list</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1004" name="__codelineno-0-1004"></a>    <span class="n">fill_value</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;nan&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-1005" name="__codelineno-0-1005"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<a id="__codelineno-0-1006" name="__codelineno-0-1006"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Mask values outside the CF valid range.</span>
+<a id="__codelineno-0-1007" name="__codelineno-0-1007"></a>
+<a id="__codelineno-0-1008" name="__codelineno-0-1008"></a><span class="sd">    Values below `valid_min` or above `valid_max` are replaced</span>
+<a id="__codelineno-0-1009" name="__codelineno-0-1009"></a><span class="sd">    with `fill_value`.</span>
+<a id="__codelineno-0-1010" name="__codelineno-0-1010"></a>
+<a id="__codelineno-0-1011" name="__codelineno-0-1011"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-1012" name="__codelineno-0-1012"></a><span class="sd">        arr: Input numpy array.</span>
+<a id="__codelineno-0-1013" name="__codelineno-0-1013"></a><span class="sd">        valid_min: Minimum valid value.</span>
+<a id="__codelineno-0-1014" name="__codelineno-0-1014"></a><span class="sd">        valid_max: Maximum valid value.</span>
+<a id="__codelineno-0-1015" name="__codelineno-0-1015"></a><span class="sd">        valid_range: `[min, max]`. Overrides valid_min/max.</span>
+<a id="__codelineno-0-1016" name="__codelineno-0-1016"></a><span class="sd">        fill_value: Replacement value. Defaults to NaN.</span>
+<a id="__codelineno-0-1017" name="__codelineno-0-1017"></a>
+<a id="__codelineno-0-1018" name="__codelineno-0-1018"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-1019" name="__codelineno-0-1019"></a><span class="sd">        A copy of `arr` with out-of-range values replaced.</span>
+<a id="__codelineno-0-1020" name="__codelineno-0-1020"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>    <span class="k">if</span> <span class="n">valid_range</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>        <span class="n">valid_min</span> <span class="o">=</span> <span class="n">valid_range</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<a id="__codelineno-0-1023" name="__codelineno-0-1023"></a>        <span class="n">valid_max</span> <span class="o">=</span> <span class="n">valid_range</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+<a id="__codelineno-0-1024" name="__codelineno-0-1024"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">arr</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+<a id="__codelineno-0-1025" name="__codelineno-0-1025"></a>    <span class="k">if</span> <span class="n">valid_min</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1026" name="__codelineno-0-1026"></a>        <span class="n">result</span><span class="p">[</span><span class="n">result</span> <span class="o">&lt;</span> <span class="n">valid_min</span><span class="p">]</span> <span class="o">=</span> <span class="n">fill_value</span>
+<a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>    <span class="k">if</span> <span class="n">valid_max</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1028" name="__codelineno-0-1028"></a>        <span class="n">result</span><span class="p">[</span><span class="n">result</span> <span class="o">&gt;</span> <span class="n">valid_max</span><span class="p">]</span> <span class="o">=</span> <span class="n">fill_value</span>
+<a id="__codelineno-0-1029" name="__codelineno-0-1029"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8471,8 +8471,7 @@ with <code>fill_value</code>.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/cf.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1031">1031</a></span>
-<span class="normal"><a href="#__codelineno-0-1032">1032</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1032">1032</a></span>
 <span class="normal"><a href="#__codelineno-0-1033">1033</a></span>
 <span class="normal"><a href="#__codelineno-0-1034">1034</a></span>
 <span class="normal"><a href="#__codelineno-0-1035">1035</a></span>
@@ -8514,50 +8513,51 @@ with <code>fill_value</code>.</p>
 <span class="normal"><a href="#__codelineno-0-1071">1071</a></span>
 <span class="normal"><a href="#__codelineno-0-1072">1072</a></span>
 <span class="normal"><a href="#__codelineno-0-1073">1073</a></span>
-<span class="normal"><a href="#__codelineno-0-1074">1074</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1031" name="__codelineno-0-1031"></a><span class="k">def</span><span class="w"> </span><span class="nf">decode_flags</span><span class="p">(</span>
-<a id="__codelineno-0-1032" name="__codelineno-0-1032"></a>    <span class="n">value</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-1033" name="__codelineno-0-1033"></a>    <span class="n">flag_values</span><span class="p">:</span> <span class="nb">list</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1034" name="__codelineno-0-1034"></a>    <span class="n">flag_meanings</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1035" name="__codelineno-0-1035"></a>    <span class="n">flag_masks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1036" name="__codelineno-0-1036"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
-<a id="__codelineno-0-1037" name="__codelineno-0-1037"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Decode a CF flag value to human-readable label(s).</span>
-<a id="__codelineno-0-1038" name="__codelineno-0-1038"></a>
-<a id="__codelineno-0-1039" name="__codelineno-0-1039"></a><span class="sd">    Supports three CF flag modes:</span>
-<a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>
-<a id="__codelineno-0-1041" name="__codelineno-0-1041"></a><span class="sd">    1. **Mutually exclusive** (flag_values + flag_meanings):</span>
-<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a><span class="sd">       Returns the single meaning matching the value.</span>
-<a id="__codelineno-0-1043" name="__codelineno-0-1043"></a><span class="sd">    2. **Boolean / bit-field** (flag_masks + flag_meanings):</span>
-<a id="__codelineno-0-1044" name="__codelineno-0-1044"></a><span class="sd">       Returns a list of meanings for active bits.</span>
-<a id="__codelineno-0-1045" name="__codelineno-0-1045"></a><span class="sd">    3. **Combined** (flag_masks + flag_values + flag_meanings):</span>
-<a id="__codelineno-0-1046" name="__codelineno-0-1046"></a><span class="sd">       Returns meanings where `(value &amp; mask) == flag_value`.</span>
-<a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>
-<a id="__codelineno-0-1048" name="__codelineno-0-1048"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-1049" name="__codelineno-0-1049"></a><span class="sd">        value: The integer flag value to decode.</span>
-<a id="__codelineno-0-1050" name="__codelineno-0-1050"></a><span class="sd">        flag_values: List of possible flag values (1:1 with meanings).</span>
-<a id="__codelineno-0-1051" name="__codelineno-0-1051"></a><span class="sd">        flag_meanings: List of human-readable meaning strings.</span>
-<a id="__codelineno-0-1052" name="__codelineno-0-1052"></a><span class="sd">        flag_masks: List of bit masks for boolean flags.</span>
-<a id="__codelineno-0-1053" name="__codelineno-0-1053"></a>
-<a id="__codelineno-0-1054" name="__codelineno-0-1054"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-1055" name="__codelineno-0-1055"></a><span class="sd">        list[str]: List of matching meaning strings. Returns</span>
-<a id="__codelineno-0-1056" name="__codelineno-0-1056"></a><span class="sd">        `[&quot;unknown&quot;]` if no match or no meanings provided.</span>
-<a id="__codelineno-0-1057" name="__codelineno-0-1057"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1058" name="__codelineno-0-1058"></a>    <span class="n">result</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;unknown&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>
-<a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>    <span class="c1"># A None flag_meanings has no labels to resolve, so keep the [&quot;unknown&quot;]</span>
-<a id="__codelineno-0-1061" name="__codelineno-0-1061"></a>    <span class="c1"># default; every branch below indexes flag_meanings.</span>
-<a id="__codelineno-0-1062" name="__codelineno-0-1062"></a>    <span class="k">if</span> <span class="n">flag_meanings</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1063" name="__codelineno-0-1063"></a>        <span class="k">if</span> <span class="n">flag_masks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">flag_values</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1064" name="__codelineno-0-1064"></a>            <span class="n">matched</span> <span class="o">=</span> <span class="n">_decode_combined</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">flag_values</span><span class="p">,</span> <span class="n">flag_meanings</span><span class="p">,</span> <span class="n">flag_masks</span><span class="p">)</span>
-<a id="__codelineno-0-1065" name="__codelineno-0-1065"></a>        <span class="k">elif</span> <span class="n">flag_masks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1066" name="__codelineno-0-1066"></a>            <span class="n">matched</span> <span class="o">=</span> <span class="n">_decode_bitfield</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">flag_meanings</span><span class="p">,</span> <span class="n">flag_masks</span><span class="p">)</span>
-<a id="__codelineno-0-1067" name="__codelineno-0-1067"></a>        <span class="k">elif</span> <span class="n">flag_values</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1068" name="__codelineno-0-1068"></a>            <span class="n">matched</span> <span class="o">=</span> <span class="n">_decode_exclusive</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">flag_values</span><span class="p">,</span> <span class="n">flag_meanings</span><span class="p">)</span>
-<a id="__codelineno-0-1069" name="__codelineno-0-1069"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-1070" name="__codelineno-0-1070"></a>            <span class="n">matched</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-1071" name="__codelineno-0-1071"></a>        <span class="k">if</span> <span class="n">matched</span><span class="p">:</span>
-<a id="__codelineno-0-1072" name="__codelineno-0-1072"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">matched</span>
-<a id="__codelineno-0-1073" name="__codelineno-0-1073"></a>
-<a id="__codelineno-0-1074" name="__codelineno-0-1074"></a>    <span class="k">return</span> <span class="n">result</span>
+<span class="normal"><a href="#__codelineno-0-1074">1074</a></span>
+<span class="normal"><a href="#__codelineno-0-1075">1075</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1032" name="__codelineno-0-1032"></a><span class="k">def</span><span class="w"> </span><span class="nf">decode_flags</span><span class="p">(</span>
+<a id="__codelineno-0-1033" name="__codelineno-0-1033"></a>    <span class="n">value</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-1034" name="__codelineno-0-1034"></a>    <span class="n">flag_values</span><span class="p">:</span> <span class="nb">list</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1035" name="__codelineno-0-1035"></a>    <span class="n">flag_meanings</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1036" name="__codelineno-0-1036"></a>    <span class="n">flag_masks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1037" name="__codelineno-0-1037"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-1038" name="__codelineno-0-1038"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Decode a CF flag value to human-readable label(s).</span>
+<a id="__codelineno-0-1039" name="__codelineno-0-1039"></a>
+<a id="__codelineno-0-1040" name="__codelineno-0-1040"></a><span class="sd">    Supports three CF flag modes:</span>
+<a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>
+<a id="__codelineno-0-1042" name="__codelineno-0-1042"></a><span class="sd">    1. **Mutually exclusive** (flag_values + flag_meanings):</span>
+<a id="__codelineno-0-1043" name="__codelineno-0-1043"></a><span class="sd">       Returns the single meaning matching the value.</span>
+<a id="__codelineno-0-1044" name="__codelineno-0-1044"></a><span class="sd">    2. **Boolean / bit-field** (flag_masks + flag_meanings):</span>
+<a id="__codelineno-0-1045" name="__codelineno-0-1045"></a><span class="sd">       Returns a list of meanings for active bits.</span>
+<a id="__codelineno-0-1046" name="__codelineno-0-1046"></a><span class="sd">    3. **Combined** (flag_masks + flag_values + flag_meanings):</span>
+<a id="__codelineno-0-1047" name="__codelineno-0-1047"></a><span class="sd">       Returns meanings where `(value &amp; mask) == flag_value`.</span>
+<a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>
+<a id="__codelineno-0-1049" name="__codelineno-0-1049"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-1050" name="__codelineno-0-1050"></a><span class="sd">        value: The integer flag value to decode.</span>
+<a id="__codelineno-0-1051" name="__codelineno-0-1051"></a><span class="sd">        flag_values: List of possible flag values (1:1 with meanings).</span>
+<a id="__codelineno-0-1052" name="__codelineno-0-1052"></a><span class="sd">        flag_meanings: List of human-readable meaning strings.</span>
+<a id="__codelineno-0-1053" name="__codelineno-0-1053"></a><span class="sd">        flag_masks: List of bit masks for boolean flags.</span>
+<a id="__codelineno-0-1054" name="__codelineno-0-1054"></a>
+<a id="__codelineno-0-1055" name="__codelineno-0-1055"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-1056" name="__codelineno-0-1056"></a><span class="sd">        list[str]: List of matching meaning strings. Returns</span>
+<a id="__codelineno-0-1057" name="__codelineno-0-1057"></a><span class="sd">        `[&quot;unknown&quot;]` if no match or no meanings provided.</span>
+<a id="__codelineno-0-1058" name="__codelineno-0-1058"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>    <span class="n">result</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;unknown&quot;</span><span class="p">]</span>
+<a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>
+<a id="__codelineno-0-1061" name="__codelineno-0-1061"></a>    <span class="c1"># A None flag_meanings has no labels to resolve, so keep the [&quot;unknown&quot;]</span>
+<a id="__codelineno-0-1062" name="__codelineno-0-1062"></a>    <span class="c1"># default; every branch below indexes flag_meanings.</span>
+<a id="__codelineno-0-1063" name="__codelineno-0-1063"></a>    <span class="k">if</span> <span class="n">flag_meanings</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1064" name="__codelineno-0-1064"></a>        <span class="k">if</span> <span class="n">flag_masks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">flag_values</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1065" name="__codelineno-0-1065"></a>            <span class="n">matched</span> <span class="o">=</span> <span class="n">_decode_combined</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">flag_values</span><span class="p">,</span> <span class="n">flag_meanings</span><span class="p">,</span> <span class="n">flag_masks</span><span class="p">)</span>
+<a id="__codelineno-0-1066" name="__codelineno-0-1066"></a>        <span class="k">elif</span> <span class="n">flag_masks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1067" name="__codelineno-0-1067"></a>            <span class="n">matched</span> <span class="o">=</span> <span class="n">_decode_bitfield</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">flag_meanings</span><span class="p">,</span> <span class="n">flag_masks</span><span class="p">)</span>
+<a id="__codelineno-0-1068" name="__codelineno-0-1068"></a>        <span class="k">elif</span> <span class="n">flag_values</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1069" name="__codelineno-0-1069"></a>            <span class="n">matched</span> <span class="o">=</span> <span class="n">_decode_exclusive</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">flag_values</span><span class="p">,</span> <span class="n">flag_meanings</span><span class="p">)</span>
+<a id="__codelineno-0-1070" name="__codelineno-0-1070"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-1071" name="__codelineno-0-1071"></a>            <span class="n">matched</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-1072" name="__codelineno-0-1072"></a>        <span class="k">if</span> <span class="n">matched</span><span class="p">:</span>
+<a id="__codelineno-0-1073" name="__codelineno-0-1073"></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">matched</span>
+<a id="__codelineno-0-1074" name="__codelineno-0-1074"></a>
+<a id="__codelineno-0-1075" name="__codelineno-0-1075"></a>    <span class="k">return</span> <span class="n">result</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8677,8 +8677,7 @@ validated.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/netcdf/cf.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1144">1144</a></span>
-<span class="normal"><a href="#__codelineno-0-1145">1145</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1145">1145</a></span>
 <span class="normal"><a href="#__codelineno-0-1146">1146</a></span>
 <span class="normal"><a href="#__codelineno-0-1147">1147</a></span>
 <span class="normal"><a href="#__codelineno-0-1148">1148</a></span>
@@ -8720,50 +8719,51 @@ validated.</p>
 <span class="normal"><a href="#__codelineno-0-1184">1184</a></span>
 <span class="normal"><a href="#__codelineno-0-1185">1185</a></span>
 <span class="normal"><a href="#__codelineno-0-1186">1186</a></span>
-<span class="normal"><a href="#__codelineno-0-1187">1187</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1144" name="__codelineno-0-1144"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_cf</span><span class="p">(</span>
-<a id="__codelineno-0-1145" name="__codelineno-0-1145"></a>    <span class="n">global_attrs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
-<a id="__codelineno-0-1146" name="__codelineno-0-1146"></a>    <span class="n">variables</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
-<a id="__codelineno-0-1147" name="__codelineno-0-1147"></a>    <span class="n">dimensions</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
-<a id="__codelineno-0-1148" name="__codelineno-0-1148"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
-<a id="__codelineno-0-1149" name="__codelineno-0-1149"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Check for common CF compliance issues.</span>
-<a id="__codelineno-0-1150" name="__codelineno-0-1150"></a>
-<a id="__codelineno-0-1151" name="__codelineno-0-1151"></a><span class="sd">    Returns a list of warning/error messages. An empty list means</span>
-<a id="__codelineno-0-1152" name="__codelineno-0-1152"></a><span class="sd">    the dataset passes basic CF checks. This is NOT a full</span>
-<a id="__codelineno-0-1153" name="__codelineno-0-1153"></a><span class="sd">    cfchecker replacement — it covers the most common issues.</span>
-<a id="__codelineno-0-1154" name="__codelineno-0-1154"></a>
-<a id="__codelineno-0-1155" name="__codelineno-0-1155"></a><span class="sd">    Checks:</span>
-<a id="__codelineno-0-1156" name="__codelineno-0-1156"></a><span class="sd">    1. `Conventions` attribute present and contains `&quot;CF-&quot;`</span>
-<a id="__codelineno-0-1157" name="__codelineno-0-1157"></a><span class="sd">    2. Coordinate variables have `units`</span>
-<a id="__codelineno-0-1158" name="__codelineno-0-1158"></a><span class="sd">    3. Time coordinates have `calendar`</span>
-<a id="__codelineno-0-1159" name="__codelineno-0-1159"></a>
-<a id="__codelineno-0-1160" name="__codelineno-0-1160"></a><span class="sd">    Limitation: Only checks dimension-coordinate variables (those</span>
-<a id="__codelineno-0-1161" name="__codelineno-0-1161"></a><span class="sd">    whose name matches a dimension). Auxiliary coordinates referenced</span>
-<a id="__codelineno-0-1162" name="__codelineno-0-1162"></a><span class="sd">    by the `coordinates` attribute on data variables are not</span>
-<a id="__codelineno-0-1163" name="__codelineno-0-1163"></a><span class="sd">    validated.</span>
-<a id="__codelineno-0-1164" name="__codelineno-0-1164"></a>
-<a id="__codelineno-0-1165" name="__codelineno-0-1165"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-1166" name="__codelineno-0-1166"></a><span class="sd">        global_attrs: Root-level attributes dict.</span>
-<a id="__codelineno-0-1167" name="__codelineno-0-1167"></a><span class="sd">        variables: Dict of `{name: VariableInfo}` from metadata.</span>
-<a id="__codelineno-0-1168" name="__codelineno-0-1168"></a><span class="sd">        dimensions: Dict of `{name: DimensionInfo}` from metadata.</span>
-<a id="__codelineno-0-1169" name="__codelineno-0-1169"></a>
-<a id="__codelineno-0-1170" name="__codelineno-0-1170"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-1171" name="__codelineno-0-1171"></a><span class="sd">        List of warning/error strings. Empty if compliant.</span>
-<a id="__codelineno-0-1172" name="__codelineno-0-1172"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1173" name="__codelineno-0-1173"></a>    <span class="n">issues</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-1174" name="__codelineno-0-1174"></a>
-<a id="__codelineno-0-1175" name="__codelineno-0-1175"></a>    <span class="n">conv</span> <span class="o">=</span> <span class="n">global_attrs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;Conventions&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-1176" name="__codelineno-0-1176"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">conv</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;CF-&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">conv</span><span class="p">:</span>
-<a id="__codelineno-0-1177" name="__codelineno-0-1177"></a>        <span class="n">issues</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-<a id="__codelineno-0-1178" name="__codelineno-0-1178"></a>            <span class="s2">&quot;Missing or invalid &#39;Conventions&#39; attribute. Should contain &#39;CF-1.X&#39;.&quot;</span>
-<a id="__codelineno-0-1179" name="__codelineno-0-1179"></a>        <span class="p">)</span>
-<a id="__codelineno-0-1180" name="__codelineno-0-1180"></a>
-<a id="__codelineno-0-1181" name="__codelineno-0-1181"></a>    <span class="n">dim_names</span> <span class="o">=</span> <span class="p">{</span><span class="n">d</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">dimensions</span><span class="o">.</span><span class="n">values</span><span class="p">()}</span>
-<a id="__codelineno-0-1182" name="__codelineno-0-1182"></a>    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">var</span> <span class="ow">in</span> <span class="n">variables</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-<a id="__codelineno-0-1183" name="__codelineno-0-1183"></a>        <span class="n">short</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-1184" name="__codelineno-0-1184"></a>        <span class="k">if</span> <span class="n">short</span> <span class="ow">in</span> <span class="n">dim_names</span><span class="p">:</span>
-<a id="__codelineno-0-1185" name="__codelineno-0-1185"></a>            <span class="n">issues</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">_check_coordinate_variable</span><span class="p">(</span><span class="n">short</span><span class="p">,</span> <span class="n">var</span><span class="p">))</span>
-<a id="__codelineno-0-1186" name="__codelineno-0-1186"></a>
-<a id="__codelineno-0-1187" name="__codelineno-0-1187"></a>    <span class="k">return</span> <span class="n">issues</span>
+<span class="normal"><a href="#__codelineno-0-1187">1187</a></span>
+<span class="normal"><a href="#__codelineno-0-1188">1188</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1145" name="__codelineno-0-1145"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_cf</span><span class="p">(</span>
+<a id="__codelineno-0-1146" name="__codelineno-0-1146"></a>    <span class="n">global_attrs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<a id="__codelineno-0-1147" name="__codelineno-0-1147"></a>    <span class="n">variables</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<a id="__codelineno-0-1148" name="__codelineno-0-1148"></a>    <span class="n">dimensions</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<a id="__codelineno-0-1149" name="__codelineno-0-1149"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-1150" name="__codelineno-0-1150"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Check for common CF compliance issues.</span>
+<a id="__codelineno-0-1151" name="__codelineno-0-1151"></a>
+<a id="__codelineno-0-1152" name="__codelineno-0-1152"></a><span class="sd">    Returns a list of warning/error messages. An empty list means</span>
+<a id="__codelineno-0-1153" name="__codelineno-0-1153"></a><span class="sd">    the dataset passes basic CF checks. This is NOT a full</span>
+<a id="__codelineno-0-1154" name="__codelineno-0-1154"></a><span class="sd">    cfchecker replacement — it covers the most common issues.</span>
+<a id="__codelineno-0-1155" name="__codelineno-0-1155"></a>
+<a id="__codelineno-0-1156" name="__codelineno-0-1156"></a><span class="sd">    Checks:</span>
+<a id="__codelineno-0-1157" name="__codelineno-0-1157"></a><span class="sd">    1. `Conventions` attribute present and contains `&quot;CF-&quot;`</span>
+<a id="__codelineno-0-1158" name="__codelineno-0-1158"></a><span class="sd">    2. Coordinate variables have `units`</span>
+<a id="__codelineno-0-1159" name="__codelineno-0-1159"></a><span class="sd">    3. Time coordinates have `calendar`</span>
+<a id="__codelineno-0-1160" name="__codelineno-0-1160"></a>
+<a id="__codelineno-0-1161" name="__codelineno-0-1161"></a><span class="sd">    Limitation: Only checks dimension-coordinate variables (those</span>
+<a id="__codelineno-0-1162" name="__codelineno-0-1162"></a><span class="sd">    whose name matches a dimension). Auxiliary coordinates referenced</span>
+<a id="__codelineno-0-1163" name="__codelineno-0-1163"></a><span class="sd">    by the `coordinates` attribute on data variables are not</span>
+<a id="__codelineno-0-1164" name="__codelineno-0-1164"></a><span class="sd">    validated.</span>
+<a id="__codelineno-0-1165" name="__codelineno-0-1165"></a>
+<a id="__codelineno-0-1166" name="__codelineno-0-1166"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-1167" name="__codelineno-0-1167"></a><span class="sd">        global_attrs: Root-level attributes dict.</span>
+<a id="__codelineno-0-1168" name="__codelineno-0-1168"></a><span class="sd">        variables: Dict of `{name: VariableInfo}` from metadata.</span>
+<a id="__codelineno-0-1169" name="__codelineno-0-1169"></a><span class="sd">        dimensions: Dict of `{name: DimensionInfo}` from metadata.</span>
+<a id="__codelineno-0-1170" name="__codelineno-0-1170"></a>
+<a id="__codelineno-0-1171" name="__codelineno-0-1171"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-1172" name="__codelineno-0-1172"></a><span class="sd">        List of warning/error strings. Empty if compliant.</span>
+<a id="__codelineno-0-1173" name="__codelineno-0-1173"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1174" name="__codelineno-0-1174"></a>    <span class="n">issues</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-1175" name="__codelineno-0-1175"></a>
+<a id="__codelineno-0-1176" name="__codelineno-0-1176"></a>    <span class="n">conv</span> <span class="o">=</span> <span class="n">global_attrs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;Conventions&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-1177" name="__codelineno-0-1177"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">conv</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;CF-&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">conv</span><span class="p">:</span>
+<a id="__codelineno-0-1178" name="__codelineno-0-1178"></a>        <span class="n">issues</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+<a id="__codelineno-0-1179" name="__codelineno-0-1179"></a>            <span class="s2">&quot;Missing or invalid &#39;Conventions&#39; attribute. Should contain &#39;CF-1.X&#39;.&quot;</span>
+<a id="__codelineno-0-1180" name="__codelineno-0-1180"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1181" name="__codelineno-0-1181"></a>
+<a id="__codelineno-0-1182" name="__codelineno-0-1182"></a>    <span class="n">dim_names</span> <span class="o">=</span> <span class="p">{</span><span class="n">d</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">dimensions</span><span class="o">.</span><span class="n">values</span><span class="p">()}</span>
+<a id="__codelineno-0-1183" name="__codelineno-0-1183"></a>    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">var</span> <span class="ow">in</span> <span class="n">variables</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-0-1184" name="__codelineno-0-1184"></a>        <span class="n">short</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-1185" name="__codelineno-0-1185"></a>        <span class="k">if</span> <span class="n">short</span> <span class="ow">in</span> <span class="n">dim_names</span><span class="p">:</span>
+<a id="__codelineno-0-1186" name="__codelineno-0-1186"></a>            <span class="n">issues</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">_check_coordinate_variable</span><span class="p">(</span><span class="n">short</span><span class="p">,</span> <span class="n">var</span><span class="p">))</span>
+<a id="__codelineno-0-1187" name="__codelineno-0-1187"></a>
+<a id="__codelineno-0-1188" name="__codelineno-0-1188"></a>    <span class="k">return</span> <span class="n">issues</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
