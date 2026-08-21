@@ -1,6 +1,43 @@
 ﻿# Change log
 
 
+## 0.54.0 (2026-08-21)
+
+### BREAKING CHANGE
+
+- Dataset.to_cog(), to_cog_bytes(), and
+DatasetCollection.to_cog_stack() no longer accept the flat COG option
+keyword arguments (compress, level, quality, blocksize, predictor,
+overview_resampling, tiling_scheme, indexes, out_dtype, nodata,
+band_tags, colormap, ...). Pass the grouped cog.* dataclasses instead,
+e.g. ds.to_cog("out.tif", compression="zstd",
+layout=cog.Layout(blocksize=256)).
+
+### Feat
+
+- **feature**: add from_vectortileserver (ArcGIS VectorTileServer reader) (#994)
+
+### Fix
+
+- **netcdf**: geotransform x-spacing + animate no-data/exclude/time labels (#1015)
+- **feature**: stage remote https GeoJSON locally instead of streaming over /vsicurl/ (#1011)
+
+### Refactor
+
+- **plot**: decompose render_array to clear python:S107 and python:S3776 (#1007)
+- **netcdf**: decompose _resolve_curvilinear_coords to clear SonarCloud python:S3776 (#1003)
+- **netcdf**: decompose _cf_coordinates_pair to clear SonarCloud python:S3776 (#1000)
+- **collection**: decompose to_netcdf into TimeAxis + CubeNetCDFWriter (S3776) (#998)
+- **netcdf**: decompose _read_variable to clear SonarCloud python:S3776 (#996)
+- **netcdf**: mirror NetCDF.plot signature on Dataset.plot (#995)
+- **netcdf**: group create_from_array's parameters into typed option dataclasses (#989)
+- **cog**: move grouped-option logic onto the option dataclasses (#988)
+- **cog**: group to_cog's 29 parameters into typed option dataclasses (#986)
+
+### Perf
+
+- **collection**: skip GDAL's per-open directory scan in from_files for sidecar-free folders (#1012)
+
 ## 0.53.0 (2026-08-14)
 
 ### Fix
