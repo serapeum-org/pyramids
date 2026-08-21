@@ -118,7 +118,7 @@ class CubeNetCDFWriter:
             axis, time_dim=time_dim, var_per_band=var_per_band
         )
         with open_streaming_multidim_netcdf(
-            path, dims, coords, var_specs, root_attrs
+            path, dims, coords, var_specs, root_attrs, crs_wkt=root_attrs.get("crs_wkt")
         ) as writer:
             self._stream(writer, dims=dims, var_per_band=var_per_band)
 

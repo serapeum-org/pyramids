@@ -118,18 +118,32 @@ def write_geobox(
         arr.attrs["_ARRAY_DIMENSIONS"] = list(var_dims)
         return arr
 
+    # Local import breaks the pyramids.dataset <-> pyramids.netcdf import cycle
+    # (`pyramids.netcdf` imports `pyramids.dataset.Dataset`).
+    from osgeo import osr
+
+    from pyramids.netcdf.cf import build_coordinate_attrs, srs_to_grid_mapping
+
+    srs = osr.SpatialReference() if crs_wkt else None
+    if srs is not None and srs.ImportFromWkt(crs_wkt) != 0:
+        srs = None
+    is_geographic = None if srs is None else bool(srs.IsGeographic())
+
     x, y = pixel_centre_coords(geotransform, rows, cols)
-    _put("x", x, ["x"])
-    _put("y", y, ["y"])
+    # Stamp CF axis attributes on the coordinate arrays so a CF reader can
+    # georeference the GeoZarr store, mirroring the netCDF writers.
+    _put("x", x, ["x"]).attrs.update(build_coordinate_attrs("x", is_geographic))
+    _put("y", y, ["y"]).attrs.update(build_coordinate_attrs("y", is_geographic))
     sr = _put(GRID_MAPPING_VAR, np.array(int(epsg or 0), dtype="int64"), [])
-    sr.attrs.update(
-        {
-            "crs_wkt": crs_wkt,
-            "spatial_ref": crs_wkt,
-            "GeoTransform": " ".join(str(v) for v in geotransform),
-            "epsg": int(epsg or 0),
-        }
-    )
+    gm_attrs: dict[str, Any] = {
+        "crs_wkt": crs_wkt,
+        "spatial_ref": crs_wkt,
+        "GeoTransform": " ".join(str(v) for v in geotransform),
+        "epsg": int(epsg or 0),
+    }
+    if srs is not None:
+        gm_attrs["grid_mapping_name"] = srs_to_grid_mapping(srs)[0]
+    sr.attrs.update(gm_attrs)
 
     data = group[data_name]
     data.attrs["_ARRAY_DIMENSIONS"] = list(dims)

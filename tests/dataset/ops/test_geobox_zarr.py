@@ -122,6 +122,32 @@ class TestWriteGeobox:
         assert group["x"].attrs["_ARRAY_DIMENSIONS"] == ["x"]
         assert group["y"].attrs["_ARRAY_DIMENSIONS"] == ["y"]
 
+    def test_xy_carry_cf_axis_attrs_and_grid_mapping_name(self, tmp_path):
+        """x/y gain CF axis attributes and spatial_ref gains grid_mapping_name (#1017).
+
+        Test scenario:
+            For a geographic CRS the ``x``/``y`` arrays carry ``axis``/``standard_name``/
+            ``units`` (degrees) and the ``spatial_ref`` scalar carries a CF
+            ``grid_mapping_name``, so a CF reader can georeference the GeoZarr store.
+        """
+        group = self._group_with_data(tmp_path, rows=4, cols=5)
+        write_geobox(
+            group,
+            data_name="data",
+            epsg=4326,
+            geotransform=_GT,
+            crs_wkt=_WKT_4326,
+            rows=4,
+            cols=5,
+            dims=["band", "y", "x"],
+        )
+        assert group["x"].attrs["axis"] == "X"
+        assert group["x"].attrs["standard_name"] == "longitude"
+        assert group["x"].attrs["units"] == "degrees_east"
+        assert group["y"].attrs["axis"] == "Y"
+        assert group["y"].attrs["units"] == "degrees_north"
+        assert group[GRID_MAPPING_VAR].attrs["grid_mapping_name"] == "latitude_longitude"
+
     def test_spatial_ref_attrs_and_value(self, tmp_path):
         """spatial_ref stores WKT + GeoTransform + epsg; value is the epsg.
 
