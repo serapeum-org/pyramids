@@ -286,6 +286,19 @@ class TestDecodeTimeLabels:
         result = nc._decode_time_labels("time", [0, 1, 2])
         assert result is None, f"expected None without units, got {result}"
 
+    def test_returns_none_on_unparseable_units(self):
+        """A present-but-unparseable units string degrades to None, not an error.
+
+        Test scenario:
+            A ``time`` dim whose ``units`` is a non-CF string (no ``since
+            <origin>``) makes ``create_time_conversion_func`` raise; the decoder
+            swallows it and returns None so ``plot(animate=True)`` keeps the raw
+            labels instead of crashing.
+        """
+        nc = _make_nc_with_time_units(n_times=2, units="gregorian")
+        result = nc._decode_time_labels("time", [0, 1])
+        assert result is None, f"expected None on unparseable units, got {result}"
+
     def test_custom_time_format(self):
         """Honours a custom strftime format.
 

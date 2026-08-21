@@ -69,14 +69,22 @@ def _make_dataset_3d(bands=3, rows=10, cols=12, no_data=-9999.0):
     )
 
 
-def _make_nc_with_time_units(rows=4, cols=5, n_times=3):
+def _make_nc_with_time_units(rows=4, cols=5, n_times=3, units="days since 1979-01-01"):
     """Create an MDIM NetCDF with a time dimension that has a 'units' attr.
 
     This is needed to exercise the get_time_variable conversion path.
 
+    Args:
+        rows: Number of latitude rows.
+        cols: Number of longitude columns.
+        n_times: Number of time steps.
+        units: The CF ``units`` string stamped on the time variable. Defaults to
+            ``"days since 1979-01-01"``; pass a non-CF string (e.g. ``"gregorian"``)
+            to exercise the unparseable-units fallback.
+
     Returns:
-        NetCDF: An in-memory NetCDF with a time dimension carrying
-            a ``units`` attribute of ``"days since 1979-01-01"``.
+        NetCDF: An in-memory NetCDF with a time dimension carrying the given
+            ``units`` attribute.
     """
     src = gdal.GetDriverByName("MEM").CreateMultiDimensional("time_test")
     rg = src.GetRootGroup()
@@ -103,7 +111,7 @@ def _make_nc_with_time_units(rows=4, cols=5, n_times=3):
     # Add 'units' attribute to the time variable
     str_dtype = gdal.ExtendedDataType.CreateString()
     units_attr = t_vals.CreateAttribute("units", [], str_dtype)
-    units_attr.Write("days since 1979-01-01")
+    units_attr.Write(units)
 
     # Create a data variable
     data_arr = rg.CreateMDArray("temperature", [dim_t, dim_y, dim_x], dtype)

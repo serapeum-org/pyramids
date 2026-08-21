@@ -4082,7 +4082,9 @@ class NetCDF(Dataset):
 
         Returns:
             list[str] or None: One formatted string per value, or ``None`` when no
-            parseable ``units`` attribute is available on this cube or its parent.
+            parseable ``units`` attribute is available on this cube or its parent
+            (including a present-but-unparseable one — a non-CF ``units`` string
+            degrades to raw labels rather than raising out of a plot).
         """
         labels: list[str] | None = None
         for owner in (self, getattr(self, "_parent_nc", None)):
@@ -4095,8 +4097,20 @@ class NetCDF(Dataset):
             if units is None:
                 continue
             calendar = time_dim.attrs.get("calendar", "standard")
-            func = create_time_conversion_func(units, time_format, calendar=calendar)
-            labels = [func(value) for value in raw_values]
+            try:
+                func = create_time_conversion_func(
+                    units, time_format, calendar=calendar
+                )
+                labels = [func(value) for value in raw_values]
+            except Exception:
+                # A present-but-non-CF `units` (e.g. "gregorian", or "days" with no
+                # "since <origin>") cannot be parsed into a time origin;
+                # `create_time_conversion_func` / cftime raise on it. This is a
+                # display-label nicety, so degrade to the raw labels (return None)
+                # instead of crashing the plot — honouring the "returns None"
+                # contract and matching the pre-#1013 subset behaviour.
+                labels = None
+                continue
             break
         return labels
 
