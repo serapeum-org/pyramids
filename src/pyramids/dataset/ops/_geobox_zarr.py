@@ -128,8 +128,8 @@ def write_geobox(
     # (`pyramids.netcdf` imports `pyramids.dataset.Dataset`).
     from pyramids.netcdf.cf import (
         build_coordinate_attrs,
+        grid_mapping_var_attrs,
         srs_from_wkt,
-        srs_to_grid_mapping,
     )
 
     srs = srs_from_wkt(crs_wkt)
@@ -148,15 +148,9 @@ def write_geobox(
         "epsg": int(epsg or 0),
     }
     if srs is not None:
-        gm_name, gm_params = srs_to_grid_mapping(srs)
-        # Only assert `grid_mapping_name` when the projection was actually recognized:
-        # `srs_to_grid_mapping` returns the "latitude_longitude" fallback for a projected
-        # CRS outside its CF table, which would mislabel a metre grid as lon/lat. Then
-        # carry the full CF projection params (false_easting, ellipsoid, ...) so a
-        # WKT-agnostic CF reader can reconstruct the projection.
-        if not (srs.IsProjected() and gm_name == "latitude_longitude"):
-            gm_attrs["grid_mapping_name"] = gm_name
-            gm_attrs.update({k: v for k, v in gm_params.items() if k not in gm_attrs})
+        gm_attrs.update(
+            {k: v for k, v in grid_mapping_var_attrs(srs).items() if k not in gm_attrs}
+        )
     sr.attrs.update(gm_attrs)
 
     data = group[data_name]

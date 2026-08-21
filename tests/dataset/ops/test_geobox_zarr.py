@@ -76,6 +76,19 @@ class TestWriteGeobox:
         group.create_array("data", data=np.zeros((bands, rows, cols), dtype="float32"))
         return group
 
+    def _write(self, group, *, epsg, crs_wkt):
+        """Write the shared 4x5 / ``_GT`` / band-y-x geobox onto ``group``."""
+        write_geobox(
+            group,
+            data_name="data",
+            epsg=epsg,
+            geotransform=_GT,
+            crs_wkt=crs_wkt,
+            rows=4,
+            cols=5,
+            dims=["band", "y", "x"],
+        )
+
     def test_creates_spatial_ref_and_xy(self, tmp_path):
         """write_geobox adds spatial_ref + x/y arrays alongside data.
 
@@ -131,16 +144,7 @@ class TestWriteGeobox:
             ``grid_mapping_name``, so a CF reader can georeference the GeoZarr store.
         """
         group = self._group_with_data(tmp_path, rows=4, cols=5)
-        write_geobox(
-            group,
-            data_name="data",
-            epsg=4326,
-            geotransform=_GT,
-            crs_wkt=_WKT_4326,
-            rows=4,
-            cols=5,
-            dims=["band", "y", "x"],
-        )
+        self._write(group, epsg=4326, crs_wkt=_WKT_4326)
         assert group["x"].attrs["axis"] == "X"
         assert group["x"].attrs["standard_name"] == "longitude"
         assert group["x"].attrs["units"] == "degrees_east"
@@ -158,16 +162,7 @@ class TestWriteGeobox:
             role but no fabricated `units`, and no `grid_mapping_name` is written.
         """
         group = self._group_with_data(tmp_path, rows=4, cols=5)
-        write_geobox(
-            group,
-            data_name="data",
-            epsg=0,
-            geotransform=_GT,
-            crs_wkt="not a wkt",
-            rows=4,
-            cols=5,
-            dims=["band", "y", "x"],
-        )
+        self._write(group, epsg=0, crs_wkt="not a wkt")
         assert group["x"].attrs["axis"] == "X"
         assert "units" not in group["x"].attrs, "no CRS should not fabricate units"
         assert "grid_mapping_name" not in group[GRID_MAPPING_VAR].attrs
@@ -185,16 +180,7 @@ class TestWriteGeobox:
         srs = osr.SpatialReference()
         srs.ImportFromEPSG(32632)
         group = self._group_with_data(tmp_path, rows=4, cols=5)
-        write_geobox(
-            group,
-            data_name="data",
-            epsg=32632,
-            geotransform=_GT,
-            crs_wkt=srs.ExportToWkt(),
-            rows=4,
-            cols=5,
-            dims=["band", "y", "x"],
-        )
+        self._write(group, epsg=32632, crs_wkt=srs.ExportToWkt())
         sr = dict(group[GRID_MAPPING_VAR].attrs)
         assert sr["grid_mapping_name"] == "transverse_mercator", sr.get(
             "grid_mapping_name"
@@ -217,16 +203,7 @@ class TestWriteGeobox:
             "+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
         )
         group = self._group_with_data(tmp_path, rows=4, cols=5)
-        write_geobox(
-            group,
-            data_name="data",
-            epsg=0,
-            geotransform=_GT,
-            crs_wkt=srs.ExportToWkt(),
-            rows=4,
-            cols=5,
-            dims=["band", "y", "x"],
-        )
+        self._write(group, epsg=0, crs_wkt=srs.ExportToWkt())
         sr = dict(group[GRID_MAPPING_VAR].attrs)
         assert sr.get("grid_mapping_name") != "latitude_longitude", (
             "a projected CRS must not be mislabeled as a lon/lat grid mapping"

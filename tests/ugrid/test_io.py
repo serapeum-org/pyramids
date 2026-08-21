@@ -241,6 +241,20 @@ class TestWriteUgridTopology:
         rg2 = ds2.GetRootGroup()
         return nc_path, rg2
 
+    @staticmethod
+    def _tri_mesh():
+        """A single-triangle Mesh2d shared by the write tests."""
+        return Mesh2d(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=Connectivity(
+                data=np.array([[0, 1, 2]], dtype=np.intp),
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
+            ),
+        )
+
     def test_writes_topology_variable_with_cf_role(self, tmp_path):
         """Test that the topology variable has cf_role=mesh_topology.
 
@@ -305,16 +319,7 @@ class TestWriteUgridTopology:
 
         srs = osr.SpatialReference()
         srs.ImportFromEPSG(4326)
-        mesh = Mesh2d(
-            node_x=np.array([0.0, 1.0, 0.5]),
-            node_y=np.array([0.0, 0.0, 1.0]),
-            face_node_connectivity=Connectivity(
-                data=np.array([[0, 1, 2]], dtype=np.intp),
-                fill_value=-1,
-                cf_role="face_node_connectivity",
-                original_start_index=0,
-            ),
-        )
+        mesh = self._tri_mesh()
         _, rg = self._write_and_reopen(tmp_path, mesh, crs_wkt=srs.ExportToWkt())
         node_x = rg.OpenMDArray("mesh2d_node_x")
         assert node_x.GetUnit() == "degrees_east", node_x.GetUnit()
@@ -339,16 +344,7 @@ class TestWriteUgridTopology:
 
         srs = osr.SpatialReference()
         srs.ImportFromEPSG(32632)
-        mesh = Mesh2d(
-            node_x=np.array([0.0, 1.0, 0.5]),
-            node_y=np.array([0.0, 0.0, 1.0]),
-            face_node_connectivity=Connectivity(
-                data=np.array([[0, 1, 2]], dtype=np.intp),
-                fill_value=-1,
-                cf_role="face_node_connectivity",
-                original_start_index=0,
-            ),
-        )
+        mesh = self._tri_mesh()
         _, rg = self._write_and_reopen(tmp_path, mesh, crs_wkt=srs.ExportToWkt())
         node_x = rg.OpenMDArray("mesh2d_node_x")
         assert node_x.GetUnit() == "m", node_x.GetUnit()

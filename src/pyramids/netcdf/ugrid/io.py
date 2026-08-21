@@ -19,8 +19,8 @@ from pyramids.netcdf._mdim import open_mdarray
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     grid_mapping_to_srs,
+    grid_mapping_var_attrs,
     srs_from_wkt,
-    srs_to_grid_mapping,
     write_attributes_to_md_array,
 )
 from pyramids.netcdf.ugrid.connectivity import Connectivity
@@ -558,14 +558,12 @@ def _write_crs_variable(
     attrs: dict[str, Any] = {"crs_wkt": crs_wkt, "spatial_ref": crs_wkt}
     srs = srs_from_wkt(crs_wkt)
     if srs is not None:
-        gm_name, gm_params = srs_to_grid_mapping(srs)
-        # A CF grid_mapping variable is identified by its `grid_mapping_name`; a reader
-        # keys off it, so a bare `crs_wkt`-only variable is not fully CF-discoverable.
-        # Skip the name for a projected CRS outside cf's table (the "latitude_longitude"
-        # fallback would mislabel a metre grid), and carry the full CF projection params.
-        if not (srs.IsProjected() and gm_name == "latitude_longitude"):
-            attrs["grid_mapping_name"] = gm_name
-            attrs.update({k: v for k, v in gm_params.items() if k not in attrs})
+        # A CF grid_mapping variable is identified by its `grid_mapping_name` (+ params);
+        # `grid_mapping_var_attrs` returns those for a recognized projection and {} for a
+        # projected CRS outside cf's table (avoiding the mislabelling lon/lat fallback).
+        attrs.update(
+            {k: v for k, v in grid_mapping_var_attrs(srs).items() if k not in attrs}
+        )
     write_attributes_to_md_array(crs_arr, attrs)
 
 

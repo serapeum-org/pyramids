@@ -273,6 +273,30 @@ def srs_to_grid_mapping(
     return grid_mapping_name, params
 
 
+def grid_mapping_var_attrs(srs: osr.SpatialReference) -> dict[str, Any]:
+    """CF grid-mapping variable attributes for a CRS (``grid_mapping_name`` + params).
+
+    Wraps :func:`srs_to_grid_mapping` for the hand-rolled grid-mapping writers (GeoZarr and
+    UGRID): returns ``{"grid_mapping_name": ..., <CF params incl crs_wkt>}`` when the
+    projection is recognized (or the CRS is geographic), and an empty dict for a *projected*
+    CRS outside the CF table — where ``srs_to_grid_mapping`` falls back to
+    ``"latitude_longitude"`` and stamping it would mislabel a metre grid as lon/lat. The
+    caller merges these onto its grid-mapping variable without overwriting attributes it
+    already set (e.g. ``crs_wkt``).
+
+    Args:
+        srs: An OGR SpatialReference.
+
+    Returns:
+        dict: The grid-mapping attributes to merge, or ``{}`` for an unrecognized
+        projected CRS.
+    """
+    gm_name, gm_params = srs_to_grid_mapping(srs)
+    if srs.IsProjected() and gm_name == "latitude_longitude":
+        return {}
+    return {"grid_mapping_name": gm_name, **gm_params}
+
+
 def _extract_proj_params(srs: osr.SpatialReference, proj_name: str) -> dict[str, Any]:
     """Extract CF projection parameters from an OGR SpatialReference.
 
