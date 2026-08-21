@@ -473,7 +473,13 @@ def _srs_from_wkt(crs_wkt: str | None) -> osr.SpatialReference | None:
     if not crs_wkt:
         return None
     srs = osr.SpatialReference()
-    return srs if srs.ImportFromWkt(crs_wkt) == 0 else None
+    try:
+        parsed = srs.ImportFromWkt(crs_wkt) == 0
+    except RuntimeError:
+        # A malformed WKT (GDAL raises when osr exceptions are on, else returns
+        # non-zero) degrades to no CRS rather than crashing the write.
+        return None
+    return srs if parsed else None
 
 
 def _cf_coord_attrs(

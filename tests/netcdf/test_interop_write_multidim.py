@@ -630,3 +630,147 @@ class TestCreateCopyToNetcdf:
         target = str(tmp_path / "x.nc")
         with pytest.raises(RuntimeError, match="Failed to write NetCDF"):
             _create_copy_to_netcdf(mem, target)
+
+
+class TestCfCoordinateHelpers:
+    """Unit tests for the CF-coordinate / grid_mapping helpers (#1017)."""
+
+    @staticmethod
+    def _srs(epsg):
+        """Build an OGR SpatialReference for ``epsg``."""
+        from osgeo import osr
+
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(epsg)
+        return srs
+
+    @pytest.mark.parametrize("wkt", [None, ""])
+    def test_srs_from_wkt_absent_returns_none(self, wkt):
+        """A falsy WKT yields None (no CRS to inject).
+
+        Args:
+            wkt: The falsy input (None or empty string).
+
+        Test scenario:
+            `_srs_from_wkt` returns None so the writers skip CF injection.
+        """
+        assert interop._srs_from_wkt(wkt) is None, f"expected None for {wkt!r}"
+
+    def test_srs_from_wkt_invalid_returns_none(self):
+        """An unparseable WKT string yields None rather than raising.
+
+        Test scenario:
+            `ImportFromWkt` fails, so the helper returns None (defensive).
+        """
+        assert interop._srs_from_wkt("not a wkt") is None
+
+    def test_srs_from_wkt_valid(self):
+        """A valid WKT parses to a usable SpatialReference.
+
+        Test scenario:
+            A WGS84 WKT round-trips to a geographic SpatialReference.
+        """
+        out = interop._srs_from_wkt(self._srs(4326).ExportToWkt())
+        assert out is not None and out.IsGeographic(), "expected a geographic SRS"
+
+    def test_cf_coord_attrs_geographic_x(self):
+        """A geographic x axis gets degrees_east / longitude / X.
+
+        Test scenario:
+            `_cf_coord_attrs('x', ...)` with a geographic SRS.
+        """
+        attrs = interop._cf_coord_attrs("x", {}, {}, self._srs(4326))
+        assert attrs["units"] == "degrees_east", attrs
+        assert attrs["standard_name"] == "longitude"
+        assert attrs["axis"] == "X"
+
+    def test_cf_coord_attrs_projected_y(self):
+        """A projected y axis gets m / projection_y_coordinate / Y.
+
+        Test scenario:
+            `_cf_coord_attrs('y', ...)` with a projected SRS.
+        """
+        attrs = interop._cf_coord_attrs("y", {}, {}, self._srs(32632))
+        assert attrs["units"] == "m", attrs
+        assert attrs["standard_name"] == "projection_y_coordinate"
+
+    def test_cf_coord_attrs_no_crs_is_axis_only(self):
+        """Without a CRS a spatial axis gets only ``axis`` (no fabricated units).
+
+        Test scenario:
+            `_cf_coord_attrs('x', ..., srs=None)` writes `axis=X` and no `units`.
+        """
+        attrs = interop._cf_coord_attrs("x", {}, {}, None)
+        assert attrs["axis"] == "X" and "units" not in attrs, attrs
+
+    def test_cf_coord_attrs_non_spatial_untouched(self):
+        """A non-spatial coordinate keeps only the caller's attributes.
+
+        Test scenario:
+            `_cf_coord_attrs('band', {'foo': 'bar'}, ...)` injects nothing.
+        """
+        out = interop._cf_coord_attrs("band", {"foo": "bar"}, {}, None)
+        assert out == {"foo": "bar"}, out
+
+    def test_cf_coord_attrs_caller_and_temporal_win(self):
+        """Caller attributes and the temporal encoding win over the CF defaults.
+
+        Test scenario:
+            A caller `long_name` and a temporal `units` override the CF defaults
+            while the `axis` role is still added.
+        """
+        out = interop._cf_coord_attrs("x", {"long_name": "custom"}, {"units": "special"}, None)
+        assert out["long_name"] == "custom", out
+        assert out["units"] == "special"
+        assert out["axis"] == "X"
+
+    @pytest.mark.parametrize(
+        "name, expected_nonempty",
+        [("x", True), ("lon", True), ("y", True), ("time", True), ("band", False), ("z", False)],
+    )
+    def test_dim_type(self, name, expected_nonempty):
+        """Spatial/temporal names map to a GDAL dimension type; others map to ``""``.
+
+        Args:
+            name: The dimension name.
+            expected_nonempty: Whether a non-empty type is expected.
+
+        Test scenario:
+            x/lon/y/time are typed; band/z are not.
+        """
+        assert bool(interop._dim_type(name)) is expected_nonempty, name
+
+    def test_crs_wkt_from_xarray_global_attr(self):
+        """The CRS is read from a `crs_wkt` global attribute.
+
+        Test scenario:
+            An xarray dataset with only a `crs_wkt` attr resolves that WKT.
+        """
+        xr = pytest.importorskip("xarray")
+        wkt = self._srs(4326).ExportToWkt()
+        ds = xr.Dataset({"t": (("y", "x"), np.zeros((2, 2)))}, attrs={"crs_wkt": wkt})
+        assert interop._crs_wkt_from_xarray(ds) == wkt
+
+    def test_crs_wkt_from_xarray_spatial_ref_var(self):
+        """The CRS is read from a `spatial_ref` variable's `crs_wkt` attribute.
+
+        Test scenario:
+            An xarray dataset carrying a `spatial_ref` scalar with `crs_wkt`.
+        """
+        xr = pytest.importorskip("xarray")
+        wkt = self._srs(4326).ExportToWkt()
+        ds = xr.Dataset(
+            {"t": (("y", "x"), np.zeros((2, 2)))},
+            coords={"spatial_ref": ((), 0, {"crs_wkt": wkt})},
+        )
+        assert interop._crs_wkt_from_xarray(ds) == wkt
+
+    def test_crs_wkt_from_xarray_none_when_absent(self):
+        """A dataset with no CRS anywhere yields None.
+
+        Test scenario:
+            A bare xarray dataset resolves to None (from_xarray never fabricates one).
+        """
+        xr = pytest.importorskip("xarray")
+        ds = xr.Dataset({"t": (("y", "x"), np.zeros((2, 2)))})
+        assert interop._crs_wkt_from_xarray(ds) is None
