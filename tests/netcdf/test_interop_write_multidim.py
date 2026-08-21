@@ -654,7 +654,7 @@ class TestCfCoordinateHelpers:
         Test scenario:
             `_srs_from_wkt` returns None so the writers skip CF injection.
         """
-        assert interop._srs_from_wkt(wkt) is None, f"expected None for {wkt!r}"
+        assert interop.srs_from_wkt(wkt) is None, f"expected None for {wkt!r}"
 
     def test_srs_from_wkt_invalid_returns_none(self):
         """An unparseable WKT string yields None rather than raising.
@@ -662,7 +662,7 @@ class TestCfCoordinateHelpers:
         Test scenario:
             `ImportFromWkt` fails, so the helper returns None (defensive).
         """
-        assert interop._srs_from_wkt("not a wkt") is None
+        assert interop.srs_from_wkt("not a wkt") is None
 
     def test_srs_from_wkt_valid(self):
         """A valid WKT parses to a usable SpatialReference.
@@ -670,7 +670,7 @@ class TestCfCoordinateHelpers:
         Test scenario:
             A WGS84 WKT round-trips to a geographic SpatialReference.
         """
-        out = interop._srs_from_wkt(self._srs(4326).ExportToWkt())
+        out = interop.srs_from_wkt(self._srs(4326).ExportToWkt())
         assert out is not None and out.IsGeographic(), "expected a geographic SRS"
 
     def test_cf_coord_attrs_geographic_x(self):

@@ -125,13 +125,13 @@ def write_geobox(
 
     # Local import breaks the pyramids.dataset <-> pyramids.netcdf import cycle
     # (`pyramids.netcdf` imports `pyramids.dataset.Dataset`).
-    from osgeo import osr
+    from pyramids.netcdf.cf import (
+        build_coordinate_attrs,
+        srs_from_wkt,
+        srs_to_grid_mapping,
+    )
 
-    from pyramids.netcdf.cf import build_coordinate_attrs, srs_to_grid_mapping
-
-    srs = osr.SpatialReference() if crs_wkt else None
-    if srs is not None and srs.ImportFromWkt(crs_wkt) != 0:
-        srs = None
+    srs = srs_from_wkt(crs_wkt)
     is_geographic = None if srs is None else bool(srs.IsGeographic())
 
     x, y = pixel_centre_coords(geotransform, rows, cols)

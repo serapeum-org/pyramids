@@ -13,12 +13,13 @@ from __future__ import annotations
 from typing import Any, cast
 
 import numpy as np
-from osgeo import gdal, osr
+from osgeo import gdal
 
 from pyramids.netcdf._mdim import open_mdarray
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     grid_mapping_to_srs,
+    srs_from_wkt,
     srs_to_grid_mapping,
     write_attributes_to_md_array,
 )
@@ -462,11 +463,8 @@ def write_ugrid_topology(
     write_attributes_to_md_array(topo_arr, topo_attrs)
     topo_arr.Write(np.array([0], dtype=np.int32))
 
-    is_geographic: bool | None = None
-    if crs_wkt is not None:
-        _srs = osr.SpatialReference()
-        if _srs.ImportFromWkt(crs_wkt) == 0:
-            is_geographic = bool(_srs.IsGeographic())
+    _srs = srs_from_wkt(crs_wkt)
+    is_geographic: bool | None = None if _srs is None else bool(_srs.IsGeographic())
 
     _write_coord_array(
         rg, f"{mesh_name}_node_x", [n_node_dim], mesh.node_x,
@@ -547,8 +545,8 @@ def _write_crs_variable(
     )
     crs_arr.Write(np.array([0], dtype=np.int32))
     attrs: dict[str, Any] = {"crs_wkt": crs_wkt, "spatial_ref": crs_wkt}
-    srs = osr.SpatialReference()
-    if srs.ImportFromWkt(crs_wkt) == 0:
+    srs = srs_from_wkt(crs_wkt)
+    if srs is not None:
         # A CF grid_mapping variable is identified by its `grid_mapping_name`; a reader
         # keys off it, so a bare `crs_wkt`-only variable is not fully CF-discoverable.
         attrs["grid_mapping_name"] = srs_to_grid_mapping(srs)[0]
@@ -562,7 +560,7 @@ def _write_coord_array(
     data: np.ndarray,
     *,
     axis: str | None = None,
-    is_geographic: bool | None = True,
+    is_geographic: bool | None = None,
 ) -> None:
     """Write a coordinate array to the GDAL group.
 

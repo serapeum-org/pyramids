@@ -148,6 +148,28 @@ class TestWriteGeobox:
         assert group["y"].attrs["units"] == "degrees_north"
         assert group[GRID_MAPPING_VAR].attrs["grid_mapping_name"] == "latitude_longitude"
 
+    def test_malformed_crs_wkt_degrades_without_crashing(self, tmp_path):
+        """An unparseable crs_wkt degrades to axis-only coords instead of raising (L1).
+
+        Test scenario:
+            `write_geobox` with a malformed `crs_wkt` completes; x/y get the CF `axis`
+            role but no fabricated `units`, and no `grid_mapping_name` is written.
+        """
+        group = self._group_with_data(tmp_path, rows=4, cols=5)
+        write_geobox(
+            group,
+            data_name="data",
+            epsg=0,
+            geotransform=_GT,
+            crs_wkt="not a wkt",
+            rows=4,
+            cols=5,
+            dims=["band", "y", "x"],
+        )
+        assert group["x"].attrs["axis"] == "X"
+        assert "units" not in group["x"].attrs, "no CRS should not fabricate units"
+        assert "grid_mapping_name" not in group[GRID_MAPPING_VAR].attrs
+
     def test_spatial_ref_attrs_and_value(self, tmp_path):
         """spatial_ref stores WKT + GeoTransform + epsg; value is the epsg.
 

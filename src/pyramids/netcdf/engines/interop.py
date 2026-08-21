@@ -30,6 +30,7 @@ from pyramids.netcdf._lazy import build_lazy_array
 from pyramids.netcdf._mdim import strip_netcdf_subdataset_prefix
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
+    srs_from_wkt,
     write_attributes_to_md_array,
     write_global_attributes,
 )
@@ -460,28 +461,6 @@ def _dim_type(name: str) -> str:
     return ""
 
 
-def _srs_from_wkt(crs_wkt: str | None) -> osr.SpatialReference | None:
-    """Build an OGR SpatialReference from a WKT string, or None when absent/invalid.
-
-    Args:
-        crs_wkt: A CRS WKT string, or None when the caller has no CRS.
-
-    Returns:
-        osr.SpatialReference or None: The parsed reference, or None when ``crs_wkt`` is
-        falsy or does not parse.
-    """
-    if not crs_wkt:
-        return None
-    srs = osr.SpatialReference()
-    try:
-        parsed = srs.ImportFromWkt(crs_wkt) == 0
-    except RuntimeError:
-        # A malformed WKT (GDAL raises when osr exceptions are on, else returns
-        # non-zero) degrades to no CRS rather than crashing the write.
-        return None
-    return srs if parsed else None
-
-
 def _cf_coord_attrs(
     coord_name: str,
     coord_attrs: dict[str, Any],
@@ -523,8 +502,10 @@ def _apply_grid_mapping(
     """Attach the CRS to each data MDArray so GDAL emits a CF ``grid_mapping`` variable.
 
     Calling ``SetSpatialRef`` on a data MDArray makes GDAL's netCDF writer auto-generate a
-    scalar CF ``grid_mapping`` variable (named ``crs``, carrying ``grid_mapping_name`` +
-    ``crs_wkt`` + the projection params) and link the data variable to it via
+    scalar CF ``grid_mapping`` variable (named by GDAL from the projection — ``crs`` for
+    geographic, e.g. ``transverse_mercator`` for a projected CRS — carrying
+    ``grid_mapping_name`` + ``crs_wkt`` + the projection params) and link the data
+    variable to it via
     ``<var>#grid_mapping`` — the same mechanism ``create_from_array`` uses on the netCDF driver.
     The generated variable is hidden from the multidim array listing, so it never leaks into
     ``get_variable_names`` / ``variables``, and the CRS round-trips (``MDArray.GetSpatialRef``).
@@ -554,7 +535,8 @@ def _build_multidim(
     CF-encoded on the way in and attributes go through pyramids' own CF helpers.
 
     When `crs_wkt` is given, the x/y coordinates gain CF `axis`/`standard_name`/`units`
-    attributes and a scalar `spatial_ref` grid-mapping variable is written and linked
+    attributes and a scalar CF grid-mapping variable (`crs` / `transverse_mercator` /
+    ..., named by GDAL from the projection) is written and linked
     from every data variable, so the file is georeferenceable by a CF reader (Panoply,
     QGIS, xarray); without it the coordinates keep only the caller's attributes.
 
@@ -579,7 +561,7 @@ def _build_multidim(
     """
     src = gdal.GetDriverByName("MEM").CreateMultiDimensional("pyramids")
     root = src.GetRootGroup()
-    srs = _srs_from_wkt(crs_wkt)
+    srs = srs_from_wkt(crs_wkt)
 
     gdal_dims: dict[str, gdal.Dimension] = {
         name: root.CreateDimension(name, _dim_type(name), "", int(size))
@@ -799,7 +781,8 @@ def _build_streaming_multidim(
     what lets the netCDF driver flush and unlock the file.
 
     When `crs_wkt` is given, the x/y coordinates gain CF `axis`/`standard_name`/`units`
-    attributes and a scalar `spatial_ref` grid-mapping variable is written and linked
+    attributes and a scalar CF grid-mapping variable (`crs` / `transverse_mercator` /
+    ..., named by GDAL from the projection) is written and linked
     from every data variable, so a CF reader can georeference the streamed file.
 
     Args:
@@ -822,7 +805,7 @@ def _build_streaming_multidim(
             coordinate array shape does not match its dimension size.
     """
     root = dataset.GetRootGroup()
-    srs = _srs_from_wkt(crs_wkt)
+    srs = srs_from_wkt(crs_wkt)
     gdal_dims: dict[str, gdal.Dimension] = {
         name: root.CreateDimension(name, _dim_type(name), "", int(size))
         for name, size in dims.items()
