@@ -662,7 +662,9 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
         for name, var in dataset.data_vars.items()
         if not (name in skip and var.ndim == 0)
     }
-    return _build_multidim(dims, coords, data_vars, dict(dataset.attrs), crs_wkt=crs_wkt)
+    return _build_multidim(
+        dims, coords, data_vars, dict(dataset.attrs), crs_wkt=crs_wkt
+    )
 
 
 def _create_copy_to_netcdf(mem_src: gdal.Dataset, path: str) -> None:

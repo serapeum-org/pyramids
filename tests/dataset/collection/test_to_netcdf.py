@@ -1061,7 +1061,9 @@ class TestToNetcdfCfCoordinates:
         md = self._classic_md(out)
         gm = md.get("Band_1#grid_mapping")
         assert gm, f"data variable should reference a grid_mapping var: {md}"
-        assert md.get(f"{gm}#grid_mapping_name"), "grid_mapping var lacks grid_mapping_name"
+        assert md.get(f"{gm}#grid_mapping_name"), (
+            "grid_mapping var lacks grid_mapping_name"
+        )
         assert md.get(f"{gm}#crs_wkt"), "grid_mapping var lacks crs_wkt"
 
     def test_grid_mapping_var_not_exposed_and_crs_round_trips(self, tmp_path):

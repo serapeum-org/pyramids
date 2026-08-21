@@ -2847,7 +2847,11 @@ class NetCDF(Dataset):
         root_attrs = self._stream_root_attrs(template)
 
         with _interop.open_streaming_multidim_netcdf(
-            str(path), dims, coords, var_specs, root_attrs,
+            str(path),
+            dims,
+            coords,
+            var_specs,
+            root_attrs,
             crs_wkt=root_attrs.get("crs_wkt"),
         ) as writer:
             for name in spatial_vars:

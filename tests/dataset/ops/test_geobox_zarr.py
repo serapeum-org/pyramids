@@ -146,7 +146,9 @@ class TestWriteGeobox:
         assert group["x"].attrs["units"] == "degrees_east"
         assert group["y"].attrs["axis"] == "Y"
         assert group["y"].attrs["units"] == "degrees_north"
-        assert group[GRID_MAPPING_VAR].attrs["grid_mapping_name"] == "latitude_longitude"
+        assert (
+            group[GRID_MAPPING_VAR].attrs["grid_mapping_name"] == "latitude_longitude"
+        )
 
     def test_malformed_crs_wkt_degrades_without_crashing(self, tmp_path):
         """An unparseable crs_wkt degrades to axis-only coords instead of raising (L1).
@@ -194,7 +196,9 @@ class TestWriteGeobox:
             dims=["band", "y", "x"],
         )
         sr = dict(group[GRID_MAPPING_VAR].attrs)
-        assert sr["grid_mapping_name"] == "transverse_mercator", sr.get("grid_mapping_name")
+        assert sr["grid_mapping_name"] == "transverse_mercator", sr.get(
+            "grid_mapping_name"
+        )
         assert "false_easting" in sr, sr
         assert "latitude_of_projection_origin" in sr, sr
 
@@ -209,7 +213,9 @@ class TestWriteGeobox:
         from osgeo import osr
 
         srs = osr.SpatialReference()
-        srs.ImportFromProj4("+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")
+        srs.ImportFromProj4(
+            "+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
+        )
         group = self._group_with_data(tmp_path, rows=4, cols=5)
         write_geobox(
             group,

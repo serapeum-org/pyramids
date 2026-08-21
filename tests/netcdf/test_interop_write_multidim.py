@@ -721,7 +721,9 @@ class TestCfCoordinateHelpers:
             A caller `long_name` and a temporal `units` override the CF defaults
             while the `axis` role is still added.
         """
-        out = interop._cf_coord_attrs("x", {"long_name": "custom"}, {"units": "special"}, None)
+        out = interop._cf_coord_attrs(
+            "x", {"long_name": "custom"}, {"units": "special"}, None
+        )
         assert out["long_name"] == "custom", out
         assert out["units"] == "special"
         assert out["axis"] == "X"

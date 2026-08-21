@@ -467,12 +467,20 @@ def write_ugrid_topology(
     is_geographic: bool | None = None if _srs is None else bool(_srs.IsGeographic())
 
     _write_coord_array(
-        rg, f"{mesh_name}_node_x", [n_node_dim], mesh.node_x,
-        axis="x", is_geographic=is_geographic,
+        rg,
+        f"{mesh_name}_node_x",
+        [n_node_dim],
+        mesh.node_x,
+        axis="x",
+        is_geographic=is_geographic,
     )
     _write_coord_array(
-        rg, f"{mesh_name}_node_y", [n_node_dim], mesh.node_y,
-        axis="y", is_geographic=is_geographic,
+        rg,
+        f"{mesh_name}_node_y",
+        [n_node_dim],
+        mesh.node_y,
+        axis="y",
+        is_geographic=is_geographic,
     )
 
     _write_connectivity_array(
