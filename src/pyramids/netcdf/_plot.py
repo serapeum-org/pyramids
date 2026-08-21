@@ -1407,11 +1407,11 @@ class NetCDFPlot:
             # dimension metadata — the reason the labels were the raw encoded integers
             # (#1013). cleopatra's animate label is `str(label)[:10]`, so a decoded
             # "1979-01-01" renders correctly while a raw int is truncated mid-number.
-            decoded = (
-                nc._decode_time_labels(animate_dim, list(dim_values_raw))
-                if animate_dim.lower() in ("time", "valid_time", "t")
-                else None
-            )
+            # Try to decode any axis (not just names like "time"): `_decode_time_labels`
+            # returns the dates when the dim resolves a parseable CF time `units` — so
+            # model axes such as `time_counter` / `forecast_period` decode too — and
+            # None for a non-time axis, which then keeps the raw coordinate labels.
+            decoded = nc._decode_time_labels(animate_dim, list(dim_values_raw))
             frame_labels = decoded if decoded is not None else list(dim_values_raw)
 
         no_data_value = [np.nan if v is None else v for v in nc.no_data_value]
@@ -1434,10 +1434,18 @@ class NetCDFPlot:
         ]
 
         def _mask_frame(frame: np.typing.NDArray) -> np.typing.NDArray:
-            if not mask_values:
-                return frame
-            floated = np.asarray(frame, dtype=float)
-            return np.where(np.isin(floated, mask_values), np.nan, floated)
+            result = np.asarray(frame)
+            if mask_values:
+                # Compare in the frame's own dtype: a fill that is not exactly
+                # representable after a float64 promotion (e.g. a float32 CF fill)
+                # still matches, and this mask then agrees with cleopatra's
+                # native-dtype template mask. Lift to float only afterwards, to
+                # hold NaN in the masked cells (a fresh array, so the read frame
+                # is never mutated).
+                selected = np.isin(result, np.asarray(mask_values, dtype=result.dtype))
+                result = result.astype(float)
+                result[selected] = np.nan
+            return result
 
         # Per-frame data fetch. Rather than allocating a fresh `sel()`
         # subset for every frame — which re-resolves the variable and
