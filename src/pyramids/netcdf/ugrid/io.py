@@ -537,9 +537,12 @@ def _write_crs_variable(
 ) -> None:
     """Write the CF ``crs`` grid-mapping variable.
 
-    Carries ``crs_wkt`` / ``spatial_ref`` (the WKT) and, when the WKT parses, the CF
-    ``grid_mapping_name`` — a reader keys off ``grid_mapping_name`` to recognise the
-    variable as a grid mapping, so a WKT-only variable is not fully CF-discoverable.
+    Always carries ``crs_wkt`` / ``spatial_ref`` (the WKT). When the projection is
+    recognised by :func:`pyramids.netcdf.cf.srs_to_grid_mapping`, it also carries the CF
+    ``grid_mapping_name`` and projection params (``false_easting``, ellipsoid, ...) — a
+    reader keys off ``grid_mapping_name`` to recognise the variable as a grid mapping. A
+    projected CRS outside the CF table is left ``crs_wkt``-only rather than mislabelled
+    with the ``latitude_longitude`` fallback name.
 
     Args:
         rg: GDAL root group.

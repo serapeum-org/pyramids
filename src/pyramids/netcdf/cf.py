@@ -208,10 +208,11 @@ _GDAL_PROJ_TO_CF: dict[str, str] = {
 def srs_from_wkt(crs_wkt: str | None) -> osr.SpatialReference | None:
     """Parse a WKT string into an OGR SpatialReference, or None when absent/malformed.
 
-    A shared, defensive parser for the CF writers: a falsy or unparseable ``crs_wkt``
-    degrades to None (write an un-georeferenced file) rather than raising. pyramids
-    enables ``osr.UseExceptions()`` at import, so a malformed WKT raises ``RuntimeError``
-    here; older GDAL returns a non-zero code — both are handled.
+    A shared, defensive parser for the CF writers: a falsy, unparseable, or non-string
+    ``crs_wkt`` degrades to None (write an un-georeferenced file) rather than raising.
+    pyramids enables ``osr.UseExceptions()`` at import, so a malformed WKT raises
+    ``RuntimeError`` here (older GDAL returns a non-zero code instead) and a non-string
+    input raises ``TypeError`` — all degrade to None.
 
     Args:
         crs_wkt: A CRS WKT string, or None when the caller has no CRS.

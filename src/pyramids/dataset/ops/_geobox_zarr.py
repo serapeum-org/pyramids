@@ -90,9 +90,10 @@ def write_geobox(
     itself and for consolidating metadata afterwards.
 
     The ``x`` / ``y`` arrays also carry CF ``axis`` / ``standard_name`` / ``units``
-    (via :func:`pyramids.netcdf.cf.build_coordinate_attrs`) and the ``spatial_ref``
-    scalar carries a CF ``grid_mapping_name``, so a CF reader can georeference the
-    store — mirroring the netCDF writers (#1017).
+    (via :func:`pyramids.netcdf.cf.build_coordinate_attrs`) and, for a projection the CF
+    table recognises, the ``spatial_ref`` scalar carries a CF ``grid_mapping_name`` plus
+    the projection params, so a CF reader can georeference the store — mirroring the
+    netCDF writers (#1017). A projected CRS outside the table is left ``crs_wkt``-only.
 
     Args:
         group: An open, writable :class:`zarr.hierarchy.Group`.
