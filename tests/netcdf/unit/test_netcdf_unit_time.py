@@ -319,7 +319,7 @@ class TestDecodeTimeLabels:
             A time axis named ``time_counter`` (outside the old
             ``time``/``valid_time``/``t`` allow-list) with a parseable CF ``units``
             still decodes, so model axes like NEMO's ``time_counter`` are labelled
-            with dates on the animate path (finding L3).
+            with dates on the animate path (#1013).
         """
         nc = _make_nc_with_time_units(n_times=2, time_name="time_counter")
         result = nc._decode_time_labels("time_counter", [0, 1])
