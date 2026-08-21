@@ -453,12 +453,14 @@ def _dim_type(name: str) -> str:
     """
     lowered = name.lower()
     if lowered in ("x", "lon", "longitude"):
-        return str(gdal.DIM_TYPE_HORIZONTAL_X)
-    if lowered in ("y", "lat", "latitude"):
-        return str(gdal.DIM_TYPE_HORIZONTAL_Y)
-    if lowered in ("time", "t"):
-        return str(gdal.DIM_TYPE_TEMPORAL)
-    return ""
+        dim_type = str(gdal.DIM_TYPE_HORIZONTAL_X)
+    elif lowered in ("y", "lat", "latitude"):
+        dim_type = str(gdal.DIM_TYPE_HORIZONTAL_Y)
+    elif lowered in ("time", "t"):
+        dim_type = str(gdal.DIM_TYPE_TEMPORAL)
+    else:
+        dim_type = ""
+    return dim_type
 
 
 def _cf_coord_attrs(
@@ -612,14 +614,18 @@ def _crs_wkt_from_xarray(dataset: Any) -> str | None:
     Returns:
         str or None: The CRS WKT, or None when the dataset declares no CRS.
     """
+    result: str | None = None
     for name in ("spatial_ref", "crs"):
         if name in dataset.variables:
             attrs = dataset.variables[name].attrs
             wkt = attrs.get("crs_wkt") or attrs.get("spatial_ref")
             if wkt:
-                return str(wkt)
-    wkt = dataset.attrs.get("crs_wkt")
-    return str(wkt) if wkt else None
+                result = str(wkt)
+                break
+    if result is None:
+        wkt = dataset.attrs.get("crs_wkt")
+        result = str(wkt) if wkt else None
+    return result
 
 
 def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:

@@ -652,7 +652,7 @@ class TestCfCoordinateHelpers:
             wkt: The falsy input (None or empty string).
 
         Test scenario:
-            `_srs_from_wkt` returns None so the writers skip CF injection.
+            `srs_from_wkt` returns None so the writers skip CF injection.
         """
         assert interop.srs_from_wkt(wkt) is None, f"expected None for {wkt!r}"
 
@@ -725,20 +725,32 @@ class TestCfCoordinateHelpers:
         assert out["axis"] == "X"
 
     @pytest.mark.parametrize(
-        "name, expected_nonempty",
-        [("x", True), ("lon", True), ("y", True), ("time", True), ("band", False), ("z", False)],
+        "name, expected",
+        [
+            ("x", gdal.DIM_TYPE_HORIZONTAL_X),
+            ("lon", gdal.DIM_TYPE_HORIZONTAL_X),
+            ("longitude", gdal.DIM_TYPE_HORIZONTAL_X),
+            ("y", gdal.DIM_TYPE_HORIZONTAL_Y),
+            ("lat", gdal.DIM_TYPE_HORIZONTAL_Y),
+            ("time", gdal.DIM_TYPE_TEMPORAL),
+            ("t", gdal.DIM_TYPE_TEMPORAL),
+            ("band", ""),
+            ("z", ""),
+        ],
     )
-    def test_dim_type(self, name, expected_nonempty):
-        """Spatial/temporal names map to a GDAL dimension type; others map to ``""``.
+    def test_dim_type(self, name, expected):
+        """Each dimension name maps to the exact GDAL dimension type (or ``""``).
 
         Args:
             name: The dimension name.
-            expected_nonempty: Whether a non-empty type is expected.
+            expected: The GDAL dimension-type constant expected.
 
         Test scenario:
-            x/lon/y/time are typed; band/z are not.
+            x/lon/longitude -> HORIZONTAL_X, y/lat -> HORIZONTAL_Y, time/t -> TEMPORAL
+            (asserting the exact constant, so a transposed X/Y mapping would fail);
+            band/z -> "".
         """
-        assert bool(interop._dim_type(name)) is expected_nonempty, name
+        assert interop._dim_type(name) == expected, name
 
     def test_crs_wkt_from_xarray_global_attr(self):
         """The CRS is read from a `crs_wkt` global attribute.

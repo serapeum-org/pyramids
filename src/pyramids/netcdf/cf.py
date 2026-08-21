@@ -220,14 +220,17 @@ def srs_from_wkt(crs_wkt: str | None) -> osr.SpatialReference | None:
         osr.SpatialReference or None: The parsed reference, or None when ``crs_wkt`` is
         falsy or does not parse.
     """
-    if not crs_wkt:
-        return None
-    srs = osr.SpatialReference()
-    try:
-        parsed = srs.ImportFromWkt(crs_wkt) == 0
-    except RuntimeError:
-        return None
-    return srs if parsed else None
+    result: osr.SpatialReference | None = None
+    if crs_wkt:
+        srs = osr.SpatialReference()
+        try:
+            if srs.ImportFromWkt(crs_wkt) == 0:
+                result = srs
+        except (RuntimeError, TypeError):
+            # A malformed WKT (RuntimeError under osr.UseExceptions, else a non-zero
+            # code) or a non-str input degrades to no CRS rather than crashing the write.
+            result = None
+    return result
 
 
 def srs_to_grid_mapping(
