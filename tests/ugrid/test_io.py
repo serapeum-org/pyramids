@@ -241,6 +241,20 @@ class TestWriteUgridTopology:
         rg2 = ds2.GetRootGroup()
         return nc_path, rg2
 
+    @staticmethod
+    def _tri_mesh():
+        """A single-triangle Mesh2d shared by the write tests."""
+        return Mesh2d(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=Connectivity(
+                data=np.array([[0, 1, 2]], dtype=np.intp),
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
+            ),
+        )
+
     def test_writes_topology_variable_with_cf_role(self, tmp_path):
         """Test that the topology variable has cf_role=mesh_topology.
 
@@ -291,6 +305,55 @@ class TestWriteUgridTopology:
             node_x,
             err_msg="Node x-coordinates should match",
         )
+
+    def test_node_coords_carry_cf_attrs_and_crs_has_grid_mapping_name(self, tmp_path):
+        """With a CRS, node coords gain CF axis attrs and the crs var gets grid_mapping_name.
+
+        Test scenario:
+            Write a geographic mesh (EPSG:4326) — expected: ``mesh2d_node_x`` carries
+            ``degrees_east``/``longitude``/``X`` and ``mesh2d_node_y`` the latitude
+            counterparts, and the ``crs`` variable carries a CF ``grid_mapping_name``
+            (#1017).
+        """
+        from osgeo import osr
+
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        mesh = self._tri_mesh()
+        _, rg = self._write_and_reopen(tmp_path, mesh, crs_wkt=srs.ExportToWkt())
+        node_x = rg.OpenMDArray("mesh2d_node_x")
+        assert node_x.GetUnit() == "degrees_east", node_x.GetUnit()
+        x_attrs = _read_attributes(node_x)
+        assert x_attrs.get("axis") == "X"
+        assert x_attrs.get("standard_name") == "longitude"
+        node_y = rg.OpenMDArray("mesh2d_node_y")
+        assert node_y.GetUnit() == "degrees_north"
+        assert _read_attributes(node_y).get("axis") == "Y"
+        crs_attrs = _read_attributes(rg.OpenMDArray("crs"))
+        assert crs_attrs.get("grid_mapping_name") == "latitude_longitude", crs_attrs
+
+    def test_projected_crs_writes_grid_mapping_name_and_params(self, tmp_path):
+        """A projected mesh CRS gets metre coords + grid_mapping_name and CF params (L1/L2).
+
+        Test scenario:
+            UTM 32N (EPSG:32632) — expected: the node coords carry ``m`` /
+            ``projection_x_coordinate`` and the ``crs`` variable carries
+            ``grid_mapping_name="transverse_mercator"`` plus the CF projection params.
+        """
+        from osgeo import osr
+
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(32632)
+        mesh = self._tri_mesh()
+        _, rg = self._write_and_reopen(tmp_path, mesh, crs_wkt=srs.ExportToWkt())
+        node_x = rg.OpenMDArray("mesh2d_node_x")
+        assert node_x.GetUnit() == "m", node_x.GetUnit()
+        assert (
+            _read_attributes(node_x).get("standard_name") == "projection_x_coordinate"
+        )
+        crs_attrs = _read_attributes(rg.OpenMDArray("crs"))
+        assert crs_attrs.get("grid_mapping_name") == "transverse_mercator", crs_attrs
+        assert "false_easting" in crs_attrs, crs_attrs
 
     def test_writes_connectivity_with_fill_and_start_index(self, tmp_path):
         """Test that connectivity arrays have correct attributes.

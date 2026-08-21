@@ -76,6 +76,19 @@ class TestWriteGeobox:
         group.create_array("data", data=np.zeros((bands, rows, cols), dtype="float32"))
         return group
 
+    def _write(self, group, *, epsg, crs_wkt):
+        """Write the shared 4x5 / ``_GT`` / band-y-x geobox onto ``group``."""
+        write_geobox(
+            group,
+            data_name="data",
+            epsg=epsg,
+            geotransform=_GT,
+            crs_wkt=crs_wkt,
+            rows=4,
+            cols=5,
+            dims=["band", "y", "x"],
+        )
+
     def test_creates_spatial_ref_and_xy(self, tmp_path):
         """write_geobox adds spatial_ref + x/y arrays alongside data.
 
@@ -121,6 +134,81 @@ class TestWriteGeobox:
         assert group["data"].attrs["grid_mapping"] == GRID_MAPPING_VAR
         assert group["x"].attrs["_ARRAY_DIMENSIONS"] == ["x"]
         assert group["y"].attrs["_ARRAY_DIMENSIONS"] == ["y"]
+
+    def test_xy_carry_cf_axis_attrs_and_grid_mapping_name(self, tmp_path):
+        """x/y gain CF axis attributes and spatial_ref gains grid_mapping_name (#1017).
+
+        Test scenario:
+            For a geographic CRS the ``x``/``y`` arrays carry ``axis``/``standard_name``/
+            ``units`` (degrees) and the ``spatial_ref`` scalar carries a CF
+            ``grid_mapping_name``, so a CF reader can georeference the GeoZarr store.
+        """
+        group = self._group_with_data(tmp_path, rows=4, cols=5)
+        self._write(group, epsg=4326, crs_wkt=_WKT_4326)
+        assert group["x"].attrs["axis"] == "X"
+        assert group["x"].attrs["standard_name"] == "longitude"
+        assert group["x"].attrs["units"] == "degrees_east"
+        assert group["y"].attrs["axis"] == "Y"
+        assert group["y"].attrs["units"] == "degrees_north"
+        assert (
+            group[GRID_MAPPING_VAR].attrs["grid_mapping_name"] == "latitude_longitude"
+        )
+
+    def test_malformed_crs_wkt_degrades_without_crashing(self, tmp_path):
+        """An unparseable crs_wkt degrades to axis-only coords instead of raising (L1).
+
+        Test scenario:
+            `write_geobox` with a malformed `crs_wkt` completes; x/y get the CF `axis`
+            role but no fabricated `units`, and no `grid_mapping_name` is written.
+        """
+        group = self._group_with_data(tmp_path, rows=4, cols=5)
+        self._write(group, epsg=0, crs_wkt="not a wkt")
+        assert group["x"].attrs["axis"] == "X"
+        assert "units" not in group["x"].attrs, "no CRS should not fabricate units"
+        assert "grid_mapping_name" not in group[GRID_MAPPING_VAR].attrs
+
+    def test_projected_grid_mapping_has_name_and_cf_params(self, tmp_path):
+        """A recognized projected CRS gets its grid_mapping_name AND the CF params (L2).
+
+        Test scenario:
+            UTM 32N (EPSG:32632) — the ``spatial_ref`` scalar carries
+            ``grid_mapping_name="transverse_mercator"`` plus the projection params
+            (``false_easting`` / ``latitude_of_projection_origin`` / ...), not just the WKT.
+        """
+        from osgeo import osr
+
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(32632)
+        group = self._group_with_data(tmp_path, rows=4, cols=5)
+        self._write(group, epsg=32632, crs_wkt=srs.ExportToWkt())
+        sr = dict(group[GRID_MAPPING_VAR].attrs)
+        assert sr["grid_mapping_name"] == "transverse_mercator", sr.get(
+            "grid_mapping_name"
+        )
+        assert "false_easting" in sr, sr
+        assert "latitude_of_projection_origin" in sr, sr
+
+    def test_projected_crs_outside_cf_table_is_not_mislabeled(self, tmp_path):
+        """A projected CRS outside cf's table is not labeled latitude_longitude (L1).
+
+        Test scenario:
+            A Sinusoidal metre grid is not in cf's grid-mapping table, so no
+            ``grid_mapping_name`` is asserted (rather than the wrong
+            ``latitude_longitude``); ``crs_wkt`` stays authoritative.
+        """
+        from osgeo import osr
+
+        srs = osr.SpatialReference()
+        srs.ImportFromProj4(
+            "+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
+        )
+        group = self._group_with_data(tmp_path, rows=4, cols=5)
+        self._write(group, epsg=0, crs_wkt=srs.ExportToWkt())
+        sr = dict(group[GRID_MAPPING_VAR].attrs)
+        assert sr.get("grid_mapping_name") != "latitude_longitude", (
+            "a projected CRS must not be mislabeled as a lon/lat grid mapping"
+        )
+        assert sr["crs_wkt"], "crs_wkt must remain authoritative"
 
     def test_spatial_ref_attrs_and_value(self, tmp_path):
         """spatial_ref stores WKT + GeoTransform + epsg; value is the epsg.

@@ -158,6 +158,35 @@ class TestInteropEngine:
         with pytest.raises(OptionalPackageDoesNotExist, match="xarray is required"):
             NetCDF.from_xarray(object())
 
+    def test_from_xarray_writes_cf_coords_from_crs(self, tmp_path):
+        """from_xarray of a CRS-bearing bare xarray writes CF x/y + a grid_mapping (#1017).
+
+        Test scenario:
+            A bare xarray with a ``crs_wkt`` global attribute — expected: the written
+            NetCDF's ``x``/``y`` carry CF ``units``/``standard_name`` and the data variable
+            references a ``grid_mapping`` variable, and the CRS round-trips (``variable_names
+            == ["temp"]``, no grid-mapping var leak).
+        """
+        xr = pytest.importorskip("xarray")
+        from osgeo import gdal, osr
+
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        ds = xr.Dataset(
+            {"temp": (("y", "x"), np.arange(20, dtype="float32").reshape(4, 5))},
+            coords={"x": np.arange(5) * 0.25 + 5.0, "y": 52.0 - np.arange(4) * 0.25},
+            attrs={"crs_wkt": srs.ExportToWkt()},
+        )
+        out = tmp_path / "fx.nc"
+        NetCDF.from_xarray(ds, path=str(out))
+        md = gdal.Open(str(out)).GetMetadata()
+        assert md.get("x#units") == "degrees_east", f"x#units={md.get('x#units')!r}"
+        assert md.get("x#standard_name") == "longitude"
+        assert md.get("temp#grid_mapping"), "data var should reference a grid_mapping"
+        reopened = NetCDF.read_file(str(out))
+        assert reopened.epsg == 4326, f"CRS did not round-trip: {reopened.epsg}"
+        assert reopened.variable_names == ["temp"], reopened.variable_names
+
 
 class TestVariablesEngine:
     """Edge / error branches of :class:`Variables`."""

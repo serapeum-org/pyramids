@@ -89,6 +89,12 @@ def write_geobox(
     ``grid_mapping`` attribute. The caller is responsible for the data array
     itself and for consolidating metadata afterwards.
 
+    The ``x`` / ``y`` arrays also carry CF ``axis`` / ``standard_name`` / ``units``
+    (via :func:`pyramids.netcdf.cf.build_coordinate_attrs`) and, for a projection the CF
+    table recognises, the ``spatial_ref`` scalar carries a CF ``grid_mapping_name`` plus
+    the projection params, so a CF reader can georeference the store — mirroring the
+    netCDF writers (#1017). A projected CRS outside the table is left ``crs_wkt``-only.
+
     Args:
         group: An open, writable :class:`zarr.hierarchy.Group`.
         data_name: Name of the already-written data array in ``group``.
@@ -118,18 +124,34 @@ def write_geobox(
         arr.attrs["_ARRAY_DIMENSIONS"] = list(var_dims)
         return arr
 
-    x, y = pixel_centre_coords(geotransform, rows, cols)
-    _put("x", x, ["x"])
-    _put("y", y, ["y"])
-    sr = _put(GRID_MAPPING_VAR, np.array(int(epsg or 0), dtype="int64"), [])
-    sr.attrs.update(
-        {
-            "crs_wkt": crs_wkt,
-            "spatial_ref": crs_wkt,
-            "GeoTransform": " ".join(str(v) for v in geotransform),
-            "epsg": int(epsg or 0),
-        }
+    # Local import breaks the pyramids.dataset <-> pyramids.netcdf import cycle
+    # (`pyramids.netcdf` imports `pyramids.dataset.Dataset`).
+    from pyramids.netcdf.cf import (
+        build_coordinate_attrs,
+        grid_mapping_var_attrs,
+        srs_from_wkt,
     )
+
+    srs = srs_from_wkt(crs_wkt)
+    is_geographic = None if srs is None else bool(srs.IsGeographic())
+
+    x, y = pixel_centre_coords(geotransform, rows, cols)
+    # Stamp CF axis attributes on the coordinate arrays so a CF reader can
+    # georeference the GeoZarr store, mirroring the netCDF writers.
+    _put("x", x, ["x"]).attrs.update(build_coordinate_attrs("x", is_geographic))
+    _put("y", y, ["y"]).attrs.update(build_coordinate_attrs("y", is_geographic))
+    sr = _put(GRID_MAPPING_VAR, np.array(int(epsg or 0), dtype="int64"), [])
+    gm_attrs: dict[str, Any] = {
+        "crs_wkt": crs_wkt,
+        "spatial_ref": crs_wkt,
+        "GeoTransform": " ".join(str(v) for v in geotransform),
+        "epsg": int(epsg or 0),
+    }
+    if srs is not None:
+        gm_attrs.update(
+            {k: v for k, v in grid_mapping_var_attrs(srs).items() if k not in gm_attrs}
+        )
+    sr.attrs.update(gm_attrs)
 
     data = group[data_name]
     data.attrs["_ARRAY_DIMENSIONS"] = list(dims)

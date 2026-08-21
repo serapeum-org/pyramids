@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import numpy_to_gdal_dtype
@@ -28,7 +28,12 @@ from pyramids.base.remote import is_remote
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf._lazy import build_lazy_array
 from pyramids.netcdf._mdim import strip_netcdf_subdataset_prefix
-from pyramids.netcdf.cf import write_attributes_to_md_array, write_global_attributes
+from pyramids.netcdf.cf import (
+    build_coordinate_attrs,
+    srs_from_wkt,
+    write_attributes_to_md_array,
+    write_global_attributes,
+)
 from pyramids.netcdf.utils import _read_attributes
 
 if TYPE_CHECKING:
@@ -382,13 +387,17 @@ def _write_data_var(
     var_dims: tuple[str, ...],
     var_values: Any,
     var_attrs: dict[str, Any],
-) -> None:
+) -> gdal.MDArray:
     """Create and fill one data variable's MDArray, streaming a dask-backed one block by block.
 
     A dask-backed variable (a lazily-loaded xarray var passed through by
     `_build_multidim_from_xarray`) is written block by block so it never becomes fully resident; a
     NumPy variable, or a temporal one that must be CF-encoded, is materialised and written in one
     shot (the prior behaviour).
+
+    Returns:
+        gdal.MDArray: The created (and filled) data-variable MDArray, so the caller can attach a
+            `grid_mapping` link to it.
 
     Raises:
         ValueError: When the variable references an unknown dimension, or its shape does not match
@@ -426,6 +435,89 @@ def _write_data_var(
     merged = dict(var_attrs)
     merged.update(cf_attrs)
     _apply_md_array_attrs(md_arr, merged)
+    return md_arr
+
+
+def _dim_type(name: str) -> str:
+    """CF dimension type for a coordinate name, or ``""`` when it is not spatial/temporal.
+
+    Declaring the horizontal / temporal dimension types lets GDAL's netCDF writer place
+    the CRS on the right axes (``SetSpatialRef`` otherwise warns that it is *assuming* the
+    last two dimensions are lon/lat).
+
+    Args:
+        name: The dimension name (case-insensitive).
+
+    Returns:
+        str: ``gdal.DIM_TYPE_HORIZONTAL_X`` / ``_Y`` / ``gdal.DIM_TYPE_TEMPORAL``, or ``""``.
+    """
+    lowered = name.lower()
+    if lowered in ("x", "lon", "longitude"):
+        dim_type = str(gdal.DIM_TYPE_HORIZONTAL_X)
+    elif lowered in ("y", "lat", "latitude"):
+        dim_type = str(gdal.DIM_TYPE_HORIZONTAL_Y)
+    elif lowered in ("time", "t"):
+        dim_type = str(gdal.DIM_TYPE_TEMPORAL)
+    else:
+        dim_type = ""
+    return dim_type
+
+
+def _cf_coord_attrs(
+    coord_name: str,
+    coord_attrs: dict[str, Any],
+    temporal_attrs: dict[str, Any],
+    srs: osr.SpatialReference | None,
+) -> dict[str, Any]:
+    """Merge a coordinate's attributes, adding CF ``axis``/``standard_name``/``units`` for x/y.
+
+    GDAL's multidim writer emits only what it is handed, so a spatial coordinate written with a
+    bare attribute dict is unusable to a CF reader (Panoply: "X-dimension index is not set"). This
+    stamps the CF axis attributes from :func:`pyramids.netcdf.cf.build_coordinate_attrs` onto x/y
+    (lon/lat) coordinates. The caller's own attributes and the temporal encoding win over the CF
+    defaults; a non-spatial coordinate (e.g. ``band``, or a ``time`` axis already carrying its
+    ``units``/``calendar``) is left untouched.
+
+    Args:
+        coord_name: The coordinate/dimension name.
+        coord_attrs: The caller-supplied coordinate attributes.
+        temporal_attrs: The CF temporal encoding (``units``/``calendar``) for a datetime axis.
+        srs: The dataset's spatial reference, or None. Only decides degrees vs metres units;
+            the ``axis`` role is written even without a CRS.
+
+    Returns:
+        dict: The merged attribute dict to apply to the coordinate MDArray.
+    """
+    merged = dict(coord_attrs)
+    merged.update(temporal_attrs)
+    is_geographic = None if srs is None else bool(srs.IsGeographic())
+    cf = build_coordinate_attrs(coord_name, is_geographic)
+    if cf.get("axis") in ("X", "Y"):
+        cf.update(merged)
+        merged = cf
+    return merged
+
+
+def _apply_grid_mapping(
+    srs: osr.SpatialReference, data_arrays: dict[str, gdal.MDArray]
+) -> None:
+    """Attach the CRS to each data MDArray so GDAL emits a CF ``grid_mapping`` variable.
+
+    Calling ``SetSpatialRef`` on a data MDArray makes GDAL's netCDF writer auto-generate a
+    scalar CF ``grid_mapping`` variable (named by GDAL from the projection — ``crs`` for
+    geographic, e.g. ``transverse_mercator`` for a projected CRS — carrying
+    ``grid_mapping_name`` + ``crs_wkt`` + the projection params) and link the data
+    variable to it via
+    ``<var>#grid_mapping`` — the same mechanism ``create_from_array`` uses on the netCDF driver.
+    The generated variable is hidden from the multidim array listing, so it never leaks into
+    ``get_variable_names`` / ``variables``, and the CRS round-trips (``MDArray.GetSpatialRef``).
+
+    Args:
+        srs: The dataset's spatial reference.
+        data_arrays: Data-variable name to its MDArray.
+    """
+    for md_arr in data_arrays.values():
+        md_arr.SetSpatialRef(srs)
 
 
 def _build_multidim(
@@ -433,6 +525,7 @@ def _build_multidim(
     coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
     data_vars: dict[str, tuple[tuple[str, ...], Any, dict[str, Any]]],
     global_attrs: dict[str, Any],
+    crs_wkt: str | None = None,
 ) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from plain arrays and attrs.
 
@@ -443,6 +536,12 @@ def _build_multidim(
     whose dimensions are resolved by name; `numpy` datetime/timedelta axes are
     CF-encoded on the way in and attributes go through pyramids' own CF helpers.
 
+    When `crs_wkt` is given, the x/y coordinates gain CF `axis`/`standard_name`/`units`
+    attributes and a scalar CF grid-mapping variable (`crs` / `transverse_mercator` /
+    ..., named by GDAL from the projection) is written and linked
+    from every data variable, so the file is georeferenceable by a CF reader (Panoply,
+    QGIS, xarray); without it the coordinates keep only the caller's attributes.
+
     Args:
         dims: Dimension name to length.
         coords: Coordinate name (which must also be a dimension) to a
@@ -451,6 +550,8 @@ def _build_multidim(
         data_vars: Variable name to a `(dimension-name tuple, values, attrs)`
             triple.
         global_attrs: Root-group (global) attributes.
+        crs_wkt: The dataset CRS as a WKT string, or None. Drives the CF coordinate
+            attributes and the `grid_mapping` variable.
 
     Returns:
         gdal.Dataset: An in-memory `MEM` multidimensional dataset ready to be
@@ -462,9 +563,10 @@ def _build_multidim(
     """
     src = gdal.GetDriverByName("MEM").CreateMultiDimensional("pyramids")
     root = src.GetRootGroup()
+    srs = srs_from_wkt(crs_wkt)
 
     gdal_dims: dict[str, gdal.Dimension] = {
-        name: root.CreateDimension(name, "", "", int(size))
+        name: root.CreateDimension(name, _dim_type(name), "", int(size))
         for name, size in dims.items()
     }
 
@@ -480,19 +582,50 @@ def _build_multidim(
         ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
         md_arr = root.CreateMDArray(coord_name, [gdal_dims[coord_name]], ext)
         md_arr.Write(np.ascontiguousarray(values))
-        merged = dict(coord_attrs)
-        merged.update(cf_attrs)
-        _apply_md_array_attrs(md_arr, merged)
+        _apply_md_array_attrs(
+            md_arr, _cf_coord_attrs(coord_name, coord_attrs, cf_attrs, srs)
+        )
 
+    data_arrays: dict[str, gdal.MDArray] = {}
     for var_name, (var_dims, var_values, var_attrs) in data_vars.items():
-        _write_data_var(
+        data_arrays[var_name] = _write_data_var(
             root, gdal_dims, dims, var_name, var_dims, var_values, var_attrs
         )
+
+    if srs is not None:
+        _apply_grid_mapping(srs, data_arrays)
 
     if global_attrs:
         write_global_attributes(root, dict(global_attrs))
 
     return src
+
+
+def _crs_wkt_from_xarray(dataset: Any) -> str | None:
+    """Best-effort CRS WKT from an xarray Dataset's grid-mapping variable or global attrs.
+
+    Reads a ``spatial_ref`` / ``crs`` variable's ``crs_wkt`` / ``spatial_ref`` attribute
+    (the rioxarray / CF convention), then the dataset's global attributes. Returns None
+    when the source carries no CRS — ``from_xarray`` never fabricates one.
+
+    Args:
+        dataset: The source ``xarray.Dataset``.
+
+    Returns:
+        str or None: The CRS WKT, or None when the dataset declares no CRS.
+    """
+    result: str | None = None
+    for name in ("spatial_ref", "crs"):
+        if name in dataset.variables:
+            attrs = dataset.variables[name].attrs
+            wkt = attrs.get("crs_wkt") or attrs.get("spatial_ref")
+            if wkt:
+                result = str(wkt)
+                break
+    if result is None:
+        wkt = dataset.attrs.get("crs_wkt")
+        result = str(wkt) if wkt else None
+    return result
 
 
 def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
@@ -501,7 +634,9 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     Extracts the plain `(dims, coords, data_vars, attrs)` spec from the
     `xarray.Dataset` and delegates to `_build_multidim`, so the GDAL multidim
     assembly lives in one place and this adapter only reads `.sizes` /
-    `.coords` / `.data_vars` / `.attrs` off xarray.
+    `.coords` / `.data_vars` / `.attrs` off xarray. When the dataset carries a CRS,
+    it is passed down so the x/y coordinates gain CF attributes and a `grid_mapping`
+    variable is written (see :func:`_build_multidim`).
 
     Args:
         dataset: The source `xarray.Dataset`.
@@ -509,20 +644,27 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     Returns:
         gdal.Dataset: The in-memory `MEM` multidimensional dataset.
     """
+    crs_wkt = _crs_wkt_from_xarray(dataset)
     dims = {name: int(size) for name, size in dataset.sizes.items()}
     coords = {
         name: (np.asarray(coord.values), dict(coord.attrs))
         for name, coord in dataset.coords.items()
         if name in dims
     }
+    # When we re-generate a grid_mapping from the resolved CRS, drop any pre-existing
+    # scalar grid-mapping variable so the output carries a single one.
+    skip = {"spatial_ref", "crs"} if crs_wkt is not None else set()
     data_vars = {
         # `var.data` hands the underlying array through WITHOUT computing it, so a
         # dask-backed variable stays lazy and `_build_multidim` can stream it block by
         # block (ARC-48); `.values` would force a full materialisation up front.
         name: (tuple(var.dims), var.data, dict(var.attrs))
         for name, var in dataset.data_vars.items()
+        if not (name in skip and var.ndim == 0)
     }
-    return _build_multidim(dims, coords, data_vars, dict(dataset.attrs))
+    return _build_multidim(
+        dims, coords, data_vars, dict(dataset.attrs), crs_wkt=crs_wkt
+    )
 
 
 def _create_copy_to_netcdf(mem_src: gdal.Dataset, path: str) -> None:
@@ -551,6 +693,7 @@ def write_multidim_netcdf(
     coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
     data_vars: dict[str, tuple[tuple[str, ...], np.ndarray, dict[str, Any]]],
     global_attrs: dict[str, Any],
+    crs_wkt: str | None = None,
 ) -> None:
     """Write a plain multidim spec to a NetCDF file through GDAL.
 
@@ -567,13 +710,16 @@ def write_multidim_netcdf(
         data_vars: Variable name to a `(dimension-name tuple, values, attrs)`
             triple.
         global_attrs: Root-group (global) attributes.
+        crs_wkt: The dataset CRS as a WKT string, or None. When given, the x/y
+            coordinates gain CF attributes and a `grid_mapping` variable is written
+            (see :func:`_build_multidim`).
 
     Raises:
         ValueError: When a variable references an unknown dimension, or a
             coordinate/variable array shape does not match its dimension sizes.
         RuntimeError: When the GDAL netCDF writer fails to create the file.
     """
-    mem_src = _build_multidim(dims, coords, data_vars, global_attrs)
+    mem_src = _build_multidim(dims, coords, data_vars, global_attrs, crs_wkt)
     _create_copy_to_netcdf(mem_src, str(path))
 
 
@@ -632,6 +778,7 @@ def _build_streaming_multidim(
     coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
     var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
     global_attrs: dict[str, Any],
+    crs_wkt: str | None = None,
 ) -> dict[str, gdal.MDArray]:
     """Create dims, coord arrays, empty data vars, and global attrs on `dataset`.
 
@@ -641,6 +788,11 @@ def _build_streaming_multidim(
     manager only the data-variable MDArrays to drop before `Close()`, which is
     what lets the netCDF driver flush and unlock the file.
 
+    When `crs_wkt` is given, the x/y coordinates gain CF `axis`/`standard_name`/`units`
+    attributes and a scalar CF grid-mapping variable (`crs` / `transverse_mercator` /
+    ..., named by GDAL from the projection) is written and linked
+    from every data variable, so a CF reader can georeference the streamed file.
+
     Args:
         dataset: A freshly created netCDF multidim dataset.
         dims: Dimension name to length.
@@ -649,6 +801,8 @@ def _build_streaming_multidim(
         var_specs: Variable name to a ``(dimension-name tuple, numpy dtype,
             attrs)`` triple.
         global_attrs: Root-group (global) attributes.
+        crs_wkt: The dataset CRS as a WKT string, or None. Drives the CF coordinate
+            attributes and the `grid_mapping` variable.
 
     Returns:
         dict[str, gdal.MDArray]: The created (empty, full-shape) data-variable
@@ -659,8 +813,9 @@ def _build_streaming_multidim(
             coordinate array shape does not match its dimension size.
     """
     root = dataset.GetRootGroup()
+    srs = srs_from_wkt(crs_wkt)
     gdal_dims: dict[str, gdal.Dimension] = {
-        name: root.CreateDimension(name, "", "", int(size))
+        name: root.CreateDimension(name, _dim_type(name), "", int(size))
         for name, size in dims.items()
     }
 
@@ -676,9 +831,9 @@ def _build_streaming_multidim(
         ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
         coord_arr = root.CreateMDArray(coord_name, [gdal_dims[coord_name]], ext)
         coord_arr.Write(np.ascontiguousarray(values))
-        merged = dict(coord_attrs)
-        merged.update(cf_attrs)
-        _apply_md_array_attrs(coord_arr, merged)
+        _apply_md_array_attrs(
+            coord_arr, _cf_coord_attrs(coord_name, coord_attrs, cf_attrs, srs)
+        )
 
     arrays: dict[str, gdal.MDArray] = {}
     for var_name, (var_dims, var_dtype, var_attrs) in var_specs.items():
@@ -693,6 +848,9 @@ def _build_streaming_multidim(
         _apply_md_array_attrs(md_arr, dict(var_attrs))
         arrays[var_name] = md_arr
 
+    if srs is not None:
+        _apply_grid_mapping(srs, arrays)
+
     if global_attrs:
         write_global_attributes(root, dict(global_attrs))
 
@@ -706,6 +864,7 @@ def open_streaming_multidim_netcdf(
     coords: dict[str, tuple[np.ndarray, dict[str, Any]]],
     var_specs: dict[str, tuple[tuple[str, ...], np.dtype | str, dict[str, Any]]],
     global_attrs: dict[str, Any],
+    crs_wkt: str | None = None,
 ):
     """Create a netCDF multidim file and yield a per-hyperslab writer.
 
@@ -735,6 +894,9 @@ def open_streaming_multidim_netcdf(
             attrs)`` triple. The first entry of the dimension tuple is the
             streamed (leading) dimension.
         global_attrs: Root-group (global) attributes.
+        crs_wkt: The dataset CRS as a WKT string, or None. When given, the x/y
+            coordinates gain CF attributes and a `grid_mapping` variable is written
+            (see :func:`_build_streaming_multidim`).
 
     Yields:
         _StreamingMultidimWriter: Call :meth:`~_StreamingMultidimWriter.write_slab`
@@ -756,7 +918,7 @@ def open_streaming_multidim_netcdf(
     arrays: dict[str, gdal.MDArray] = {}
     try:
         arrays = _build_streaming_multidim(
-            dataset, dims, coords, var_specs, global_attrs
+            dataset, dims, coords, var_specs, global_attrs, crs_wkt
         )
         yield _StreamingMultidimWriter(arrays)
         completed = True

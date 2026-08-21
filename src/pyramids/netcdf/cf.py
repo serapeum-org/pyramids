@@ -205,6 +205,35 @@ _GDAL_PROJ_TO_CF: dict[str, str] = {
 }
 
 
+def srs_from_wkt(crs_wkt: str | None) -> osr.SpatialReference | None:
+    """Parse a WKT string into an OGR SpatialReference, or None when absent/malformed.
+
+    A shared, defensive parser for the CF writers: a falsy, unparseable, or non-string
+    ``crs_wkt`` degrades to None (write an un-georeferenced file) rather than raising.
+    pyramids enables ``osr.UseExceptions()`` at import, so a malformed WKT raises
+    ``RuntimeError`` here (older GDAL returns a non-zero code instead) and a non-string
+    input raises ``TypeError`` — all degrade to None.
+
+    Args:
+        crs_wkt: A CRS WKT string, or None when the caller has no CRS.
+
+    Returns:
+        osr.SpatialReference or None: The parsed reference, or None when ``crs_wkt`` is
+        falsy or does not parse.
+    """
+    result: osr.SpatialReference | None = None
+    if crs_wkt:
+        srs = osr.SpatialReference()
+        try:
+            if srs.ImportFromWkt(crs_wkt) == 0:
+                result = srs
+        except (RuntimeError, TypeError):
+            # A malformed WKT (RuntimeError under osr.UseExceptions, else a non-zero
+            # code) or a non-str input degrades to no CRS rather than crashing the write.
+            result = None
+    return result
+
+
 def srs_to_grid_mapping(
     srs: osr.SpatialReference,
 ) -> tuple[str, dict[str, Any]]:
@@ -242,6 +271,30 @@ def srs_to_grid_mapping(
         grid_mapping_name = "latitude_longitude"
 
     return grid_mapping_name, params
+
+
+def grid_mapping_var_attrs(srs: osr.SpatialReference) -> dict[str, Any]:
+    """CF grid-mapping variable attributes for a CRS (``grid_mapping_name`` + params).
+
+    Wraps :func:`srs_to_grid_mapping` for the hand-rolled grid-mapping writers (GeoZarr and
+    UGRID): returns ``{"grid_mapping_name": ..., <CF params incl crs_wkt>}`` when the
+    projection is recognized (or the CRS is geographic), and an empty dict for a *projected*
+    CRS outside the CF table — where ``srs_to_grid_mapping`` falls back to
+    ``"latitude_longitude"`` and stamping it would mislabel a metre grid as lon/lat. The
+    caller merges these onto its grid-mapping variable without overwriting attributes it
+    already set (e.g. ``crs_wkt``).
+
+    Args:
+        srs: An OGR SpatialReference.
+
+    Returns:
+        dict: The grid-mapping attributes to merge, or ``{}`` for an unrecognized
+        projected CRS.
+    """
+    gm_name, gm_params = srs_to_grid_mapping(srs)
+    if srs.IsProjected() and gm_name == "latitude_longitude":
+        return {}
+    return {"grid_mapping_name": gm_name, **gm_params}
 
 
 def _extract_proj_params(srs: osr.SpatialReference, proj_name: str) -> dict[str, Any]:

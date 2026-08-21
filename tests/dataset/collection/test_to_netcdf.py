@@ -1014,3 +1014,123 @@ class TestToNetcdfRoundTrip:
         assert got[1] == pytest.approx(cell), (
             f"x pixel size not the real spacing: {got[1]}"
         )
+
+
+class TestToNetcdfCfCoordinates:
+    """CF-complete coordinates + grid_mapping so third-party CF readers (Panoply) work."""
+
+    @staticmethod
+    def _classic_md(path) -> dict:
+        """Return the classic-mode metadata dict (the CF view a tool like Panoply reads)."""
+        return gdal.Open(str(path)).GetMetadata()
+
+    def test_geographic_coords_carry_cf_axis_attributes(self, tmp_path):
+        """A geographic grid writes CF ``axis``/``standard_name``/degrees units on x/y.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            EPSG:4326 collection — expected: ``x`` carries ``degrees_east``/``longitude``/
+            ``X`` and ``y`` carries ``degrees_north``/``latitude``/``Y``, so a CF reader can
+            identify the axes (the #1017 Panoply "X-dimension index is not set" failure).
+        """
+        col, _ = _make_int16_collection(tmp_path)
+        out = tmp_path / "geo.nc"
+        col.to_netcdf(str(out))
+        md = self._classic_md(out)
+        assert md.get("x#units") == "degrees_east", f"x#units={md.get('x#units')!r}"
+        assert md.get("x#standard_name") == "longitude"
+        assert md.get("x#axis") == "X"
+        assert md.get("y#units") == "degrees_north"
+        assert md.get("y#axis") == "Y"
+
+    def test_grid_mapping_variable_written_and_linked(self, tmp_path):
+        """A CF grid_mapping variable is written and the data variable references it.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Expected: ``Band_1#grid_mapping`` names a variable that carries
+            ``grid_mapping_name`` and ``crs_wkt``, so the CRS is CF-discoverable.
+        """
+        col, _ = _make_int16_collection(tmp_path)
+        out = tmp_path / "gm.nc"
+        col.to_netcdf(str(out))
+        md = self._classic_md(out)
+        gm = md.get("Band_1#grid_mapping")
+        assert gm, f"data variable should reference a grid_mapping var: {md}"
+        assert md.get(f"{gm}#grid_mapping_name"), (
+            "grid_mapping var lacks grid_mapping_name"
+        )
+        assert md.get(f"{gm}#crs_wkt"), "grid_mapping var lacks crs_wkt"
+
+    def test_grid_mapping_var_not_exposed_and_crs_round_trips(self, tmp_path):
+        """The auto grid_mapping variable stays out of variable_names and the CRS round-trips.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Expected: ``variable_names == ["Band_1"]`` (no ``crs``/``spatial_ref`` leak) and
+            ``epsg == 4326`` on reopen — the fix does not regress the reader.
+        """
+        col, _ = _make_int16_collection(tmp_path)
+        out = tmp_path / "rt.nc"
+        col.to_netcdf(str(out))
+        nc = NetCDF.read_file(str(out))
+        assert nc.variable_names == ["Band_1"], (
+            f"grid_mapping var leaked into variable_names: {nc.variable_names}"
+        )
+        assert nc.epsg == 4326, f"CRS did not round-trip: {nc.epsg}"
+
+    def test_projected_coords_use_metre_units(self, tmp_path):
+        """A projected grid writes metre units and projection_x/y_coordinate standard names.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            EPSG:32632 (UTM 32N) collection — expected: ``x``/``y`` carry ``m`` and
+            ``projection_x_coordinate`` / ``projection_y_coordinate``.
+        """
+        paths = []
+        for i in range(2):
+            arr = np.arange(20, dtype="int16").reshape(4, 5) + 100 * i
+            p = os.path.join(str(tmp_path), f"p{i}.tif")
+            Dataset.create_from_array(
+                arr,
+                top_left_corner=(400000.0, 5800000.0),
+                cell_size=5000.0,
+                epsg=32632,
+                no_data_value=-9999,
+                path=p,
+            ).close()
+            paths.append(p)
+        out = tmp_path / "proj.nc"
+        DatasetCollection.from_files(paths).to_netcdf(str(out))
+        md = self._classic_md(out)
+        assert md.get("x#units") == "m", f"x#units={md.get('x#units')!r}"
+        assert md.get("x#standard_name") == "projection_x_coordinate"
+        assert md.get("y#standard_name") == "projection_y_coordinate"
+
+    def test_streaming_op_writes_cf_coords(self, tmp_path):
+        """A streaming raster op (``resample`` with ``path=``) also writes CF-complete coords.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            ``to_netcdf`` a collection, reopen, ``resample(..., path=)`` on the container —
+            expected: the streamed output carries the CF x/y attrs and a ``grid_mapping``,
+            since the fix covers the streaming ops, not only ``to_netcdf``.
+        """
+        col, _ = _make_int16_collection(tmp_path)
+        src = tmp_path / "src.nc"
+        col.to_netcdf(str(src))
+        out = tmp_path / "resampled.nc"
+        NetCDF.read_file(str(src)).resample(0.1, path=str(out))
+        md = self._classic_md(out)
+        assert md.get("x#units") == "degrees_east", f"x#units={md.get('x#units')!r}"
+        assert md.get("Band_1#grid_mapping"), "streamed op should write a grid_mapping"
