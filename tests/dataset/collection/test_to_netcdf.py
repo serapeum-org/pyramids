@@ -975,3 +975,42 @@ class TestToNetcdfRoundTrip:
         assert nc.time_stamp == ["1979-01-01", "1979-01-02"], (
             f"time_stamp did not decode: {nc.time_stamp!r}"
         )
+
+    def test_geotransform_round_trips_nonunit_cell_size(self, tmp_path):
+        """``NetCDF.geotransform`` round-trips a non-unit projected cell size on both axes.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Write a collection on a projected 5000 m grid (EPSG:4647) and reopen —
+            expected: ``nc.geotransform`` equals the source transform on *both*
+            axes, not an index-space ``pixel width 1.0`` with a half-pixel-shifted
+            x origin. Regression test for #1014, where the reader took the x pixel
+            size from the index-space ``cell_size`` while y used the real coord
+            spacing.
+        """
+        nd, cell, ox, oy = -9999.0, 5000.0, 32239263.70388, 5756081.42235
+        paths = []
+        for i in range(3):
+            arr = np.full((5, 4), nd, dtype="float32")
+            arr[1:4, 1:3] = 10.0 + i
+            path = os.path.join(str(tmp_path), f"g{i}.tif")
+            Dataset.create_from_array(
+                arr,
+                geo=(ox, cell, 0.0, oy, 0.0, -cell),
+                epsg=4647,
+                no_data_value=nd,
+            ).to_file(path)
+            paths.append(path)
+        out = tmp_path / "gt.nc"
+        DatasetCollection.from_files(paths).to_netcdf(str(out))
+        nc = NetCDF.read_file(str(out))
+        expected = (ox, cell, 0.0, oy, 0.0, -cell)
+        got = tuple(float(v) for v in nc.geotransform)
+        assert got == pytest.approx(expected), (
+            f"geotransform did not round-trip: {got} != {expected}"
+        )
+        assert got[1] == pytest.approx(cell), (
+            f"x pixel size not the real spacing: {got[1]}"
+        )

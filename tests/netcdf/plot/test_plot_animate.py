@@ -5,13 +5,62 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import numpy as np
+import pandas as pd
 import pytest
 from numpy.testing import assert_array_equal
 
+from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.netcdf import FacetSpec, GeoReference, Selectors
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_plot_3d_nc
 from tests.netcdf.plot._plot_helpers import _make_4d_nc, _make_fake_render
+
+
+def _default_interior(i: int) -> float:
+    """Default interior fill for :func:`_dated_projected_nc`: ``10.0 + i``."""
+    return 10.0 + i
+
+
+def _dated_projected_nc(
+    tmp_path, *, dtype="float32", nodata=-9999.0, interior=None
+) -> NetCDF:
+    """Round-trip a dated projected collection through ``to_netcdf`` and reopen it.
+
+    Writes three 5x4 rasters on a projected 5000 m grid (EPSG:4647) with a
+    ``nodata`` surround around a small interior block, encodes the time axis as
+    CF int64 nanoseconds via ``to_netcdf(time_coords=...)``, and reopens the file
+    — the #1013 repro shape. On the ``get_variable`` subset the time dimension
+    metadata is gone, so decoding the labels exercises the parent-container
+    fallback.
+
+    Args:
+        tmp_path: pytest temp directory.
+        dtype: numpy dtype string for the rasters. Defaults to ``"float32"``.
+        nodata: No-data value stamped on every raster. Defaults to ``-9999.0``.
+        interior: Optional callable ``i -> value`` filling the 3x2 interior block
+            of frame ``i`` (a scalar or a 3x2 array). Defaults to ``10.0 + i``.
+
+    Returns:
+        NetCDF: The reopened root container holding the ``Band_1`` variable.
+    """
+    if interior is None:
+        interior = _default_interior
+    cell, ox, oy = 5000.0, 32239263.70388, 5756081.42235
+    paths = []
+    for i in range(3):
+        arr = np.full((5, 4), nodata, dtype=dtype)
+        arr[1:4, 1:3] = interior(i)
+        path = str(tmp_path / f"d{i}.tif")
+        Dataset.create_from_array(
+            arr, geo=(ox, cell, 0.0, oy, 0.0, -cell), epsg=4647, no_data_value=nodata
+        ).to_file(path)
+        paths.append(path)
+    out = tmp_path / "anim.nc"
+    DatasetCollection.from_files(paths).to_netcdf(
+        str(out), time_coords=pd.date_range("1979-01-01", periods=3, freq="D")
+    )
+    return NetCDF.read_file(str(out))
+
 
 pytestmark = pytest.mark.plot
 
@@ -117,11 +166,10 @@ class TestNetCDFPlotAnimate:
         """CF-decoded date strings are used as the animation frame labels.
 
         Test scenario:
-            Build a 3-D NetCDF whose ``time`` dim carries CF
-            ``units="days since 2024-01-01"`` so ``get_time_variable()``
-            decodes the raw values into ``YYYY-MM-DD`` strings. Patch
-            :meth:`NetCDF.get_time_variable` to return a known label
-            list and assert those labels reach
+            The animate path decodes its own frame coordinates through
+            :meth:`NetCDF._decode_time_labels` (so a time-subsetted view stays
+            aligned). Patch that decoder to return a known ``YYYY-MM-DD`` list
+            and assert those labels — not the raw integer coords — reach
             :func:`pyramids.dataset._plot_helpers.render_array` via
             ``animation_axis_values``.
         """
@@ -130,7 +178,7 @@ class TestNetCDFPlotAnimate:
         captured: dict = {}
 
         with patch(
-            "pyramids.netcdf.netcdf.NetCDF.get_time_variable",
+            "pyramids.netcdf.netcdf.NetCDF._decode_time_labels",
             return_value=labels,
         ):
             with patch(
@@ -140,6 +188,205 @@ class TestNetCDFPlotAnimate:
                 nc.plot(variable="t2m", animate=True)
         assert captured["request"].mode.mode == "animate"
         assert captured["request"].mode.animation_axis_values == labels
+
+    def test_animate_masks_no_data_by_default(self, tmp_path):
+        """Every streamed animation frame has the variable's no-data masked to NaN.
+
+        Test scenario:
+            cleopatra's ``animate`` blits each streamed frame verbatim
+            (``im.set_data``) and only masks the constructor template, so pyramids
+            must pre-mask no-data or it renders at the colour-scale extreme — the
+            static path already masks it. Capture the ``RenderRequest`` for a
+            round-tripped dated collection and assert the first streamed frame has
+            the ``-9999`` no-data replaced with ``NaN``. Regression test for #1013.
+        """
+        nc = _dated_projected_nc(tmp_path)
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(variable="Band_1", animate=True)
+        frame0 = np.asarray(captured["request"].mode.data_getter(0))
+        assert not np.any(frame0 == -9999.0), "no-data still present in the frame"
+        assert np.any(np.isnan(frame0)), "no-data was not masked to NaN"
+        assert -9999.0 in captured["request"].exclude_value
+
+    def test_animate_honours_exclude_value(self, tmp_path):
+        """A caller ``exclude_value`` masks only that value; other data survives.
+
+        Test scenario:
+            The interior mixes ``10.0`` and ``20.0`` so frame 0 has a value that is
+            *not* excluded. Passing ``exclude_value=10.0`` masks the no-data and the
+            ``10.0`` cells to ``NaN`` while the ``20.0`` cells survive — proving the
+            mask is selective, not blanket. Regression test for #1013, where
+            ``exclude_value`` was silently ignored on the animate path.
+        """
+        block = np.array([[10.0, 20.0]] * 3, dtype="float32")
+        nc = _dated_projected_nc(tmp_path, interior=lambda i: block)
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(variable="Band_1", animate=True, exclude_value=10.0)
+        frame0 = np.asarray(captured["request"].mode.data_getter(0))
+        assert np.any(frame0 == 20.0), "the non-excluded 20.0 data must survive"
+        assert not np.any(frame0 == 10.0), "excluded value not masked in the frame"
+        assert not np.any(frame0 == -9999.0), "no-data not masked in the frame"
+        assert 10.0 in captured["request"].exclude_value
+
+    def test_animate_masks_float32_value_via_native_dtype(self, tmp_path):
+        """A float32 cell is masked even when the exclude_value is a wider float literal.
+
+        Test scenario:
+            The interior mixes ``0.1`` and ``0.2`` stored as ``float32``; excluding
+            the Python float ``0.1`` (not exactly representable in ``float32``) must
+            still mask the ``0.1`` cells — the comparison happens in the frame's
+            native dtype — while the ``0.2`` cells survive (#1013).
+        """
+        block = np.array([[0.1, 0.2]] * 3, dtype="float32")
+        nc = _dated_projected_nc(tmp_path, interior=lambda i: block)
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(variable="Band_1", animate=True, exclude_value=0.1)
+        frame0 = np.asarray(captured["request"].mode.data_getter(0))
+        assert np.any(frame0 == np.float32(0.2)), "the 0.2 data value must survive"
+        assert not np.any(frame0 == np.float32(0.1)), (
+            "0.1 must be masked in native dtype"
+        )
+
+    def test_animate_masks_integer_frame_no_data(self, tmp_path):
+        """An integer variable's no-data is promoted to float and masked to NaN.
+
+        Test scenario:
+            An ``int16`` collection with a ``-9999`` no-data animates; the streamed
+            frame is promoted to float and its no-data cells become ``NaN`` — the
+            int-to-float mask path (#1013).
+        """
+        nc = _dated_projected_nc(
+            tmp_path, dtype="int16", nodata=-9999, interior=lambda i: 10 + i
+        )
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(variable="Band_1", animate=True)
+        frame0 = np.asarray(captured["request"].mode.data_getter(0))
+        assert frame0.dtype.kind == "f", "integer frame should be promoted to float"
+        assert np.any(np.isnan(frame0)), "no-data should be masked to NaN"
+        assert not np.any(frame0 == -9999), "raw no-data should not remain"
+
+    def test_animate_integer_frame_fractional_exclude_is_noop(self, tmp_path):
+        """A fractional exclude_value on an integer raster masks nothing, not the wrong cells.
+
+        Test scenario:
+            On an ``int16`` frame, ``exclude_value=10.7`` cannot be held exactly, so
+            it is skipped — the real ``10`` cells survive and only the no-data is
+            masked (rather than the truncated ``10`` cells being wrongly blanked).
+        """
+        nc = _dated_projected_nc(
+            tmp_path, dtype="int16", nodata=-9999, interior=lambda i: 10 + i
+        )
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(variable="Band_1", animate=True, exclude_value=10.7)
+        frame0 = np.asarray(captured["request"].mode.data_getter(0))
+        assert np.any(frame0 == 10.0), "a fractional exclude must not mask the 10 cells"
+        assert np.any(np.isnan(frame0)), "no-data should still be masked"
+
+    def test_animate_integer_frame_out_of_range_exclude_does_not_crash(self, tmp_path):
+        """An out-of-range exclude_value on an integer raster degrades, not crashes.
+
+        Test scenario:
+            ``exclude_value=40000`` overflows ``int16``; masking a streamed frame
+            must not raise ``OverflowError`` — it masks nothing extra while the
+            no-data is still masked and the real data survives.
+        """
+        nc = _dated_projected_nc(
+            tmp_path, dtype="int16", nodata=-9999, interior=lambda i: 10 + i
+        )
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(variable="Band_1", animate=True, exclude_value=40000)
+        frame0 = np.asarray(captured["request"].mode.data_getter(0))
+        assert np.any(frame0 == 10.0), "real data must survive an out-of-range exclude"
+        assert np.any(np.isnan(frame0)), "no-data should still be masked"
+
+    def test_animate_labels_decode_to_calendar_dates(self, tmp_path):
+        """Frame labels are the CF-decoded dates of a round-tripped collection, not raw ints.
+
+        Test scenario:
+            ``to_netcdf`` encodes ``time`` as int64 nanoseconds; on the
+            ``get_variable`` subset the dimension metadata is gone, so the labels
+            must be decoded through the parent container. End-to-end (no patched
+            decoder): capture the request and assert ``animation_axis_values`` are
+            the ``YYYY-MM-DD`` strings, not the raw nanosecond integers. Regression
+            test for #1013.
+        """
+        nc = _dated_projected_nc(tmp_path)
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(variable="Band_1", animate=True)
+        assert captured["request"].mode.animation_axis_values == [
+            "1979-01-01",
+            "1979-01-02",
+            "1979-01-03",
+        ]
+
+    def test_animate_keeps_raw_labels_when_time_units_absent(self):
+        """Without a parseable time units the frame labels stay the raw coordinates.
+
+        Test scenario:
+            ``make_plot_3d_nc`` builds a ``time`` dim of plain integers with no CF
+            ``units``, so decoding returns None and the animate path keeps the raw
+            ``[0, 1, 2]`` coordinate labels (#1013).
+        """
+        nc = make_plot_3d_nc(n_times=3)
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(variable="t2m", animate=True)
+        assert captured["request"].mode.animation_axis_values == [0, 1, 2]
+
+    def test_animate_without_no_data_leaves_frames_unmasked(self):
+        """A variable with no no-data introduces no spurious NaN into the frames.
+
+        Test scenario:
+            When ``no_data_value`` is unset and no ``exclude_value`` is passed the
+            frame mask is empty, so ``_data_getter`` returns each frame untouched —
+            covers the empty-mask branch of the animate masking.
+        """
+        nc = make_plot_3d_nc(n_times=3)
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(variable="t2m", animate=True)
+        frame0 = np.asarray(captured["request"].mode.data_getter(0))
+        expected = np.asarray(nc.get_variable("t2m").read_array(band=0))
+        assert not np.any(np.isnan(frame0)), "no no-data means no NaN introduced"
+        assert_array_equal(
+            frame0,
+            expected,
+            err_msg="frame should be returned unchanged when the mask is empty",
+        )
 
     @pytest.mark.skipif(FrameLabel is None, reason="cleopatra < 0.26 has no FrameLabel")
     def test_animate_forwards_frame_label_to_render_array(self):

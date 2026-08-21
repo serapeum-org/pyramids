@@ -69,14 +69,26 @@ def _make_dataset_3d(bands=3, rows=10, cols=12, no_data=-9999.0):
     )
 
 
-def _make_nc_with_time_units(rows=4, cols=5, n_times=3):
+def _make_nc_with_time_units(
+    rows=4, cols=5, n_times=3, units="days since 1979-01-01", time_name="time"
+):
     """Create an MDIM NetCDF with a time dimension that has a 'units' attr.
 
     This is needed to exercise the get_time_variable conversion path.
 
+    Args:
+        rows: Number of latitude rows.
+        cols: Number of longitude columns.
+        n_times: Number of time steps.
+        units: The CF ``units`` string stamped on the time variable. Defaults to
+            ``"days since 1979-01-01"``; pass a non-CF string (e.g. ``"gregorian"``)
+            to exercise the unparseable-units fallback.
+        time_name: Name of the time dimension / variable. Defaults to ``"time"``;
+            pass e.g. ``"time_counter"`` to exercise a non-standard axis name.
+
     Returns:
-        NetCDF: An in-memory NetCDF with a time dimension carrying
-            a ``units`` attribute of ``"days since 1979-01-01"``.
+        NetCDF: An in-memory NetCDF with a time dimension carrying the given
+            ``units`` attribute.
     """
     src = gdal.GetDriverByName("MEM").CreateMultiDimensional("time_test")
     rg = src.GetRootGroup()
@@ -95,15 +107,15 @@ def _make_nc_with_time_units(rows=4, cols=5, n_times=3):
     dim_y.SetIndexingVariable(y_vals)
 
     # Create time dimension with units attribute
-    dim_t = rg.CreateDimension("time", "TEMPORAL", None, n_times)
-    t_vals = rg.CreateMDArray("time", [dim_t], dtype)
+    dim_t = rg.CreateDimension(time_name, "TEMPORAL", None, n_times)
+    t_vals = rg.CreateMDArray(time_name, [dim_t], dtype)
     t_vals.Write(np.arange(n_times, dtype=np.float64))
     dim_t.SetIndexingVariable(t_vals)
 
     # Add 'units' attribute to the time variable
     str_dtype = gdal.ExtendedDataType.CreateString()
     units_attr = t_vals.CreateAttribute("units", [], str_dtype)
-    units_attr.Write("days since 1979-01-01")
+    units_attr.Write(units)
 
     # Create a data variable
     data_arr = rg.CreateMDArray("temperature", [dim_t, dim_y, dim_x], dtype)
