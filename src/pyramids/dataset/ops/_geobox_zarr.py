@@ -89,6 +89,11 @@ def write_geobox(
     ``grid_mapping`` attribute. The caller is responsible for the data array
     itself and for consolidating metadata afterwards.
 
+    The ``x`` / ``y`` arrays also carry CF ``axis`` / ``standard_name`` / ``units``
+    (via :func:`pyramids.netcdf.cf.build_coordinate_attrs`) and the ``spatial_ref``
+    scalar carries a CF ``grid_mapping_name``, so a CF reader can georeference the
+    store — mirroring the netCDF writers (#1017).
+
     Args:
         group: An open, writable :class:`zarr.hierarchy.Group`.
         data_name: Name of the already-written data array in ``group``.

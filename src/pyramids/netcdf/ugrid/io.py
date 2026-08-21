@@ -412,6 +412,11 @@ def write_ugrid_topology(
     connectivity arrays, and optional face/edge center coordinates.
     Uses cf.write_attributes_to_md_array for all attribute writing.
 
+    When ``crs_wkt`` is given, the node/face coordinate arrays gain CF
+    ``axis`` / ``standard_name`` / ``units`` (degrees for a geographic CRS, metres for
+    a projected one) and the ``crs`` variable carries a ``grid_mapping_name``, so the
+    unstructured mesh is CF-discoverable like the structured writers (#1017).
+
     Args:
         rg: GDAL root group to write into.
         mesh: Mesh2d instance.
@@ -524,7 +529,11 @@ def _write_crs_variable(
     crs_wkt: str,
     scalar_dim: Any,
 ) -> None:
-    """Write a CRS variable with crs_wkt attribute.
+    """Write the CF ``crs`` grid-mapping variable.
+
+    Carries ``crs_wkt`` / ``spatial_ref`` (the WKT) and, when the WKT parses, the CF
+    ``grid_mapping_name`` — a reader keys off ``grid_mapping_name`` to recognise the
+    variable as a grid mapping, so a WKT-only variable is not fully CF-discoverable.
 
     Args:
         rg: GDAL root group.
