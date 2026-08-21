@@ -1430,19 +1430,35 @@ class NetCDFPlot:
             value
             for value in resolved_exclude
             if value is not None
-            and not (isinstance(value, float) and math.isnan(value))
+            and not (isinstance(value, (float, np.floating)) and math.isnan(value))
         ]
 
         def _mask_frame(frame: np.typing.NDArray) -> np.typing.NDArray:
             result = np.asarray(frame)
             if mask_values:
-                # Compare in the frame's own dtype: a fill that is not exactly
-                # representable after a float64 promotion (e.g. a float32 CF fill)
-                # still matches, and this mask then agrees with cleopatra's
-                # native-dtype template mask. Lift to float only afterwards, to
-                # hold NaN in the masked cells (a fresh array, so the read frame
-                # is never mutated).
-                selected = np.isin(result, np.asarray(mask_values, dtype=result.dtype))
+                selected = np.zeros(result.shape, dtype=bool)
+                for value in mask_values:
+                    try:
+                        # Compare in the frame's own dtype so a fill that is not
+                        # exactly representable after a float64 promotion (a float32
+                        # CF fill) still matches, agreeing with cleopatra's
+                        # native-dtype template mask.
+                        cast = np.asarray(value, dtype=result.dtype)
+                    except (OverflowError, ValueError):
+                        # An out-of-range or NaN `exclude_value` for an integer frame
+                        # cannot occur in the frame, so it masks nothing (rather than
+                        # raising OverflowError mid-animation).
+                        continue
+                    if result.dtype.kind in "iu" and not np.array_equal(
+                        cast, np.asarray(value)
+                    ):
+                        # A fractional `exclude_value` truncates when cast to an
+                        # integer dtype (10.7 -> 10) and would mask the wrong cells;
+                        # skip a value the frame's dtype cannot hold exactly.
+                        continue
+                    selected = selected | (result == cast)
+                # Lift to float only afterwards, to hold NaN in the masked cells (a
+                # fresh array, so the read frame is never mutated).
                 result = result.astype(float)
                 result[selected] = np.nan
             return result
