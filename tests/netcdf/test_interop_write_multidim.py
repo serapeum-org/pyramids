@@ -671,7 +671,8 @@ class TestCfCoordinateHelpers:
             A WGS84 WKT round-trips to a geographic SpatialReference.
         """
         out = interop.srs_from_wkt(self._srs(4326).ExportToWkt())
-        assert out is not None and out.IsGeographic(), "expected a geographic SRS"
+        assert out is not None, "expected a parsed SRS"
+        assert out.IsGeographic(), "expected a geographic SRS"
 
     def test_cf_coord_attrs_geographic_x(self):
         """A geographic x axis gets degrees_east / longitude / X.
@@ -701,7 +702,8 @@ class TestCfCoordinateHelpers:
             `_cf_coord_attrs('x', ..., srs=None)` writes `axis=X` and no `units`.
         """
         attrs = interop._cf_coord_attrs("x", {}, {}, None)
-        assert attrs["axis"] == "X" and "units" not in attrs, attrs
+        assert attrs["axis"] == "X", attrs
+        assert "units" not in attrs, attrs
 
     def test_cf_coord_attrs_non_spatial_untouched(self):
         """A non-spatial coordinate keeps only the caller's attributes.
