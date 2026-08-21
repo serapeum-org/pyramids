@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7252,7 +7252,7 @@ col.time_length, col.meta.band_names, col.meta.shape</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/tmp/ipykernel_2695/1555281888.py:1: DeprecationWarning: DatasetCollection.read_multiple_files is deprecated; use from_files(path, glob=..., date_format=...) instead.
+<pre>/tmp/ipykernel_2674/1555281888.py:1: DeprecationWarning: DatasetCollection.read_multiple_files is deprecated; use from_files(path, glob=..., date_format=...) instead.
   col = DatasetCollection.read_multiple_files(
 </pre>
 </div>
@@ -7369,7 +7369,7 @@ the rainfall field change over the week.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f1b5084ef90&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fc97143ef90&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7418,7 +7418,7 @@ the rainfall field change over the week.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f1b48432c10&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fc96902ed50&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7480,7 +7480,7 @@ out.stat().st_size  # bytes on disk</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>289845</pre>
+<pre>299559</pre>
 </div>
 </div>
 </div>
@@ -7662,11 +7662,7 @@ dates.</p>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13234: RuntimeWarning: dimension #2 (x) is not a Longitude/X dimension.
-  return _gdal.Open(*args)
-/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13234: RuntimeWarning: dimension #1 (y) is not a Latitude/Y dimension.
-  return _gdal.Open(*args)
-/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13234: RuntimeWarning: dimension #0 (time) is not a Time or Vertical dimension.
+<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13234: RuntimeWarning: dimension #0 (time) is not a Time or Vertical dimension.
   return _gdal.Open(*args)
 </pre>
 </div>
@@ -7739,7 +7735,7 @@ value round-trips as well, so the fill is masked automatically — no <code>excl
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f1b4834b110&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7fc968f52fd0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7804,11 +7800,7 @@ NetCDF.read_file(dated).time_stamp</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13234: RuntimeWarning: dimension #2 (x) is not a Longitude/X dimension.
-  return _gdal.Open(*args)
-/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13234: RuntimeWarning: dimension #1 (y) is not a Latitude/Y dimension.
-  return _gdal.Open(*args)
-/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13234: RuntimeWarning: dimension #0 (time) is not a Time or Vertical dimension.
+<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13234: RuntimeWarning: dimension #0 (time) is not a Time or Vertical dimension.
   return _gdal.Open(*args)
 </pre>
 </div>
