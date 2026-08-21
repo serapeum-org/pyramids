@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -96,15 +97,20 @@ class TestAddMdArrayToGroupFallback:
     """Tests for _add_md_array_to_group NoData handling."""
 
     @staticmethod
-    def _copy_elevation_with_nodata(nodata):
+    def _copy_elevation_with_nodata(nodata, *, set_raises=False):
         """Copy ``make_2d_nc``'s ``elevation`` into a fresh MEM group.
 
         The source's ``GetNoDataValue`` is patched to ``nodata`` for the copy, so
         the caller controls whether the source appears to define a no-data value.
+        Patches are lifted before the copy is re-opened, so the returned array's
+        ``GetNoDataValue`` reports whatever ``_add_md_array_to_group`` actually set.
 
         Args:
             nodata: The value ``GetNoDataValue`` should report on the source
                 (``None`` for a source with no no-data defined).
+            set_raises: When ``True``, the MDArray ``SetNoDataValueDouble`` is
+                patched to raise ``RuntimeError`` during the copy, exercising the
+                error-handling branch. Defaults to ``False``.
 
         Returns:
             The copied ``copied_var`` MDArray in the destination group.
@@ -119,7 +125,18 @@ class TestAddMdArrayToGroupFallback:
             iv = d.GetIndexingVariable()
             NetCDF.create_main_dimension(dst_rg, d.GetName(), dtype, iv.ReadAsArray())
 
-        with patch.object(type(src_arr), "GetNoDataValue", return_value=nodata):
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch.object(type(src_arr), "GetNoDataValue", return_value=nodata)
+            )
+            if set_raises:
+                stack.enter_context(
+                    patch.object(
+                        type(src_arr),
+                        "SetNoDataValueDouble",
+                        side_effect=RuntimeError("simulated GDAL failure"),
+                    )
+                )
             NetCDF._add_md_array_to_group(dst_rg, "copied_var", src_arr)
 
         return dst_rg.OpenMDArray("copied_var")
@@ -148,6 +165,20 @@ class TestAddMdArrayToGroupFallback:
         assert copied is not None, "Copied variable should exist"
         ndv = copied.GetNoDataValue()
         assert ndv == pytest.approx(255.0), f"Expected nodata 255.0, got {ndv}"
+
+    def test_set_nodata_error_is_swallowed_without_sentinel(self):
+        """A GDAL error while setting no-data is swallowed; no sentinel is injected.
+
+        Test scenario:
+            The source reports a no-data value but SetNoDataValueDouble raises a
+            RuntimeError (a genuine GDAL failure). _add_md_array_to_group must not
+            propagate the error, and the copy ends up with no no-data value rather
+            than a phantom sentinel.
+        """
+        copied = self._copy_elevation_with_nodata(255.0, set_raises=True)
+        assert copied is not None, "Copied variable should exist"
+        ndv = copied.GetNoDataValue()
+        assert ndv is None, f"Expected no nodata after a swallowed error, got {ndv}"
 
 
 class TestSetVariableAttributes:
