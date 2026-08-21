@@ -13,11 +13,13 @@ from __future__ import annotations
 from typing import Any, cast
 
 import numpy as np
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from pyramids.netcdf._mdim import open_mdarray
 from pyramids.netcdf.cf import (
+    build_coordinate_attrs,
     grid_mapping_to_srs,
+    srs_to_grid_mapping,
     write_attributes_to_md_array,
 )
 from pyramids.netcdf.ugrid.connectivity import Connectivity
@@ -455,8 +457,20 @@ def write_ugrid_topology(
     write_attributes_to_md_array(topo_arr, topo_attrs)
     topo_arr.Write(np.array([0], dtype=np.int32))
 
-    _write_coord_array(rg, f"{mesh_name}_node_x", [n_node_dim], mesh.node_x)
-    _write_coord_array(rg, f"{mesh_name}_node_y", [n_node_dim], mesh.node_y)
+    is_geographic: bool | None = None
+    if crs_wkt is not None:
+        _srs = osr.SpatialReference()
+        if _srs.ImportFromWkt(crs_wkt) == 0:
+            is_geographic = bool(_srs.IsGeographic())
+
+    _write_coord_array(
+        rg, f"{mesh_name}_node_x", [n_node_dim], mesh.node_x,
+        axis="x", is_geographic=is_geographic,
+    )
+    _write_coord_array(
+        rg, f"{mesh_name}_node_y", [n_node_dim], mesh.node_y,
+        axis="y", is_geographic=is_geographic,
+    )
 
     _write_connectivity_array(
         rg,
@@ -487,12 +501,16 @@ def write_ugrid_topology(
             f"{mesh_name}_face_x",
             [n_face_dim],
             cast("np.typing.NDArray", mesh.face_x),
+            axis="x",
+            is_geographic=is_geographic,
         )
         _write_coord_array(
             rg,
             f"{mesh_name}_face_y",
             [n_face_dim],
             cast("np.typing.NDArray", mesh.face_y),
+            axis="y",
+            is_geographic=is_geographic,
         )
 
     if crs_wkt is not None:
@@ -519,7 +537,13 @@ def _write_crs_variable(
         gdal.ExtendedDataType.Create(gdal.GDT_Int32),
     )
     crs_arr.Write(np.array([0], dtype=np.int32))
-    write_attributes_to_md_array(crs_arr, {"crs_wkt": crs_wkt})
+    attrs: dict[str, Any] = {"crs_wkt": crs_wkt, "spatial_ref": crs_wkt}
+    srs = osr.SpatialReference()
+    if srs.ImportFromWkt(crs_wkt) == 0:
+        # A CF grid_mapping variable is identified by its `grid_mapping_name`; a reader
+        # keys off it, so a bare `crs_wkt`-only variable is not fully CF-discoverable.
+        attrs["grid_mapping_name"] = srs_to_grid_mapping(srs)[0]
+    write_attributes_to_md_array(crs_arr, attrs)
 
 
 def _write_coord_array(
@@ -527,6 +551,9 @@ def _write_coord_array(
     name: str,
     dims: list,
     data: np.ndarray,
+    *,
+    axis: str | None = None,
+    is_geographic: bool | None = True,
 ) -> None:
     """Write a coordinate array to the GDAL group.
 
@@ -535,6 +562,10 @@ def _write_coord_array(
         name: Variable name.
         dims: List of GDAL dimensions.
         data: 1D numpy array of coordinate values.
+        axis: ``"x"`` or ``"y"`` to stamp CF ``axis``/``standard_name``/``units`` via
+            :func:`pyramids.netcdf.cf.build_coordinate_attrs`, or None for a bare array.
+        is_geographic: True for a geographic CRS (degrees), False for projected
+            (metres), None when there is no CRS. Only used when ``axis`` is set.
     """
     md_arr = rg.CreateMDArray(
         name,
@@ -542,6 +573,10 @@ def _write_coord_array(
         gdal.ExtendedDataType.Create(gdal.GDT_Float64),
     )
     md_arr.Write(data.astype(np.float64))
+    if axis is not None:
+        write_attributes_to_md_array(
+            md_arr, build_coordinate_attrs(axis, is_geographic)
+        )
 
 
 def _write_connectivity_array(

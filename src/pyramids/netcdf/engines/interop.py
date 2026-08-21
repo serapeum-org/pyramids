@@ -611,13 +611,38 @@ def _build_multidim(
     return src
 
 
+def _crs_wkt_from_xarray(dataset: Any) -> str | None:
+    """Best-effort CRS WKT from an xarray Dataset's grid-mapping variable or global attrs.
+
+    Reads a ``spatial_ref`` / ``crs`` variable's ``crs_wkt`` / ``spatial_ref`` attribute
+    (the rioxarray / CF convention), then the dataset's global attributes. Returns None
+    when the source carries no CRS — ``from_xarray`` never fabricates one.
+
+    Args:
+        dataset: The source ``xarray.Dataset``.
+
+    Returns:
+        str or None: The CRS WKT, or None when the dataset declares no CRS.
+    """
+    for name in ("spatial_ref", "crs"):
+        if name in dataset.variables:
+            attrs = dataset.variables[name].attrs
+            wkt = attrs.get("crs_wkt") or attrs.get("spatial_ref")
+            if wkt:
+                return str(wkt)
+    wkt = dataset.attrs.get("crs_wkt")
+    return str(wkt) if wkt else None
+
+
 def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     """Build an in-memory GDAL multidim container from an xarray Dataset.
 
     Extracts the plain `(dims, coords, data_vars, attrs)` spec from the
     `xarray.Dataset` and delegates to `_build_multidim`, so the GDAL multidim
     assembly lives in one place and this adapter only reads `.sizes` /
-    `.coords` / `.data_vars` / `.attrs` off xarray.
+    `.coords` / `.data_vars` / `.attrs` off xarray. When the dataset carries a CRS,
+    it is passed down so the x/y coordinates gain CF attributes and a `grid_mapping`
+    variable is written (see :func:`_build_multidim`).
 
     Args:
         dataset: The source `xarray.Dataset`.
@@ -625,20 +650,25 @@ def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
     Returns:
         gdal.Dataset: The in-memory `MEM` multidimensional dataset.
     """
+    crs_wkt = _crs_wkt_from_xarray(dataset)
     dims = {name: int(size) for name, size in dataset.sizes.items()}
     coords = {
         name: (np.asarray(coord.values), dict(coord.attrs))
         for name, coord in dataset.coords.items()
         if name in dims
     }
+    # When we re-generate a grid_mapping from the resolved CRS, drop any pre-existing
+    # scalar grid-mapping variable so the output carries a single one.
+    skip = {"spatial_ref", "crs"} if crs_wkt is not None else set()
     data_vars = {
         # `var.data` hands the underlying array through WITHOUT computing it, so a
         # dask-backed variable stays lazy and `_build_multidim` can stream it block by
         # block (ARC-48); `.values` would force a full materialisation up front.
         name: (tuple(var.dims), var.data, dict(var.attrs))
         for name, var in dataset.data_vars.items()
+        if not (name in skip and var.ndim == 0)
     }
-    return _build_multidim(dims, coords, data_vars, dict(dataset.attrs))
+    return _build_multidim(dims, coords, data_vars, dict(dataset.attrs), crs_wkt=crs_wkt)
 
 
 def _create_copy_to_netcdf(mem_src: gdal.Dataset, path: str) -> None:

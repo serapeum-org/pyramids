@@ -292,6 +292,41 @@ class TestWriteUgridTopology:
             err_msg="Node x-coordinates should match",
         )
 
+    def test_node_coords_carry_cf_attrs_and_crs_has_grid_mapping_name(self, tmp_path):
+        """With a CRS, node coords gain CF axis attrs and the crs var gets grid_mapping_name.
+
+        Test scenario:
+            Write a geographic mesh (EPSG:4326) — expected: ``mesh2d_node_x`` carries
+            ``degrees_east``/``longitude``/``X`` and ``mesh2d_node_y`` the latitude
+            counterparts, and the ``crs`` variable carries a CF ``grid_mapping_name``
+            (#1017).
+        """
+        from osgeo import osr
+
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        mesh = Mesh2d(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=Connectivity(
+                data=np.array([[0, 1, 2]], dtype=np.intp),
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
+            ),
+        )
+        _, rg = self._write_and_reopen(tmp_path, mesh, crs_wkt=srs.ExportToWkt())
+        node_x = rg.OpenMDArray("mesh2d_node_x")
+        assert node_x.GetUnit() == "degrees_east", node_x.GetUnit()
+        x_attrs = _read_attributes(node_x)
+        assert x_attrs.get("axis") == "X"
+        assert x_attrs.get("standard_name") == "longitude"
+        node_y = rg.OpenMDArray("mesh2d_node_y")
+        assert node_y.GetUnit() == "degrees_north"
+        assert _read_attributes(node_y).get("axis") == "Y"
+        crs_attrs = _read_attributes(rg.OpenMDArray("crs"))
+        assert crs_attrs.get("grid_mapping_name") == "latitude_longitude", crs_attrs
+
     def test_writes_connectivity_with_fill_and_start_index(self, tmp_path):
         """Test that connectivity arrays have correct attributes.
 
