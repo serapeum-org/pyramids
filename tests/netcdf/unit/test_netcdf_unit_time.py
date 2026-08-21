@@ -312,6 +312,21 @@ class TestDecodeTimeLabels:
             f"custom format not applied: {result}"
         )
 
+    def test_decodes_a_non_standard_time_dim_name(self):
+        """Decoding is driven by the units attribute, not an allow-list of dim names.
+
+        Test scenario:
+            A time axis named ``time_counter`` (outside the old
+            ``time``/``valid_time``/``t`` allow-list) with a parseable CF ``units``
+            still decodes, so model axes like NEMO's ``time_counter`` are labelled
+            with dates on the animate path (finding L3).
+        """
+        nc = _make_nc_with_time_units(n_times=2, time_name="time_counter")
+        result = nc._decode_time_labels("time_counter", [0, 1])
+        assert result == ["1979-01-01", "1979-01-02"], (
+            f"non-standard time dim name did not decode: {result}"
+        )
+
 
 class TestCubeDimensionNames:
     """`get_variable(...).dimension_names` must mirror the container's view.
