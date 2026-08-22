@@ -483,11 +483,17 @@ class TestRemoveVariable:
         keep = nc._raster.GetRootGroup().OpenMDArray("elevation").ReadAsArray().copy()
         nc.add_variable(make_2d_nc(variable_name="rain"))
         nc.remove_variable("rain")
-        assert nc.variable_names == ["elevation"], nc.variable_names
+        assert nc.variable_names == ["elevation"], (
+            f"survivor list changed: {nc.variable_names}"
+        )
         surv = nc._raster.GetRootGroup().OpenMDArray("elevation")
         np.testing.assert_array_equal(surv.ReadAsArray(), keep)
-        assert surv.GetNoDataValue() == -9999.0, surv.GetNoDataValue()
-        assert surv.GetSpatialRef().GetAuthorityCode(None) == "4326"
+        assert surv.GetNoDataValue() == -9999.0, (
+            f"survivor no-data changed: {surv.GetNoDataValue()}"
+        )
+        assert surv.GetSpatialRef().GetAuthorityCode(None) == "4326", (
+            f"survivor EPSG changed: {surv.GetSpatialRef().GetAuthorityCode(None)}"
+        )
 
 
 class TestMutationSharedRaster:
