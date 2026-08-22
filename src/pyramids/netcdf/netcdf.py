@@ -5352,10 +5352,14 @@ class NetCDF(Dataset):
         )
 
     def _replace_raster(self, new_raster: gdal.Dataset):
-        """Replace the internal GDAL dataset, closing the old one if different.
+        """Replace the internal GDAL dataset, flushing the old one if different.
 
         Re-derives all base-class state (geotransform, CRS, band info, etc.)
-        without resetting NetCDF-specific flags (_is_md_array, _is_subset).
+        without resetting NetCDF-specific flags (_is_md_array, _is_subset). The
+        previous raster is only flushed, never closed: a caller still holding the
+        old handle (or a ``get_group()`` view of it) must keep a valid, unmutated
+        dataset, which is why the variable-mutation ops copy-and-swap instead of
+        mutating in place (#143). Do not change this to close the old raster.
         """
         old = self._raster
         if old is not None and old is not new_raster:
