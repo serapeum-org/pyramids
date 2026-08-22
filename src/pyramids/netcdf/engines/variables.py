@@ -270,9 +270,9 @@ class Variables(_Engine["NetCDF"]):
     def remove_variable(self, variable_name: str):
         """Delete a variable from this container.
 
-        If the dataset is backed by a file on disk, a MEM copy is made first
-        so that the on-disk file is not modified. The internal raster
-        reference is replaced with the modified copy.
+        An independent MEM copy is always made first and the internal raster is
+        replaced with it, so neither the on-disk file (for a file-backed dataset)
+        nor any handle sharing the in-memory raster is mutated in place (#143).
 
         Args:
             variable_name: Name of the variable to remove.
