@@ -3675,7 +3675,8 @@ class Dataset(RasterBase):
                 features' bounds snapped outward onto the template's grid
                 lines — a small raster that still co-registers with the
                 template pixel-for-pixel (#46). Requires a square,
-                axis-aligned, north-up template and non-empty features.
+                axis-aligned template and features with valid (non-NaN)
+                geometry bounds.
             column_name (str | list[str] | None):
                 Attribute column(s) to burn as band values. `None`
                 burns every non-geometry column as a separate band.
