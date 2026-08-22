@@ -56,9 +56,16 @@ These mirror the kwarg defaults of
 COG write policy (ARC-1). ``PREDICTOR`` and ``OVERVIEW_RESAMPLING`` are
 intentionally absent: both are resolved per-dtype inside ``to_cog`` (integer →
 ``PREDICTOR=2`` / ``mode`` overviews; float → ``PREDICTOR=3`` / ``average``
-overviews) unless the caller overrides them. Kept here for back-compat and as
-documentation; :func:`write_cog` no longer applies it directly — it delegates
-to ``to_cog``.
+overviews) unless the caller overrides them. The integer ``PREDICTOR=2`` rule is
+further gated on the sample width: a sub-byte-aligned source ``NBITS`` (e.g. the
+``12`` a ``SENTINEL2`` read carries) is promoted to the next libtiff-writable
+width and only then keeps ``PREDICTOR=2`` — a width the predictor cannot honour
+falls back to no predictor (see :func:`pyramids.base._utils.resolve_cog_predictor`
+and :func:`pyramids.dataset.cog.options._promote_nbits`). ``NBITS`` itself is
+also absent here: promoted per-source inside ``to_cog`` so the output never
+inherits a width that clips, while an explicit caller ``NBITS`` still wins. Kept
+here for back-compat and as documentation; :func:`write_cog` no longer applies it
+directly — it delegates to ``to_cog``.
 """
 
 

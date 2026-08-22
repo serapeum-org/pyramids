@@ -98,6 +98,101 @@ omits it there.
 """
 
 
+_PREDICTOR_SAFE_NBITS: tuple[int, ...] = (8, 16, 32, 64)
+"""Sample widths (bits) libtiff accepts for ``PREDICTOR=2``.
+
+A band whose ``NBITS`` is not one of these (e.g. a 12-bit Sentinel-2 JP2 source)
+makes the COG driver reject ``PREDICTOR=2`` and, if the narrow width is inherited
+onto the output, silently clips values above its domain. :func:`_promote_nbits`
+widens such a source to the next value here, and :func:`_reconcile_predictor_with_nbits`
+drops the predictor if a caller nonetheless forces a narrow width.
+"""
+
+
+def _read_source_nbits(band: Any) -> int | None:
+    """Return a band's declared ``NBITS`` (bits per sample), or ``None``.
+
+    Reads the ``NBITS`` item from the band's ``IMAGE_STRUCTURE`` metadata domain,
+    where GDAL drivers (e.g. ``SENTINEL2``) report a sub-byte-aligned sample
+    width propagated from the source.
+
+    Args:
+        band: A GDAL raster band.
+
+    Returns:
+        The declared width in bits, or ``None`` when the band carries no
+        ``NBITS`` (its samples then use the dtype's natural width).
+    """
+    raw = band.GetMetadataItem("NBITS", "IMAGE_STRUCTURE")
+    return int(raw) if raw else None
+
+
+def _promote_nbits(nbits: int | None) -> int | None:
+    """Round a sub-byte-aligned width up to the next COG-writable sample width.
+
+    A width already ``None`` or in :data:`_PREDICTOR_SAFE_NBITS` needs no change
+    (returns ``None`` — nothing to override). A narrower/odd width (e.g. ``12``)
+    is promoted to the smallest value in :data:`_PREDICTOR_SAFE_NBITS` that can
+    hold it (``12 -> 16``), so the output neither clips nor trips the predictor.
+
+    Args:
+        nbits: The source band's declared width, or ``None``.
+
+    Returns:
+        The promoted width to write, or ``None`` when no promotion is needed.
+
+    Examples:
+        - A 12-bit source promotes to 16:
+            ```python
+            >>> from pyramids.dataset.cog.options import _promote_nbits
+            >>> _promote_nbits(12)
+            16
+
+            ```
+        - An already-supported width is left alone:
+            ```python
+            >>> _promote_nbits(16) is None
+            True
+            >>> _promote_nbits(None) is None
+            True
+
+            ```
+    """
+    if nbits is None or nbits in _PREDICTOR_SAFE_NBITS:
+        return None
+    return min(width for width in _PREDICTOR_SAFE_NBITS if width >= nbits)
+
+
+def _reconcile_predictor_with_nbits(options: dict[str, Any]) -> None:
+    """Drop ``PREDICTOR`` when the final ``NBITS`` cannot honour it.
+
+    ``PREDICTOR=2``/``3`` require an 8/16/32/64-bit sample. When a caller forces
+    a sub-byte-aligned ``NBITS`` through ``extra`` (overriding the promoted
+    default), keeping the predictor would make GDAL reject the write. Mutates
+    ``options`` in place, removing ``PREDICTOR`` so the caller's explicit narrow
+    width is honoured. A ``PREDICTOR`` the caller explicitly disabled
+    (``1``/``"NO"``) is left untouched.
+
+    Args:
+        options: The merged GDAL creation-option dict (post :func:`merge_options`).
+    """
+    nbits = options.get("NBITS")
+    if nbits is None:
+        return
+    try:
+        nbits_value = int(nbits)
+    except (TypeError, ValueError):
+        return
+    predictor = options.get("PREDICTOR")
+    if nbits_value not in _PREDICTOR_SAFE_NBITS and predictor not in (
+        None,
+        1,
+        "1",
+        "NO",
+    ):
+        options.pop("PREDICTOR", None)
+
+
 _PALETTE_GDAL_DTYPES: frozenset[int] = frozenset({gdal.GDT_Byte, gdal.GDT_UInt16})
 """GDAL dtypes for which a colour table (palette) is meaningful."""
 
@@ -374,18 +469,33 @@ class Compression:
         ``MAX_Z_ERROR``. ``None`` values are kept and dropped later by
         :func:`merge_options` / :func:`to_gdal_options`.
 
+        A source band whose ``NBITS`` is sub-byte-aligned (e.g. ``12`` from a
+        Sentinel-2 JP2 source) is promoted to the next libtiff-writable width via
+        :func:`_promote_nbits` and that width is emitted as ``NBITS`` — otherwise
+        the inherited narrow width both trips ``PREDICTOR=2`` and silently clips
+        values above its domain. The predictor is resolved against the *promoted*
+        width, so a promoted ``12 -> 16`` still uses ``PREDICTOR=2``. A caller can
+        still override ``NBITS`` through ``extra``; the write site then reconciles
+        the predictor via :func:`_reconcile_predictor_with_nbits`.
+
         Args:
-            source_band: Band 0 of the effective source, whose ``DataType``
-                drives the predictor default.
+            source_band: Band 0 of the effective source, whose ``DataType`` drives
+                the predictor default and whose ``NBITS`` drives the width.
 
         Returns:
             The compression slice of the GDAL creation-option dict
-            (``COMPRESS``/``LEVEL``/``QUALITY``/``MAX_Z_ERROR``/``PREDICTOR``).
+            (``COMPRESS``/``LEVEL``/``QUALITY``/``MAX_Z_ERROR``/``PREDICTOR``, plus
+            ``NBITS`` when a sub-byte-aligned source width is promoted).
         """
         compress = self.compress if self.compress is not None else "DEFLATE"
+        source_nbits = _read_source_nbits(source_band)
+        promoted_nbits = _promote_nbits(source_nbits)
+        # The width the output will actually use: the promoted one, else the
+        # source's own (already a supported width, or None for the dtype default).
+        effective_nbits = promoted_nbits if promoted_nbits is not None else source_nbits
         predictor = self.predictor
         if predictor is None:
-            predictor = resolve_cog_predictor(source_band.DataType)
+            predictor = resolve_cog_predictor(source_band.DataType, effective_nbits)
         options: dict[str, Any] = {
             "COMPRESS": compress,
             "LEVEL": self.level,
@@ -395,6 +505,8 @@ class Compression:
                 predictor if compress.upper() in _PREDICTOR_COMPRESSORS else None
             ),
         }
+        if promoted_nbits is not None:
+            options["NBITS"] = promoted_nbits
         return options
 
 
