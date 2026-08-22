@@ -10,7 +10,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast, overload
 
 import geopandas as gpd
 import numpy as np
@@ -647,7 +647,7 @@ class Bands(_Engine["Dataset"]):
 
               ```
         """
-        return [self._iloc(i).GetMetadata() for i in range(self._ds.band_count)]
+        return self.get_metadata()
 
     @metadata.setter
     def metadata(self, value: list[dict[str, str]]) -> None:
@@ -672,14 +672,121 @@ class Bands(_Engine["Dataset"]):
                 ``read_only=False`` or edit an in-memory copy instead.
             ValueError: ``value`` does not carry exactly one mapping per band.
         """
+        self.set_metadata(value)
+
+    @overload
+    def get_metadata(
+        self, band: None = ..., domain: str = ...
+    ) -> list[dict[str, str]]: ...
+
+    @overload
+    def get_metadata(self, band: int, domain: str = ...) -> dict[str, str]: ...
+
+    def get_metadata(
+        self, band: int | None = None, domain: str = ""
+    ) -> list[dict[str, str]] | dict[str, str]:
+        """Read per-band metadata from a metadata domain.
+
+        The domain-aware form behind :attr:`metadata`. The default domain (``""``)
+        holds format-specific band semantics; other GDAL domains expose other tags,
+        e.g. ``"IMAGE_STRUCTURE"`` carries ``NBITS`` / ``COMPRESSION`` / ``PIXELTYPE``.
+
+        Args:
+            band: A 0-based band index to read just that band, or ``None`` (default)
+                to read every band in band order.
+            domain: The GDAL metadata domain to read; ``""`` (default) is the default
+                domain.
+
+        Returns:
+            list[dict[str, str]] | dict[str, str]: One mapping per band when ``band``
+            is ``None``; a single band's mapping when ``band`` is given. A band with
+            no metadata in the domain yields an empty ``dict`` (never ``None``).
+
+        Raises:
+            IndexError: ``band`` is out of range.
+
+        Examples:
+            - Read the ``IMAGE_STRUCTURE`` domain of a single band:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> dataset = Dataset.create_from_array(
+              ...     np.zeros((4, 4), dtype="int16"),
+              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ... )
+              >>> dataset.bands.get_metadata(band=0, domain="IMAGE_STRUCTURE")
+              {}
+
+              ```
+        """
+        if band is None:
+            return [
+                cast("dict[str, str]", self._iloc(i).GetMetadata(domain))
+                for i in range(self._ds.band_count)
+            ]
+        return cast("dict[str, str]", self._iloc(band).GetMetadata(domain))
+
+    def set_metadata(
+        self,
+        value: list[dict[str, str]] | dict[str, str],
+        band: int | None = None,
+        domain: str = "",
+    ) -> None:
+        """Replace per-band metadata in a metadata domain.
+
+        The domain-aware form behind the :attr:`metadata` setter. Replaces (does not
+        merge) the metadata of the target band(s) in ``domain``; assigning an empty
+        mapping clears it. Use :meth:`set_metadata_item` to change one key in place.
+
+        Args:
+            value: One mapping per band (a list, when ``band`` is ``None``) or a
+                single band's mapping (a dict, when ``band`` is given).
+            band: A 0-based band index to set just that band, or ``None`` (default) to
+                set every band from a per-band list.
+            domain: The GDAL metadata domain to write; ``""`` (default) is the default
+                domain.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+            ValueError: ``band`` is ``None`` but ``value`` does not carry exactly one
+                mapping per band.
+            IndexError: ``band`` is out of range.
+        """
         self._ds._require_writable("set band metadata")
-        if len(value) != self._ds.band_count:
-            raise ValueError(
-                f"band_meta_data needs one mapping per band: expected "
-                f"{self._ds.band_count}, got {len(value)}."
-            )
-        for i, band_md in enumerate(value):
-            self._iloc(i).SetMetadata(band_md)
+        if band is None:
+            if len(value) != self._ds.band_count:
+                raise ValueError(
+                    f"band_meta_data needs one mapping per band: expected "
+                    f"{self._ds.band_count}, got {len(value)}."
+                )
+            for i, band_md in enumerate(cast("list[dict[str, str]]", value)):
+                self._iloc(i).SetMetadata(band_md, domain)
+        else:
+            self._iloc(band).SetMetadata(cast("dict[str, str]", value), domain)
+
+    def set_metadata_item(
+        self, key: str, value: str, band: int = 0, domain: str = ""
+    ) -> None:
+        """Set a single band-metadata key in place, leaving the rest untouched.
+
+        The merge counterpart to :meth:`set_metadata` (which replaces a band's whole
+        mapping): this updates or adds one ``key`` on one band via GDAL's
+        ``SetMetadataItem``.
+
+        Args:
+            key: The metadata key to set.
+            value: The value to store.
+            band: The 0-based band index. Defaults to the first band.
+            domain: The GDAL metadata domain to write; ``""`` (default) is the default
+                domain.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+            IndexError: ``band`` is out of range.
+        """
+        self._ds._require_writable("set band metadata")
+        self._iloc(band).SetMetadataItem(key, value, domain)
 
     def get_band_by_color(self, color_name: str) -> int | None:
         """Get the band associated with a given color.

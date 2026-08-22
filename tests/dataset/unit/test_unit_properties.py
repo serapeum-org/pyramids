@@ -339,6 +339,54 @@ class TestBandMetaData:
         with pytest.raises(ReadOnlyError, match="read-only"):
             ds.band_meta_data = [{"WAVELENGTH": "443"}, {"WAVELENGTH": "490"}]
 
+    def test_get_metadata_single_band(self, multi_band_dataset):
+        """get_metadata(band=i) returns just that band's mapping."""
+        multi_band_dataset.band_meta_data = [{"A": "1"}, {"B": "2"}, {"C": "3"}]
+        assert multi_band_dataset.bands.get_metadata(band=1) == {"B": "2"}, (
+            "band-selective get returned the wrong band"
+        )
+
+    def test_set_metadata_single_band(self, multi_band_dataset):
+        """set_metadata(dict, band=i) replaces only that band."""
+        multi_band_dataset.bands.set_metadata({"X": "9"}, band=2)
+        result = multi_band_dataset.band_meta_data
+        assert result == [{}, {}, {"X": "9"}], f"only band 2 should change: {result}"
+
+    def test_set_metadata_item_merges(self, multi_band_dataset):
+        """set_metadata_item adds/updates one key without clearing the rest."""
+        multi_band_dataset.bands.set_metadata({"KEEP": "1"}, band=0)
+        multi_band_dataset.bands.set_metadata_item("ADD", "2", band=0)
+        assert multi_band_dataset.bands.get_metadata(band=0) == {
+            "KEEP": "1",
+            "ADD": "2",
+        }, "set_metadata_item should merge, not replace"
+
+    def test_domain_isolation(self, multi_band_dataset):
+        """A non-default domain is read/written independently of the default one."""
+        multi_band_dataset.bands.set_metadata({"WAVELENGTH": "443"}, band=0)
+        multi_band_dataset.bands.set_metadata_item(
+            "NBITS", "12", band=0, domain="IMAGE_STRUCTURE"
+        )
+        assert multi_band_dataset.bands.get_metadata(
+            band=0, domain="IMAGE_STRUCTURE"
+        ) == {"NBITS": "12"}, "IMAGE_STRUCTURE domain not written/read"
+        assert multi_band_dataset.bands.get_metadata(band=0) == {"WAVELENGTH": "443"}, (
+            "the default domain must be untouched by an IMAGE_STRUCTURE write"
+        )
+
+    def test_set_metadata_read_only_raises(self, tmp_path):
+        """The domain-aware setter is guarded on a read-only on-disk file too."""
+        path = tmp_path / "bm.tif"
+        Dataset.create_from_array(
+            np.zeros((4, 4), dtype="int16"),
+            top_left_corner=(0, 0),
+            cell_size=0.05,
+            epsg=4326,
+        ).to_file(str(path))
+        ds = Dataset.read_file(str(path), read_only=True)
+        with pytest.raises(ReadOnlyError, match="read-only"):
+            ds.bands.set_metadata_item("A", "1", band=0)
+
 
 class TestConvertUnits:
     """Tests for the Dataset.convert_units value-conversion method."""
