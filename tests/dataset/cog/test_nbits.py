@@ -121,6 +121,28 @@ class TestReconcilePredictorWithNbits:
         _reconcile_predictor_with_nbits(options)
         assert options.get("PREDICTOR") == 2, f"predictor should stay: {options}"
 
+    def test_noop_for_non_integer_nbits(self):
+        """A non-integer ``NBITS`` value is ignored (predictor untouched).
+
+        Test scenario:
+            A malformed ``NBITS`` that cannot be parsed to int must not raise and
+            must leave the predictor in place.
+        """
+        options = {"NBITS": "not-a-number", "PREDICTOR": 2}
+        _reconcile_predictor_with_nbits(options)
+        assert options.get("PREDICTOR") == 2, f"predictor should stay: {options}"
+
+    def test_noop_when_predictor_already_disabled(self):
+        """A narrow ``NBITS`` with an already-disabled predictor is left as-is.
+
+        Test scenario:
+            When the caller already set ``PREDICTOR=1`` (no predictor), a narrow
+            width needs no further change.
+        """
+        options = {"NBITS": 12, "PREDICTOR": 1}
+        _reconcile_predictor_with_nbits(options)
+        assert options.get("PREDICTOR") == 1, f"predictor should stay 1: {options}"
+
 
 class TestCompressionToOptionsNbits:
     """``Compression._to_options`` reads and promotes the source ``NBITS``."""
