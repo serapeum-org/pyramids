@@ -167,6 +167,17 @@ class TestRasterizeRoundTrip:
         raster.SetProjection(srs.ExportToWkt())
         return Dataset(raster)
 
+    def _snap(self, geometry, template, epsg=32636):
+        """Rasterize a single `class_id=42` feature onto `template` in snap mode."""
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": [42]}, geometry=[geometry], crs=f"EPSG:{epsg}"
+            )
+        )
+        return Dataset.from_features(
+            fc, template=template, snap_to_template=True, column_name="class_id"
+        )
+
     def test_rasterize_polygon(self):
         """Burn a polygon attribute into a raster and verify the value."""
         epsg = 32636
@@ -551,16 +562,53 @@ class TestRasterizeRoundTrip:
             correct north-up output.
         """
         template = self._mem_template((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
-        fc = FeatureCollection(
-            gpd.GeoDataFrame(
-                {"class_id": [42]}, geometry=[box(1.0, 1.0, 4.0, 4.0)], crs="EPSG:4326"
-            )
-        )
-        out = Dataset.from_features(
-            fc, template=template, snap_to_template=True, column_name="class_id"
-        )
+        out = self._snap(box(1.0, 1.0, 4.0, 4.0), template, epsg=4326)
+
         assert np.any(np.isclose(out.read_array(), 42.0)), (
             "a south-up template should still cover the feature"
+        )
+        ox, oy = out.top_left_corner
+        assert ox % 1.0 == 0, "x-origin lands on the south-up template lattice"
+        assert oy % 1.0 == 0, "y-origin lands on the south-up template lattice"
+        assert out.cell_size == 1.0, "output keeps the template cell size"
+
+    def test_snap_to_template_mid_cell_point_covers_the_point(self, utm_template):
+        """A point strictly inside a cell snaps to the 1x1 pixel that contains it (#46).
+
+        Test scenario:
+            An off-grid-line `Point` rounds to a single covering cell without needing the
+            `max(1, ...)` clamp.
+        """
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        out = self._snap(Point(x0 + 2.5 * cell, y0 - 3.5 * cell), utm_template)
+
+        assert out.rows == 1, f"mid-cell point should give one row, got {out.rows}"
+        assert out.columns == 1, (
+            f"mid-cell point should give one column, got {out.columns}"
+        )
+        assert np.any(np.isclose(out.read_array(), 42.0)), (
+            "the containing pixel must be burned"
+        )
+
+    def test_snap_to_template_straddling_edge_covers_full_feature(self, utm_template):
+        """A feature straddling the template edge snaps to cover its full extent (#46).
+
+        Test scenario:
+            A box from 8 to 12 cells (the template is 10 wide) snaps to cover through 12
+            cells — beyond the template footprint — so the whole feature is included.
+        """
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        straddle = box(x0 + 8 * cell, y0 - 4 * cell, x0 + 12 * cell, y0 - 1 * cell)
+        out = self._snap(straddle, utm_template)
+
+        ox, _ = out.top_left_corner
+        assert ox + out.columns * out.cell_size >= x0 + 12 * cell, (
+            "snap must extend past the template to cover the outside part of the feature"
+        )
+        assert np.any(np.isclose(out.read_array(), 42.0)), (
+            "the straddling feature is burned"
         )
 
     def test_from_features_rejects_non_positive_cell_size(self):
