@@ -241,6 +241,38 @@ class TestFileBackedMutation:
         )
 
 
+class TestInMemoryViewMutation:
+    """An in-memory get_group view copies-and-swaps, protecting the shared parent (#143)."""
+
+    def test_set_variable_copy_false_on_view_forces_copy(self):
+        """copy=False on an in-memory view is overridden so the parent is not mutated.
+
+        Test scenario:
+            A get_group view of an in-memory container shares its parent's raster. Even
+            with copy=False, set_variable must copy-and-swap (the view-guard), so the new
+            variable appears in the view but not under the parent's original raster.
+        """
+        nc = _build_grouped_mem()
+        view = nc.get_group("forecast")
+        assert view._raster is nc._raster, "precondition: view shares the parent raster"
+        parent_raster = nc._raster
+        source = NetCDF.create_from_array(
+            arr=np.full((5, 8), 7.0),
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="precip",
+        ).get_variable("precip")
+
+        view.set_variable("precip", source, copy=False)
+
+        forecast = parent_raster.GetRootGroup().OpenGroup("forecast")
+        assert "precip" not in (forecast.GetMDArrayNames() or []), (
+            "copy=False on a view must be overridden — the parent raster must not be mutated"
+        )
+        assert "precip" in view.variable_names, (
+            "the view must gain the new variable via its own copied raster"
+        )
+
+
 class TestPickleRoundTrip:
     """A group view round-trips back to the same sub-group (on-disk source)."""
 
