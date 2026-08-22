@@ -788,6 +788,74 @@ class Bands(_Engine["Dataset"]):
         self._ds._require_writable("set band metadata")
         self._iloc(band).SetMetadataItem(key, value, domain)
 
+    @property
+    def band_units(self) -> list[str]:
+        """Per-band unit labels, one per band, in band order."""
+        return self._ds._band_units
+
+    @band_units.setter
+    def band_units(self, value: list[str]) -> None:
+        """Relabel each band's unit.
+
+        This only relabels; it does not convert the stored values — see
+        :meth:`Dataset.convert_units` for a value-transforming conversion.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+        """
+        self._ds._require_writable("set band units")
+        self._ds._band_units = value
+        for i, val in enumerate(value):
+            self._iloc(i).SetUnitType(val)
+
+    @property
+    def scale(self) -> list[float]:
+        """Per-band scale factors (pixel value -> real-world value).
+
+        Returns:
+            list[float]: One scale per band; ``1.0`` for a band with no scale set.
+        """
+        scale_list = []
+        for i in range(self._ds.band_count):
+            band_scale = self._iloc(i).GetScale()
+            scale_list.append(band_scale if band_scale is not None else 1.0)
+        return scale_list
+
+    @scale.setter
+    def scale(self, value: list[float]) -> None:
+        """Set each band's scale factor.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+        """
+        self._ds._require_writable("set the band scale")
+        for i, val in enumerate(value):
+            self._iloc(i).SetScale(val)
+
+    @property
+    def offset(self) -> list[float]:
+        """Per-band offsets (pixel value -> real-world value).
+
+        Returns:
+            list[float]: One offset per band; ``0`` for a band with no offset set.
+        """
+        offset_list = []
+        for i in range(self._ds.band_count):
+            band_offset = self._iloc(i).GetOffset()
+            offset_list.append(band_offset if band_offset is not None else 0)
+        return offset_list
+
+    @offset.setter
+    def offset(self, value: list[float]) -> None:
+        """Set each band's offset.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+        """
+        self._ds._require_writable("set the band offset")
+        for i, val in enumerate(value):
+            self._iloc(i).SetOffset(val)
+
     def get_band_by_color(self, color_name: str) -> int | None:
         """Get the band associated with a given color.
 

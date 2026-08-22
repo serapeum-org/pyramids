@@ -1852,20 +1852,17 @@ class Dataset(RasterBase):
 
     @property
     def band_units(self) -> list[str]:
-        """Band units."""
-        return self._band_units
+        """Facade — delegates to :attr:`Bands.band_units <pyramids.dataset.engines.Bands.band_units>`."""
+        return self.bands.band_units
 
     @band_units.setter
     def band_units(self, value: list[str]):
-        """Band units setter.
+        """Facade setter.
 
         Raises:
-            ReadOnlyError: The dataset is opened read-only.
+            ReadOnlyError: The dataset is opened read-only on-disk.
         """
-        self._require_writable("set band units")
-        self._band_units = value
-        for i, val in enumerate(value):
-            self._iloc(i).SetUnitType(val)
+        self.bands.band_units = value
 
     def convert_units(self, target: str, band: int | None = None) -> Dataset:
         """Convert band values to ``target`` units, returning a new Dataset.
@@ -2100,49 +2097,37 @@ class Dataset(RasterBase):
 
     @property
     def scale(self) -> list[float]:
-        """Scale.
+        """Facade — delegates to :attr:`Bands.scale <pyramids.dataset.engines.Bands.scale>`.
 
-        The value of the scale is used to convert the pixel values to the real-world values.
+        The scale converts the pixel values to the real-world values.
         """
-        scale_list = []
-        for i in range(self.band_count):
-            band_scale = self._iloc(i).GetScale()
-            scale_list.append(band_scale if band_scale is not None else 1.0)
-        return scale_list
+        return self.bands.scale
 
     @scale.setter
     def scale(self, value: list[float]):
-        """Scale.
+        """Facade setter.
 
         Raises:
-            ReadOnlyError: The dataset is opened read-only.
+            ReadOnlyError: The dataset is opened read-only on-disk.
         """
-        self._require_writable("set the band scale")
-        for i, val in enumerate(value):
-            self._iloc(i).SetScale(val)
+        self.bands.scale = value
 
     @property
     def offset(self):
-        """Offset.
+        """Facade — delegates to :attr:`Bands.offset <pyramids.dataset.engines.Bands.offset>`.
 
-        The value of the offset is used to convert the pixel values to the real-world values.
+        The offset converts the pixel values to the real-world values.
         """
-        offset_list = []
-        for i in range(self.band_count):
-            band_offset = self._iloc(i).GetOffset()
-            offset_list.append(band_offset if band_offset is not None else 0)
-        return offset_list
+        return self.bands.offset
 
     @offset.setter
     def offset(self, value: list[float]):
-        """Offset.
+        """Facade setter.
 
         Raises:
-            ReadOnlyError: The dataset is opened read-only.
+            ReadOnlyError: The dataset is opened read-only on-disk.
         """
-        self._require_writable("set the band offset")
-        for i, val in enumerate(value):
-            self._iloc(i).SetOffset(val)
+        self.bands.offset = value
 
     @property
     def top_left_corner(self):
