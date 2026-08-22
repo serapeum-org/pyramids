@@ -54,7 +54,9 @@ def rasterize_features(
             grid lines — a small, template-co-registered raster instead of
             one spanning the whole template (issue #46). Requires a square,
             axis-aligned template and a FeatureCollection with valid
-            (non-NaN) geometry bounds.
+            (non-NaN) geometry bounds. The output is sized to the features,
+            so a fine-celled template with far-apart features can allocate a
+            large raster.
         column_name: Attribute column(s) to burn as band values.
             `None` burns every non-geometry column as a separate band.
 
@@ -66,8 +68,11 @@ def rasterize_features(
         without silent coercion.
 
     Raises:
-        ValueError: If `cell_size` is missing or non-positive, or
-            if `column_name` is empty / references missing columns.
+        ValueError: If `cell_size` is missing or non-positive, if
+            `column_name` is empty / references missing columns, if
+            `snap_to_template` is set without a `template`, or (in snap
+            mode) the template is rotated / non-square or the features
+            have no valid (non-NaN) geometry bounds.
         TypeError: If `template` is not a Dataset, or
             `column_name` is not `str` / `list` / `None`.
         CRSError: If the FeatureCollection has no CRS, or
@@ -283,7 +288,9 @@ def _snap_extent_to_template(
     size = abs(px)
     # Nudge by _SNAP_EPS (in cell units) so a bound mathematically on a grid line but a
     # few ULPs off does not push floor/ceil one cell too far — the snapped box stays tight
-    # and the output size is stable across CRSs, while still never under-covering.
+    # and the output size is stable across CRSs. Trade-off: a genuine feature edge lying
+    # within _SNAP_EPS (1e-9 cell) past a grid line is treated as on it, so it never
+    # over-covers by a spurious cell at the cost of that sub-nanocell ambiguity.
     snap_xmin = x0 + np.floor((fxmin - x0) / size + _SNAP_EPS) * size
     snap_xmax = x0 + np.ceil((fxmax - x0) / size - _SNAP_EPS) * size
     snap_ymax = y0 - np.floor((y0 - fymax) / size + _SNAP_EPS) * size
