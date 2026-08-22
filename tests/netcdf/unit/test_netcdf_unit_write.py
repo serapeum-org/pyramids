@@ -558,6 +558,48 @@ class TestMutationSharedRaster:
         assert "rain" in nc.variable_names, "container must gain the added variable"
 
 
+class TestSetVariableFileBacked:
+    """set_variable on a file-backed container must not touch the on-disk file (#143)."""
+
+    def test_set_variable_on_file_backed_leaves_disk_unchanged(self, tmp_path):
+        """A file-backed set_variable goes to a MEM copy, not the on-disk file.
+
+        Test scenario:
+            Writing a new variable into a writable file-backed container leaves the
+            file on disk unchanged — reopening the same path in a fresh handle does
+            not show the variable, while the working container does.
+        """
+        nc = make_2d_nc(variable_name="elevation")
+        out = str(tmp_path / "set_disk.nc")
+        nc.to_file(out)
+        file_nc = NetCDF.read_file(out, read_only=False, open_as_multi_dimensional=True)
+        file_nc.set_variable("added", _make_dataset_2d())
+        assert "added" in file_nc.variable_names, "container should gain the variable"
+        reopened = NetCDF.read_file(out, open_as_multi_dimensional=True)
+        assert "added" not in reopened.variable_names, (
+            "on-disk file must be unchanged — set_variable must not write to it"
+        )
+
+    def test_set_variable_copy_false_ignored_for_file_backed(self, tmp_path):
+        """copy=False is ignored for a file-backed container — it must still copy.
+
+        Test scenario:
+            A file-backed container must always copy to escape netCDF data mode, so
+            even with copy=False the on-disk file is untouched while the container
+            gains the variable.
+        """
+        nc = make_2d_nc(variable_name="elevation")
+        out = str(tmp_path / "set_disk_cf.nc")
+        nc.to_file(out)
+        file_nc = NetCDF.read_file(out, read_only=False, open_as_multi_dimensional=True)
+        file_nc.set_variable("added", _make_dataset_2d(), copy=False)
+        assert "added" in file_nc.variable_names, "container should gain the variable"
+        reopened = NetCDF.read_file(out, open_as_multi_dimensional=True)
+        assert "added" not in reopened.variable_names, (
+            "copy=False must still not write to the on-disk file"
+        )
+
+
 class TestSetVariableAttrWriteException:
     """Tests for set_variable attribute Write exception."""
 
