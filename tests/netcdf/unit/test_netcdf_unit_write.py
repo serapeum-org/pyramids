@@ -399,6 +399,20 @@ class TestAddVariable:
             f"Variable names should not change, got {nc.variable_names}"
         )
 
+    def test_add_variable_raises_on_non_mdim_container(self):
+        """add_variable rejects a non-multidimensional container with ValueError.
+
+        Test scenario:
+            When the destination container has no working group (opened without MDIM
+            mode), add_variable raises a clear ValueError before attempting any copy,
+            mirroring set_variable.
+        """
+        nc = make_2d_nc(variable_name="elevation")
+        other = make_2d_nc(variable_name="rain")
+        with patch.object(type(nc), "_working_group", return_value=None):
+            with pytest.raises(ValueError, match="multidimensional container"):
+                nc.add_variable(other)
+
 
 class TestRemoveVariable:
     """Tests for remove_variable (file-backed and in-memory)."""
