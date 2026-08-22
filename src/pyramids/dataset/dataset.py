@@ -2453,6 +2453,10 @@ class Dataset(RasterBase):
             - :meth:`pyramids.dataset.DatasetCollection.from_archive`: open
               *every* member of an archive as a temporal stack.
         """
+        # Normalize once here so the value captured on the instance below is the
+        # KEY=VALUE list form (a raw dict would lose its values when the base
+        # __init__ tuple-ifies it). _io.read_file re-normalizes idempotently for
+        # its own direct callers — the double pass is intentional and harmless.
         options = _io.normalize_open_options(open_options)
         with cloud_config_from_env(gdal_env, path=str(path)):
             src = _io.read_file(

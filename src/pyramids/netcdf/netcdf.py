@@ -3798,6 +3798,9 @@ class NetCDF(Dataset):
             - :meth:`pyramids.dataset.Dataset.read_file`: the same
               ``vsi=`` / ``file_i=`` surface for GeoTIFFs.
         """
+        # Normalize once here so the captured form on the Container is the
+        # KEY=VALUE list; _io.read_file re-normalizes idempotently (see the note
+        # in Dataset.read_file).
         options = _io.normalize_open_options(open_options)
         src = _io.read_file(
             path,
