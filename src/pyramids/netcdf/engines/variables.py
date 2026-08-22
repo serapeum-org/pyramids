@@ -105,8 +105,10 @@ class Variables(_Engine["NetCDF"]):
                 `_raster`) is not corrupted — see #143. Pass False only from a
                 caller that exclusively owns this container (e.g. the internal
                 per-variable fan-out builders) to mutate it in place and avoid a
-                per-call copy. Ignored for file-backed containers, which must
-                always copy to escape netCDF data mode. Defaults to True.
+                per-call copy. Ignored (a copy is always made) for file-backed
+                containers, which must copy to escape netCDF data mode, and for a
+                `get_group()` view, whose raster is shared with its parent.
+                Defaults to True.
 
         Raises:
             ValueError: If called on a dataset without a root group
@@ -123,8 +125,9 @@ class Variables(_Engine["NetCDF"]):
         # data mode) so must go through a MEM copy. For an in-memory container, copying also prevents
         # corrupting a handle that shares the same gdal.Dataset (a get_group() view, or a caller holding
         # _raster) — #143. Skip the copy only when the caller exclusively owns this container and opts
-        # out with copy=False, mutating the live working group in place.
-        if copy or nc.driver_type != "memory":
+        # out with copy=False, mutating the live working group in place. A get_group() view (_group_path
+        # set) shares its parent's raster, so it always copies regardless of the flag.
+        if copy or nc.driver_type != "memory" or nc._group_path:
             work, rg = nc._writable_root_group()
             nc._replace_raster(work)
 
