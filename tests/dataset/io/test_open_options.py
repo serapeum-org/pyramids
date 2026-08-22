@@ -22,6 +22,7 @@ from pyramids._io import read_file as io_read_file
 from pyramids.base._file_manager import gdal_raster_open
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset import collection as collection_module
+from pyramids.dataset.engines import io as io_engine
 from pyramids.netcdf import NetCDF
 from tests._helpers import write_raster
 from tests._marks import requires_dask
@@ -117,31 +118,59 @@ class TestReadFileOpenOptions:
         assert reopened.open_options == ["GEOREF_SOURCES=NONE"]
         assert reopened.geotransform == _IDENTITY_GT, "options lost on reopen"
 
-    def test_options_survive_threadsafe_reopen(self, georeferenced_tif):
-        """A per-thread reopen carries the options and still reads."""
-        dataset = Dataset.read_file(
-            georeferenced_tif, open_options={"GEOREF_SOURCES": "NONE"}
-        )
-        result = np.asarray(dataset.read_array(threadsafe=True))
-        assert result.shape == (8, 8)
-
-    @requires_dask
-    def test_options_survive_lazy_chunked_reopen(self, georeferenced_tif):
-        """A lazy chunked read reopens per chunk with the captured options.
+    def test_options_survive_threadsafe_reopen(self, georeferenced_tif, mocker):
+        """A per-thread reopen forwards the captured options to the opener.
 
         Test scenario:
-            `read_array(chunks=...)` builds a dask array whose per-chunk opener is
-            a `CachingFileManager` fed the captured options; the graph must build
-            and compute back to the raster's values without losing them.
+            `read_array(threadsafe=True)` reopens the file through the per-thread
+            manager. `GEOREF_SOURCES` is inert for array values, so asserting the
+            array alone cannot detect option loss on this path — instead spy on
+            the reopen opener and prove it receives the captured options.
         """
         dataset = Dataset.read_file(
             georeferenced_tif, open_options={"GEOREF_SOURCES": "NONE"}
         )
+        real = io_engine.gdal_raster_open
+        seen: list = []
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs.get("open_options"))
+            return real(*args, **kwargs)
+
+        mocker.patch.object(io_engine, "gdal_raster_open", side_effect=spy)
+        result = np.asarray(dataset.read_array(threadsafe=True))
+        assert result.shape == (8, 8), f"unexpected shape {result.shape}"
+        assert seen, "the per-thread reopen opener was never called"
+        assert all(o == ("GEOREF_SOURCES=NONE",) for o in seen), seen
+
+    @requires_dask
+    def test_options_survive_lazy_chunked_reopen(self, georeferenced_tif, mocker):
+        """A lazy chunked read forwards the captured options to the per-chunk opener.
+
+        Test scenario:
+            `read_array(chunks=...)` builds a dask array whose per-chunk opener is
+            a `CachingFileManager`; spy on the reopen opener to prove it is fed the
+            captured options (again the georef option is inert for array values, so
+            the array assertion alone could not catch a dropped option).
+        """
+        dataset = Dataset.read_file(
+            georeferenced_tif, open_options={"GEOREF_SOURCES": "NONE"}
+        )
+        real = io_engine.gdal_raster_open
+        seen: list = []
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs.get("open_options"))
+            return real(*args, **kwargs)
+
+        mocker.patch.object(io_engine, "gdal_raster_open", side_effect=spy)
         lazy = dataset.read_array(chunks=4)
         assert hasattr(lazy, "dask"), "expected a lazy dask array"
         result = np.asarray(lazy.compute())
         assert result.shape == (8, 8), f"unexpected shape {result.shape}"
         assert np.allclose(result, 1.0), "lazy chunked read altered the values"
+        assert seen, "the per-chunk reopen opener was never called"
+        assert all(o == ("GEOREF_SOURCES=NONE",) for o in seen), seen
 
     def test_two_opens_different_options_do_not_share_a_handle(self, georeferenced_tif):
         """The shared cache keys on the options, so the two reads differ.
