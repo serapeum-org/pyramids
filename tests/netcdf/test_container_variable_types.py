@@ -233,7 +233,9 @@ class TestTypePreservation:
         assert is_subset is False, "a copy must not be pickled as a parent subset"
         assert source_var is None, "a copy must not carry a parent source-variable name"
         assert group_path is None, "a copy must not be pickled as a group view"
-        assert open_opts == (), "a copy opened without options carries none in its recipe"
+        assert open_opts == (), (
+            "a copy opened without options carries none in its recipe"
+        )
 
     def test_epsg_setter_inplace_preserves_variable_type(self, variable):
         """An in-place op (the ``epsg`` setter) does not downgrade a Variable.

@@ -59,7 +59,9 @@ class TestNormalizeOpenOptions:
 
     def test_dict_becomes_key_value_list(self):
         """A mapping is rendered as GDAL's `KEY=VALUE` list."""
-        assert normalize_open_options({"L1B_MODE": "DATASTRIP"}) == ["L1B_MODE=DATASTRIP"]
+        assert normalize_open_options({"L1B_MODE": "DATASTRIP"}) == [
+            "L1B_MODE=DATASTRIP"
+        ]
 
     def test_list_passes_through(self):
         """A native list is returned as a list, unchanged in content."""
@@ -277,9 +279,7 @@ class TestGdalRasterOpen:
 
     def test_read_options_take_effect(self, georeferenced_tif):
         """Read-only + options reopens via `OpenEx` (flags 0) carrying them."""
-        src = gdal_raster_open(
-            georeferenced_tif, open_options=("GEOREF_SOURCES=NONE",)
-        )
+        src = gdal_raster_open(georeferenced_tif, open_options=("GEOREF_SOURCES=NONE",))
         try:
             assert src.GetGeoTransform() == _IDENTITY_GT, "read option not applied"
         finally:
@@ -446,7 +446,9 @@ class TestNetCDFOpenOptions:
             str(_NETCDF_FIXTURE), open_options={"HONOUR_VALID_RANGE": "NO"}
         )
         reopened = pickle.loads(pickle.dumps(nc))
-        assert reopened.open_options == ["HONOUR_VALID_RANGE=NO"], "options lost on reopen"
+        assert reopened.open_options == ["HONOUR_VALID_RANGE=NO"], (
+            "options lost on reopen"
+        )
 
     def test_variable_subset_inherits_and_survives_pickle(self):
         """A `get_variable` subset inherits the container's options and reopens with them.
@@ -460,9 +462,13 @@ class TestNetCDFOpenOptions:
             str(_NETCDF_MULTIVAR), open_options={"HONOUR_VALID_RANGE": "NO"}
         )
         var = nc.get_variable(nc.variable_names[0])
-        assert var.open_options == ["HONOUR_VALID_RANGE=NO"], "subset dropped the option"
+        assert var.open_options == ["HONOUR_VALID_RANGE=NO"], (
+            "subset dropped the option"
+        )
         reopened = pickle.loads(pickle.dumps(var))
-        assert reopened.open_options == ["HONOUR_VALID_RANGE=NO"], "subset lost it on reopen"
+        assert reopened.open_options == ["HONOUR_VALID_RANGE=NO"], (
+            "subset lost it on reopen"
+        )
 
     def test_group_view_inherits_options(self):
         """A `get_group` view inherits the container's captured options (M1).
