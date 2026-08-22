@@ -93,6 +93,24 @@ class TestMetaDataSetter:
         )
 
 
+def _prepare_elevation_copy():
+    """Build ``make_2d_nc``'s ``elevation`` source and a matching empty MEM destination.
+
+    Returns:
+        A ``(src_arr, dst_rg)`` pair: the source ``elevation`` MDArray and a fresh
+        in-memory root group carrying its dimensions, ready to be passed to
+        ``NetCDF._add_md_array_to_group``.
+    """
+    nc = make_2d_nc()
+    src_arr = nc._raster.GetRootGroup().OpenMDArray("elevation")
+    dst_rg = gdal.GetDriverByName("MEM").CreateMultiDimensional("dst").GetRootGroup()
+    dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    for d in src_arr.GetDimensions():
+        iv = d.GetIndexingVariable()
+        NetCDF.create_main_dimension(dst_rg, d.GetName(), dtype, iv.ReadAsArray())
+    return src_arr, dst_rg
+
+
 class TestAddMdArrayToGroupFallback:
     """Tests for _add_md_array_to_group NoData handling."""
 
@@ -115,15 +133,7 @@ class TestAddMdArrayToGroupFallback:
         Returns:
             The copied ``copied_var`` MDArray in the destination group.
         """
-        nc = make_2d_nc()
-        src_arr = nc._raster.GetRootGroup().OpenMDArray("elevation")
-        dst_rg = (
-            gdal.GetDriverByName("MEM").CreateMultiDimensional("dst").GetRootGroup()
-        )
-        dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
-        for d in src_arr.GetDimensions():
-            iv = d.GetIndexingVariable()
-            NetCDF.create_main_dimension(dst_rg, d.GetName(), dtype, iv.ReadAsArray())
+        src_arr, dst_rg = _prepare_elevation_copy()
 
         with ExitStack() as stack:
             stack.enter_context(
@@ -140,6 +150,22 @@ class TestAddMdArrayToGroupFallback:
             NetCDF._add_md_array_to_group(dst_rg, "copied_var", src_arr)
 
         return dst_rg.OpenMDArray("copied_var")
+
+    def test_preserves_real_nodata_without_mocking(self):
+        """The real GDAL get/set round-trip carries the source's -9999.0 onto the copy.
+
+        Test scenario:
+            ``make_2d_nc``'s ``elevation`` carries a genuine ``no_data_value`` of
+            -9999.0. Copying it with no patching at all must preserve that exact value
+            on the copy, proving the real GetNoDataValue -> SetNoDataValueDouble
+            plumbing end to end rather than only the mocked contract.
+        """
+        src_arr, dst_rg = _prepare_elevation_copy()
+        NetCDF._add_md_array_to_group(dst_rg, "copied_var", src_arr)
+        copied = dst_rg.OpenMDArray("copied_var")
+        assert copied is not None, "Copied variable should exist"
+        ndv = copied.GetNoDataValue()
+        assert ndv == pytest.approx(-9999.0), f"Expected real nodata -9999.0, got {ndv}"
 
     def test_no_nodata_when_source_has_none(self):
         """When source has no nodata, the copy should also have no nodata.
