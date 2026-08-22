@@ -37,6 +37,33 @@ class ReadRequest:
         fill_value: Pad value for boundless reads.
         masked: Whether to wrap the result as a masked array.
         threadsafe: Whether to read through a private per-thread handle.
+
+    Examples:
+        - A valid full eager read of band 0 passes the matrix and keeps its fields:
+            ```python
+            >>> from pyramids.dataset.engines._read_request import ReadRequest
+            >>> req = ReadRequest(
+            ...     band=0, chunks=None, lock=None, out_shape=None,
+            ...     resampling="nearest", boundless=False, fill_value=None,
+            ...     masked=False, threadsafe=False,
+            ... )
+            >>> req.band
+            0
+
+            ```
+        - An illegal option pairing (a fill value without a boundless read) is
+          rejected at construction:
+            ```python
+            >>> from pyramids.dataset.engines._read_request import ReadRequest
+            >>> ReadRequest(
+            ...     band=0, chunks=None, lock=None, out_shape=None,
+            ...     resampling="nearest", boundless=False, fill_value=5.0,
+            ...     masked=False, threadsafe=False,
+            ... )
+            Traceback (most recent call last):
+            ValueError: read_array(fill_value=...) only applies to boundless reads; pass boundless=True as well.
+
+            ```
     """
 
     band: int | None

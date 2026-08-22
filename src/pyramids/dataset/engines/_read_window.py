@@ -32,6 +32,32 @@ def resolve_read_window(window: Any, bbox: Any, *, crs: Any) -> Any:
 
     Raises:
         ValueError: Both `bbox` and `window` were given.
+
+    Examples:
+        - With no `bbox`, the caller's `window` is returned unchanged:
+            ```python
+            >>> from pyramids.dataset.engines._read_window import resolve_read_window
+            >>> resolve_read_window("keep-me", None, crs=4326)
+            'keep-me'
+
+            ```
+        - A `bbox` folds into a one-row FeatureCollection covering it, in the
+          injected CRS:
+            ```python
+            >>> from pyramids.dataset.engines._read_window import resolve_read_window
+            >>> fc = resolve_read_window(None, (0.0, 0.0, 2.0, 3.0), crs=4326)
+            >>> fc.total_bounds.tolist()
+            [0.0, 0.0, 2.0, 3.0]
+
+            ```
+        - Passing both `window` and `bbox` is rejected:
+            ```python
+            >>> from pyramids.dataset.engines._read_window import resolve_read_window
+            >>> resolve_read_window("w", (0, 0, 1, 1), crs=4326)
+            Traceback (most recent call last):
+            ValueError: read_array accepts either `window` or `bbox`, not both
+
+            ```
     """
     if bbox is None:
         return window

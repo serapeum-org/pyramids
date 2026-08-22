@@ -38,6 +38,34 @@ class ReadStrategy(ABC):
         backend: The array backend a successful read on this path produces —
             ``"numpy"`` for eager paths, ``"dask"`` for the lazy path. Recorded on
             the dataset after the read so ``Dataset`` reports the right backend.
+
+    Examples:
+        - Selecting the path for a chunked (lazy) request picks the dask backend:
+            ```python
+            >>> from pyramids.dataset.engines._read_request import ReadRequest
+            >>> from pyramids.dataset.engines._read_strategies import READ_STRATEGIES
+            >>> req = ReadRequest(
+            ...     band=0, chunks=4, lock=None, out_shape=None,
+            ...     resampling="nearest", boundless=False, fill_value=None,
+            ...     masked=False, threadsafe=False,
+            ... )
+            >>> next(s for s in READ_STRATEGIES if s.matches(req)).backend
+            'dask'
+
+            ```
+        - A plain request falls through to the eager (numpy) path:
+            ```python
+            >>> from pyramids.dataset.engines._read_request import ReadRequest
+            >>> from pyramids.dataset.engines._read_strategies import READ_STRATEGIES
+            >>> req = ReadRequest(
+            ...     band=0, chunks=None, lock=None, out_shape=None,
+            ...     resampling="nearest", boundless=False, fill_value=None,
+            ...     masked=False, threadsafe=False,
+            ... )
+            >>> next(s for s in READ_STRATEGIES if s.matches(req)).backend
+            'numpy'
+
+            ```
     """
 
     backend: str
