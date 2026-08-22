@@ -349,10 +349,13 @@ class Dataset(RasterBase):
         access: str = "read_only",
         *,
         gdal_env: dict[str, str] | None = None,
+        open_options: tuple[str, ...] | list[str] | None = None,
     ):
         """__init__."""
         self.logger = logging.getLogger(__name__)
-        super().__init__(src, access=access, gdal_env=gdal_env)
+        super().__init__(
+            src, access=access, gdal_env=gdal_env, open_options=open_options
+        )
 
         self._no_data_value = [
             src.GetRasterBand(i).GetNoDataValue() for i in range(1, self.band_count + 1)
@@ -2371,6 +2374,7 @@ class Dataset(RasterBase):
         *,
         vsi: str | None = None,
         gdal_env: dict[str, str] | None = None,
+        open_options: dict[str, str] | list[str] | None = None,
     ) -> Dataset:
         """Open a raster from a path, URL, or archive member.
 
@@ -2416,6 +2420,13 @@ class Dataset(RasterBase):
                 :func:`pyramids.stac.build_vrt_from_stac` puts those credentials
                 in the source path instead. Default ``None`` — no extra config,
                 nothing captured.
+            open_options:
+                GDAL open options as a mapping
+                (``{"GEOREF_SOURCES": "INTERNAL"}``) or GDAL's native
+                ``["KEY=VALUE"]`` list. Forwarded to the driver and captured on
+                the returned :class:`Dataset`, so the paths that reopen the file
+                (``threadsafe=True`` handles, lazy ``chunks=`` reads, unpickle on
+                a worker) reopen with the same options. Default ``None``.
 
         Returns:
             Dataset:
@@ -2428,9 +2439,21 @@ class Dataset(RasterBase):
             - :meth:`pyramids.dataset.DatasetCollection.from_archive`: open
               *every* member of an archive as a temporal stack.
         """
+        options = _io.normalize_open_options(open_options)
         with cloud_config_from_env(gdal_env, path=str(path)):
-            src = _io.read_file(path, read_only=read_only, file_i=file_i, vsi=vsi)
-        return cls(src, access="read_only" if read_only else "write", gdal_env=gdal_env)
+            src = _io.read_file(
+                path,
+                read_only=read_only,
+                file_i=file_i,
+                vsi=vsi,
+                open_options=options,
+            )
+        return cls(
+            src,
+            access="read_only" if read_only else "write",
+            gdal_env=gdal_env,
+            open_options=options,
+        )
 
     @classmethod
     def from_bytes(

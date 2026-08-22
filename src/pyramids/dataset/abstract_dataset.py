@@ -123,6 +123,7 @@ def _reconstruct_dataset(
     path: str,
     access: str,
     gdal_env: dict[str, str] | None = None,
+    open_options: tuple[str, ...] | None = None,
 ) -> RasterBase:
     """Re-open a dataset from its pickle recipe tuple.
 
@@ -157,7 +158,11 @@ def _reconstruct_dataset(
     # The env is applied here rather than forwarded to read_file so every
     # subclass benefits without widening its own signature.
     with cloud_config_from_env(gdal_env, path=path):
-        dataset = cls.read_file(path, read_only=True)
+        dataset = cls.read_file(
+            path,
+            read_only=True,
+            open_options=list(open_options) if open_options else None,
+        )
     dataset.attach_gdal_env(gdal_env)
     return dataset
 
@@ -173,6 +178,7 @@ class RasterBase(ABC):
         access: str = "read_only",
         *,
         gdal_env: dict[str, str] | None = None,
+        open_options: tuple[str, ...] | list[str] | None = None,
     ):
         """__init__."""
         if not isinstance(src, gdal.Dataset):
@@ -193,6 +199,13 @@ class RasterBase(ABC):
         # the thread-local config there, so those credentials ride the source
         # path instead (see `pyramids.stac._vrt`).
         self._gdal_env: dict[str, str] = dict(gdal_env) if gdal_env else {}
+        # GDAL open options this dataset was opened with (a driver knob like
+        # `L1B_MODE=DATASTRIP`). Stored as a tuple so it stays hashable for
+        # the file-manager cache key and stable across pickling, and carried
+        # onto every reopen path the way `_gdal_env` is (threadsafe handles,
+        # lazy `chunks=` reads, unpickle) so a worker reopens with the same
+        # driver behaviour (#1025).
+        self._open_options: tuple[str, ...] = tuple(open_options or ())
         # Per-thread file manager for read_array(threadsafe=True); created
         # lazily by the IO engine and released by close().
         self._thread_manager: ThreadLocalFileManager | None = None
@@ -211,6 +224,16 @@ class RasterBase(ABC):
         self._block_size = [
             src.GetRasterBand(i).GetBlockSize() for i in range(1, self._band_count + 1)
         ]
+
+    @property
+    def open_options(self) -> list[str]:
+        """GDAL open options captured at read time, as a `KEY=VALUE` list.
+
+        Empty when the dataset was opened without any (the common case).
+        Reapplied on every path that reopens the file rather than reusing the
+        live handle, so driver behaviour survives a worker reopen (#1025).
+        """
+        return list(self._open_options)
 
     @property
     def gdal_env(self) -> dict[str, str]:
@@ -333,7 +356,13 @@ class RasterBase(ABC):
             )
         return (
             _reconstruct_dataset,
-            (type(self), path, self._access, dict(self._gdal_env)),
+            (
+                type(self),
+                path,
+                self._access,
+                dict(self._gdal_env),
+                tuple(self._open_options),
+            ),
         )
 
     def __enter__(self):
@@ -979,7 +1008,14 @@ class RasterBase(ABC):
 
     @classmethod
     @abstractmethod
-    def read_file(cls, path: str | Path, read_only=True) -> RasterBase:
+    def read_file(
+        cls,
+        path: str | Path,
+        read_only=True,
+        file_i: int = 0,
+        *,
+        open_options: dict[str, str] | list[str] | None = None,
+    ) -> RasterBase:
         """Read file.
 
         Args:
