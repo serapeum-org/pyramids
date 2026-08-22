@@ -557,9 +557,25 @@ class TestMutationSharedRaster:
         )
         assert "rain" in nc.variable_names, "container must gain the added variable"
 
+    def test_set_variable_copy_path_preserves_written_and_survivor_data(self):
+        """The copy-and-swap set_variable preserves both written and existing data.
 
-class TestSetVariableFileBacked:
-    """set_variable on a file-backed container must not touch the on-disk file (#143)."""
+        Test scenario:
+            Writing a new variable via the default copy path stores the exact array,
+            and a pre-existing variable's data survives the swap unchanged.
+        """
+        nc = make_2d_nc(variable_name="elevation")
+        keep = nc._raster.GetRootGroup().OpenMDArray("elevation").ReadAsArray().copy()
+        ds = _make_dataset_2d()
+        written = ds.read_array()
+        nc.set_variable("added", ds)
+        rg = nc._raster.GetRootGroup()
+        np.testing.assert_array_equal(rg.OpenMDArray("added").ReadAsArray(), written)
+        np.testing.assert_array_equal(rg.OpenMDArray("elevation").ReadAsArray(), keep)
+
+
+class TestMutationFileBacked:
+    """set/add/rename on a file-backed container must not touch the on-disk file (#143)."""
 
     def test_set_variable_on_file_backed_leaves_disk_unchanged(self, tmp_path):
         """A file-backed set_variable goes to a MEM copy, not the on-disk file.
@@ -597,6 +613,42 @@ class TestSetVariableFileBacked:
         reopened = NetCDF.read_file(out, open_as_multi_dimensional=True)
         assert "added" not in reopened.variable_names, (
             "copy=False must still not write to the on-disk file"
+        )
+
+    def test_add_variable_on_file_backed_leaves_disk_unchanged(self, tmp_path):
+        """A file-backed add_variable goes to a MEM copy, not the on-disk file.
+
+        Test scenario:
+            Adding a variable into a writable file-backed container leaves the file on
+            disk unchanged — reopening the same path does not show the new variable.
+        """
+        nc = make_2d_nc(variable_name="elevation")
+        out = str(tmp_path / "add_disk.nc")
+        nc.to_file(out)
+        file_nc = NetCDF.read_file(out, read_only=False, open_as_multi_dimensional=True)
+        file_nc.add_variable(make_2d_nc(variable_name="rain"))
+        assert "rain" in file_nc.variable_names, "container should gain the variable"
+        reopened = NetCDF.read_file(out, open_as_multi_dimensional=True)
+        assert "rain" not in reopened.variable_names, (
+            "on-disk file must be unchanged — add_variable must not write to it"
+        )
+
+    def test_rename_variable_on_file_backed_leaves_disk_unchanged(self, tmp_path):
+        """A file-backed rename_variable goes to a MEM copy, not the on-disk file.
+
+        Test scenario:
+            Renaming a variable in a writable file-backed container leaves the file on
+            disk unchanged — reopening the same path still shows the old name.
+        """
+        nc = _make_3d_nc(variable_name="temp")
+        out = str(tmp_path / "rename_disk.nc")
+        nc.to_file(out)
+        file_nc = NetCDF.read_file(out, read_only=False, open_as_multi_dimensional=True)
+        file_nc.rename_variable("temp", "temp2")
+        assert "temp2" in file_nc.variable_names, "container should show the new name"
+        reopened = NetCDF.read_file(out, open_as_multi_dimensional=True)
+        assert "temp" in reopened.variable_names, (
+            "on-disk file must be unchanged — rename must not write to it"
         )
 
 
