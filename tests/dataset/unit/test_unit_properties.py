@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 from osgeo import gdal, osr
 
+from pyramids.base._errors import ReadOnlyError
 from pyramids.base.crs import crs_from_user_input, crs_spec, sr_from_epsg
 from pyramids.dataset import Dataset
 from pyramids.dataset.abstract_dataset import RasterBase
@@ -268,6 +269,75 @@ class TestBandNamesUnitsSetters:
             assert actual == expected, (
                 f"Band {i} unit mismatch: expected {expected}, got {actual}"
             )
+
+
+class TestBandMetaData:
+    """Tests for the per-band metadata accessor (#1027)."""
+
+    def test_round_trip_per_band(self, multi_band_dataset):
+        """Setting then reading band_meta_data returns one mapping per band, in order."""
+        value = [{"WAVELENGTH": "443"}, {"WAVELENGTH": "490"}, {"WAVELENGTH": "560"}]
+        multi_band_dataset.band_meta_data = value
+        assert multi_band_dataset.band_meta_data == value, (
+            f"round-trip mismatch: {multi_band_dataset.band_meta_data}"
+        )
+
+    def test_facade_matches_engine(self, multi_band_dataset):
+        """The Dataset facade returns exactly what the Bands engine does."""
+        multi_band_dataset.band_meta_data = [{"a": "1"}, {"b": "2"}, {"c": "3"}]
+        assert multi_band_dataset.band_meta_data == multi_band_dataset.bands.metadata, (
+            "facade and engine property disagree"
+        )
+
+    def test_empty_band_is_empty_dict(self, multi_band_dataset):
+        """A band carrying no metadata yields an empty dict, never None."""
+        result = multi_band_dataset.band_meta_data
+        assert result == [{}, {}, {}], f"expected three empty dicts, got {result}"
+        assert all(isinstance(m, dict) for m in result), "each entry must be a dict"
+
+    def test_order_matches_band_names(self, multi_band_dataset):
+        """band_meta_data is indexed like band_names (0-based, band order)."""
+        multi_band_dataset.band_names = ["red", "green", "blue"]
+        multi_band_dataset.band_meta_data = [
+            {"NAME": "red"},
+            {"NAME": "green"},
+            {"NAME": "blue"},
+        ]
+        for i, name in enumerate(multi_band_dataset.band_names):
+            assert multi_band_dataset.band_meta_data[i]["NAME"] == name, (
+                f"band {i} metadata not aligned with band_names"
+            )
+
+    def test_setter_replaces_not_merges(self, multi_band_dataset):
+        """Assigning a new list replaces each band's metadata rather than merging."""
+        multi_band_dataset.band_meta_data = [
+            {"A": "1", "B": "2"},
+            {"A": "1"},
+            {"A": "1"},
+        ]
+        multi_band_dataset.band_meta_data = [{"A": "9"}, {}, {"C": "3"}]
+        assert multi_band_dataset.band_meta_data == [{"A": "9"}, {}, {"C": "3"}], (
+            f"setter should replace, got {multi_band_dataset.band_meta_data}"
+        )
+
+    def test_wrong_length_raises(self, multi_band_dataset):
+        """Assigning the wrong number of mappings raises ValueError."""
+        with pytest.raises(ValueError, match="one mapping per band"):
+            multi_band_dataset.band_meta_data = [{"A": "1"}]
+
+    def test_read_only_on_disk_raises(self, tmp_path):
+        """Setting band metadata on a read-only on-disk file raises ReadOnlyError."""
+        path = tmp_path / "bandmeta.tif"
+        Dataset.create_from_array(
+            np.zeros((2, 4, 4), dtype="int16"),
+            top_left_corner=(0, 0),
+            cell_size=0.05,
+            epsg=4326,
+        ).to_file(str(path))
+        ds = Dataset.read_file(str(path), read_only=True)
+        assert ds.access == "read_only", "fixture must be read-only for this test"
+        with pytest.raises(ReadOnlyError, match="read-only"):
+            ds.band_meta_data = [{"WAVELENGTH": "443"}, {"WAVELENGTH": "490"}]
 
 
 class TestConvertUnits:
