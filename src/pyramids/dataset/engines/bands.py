@@ -10,7 +10,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast, overload
 
 import geopandas as gpd
 import numpy as np
@@ -597,6 +597,264 @@ class Bands(_Engine["Dataset"]):
             validate_band_index(key, self._ds.band_count)
             gdal_const = color_name_to_gdal_constant(val)
             self._iloc(key).SetColorInterpretation(gdal_const)
+
+    @property
+    def metadata(self) -> list[dict[str, str]]:
+        """Per-band metadata (default domain), one mapping per band, in band order.
+
+        This is the per-band sibling of the dataset-level :attr:`Dataset.meta_data`.
+        It is where GDAL stores what a band physically *is* — for a Sentinel-2 band,
+        the centre wavelength, bandwidth, and solar irradiance; for Sentinel-1, the
+        swath and polarization; and so on for any format's per-band tags. Only the
+        default metadata domain is exposed (``IMAGE_STRUCTURE`` and other domains are
+        out of scope until domain support lands).
+
+        Returns:
+            list[dict[str, str]]: One mapping per band, indexed like
+            :attr:`Dataset.band_names` (0-based, band order). A band that carries no
+            metadata yields an empty ``dict`` (never ``None``), so callers can index
+            without guarding.
+
+        Examples:
+            - A two-band raster whose bands carry metadata reports it per band:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.zeros((2, 4, 4), dtype="int16")
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ... )
+              >>> dataset.band_meta_data = [{"WAVELENGTH": "443"}, {"WAVELENGTH": "490"}]
+              >>> dataset.bands.metadata[0]["WAVELENGTH"]
+              '443'
+              >>> dataset.bands.metadata[1]["WAVELENGTH"]
+              '490'
+
+              ```
+
+            - A band with no metadata yields an empty mapping, not ``None``:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.zeros((1, 4, 4), dtype="int16")
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ... )
+              >>> dataset.bands.metadata
+              [{}]
+
+              ```
+        """
+        return self.get_metadata()
+
+    @metadata.setter
+    def metadata(self, value: list[dict[str, str]]) -> None:
+        """Replace each band's default-domain metadata, one mapping per band.
+
+        The assignment **replaces** each band's metadata with the mapping given for
+        it (``SetMetadata``), rather than merging into what is already there — a
+        whole-list assignment reads as "set each band's metadata to exactly this",
+        consistent with the other per-band list setters (``band_units``, ``scale``,
+        ``offset``). Assigning an empty mapping to a band therefore clears it. To edit
+        a single key without disturbing the rest, read the mapping, update it, and
+        assign the list back. (The dataset-level :attr:`Dataset.meta_data` setter
+        merges instead, because it is a single dict, not a per-band list.)
+
+        Args:
+            value: One mapping per band, in band order; its length must equal the
+                band count.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file (setting band
+                metadata would spill a PAM ``.aux.xml`` sidecar); reopen with
+                ``read_only=False`` or edit an in-memory copy instead.
+            ValueError: ``value`` does not carry exactly one mapping per band.
+        """
+        self.set_metadata(value)
+
+    @overload
+    def get_metadata(
+        self, band: None = ..., domain: str = ...
+    ) -> list[dict[str, str]]: ...
+
+    @overload
+    def get_metadata(self, band: int, domain: str = ...) -> dict[str, str]: ...
+
+    def get_metadata(
+        self, band: int | None = None, domain: str = ""
+    ) -> list[dict[str, str]] | dict[str, str]:
+        """Read per-band metadata from a metadata domain.
+
+        The domain-aware form behind :attr:`metadata`. The default domain (``""``)
+        holds format-specific band semantics; other GDAL domains expose other tags,
+        e.g. ``"IMAGE_STRUCTURE"`` carries ``NBITS`` / ``COMPRESSION`` / ``PIXELTYPE``.
+
+        Args:
+            band: A 0-based band index to read just that band, or ``None`` (default)
+                to read every band in band order.
+            domain: The GDAL metadata domain to read; ``""`` (default) is the default
+                domain.
+
+        Returns:
+            list[dict[str, str]] | dict[str, str]: One mapping per band when ``band``
+            is ``None``; a single band's mapping when ``band`` is given. A band with
+            no metadata in the domain yields an empty ``dict`` (never ``None``).
+
+        Raises:
+            IndexError: ``band`` is out of range.
+
+        Examples:
+            - Read the ``IMAGE_STRUCTURE`` domain of a single band:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> dataset = Dataset.create_from_array(
+              ...     np.zeros((4, 4), dtype="int16"),
+              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ... )
+              >>> dataset.bands.get_metadata(band=0, domain="IMAGE_STRUCTURE")
+              {}
+
+              ```
+        """
+        if band is None:
+            return [
+                cast(dict[str, str], self._iloc(i).GetMetadata(domain))
+                for i in range(self._ds.band_count)
+            ]
+        return cast(dict[str, str], self._iloc(band).GetMetadata(domain))
+
+    def set_metadata(
+        self,
+        value: list[dict[str, str]] | dict[str, str],
+        band: int | None = None,
+        domain: str = "",
+    ) -> None:
+        """Replace per-band metadata in a metadata domain.
+
+        The domain-aware form behind the :attr:`metadata` setter. Replaces (does not
+        merge) the metadata of the target band(s) in ``domain``; assigning an empty
+        mapping clears it. Use :meth:`set_metadata_item` to change one key in place.
+
+        Args:
+            value: One mapping per band (a list, when ``band`` is ``None``) or a
+                single band's mapping (a dict, when ``band`` is given).
+            band: A 0-based band index to set just that band, or ``None`` (default) to
+                set every band from a per-band list.
+            domain: The GDAL metadata domain to write; ``""`` (default) is the default
+                domain.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+            ValueError: ``band`` is ``None`` but ``value`` does not carry exactly one
+                mapping per band.
+            IndexError: ``band`` is out of range.
+        """
+        self._ds._require_writable("set band metadata")
+        if band is None:
+            if len(value) != self._ds.band_count:
+                raise ValueError(
+                    f"band_meta_data needs one mapping per band: expected "
+                    f"{self._ds.band_count}, got {len(value)}."
+                )
+            for i, band_md in enumerate(cast(list[dict[str, str]], value)):
+                self._iloc(i).SetMetadata(band_md, domain)
+        else:
+            self._iloc(band).SetMetadata(cast(dict[str, str], value), domain)
+
+    def set_metadata_item(
+        self, key: str, value: str, band: int = 0, domain: str = ""
+    ) -> None:
+        """Set a single band-metadata key in place, leaving the rest untouched.
+
+        The merge counterpart to :meth:`set_metadata` (which replaces a band's whole
+        mapping): this updates or adds one ``key`` on one band via GDAL's
+        ``SetMetadataItem``.
+
+        Args:
+            key: The metadata key to set.
+            value: The value to store.
+            band: The 0-based band index. Defaults to the first band.
+            domain: The GDAL metadata domain to write; ``""`` (default) is the default
+                domain.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+            IndexError: ``band`` is out of range.
+        """
+        self._ds._require_writable("set band metadata")
+        self._iloc(band).SetMetadataItem(key, value, domain)
+
+    @property
+    def band_units(self) -> list[str]:
+        """Per-band unit labels, one per band, in band order."""
+        return self._ds._band_units
+
+    @band_units.setter
+    def band_units(self, value: list[str]) -> None:
+        """Relabel each band's unit.
+
+        This only relabels; it does not convert the stored values — see
+        :meth:`Dataset.convert_units` for a value-transforming conversion.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+        """
+        self._ds._require_writable("set band units")
+        self._ds._band_units = value
+        for i, val in enumerate(value):
+            self._iloc(i).SetUnitType(val)
+
+    @property
+    def scale(self) -> list[float]:
+        """Per-band scale factors (pixel value -> real-world value).
+
+        Returns:
+            list[float]: One scale per band; ``1.0`` for a band with no scale set.
+        """
+        scale_list = []
+        for i in range(self._ds.band_count):
+            band_scale = self._iloc(i).GetScale()
+            scale_list.append(band_scale if band_scale is not None else 1.0)
+        return scale_list
+
+    @scale.setter
+    def scale(self, value: list[float]) -> None:
+        """Set each band's scale factor.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+        """
+        self._ds._require_writable("set the band scale")
+        for i, val in enumerate(value):
+            self._iloc(i).SetScale(val)
+
+    @property
+    def offset(self) -> list[float]:
+        """Per-band offsets (pixel value -> real-world value).
+
+        Returns:
+            list[float]: One offset per band; ``0`` for a band with no offset set.
+        """
+        offset_list = []
+        for i in range(self._ds.band_count):
+            band_offset = self._iloc(i).GetOffset()
+            offset_list.append(band_offset if band_offset is not None else 0)
+        return offset_list
+
+    @offset.setter
+    def offset(self, value: list[float]) -> None:
+        """Set each band's offset.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+        """
+        self._ds._require_writable("set the band offset")
+        for i, val in enumerate(value):
+            self._iloc(i).SetOffset(val)
 
     def get_band_by_color(self, color_name: str) -> int | None:
         """Get the band associated with a given color.
