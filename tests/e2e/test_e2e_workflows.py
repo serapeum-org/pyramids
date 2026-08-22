@@ -403,9 +403,8 @@ class TestRasterizeRoundTrip:
             f"snap output should crop to the features, got {(out.rows, out.columns)}"
         )
         ox, oy = out.top_left_corner
-        assert (ox - x0) % cell == 0 and (y0 - oy) % cell == 0, (
-            "snapped origin must lie on the template grid lines"
-        )
+        assert (ox - x0) % cell == 0, "snapped x-origin must lie on the template grid"
+        assert (y0 - oy) % cell == 0, "snapped y-origin must lie on the template grid"
         assert out.cell_size == cell, "snapped output keeps the template cell size"
         assert np.any(np.isclose(out.read_array(), 42.0)), (
             "the polygon should be burned"
@@ -433,7 +432,8 @@ class TestRasterizeRoundTrip:
             "snap mode sizes to the features, so it must not warn"
         )
         ox, oy = out.top_left_corner
-        assert (ox - x0) % cell == 0 and (y0 - oy) % cell == 0, "still grid-aligned"
+        assert (ox - x0) % cell == 0, "snapped x-origin still on the template grid"
+        assert (y0 - oy) % cell == 0, "snapped y-origin still on the template grid"
 
     def test_snap_to_template_requires_template(self):
         """snap_to_template without a template raises ValueError (#46)."""
