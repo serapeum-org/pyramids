@@ -3646,9 +3646,11 @@ class Dataset(RasterBase):
         Burns the values from `column_name` (or every attribute
         column if `None`) into a single-band or multi-band raster.
         When a `template` Dataset is given, the output adopts its
-        geotransform, cell size, row/column count, and no-data value.
-        Otherwise `cell_size` controls the resolution and the extent
-        is derived from :attr:`FeatureCollection.total_bounds`.
+        geotransform, cell size, row/column count, and no-data value —
+        the vector is burned onto the template's fixed grid, so features
+        outside it are clipped. Otherwise `cell_size` controls the
+        resolution and the extent is derived from
+        :attr:`FeatureCollection.total_bounds`.
 
         Args:
             features (FeatureCollection):
@@ -3658,7 +3660,11 @@ class Dataset(RasterBase):
                 `template` is given.
             template (Dataset | None):
                 Optional template raster. When supplied, the output
-                inherits its geotransform and no-data value.
+                inherits its geotransform and no-data value. Features
+                that fall entirely outside the template extent produce
+                an all-nodata raster and raise a `UserWarning` (#46);
+                use `cell_size` instead to size the output to the
+                features.
             column_name (str | list[str] | None):
                 Attribute column(s) to burn as band values. `None`
                 burns every non-geometry column as a separate band.

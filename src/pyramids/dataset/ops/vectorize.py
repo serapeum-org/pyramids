@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -40,7 +41,10 @@ def rasterize_features(
         cell_size: Cell size for the new raster. Required unless
             `template` is given.
         template: Optional template raster. When supplied, the output
-            inherits its geotransform and no-data value.
+            inherits its geotransform and no-data value (the vector is
+            burned onto the template's fixed grid). Features that fall
+            entirely outside the template extent produce an all-nodata
+            raster and raise a ``UserWarning`` (issue #46).
         column_name: Attribute column(s) to burn as band values.
             `None` burns every non-geometry column as a separate band.
 
@@ -72,6 +76,16 @@ def rasterize_features(
     xmin, ymax, rows, columns, cell_size, no_data_value = _resolve_raster_geometry(
         features, dataset_cls, template, cell_size, ds_epsg
     )
+
+    if template is not None and _features_outside_template(
+        features, xmin, ymax, rows, columns, cell_size
+    ):
+        warnings.warn(
+            "FeatureCollection falls entirely outside the template extent; the output "
+            "raster will be all-nodata. Check that the template covers the features and "
+            "that both use the same CRS.",
+            stacklevel=3,
+        )
 
     column_name, numpy_dtype = _resolve_burn_columns(features, column_name)
 
@@ -184,6 +198,44 @@ def _resolve_raster_geometry(
         columns = int(np.ceil((xmax - xmin) / cell_size))
         rows = int(np.ceil((ymax - ymin) / cell_size))
     return xmin, ymax, rows, columns, cell_size, no_data_value
+
+
+def _features_outside_template(
+    features: FeatureCollection,
+    xmin: float,
+    ymax: float,
+    rows: int,
+    columns: int,
+    cell_size: Any,
+) -> bool:
+    """Whether the feature bounds fall entirely outside the template extent (issue #46).
+
+    A template rasterisation burns onto the template's fixed grid, so features that lie
+    wholly outside it produce an all-nodata raster. Detecting the disjoint case lets
+    :func:`rasterize_features` warn rather than silently return an empty raster. A
+    partial overlap is not flagged — clipping features to the template grid is the
+    intended behaviour of a template.
+
+    Args:
+        features: The vector being rasterised.
+        xmin: Template origin x (left edge).
+        ymax: Template origin y (top edge).
+        rows: Template row count.
+        columns: Template column count.
+        cell_size: Template cell size.
+
+    Returns:
+        bool: ``True`` when the feature bounds and the template extent are disjoint.
+    """
+    template_xmax = xmin + columns * cell_size
+    template_ymin = ymax - rows * cell_size
+    fxmin, fymin, fxmax, fymax = features.total_bounds
+    return bool(
+        fxmax <= xmin
+        or fxmin >= template_xmax
+        or fymax <= template_ymin
+        or fymin >= ymax
+    )
 
 
 def _resolve_burn_columns(

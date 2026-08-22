@@ -12,6 +12,7 @@ Workflows covered:
 
 import shutil
 import tempfile
+import warnings
 from pathlib import Path
 
 import geopandas as gpd
@@ -187,6 +188,54 @@ class TestRasterizeRoundTrip:
         # Burned value should appear
         burned = arr[np.isclose(arr, 42.0)]
         assert burned.size > 0, "Burned value 42 should appear in the raster"
+
+    def test_from_features_warns_when_features_outside_template(self):
+        """Features disjoint from the template warn and yield an all-nodata raster (#46)."""
+        epsg = 32636
+        cell_size = 1000.0
+        rows, cols = 10, 10
+        top_left = (500000.0, 3400000.0)
+        ref = _make_dataset(
+            rows=rows, cols=cols, cell_size=cell_size, top_left=top_left, epsg=epsg
+        )
+
+        # Polygon shifted 100 cells east — entirely outside the template extent.
+        x0, y0 = top_left
+        far_x = x0 + 100 * cell_size
+        poly = box(far_x, y0 - 3 * cell_size, far_x + 3 * cell_size, y0)
+        gdf = gpd.GeoDataFrame({"class_id": [42]}, geometry=[poly], crs=f"EPSG:{epsg}")
+        fc = FeatureCollection(gdf)
+
+        with pytest.warns(UserWarning, match="outside the template extent"):
+            raster = Dataset.from_features(fc, template=ref, column_name="class_id")
+
+        arr = raster.read_array()
+        assert arr.shape == (rows, cols), "output should still adopt the template grid"
+        assert not np.any(np.isclose(arr, 42.0)), (
+            "no template cell should hold the burned value — the polygon is outside it"
+        )
+
+    def test_from_features_does_not_warn_when_features_overlap_template(self):
+        """A polygon inside the template rasterizes without the outside-extent warning (#46)."""
+        epsg = 32636
+        cell_size = 1000.0
+        rows, cols = 10, 10
+        top_left = (500000.0, 3400000.0)
+        ref = _make_dataset(
+            rows=rows, cols=cols, cell_size=cell_size, top_left=top_left, epsg=epsg
+        )
+
+        x0, y0 = top_left
+        poly = box(x0, y0 - 3 * cell_size, x0 + 3 * cell_size, y0)
+        gdf = gpd.GeoDataFrame({"class_id": [42]}, geometry=[poly], crs=f"EPSG:{epsg}")
+        fc = FeatureCollection(gdf)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            Dataset.from_features(fc, template=ref, column_name="class_id")
+
+        outside = [w for w in caught if "outside the template extent" in str(w.message)]
+        assert not outside, f"an overlapping polygon must not warn; got: {outside}"
 
     def test_from_features_rejects_non_positive_cell_size(self):
         """D-M2: cell_size=0 and negative values raise ``ValueError``."""
