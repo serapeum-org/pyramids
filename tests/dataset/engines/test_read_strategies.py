@@ -120,7 +120,9 @@ class TestLazyRead:
             expected: Whether ``LazyRead`` should claim the request.
         """
         req = make_request(chunks=chunks)
-        assert LazyRead().matches(req) is expected, f"matches({chunks}) should be {expected}"
+        assert LazyRead().matches(req) is expected, (
+            f"matches({chunks}) should be {expected}"
+        )
 
     def test_delegates_to_lazy_read_array(self, mocker):
         """A valid lazy read forwards band/chunks/lock/threadsafe to the helper.
@@ -267,7 +269,9 @@ class TestThreadsafeRead:
     def test_matches_on_threadsafe(self, threadsafe, expected):
         """``matches`` is true exactly when ``threadsafe`` is set."""
         req = make_request(threadsafe=threadsafe)
-        assert ThreadsafeRead().matches(req) is expected, "matches must track threadsafe"
+        assert ThreadsafeRead().matches(req) is expected, (
+            "matches must track threadsafe"
+        )
 
     def test_delegates_to_threadsafe_eager_read(self, mocker):
         """Forwards band/window (by keyword) to the per-thread read helper."""
@@ -298,7 +302,9 @@ class TestEagerRead:
     def test_matches_always(self):
         """``EagerRead`` is the fallback and matches any request."""
         assert EagerRead().matches(make_request()) is True, "eager must always match"
-        assert EagerRead().matches(make_request(chunks=4)) is True, "eager is the fallback"
+        assert EagerRead().matches(make_request(chunks=4)) is True, (
+            "eager is the fallback"
+        )
 
     def test_single_band_full_read(self, single_band):
         """A full single-band read returns the raster's array.
@@ -316,8 +322,12 @@ class TestEagerRead:
         Test scenario:
             ``Window(1, 1, 2, 2)`` returns the 2x2 sub-block at (row 1, col 1).
         """
-        result = EagerRead().read(single_band.io, make_request(band=0), Window(1, 1, 2, 2))
-        assert result.shape == (2, 2), f"windowed read should be 2x2, got {result.shape}"
+        result = EagerRead().read(
+            single_band.io, make_request(band=0), Window(1, 1, 2, 2)
+        )
+        assert result.shape == (2, 2), (
+            f"windowed read should be 2x2, got {result.shape}"
+        )
         expected = np.array([[7.0, 8.0], [13.0, 14.0]], dtype="float32")
         np.testing.assert_array_equal(result, expected, err_msg="window block mismatch")
 
@@ -363,8 +373,12 @@ class TestEagerRead:
         Test scenario:
             The nodata cell (0, 0) is masked; a data cell is not.
         """
-        result = EagerRead().read(single_band.io, make_request(band=0, masked=True), None)
-        assert isinstance(result, np.ma.MaskedArray), "masked read must return a MaskedArray"
+        result = EagerRead().read(
+            single_band.io, make_request(band=0, masked=True), None
+        )
+        assert isinstance(result, np.ma.MaskedArray), (
+            "masked read must return a MaskedArray"
+        )
         assert result.mask[0, 0], "the nodata cell must be masked"
         assert not result.mask[1, 1], "a real-data cell must not be masked"
 
@@ -378,17 +392,28 @@ class TestEagerRead:
             unit boundary (also covered at the integration level).
         """
         bands = np.stack(
-            [np.arange(4 * 5, dtype="float32").reshape(4, 5) + b * 1000 for b in range(2)],
+            [
+                np.arange(4 * 5, dtype="float32").reshape(4, 5) + b * 1000
+                for b in range(2)
+            ],
             axis=0,
         )
         bands[0, 0, 0] = -9999.0
         ds = Dataset.create_from_array(
-            bands, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+            bands,
+            top_left_corner=(0.0, 4.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
         )
         result = EagerRead().read(ds.io, make_request(band=None, masked=True), None)
-        assert isinstance(result, np.ma.MaskedArray), "multiband masked read must return a MaskedArray"
+        assert isinstance(result, np.ma.MaskedArray), (
+            "multiband masked read must return a MaskedArray"
+        )
         assert result.shape == (2, 4, 5), f"expected (2, 4, 5), got {result.shape}"
-        assert result.mask[0, 0, 0], "the nodata cell must be masked in the multiband result"
+        assert result.mask[0, 0, 0], (
+            "the nodata cell must be masked in the multiband result"
+        )
 
 
 class TestStrategySelection:
@@ -426,4 +451,6 @@ class TestStrategySelection:
             its own guard (not the decimated one) governs — matching the original.
         """
         req = make_request(chunks=4, out_shape=(2, 2))
-        assert isinstance(select(req), LazyRead), "chunks must take precedence over out_shape"
+        assert isinstance(select(req), LazyRead), (
+            "chunks must take precedence over out_shape"
+        )

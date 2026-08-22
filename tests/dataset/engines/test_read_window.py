@@ -77,9 +77,7 @@ class TestResolveReadWindow:
             lets IO and NetCDF inject different CRS conventions.
         """
         sentinel = object()
-        spy = mocker.patch.object(
-            FeatureCollection, "from_bbox", return_value=sentinel
-        )
+        spy = mocker.patch.object(FeatureCollection, "from_bbox", return_value=sentinel)
         bbox = (0.0, 0.0, 1.0, 1.0)
         result = resolve_read_window(None, bbox, crs="EPSG:3857")
         assert result is sentinel, "the from_bbox result must be returned as-is"

@@ -97,7 +97,9 @@ class TestReadRequest:
         """
         with pytest.raises(ValueError, match="fill_value") as exc:
             make_request(fill_value=5.0, boundless=False)
-        assert "boundless" in str(exc.value), f"message should mention boundless: {exc.value}"
+        assert "boundless" in str(exc.value), (
+            f"message should mention boundless: {exc.value}"
+        )
 
     def test_fill_value_with_boundless_is_allowed(self):
         """``fill_value`` with ``boundless=True`` passes the matrix.
@@ -116,7 +118,9 @@ class TestReadRequest:
         """
         with pytest.raises(ValueError, match="chunks") as exc:
             make_request(boundless=True, chunks=4)
-        assert "boundless" in str(exc.value), f"message should mention boundless: {exc.value}"
+        assert "boundless" in str(exc.value), (
+            f"message should mention boundless: {exc.value}"
+        )
 
     def test_boundless_with_out_shape_raises_not_implemented(self):
         """``boundless`` + ``out_shape`` is a ``NotImplementedError`` (guard 3).
@@ -153,7 +157,9 @@ class TestReadRequest:
         """
         with pytest.raises(ValueError, match="resampling") as exc:
             make_request(resampling="bilinear", out_shape=None)
-        assert "out_shape" in str(exc.value), f"message should mention out_shape: {exc.value}"
+        assert "out_shape" in str(exc.value), (
+            f"message should mention out_shape: {exc.value}"
+        )
 
     def test_resampling_with_out_shape_is_allowed(self):
         """A non-nearest ``resampling`` with ``out_shape`` passes the matrix.
@@ -162,7 +168,9 @@ class TestReadRequest:
             ``out_shape`` present → ``resampling`` is meaningful and allowed.
         """
         req = make_request(resampling="bilinear", out_shape=(4, 4))
-        assert req.resampling == "bilinear", "resampling should round-trip with out_shape"
+        assert req.resampling == "bilinear", (
+            "resampling should round-trip with out_shape"
+        )
 
     def test_ordering_boundless_out_shape_beats_threadsafe(self):
         """A multiply-invalid request raises the earliest-checked guard.
