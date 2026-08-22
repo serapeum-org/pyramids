@@ -3676,7 +3676,9 @@ class Dataset(RasterBase):
                 lines — a small raster that still co-registers with the
                 template pixel-for-pixel (#46). Requires a square,
                 axis-aligned template and features with valid (non-NaN)
-                geometry bounds.
+                geometry bounds. The output is sized to the features, so a
+                fine-celled template with far-apart features can allocate a
+                large raster.
             column_name (str | list[str] | None):
                 Attribute column(s) to burn as band values. `None`
                 burns every non-geometry column as a separate band.
@@ -3689,7 +3691,10 @@ class Dataset(RasterBase):
 
         Raises:
             ValueError: `cell_size` missing or non-positive,
-                `column_name` empty or referencing missing columns.
+                `column_name` empty or referencing missing columns,
+                `snap_to_template` set without a `template`, or (in snap
+                mode) a rotated / non-square template or features with no
+                valid (non-NaN) geometry bounds.
             TypeError: `template` is not a Dataset, or
                 `column_name` is not `str` / `list` / `None`.
             CRSError: `features.epsg` is `None`, or
