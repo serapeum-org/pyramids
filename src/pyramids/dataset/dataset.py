@@ -4242,6 +4242,10 @@ class Dataset(RasterBase):
         :meth:`from_band_files`. For "one Dataset per member" (a temporal stack)
         use :meth:`pyramids.dataset.DatasetCollection.from_archive` instead.
 
+        GDAL driver ``open_options`` are **not** threaded through this
+        band-stacking entry point; if a member needs a driver option, open it
+        directly with :meth:`read_file` (which accepts ``open_options=``).
+
         The archive's file name must carry a recognised extension (``.zip`` /
         ``.tar`` / ``.tar.gz`` / ``.gz``) — GDAL's archive handlers key off the
         extension. An extension-less download URL (e.g. an Earth Engine

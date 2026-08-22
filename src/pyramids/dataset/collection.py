@@ -2188,6 +2188,7 @@ class DatasetCollection:
         kind: str = "auto",
         member_glob: str = "*",
         meta: RasterMeta | None = None,
+        open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
     ) -> DatasetCollection:
         """Build a collection from the raster members of an archive.
 
@@ -2216,6 +2217,9 @@ class DatasetCollection:
                 include, applied to top-level member names and sorted. Default
                 ``"*"`` (all). Pass e.g. ``"*.tif"`` to skip sidecar files.
             meta: Optional pre-computed :class:`RasterMeta` for the timesteps.
+            open_options: GDAL open options (mapping or ``["KEY=VALUE"]``) applied
+                to every per-member open, forwarded to :meth:`from_files`. Default
+                ``None`` — no options (#1025).
 
         Returns:
             DatasetCollection: A collection whose ``time_length`` is the number
@@ -2230,7 +2234,7 @@ class DatasetCollection:
         dir_vsi = _io._archive_dir_vsi(url_or_path, kind)
         members = _io._archive_members(dir_vsi, member_glob)
         member_paths = [f"{dir_vsi}/{m}" for m in members]
-        return cls.from_files(member_paths, meta=meta)
+        return cls.from_files(member_paths, meta=meta, open_options=open_options)
 
     @classmethod
     def read_multiple_files(
