@@ -3695,7 +3695,7 @@ class NetCDF(Dataset):
         file_i: int = 0,
         *,
         vsi: str | None = None,
-        open_options: dict[str, str] | list[str] | None = None,
+        open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
     ) -> NetCDF:
         """Open a NetCDF file from a path, URL, or archive member.
 

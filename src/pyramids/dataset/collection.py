@@ -1797,7 +1797,7 @@ class DatasetCollection:
         end: datetime | None = None,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
-        open_options: dict[str, str] | list[str] | None = None,
+        open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
         validate: bool = False,
     ) -> DatasetCollection:
         r"""Build a collection from a folder of rasters or an explicit list of files.

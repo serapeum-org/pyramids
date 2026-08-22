@@ -1039,7 +1039,7 @@ class RasterBase(ABC):
         read_only=True,
         file_i: int = 0,
         *,
-        open_options: dict[str, str] | list[str] | None = None,
+        open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
     ) -> RasterBase:
         """Read file.
 

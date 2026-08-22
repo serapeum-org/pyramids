@@ -2388,7 +2388,7 @@ class Dataset(RasterBase):
         *,
         vsi: str | None = None,
         gdal_env: dict[str, str] | None = None,
-        open_options: dict[str, str] | list[str] | None = None,
+        open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
     ) -> Dataset:
         """Open a raster from a path, URL, or archive member.
 
