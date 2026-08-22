@@ -62,8 +62,9 @@ further gated on the sample width: a sub-byte-aligned source ``NBITS`` (e.g. the
 width and only then keeps ``PREDICTOR=2`` — a width the predictor cannot honour
 falls back to no predictor (see :func:`pyramids.base._utils.resolve_cog_predictor`
 and :func:`pyramids.dataset.cog.options._promote_nbits`). ``NBITS`` itself is
-also absent here: promoted per-source inside ``to_cog`` so the output never
-inherits a width that clips, while an explicit caller ``NBITS`` still wins. Kept
+also absent here: promoted per-source by ``Compression._to_options`` during
+``to_cog`` so the output never inherits a width that clips, while an explicit
+caller ``NBITS`` still wins. Kept
 here for back-compat and as documentation; :func:`write_cog` no longer applies it
 directly — it delegates to ``to_cog``.
 """
