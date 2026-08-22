@@ -148,6 +148,15 @@ class TestRasterizeRoundTrip:
             epsg=32636,
         )
 
+    @staticmethod
+    def _fc_32636(geometry, value=42):
+        """A single-feature EPSG:32636 FeatureCollection with a `class_id` column."""
+        return FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": [value]}, geometry=[geometry], crs="EPSG:32636"
+            )
+        )
+
     def test_rasterize_polygon(self):
         """Burn a polygon attribute into a raster and verify the value."""
         epsg = 32636
@@ -371,6 +380,106 @@ class TestRasterizeRoundTrip:
         assert not template_warnings, (
             f"cell_size mode must not warn about a template; got: {template_warnings}"
         )
+
+    def test_snap_to_template_crops_to_features_and_co_registers(self, utm_template):
+        """snap_to_template crops to the features but keeps the template's grid (#46 point 2).
+
+        Test scenario:
+            A small polygon inside the 10x10 template yields a smaller raster whose origin
+            lies on the template's grid lines and whose cell size equals the template's, so
+            it co-registers pixel-for-pixel; the burned value is present.
+        """
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        inside = box(x0 + 2 * cell, y0 - 4 * cell, x0 + 5 * cell, y0 - 1 * cell)
+        out = Dataset.from_features(
+            self._fc_32636(inside),
+            template=utm_template,
+            snap_to_template=True,
+            column_name="class_id",
+        )
+
+        assert (out.rows, out.columns) == (3, 3), (
+            f"snap output should crop to the features, got {(out.rows, out.columns)}"
+        )
+        ox, oy = out.top_left_corner
+        assert (ox - x0) % cell == 0 and (y0 - oy) % cell == 0, (
+            "snapped origin must lie on the template grid lines"
+        )
+        assert out.cell_size == cell, "snapped output keeps the template cell size"
+        assert np.any(np.isclose(out.read_array(), 42.0)), (
+            "the polygon should be burned"
+        )
+
+    def test_snap_to_template_covers_features_outside_footprint(self, utm_template):
+        """snap_to_template covers features beyond the template footprint, no warning (#46)."""
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        far = box(x0 + 100 * cell, y0 - 3 * cell, x0 + 103 * cell, y0)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            out = Dataset.from_features(
+                self._fc_32636(far),
+                template=utm_template,
+                snap_to_template=True,
+                column_name="class_id",
+            )
+
+        assert np.any(np.isclose(out.read_array(), 42.0)), (
+            "features beyond the footprint are still covered in snap mode"
+        )
+        assert not [w for w in caught if "template extent" in str(w.message)], (
+            "snap mode sizes to the features, so it must not warn"
+        )
+        ox, oy = out.top_left_corner
+        assert (ox - x0) % cell == 0 and (y0 - oy) % cell == 0, "still grid-aligned"
+
+    def test_snap_to_template_requires_template(self):
+        """snap_to_template without a template raises ValueError (#46)."""
+        fc = self._fc_32636(box(0.0, 0.0, 3.0, 3.0))
+        with pytest.raises(
+            ValueError, match="snap_to_template=True requires a template"
+        ):
+            Dataset.from_features(
+                fc, cell_size=1.0, snap_to_template=True, column_name="class_id"
+            )
+
+    def test_snap_to_template_rejects_non_square_template(self):
+        """snap_to_template with a non-square template raises ValueError (#46)."""
+        drv = gdal.GetDriverByName("MEM")
+        raster = drv.Create("", 5, 5, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((0.0, 2.0, 0.0, 10.0, 0.0, -1.0))
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        raster.SetProjection(srs.ExportToWkt())
+        template = Dataset(raster)
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": [42]}, geometry=[box(1.0, 6.0, 3.0, 8.0)], crs="EPSG:4326"
+            )
+        )
+        with pytest.raises(ValueError, match="requires a square template"):
+            Dataset.from_features(
+                fc, template=template, snap_to_template=True, column_name="class_id"
+            )
+
+    def test_snap_to_template_rejects_empty_features(self, utm_template):
+        """snap_to_template with an empty FeatureCollection raises ValueError (#46)."""
+        empty = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": pd.Series([], dtype="int32")},
+                geometry=[],
+                crs="EPSG:32636",
+            )
+        )
+        with pytest.raises(ValueError, match="non-empty FeatureCollection"):
+            Dataset.from_features(
+                empty,
+                template=utm_template,
+                snap_to_template=True,
+                column_name="class_id",
+            )
 
     def test_from_features_rejects_non_positive_cell_size(self):
         """D-M2: cell_size=0 and negative values raise ``ValueError``."""
