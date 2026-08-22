@@ -505,28 +505,26 @@ class TestRasterizeRoundTrip:
     def test_snap_to_template_degenerate_point_yields_covering_pixel(
         self, utm_template
     ):
-        """A point exactly on a grid corner snaps to a 1x1 pixel that covers it (#46).
+        """A point on a grid corner snaps to a valid 1x1 raster via the `max(1, ...)` clamp (#46).
 
         Test scenario:
             A zero-area `Point` on a template grid corner collapses the snapped span to
-            zero cells; the `max(1, ...)` clamp keeps a single covering pixel.
+            zero cells; the `max(1, ...)` clamp keeps a single 1x1 pixel co-registered with
+            the template. Whether GDAL burns a point lying exactly on a pixel corner is
+            platform-defined, so this asserts only the clamp and grid alignment — the
+            mid-cell test covers the burn.
         """
         x0, y0 = utm_template.top_left_corner
         cell = utm_template.cell_size
-        corner = Point(x0 + 2 * cell, y0 - 3 * cell)
-        out = Dataset.from_features(
-            self._fc_32636(corner),
-            template=utm_template,
-            snap_to_template=True,
-            column_name="class_id",
-        )
+        out = self._snap(Point(x0 + 2 * cell, y0 - 3 * cell), utm_template)
+
         assert out.rows == 1, f"degenerate point should give one row, got {out.rows}"
         assert out.columns == 1, (
             f"degenerate point should give one column, got {out.columns}"
         )
-        assert np.any(np.isclose(out.read_array(), 42.0)), (
-            "the point's pixel must be burned"
-        )
+        ox, oy = out.top_left_corner
+        assert (ox - x0) % cell == 0, "snapped x-origin on the template grid"
+        assert (y0 - oy) % cell == 0, "snapped y-origin on the template grid"
 
     def test_snap_to_template_fractional_grid_is_tight(self):
         """Grid-aligned bounds on a fractional-coordinate template give tight dims (#46).
