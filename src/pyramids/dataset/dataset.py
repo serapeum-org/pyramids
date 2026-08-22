@@ -3661,10 +3661,10 @@ class Dataset(RasterBase):
             template (Dataset | None):
                 Optional template raster. When supplied, the output
                 inherits its geotransform and no-data value. Features
-                that fall entirely outside the template extent produce
-                an all-nodata raster and raise a `UserWarning` (#46);
-                use `cell_size` instead to size the output to the
-                features.
+                that fall entirely outside the template extent, or an
+                empty FeatureCollection, produce an all-nodata raster
+                and emit a `UserWarning` (#46); use `cell_size` instead
+                to size the output to the features.
             column_name (str | list[str] | None):
                 Attribute column(s) to burn as band values. `None`
                 burns every non-geometry column as a separate band.
