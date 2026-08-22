@@ -3,10 +3,11 @@
 A band whose ``NBITS`` is not 8/16/32/64 (e.g. the 12 a ``SENTINEL2`` read
 propagates) used to (a) make ``to_file(driver="COG")`` fail because ``PREDICTOR=2``
 is rejected for that width, and (b) silently clip values above the narrow domain
-when the width was inherited onto the output. These tests pin the fix: the width
-is promoted to the next libtiff-writable value, the predictor is resolved against
-that promoted width, and an explicit caller ``NBITS`` still wins (with the
-predictor reconciled away so the write does not fail).
+when the width was inherited onto the output. These tests pin the fix: an
+unsigned-integer source is promoted to its dtype's natural width, the predictor is
+resolved against that promoted width, float/signed dtypes are left untouched, and
+an explicit caller ``NBITS`` still wins (with the predictor reconciled away so the
+write does not fail).
 """
 
 from __future__ import annotations
@@ -96,39 +97,55 @@ class TestReadSourceNbits:
 
 
 class TestPromoteNbits:
-    """Width promotion in :func:`_promote_nbits`."""
+    """Dtype-aware width promotion in :func:`_promote_nbits`."""
 
     @pytest.mark.parametrize(
-        "nbits, expected",
-        [(1, 8), (4, 8), (12, 16), (24, 32), (40, 64)],
+        "nbits, dtype, expected",
+        [
+            (12, gdal.GDT_UInt16, 16),
+            (4, gdal.GDT_UInt16, 16),
+            (1, gdal.GDT_Byte, 8),
+            (12, gdal.GDT_UInt32, 32),
+            (20, gdal.GDT_UInt32, 32),
+            (40, gdal.GDT_UInt64, 64),
+        ],
     )
-    def test_narrow_widths_promote_to_next_supported(self, nbits, expected):
-        """A narrow width rounds up to the next libtiff-writable width.
+    def test_sub_natural_widths_promote_to_dtype_natural(self, nbits, dtype, expected):
+        """A sub-natural unsigned width promotes to the dtype's natural width.
 
         Args:
             nbits: The source width.
-            expected: The promoted width.
+            dtype: The source GDAL dtype.
+            expected: The natural width promoted to.
         """
-        got = _promote_nbits(nbits)
-        assert got == expected, f"promote({nbits}) should be {expected}, got {got}"
+        got = _promote_nbits(nbits, dtype)
+        assert got == expected, (
+            f"promote({nbits},{dtype}) should be {expected}, got {got}"
+        )
 
-    @pytest.mark.parametrize("nbits", [None, 8, 16, 32, 64])
-    def test_supported_or_none_needs_no_promotion(self, nbits):
-        """An already-supported width (or ``None``) returns ``None``.
+    @pytest.mark.parametrize(
+        "nbits, dtype",
+        [(None, gdal.GDT_UInt16), (16, gdal.GDT_UInt16), (32, gdal.GDT_UInt32)],
+    )
+    def test_natural_or_none_needs_no_promotion(self, nbits, dtype):
+        """An already-natural width or ``None`` returns ``None``.
 
         Args:
             nbits: A width needing no change.
+            dtype: The source GDAL dtype.
         """
-        assert _promote_nbits(nbits) is None, f"promote({nbits}) should be None"
+        assert _promote_nbits(nbits, dtype) is None, f"promote({nbits},{dtype}) -> None"
 
-    @pytest.mark.parametrize("nbits", [65, 96, 128])
-    def test_width_above_max_supported_returns_none(self, nbits):
-        """A width beyond 64 has no wider target and returns ``None`` (no crash).
+    @pytest.mark.parametrize(
+        "dtype", [gdal.GDT_Float32, gdal.GDT_Float64, gdal.GDT_Int16]
+    )
+    def test_non_unsigned_dtypes_are_left_alone(self, dtype):
+        """Float and signed-integer dtypes are never promoted (returns ``None``).
 
         Args:
-            nbits: A width larger than the largest predictor-safe width.
+            dtype: A non-unsigned-integer GDAL dtype.
         """
-        assert _promote_nbits(nbits) is None, f"promote({nbits}) should be None"
+        assert _promote_nbits(12, dtype) is None, f"promote(12,{dtype}) should be None"
 
 
 class TestReconcilePredictorWithNbits:
@@ -222,42 +239,93 @@ class TestCompressionToOptionsNbits:
         assert "NBITS" not in opts, f"NBITS should be absent, got {opts.get('NBITS')}"
         assert opts["PREDICTOR"] == 2, f"expected PREDICTOR=2, got {opts['PREDICTOR']}"
 
+    def test_uint16_below_one_byte_promotes_to_natural(self):
+        """A UInt16 source with ``NBITS<8`` promotes to 16 (not 8) with ``PREDICTOR=2``."""
+        ds, band = _mem_band(gdal.GDT_UInt16, nbits=4)
+        opts = Compression()._to_options(band)
+        assert opts["NBITS"] == 16, (
+            f"expected natural NBITS=16, got {opts.get('NBITS')}"
+        )
+        assert opts["PREDICTOR"] == 2, f"expected PREDICTOR=2, got {opts['PREDICTOR']}"
 
-def _nbits12_source_with_large_value(value: int = 5000) -> Dataset:
-    """Build a UInt16 Dataset holding ``value`` (>4095) but tagged ``NBITS=12``.
+    def test_uint32_promotes_to_natural_32(self):
+        """A UInt32 source with a sub-natural ``NBITS`` promotes to 32, not 16."""
+        ds, band = _mem_band(gdal.GDT_UInt32, nbits=12)
+        opts = Compression()._to_options(band)
+        assert opts["NBITS"] == 32, (
+            f"expected natural NBITS=32, got {opts.get('NBITS')}"
+        )
+        assert opts["PREDICTOR"] == 2, f"expected PREDICTOR=2, got {opts['PREDICTOR']}"
 
-    Mirrors a *derived* Sentinel-2 band: the values exceed the 12-bit domain
-    (e.g. after band math) yet the band still carries the inherited ``NBITS=12``.
+    def test_float_source_emits_no_nbits_and_predictor_3(self):
+        """A float source is never promoted: no ``NBITS`` emitted, ``PREDICTOR=3``.
+
+        Test scenario:
+            Emitting a promoted ``NBITS`` on a float band would mean half-float and
+            corrupt values, so the promotion must skip float dtypes entirely.
+        """
+        ds, band = _mem_band(gdal.GDT_Float32, nbits=12)
+        opts = Compression()._to_options(band)
+        assert "NBITS" not in opts, (
+            f"float NBITS should not be emitted: {opts.get('NBITS')}"
+        )
+        assert opts["PREDICTOR"] == 3, (
+            f"expected PREDICTOR=3 for float, got {opts['PREDICTOR']}"
+        )
+
+
+def _nbits_source(value, np_dtype, nbits: int, no_data_value) -> Dataset:
+    """Build a Dataset of ``np_dtype`` holding ``value`` but tagged with ``nbits``.
+
+    Mirrors a *derived* band whose values exceed its declared narrow domain (e.g.
+    Sentinel-2 band math past 4095) while still carrying the inherited ``NBITS``.
+    An explicit in-domain ``no_data_value`` keeps the fallback-nodata warning out
+    of the suite output.
     """
-    arr = np.full((4, 4), value, dtype=np.uint16)
+    arr = np.full((4, 4), value, dtype=np_dtype)
     ds = Dataset.create_from_array(
-        arr, top_left_corner=(0, 4), cell_size=1.0, epsg=4326
+        arr,
+        top_left_corner=(0, 4),
+        cell_size=1.0,
+        epsg=4326,
+        no_data_value=no_data_value,
     )
-    ds.raster.GetRasterBand(1).SetMetadataItem("NBITS", "12", "IMAGE_STRUCTURE")
+    ds.raster.GetRasterBand(1).SetMetadataItem("NBITS", str(nbits), "IMAGE_STRUCTURE")
     return ds
 
 
 class TestCogWriteNbits:
-    """End-to-end ``to_file(driver="COG")`` on a sub-byte-aligned source."""
+    """End-to-end ``to_file(driver="COG")`` on sub-natural NBITS sources."""
 
-    def test_write_succeeds_and_value_survives(self, tmp_path):
-        """A default COG write succeeds and a >4095 value round-trips.
+    @pytest.mark.parametrize(
+        "value, np_dtype, nbits",
+        [
+            (5000, np.uint16, 12),  # #1023 Sentinel-2 case (UInt16 9..15)
+            (5000, np.uint16, 4),  # UInt16 below one byte (M1)
+            (100000, np.uint32, 12),  # UInt32 sub-natural (M1)
+        ],
+    )
+    def test_write_succeeds_and_value_survives(self, value, np_dtype, nbits, tmp_path):
+        """A default COG write succeeds and an out-of-domain value round-trips.
 
         Args:
+            value: A value above the declared narrow ``nbits`` domain.
+            np_dtype: The source NumPy dtype.
+            nbits: The declared sub-natural width.
             tmp_path: pytest temp directory.
 
         Test scenario:
-            The 12-bit source is promoted so ``PREDICTOR=2`` is valid and the
-            5000 value is not clipped to 4095.
+            The source is promoted to its dtype's natural width so ``PREDICTOR=2``
+            is valid and the value is not clipped to the narrow domain.
         """
-        src = _nbits12_source_with_large_value(5000)
-        out = tmp_path / "nb12.tif"
+        src = _nbits_source(value, np_dtype, nbits, no_data_value=0)
+        out = tmp_path / "nb.tif"
         src.to_file(out, driver="COG")
         reopened = Dataset.read_file(out)
         peak = int(reopened.read_array().max())
         reopened.close()
         src.close()
-        assert peak == 5000, f"value clipped to {peak}; expected 5000"
+        assert peak == value, f"value clipped to {peak}; expected {value}"
 
     def test_explicit_narrow_nbits_is_honoured(self, tmp_path):
         """An explicit caller ``NBITS=12`` is applied to the output.
@@ -272,7 +340,7 @@ class TestCogWriteNbits:
             pins the honoured width, not clipping. The reopened output must report
             ``NBITS=12`` and its in-domain value must round-trip intact.
         """
-        src = _nbits12_source_with_large_value(3000)
+        src = _nbits_source(3000, np.uint16, 12, no_data_value=0)
         out = tmp_path / "nb12_forced.tif"
         src.to_file(out, driver="COG", creation_options=["NBITS=12"])
         src.close()

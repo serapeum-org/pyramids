@@ -104,8 +104,22 @@ _PREDICTOR_SAFE_NBITS: tuple[int, ...] = (8, 16, 32, 64)
 A band whose ``NBITS`` is not one of these (e.g. a 12-bit Sentinel-2 JP2 source)
 makes the COG driver reject ``PREDICTOR=2`` and, if the narrow width is inherited
 onto the output, silently clips values above its domain. :func:`_promote_nbits`
-widens such a source to the next value here, and :func:`_reconcile_predictor_with_nbits`
-drops the predictor if a caller nonetheless forces a narrow width.
+widens such a source to its dtype's natural width (always one of these), and
+:func:`_reconcile_predictor_with_nbits` drops the predictor if a caller
+nonetheless forces a narrow width.
+"""
+
+
+_UNSIGNED_INT_GDAL_DTYPES: frozenset[int] = frozenset(
+    {gdal.GDT_Byte, gdal.GDT_UInt16, gdal.GDT_UInt32, gdal.GDT_UInt64}
+)
+"""GDAL unsigned-integer dtypes whose ``NBITS`` promotion is meaningful.
+
+Only unsigned integers carry the sub-byte-``NBITS`` predictor/clip problem, and
+their natural container width (8/16/32/64) is the only ``NBITS`` GDAL accepts for
+the dtype. Float ``NBITS`` (half / 24-bit float) is a distinct, legitimate feature
+that must not be rewritten, and GDAL ignores ``NBITS`` on signed integers — so
+:func:`_promote_nbits` promotes only for these dtypes.
 """
 
 
@@ -134,56 +148,66 @@ def _read_source_nbits(band: Any) -> int | None:
         return None
 
 
-def _promote_nbits(nbits: int | None) -> int | None:
-    """Round a sub-byte-aligned width up to the next COG-writable sample width.
+def _promote_nbits(nbits: int | None, gdal_dtype: int) -> int | None:
+    """Promote a sub-natural integer ``NBITS`` to the dtype's natural width.
 
-    A width already ``None`` or in :data:`_PREDICTOR_SAFE_NBITS` needs no change
-    (returns ``None`` — nothing to override). A narrower/odd width (e.g. ``12``)
-    is promoted to the smallest value in :data:`_PREDICTOR_SAFE_NBITS` that can
-    hold it (``12 -> 16``), so the output neither clips nor trips the predictor.
+    The only ``NBITS`` GDAL accepts for an unsigned-integer dtype is its natural
+    container width (``Byte -> 8``, ``UInt16 -> 16``, ``UInt32 -> 32``,
+    ``UInt64 -> 64``) — always one of :data:`_PREDICTOR_SAFE_NBITS`, so promoting a
+    narrower/odd width to it is both predictor-safe and clip-safe. A width below
+    the natural one is promoted; a width already at/above it, ``None``, or on a
+    non-unsigned-integer dtype returns ``None`` (no override).
 
-    Promotion always widens the output to the next byte-aligned width, trading a
-    little storage (a 1-bit mask becomes 8-bit; an in-domain 12-bit raster
-    becomes 16-bit) for clip-safety on *derived* data whose values have grown
-    past the declared narrow domain — the #1023 case. A width above the largest
-    supported one (``> 64``, only reachable from hand-set / derived metadata since
-    GDAL integer dtypes top out at 64-bit) has no wider target, so it returns
-    ``None`` (no promotion; the predictor already falls back to ``1``) rather than
-    raising.
+    Promotion widens the output to the natural width, trading a little storage (a
+    1-bit mask becomes 8-bit; an in-domain 12-bit raster becomes 16-bit) for
+    clip-safety on *derived* data whose values have grown past the declared narrow
+    domain — the #1023 case. Float dtypes are deliberately left alone: a float
+    ``NBITS`` (half / 24-bit float) is a distinct, legitimate encoding that
+    widening would corrupt. GDAL ignores ``NBITS`` on signed integers, so those
+    are left alone too (the predictor still drops to ``1`` for a narrow width).
 
     Args:
         nbits: The source band's declared width, or ``None``.
+        gdal_dtype: The source band's GDAL data-type code (e.g. ``gdal.GDT_UInt16``).
 
     Returns:
-        The promoted width to write, or ``None`` when no promotion is needed or
-        possible.
+        The natural width to write as ``NBITS``, or ``None`` when no promotion is
+        needed or applicable.
 
     Examples:
-        - A 12-bit source promotes to 16:
+        - A 12-bit UInt16 source promotes to its natural 16:
             ```python
+            >>> from osgeo import gdal
             >>> from pyramids.dataset.cog.options import _promote_nbits
-            >>> _promote_nbits(12)
+            >>> _promote_nbits(12, gdal.GDT_UInt16)
             16
 
             ```
-        - An already-supported width is left alone:
+        - A 12-bit UInt32 source promotes to its natural 32 (not 16):
             ```python
-            >>> _promote_nbits(16) is None
-            True
-            >>> _promote_nbits(None) is None
-            True
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset.cog.options import _promote_nbits
+            >>> _promote_nbits(12, gdal.GDT_UInt32)
+            32
 
             ```
-        - A width beyond 64 has no wider target and is left alone:
+        - An already-natural width, ``None``, or a float dtype is left alone:
             ```python
-            >>> _promote_nbits(128) is None
+            >>> from osgeo import gdal
+            >>> from pyramids.dataset.cog.options import _promote_nbits
+            >>> _promote_nbits(16, gdal.GDT_UInt16) is None
+            True
+            >>> _promote_nbits(None, gdal.GDT_UInt16) is None
+            True
+            >>> _promote_nbits(12, gdal.GDT_Float32) is None
             True
 
             ```
     """
-    if nbits is None or nbits in _PREDICTOR_SAFE_NBITS:
+    if nbits is None or gdal_dtype not in _UNSIGNED_INT_GDAL_DTYPES:
         return None
-    return next((width for width in _PREDICTOR_SAFE_NBITS if width >= nbits), None)
+    natural = gdal.GetDataTypeSize(gdal_dtype)
+    return natural if nbits < natural else None
 
 
 def _reconcile_predictor_with_nbits(options: dict[str, Any]) -> None:
@@ -511,14 +535,16 @@ class Compression:
         ``MAX_Z_ERROR``. ``None`` values are kept and dropped later by
         :func:`merge_options` / :func:`to_gdal_options`.
 
-        A source band whose ``NBITS`` is sub-byte-aligned (e.g. ``12`` from a
-        Sentinel-2 JP2 source) is promoted to the next libtiff-writable width via
-        :func:`_promote_nbits` and that width is emitted as ``NBITS`` — otherwise
-        the inherited narrow width both trips ``PREDICTOR=2`` and silently clips
-        values above its domain. The predictor is resolved against the *promoted*
-        width, so a promoted ``12 -> 16`` still uses ``PREDICTOR=2``. A caller can
-        still override ``NBITS`` through ``extra``; the write site then reconciles
-        the predictor via :func:`_reconcile_predictor_with_nbits`.
+        An **unsigned-integer** source band whose ``NBITS`` is below its natural
+        width (e.g. ``12`` from a Sentinel-2 JP2 ``UInt16`` source) is promoted to
+        that natural width via :func:`_promote_nbits` and the width is emitted as
+        ``NBITS`` — otherwise the inherited narrow width both trips ``PREDICTOR=2``
+        and silently clips values above its domain. The predictor is resolved
+        against the *promoted* width, so a promoted ``12 -> 16`` still uses
+        ``PREDICTOR=2``. Float and signed-integer dtypes are left alone (a float
+        ``NBITS`` is a distinct encoding; GDAL ignores ``NBITS`` on signed ints).
+        A caller can still override ``NBITS`` through ``extra``; the write site then
+        reconciles the predictor via :func:`_reconcile_predictor_with_nbits`.
 
         Args:
             source_band: Band 0 of the effective source, whose ``DataType`` drives
@@ -527,13 +553,14 @@ class Compression:
         Returns:
             The compression slice of the GDAL creation-option dict
             (``COMPRESS``/``LEVEL``/``QUALITY``/``MAX_Z_ERROR``/``PREDICTOR``, plus
-            ``NBITS`` when a sub-byte-aligned source width is promoted).
+            ``NBITS`` when a sub-natural unsigned-integer source width is promoted).
         """
         compress = self.compress if self.compress is not None else "DEFLATE"
         source_nbits = _read_source_nbits(source_band)
-        promoted_nbits = _promote_nbits(source_nbits)
-        # The width the output will actually use: the promoted one, else the
-        # source's own (already a supported width, or None for the dtype default).
+        promoted_nbits = _promote_nbits(source_nbits, source_band.DataType)
+        # The width the output will actually use: the promoted natural width, else
+        # the source's own (already natural, a float/signed width we leave alone, or
+        # None for the dtype default).
         effective_nbits = promoted_nbits if promoted_nbits is not None else source_nbits
         predictor = self.predictor
         if predictor is None:
