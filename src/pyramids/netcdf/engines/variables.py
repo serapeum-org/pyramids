@@ -223,6 +223,12 @@ class Variables(_Engine["NetCDF"]):
         from pyramids.netcdf.netcdf import NetCDF
 
         nc = self._ds
+        working_group = nc._working_group()
+        if working_group is None:
+            raise ValueError(
+                "add_variable requires a multidimensional container. "
+                "Open the file with open_as_multi_dimensional=True."
+            )
         # A NetCDF source may be a group view; read its working group so variables
         # are copied from the active sub-group. A plain Dataset has no group view.
         var_rg = (
@@ -245,14 +251,9 @@ class Variables(_Engine["NetCDF"]):
         # view always copies — it shares its parent's raster).
         in_place = not copy and nc.driver_type == "memory" and not nc._group_path
         if in_place:
-            dst, dst_rg = nc._raster, nc._working_group()
+            dst, dst_rg = nc._raster, working_group
         else:
             dst, dst_rg = nc._writable_root_group()
-        if dst_rg is None:
-            raise ValueError(
-                "add_variable requires a multidimensional container. "
-                "Open the file with open_as_multi_dimensional=True."
-            )
 
         for var in names_to_copy:
             md_arr = var_rg.OpenMDArray(var)
