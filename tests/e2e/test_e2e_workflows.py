@@ -157,6 +157,16 @@ class TestRasterizeRoundTrip:
             )
         )
 
+    @staticmethod
+    def _mem_template(geotransform, epsg=4326):
+        """A 5x5 in-memory Dataset with a custom geotransform (non-square/rotated tests)."""
+        raster = gdal.GetDriverByName("MEM").Create("", 5, 5, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform(geotransform)
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(epsg)
+        raster.SetProjection(srs.ExportToWkt())
+        return Dataset(raster)
+
     def test_rasterize_polygon(self):
         """Burn a polygon attribute into a raster and verify the value."""
         epsg = 32636
@@ -271,14 +281,7 @@ class TestRasterizeRoundTrip:
             true `ymin=5`, so it must be flagged — a single-`cell_size` check would use the
             X pixel for Y and miss it.
         """
-        drv = gdal.GetDriverByName("MEM")
-        raster = drv.Create("", 5, 5, 1, gdal.GDT_Float32)
-        raster.SetGeoTransform((0.0, 2.0, 0.0, 10.0, 0.0, -1.0))
-        srs = osr.SpatialReference()
-        srs.ImportFromEPSG(4326)
-        raster.SetProjection(srs.ExportToWkt())
-        template = Dataset(raster)
-
+        template = self._mem_template((0.0, 2.0, 0.0, 10.0, 0.0, -1.0))
         south = FeatureCollection(
             gpd.GeoDataFrame(
                 {"v": [1]}, geometry=[box(2.0, 2.0, 4.0, 4.0)], crs="EPSG:4326"
@@ -447,19 +450,26 @@ class TestRasterizeRoundTrip:
 
     def test_snap_to_template_rejects_non_square_template(self):
         """snap_to_template with a non-square template raises ValueError (#46)."""
-        drv = gdal.GetDriverByName("MEM")
-        raster = drv.Create("", 5, 5, 1, gdal.GDT_Float32)
-        raster.SetGeoTransform((0.0, 2.0, 0.0, 10.0, 0.0, -1.0))
-        srs = osr.SpatialReference()
-        srs.ImportFromEPSG(4326)
-        raster.SetProjection(srs.ExportToWkt())
-        template = Dataset(raster)
+        template = self._mem_template((0.0, 2.0, 0.0, 10.0, 0.0, -1.0))
         fc = FeatureCollection(
             gpd.GeoDataFrame(
                 {"class_id": [42]}, geometry=[box(1.0, 6.0, 3.0, 8.0)], crs="EPSG:4326"
             )
         )
         with pytest.raises(ValueError, match="requires a square template"):
+            Dataset.from_features(
+                fc, template=template, snap_to_template=True, column_name="class_id"
+            )
+
+    def test_snap_to_template_rejects_rotated_template(self):
+        """snap_to_template with a rotated template raises ValueError (#46)."""
+        template = self._mem_template((0.0, 1.0, 0.5, 10.0, 0.5, -1.0))
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": [42]}, geometry=[box(1.0, 6.0, 3.0, 8.0)], crs="EPSG:4326"
+            )
+        )
+        with pytest.raises(ValueError, match="rotated template"):
             Dataset.from_features(
                 fc, template=template, snap_to_template=True, column_name="class_id"
             )
