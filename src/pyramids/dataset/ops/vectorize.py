@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import warnings
 from typing import TYPE_CHECKING, Any
 
@@ -52,8 +53,8 @@ def rasterize_features(
             to the features' bounds snapped outward onto the template's
             grid lines — a small, template-co-registered raster instead of
             one spanning the whole template (issue #46). Requires a square,
-            axis-aligned, north-up template and a non-empty
-            FeatureCollection.
+            axis-aligned template and a FeatureCollection with valid
+            (non-NaN) geometry bounds.
         column_name: Attribute column(s) to burn as band values.
             `None` burns every non-geometry column as a separate band.
 
@@ -234,6 +235,13 @@ def _resolve_raster_geometry(
     return xmin, ymax, rows, columns, cell_size, no_data_value
 
 
+_SNAP_EPS = 1e-9
+"""Cell-unit nudge so floor/ceil snapping is stable for grid-aligned bounds (issue #46)."""
+
+_ROTATION_REL_TOL = 1e-6
+"""A geotransform rotation term below this fraction of the pixel size is treated as zero."""
+
+
 def _snap_extent_to_template(
     features: FeatureCollection, template: Dataset
 ) -> tuple[float, float, int, int, float]:
@@ -245,19 +253,23 @@ def _snap_extent_to_template(
     covering the whole template.
 
     Args:
-        features: The vector being rasterised (must be non-empty).
-        template: A square, axis-aligned, north-up template raster.
+        features: The vector being rasterised (must have valid, non-NaN bounds).
+        template: A square, axis-aligned template raster.
 
     Returns:
         ``(xmin, ymax, rows, columns, cell_size)`` for the snapped output grid.
 
     Raises:
-        ValueError: The template is rotated or non-square, or the features are empty.
+        ValueError: The template is rotated or non-square, or the features have no valid
+            (non-NaN) geometry bounds.
     """
     x0, px, rx, y0, ry, py = template.geotransform
-    if rx or ry:
+    # Tolerate ULP-level float noise: real GeoTIFFs (warped/reprojected) carry rotation
+    # terms of ~1e-16 and X/Y pixel sizes that differ by a few ULPs, which exact ==/!=
+    # comparisons would reject outright.
+    if abs(rx) > abs(px) * _ROTATION_REL_TOL or abs(ry) > abs(py) * _ROTATION_REL_TOL:
         raise ValueError("snap_to_template does not support a rotated template.")
-    if abs(px) != abs(py):
+    if not math.isclose(abs(px), abs(py), rel_tol=1e-9):
         raise ValueError(
             "snap_to_template requires a square template (equal X/Y pixel size); "
             f"got {abs(px)} x {abs(py)}."
@@ -265,13 +277,17 @@ def _snap_extent_to_template(
     fxmin, fymin, fxmax, fymax = features.total_bounds
     if any(np.isnan(v) for v in (fxmin, fymin, fxmax, fymax)):
         raise ValueError(
-            "snap_to_template needs a non-empty FeatureCollection to size the output."
+            "snap_to_template needs a FeatureCollection with valid (non-NaN) geometry "
+            "bounds to size the output."
         )
     size = abs(px)
-    snap_xmin = x0 + np.floor((fxmin - x0) / size) * size
-    snap_xmax = x0 + np.ceil((fxmax - x0) / size) * size
-    snap_ymax = y0 - np.floor((y0 - fymax) / size) * size
-    snap_ymin = y0 - np.ceil((y0 - fymin) / size) * size
+    # Nudge by _SNAP_EPS (in cell units) so a bound mathematically on a grid line but a
+    # few ULPs off does not push floor/ceil one cell too far — the snapped box stays tight
+    # and the output size is stable across CRSs, while still never under-covering.
+    snap_xmin = x0 + np.floor((fxmin - x0) / size + _SNAP_EPS) * size
+    snap_xmax = x0 + np.ceil((fxmax - x0) / size - _SNAP_EPS) * size
+    snap_ymax = y0 - np.floor((y0 - fymax) / size + _SNAP_EPS) * size
+    snap_ymin = y0 - np.ceil((y0 - fymin) / size - _SNAP_EPS) * size
     columns = max(1, int(round((snap_xmax - snap_xmin) / size)))
     rows = max(1, int(round((snap_ymax - snap_ymin) / size)))
     return float(snap_xmin), float(snap_ymax), rows, columns, size
