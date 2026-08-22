@@ -346,18 +346,18 @@ class RasterBase(ABC):
 
         Serialising a live `gdal.Dataset` pointer is not possible
         (native C++ handle, no copy semantics). Instead we emit the
-        minimal recipe `(class, file_name, access, gdal_env)` and
+        recipe `(class, file_name, access, gdal_env, open_options)` and
         reconstruct on unpickle by calling `cls.read_file(path, ...)`
         under the captured GDAL config, so a signed remote dataset
-        re-opens on the worker with its credentials.
+        re-opens on the worker with its credentials and driver options.
 
         The GDAL handle is therefore opened **on the receiving process
         / thread**, which is the invariant dask.distributed needs.
 
-        Recipes written before the config existed still unpickle here (the
-        parameter defaults), but a recipe written by *this* version needs a
-        reader that accepts four arguments — so a mixed-version cluster has to
-        upgrade the workers, not only the client.
+        Recipes written before these fields existed still unpickle here (the
+        parameter defaults for `gdal_env` and `open_options`), but a recipe
+        written by *this* version needs a reader that accepts five arguments — so
+        a mixed-version cluster has to upgrade the workers, not only the client.
 
         Security:
             The recipe carries :attr:`gdal_env` verbatim, so pickling a dataset
