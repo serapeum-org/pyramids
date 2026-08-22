@@ -2756,7 +2756,10 @@ class NetCDF(Dataset):
         dropped: list[tuple[str, Exception]] = []
         for var_name in aux_vars:
             try:
-                result.add_variable(self, var_name)
+                # `result` is the private container the fan-out built; nothing else
+                # references its raster yet, so carry each aux var in place (copy=False)
+                # to avoid a full MEM copy per aux variable (#143).
+                result.add_variable(self, var_name, copy=False)
             except (RuntimeError, ValueError) as exc:
                 dropped.append((var_name, exc))
         if dropped:
