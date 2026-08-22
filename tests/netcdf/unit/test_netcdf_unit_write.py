@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 from osgeo import gdal
 
@@ -400,13 +401,14 @@ class TestAddVariable:
 
 
 class TestRemoveVariable:
-    """Tests for remove_variable on non-memory datasets."""
+    """Tests for remove_variable (file-backed and in-memory)."""
 
     def test_remove_variable_from_file_based_dataset(self, tmp_path):
         """Verify remove_variable copies to memory for file-based datasets.
 
-        Covers the else branch using CreateCopy for
-        non-memory drivers.
+        Test scenario:
+            Removing a variable from a writable file-backed container drops it
+            from the container's view via the MEM CreateCopy path.
         """
         nc = _make_3d_nc(variable_name="temp")
         out = str(tmp_path / "to_remove.nc")
@@ -423,9 +425,10 @@ class TestRemoveVariable:
         assert "temp" not in file_nc.variable_names, "Variable 'temp' should be removed"
 
     def test_remove_variable_in_memory(self):
-        """Verify remove_variable works directly for in-memory datasets.
+        """Verify remove_variable removes the variable from an in-memory container.
 
-        Covers the if driver_type == 'memory' branch.
+        Test scenario:
+            After removal the variable is gone from the container's variable_names.
         """
         nc = _make_3d_nc(variable_name="temp")
         assert "temp" in nc.variable_names, "Variable should exist before removal"
@@ -433,6 +436,126 @@ class TestRemoveVariable:
         assert "temp" not in nc.variable_names, (
             "Variable should be removed from in-memory dataset"
         )
+
+    def test_remove_variable_in_memory_preserves_shared_raster(self):
+        """remove_variable must not mutate a shared in-memory raster handle (#143).
+
+        Test scenario:
+            A caller holds ``nc._raster`` before removing a variable. Because the
+            removal now works on an independent MEM copy, the held raster still
+            exposes the removed variable, while the container no longer lists it.
+        """
+        nc = _make_3d_nc(variable_name="temp")
+        held = nc._raster
+        assert "temp" in held.GetRootGroup().GetMDArrayNames()
+        nc.remove_variable("temp")
+        assert "temp" in held.GetRootGroup().GetMDArrayNames(), (
+            "held raster must keep 'temp' — remove must not mutate it in place"
+        )
+        assert "temp" not in nc.variable_names, "container must drop 'temp'"
+
+    def test_remove_variable_does_not_modify_on_disk_file(self, tmp_path):
+        """remove_variable on a file-backed container leaves the on-disk file intact (#143).
+
+        Test scenario:
+            After removing a variable from a writable file-backed container,
+            reopening the same path in a fresh handle still shows the variable —
+            the delete went to a MEM copy, not the file.
+        """
+        nc = _make_3d_nc(variable_name="temp")
+        out = str(tmp_path / "on_disk.nc")
+        nc.to_file(out)
+        file_nc = NetCDF.read_file(out, read_only=False, open_as_multi_dimensional=True)
+        file_nc.remove_variable("temp")
+        reopened = NetCDF.read_file(out, open_as_multi_dimensional=True)
+        assert "temp" in reopened.variable_names, (
+            "on-disk file must be unchanged — remove must not write to it"
+        )
+
+    def test_remove_variable_preserves_other_variable_data(self):
+        """Removing one variable leaves the survivor's data/no-data/crs intact.
+
+        Test scenario:
+            A two-variable in-memory container keeps the survivor's array values,
+            no-data value and EPSG after the copy-and-swap removal.
+        """
+        nc = make_2d_nc(variable_name="elevation")
+        keep = nc._raster.GetRootGroup().OpenMDArray("elevation").ReadAsArray().copy()
+        nc.add_variable(make_2d_nc(variable_name="rain"))
+        nc.remove_variable("rain")
+        assert nc.variable_names == ["elevation"], nc.variable_names
+        surv = nc._raster.GetRootGroup().OpenMDArray("elevation")
+        np.testing.assert_array_equal(surv.ReadAsArray(), keep)
+        assert surv.GetNoDataValue() == -9999.0, surv.GetNoDataValue()
+        assert surv.GetSpatialRef().GetAuthorityCode(None) == "4326"
+
+
+class TestMutationSharedRaster:
+    """set/add/rename must not mutate a shared in-memory raster handle (#143)."""
+
+    @staticmethod
+    def _names(raster):
+        """Return the set of MDArray names in ``raster``'s root group."""
+        return set(raster.GetRootGroup().GetMDArrayNames())
+
+    def test_set_variable_preserves_shared_raster(self):
+        """set_variable copies the in-memory backing store before mutating it.
+
+        Test scenario:
+            With a held ``nc._raster`` reference, writing a new variable leaves the
+            held raster's arrays unchanged while the container gains the variable.
+        """
+        nc = make_2d_nc(variable_name="elevation")
+        held = nc._raster
+        before = self._names(held)
+        nc.set_variable("added", _make_dataset_2d())
+        assert self._names(held) == before, "held raster must not gain the new variable"
+        assert "added" in nc.variable_names, "container must gain the new variable"
+
+    def test_set_variable_copy_false_mutates_in_place(self):
+        """set_variable(copy=False) mutates the in-memory container in place.
+
+        Test scenario:
+            The opt-in fast path used by the internal fan-out builders skips the
+            copy, so the held raster reflects the write and the container gains it.
+        """
+        nc = make_2d_nc(variable_name="elevation")
+        held = nc._raster
+        nc.set_variable("added", _make_dataset_2d(), copy=False)
+        assert "added" in self._names(held), "copy=False must mutate the held raster"
+        assert "added" in nc.variable_names, "container must gain the new variable"
+
+    def test_rename_variable_preserves_shared_raster(self):
+        """rename_variable copies the in-memory backing store before mutating it.
+
+        Test scenario:
+            With a held ``nc._raster`` reference, renaming a variable leaves the old
+            name present on the held raster while the container exposes the new name.
+        """
+        nc = make_2d_nc(variable_name="elevation")
+        held = nc._raster
+        nc.rename_variable("elevation", "renamed")
+        assert "elevation" in self._names(held), "held raster must keep the old name"
+        assert "renamed" not in self._names(held), (
+            "held raster must not gain the new name"
+        )
+        assert "renamed" in nc.variable_names, "container must expose the new name"
+
+    def test_add_variable_preserves_shared_raster(self):
+        """add_variable copies the in-memory backing store before mutating it.
+
+        Test scenario:
+            With a held ``nc._raster`` reference, copying in another variable leaves
+            the held raster unchanged while the container gains the variable.
+        """
+        nc = make_2d_nc(variable_name="elevation")
+        held = nc._raster
+        before = self._names(held)
+        nc.add_variable(make_2d_nc(variable_name="rain"))
+        assert self._names(held) == before, (
+            "held raster must not gain the added variable"
+        )
+        assert "rain" in nc.variable_names, "container must gain the added variable"
 
 
 class TestSetVariableAttrWriteException:

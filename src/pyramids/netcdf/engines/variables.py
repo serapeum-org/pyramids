@@ -75,6 +75,8 @@ class Variables(_Engine["NetCDF"]):
         band_dim_name: str | None = None,
         band_dim_values: list | None = None,
         attrs: dict | None = None,
+        *,
+        copy: bool = True,
     ):
         """Write a classic Dataset back as an MDArray variable in this container.
 
@@ -97,6 +99,14 @@ class Variables(_Engine["NetCDF"]):
             attrs: Variable attributes to set (e.g. `{"units": "K"}`).
                 Auto-detected from `_variable_attrs` when available.
                 Defaults to None.
+            copy: When True (the default) an in-memory container is copied
+                before mutation so that any handle sharing the same backing
+                `gdal.Dataset` (a `get_group()` view, or a caller holding
+                `_raster`) is not corrupted — see #143. Pass False only from a
+                caller that exclusively owns this container (e.g. the internal
+                per-variable fan-out builders) to mutate it in place and avoid a
+                per-call copy. Ignored for file-backed containers, which must
+                always copy to escape netCDF data mode. Defaults to True.
 
         Raises:
             ValueError: If called on a dataset without a root group
@@ -110,8 +120,11 @@ class Variables(_Engine["NetCDF"]):
                 "Open the file with open_as_multi_dimensional=True."
             )
         # CreateMDArray / DeleteMDArray / CreateDimension are rejected on a file-backed group (netCDF
-        # data mode); operate on a writable MEM copy and swap it in, like remove_variable (#587).
-        if nc.driver_type != "memory":
+        # data mode) so must go through a MEM copy. For an in-memory container, copying also prevents
+        # corrupting a handle that shares the same gdal.Dataset (a get_group() view, or a caller holding
+        # _raster) — #143. Skip the copy only when the caller exclusively owns this container and opts
+        # out with copy=False, mutating the live working group in place.
+        if copy or nc.driver_type != "memory":
             work, rg = nc._writable_root_group()
             nc._replace_raster(work)
 

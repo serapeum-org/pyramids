@@ -3079,7 +3079,10 @@ class NetCDF(Dataset):
                     no_data_value=var_ndv_scalar,
                 )
                 NetCDF._copy_band_dim_metadata(ds, var)
-                result.set_variable(var_name, ds)
+                # `result` is a private container built by this fan-out; nothing else
+                # references its raster yet, so mutate it in place (copy=False) to avoid
+                # an O(n^2) per-variable MEM copy on wide cubes (#143).
+                result.set_variable(var_name, ds, copy=False)
 
         self._carry_aux_variables(cast("NetCDF", result), aux_vars, operation)
         return cast("NetCDF", result)
@@ -3340,7 +3343,10 @@ class NetCDF(Dataset):
                 ds._band_dim_sizes,
                 ds._band_count,
             )
-            result.set_variable(var_name, ds)
+            # `result` is a private container this reduction builds up; nothing else
+            # references its raster yet, so mutate in place (copy=False) to avoid an
+            # O(n^2) per-variable MEM copy on wide cubes (#143).
+            result.set_variable(var_name, ds, copy=False)
         return result
 
     def to_crs(
@@ -5248,27 +5254,26 @@ class NetCDF(Dataset):
     def _writable_root_group(self) -> tuple[gdal.Dataset, gdal.Group]:
         """Return a ``(dataset, working_group)`` pair that is safe to mutate.
 
-        A file-backed netCDF root group is opened in "data mode", which rejects
-        ``CreateMDArray`` / ``DeleteMDArray`` / ``CreateDimension``. So for a file-backed
-        container this copies the store into an in-memory ``MEM`` raster and returns that;
-        an already in-memory container is returned as-is. The caller is responsible for
-        swapping the returned dataset in via :meth:`_replace_raster`.
+        Always returns an **independent** in-memory ``MEM`` copy of the backing store,
+        never ``self._raster`` itself. Two reasons: a file-backed netCDF root group is
+        opened in "data mode", which rejects ``CreateMDArray`` / ``DeleteMDArray`` /
+        ``CreateDimension``; and mutating an in-memory container in place would corrupt
+        every other handle that shares the same ``gdal.Dataset`` — a ``get_group()`` view
+        (a zero-copy view of its parent's raster) or a caller holding a reference to
+        ``_raster`` (#143). The caller mutates the returned copy and swaps it in via
+        :meth:`_replace_raster`, so external handles keep the pre-mutation state.
 
         For a `get_group()` view (`_group_path` set) the returned group is the
-        **sub-group** inside the writable dataset, not its root — so
+        **sub-group** inside the writable copy, not its root — so
         ``set_variable`` / ``add_variable`` / ``rename_variable`` mutate the group
         the view reads from rather than the store root (ARC-12). `_group_path` is
         preserved across :meth:`_replace_raster`, so reads stay consistent with the
-        write. For a normal container the working group is the root group, so the
-        behaviour is unchanged.
+        write.
 
         Returns:
             tuple: The writable :class:`osgeo.gdal.Dataset` and its working group.
         """
-        if self.driver_type == "memory":
-            dst = self._raster
-        else:
-            dst = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
+        dst = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
         group = dst.GetRootGroup()
         if group is not None and self._group_path:
             for part in self._group_path.split("/"):
