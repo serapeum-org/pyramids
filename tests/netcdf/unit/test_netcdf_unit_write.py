@@ -128,7 +128,10 @@ class TestAddMdArrayToGroupFallback:
                 (``None`` for a source with no no-data defined).
             set_raises: When ``True``, the MDArray ``SetNoDataValueDouble`` is
                 patched to raise ``RuntimeError`` during the copy, exercising the
-                error-handling branch. Defaults to ``False``.
+                error-handling branch. The patch targets the shared ``gdal.MDArray``
+                class, so it also covers the destination array — whose
+                ``SetNoDataValueDouble`` is the call that actually raises. Defaults
+                to ``False``.
 
         Returns:
             The copied ``copied_var`` MDArray in the destination group.
@@ -192,14 +195,15 @@ class TestAddMdArrayToGroupFallback:
         ndv = copied.GetNoDataValue()
         assert ndv == pytest.approx(255.0), f"Expected nodata 255.0, got {ndv}"
 
-    def test_set_nodata_error_is_swallowed_without_sentinel(self):
-        """A GDAL error while setting no-data is swallowed; no sentinel is injected.
+    def test_set_nodata_error_is_swallowed(self):
+        """A GDAL error while setting the source no-data is swallowed, not propagated.
 
         Test scenario:
             The source reports a no-data value but SetNoDataValueDouble raises a
-            RuntimeError (a genuine GDAL failure). _add_md_array_to_group must not
-            propagate the error, and the copy ends up with no no-data value rather
-            than a phantom sentinel.
+            RuntimeError (a genuine GDAL failure). _add_md_array_to_group catches it
+            in its ``except (RuntimeError, TypeError, ValueError)`` branch, so the copy
+            is simply left with no no-data value instead of the error escaping. (Also
+            guards against a future regression that adds a sentinel fallback there.)
         """
         copied = self._copy_elevation_with_nodata(255.0, set_raises=True)
         assert copied is not None, "Copied variable should exist"
