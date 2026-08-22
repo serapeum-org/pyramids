@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._read_window import resolve_read_window
 from pyramids.dataset.engines._validate import (
     validate_band_index,
     window_out_of_bounds,
@@ -789,13 +790,9 @@ class IO(_Engine["Dataset"]):
                 "read_array(resampling=...) only applies to out_shape reads; "
                 "pass out_shape=(rows, cols) as well."
             )
-        if bbox is not None:
-            if window is not None:
-                raise ValueError(
-                    "read_array accepts either `window` or `bbox`, not both"
-                )
-            crs = epsg if epsg is not None else self._ds.epsg
-            window = FeatureCollection.from_bbox(bbox, epsg=crs)
+        window = resolve_read_window(
+            window, bbox, crs=epsg if epsg is not None else self._ds.epsg
+        )
         # Resolve a geometry window (from `bbox=` or a polygon `window=`) to an integer pixel window
         # once, up front, so `bbox_rounding` applies uniformly no matter which read path runs. The
         # boundless branch below deliberately rejects geometry windows (they are clipped by
