@@ -598,6 +598,89 @@ class Bands(_Engine["Dataset"]):
             gdal_const = color_name_to_gdal_constant(val)
             self._iloc(key).SetColorInterpretation(gdal_const)
 
+    @property
+    def metadata(self) -> list[dict[str, str]]:
+        """Per-band metadata (default domain), one mapping per band, in band order.
+
+        This is the per-band sibling of the dataset-level :attr:`Dataset.meta_data`.
+        It is where GDAL stores what a band physically *is* — for a Sentinel-2 band,
+        the centre wavelength, bandwidth, and solar irradiance; for Sentinel-1, the
+        swath and polarization; and so on for any format's per-band tags. Only the
+        default metadata domain is exposed (``IMAGE_STRUCTURE`` and other domains are
+        out of scope until domain support lands).
+
+        Returns:
+            list[dict[str, str]]: One mapping per band, indexed like
+            :attr:`Dataset.band_names` (0-based, band order). A band that carries no
+            metadata yields an empty ``dict`` (never ``None``), so callers can index
+            without guarding.
+
+        Examples:
+            - A two-band raster whose bands carry metadata reports it per band:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.zeros((2, 4, 4), dtype="int16")
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ... )
+              >>> dataset.band_meta_data = [{"WAVELENGTH": "443"}, {"WAVELENGTH": "490"}]
+              >>> dataset.bands.metadata[0]["WAVELENGTH"]
+              '443'
+              >>> dataset.bands.metadata[1]["WAVELENGTH"]
+              '490'
+
+              ```
+
+            - A band with no metadata yields an empty mapping, not ``None``:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.zeros((1, 4, 4), dtype="int16")
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ... )
+              >>> dataset.bands.metadata
+              [{}]
+
+              ```
+        """
+        return [self._iloc(i).GetMetadata() for i in range(self._ds.band_count)]
+
+    @metadata.setter
+    def metadata(self, value: list[dict[str, str]]) -> None:
+        """Replace each band's default-domain metadata, one mapping per band.
+
+        The assignment **replaces** each band's metadata with the mapping given for
+        it (``SetMetadata``), rather than merging into what is already there — a
+        whole-list assignment reads as "set each band's metadata to exactly this",
+        consistent with the other per-band list setters (``band_units``, ``scale``,
+        ``offset``). Assigning an empty mapping to a band therefore clears it. To edit
+        a single key without disturbing the rest, read the mapping, update it, and
+        assign the list back. (The dataset-level :attr:`Dataset.meta_data` setter
+        merges instead, because it is a single dict, not a per-band list.)
+
+        Args:
+            value: One mapping per band, in band order; its length must equal the
+                band count.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file (setting band
+                metadata would spill a PAM ``.aux.xml`` sidecar); reopen with
+                ``read_only=False`` or edit an in-memory copy instead.
+            ValueError: ``value`` does not carry exactly one mapping per band.
+        """
+        self._ds._require_writable("set band metadata")
+        if len(value) != self._ds.band_count:
+            raise ValueError(
+                f"band_meta_data needs one mapping per band: expected "
+                f"{self._ds.band_count}, got {len(value)}."
+            )
+        for i, band_md in enumerate(value):
+            self._iloc(i).SetMetadata(band_md)
+
     def get_band_by_color(self, color_name: str) -> int | None:
         """Get the band associated with a given color.
 

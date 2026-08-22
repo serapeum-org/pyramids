@@ -2061,6 +2061,34 @@ class Dataset(RasterBase):
         self._epsg = self._get_epsg()
 
     @property
+    def band_meta_data(self) -> list[dict[str, str]]:
+        """Per-band metadata, one mapping per band, in band order.
+
+        The per-band sibling of :attr:`meta_data`. Facade — delegates to
+        :attr:`Bands.metadata <pyramids.dataset.engines.Bands.metadata>`; see it for
+        the empty-band and default-domain conventions.
+
+        Returns:
+            list[dict[str, str]]: One mapping per band (0-based, band order); an empty
+            ``dict`` for a band with no metadata.
+        """
+        return self.bands.metadata
+
+    @band_meta_data.setter
+    def band_meta_data(self, value: list[dict[str, str]]) -> None:
+        """Replace each band's metadata (one mapping per band).
+
+        Facade setter — delegates to
+        :attr:`Bands.metadata <pyramids.dataset.engines.Bands.metadata>`, which
+        replaces (does not merge) each band's default-domain metadata.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+            ValueError: ``value`` does not carry exactly one mapping per band.
+        """
+        self.bands.metadata = value
+
+    @property
     def file_name(self) -> str:
         """File name."""
         return super().file_name
