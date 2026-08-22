@@ -176,8 +176,11 @@ class TestReadFileOpenOptions:
         """The shared cache keys on the options, so the two reads differ.
 
         Test scenario:
-            Read-only opens go through the shared cache; if it ignored the
-            options, the second open would inherit the first's georef.
+            Read-only opens with options go through `OpenEx(OF_SHARED)`; this pins
+            the GDAL guarantee the branch relies on — that the shared-dataset
+            cache key includes the open options — so if a future GDAL ignored
+            them, the second open would inherit the first's georef and this test
+            would fail loudly rather than returning stale data.
         """
         first = Dataset.read_file(
             georeferenced_tif, open_options={"GEOREF_SOURCES": "NONE"}
@@ -231,13 +234,17 @@ class TestReadFileLowLevel:
             src = None
 
     def test_multidim_with_options_opens(self):
-        """Multidimensional open forwards options through `OpenEx`.
+        """Multidimensional open forwards options through `OpenEx` (smoke/coverage).
 
         Test scenario:
             Opening a NetCDF with `open_as_multi_dimensional=True` and a
             recognised NetCDF open option must return a live handle, exercising
             the `open_options=options or []` multidim branch with a non-empty
-            option list.
+            option list. This is a smoke/line-coverage check only: GDAL treats an
+            unrecognised or ignored open option as a warning (not a `CE_Failure`),
+            so a successful open does not by itself prove the option was honoured —
+            proving an effect would need a fixture engineered around a specific
+            multidim option.
         """
         assert _NETCDF_FIXTURE.exists(), f"missing fixture: {_NETCDF_FIXTURE}"
         src = io_read_file(

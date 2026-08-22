@@ -688,11 +688,20 @@ def read_file(
             src = gdal.OpenShared(path, access)
         elif read_only:
             # OpenShared takes no open options, so carry them through OpenEx with
-            # OF_SHARED. GDAL keys its shared-handle cache on the open options as
-            # well as path/access/thread (verified on GDAL 3.13), so two reads of
-            # one path with different options are not handed the same handle —
-            # they simply do not share. Same options still share, keeping the
-            # frequently-accessed-raster benefit the OpenShared branch is for.
+            # OF_SHARED. Correctness of this branch — that two live reads of one
+            # path with *different* options are never handed the same handle —
+            # RELIES ON GDAL keying its shared-dataset cache on the concatenated
+            # open options as well as path/access/thread. This holds on the conda
+            # pin (gdal >=3.13.1,<3.13.2 in pyproject.toml, verified on 3.13.1)
+            # and every GDAL that has shipped this behaviour. Wheel/sdist installs
+            # bring native GDAL out-of-band at an unpinned version; on a
+            # hypothetical GDAL that ignored options in its shared key, two
+            # different-option reads would silently alias the first handle (wrong
+            # georef/data). test_two_opens_different_options_do_not_share_a_handle
+            # pins the guarantee via the observable geotransform, so such a
+            # regression fails loudly rather than returning stale data. Same
+            # options still share, keeping the frequently-accessed-raster benefit
+            # the OpenShared branch is for.
             # OF_RASTER | OF_VERBOSE_ERROR restore the driver-kind restriction and
             # verbose diagnostics that gdal.OpenShared implies but bare OpenEx
             # (OF_ALL, terse errors) drops — this is a raster reader.
