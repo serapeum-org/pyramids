@@ -557,6 +557,19 @@ class TestMutationSharedRaster:
         )
         assert "rain" in nc.variable_names, "container must gain the added variable"
 
+    def test_add_variable_copy_false_mutates_in_place(self):
+        """add_variable(copy=False) mutates the in-memory container in place.
+
+        Test scenario:
+            The opt-in fast path used by the aux-carry loop skips the copy, so the
+            held raster reflects the added variable and the container gains it.
+        """
+        nc = make_2d_nc(variable_name="elevation")
+        held = nc._raster
+        nc.add_variable(make_2d_nc(variable_name="rain"), copy=False)
+        assert "rain" in self._names(held), "copy=False must mutate the held raster"
+        assert "rain" in nc.variable_names, "container must gain the added variable"
+
     def test_set_variable_copy_path_preserves_written_and_survivor_data(self):
         """The copy-and-swap set_variable preserves both written and existing data.
 
