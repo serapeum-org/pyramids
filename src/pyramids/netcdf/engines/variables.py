@@ -75,6 +75,8 @@ class Variables(_Engine["NetCDF"]):
         band_dim_name: str | None = None,
         band_dim_values: list | None = None,
         attrs: dict | None = None,
+        *,
+        copy: bool = True,
     ):
         """Write a classic Dataset back as an MDArray variable in this container.
 
@@ -97,6 +99,16 @@ class Variables(_Engine["NetCDF"]):
             attrs: Variable attributes to set (e.g. `{"units": "K"}`).
                 Auto-detected from `_variable_attrs` when available.
                 Defaults to None.
+            copy: When True (the default) an in-memory container is copied
+                before mutation so that any handle sharing the same backing
+                `gdal.Dataset` (a `get_group()` view, or a caller holding
+                `_raster`) is not corrupted — see #143. Pass False only from a
+                caller that exclusively owns this container (e.g. the internal
+                per-variable fan-out builders) to mutate it in place and avoid a
+                per-call copy. Ignored (a copy is always made) for file-backed
+                containers, which must copy to escape netCDF data mode, and for a
+                `get_group()` view, whose raster is shared with its parent.
+                Defaults to True.
 
         Raises:
             ValueError: If called on a dataset without a root group
@@ -110,8 +122,12 @@ class Variables(_Engine["NetCDF"]):
                 "Open the file with open_as_multi_dimensional=True."
             )
         # CreateMDArray / DeleteMDArray / CreateDimension are rejected on a file-backed group (netCDF
-        # data mode); operate on a writable MEM copy and swap it in, like remove_variable (#587).
-        if nc.driver_type != "memory":
+        # data mode) so must go through a MEM copy. For an in-memory container, copying also prevents
+        # corrupting a handle that shares the same gdal.Dataset (a get_group() view, or a caller holding
+        # _raster) — #143. Skip the copy only when the caller exclusively owns this container and opts
+        # out with copy=False, mutating the live working group in place. A get_group() view (_group_path
+        # set) shares its parent's raster, so it always copies regardless of the flag.
+        if copy or nc.driver_type != "memory" or nc._group_path:
             work, rg = nc._writable_root_group()
             nc._replace_raster(work)
 
@@ -178,7 +194,13 @@ class Variables(_Engine["NetCDF"]):
 
         nc._invalidate_caches()
 
-    def add_variable(self, dataset: Dataset | NetCDF, variable_name: str | None = None):
+    def add_variable(
+        self,
+        dataset: Dataset | NetCDF,
+        variable_name: str | None = None,
+        *,
+        copy: bool = True,
+    ):
         """Copy MDArray variables from another NetCDF into this container.
 
         Args:
@@ -188,12 +210,29 @@ class Variables(_Engine["NetCDF"]):
                 variables from the source are copied. If a variable with
                 the same name already exists, it is renamed with a
                 `"-new"` suffix.
+            copy: When True (the default) an in-memory container is copied
+                before mutation so a shared `gdal.Dataset` handle is not
+                corrupted — see #143. Pass False only from a caller that
+                exclusively owns this container (e.g. the internal aux-variable
+                carry loop) to mutate it in place and avoid a per-call copy.
+                Ignored (a copy is always made) for file-backed containers and
+                for a `get_group()` view. Defaults to True.
+
+        Raises:
+            ValueError: If called on a dataset without a root group
+                (not opened in multidimensional mode).
         """
         # Local import breaks the netcdf.py <-> engines.variables import cycle
         # (netcdf.py imports this module at top level for wiring).
         from pyramids.netcdf.netcdf import NetCDF
 
         nc = self._ds
+        working_group = nc._working_group()
+        if working_group is None:
+            raise ValueError(
+                "add_variable requires a multidimensional container. "
+                "Open the file with open_as_multi_dimensional=True."
+            )
         # A NetCDF source may be a group view; read its working group so variables
         # are copied from the active sub-group. A plain Dataset has no group view.
         var_rg = (
@@ -210,9 +249,15 @@ class Variables(_Engine["NetCDF"]):
             names_to_copy = []
 
         # A file-backed root group is opened in netCDF "data mode", which forbids
-        # CreateMDArray; operate on a writable MEM copy and swap it in, mirroring
-        # remove_variable.
-        dst, dst_rg = nc._writable_root_group()
+        # CreateMDArray; and mutating an in-memory container in place would corrupt a
+        # handle sharing the same gdal.Dataset (#143). Copy and swap unless the caller
+        # exclusively owns this container and opts out with copy=False (a get_group()
+        # view always copies — it shares its parent's raster).
+        in_place = not copy and nc.driver_type == "memory" and not nc._group_path
+        if in_place:
+            dst, dst_rg = nc._raster, working_group
+        else:
+            dst, dst_rg = nc._writable_root_group()
 
         for var in names_to_copy:
             md_arr = var_rg.OpenMDArray(var)
@@ -222,15 +267,16 @@ class Variables(_Engine["NetCDF"]):
             target_name = f"{var}-new" if var in existing else var
             nc._add_md_array_to_group(dst_rg, target_name, md_arr)
 
-        nc._replace_raster(dst)
+        if not in_place:
+            nc._replace_raster(dst)
         nc._invalidate_caches()
 
     def remove_variable(self, variable_name: str):
         """Delete a variable from this container.
 
-        If the dataset is backed by a file on disk, a MEM copy is made first
-        so that the on-disk file is not modified. The internal raster
-        reference is replaced with the modified copy.
+        An independent MEM copy is always made first and the internal raster is
+        replaced with it, so neither the on-disk file (for a file-backed dataset)
+        nor any handle sharing the in-memory raster is mutated in place (#143).
 
         Args:
             variable_name: Name of the variable to remove.
