@@ -18848,10 +18848,10 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-5266" name="__codelineno-0-5266"></a><span class="sd">        ``_raster`` (#143). The caller mutates the returned copy and swaps it in via</span>
 <a id="__codelineno-0-5267" name="__codelineno-0-5267"></a><span class="sd">        :meth:`_replace_raster`, so external handles keep the pre-mutation state.</span>
 <a id="__codelineno-0-5268" name="__codelineno-0-5268"></a>
-<a id="__codelineno-0-5269" name="__codelineno-0-5269"></a><span class="sd">        For a `get_group()` view (`_group_path` set) the returned group is the</span>
+<a id="__codelineno-0-5269" name="__codelineno-0-5269"></a><span class="sd">        For a ``get_group()`` view (``_group_path`` set) the returned group is the</span>
 <a id="__codelineno-0-5270" name="__codelineno-0-5270"></a><span class="sd">        **sub-group** inside the writable copy, not its root — so</span>
 <a id="__codelineno-0-5271" name="__codelineno-0-5271"></a><span class="sd">        ``set_variable`` / ``add_variable`` / ``rename_variable`` mutate the group</span>
-<a id="__codelineno-0-5272" name="__codelineno-0-5272"></a><span class="sd">        the view reads from rather than the store root (ARC-12). `_group_path` is</span>
+<a id="__codelineno-0-5272" name="__codelineno-0-5272"></a><span class="sd">        the view reads from rather than the store root (ARC-12). ``_group_path`` is</span>
 <a id="__codelineno-0-5273" name="__codelineno-0-5273"></a><span class="sd">        preserved across :meth:`_replace_raster`, so reads stay consistent with the</span>
 <a id="__codelineno-0-5274" name="__codelineno-0-5274"></a><span class="sd">        write.</span>
 <a id="__codelineno-0-5275" name="__codelineno-0-5275"></a>
