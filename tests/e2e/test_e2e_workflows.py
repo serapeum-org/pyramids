@@ -19,7 +19,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
-from osgeo import gdal
+from osgeo import gdal, osr
 from shapely.geometry import box
 
 from pyramids.dataset import Dataset, DatasetCollection
@@ -274,6 +274,73 @@ class TestRasterizeRoundTrip:
         assert result is expected, (
             f"box {feature_box} outside-template should be {expected}, got {result}"
         )
+
+    def test_features_outside_non_square_template_on_y_axis(self):
+        """A non-square template flags a feature outside on the Y axis (#46 M1).
+
+        Test scenario:
+            A template with X pixel 2 and Y pixel 1 (`gt=(0, 2, 0, 10, 0, -1)`, 5x5) has
+            true bbox x[0, 10], y[5, 10]. A feature at `box(2, 2, 4, 4)` is south of the
+            true `ymin=5`, so it must be flagged — a single-`cell_size` check would use the
+            X pixel for Y and miss it.
+        """
+        drv = gdal.GetDriverByName("MEM")
+        raster = drv.Create("", 5, 5, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform((0.0, 2.0, 0.0, 10.0, 0.0, -1.0))
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        raster.SetProjection(srs.ExportToWkt())
+        template = Dataset(raster)
+
+        south = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1]}, geometry=[box(2.0, 2.0, 4.0, 4.0)], crs="EPSG:4326"
+            )
+        )
+        assert _features_outside_template(south, template) is True, (
+            "a feature south of a non-square template must be flagged outside"
+        )
+
+    def test_features_touching_template_edge_is_outside(self):
+        """A feature touching a template edge (zero-area overlap) is flagged outside (#46).
+
+        Test scenario:
+            A box whose left edge coincides with the template's right edge (`fxmin == txmax`)
+            has zero-area overlap and is treated as outside, pinning the `>=`/`<=` semantics.
+        """
+        template = _make_dataset(
+            rows=10, cols=10, epsg=4326, cell_size=1.0, top_left=(0.0, 10.0)
+        )
+        touching = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1]}, geometry=[box(10.0, 2.0, 12.0, 8.0)], crs="EPSG:4326"
+            )
+        )
+        assert _features_outside_template(touching, template) is True, (
+            "a feature touching the template edge (zero overlap) is treated as outside"
+        )
+
+    def test_from_features_warns_and_returns_all_nodata_for_empty_collection(self):
+        """An empty FeatureCollection warns and returns an all-nodata raster, not a crash (#46)."""
+        template = _make_dataset(
+            rows=5, cols=5, epsg=4326, cell_size=1.0, top_left=(0.0, 5.0)
+        )
+        empty = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": pd.Series([], dtype="int32")},
+                geometry=[],
+                crs="EPSG:4326",
+            )
+        )
+
+        with pytest.warns(UserWarning, match="empty or falls entirely outside"):
+            raster = Dataset.from_features(
+                empty, template=template, column_name="class_id"
+            )
+
+        arr = raster.read_array()
+        assert arr.shape == (5, 5), "output should still adopt the template grid"
+        assert not np.any(np.isclose(arr, 1.0)), "an empty collection burns nothing"
 
     def test_from_features_rejects_non_positive_cell_size(self):
         """D-M2: cell_size=0 and negative values raise ``ValueError``."""

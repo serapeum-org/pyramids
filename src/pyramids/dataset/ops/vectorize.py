@@ -43,8 +43,9 @@ def rasterize_features(
         template: Optional template raster. When supplied, the output
             inherits its geotransform and no-data value (the vector is
             burned onto the template's fixed grid). Features that fall
-            entirely outside the template extent produce an all-nodata
-            raster and raise a ``UserWarning`` (issue #46).
+            entirely outside the template extent, or an empty
+            FeatureCollection, produce an all-nodata raster and emit a
+            ``UserWarning`` (issue #46).
         column_name: Attribute column(s) to burn as band values.
             `None` burns every non-geometry column as a separate band.
 
@@ -79,9 +80,11 @@ def rasterize_features(
 
     if template is not None and _features_outside_template(features, template):
         warnings.warn(
-            "FeatureCollection falls entirely outside the template extent; the output "
-            "raster will be all-nodata. Check that the template covers the features and "
-            "that both use the same CRS.",
+            "FeatureCollection is empty or falls entirely outside the template extent; "
+            "the output raster will be all-nodata. Check that the template covers the "
+            "features and that both use the same CRS.",
+            # stacklevel targets the caller of Dataset.from_features (the primary API);
+            # a direct rasterize_features(...) call points one frame higher.
             stacklevel=3,
         )
 
@@ -111,18 +114,22 @@ def rasterize_features(
         no_data_value,
     )
 
-    with _feature_ogr.as_datasource(features, gdal_dataset=True) as vector_ds:
-        for ind in range(bands_count):
-            attribute = (
-                column_name[ind] if isinstance(column_name, list) else column_name
-            )
-            rasterize_opts = gdal.RasterizeOptions(
-                bands=[ind + 1],
-                burnValues=None,
-                attribute=attribute,
-                allTouched=True,
-            )
-            gdal.Rasterize(dataset_n.raster, vector_ds, options=rasterize_opts)
+    # An empty FeatureCollection has no layer field to burn (gdal.Rasterize would raise
+    # "Failed to find field ..."); the freshly created raster is already all-nodata, so
+    # skip the burn and return it (the warning above has already flagged the empty input).
+    if len(features):
+        with _feature_ogr.as_datasource(features, gdal_dataset=True) as vector_ds:
+            for ind in range(bands_count):
+                attribute = (
+                    column_name[ind] if isinstance(column_name, list) else column_name
+                )
+                rasterize_opts = gdal.RasterizeOptions(
+                    bands=[ind + 1],
+                    burnValues=None,
+                    attribute=attribute,
+                    allTouched=True,
+                )
+                gdal.Rasterize(dataset_n.raster, vector_ds, options=rasterize_opts)
 
     return dataset_n
 
@@ -209,18 +216,23 @@ def _features_outside_template(features: FeatureCollection, template: Dataset) -
 
     The template extent comes from :attr:`Dataset.bbox`, which uses the separate X and Y
     pixel sizes, so the check is correct for non-square grids (a single ``cell_size``
-    would mis-measure the Y extent).
+    would mis-measure the Y extent). An empty (or all-empty-geometry) FeatureCollection
+    has ``NaN`` bounds and also burns to all-nodata, so it is treated as outside too.
 
     Args:
         features: The vector being rasterised.
         template: The template raster whose extent the features are tested against.
 
     Returns:
-        bool: ``True`` when the feature bounds and the template extent are disjoint.
+        bool: ``True`` when the feature bounds are empty/degenerate or disjoint from the
+        template extent.
     """
     txmin, tymin, txmax, tymax = template.bbox
     fxmin, fymin, fxmax, fymax = features.total_bounds
-    return bool(fxmax <= txmin or fxmin >= txmax or fymax <= tymin or fymin >= tymax)
+    empty = any(np.isnan(v) for v in (fxmin, fymin, fxmax, fymax))
+    return bool(
+        empty or fxmax <= txmin or fxmin >= txmax or fymax <= tymin or fymin >= tymax
+    )
 
 
 def _resolve_burn_columns(
