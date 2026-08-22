@@ -565,6 +565,48 @@ def _raise_open_error(error: Exception, path: str) -> NoReturn:
     raise error
 
 
+def normalize_open_options(
+    open_options: dict[str, str] | list[str] | tuple[str, ...] | None,
+) -> list[str] | None:
+    """Normalize GDAL open options to the ``["KEY=VALUE", ...]`` list GDAL takes.
+
+    Accepts a mapping (`{"L1B_MODE": "DATASTRIP"}`), GDAL's native list/tuple
+    (`["L1B_MODE=DATASTRIP"]`), or `None`.
+
+    Args:
+        open_options: The options in any accepted form, or `None`.
+
+    Returns:
+        list[str] | None: The `KEY=VALUE` list, or `None` when nothing was given.
+
+    Examples:
+        - A mapping is rendered into GDAL's `KEY=VALUE` list, one entry per pair:
+            ```python
+            >>> from pyramids._io import normalize_open_options
+            >>> normalize_open_options({"GEOREF_SOURCES": "INTERNAL"})
+            ['GEOREF_SOURCES=INTERNAL']
+
+            ```
+        - A native list or tuple is returned as a plain list, unchanged:
+            ```python
+            >>> normalize_open_options(("A=1", "B=2"))
+            ['A=1', 'B=2']
+
+            ```
+        - `None` (the no-options case) is preserved so callers can branch on it:
+            ```python
+            >>> normalize_open_options(None) is None
+            True
+
+            ```
+    """
+    if open_options is None:
+        return None
+    if isinstance(open_options, dict):
+        return [f"{key}={value}" for key, value in open_options.items()]
+    return list(open_options)
+
+
 def read_file(
     path: str | Path,
     read_only: bool = True,
@@ -572,6 +614,7 @@ def read_file(
     file_i: int = 0,
     *,
     vsi: str | None = None,
+    open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
 ):
     """Open file (GeoTIFF and ASCII).
 
@@ -603,6 +646,14 @@ def read_file(
             extension (e.g. an Earth Engine download URL). Default ``None``
             (path opened directly / extension-sniffed as today).
 
+        open_options (dict | list | None): GDAL open options as a
+            mapping (``{"L1B_MODE": "DATASTRIP"}``) or GDAL's native
+            ``["KEY=VALUE"]`` list. Forwarded to the driver; a read-only
+            open with options goes through ``OpenEx(OF_SHARED)`` (GDAL
+            keys its shared cache on the options too, so different
+            options do not share a handle). ``None`` (default) opens as
+            before.
+
     Returns:
         gdal.Dataset: Opened dataset.
 
@@ -624,21 +675,62 @@ def read_file(
         )
     path = _resolve_read_path(path, vsi, file_i)
     access = gdal.GA_ReadOnly if read_only else gdal.GA_Update
+    options = normalize_open_options(open_options)
     try:
         if open_as_multi_dimensional:
             # OF_MULTIDIM_RASTER for formats that expose multi-dimensional data
             # (hdf, h5, nc, nc4, grib, grib2, jp2, ...).
-            src = gdal.OpenEx(path, access | gdal.OF_MULTIDIM_RASTER)
-        elif read_only:
+            src = gdal.OpenEx(
+                path, access | gdal.OF_MULTIDIM_RASTER, open_options=options or []
+            )
+        elif read_only and not options:
             # OpenShared for potentially frequently accessed raster files.
             src = gdal.OpenShared(path, access)
-        else:
+        elif read_only:
+            # OpenShared takes no open options, so carry them through OpenEx with
+            # OF_SHARED. Correctness of this branch — that two live reads of one
+            # path with *different* options are never handed the same handle —
+            # RELIES ON GDAL keying its shared-dataset cache on the concatenated
+            # open options as well as path/access/thread. This holds on the conda
+            # pin (gdal >=3.13.1,<3.13.2 in pyproject.toml, verified on 3.13.1)
+            # and every GDAL that has shipped this behaviour. Wheel/sdist installs
+            # bring native GDAL out-of-band at an unpinned version; on a
+            # hypothetical GDAL that ignored options in its shared key, two
+            # different-option reads would silently alias the first handle (wrong
+            # georef/data). test_two_opens_different_options_do_not_share_a_handle
+            # pins the guarantee via the observable geotransform, so such a
+            # regression fails loudly rather than returning stale data. Same
+            # options still share, keeping the frequently-accessed-raster benefit
+            # the OpenShared branch is for.
+            # OF_RASTER | OF_VERBOSE_ERROR restore the driver-kind restriction and
+            # verbose diagnostics that gdal.OpenShared implies but bare OpenEx
+            # (OF_ALL, terse errors) drops — this is a raster reader. Read-only is
+            # the absence of OF_UPDATE, so the flags are pure OF_* constants (no
+            # GA_* access flag mixed in).
+            src = gdal.OpenEx(
+                path,
+                gdal.OF_SHARED | gdal.OF_RASTER | gdal.OF_VERBOSE_ERROR,
+                open_options=options,
+            )
+        elif not options:
             # Update mode must NOT share: GDAL returns one handle per
             # path+access+thread, so two update-mode Datasets on the same file
             # would alias one another — a write through one immediately visible
             # through the other, and a flush/close on either committing the
-            # other's in-flight edits.
+            # other's in-flight edits. Kept on gdal.Open when no options are
+            # given so the default open path is unchanged.
             src = gdal.Open(path, access)
+        else:
+            # Same no-share intent, but OpenEx is the only entry that carries
+            # open options; OF_SHARED is deliberately absent here. OF_RASTER |
+            # OF_VERBOSE_ERROR keep parity with the gdal.Open this replaces. Pure
+            # OF_* flags — OF_UPDATE is the update-mode flag (no GA_* access flag
+            # mixed in, which only worked by GA_Update == OF_UPDATE bit-equality).
+            src = gdal.OpenEx(
+                path,
+                gdal.OF_UPDATE | gdal.OF_RASTER | gdal.OF_VERBOSE_ERROR,
+                open_options=options,
+            )
     except Exception as e:
         _raise_open_error(e, path)
     return src

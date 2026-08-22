@@ -101,8 +101,13 @@ def _resolve_access(access: str) -> int:
     return cast(int, flag)
 
 
-def gdal_raster_open(path: str, access: str = "read_only", **_: Any) -> gdal.Dataset:
-    """Open a classic-mode raster (GeoTIFF, COG, PNG,...) via :func:`gdal.Open`.
+def gdal_raster_open(
+    path: str,
+    access: str = "read_only",
+    open_options: tuple[str, ...] | list[str] | None = None,
+    **_: Any,
+) -> gdal.Dataset:
+    """Open a classic-mode raster (GeoTIFF, COG, PNG,...) via GDAL.
 
     The `path` is rewritten through :func:`pyramids.base.remote._to_vsi`
     first, so callers can pass URL-scheme paths (`s3://bucket/file.tif`,
@@ -111,6 +116,10 @@ def gdal_raster_open(path: str, access: str = "read_only", **_: Any) -> gdal.Dat
     Args:
         path: File path or URL.
         access: Access mode string — see :func:`_resolve_access`.
+        open_options: GDAL open options as a `("KEY=VALUE", ...)` sequence, or
+            `None`. Passed by the file managers so a per-thread or per-chunk
+            reopen carries the same driver options the dataset was opened with
+            (#1025). A tuple so it stays hashable for the manager's cache key.
         **_: Extra keyword arguments are accepted and ignored so that a
             single uniform opener signature can be used as a
             `FileManager` `opener` callable.
@@ -118,7 +127,16 @@ def gdal_raster_open(path: str, access: str = "read_only", **_: Any) -> gdal.Dat
     Returns:
         osgeo.gdal.Dataset: The opened dataset handle.
     """
-    return gdal.Open(_to_vsi(path), _resolve_access(access))
+    vsi = _to_vsi(path)
+    if open_options:
+        # OF_RASTER | OF_VERBOSE_ERROR restore the raster-only kind restriction
+        # and verbose diagnostics gdal.Open implies; bare OpenEx would open
+        # OF_ALL and could hand back a vector handle for a dual-nature source.
+        flags = gdal.OF_RASTER | gdal.OF_VERBOSE_ERROR
+        if _resolve_access(access) == gdal.GA_Update:
+            flags |= gdal.OF_UPDATE
+        return gdal.OpenEx(vsi, flags, open_options=list(open_options))
+    return gdal.Open(vsi, _resolve_access(access))
 
 
 def gdal_mdarray_open(path: str, access: str = "read_only", **_: Any) -> gdal.Dataset:

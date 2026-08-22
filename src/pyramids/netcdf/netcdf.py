@@ -163,6 +163,7 @@ def _reconstruct_netcdf(
     is_subset: bool,
     source_var_name: str | None,
     group_path: str | None = None,
+    open_options: tuple[str, ...] | None = None,
 ) -> NetCDF:
     """Re-open a :class:`NetCDF` from its pickle recipe tuple.
 
@@ -192,6 +193,10 @@ def _reconstruct_netcdf(
         group_path: Sub-group path for a group view; when set, the
             rebuilt container is drilled into via
             :meth:`NetCDF.get_group`. Defaults to None.
+        open_options: GDAL open options captured on the originating container,
+            forwarded to :meth:`NetCDF.read_file` so the worker reopens with the
+            same driver behaviour. Defaults to None so a six-element recipe from
+            an older pickle (with no options) still loads (#1025).
 
     Returns:
         NetCDF: Container, group view, or variable-subset instance.
@@ -203,6 +208,7 @@ def _reconstruct_netcdf(
         path,
         read_only=True,
         open_as_multi_dimensional=is_md_array,
+        open_options=list(open_options) if open_options else None,
     )
     if group_path:
         result = container.get_group(group_path)
@@ -495,15 +501,22 @@ class NetCDF(Dataset):
         """Emit the extended recipe tuple carrying NetCDF mode flags.
 
         Overrides :meth:`RasterBase.__reduce__` to include
-        `_is_md_array`, `_is_subset`, and `_source_var_name`,
-        which are required to reconstruct a container vs a
-        variable-subset with matching identity.
+        `_is_md_array`, `_is_subset`, `_source_var_name`, `_group_path`,
+        and `_open_options` (the seven-element recipe), which are
+        required to reconstruct a container, group view, or
+        variable-subset with matching identity and driver options.
 
         For variable-subset instances the `_file_name` attribute
         reflects the subset's GDAL description, which is typically
         empty or driver-specific. We therefore fall back to the
         parent container's `_file_name` when reconstructing a
         subset.
+
+        Security:
+            The recipe carries `_open_options` verbatim, so any secret a
+            driver accepts as an open option is serialised into the pickle
+            (spilled to disk / quoted in dask error reports). Treat such a
+            pickle as a secret.
 
         Raises:
             TypeError: The NetCDF has no on-disk path (empty
@@ -530,6 +543,7 @@ class NetCDF(Dataset):
                 bool(self._is_subset),
                 self._source_var_name,
                 self._group_path,
+                tuple(self._open_options),
             ),
         )
 
@@ -538,6 +552,8 @@ class NetCDF(Dataset):
         src: gdal.Dataset,
         access: str = "read_only",
         open_as_multi_dimensional: bool = True,
+        *,
+        open_options: tuple[str, ...] | list[str] | None = None,
     ):
         """Initialize a NetCDF dataset wrapper.
 
@@ -549,6 +565,10 @@ class NetCDF(Dataset):
                 `gdal.OF_MULTIDIM_RASTER` and supports groups, MDArrays,
                 and dimensions. If False it was opened in classic raster
                 mode (subdatasets, bands). Defaults to True.
+            open_options: GDAL open options this store was opened with,
+                captured so the base reopen paths (per-thread handles,
+                lazy `chunks=` reads) reapply them. `None` (default)
+                captures nothing (#1025).
         """
         if type(self) is NetCDF:
             # API-1 (#614): NetCDF is now the base of Container / Variable.
@@ -564,7 +584,7 @@ class NetCDF(Dataset):
                 DeprecationWarning,
                 stacklevel=2,
             )
-        super().__init__(src, access=access)
+        super().__init__(src, access=access, open_options=open_options)
         # set the is_subset to false before retrieving the variables
         if open_as_multi_dimensional:
             self._is_md_array = True
@@ -2569,6 +2589,9 @@ class NetCDF(Dataset):
         wrapped._offset = self._offset
         wrapped._parent_nc = self._parent_nc
         wrapped._source_var_name = self._source_var_name
+        # A wrapped subset reopens the parent file on unpickle, so it must carry
+        # the parent's captured GDAL open options too (#1025).
+        wrapped._open_options = self._open_options
         wrapped._gdal_md_arr_ref = None
         wrapped._gdal_rg_ref = None
         return wrapped
@@ -3682,6 +3705,7 @@ class NetCDF(Dataset):
         file_i: int = 0,
         *,
         vsi: str | None = None,
+        open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
     ) -> NetCDF:
         """Open a NetCDF file from a path, URL, or archive member.
 
@@ -3715,6 +3739,11 @@ class NetCDF(Dataset):
                 download URL must first be fetched and saved with a
                 ``.zip`` name (or written to ``/vsimem/<name>.zip`` via
                 :func:`osgeo.gdal.FileFromMemBuffer`).
+            open_options: GDAL open options as a mapping
+                (``{"HONOUR_VALID_RANGE": "NO"}``) or GDAL's native
+                ``["KEY=VALUE"]`` list, forwarded to the netCDF driver and
+                captured on the returned container so the reopen paths reapply
+                them. Default ``None`` — no options (#1025).
 
                 **Platform caveat for NetCDF:** GDAL's netCDF driver
                 requires Linux ``userfaultfd`` to open a ``.nc`` from
@@ -3769,16 +3798,24 @@ class NetCDF(Dataset):
             - :meth:`pyramids.dataset.Dataset.read_file`: the same
               ``vsi=`` / ``file_i=`` surface for GeoTIFFs.
         """
+        # Normalize once here so the captured form on the Container is the
+        # KEY=VALUE list; _io.read_file re-normalizes idempotently (see the note
+        # in Dataset.read_file).
+        options = _io.normalize_open_options(open_options)
         src = _io.read_file(
             path,
             read_only,
             open_as_multi_dimensional,
             file_i=file_i,
             vsi=vsi,
+            open_options=options,
         )
         access = "read_only" if read_only else "write"
         return Container(
-            src, access=access, open_as_multi_dimensional=open_as_multi_dimensional
+            src,
+            access=access,
+            open_as_multi_dimensional=open_as_multi_dimensional,
+            open_options=options,
         )
 
     @classmethod
@@ -4637,6 +4674,9 @@ class NetCDF(Dataset):
         # Pin the parent so the shared dataset (and its SWIG wrappers) outlive the
         # view even if the caller drops the parent reference.
         view._parent_nc = self
+        # A group view's pickle recipe reopens the parent file, so it inherits the
+        # parent's captured GDAL open options (#1025).
+        view._open_options = self._open_options
         return view
 
     def get_variable_names(self) -> list[str]:
@@ -4979,6 +5019,9 @@ class NetCDF(Dataset):
         # --- RT-4: Track variable origin for round-trip ---
         cube._parent_nc = self
         cube._source_var_name = variable_name
+        # A variable subset's pickle recipe reopens the parent file, so it inherits
+        # the parent's captured GDAL open options (#1025).
+        cube._open_options = self._open_options
 
         # Geostationary (GOES) scan-angle x/y come through the MDIM read path in
         # radians; rescale them to projected metres so the cube is correctly

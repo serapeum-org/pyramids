@@ -788,6 +788,21 @@ class IO(_Engine["Dataset"]):
         # strategy; this is the method's own declared contract.
         return cast("ArrayLike", arr)
 
+    def _reopen_open_options(self) -> dict[str, tuple[str, ...]] | None:
+        """Opener kwargs carrying the dataset's GDAL open options, or ``None``.
+
+        Passed to the file managers so a per-thread or per-chunk reopen applies
+        the same driver options the dataset was opened with (#1025). Returns
+        `None` when there are none, so the manager's cache key is unchanged for
+        the common no-options case. The value is the captured tuple, which stays
+        hashable for that key.
+
+        Returns:
+            dict | None: `{"open_options": <tuple>}`, or `None`.
+        """
+        options = self._ds._open_options
+        return {"open_options": options} if options else None
+
     def _require_reopenable_path(self) -> str:
         """Return the dataset's path if per-thread handles can reopen it.
 
@@ -911,6 +926,7 @@ class IO(_Engine["Dataset"]):
                         gdal_raster_open,
                         self._require_reopenable_path(),
                         "read_only",
+                        kwargs=self._reopen_open_options(),
                     )
                     self._ds._thread_manager = manager
         return manager
@@ -1155,6 +1171,7 @@ class IO(_Engine["Dataset"]):
                 gdal_raster_open,
                 self._ds._file_name,
                 "read_only",
+                kwargs=self._reopen_open_options(),
                 lock=False,
                 # Release the parked handle when the returned dask array (which keeps this manager
                 # alive through its chunk tasks) is dropped, rather than leaving it until LRU

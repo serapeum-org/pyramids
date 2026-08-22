@@ -349,10 +349,27 @@ class Dataset(RasterBase):
         access: str = "read_only",
         *,
         gdal_env: dict[str, str] | None = None,
+        open_options: tuple[str, ...] | list[str] | None = None,
     ):
-        """__init__."""
+        """Wrap an open ``gdal.Dataset`` as a :class:`Dataset`.
+
+        A thin override of :meth:`RasterBase.__init__` that attaches a logger and
+        forwards every argument unchanged; see the base for the full contract.
+        Prefer :meth:`read_file` over constructing directly.
+
+        Args:
+            src: An open :class:`osgeo.gdal.Dataset` to wrap.
+            access: The mode ``src`` was opened with — ``"read_only"`` (default)
+                or ``"write"``.
+            gdal_env: GDAL config captured for reopen paths; ``None`` captures
+                nothing.
+            open_options: GDAL open options captured for reopen paths; ``None``
+                captures nothing (#1025).
+        """
         self.logger = logging.getLogger(__name__)
-        super().__init__(src, access=access, gdal_env=gdal_env)
+        super().__init__(
+            src, access=access, gdal_env=gdal_env, open_options=open_options
+        )
 
         self._no_data_value = [
             src.GetRasterBand(i).GetNoDataValue() for i in range(1, self.band_count + 1)
@@ -2371,6 +2388,7 @@ class Dataset(RasterBase):
         *,
         vsi: str | None = None,
         gdal_env: dict[str, str] | None = None,
+        open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
     ) -> Dataset:
         """Open a raster from a path, URL, or archive member.
 
@@ -2416,6 +2434,13 @@ class Dataset(RasterBase):
                 :func:`pyramids.stac.build_vrt_from_stac` puts those credentials
                 in the source path instead. Default ``None`` — no extra config,
                 nothing captured.
+            open_options:
+                GDAL open options as a mapping
+                (``{"GEOREF_SOURCES": "INTERNAL"}``) or GDAL's native
+                ``["KEY=VALUE"]`` list. Forwarded to the driver and captured on
+                the returned :class:`Dataset`, so the paths that reopen the file
+                (``threadsafe=True`` handles, lazy ``chunks=`` reads, unpickle on
+                a worker) reopen with the same options. Default ``None``.
 
         Returns:
             Dataset:
@@ -2428,9 +2453,25 @@ class Dataset(RasterBase):
             - :meth:`pyramids.dataset.DatasetCollection.from_archive`: open
               *every* member of an archive as a temporal stack.
         """
+        # Normalize once here so the value captured on the instance below is the
+        # KEY=VALUE list form (a raw dict would lose its values when the base
+        # __init__ tuple-ifies it). _io.read_file re-normalizes idempotently for
+        # its own direct callers — the double pass is intentional and harmless.
+        options = _io.normalize_open_options(open_options)
         with cloud_config_from_env(gdal_env, path=str(path)):
-            src = _io.read_file(path, read_only=read_only, file_i=file_i, vsi=vsi)
-        return cls(src, access="read_only" if read_only else "write", gdal_env=gdal_env)
+            src = _io.read_file(
+                path,
+                read_only=read_only,
+                file_i=file_i,
+                vsi=vsi,
+                open_options=options,
+            )
+        return cls(
+            src,
+            access="read_only" if read_only else "write",
+            gdal_env=gdal_env,
+            open_options=options,
+        )
 
     @classmethod
     def from_bytes(
@@ -4295,6 +4336,10 @@ class Dataset(RasterBase):
         is read via the chained ``/vsizip//vsicurl/…`` path) and hands them to
         :meth:`from_band_files`. For "one Dataset per member" (a temporal stack)
         use :meth:`pyramids.dataset.DatasetCollection.from_archive` instead.
+
+        GDAL driver ``open_options`` are **not** threaded through this
+        band-stacking entry point; if a member needs a driver option, open it
+        directly with :meth:`read_file` (which accepts ``open_options=``).
 
         The archive's file name must carry a recognised extension (``.zip`` /
         ``.tar`` / ``.tar.gz`` / ``.gz``) — GDAL's archive handlers key off the

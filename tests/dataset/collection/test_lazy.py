@@ -246,9 +246,9 @@ class TestDuplicatePathSharedLock:
         captured: list[Any] = []
         real = coll_mod._lazy_timestep
 
-        def spy(path, meta, gdal_env, lock):
+        def spy(path, meta, gdal_env, lock, **kwargs):
             captured.append(lock)
-            return real(path, meta, gdal_env, lock)
+            return real(path, meta, gdal_env, lock, **kwargs)
 
         monkeypatch.setattr(coll_mod, "_lazy_timestep", spy)
         collection = DatasetCollection.from_files([p, p])
@@ -292,9 +292,9 @@ class TestDuplicatePathSharedLock:
         captured: list[Any] = []
         real = coll_mod._lazy_timestep
 
-        def spy(path, meta, gdal_env, lock):
+        def spy(path, meta, gdal_env, lock, **kwargs):
             captured.append(lock)
-            return real(path, meta, gdal_env, lock)
+            return real(path, meta, gdal_env, lock, **kwargs)
 
         monkeypatch.setattr(coll_mod, "_lazy_timestep", spy)
         _ = DatasetCollection.from_files([p]).data
