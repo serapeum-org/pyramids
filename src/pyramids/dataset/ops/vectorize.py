@@ -78,17 +78,19 @@ def rasterize_features(
         features, dataset_cls, template, cell_size, ds_epsg
     )
 
+    # Resolve (and validate) the burn columns before warning, so an invalid column_name
+    # raises rather than emitting a warning about an output that is never produced.
+    column_name, numpy_dtype = _resolve_burn_columns(features, column_name)
+
     if template is not None and _features_outside_template(features, template):
         warnings.warn(
             "FeatureCollection is empty or falls entirely outside the template extent; "
-            "the output raster will be all-nodata. Check that the template covers the "
-            "features and that both use the same CRS.",
+            "the output raster will likely be all-nodata. Check that the template covers "
+            "the features and that both use the same CRS.",
             # stacklevel targets the caller of Dataset.from_features (the primary API);
             # a direct rasterize_features(...) call points one frame higher.
             stacklevel=3,
         )
-
-    column_name, numpy_dtype = _resolve_burn_columns(features, column_name)
 
     # Integer raster dtypes cannot represent NaN. If the template
     # supplied None as no_data_value (defaulted to NaN above) and the
@@ -218,14 +220,17 @@ def _features_outside_template(features: FeatureCollection, template: Dataset) -
     pixel sizes, so the check is correct for non-square grids (a single ``cell_size``
     would mis-measure the Y extent). An empty (or all-empty-geometry) FeatureCollection
     has ``NaN`` bounds and also burns to all-nodata, so it is treated as outside too.
+    Rotated or south-up geotransforms are not handled — ``Dataset.bbox`` assumes an
+    axis-aligned, north-up grid (which ``Dataset.create`` always produces).
 
     Args:
         features: The vector being rasterised.
         template: The template raster whose extent the features are tested against.
 
     Returns:
-        bool: ``True`` when the feature bounds are empty/degenerate or disjoint from the
-        template extent.
+        bool: ``True`` when the feature bounds are empty (``NaN``) or disjoint from the
+        template extent. A zero-area feature *inside* the extent (e.g. a single point)
+        returns ``False``.
     """
     txmin, tymin, txmax, tymax = template.bbox
     fxmin, fymin, fxmax, fymax = features.total_bounds
