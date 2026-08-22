@@ -722,10 +722,10 @@ class Bands(_Engine["Dataset"]):
         """
         if band is None:
             return [
-                cast("dict[str, str]", self._iloc(i).GetMetadata(domain))
+                cast(dict[str, str], self._iloc(i).GetMetadata(domain))
                 for i in range(self._ds.band_count)
             ]
-        return cast("dict[str, str]", self._iloc(band).GetMetadata(domain))
+        return cast(dict[str, str], self._iloc(band).GetMetadata(domain))
 
     def set_metadata(
         self,
@@ -760,10 +760,10 @@ class Bands(_Engine["Dataset"]):
                     f"band_meta_data needs one mapping per band: expected "
                     f"{self._ds.band_count}, got {len(value)}."
                 )
-            for i, band_md in enumerate(cast("list[dict[str, str]]", value)):
+            for i, band_md in enumerate(cast(list[dict[str, str]], value)):
                 self._iloc(i).SetMetadata(band_md, domain)
         else:
-            self._iloc(band).SetMetadata(cast("dict[str, str]", value), domain)
+            self._iloc(band).SetMetadata(cast(dict[str, str], value), domain)
 
     def set_metadata_item(
         self, key: str, value: str, band: int = 0, domain: str = ""
