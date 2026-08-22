@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from osgeo import gdal, osr
-from shapely.geometry import box
+from shapely.geometry import Point, box
 
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.ops.vectorize import _features_outside_template
@@ -341,6 +341,57 @@ class TestRasterizeRoundTrip:
         arr = raster.read_array()
         assert arr.shape == (5, 5), "output should still adopt the template grid"
         assert not np.any(np.isclose(arr, 1.0)), "an empty collection burns nothing"
+
+    def test_from_features_warns_and_returns_all_nodata_for_null_geometry_rows(self):
+        """Rows with null geometry (len>0, NaN bounds) warn and return all-nodata (#46 S2)."""
+        template = _make_dataset(
+            rows=5, cols=5, epsg=4326, cell_size=1.0, top_left=(0.0, 5.0)
+        )
+        null_geom = FeatureCollection(
+            gpd.GeoDataFrame({"class_id": [7]}, geometry=[None], crs="EPSG:4326")
+        )
+
+        with pytest.warns(UserWarning, match="empty or falls entirely outside"):
+            raster = Dataset.from_features(
+                null_geom, template=template, column_name="class_id"
+            )
+
+        arr = raster.read_array()
+        assert arr.shape == (5, 5), "output should still adopt the template grid"
+        assert not np.any(np.isclose(arr, 7.0)), "null geometry burns nothing"
+
+    def test_interior_zero_area_point_is_not_flagged(self):
+        """A zero-area point inside the template is not flagged as outside (#46).
+
+        Test scenario:
+            `Point(5, 5)` has bounds `[5, 5, 5, 5]` (not NaN) and lies inside a template
+            covering x[0, 10], y[0, 10], so the helper must return `False`.
+        """
+        template = _make_dataset(
+            rows=10, cols=10, epsg=4326, cell_size=1.0, top_left=(0.0, 10.0)
+        )
+        point = FeatureCollection(
+            gpd.GeoDataFrame({"v": [1]}, geometry=[Point(5.0, 5.0)], crs="EPSG:4326")
+        )
+        assert _features_outside_template(point, template) is False, (
+            "an interior zero-area point must not be flagged outside"
+        )
+
+    def test_cell_size_mode_does_not_warn(self):
+        """cell_size mode (no template) never emits the outside-template warning (#46)."""
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1]}, geometry=[box(0.0, 0.0, 3.0, 3.0)], crs="EPSG:4326"
+            )
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            Dataset.from_features(fc, cell_size=1.0, column_name="v")
+
+        template_warnings = [w for w in caught if "template extent" in str(w.message)]
+        assert not template_warnings, (
+            f"cell_size mode must not warn about a template; got: {template_warnings}"
+        )
 
     def test_from_features_rejects_non_positive_cell_size(self):
         """D-M2: cell_size=0 and negative values raise ``ValueError``."""
