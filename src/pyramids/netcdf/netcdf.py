@@ -2394,6 +2394,13 @@ class NetCDF(Dataset):
                     "read lazily and slice the resulting dask array instead."
                 )
             return window
+        # The bbox/window exclusivity check stays here, ahead of the chunks and
+        # no-CRS guards, so an invalid combination raises the same "not both"
+        # message it always has (the shared resolve_read_window would otherwise
+        # only see it last). resolve_read_window's own exclusivity guard is then
+        # dormant below (window is None past this point).
+        if window is not None:
+            raise ValueError("read_array accepts either `window` or `bbox`, not both")
         if chunks is not None:
             raise ValueError(
                 "read_array(chunks=..., bbox=...) is not supported; "
@@ -2407,8 +2414,8 @@ class NetCDF(Dataset):
                 "read_array(bbox=…) requires an explicit `epsg=` when the "
                 "NetCDF has no CRS at all — a bbox without a CRS is ambiguous"
             )
-        # The bbox+window exclusivity check and bbox -> FeatureCollection build are
-        # shared with Dataset.read_array via the injected, already-resolved CRS.
+        # The bbox -> FeatureCollection build is shared with Dataset.read_array via
+        # the injected, already-resolved CRS.
         return resolve_read_window(window, bbox, crs=crs)
 
     def _read_array_eager(
