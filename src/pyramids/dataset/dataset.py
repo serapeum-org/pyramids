@@ -3682,6 +3682,55 @@ class Dataset(RasterBase):
                 `column_name` is not `str` / `list` / `None`.
             CRSError: `features.epsg` is `None`, or
                 `template.epsg!= features.epsg`.
+
+        Examples:
+            - `cell_size` sizes the output to the feature bounds:
+
+              ```python
+              >>> import geopandas as gpd
+              >>> from shapely.geometry import box
+              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.feature import FeatureCollection
+              >>> gdf = gpd.GeoDataFrame(
+              ...     {"class_id": [7]},
+              ...     geometry=[box(0.0, 0.0, 3.0, 3.0)],
+              ...     crs="EPSG:4326",
+              ... )
+              >>> raster = Dataset.from_features(
+              ...     FeatureCollection(gdf), cell_size=1.0, column_name="class_id"
+              ... )
+              >>> (raster.rows, raster.columns)
+              (3, 3)
+              >>> int(raster.read_array().max())
+              7
+
+              ```
+
+            - A `template` burns onto its fixed grid, so the output adopts the template's
+              shape (features outside it would warn and yield all-nodata — see #46):
+
+              ```python
+              >>> import numpy as np
+              >>> template = Dataset.create_from_array(
+              ...     np.zeros((5, 5), dtype="int32"),
+              ...     top_left_corner=(0.0, 5.0),
+              ...     cell_size=1.0,
+              ...     epsg=4326,
+              ... )
+              >>> inside = FeatureCollection(
+              ...     gpd.GeoDataFrame(
+              ...         {"class_id": [7]},
+              ...         geometry=[box(1.0, 1.0, 4.0, 4.0)],
+              ...         crs="EPSG:4326",
+              ...     )
+              ... )
+              >>> burned = Dataset.from_features(
+              ...     inside, template=template, column_name="class_id"
+              ... )
+              >>> (burned.rows, burned.columns)
+              (5, 5)
+
+              ```
         """
         return rasterize_features(
             features,
