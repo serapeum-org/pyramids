@@ -432,7 +432,11 @@ def _finalize_after_write(data_result, resolved_store, meta, files) -> None:
 
 
 def _lazy_timestep(
-    path: str | Path, meta: RasterMeta, gdal_env: dict[str, str] | None, lock: Any
+    path: str | Path,
+    meta: RasterMeta,
+    gdal_env: dict[str, str] | None,
+    lock: Any,
+    open_options: tuple[str, ...] | None = None,
 ):
     """Build a spatially-tiled ``(B, Y, X)`` dask array for one timestep (ARC-45).
 
@@ -470,7 +474,12 @@ def _lazy_timestep(
         previous_chunks=(1, block_h, block_w),
     )
     manager = CachingFileManager(
-        gdal_raster_open, str(path), "read_only", lock=False, manager_id=str(path)
+        gdal_raster_open,
+        str(path),
+        "read_only",
+        kwargs={"open_options": open_options} if open_options else None,
+        lock=False,
+        manager_id=str(path),
     )
     return da.map_blocks(
         _read_chunk,
@@ -621,6 +630,7 @@ class DatasetCollection:
         meta: RasterMeta | None = None,
         datasets: list[Dataset] | None = None,
         gdal_env: dict[str, str] | None = None,
+        open_options: list[str] | None = None,
         zarr_store: Any = None,
     ):
         """Construct DatasetCollection object.
@@ -667,6 +677,9 @@ class DatasetCollection:
         self.time = time  # validates length + materialises a generator (see setter)
         self._meta = meta if meta is not None else RasterMeta.from_dataset(src)
         self._gdal_env: dict[str, str] = dict(gdal_env) if gdal_env else {}
+        # GDAL open options every per-file open in this collection carries,
+        # mirroring _gdal_env (#1025).
+        self._open_options: list[str] = list(open_options) if open_options else []
         # When set (by from_zarr), the lazy `data` cube reads directly from this
         # resolved Zarr store instead of stacking per-file reads.
         self._zarr_store = zarr_store
@@ -726,7 +739,12 @@ class DatasetCollection:
                 env = self._gdal_env or None
                 with cloud_config_from_env(self._gdal_env, path=list(self._files)):
                     self._datasets = [
-                        Dataset.read_file(str(p), gdal_env=env) for p in self._files
+                        Dataset.read_file(
+                            str(p),
+                            gdal_env=env,
+                            open_options=self._open_options or None,
+                        )
+                        for p in self._files
                     ]
             else:
                 self._datasets = [self._base] * self._time_length
@@ -760,7 +778,11 @@ class DatasetCollection:
         if handle is None:
             env = self._gdal_env or None
             with cloud_config_from_env(self._gdal_env, path=str(self._files[idx])):
-                handle = Dataset.read_file(str(self._files[idx]), gdal_env=env)
+                handle = Dataset.read_file(
+                    str(self._files[idx]),
+                    gdal_env=env,
+                    open_options=self._open_options or None,
+                )
             self._handle_cache[idx] = handle
         return handle
 
@@ -869,6 +891,14 @@ class DatasetCollection:
         Base Dataset
         """
         return self._base
+
+    @property
+    def open_options(self) -> list[str]:
+        """GDAL open options every per-file open in this collection carries.
+
+        Empty when the collection was built without any (#1025).
+        """
+        return list(self._open_options)
 
     @property
     def files(self):
@@ -1240,6 +1270,7 @@ class DatasetCollection:
                 meta,
                 self._gdal_env,
                 path_locks.setdefault(str(path), default_lock(f"data:{path}")),
+                open_options=tuple(self._open_options) or None,
             )
             for path in self._files
         ]
@@ -1763,6 +1794,7 @@ class DatasetCollection:
         end: datetime | None = None,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
+        open_options: dict[str, str] | list[str] | None = None,
         validate: bool = False,
     ) -> DatasetCollection:
         r"""Build a collection from a folder of rasters or an explicit list of files.
@@ -1812,6 +1844,9 @@ class DatasetCollection:
                 open, and persisted on the collection for the lazy reads. Any key here
                 overrides the sidecar-scan default described above (e.g. pass
                 ``{"GDAL_DISABLE_READDIR_ON_OPEN": "FALSE"}`` to force the rescan on).
+            open_options: GDAL open options (mapping or ``["KEY=VALUE"]``)
+                applied to every per-file open in the collection, mirroring
+                ``gdal_env`` (#1025). Default ``None``.
             validate: When ``True``, check every file's header shape/dtype against the
                 template and raise :class:`AlignmentError` on a mismatch instead of
                 lazily corrupting the cube. Default ``False``.
@@ -1893,6 +1928,7 @@ class DatasetCollection:
             meta=meta,
             gdal_env=effective_env or None,
             validate=validate,
+            open_options=_io.normalize_open_options(open_options),
         )
 
     @classmethod
@@ -1904,6 +1940,7 @@ class DatasetCollection:
         meta: RasterMeta | None,
         gdal_env: dict[str, str] | None,
         validate: bool,
+        open_options: list[str] | None = None,
     ) -> DatasetCollection:
         """Open the first file as the template and construct the collection.
 
@@ -1915,11 +1952,13 @@ class DatasetCollection:
             # The template is reachable as `collection.base`, and the legacy
             # `DatasetCollection(src, N)` shape replicates it as every timestep, so it
             # needs the env for its own reads too — not just this open.
-            template = Dataset.read_file(files[0], gdal_env=gdal_env)
+            template = Dataset.read_file(
+                files[0], gdal_env=gdal_env, open_options=open_options
+            )
             if meta is None:
                 meta = RasterMeta.from_dataset(template)
         if validate:
-            cls._validate_headers(files, meta, gdal_env)
+            cls._validate_headers(files, meta, gdal_env, open_options)
         return cls(
             template,
             len(files),
@@ -1927,6 +1966,7 @@ class DatasetCollection:
             time=time_axis,
             meta=meta,
             gdal_env=gdal_env,
+            open_options=open_options,
         )
 
     @staticmethod
@@ -2007,7 +2047,10 @@ class DatasetCollection:
 
     @staticmethod
     def _validate_headers(
-        files: list[str], meta: RasterMeta, gdal_env: dict[str, str] | None
+        files: list[str],
+        meta: RasterMeta,
+        gdal_env: dict[str, str] | None,
+        open_options: list[str] | None = None,
     ) -> None:
         """Check every file's header (shape, dtype, geotransform, CRS) matches ``meta``.
 
@@ -2027,7 +2070,9 @@ class DatasetCollection:
         expected_dtype = str(np.dtype(meta.dtype))
         with cloud_config_from_env(gdal_env, path=list(files)):
             for path in files:
-                ds = Dataset.read_file(path, gdal_env=gdal_env)
+                ds = Dataset.read_file(
+                    path, gdal_env=gdal_env, open_options=open_options
+                )
                 try:
                     fm = RasterMeta.from_dataset(ds)
                 finally:
