@@ -179,6 +179,17 @@ class TestReconcilePredictorWithNbits:
         _reconcile_predictor_with_nbits(options)
         assert options.get("PREDICTOR") == 1, f"predictor should stay 1: {options}"
 
+    @pytest.mark.parametrize("token", ["NO", "no", "No"])
+    def test_noop_for_case_insensitive_disabled_token(self, token):
+        """A string ``"NO"`` token (any case) is preserved for a narrow width.
+
+        Args:
+            token: A case variant of the disabled-predictor token.
+        """
+        options = {"NBITS": 12, "PREDICTOR": token}
+        _reconcile_predictor_with_nbits(options)
+        assert options.get("PREDICTOR") == token, f"predictor should stay: {options}"
+
 
 class TestCompressionToOptionsNbits:
     """``Compression._to_options`` reads and promotes the source ``NBITS``."""

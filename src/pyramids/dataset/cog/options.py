@@ -193,8 +193,8 @@ def _reconcile_predictor_with_nbits(options: dict[str, Any]) -> None:
     a sub-byte-aligned ``NBITS`` through ``extra`` (overriding the promoted
     default), keeping the predictor would make GDAL reject the write. Mutates
     ``options`` in place, removing ``PREDICTOR`` so the caller's explicit narrow
-    width is honoured. A ``PREDICTOR`` the caller explicitly disabled
-    (``1``/``"NO"``) is left untouched.
+    width is honoured. An already-disabled predictor (``1`` or ``"NO"``,
+    case-insensitive) is left untouched.
 
     Args:
         options: The merged GDAL creation-option dict (post :func:`merge_options`).
@@ -227,11 +227,10 @@ def _reconcile_predictor_with_nbits(options: dict[str, Any]) -> None:
     except (TypeError, ValueError):
         return
     predictor = options.get("PREDICTOR")
-    if nbits_value not in _PREDICTOR_SAFE_NBITS and predictor not in (
-        None,
-        1,
-        "1",
-        "NO",
+    if (
+        nbits_value not in _PREDICTOR_SAFE_NBITS
+        and predictor is not None
+        and str(predictor).upper() not in ("1", "NO")
     ):
         options.pop("PREDICTOR", None)
 
