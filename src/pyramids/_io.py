@@ -704,10 +704,12 @@ def read_file(
             # the OpenShared branch is for.
             # OF_RASTER | OF_VERBOSE_ERROR restore the driver-kind restriction and
             # verbose diagnostics that gdal.OpenShared implies but bare OpenEx
-            # (OF_ALL, terse errors) drops — this is a raster reader.
+            # (OF_ALL, terse errors) drops — this is a raster reader. Read-only is
+            # the absence of OF_UPDATE, so the flags are pure OF_* constants (no
+            # GA_* access flag mixed in).
             src = gdal.OpenEx(
                 path,
-                access | gdal.OF_SHARED | gdal.OF_RASTER | gdal.OF_VERBOSE_ERROR,
+                gdal.OF_SHARED | gdal.OF_RASTER | gdal.OF_VERBOSE_ERROR,
                 open_options=options,
             )
         elif not options:
@@ -721,10 +723,12 @@ def read_file(
         else:
             # Same no-share intent, but OpenEx is the only entry that carries
             # open options; OF_SHARED is deliberately absent here. OF_RASTER |
-            # OF_VERBOSE_ERROR keep parity with the gdal.Open this replaces.
+            # OF_VERBOSE_ERROR keep parity with the gdal.Open this replaces. Pure
+            # OF_* flags — OF_UPDATE is the update-mode flag (no GA_* access flag
+            # mixed in, which only worked by GA_Update == OF_UPDATE bit-equality).
             src = gdal.OpenEx(
                 path,
-                access | gdal.OF_UPDATE | gdal.OF_RASTER | gdal.OF_VERBOSE_ERROR,
+                gdal.OF_UPDATE | gdal.OF_RASTER | gdal.OF_VERBOSE_ERROR,
                 open_options=options,
             )
     except Exception as e:
