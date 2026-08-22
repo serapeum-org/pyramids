@@ -144,6 +144,10 @@ def _reconstruct_dataset(
             around the re-open and re-attached to the instance so the worker's
             reads authenticate as the originating process's did. Defaults to
             `None` so a three-element recipe from an older pickle still loads.
+        open_options: The GDAL open options captured on the originating dataset,
+            as a hashable tuple, forwarded to `read_file` so the worker reopens
+            with the same driver behaviour. Defaults to `None` so a four-element
+            recipe from an older pickle (with no options) still loads (#1025).
 
     Returns:
         RasterBase: A freshly opened instance of `cls`, opened read-only.
@@ -180,7 +184,28 @@ class RasterBase(ABC):
         gdal_env: dict[str, str] | None = None,
         open_options: tuple[str, ...] | list[str] | None = None,
     ):
-        """__init__."""
+        """Wrap an already-open ``gdal.Dataset`` and snapshot its geo-properties.
+
+        Args:
+            src: An open :class:`osgeo.gdal.Dataset` to wrap. Callers normally go
+                through :meth:`read_file` rather than constructing directly.
+            access: The mode ``src`` was opened with — ``"read_only"`` (default)
+                or ``"write"``. Recorded so mutating operations can refuse a
+                read-only handle.
+            gdal_env: GDAL config (cloud credentials, HTTP knobs) this dataset was
+                opened with, captured so it is re-installed around every read that
+                reopens the file (``threadsafe=True`` handles, lazy ``chunks=``
+                reads, unpickle on a worker). Stored as a plain dict so it
+                survives pickling; ``None`` (default) captures nothing.
+            open_options: GDAL open options this dataset was opened with, as a
+                mapping-derived or native ``["KEY=VALUE"]`` sequence. Stored as a
+                tuple so it stays hashable for the file-manager cache key and
+                stable across pickling, and reapplied on the same reopen paths as
+                ``gdal_env``. ``None`` (default) captures nothing (#1025).
+
+        Raises:
+            TypeError: ``src`` is not an :class:`osgeo.gdal.Dataset`.
+        """
         if not isinstance(src, gdal.Dataset):
             raise TypeError(  # pragma: no cover
                 "src should be read using gdal (gdal dataset please read it using gdal"

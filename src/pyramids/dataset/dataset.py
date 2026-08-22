@@ -351,7 +351,21 @@ class Dataset(RasterBase):
         gdal_env: dict[str, str] | None = None,
         open_options: tuple[str, ...] | list[str] | None = None,
     ):
-        """__init__."""
+        """Wrap an open ``gdal.Dataset`` as a :class:`Dataset`.
+
+        A thin override of :meth:`RasterBase.__init__` that attaches a logger and
+        forwards every argument unchanged; see the base for the full contract.
+        Prefer :meth:`read_file` over constructing directly.
+
+        Args:
+            src: An open :class:`osgeo.gdal.Dataset` to wrap.
+            access: The mode ``src`` was opened with — ``"read_only"`` (default)
+                or ``"write"``.
+            gdal_env: GDAL config captured for reopen paths; ``None`` captures
+                nothing.
+            open_options: GDAL open options captured for reopen paths; ``None``
+                captures nothing (#1025).
+        """
         self.logger = logging.getLogger(__name__)
         super().__init__(
             src, access=access, gdal_env=gdal_env, open_options=open_options

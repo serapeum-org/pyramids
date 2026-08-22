@@ -578,6 +578,27 @@ def normalize_open_options(
 
     Returns:
         list[str] | None: The `KEY=VALUE` list, or `None` when nothing was given.
+
+    Examples:
+        - A mapping is rendered into GDAL's `KEY=VALUE` list, one entry per pair:
+            ```python
+            >>> from pyramids._io import normalize_open_options
+            >>> normalize_open_options({"GEOREF_SOURCES": "INTERNAL"})
+            ['GEOREF_SOURCES=INTERNAL']
+
+            ```
+        - A native list or tuple is returned as a plain list, unchanged:
+            ```python
+            >>> normalize_open_options(("A=1", "B=2"))
+            ['A=1', 'B=2']
+
+            ```
+        - `None` (the no-options case) is preserved so callers can branch on it:
+            ```python
+            >>> normalize_open_options(None) is None
+            True
+
+            ```
     """
     if open_options is None:
         return None
