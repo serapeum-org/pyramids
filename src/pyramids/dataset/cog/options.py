@@ -135,11 +135,21 @@ def _promote_nbits(nbits: int | None) -> int | None:
     is promoted to the smallest value in :data:`_PREDICTOR_SAFE_NBITS` that can
     hold it (``12 -> 16``), so the output neither clips nor trips the predictor.
 
+    Promotion always widens the output to the next byte-aligned width, trading a
+    little storage (a 1-bit mask becomes 8-bit; an in-domain 12-bit raster
+    becomes 16-bit) for clip-safety on *derived* data whose values have grown
+    past the declared narrow domain — the #1023 case. A width above the largest
+    supported one (``> 64``, only reachable from hand-set / derived metadata since
+    GDAL integer dtypes top out at 64-bit) has no wider target, so it returns
+    ``None`` (no promotion; the predictor already falls back to ``1``) rather than
+    raising.
+
     Args:
         nbits: The source band's declared width, or ``None``.
 
     Returns:
-        The promoted width to write, or ``None`` when no promotion is needed.
+        The promoted width to write, or ``None`` when no promotion is needed or
+        possible.
 
     Examples:
         - A 12-bit source promotes to 16:
@@ -157,10 +167,16 @@ def _promote_nbits(nbits: int | None) -> int | None:
             True
 
             ```
+        - A width beyond 64 has no wider target and is left alone:
+            ```python
+            >>> _promote_nbits(128) is None
+            True
+
+            ```
     """
     if nbits is None or nbits in _PREDICTOR_SAFE_NBITS:
         return None
-    return min(width for width in _PREDICTOR_SAFE_NBITS if width >= nbits)
+    return next((width for width in _PREDICTOR_SAFE_NBITS if width >= nbits), None)
 
 
 def _reconcile_predictor_with_nbits(options: dict[str, Any]) -> None:

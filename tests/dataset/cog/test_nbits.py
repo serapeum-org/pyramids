@@ -94,6 +94,15 @@ class TestPromoteNbits:
         """
         assert _promote_nbits(nbits) is None, f"promote({nbits}) should be None"
 
+    @pytest.mark.parametrize("nbits", [65, 96, 128])
+    def test_width_above_max_supported_returns_none(self, nbits):
+        """A width beyond 64 has no wider target and returns ``None`` (no crash).
+
+        Args:
+            nbits: A width larger than the largest predictor-safe width.
+        """
+        assert _promote_nbits(nbits) is None, f"promote({nbits}) should be None"
+
 
 class TestReconcilePredictorWithNbits:
     """Post-merge predictor reconciliation in :func:`_reconcile_predictor_with_nbits`."""
