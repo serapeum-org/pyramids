@@ -12,6 +12,7 @@ special fixture: `NONE` drops the internal georeference (identity geotransform),
 from __future__ import annotations
 
 import pickle
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -398,6 +399,25 @@ class TestCollectionOpenOptions:
         mocker.patch.object(collection_module, "_lazy_timestep", side_effect=spy)
         _ = collection.data
         assert seen == [("GEOREF_SOURCES=NONE",), ("GEOREF_SOURCES=NONE",)], seen
+
+    def test_from_archive_threads_the_option(self, two_files, tmp_path):
+        """`from_archive` forwards the option to every per-member open (L1).
+
+        Test scenario:
+            Zipping the two rasters and opening the archive with
+            `GEOREF_SOURCES=NONE` must drop the georef on the eagerly-opened
+            template, proving the option reaches `from_files` through
+            `from_archive`.
+        """
+        archive = tmp_path / "scenes.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            for member in two_files:
+                zf.write(member, arcname=Path(member).name)
+        collection = DatasetCollection.from_archive(
+            str(archive), open_options={"GEOREF_SOURCES": "NONE"}
+        )
+        assert collection.open_options == ["GEOREF_SOURCES=NONE"]
+        assert collection.base.geotransform == _IDENTITY_GT
 
 
 class TestNetCDFOpenOptions:
