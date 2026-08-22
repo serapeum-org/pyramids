@@ -260,18 +260,26 @@ class TestCogWriteNbits:
         assert peak == 5000, f"value clipped to {peak}; expected 5000"
 
     def test_explicit_narrow_nbits_is_honoured(self, tmp_path):
-        """An explicit caller ``NBITS=12`` still writes (predictor reconciled).
+        """An explicit caller ``NBITS=12`` is applied to the output.
 
         Args:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            Forcing the narrow width would clash with ``PREDICTOR=2``; the write
-            site drops the predictor so the caller's width is honoured without a
-            hard failure.
+            Forcing the narrow width would clash with the promoted ``PREDICTOR=2``;
+            the write site drops the predictor so the caller's width is honoured
+            rather than failing. Uses an in-domain value (3000 <= 4095) so the test
+            pins the honoured width, not clipping. The reopened output must report
+            ``NBITS=12`` and its in-domain value must round-trip intact.
         """
-        src = _nbits12_source_with_large_value(5000)
+        src = _nbits12_source_with_large_value(3000)
         out = tmp_path / "nb12_forced.tif"
         src.to_file(out, driver="COG", creation_options=["NBITS=12"])
         src.close()
-        assert out.exists(), "explicit NBITS=12 write should succeed"
+        reopened = Dataset.read_file(out)
+        band = reopened.raster.GetRasterBand(1)
+        applied_nbits = band.GetMetadataItem("NBITS", "IMAGE_STRUCTURE")
+        peak = int(reopened.read_array().max())
+        reopened.close()
+        assert applied_nbits == "12", f"caller NBITS not applied, got {applied_nbits!r}"
+        assert peak == 3000, f"in-domain value should round-trip, got {peak}"
