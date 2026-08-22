@@ -45,8 +45,9 @@ class TestResolveReadWindow:
         Test scenario:
             The exclusivity guard fires with the shared "not both" message.
         """
+        window = Window(0, 0, 2, 2)
         with pytest.raises(ValueError, match="either .*window.* or .*bbox.*not both"):
-            resolve_read_window(Window(0, 0, 2, 2), (0, 0, 1, 1), crs=4326)
+            resolve_read_window(window, (0, 0, 1, 1), crs=4326)
 
     def test_bbox_builds_feature_collection_in_crs(self):
         """A ``bbox`` alone folds into a one-row ``FeatureCollection`` covering it.

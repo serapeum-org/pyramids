@@ -58,7 +58,7 @@ def select(req: ReadRequest) -> ReadStrategy:
     return next(s for s in READ_STRATEGIES if s.matches(req))
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def single_band() -> Dataset:
     """A 6x6 float32 ramp, single band, nodata -9999, one cell set to nodata.
 
@@ -73,7 +73,7 @@ def single_band() -> Dataset:
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def multi_band() -> Dataset:
     """A 3-band, 4x5 float32 raster; value == band*1000 + row*5 + col.
 
@@ -144,20 +144,26 @@ class TestLazyRead:
         Test scenario:
             Lazy reads cannot take a window; slice the dask array instead.
         """
+        strat = LazyRead()
+        io = mocker.Mock()
+        req = make_request(chunks=4)
+        window = Window(0, 0, 2, 2)
         with pytest.raises(ValueError, match="chunks"):
-            LazyRead().read(mocker.Mock(), make_request(chunks=4), Window(0, 0, 2, 2))
+            strat.read(io, req, window)
 
     def test_rejects_out_shape(self, mocker):
         """``out_shape`` with ``chunks`` raises ``NotImplementedError``."""
+        strat = LazyRead()
+        io = mocker.Mock()
         req = make_request(chunks=4, out_shape=(2, 2))
         with pytest.raises(NotImplementedError, match="out_shape"):
-            LazyRead().read(mocker.Mock(), req, None)
+            strat.read(io, req, None)
 
     def test_rejects_masked(self, mocker):
         """``masked`` with ``chunks`` raises ``NotImplementedError``."""
-        req = make_request(chunks=4, masked=True)
+        strat, io, req = LazyRead(), mocker.Mock(), make_request(chunks=4, masked=True)
         with pytest.raises(NotImplementedError, match="masked=True"):
-            LazyRead().read(mocker.Mock(), req, None)
+            strat.read(io, req, None)
 
 
 class TestDecimatedRead:
@@ -189,9 +195,11 @@ class TestDecimatedRead:
 
     def test_rejects_masked(self, mocker):
         """``masked`` with ``out_shape`` raises ``NotImplementedError``."""
+        strat = DecimatedRead()
+        io = mocker.Mock()
         req = make_request(out_shape=(2, 2), masked=True)
         with pytest.raises(NotImplementedError, match="masked=True"):
-            DecimatedRead().read(mocker.Mock(), req, None)
+            strat.read(io, req, None)
 
 
 class TestBoundlessRead:
@@ -223,14 +231,16 @@ class TestBoundlessRead:
 
     def test_rejects_masked(self, mocker):
         """``masked`` with ``boundless`` raises ``NotImplementedError``."""
-        req = make_request(boundless=True, masked=True)
+        strat, io = BoundlessRead(), mocker.Mock()
+        req, window = make_request(boundless=True, masked=True), Window(0, 0, 2, 2)
         with pytest.raises(NotImplementedError, match="masked=True"):
-            BoundlessRead().read(mocker.Mock(), req, Window(0, 0, 2, 2))
+            strat.read(io, req, window)
 
     def test_requires_a_window(self, mocker):
         """A boundless read without a window raises ``ValueError``."""
+        strat, io, req = BoundlessRead(), mocker.Mock(), make_request(boundless=True)
         with pytest.raises(ValueError, match="requires a window"):
-            BoundlessRead().read(mocker.Mock(), make_request(boundless=True), None)
+            strat.read(io, req, None)
 
     def test_rejects_geometry_window(self, mocker):
         """A geometry (``GeoDataFrame``) window with boundless raises ``ValueError``.
@@ -239,9 +249,11 @@ class TestBoundlessRead:
             Boundless needs a pixel window; a FeatureCollection is clipped by
             definition and must be rejected.
         """
+        strat, io = BoundlessRead(), mocker.Mock()
+        req = make_request(boundless=True)
         geom_window = FeatureCollection.from_bbox((0, 0, 1, 1), epsg=4326)
         with pytest.raises(ValueError, match="pixel window"):
-            BoundlessRead().read(mocker.Mock(), make_request(boundless=True), geom_window)
+            strat.read(io, req, geom_window)
 
 
 class TestThreadsafeRead:
@@ -269,9 +281,11 @@ class TestThreadsafeRead:
 
     def test_rejects_masked(self, mocker):
         """``masked`` with ``threadsafe`` raises ``NotImplementedError``."""
+        strat = ThreadsafeRead()
+        io = mocker.Mock()
         req = make_request(threadsafe=True, masked=True)
         with pytest.raises(NotImplementedError, match="masked=True"):
-            ThreadsafeRead().read(mocker.Mock(), req, None)
+            strat.read(io, req, None)
 
 
 class TestEagerRead:
