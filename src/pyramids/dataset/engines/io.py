@@ -763,9 +763,13 @@ class IO(_Engine["Dataset"]):
             masked=masked,
             threadsafe=threadsafe,
         )
-        window = resolve_read_window(
-            window, bbox, crs=epsg if epsg is not None else self._ds.epsg
-        )
+        # Resolve the bbox CRS only when a bbox is actually given. resolve_read_window
+        # ignores `crs` for a bbox-less read, and `self._ds.epsg` is not always a free
+        # attribute read — on a NetCDF it can trigger a state-mutating full-variable
+        # CRS scan — so evaluating it eagerly on every read would change behaviour on
+        # the bbox=None path (the original only read it inside `if bbox is not None`).
+        crs = None if bbox is None else (epsg if epsg is not None else self._ds.epsg)
+        window = resolve_read_window(window, bbox, crs=crs)
         # Resolve a geometry window (from `bbox=` or a polygon `window=`) to an integer pixel window
         # once, up front, so `bbox_rounding` applies uniformly no matter which read path runs. The
         # boundless strategy deliberately rejects geometry windows (they are clipped by definition),
