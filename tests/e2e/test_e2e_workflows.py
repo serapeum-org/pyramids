@@ -12,16 +12,18 @@ Workflows covered:
 
 import shutil
 import tempfile
+import warnings
 from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
-from osgeo import gdal
-from shapely.geometry import box
+from osgeo import gdal, osr
+from shapely.geometry import Point, box
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.ops.vectorize import _features_outside_template
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
@@ -135,6 +137,47 @@ class TestDatasetCollectionRoundTrip:
 class TestRasterizeRoundTrip:
     """Rasterize a FeatureCollection and verify the burned values."""
 
+    @pytest.fixture
+    def utm_template(self):
+        """A 10x10 UTM (EPSG:32636) template at a fixed origin, shared by template tests."""
+        return _make_dataset(
+            rows=10,
+            cols=10,
+            cell_size=1000.0,
+            top_left=(500000.0, 3400000.0),
+            epsg=32636,
+        )
+
+    @staticmethod
+    def _fc_32636(geometry, value=42):
+        """A single-feature EPSG:32636 FeatureCollection with a `class_id` column."""
+        return FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": [value]}, geometry=[geometry], crs="EPSG:32636"
+            )
+        )
+
+    @staticmethod
+    def _mem_template(geotransform, epsg=4326):
+        """A 5x5 in-memory Dataset with a custom geotransform (non-square/rotated tests)."""
+        raster = gdal.GetDriverByName("MEM").Create("", 5, 5, 1, gdal.GDT_Float32)
+        raster.SetGeoTransform(geotransform)
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(epsg)
+        raster.SetProjection(srs.ExportToWkt())
+        return Dataset(raster)
+
+    def _snap(self, geometry, template, epsg=32636):
+        """Rasterize a single `class_id=42` feature onto `template` in snap mode."""
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": [42]}, geometry=[geometry], crs=f"EPSG:{epsg}"
+            )
+        )
+        return Dataset.from_features(
+            fc, template=template, snap_to_template=True, column_name="class_id"
+        )
+
     def test_rasterize_polygon(self):
         """Burn a polygon attribute into a raster and verify the value."""
         epsg = 32636
@@ -158,35 +201,413 @@ class TestRasterizeRoundTrip:
             f"Rasterized EPSG should be {epsg}, got {raster.epsg}"
         )
 
-    def test_rasterize_with_reference_dataset(self):
-        """Burn using a reference Dataset for geotransform."""
-        epsg = 32636
-        cell_size = 1000.0
-        rows, cols = 10, 10
-        top_left = (500000.0, 3400000.0)
-
-        # Reference raster
-        ref = _make_dataset(
-            rows=rows, cols=cols, cell_size=cell_size, top_left=top_left, epsg=epsg
+    def test_rasterize_with_reference_dataset(self, utm_template):
+        """Burn an inside polygon onto a template; it appears and emits no outside warning."""
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        inside = box(x0, y0 - 3 * cell, x0 + 3 * cell, y0)
+        fc = FeatureCollection(
+            gpd.GeoDataFrame({"class_id": [42]}, geometry=[inside], crs="EPSG:32636")
         )
 
-        # Create a polygon inside the raster extent
-        x0, y0 = top_left
-        poly = box(x0, y0 - 3 * cell_size, x0 + 3 * cell_size, y0)
-        gdf = gpd.GeoDataFrame({"class_id": [42]}, geometry=[poly], crs=f"EPSG:{epsg}")
-        fc = FeatureCollection(gdf)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            raster = Dataset.from_features(
+                fc, template=utm_template, column_name="class_id"
+            )
 
-        raster = Dataset.from_features(fc, template=ref, column_name="class_id")
         arr = raster.read_array()
+        assert arr.shape == (10, 10), (
+            f"shape should match the template, got {arr.shape}"
+        )
+        assert np.any(np.isclose(arr, 42.0)), (
+            "burned value 42 should appear in the raster"
+        )
+        assert not [w for w in caught if "template extent" in str(w.message)], (
+            "an inside polygon must not emit the outside-template warning"
+        )
 
-        # Same dimensions as reference
-        assert arr.shape == (
-            rows,
-            cols,
-        ), f"Rasterized shape should match reference ({rows},{cols}), got {arr.shape}"
-        # Burned value should appear
-        burned = arr[np.isclose(arr, 42.0)]
-        assert burned.size > 0, "Burned value 42 should appear in the raster"
+    def test_from_features_warns_when_features_outside_template(self, utm_template):
+        """Features disjoint from the template warn and yield an all-nodata raster (#46)."""
+        x0, y0 = utm_template.top_left_corner
+        far = box(
+            x0 + 100000.0, y0 - 3000.0, x0 + 103000.0, y0
+        )  # ~100 km east, outside
+        fc = FeatureCollection(
+            gpd.GeoDataFrame({"class_id": [42]}, geometry=[far], crs="EPSG:32636")
+        )
+
+        with pytest.warns(UserWarning, match="outside the template extent"):
+            raster = Dataset.from_features(
+                fc, template=utm_template, column_name="class_id"
+            )
+
+        assert not np.any(np.isclose(raster.read_array(), 42.0)), (
+            "a polygon outside the template burns nothing"
+        )
+
+    @pytest.mark.parametrize(
+        "feature_box, expected",
+        [
+            ((20.0, 2.0, 30.0, 8.0), True),  # east of the template
+            ((-30.0, 2.0, -20.0, 8.0), True),  # west of the template
+            ((2.0, 20.0, 8.0, 30.0), True),  # north of the template
+            ((2.0, -30.0, 8.0, -20.0), True),  # south of the template
+            ((2.0, 2.0, 8.0, 8.0), False),  # inside the template
+            ((5.0, 5.0, 15.0, 15.0), False),  # partial overlap (not flagged)
+        ],
+    )
+    def test_features_outside_template_by_direction(self, feature_box, expected):
+        """`_features_outside_template` flags a disjoint bbox in every direction (#46).
+
+        Args:
+            feature_box: `(minx, miny, maxx, maxy)` of the feature relative to a template
+                covering x[0, 10], y[0, 10].
+            expected: Whether the helper should report the feature as fully outside.
+
+        Test scenario:
+            A template at origin (0, 10), 10x10, cell size 1 covers x[0, 10] and y[0, 10].
+            Boxes to the east/west/north/south are disjoint (`True`); an inside box and a
+            partially overlapping box are not flagged (`False`).
+        """
+        minx, miny, maxx, maxy = feature_box
+        gdf = gpd.GeoDataFrame(
+            {"v": [1]}, geometry=[box(minx, miny, maxx, maxy)], crs="EPSG:4326"
+        )
+        fc = FeatureCollection(gdf)
+        template = _make_dataset(
+            rows=10, cols=10, epsg=4326, cell_size=1.0, top_left=(0.0, 10.0)
+        )
+        result = _features_outside_template(fc, template)
+        assert result is expected, (
+            f"box {feature_box} outside-template should be {expected}, got {result}"
+        )
+
+    def test_features_outside_non_square_template_on_y_axis(self):
+        """A non-square template flags a feature outside on the Y axis (#46 M1).
+
+        Test scenario:
+            A template with X pixel 2 and Y pixel 1 (`gt=(0, 2, 0, 10, 0, -1)`, 5x5) has
+            true bbox x[0, 10], y[5, 10]. A feature at `box(2, 2, 4, 4)` is south of the
+            true `ymin=5`, so it must be flagged — a single-`cell_size` check would use the
+            X pixel for Y and miss it.
+        """
+        template = self._mem_template((0.0, 2.0, 0.0, 10.0, 0.0, -1.0))
+        south = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1]}, geometry=[box(2.0, 2.0, 4.0, 4.0)], crs="EPSG:4326"
+            )
+        )
+        assert _features_outside_template(south, template) is True, (
+            "a feature south of a non-square template must be flagged outside"
+        )
+
+    def test_features_touching_template_edge_is_outside(self):
+        """A feature touching a template edge (zero-area overlap) is flagged outside (#46).
+
+        Test scenario:
+            A box whose left edge coincides with the template's right edge (`fxmin == txmax`)
+            has zero-area overlap and is treated as outside, pinning the `>=`/`<=` semantics.
+        """
+        template = _make_dataset(
+            rows=10, cols=10, epsg=4326, cell_size=1.0, top_left=(0.0, 10.0)
+        )
+        touching = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1]}, geometry=[box(10.0, 2.0, 12.0, 8.0)], crs="EPSG:4326"
+            )
+        )
+        assert _features_outside_template(touching, template) is True, (
+            "a feature touching the template edge (zero overlap) is treated as outside"
+        )
+
+    @pytest.mark.parametrize(
+        "class_ids, geometry",
+        [
+            (pd.Series([], dtype="int32"), []),  # truly empty (len 0)
+            ([7], [None]),  # rows with null geometry (len>0, NaN bounds)
+        ],
+        ids=["empty_collection", "null_geometry_rows"],
+    )
+    def test_from_features_warns_and_returns_all_nodata_without_geometry(
+        self, class_ids, geometry
+    ):
+        """Empty or null-geometry collections warn and return an all-nodata raster (#46).
+
+        Args:
+            class_ids: Burn-column values — empty for the zero-row case, one value for the
+                null-geometry row.
+            geometry: The geometry column — empty, or a single ``None``.
+
+        Test scenario:
+            Both an empty FeatureCollection (len 0, which skips the burn) and rows with null
+            geometry (len>0, NaN bounds, which burns nothing) warn and yield an all-nodata
+            raster on the template grid, without the cryptic GDAL "field not found" crash.
+        """
+        template = _make_dataset(
+            rows=5, cols=5, epsg=4326, cell_size=1.0, top_left=(0.0, 5.0)
+        )
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": class_ids}, geometry=geometry, crs="EPSG:4326"
+            )
+        )
+
+        with pytest.warns(UserWarning, match="empty or falls entirely outside"):
+            raster = Dataset.from_features(
+                fc, template=template, column_name="class_id"
+            )
+
+        arr = raster.read_array()
+        assert arr.shape == (5, 5), "output should adopt the template grid"
+        assert not np.any(np.isclose(arr, 7.0)), "no geometry burns nothing"
+
+    def test_interior_zero_area_point_is_not_flagged(self):
+        """A zero-area point inside the template is not flagged as outside (#46).
+
+        Test scenario:
+            `Point(5, 5)` has bounds `[5, 5, 5, 5]` (not NaN) and lies inside a template
+            covering x[0, 10], y[0, 10], so the helper must return `False`.
+        """
+        template = _make_dataset(
+            rows=10, cols=10, epsg=4326, cell_size=1.0, top_left=(0.0, 10.0)
+        )
+        point = FeatureCollection(
+            gpd.GeoDataFrame({"v": [1]}, geometry=[Point(5.0, 5.0)], crs="EPSG:4326")
+        )
+        assert _features_outside_template(point, template) is False, (
+            "an interior zero-area point must not be flagged outside"
+        )
+
+    def test_cell_size_mode_does_not_warn(self):
+        """cell_size mode (no template) never emits the outside-template warning (#46)."""
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1]}, geometry=[box(0.0, 0.0, 3.0, 3.0)], crs="EPSG:4326"
+            )
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            Dataset.from_features(fc, cell_size=1.0, column_name="v")
+
+        template_warnings = [w for w in caught if "template extent" in str(w.message)]
+        assert not template_warnings, (
+            f"cell_size mode must not warn about a template; got: {template_warnings}"
+        )
+
+    def test_snap_to_template_crops_to_features_and_co_registers(self, utm_template):
+        """snap_to_template crops to the features but keeps the template's grid (#46 point 2).
+
+        Test scenario:
+            A small polygon inside the 10x10 template yields a smaller raster whose origin
+            lies on the template's grid lines and whose cell size equals the template's, so
+            it co-registers pixel-for-pixel; the burned value is present.
+        """
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        inside = box(x0 + 2 * cell, y0 - 4 * cell, x0 + 5 * cell, y0 - 1 * cell)
+        out = Dataset.from_features(
+            self._fc_32636(inside),
+            template=utm_template,
+            snap_to_template=True,
+            column_name="class_id",
+        )
+
+        assert (out.rows, out.columns) == (3, 3), (
+            f"snap output should crop to the features, got {(out.rows, out.columns)}"
+        )
+        ox, oy = out.top_left_corner
+        assert (ox - x0) % cell == 0, "snapped x-origin must lie on the template grid"
+        assert (y0 - oy) % cell == 0, "snapped y-origin must lie on the template grid"
+        assert out.cell_size == cell, "snapped output keeps the template cell size"
+        assert np.any(np.isclose(out.read_array(), 42.0)), (
+            "the polygon should be burned"
+        )
+
+    def test_snap_to_template_covers_features_outside_footprint(self, utm_template):
+        """snap_to_template covers features beyond the template footprint, no warning (#46)."""
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        far = box(x0 + 100 * cell, y0 - 3 * cell, x0 + 103 * cell, y0)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            out = Dataset.from_features(
+                self._fc_32636(far),
+                template=utm_template,
+                snap_to_template=True,
+                column_name="class_id",
+            )
+
+        assert np.any(np.isclose(out.read_array(), 42.0)), (
+            "features beyond the footprint are still covered in snap mode"
+        )
+        assert not [w for w in caught if "template extent" in str(w.message)], (
+            "snap mode sizes to the features, so it must not warn"
+        )
+        ox, oy = out.top_left_corner
+        assert (ox - x0) % cell == 0, "snapped x-origin still on the template grid"
+        assert (y0 - oy) % cell == 0, "snapped y-origin still on the template grid"
+
+    def test_snap_to_template_requires_template(self):
+        """snap_to_template without a template raises ValueError (#46)."""
+        fc = self._fc_32636(box(0.0, 0.0, 3.0, 3.0))
+        with pytest.raises(
+            ValueError, match="snap_to_template=True requires a template"
+        ):
+            Dataset.from_features(
+                fc, cell_size=1.0, snap_to_template=True, column_name="class_id"
+            )
+
+    def test_snap_to_template_rejects_non_square_template(self):
+        """snap_to_template with a non-square template raises ValueError (#46)."""
+        template = self._mem_template((0.0, 2.0, 0.0, 10.0, 0.0, -1.0))
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": [42]}, geometry=[box(1.0, 6.0, 3.0, 8.0)], crs="EPSG:4326"
+            )
+        )
+        with pytest.raises(ValueError, match="requires a square template"):
+            Dataset.from_features(
+                fc, template=template, snap_to_template=True, column_name="class_id"
+            )
+
+    def test_snap_to_template_rejects_rotated_template(self):
+        """snap_to_template with a rotated template raises ValueError (#46)."""
+        template = self._mem_template((0.0, 1.0, 0.5, 10.0, 0.5, -1.0))
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": [42]}, geometry=[box(1.0, 6.0, 3.0, 8.0)], crs="EPSG:4326"
+            )
+        )
+        with pytest.raises(ValueError, match="rotated template"):
+            Dataset.from_features(
+                fc, template=template, snap_to_template=True, column_name="class_id"
+            )
+
+    def test_snap_to_template_rejects_empty_features(self, utm_template):
+        """snap_to_template with an empty FeatureCollection raises ValueError (#46)."""
+        empty = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": pd.Series([], dtype="int32")},
+                geometry=[],
+                crs="EPSG:32636",
+            )
+        )
+        with pytest.raises(ValueError, match=r"valid \(non-NaN\) geometry bounds"):
+            Dataset.from_features(
+                empty,
+                template=utm_template,
+                snap_to_template=True,
+                column_name="class_id",
+            )
+
+    def test_snap_to_template_degenerate_point_yields_covering_pixel(
+        self, utm_template
+    ):
+        """A point on a grid corner snaps to a valid 1x1 raster via the `max(1, ...)` clamp (#46).
+
+        Test scenario:
+            A zero-area `Point` on a template grid corner collapses the snapped span to
+            zero cells; the `max(1, ...)` clamp keeps a single 1x1 pixel co-registered with
+            the template. Whether GDAL burns a point lying exactly on a pixel corner is
+            platform-defined, so this asserts only the clamp and grid alignment — the
+            mid-cell test covers the burn.
+        """
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        out = self._snap(Point(x0 + 2 * cell, y0 - 3 * cell), utm_template)
+
+        assert out.rows == 1, f"degenerate point should give one row, got {out.rows}"
+        assert out.columns == 1, (
+            f"degenerate point should give one column, got {out.columns}"
+        )
+        ox, oy = out.top_left_corner
+        assert (ox - x0) % cell == 0, "snapped x-origin on the template grid"
+        assert (y0 - oy) % cell == 0, "snapped y-origin on the template grid"
+
+    def test_snap_to_template_fractional_grid_is_tight(self):
+        """Grid-aligned bounds on a fractional-coordinate template give tight dims (#46).
+
+        Test scenario:
+            A WGS84 template with 0.001 cells and a feature whose bounds are exactly 37→60
+            cells in X and 12→40 in Y must snap to exactly 23x28 — no float off-by-one.
+        """
+        template = self._mem_template((-123.456, 0.001, 0.0, 45.678, 0.0, -0.001))
+        xmin = -123.456 + 37 * 0.001
+        xmax = -123.456 + 60 * 0.001
+        ymax = 45.678 - 12 * 0.001
+        ymin = 45.678 - 40 * 0.001
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": [42]},
+                geometry=[box(xmin, ymin, xmax, ymax)],
+                crs="EPSG:4326",
+            )
+        )
+        out = Dataset.from_features(
+            fc, template=template, snap_to_template=True, column_name="class_id"
+        )
+        assert (out.rows, out.columns) == (28, 23), (
+            f"snap should be tight (28, 23), got {(out.rows, out.columns)}"
+        )
+
+    def test_snap_to_template_supports_south_up_template(self):
+        """A south-up template (positive Y pixel) snaps onto the same lattice (#46).
+
+        Test scenario:
+            north-up is not required — a south-up template still covers the feature in a
+            correct north-up output.
+        """
+        template = self._mem_template((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
+        out = self._snap(box(1.0, 1.0, 4.0, 4.0), template, epsg=4326)
+
+        assert np.any(np.isclose(out.read_array(), 42.0)), (
+            "a south-up template should still cover the feature"
+        )
+        ox, oy = out.top_left_corner
+        assert ox % 1.0 == 0, "x-origin lands on the south-up template lattice"
+        assert oy % 1.0 == 0, "y-origin lands on the south-up template lattice"
+        assert out.cell_size == 1.0, "output keeps the template cell size"
+
+    def test_snap_to_template_mid_cell_point_covers_the_point(self, utm_template):
+        """A point strictly inside a cell snaps to the 1x1 pixel that contains it (#46).
+
+        Test scenario:
+            An off-grid-line `Point` rounds to a single covering cell without needing the
+            `max(1, ...)` clamp.
+        """
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        out = self._snap(Point(x0 + 2.5 * cell, y0 - 3.5 * cell), utm_template)
+
+        assert out.rows == 1, f"mid-cell point should give one row, got {out.rows}"
+        assert out.columns == 1, (
+            f"mid-cell point should give one column, got {out.columns}"
+        )
+        assert np.any(np.isclose(out.read_array(), 42.0)), (
+            "the containing pixel must be burned"
+        )
+
+    def test_snap_to_template_straddling_edge_covers_full_feature(self, utm_template):
+        """A feature straddling the template edge snaps to cover its full extent (#46).
+
+        Test scenario:
+            A box from 8 to 12 cells (the template is 10 wide) snaps to cover through 12
+            cells — beyond the template footprint — so the whole feature is included.
+        """
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        straddle = box(x0 + 8 * cell, y0 - 4 * cell, x0 + 12 * cell, y0 - 1 * cell)
+        out = self._snap(straddle, utm_template)
+
+        ox, _ = out.top_left_corner
+        assert ox + out.columns * out.cell_size >= x0 + 12 * cell, (
+            "snap must extend past the template to cover the outside part of the feature"
+        )
+        assert np.any(np.isclose(out.read_array(), 42.0)), (
+            "the straddling feature is burned"
+        )
 
     def test_from_features_rejects_non_positive_cell_size(self):
         """D-M2: cell_size=0 and negative values raise ``ValueError``."""

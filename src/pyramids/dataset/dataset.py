@@ -3639,6 +3639,7 @@ class Dataset(RasterBase):
         *,
         cell_size: Any | None = None,
         template: Dataset | None = None,
+        snap_to_template: bool = False,
         column_name: str | list[str] | None = None,
     ) -> Dataset:
         """Rasterize a :class:`FeatureCollection` into a new :class:`Dataset`.
@@ -3646,9 +3647,14 @@ class Dataset(RasterBase):
         Burns the values from `column_name` (or every attribute
         column if `None`) into a single-band or multi-band raster.
         When a `template` Dataset is given, the output adopts its
-        geotransform, cell size, row/column count, and no-data value.
-        Otherwise `cell_size` controls the resolution and the extent
-        is derived from :attr:`FeatureCollection.total_bounds`.
+        geotransform, cell size, row/column count, and no-data value —
+        the vector is burned onto the template's fixed grid, so features
+        outside it are clipped. With `snap_to_template=True` the template
+        supplies only the cell size and grid alignment while the extent is
+        cropped to the features (snapped onto the template's grid lines),
+        giving a small raster co-registered with the template. Otherwise
+        `cell_size` controls the resolution and the extent is derived from
+        :attr:`FeatureCollection.total_bounds`.
 
         Args:
             features (FeatureCollection):
@@ -3658,7 +3664,21 @@ class Dataset(RasterBase):
                 `template` is given.
             template (Dataset | None):
                 Optional template raster. When supplied, the output
-                inherits its geotransform and no-data value.
+                inherits its geotransform and no-data value. Features
+                that fall entirely outside the template extent, or an
+                empty FeatureCollection, produce an all-nodata raster
+                and emit a `UserWarning` (#46); use `cell_size` instead
+                to size the output to the features.
+            snap_to_template (bool):
+                When `True` (requires `template`), keep the template's
+                cell size and grid alignment but size the output to the
+                features' bounds snapped outward onto the template's grid
+                lines — a small raster that still co-registers with the
+                template pixel-for-pixel (#46). Requires a square,
+                axis-aligned template and features with valid (non-NaN)
+                geometry bounds. The output is sized to the features, so a
+                fine-celled template with far-apart features can allocate a
+                large raster.
             column_name (str | list[str] | None):
                 Attribute column(s) to burn as band values. `None`
                 burns every non-geometry column as a separate band.
@@ -3671,17 +3691,88 @@ class Dataset(RasterBase):
 
         Raises:
             ValueError: `cell_size` missing or non-positive,
-                `column_name` empty or referencing missing columns.
+                `column_name` empty or referencing missing columns,
+                `snap_to_template` set without a `template`, or (in snap
+                mode) a rotated / non-square template or features with no
+                valid (non-NaN) geometry bounds.
             TypeError: `template` is not a Dataset, or
                 `column_name` is not `str` / `list` / `None`.
             CRSError: `features.epsg` is `None`, or
                 `template.epsg!= features.epsg`.
+
+        Examples:
+            - `cell_size` sizes the output to the feature bounds:
+
+              ```python
+              >>> import geopandas as gpd
+              >>> from shapely.geometry import box
+              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.feature import FeatureCollection
+              >>> gdf = gpd.GeoDataFrame(
+              ...     {"class_id": [7]},
+              ...     geometry=[box(0.0, 0.0, 3.0, 3.0)],
+              ...     crs="EPSG:4326",
+              ... )
+              >>> raster = Dataset.from_features(
+              ...     FeatureCollection(gdf), cell_size=1.0, column_name="class_id"
+              ... )
+              >>> (raster.rows, raster.columns)
+              (3, 3)
+              >>> int(raster.read_array().max())
+              7
+
+              ```
+
+            - A `template` burns onto its fixed grid, so the output adopts the template's
+              shape (features outside it would warn and yield all-nodata — see #46):
+
+              ```python
+              >>> import numpy as np
+              >>> template = Dataset.create_from_array(
+              ...     np.zeros((5, 5), dtype="int32"),
+              ...     top_left_corner=(0.0, 5.0),
+              ...     cell_size=1.0,
+              ...     epsg=4326,
+              ... )
+              >>> inside = FeatureCollection(
+              ...     gpd.GeoDataFrame(
+              ...         {"class_id": [7]},
+              ...         geometry=[box(1.0, 1.0, 4.0, 4.0)],
+              ...         crs="EPSG:4326",
+              ...     )
+              ... )
+              >>> burned = Dataset.from_features(
+              ...     inside, template=template, column_name="class_id"
+              ... )
+              >>> (burned.rows, burned.columns)
+              (5, 5)
+
+              ```
+
+            - `snap_to_template=True` keeps the template's grid but crops to the features,
+              so the output is small yet co-registered (its origin is on the template's
+              grid lines):
+
+              ```python
+              >>> snapped = Dataset.from_features(
+              ...     inside,
+              ...     template=template,
+              ...     snap_to_template=True,
+              ...     column_name="class_id",
+              ... )
+              >>> (snapped.rows, snapped.columns)
+              (3, 3)
+              >>> snapped.top_left_corner
+              (1.0, 4.0)
+
+              ```
         """
         return rasterize_features(
             features,
             cls,
             cell_size=cell_size,
             template=template,
+            snap_to_template=snap_to_template,
             column_name=column_name,
         )
 
