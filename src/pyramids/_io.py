@@ -565,6 +565,27 @@ def _raise_open_error(error: Exception, path: str) -> NoReturn:
     raise error
 
 
+def normalize_open_options(
+    open_options: dict[str, str] | list[str] | tuple[str, ...] | None,
+) -> list[str] | None:
+    """Normalize GDAL open options to the ``["KEY=VALUE", ...]`` list GDAL takes.
+
+    Accepts a mapping (`{"L1B_MODE": "DATASTRIP"}`), GDAL's native list/tuple
+    (`["L1B_MODE=DATASTRIP"]`), or `None`.
+
+    Args:
+        open_options: The options in any accepted form, or `None`.
+
+    Returns:
+        list[str] | None: The `KEY=VALUE` list, or `None` when nothing was given.
+    """
+    if open_options is None:
+        return None
+    if isinstance(open_options, dict):
+        return [f"{key}={value}" for key, value in open_options.items()]
+    return list(open_options)
+
+
 def read_file(
     path: str | Path,
     read_only: bool = True,
@@ -572,6 +593,7 @@ def read_file(
     file_i: int = 0,
     *,
     vsi: str | None = None,
+    open_options: dict[str, str] | list[str] | tuple[str, ...] | None = None,
 ):
     """Open file (GeoTIFF and ASCII).
 
@@ -603,6 +625,14 @@ def read_file(
             extension (e.g. an Earth Engine download URL). Default ``None``
             (path opened directly / extension-sniffed as today).
 
+        open_options (dict | list | None): GDAL open options as a
+            mapping (``{"L1B_MODE": "DATASTRIP"}``) or GDAL's native
+            ``["KEY=VALUE"]`` list. Forwarded to the driver; a read-only
+            open with options goes through ``OpenEx(OF_SHARED)`` (GDAL
+            keys its shared cache on the options too, so different
+            options do not share a handle). ``None`` (default) opens as
+            before.
+
     Returns:
         gdal.Dataset: Opened dataset.
 
@@ -624,21 +654,37 @@ def read_file(
         )
     path = _resolve_read_path(path, vsi, file_i)
     access = gdal.GA_ReadOnly if read_only else gdal.GA_Update
+    options = normalize_open_options(open_options)
     try:
         if open_as_multi_dimensional:
             # OF_MULTIDIM_RASTER for formats that expose multi-dimensional data
             # (hdf, h5, nc, nc4, grib, grib2, jp2, ...).
-            src = gdal.OpenEx(path, access | gdal.OF_MULTIDIM_RASTER)
-        elif read_only:
+            src = gdal.OpenEx(
+                path, access | gdal.OF_MULTIDIM_RASTER, open_options=options or []
+            )
+        elif read_only and not options:
             # OpenShared for potentially frequently accessed raster files.
             src = gdal.OpenShared(path, access)
-        else:
+        elif read_only:
+            # OpenShared takes no open options, so carry them through OpenEx with
+            # OF_SHARED. GDAL keys its shared-handle cache on the open options as
+            # well as path/access/thread (verified on GDAL 3.13), so two reads of
+            # one path with different options are not handed the same handle —
+            # they simply do not share. Same options still share, keeping the
+            # frequently-accessed-raster benefit the OpenShared branch is for.
+            src = gdal.OpenEx(path, access | gdal.OF_SHARED, open_options=options)
+        elif not options:
             # Update mode must NOT share: GDAL returns one handle per
             # path+access+thread, so two update-mode Datasets on the same file
             # would alias one another — a write through one immediately visible
             # through the other, and a flush/close on either committing the
-            # other's in-flight edits.
+            # other's in-flight edits. Kept on gdal.Open when no options are
+            # given so the default open path is unchanged.
             src = gdal.Open(path, access)
+        else:
+            # Same no-share intent, but OpenEx is the only entry that carries
+            # open options; OF_SHARED is deliberately absent here.
+            src = gdal.OpenEx(path, access | gdal.OF_UPDATE, open_options=options)
     except Exception as e:
         _raise_open_error(e, path)
     return src
