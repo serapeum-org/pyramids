@@ -12,14 +12,22 @@ special fixture: `NONE` drops the internal georeference (identity geotransform),
 from __future__ import annotations
 
 import pickle
+from pathlib import Path
 
 import numpy as np
 import pytest
-from osgeo import gdal
 
 from pyramids._io import normalize_open_options
+from pyramids._io import read_file as io_read_file
+from pyramids.base._file_manager import gdal_raster_open
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset import collection as collection_module
 from tests._helpers import write_raster
+from tests._marks import requires_dask
+
+_NETCDF_FIXTURE = (
+    Path(__file__).resolve().parents[2] / "data" / "netcdf" / "none__1v__1d1.nc"
+)
 
 pytestmark = pytest.mark.core
 
@@ -52,6 +60,12 @@ class TestNormalizeOpenOptions:
     def test_list_passes_through(self):
         """A native list is returned as a list, unchanged in content."""
         assert normalize_open_options(["A=1", "B=2"]) == ["A=1", "B=2"]
+
+    def test_tuple_becomes_list(self):
+        """A tuple (the hashable form the file managers carry) becomes a list."""
+        result = normalize_open_options(("A=1", "B=2"))
+        assert result == ["A=1", "B=2"], f"expected a list, got {result!r}"
+        assert isinstance(result, list), "tuple input must be normalised to a list"
 
     def test_none_stays_none(self):
         """`None` (the no-options case) is preserved."""
@@ -110,6 +124,24 @@ class TestReadFileOpenOptions:
         result = np.asarray(dataset.read_array(threadsafe=True))
         assert result.shape == (8, 8)
 
+    @requires_dask
+    def test_options_survive_lazy_chunked_reopen(self, georeferenced_tif):
+        """A lazy chunked read reopens per chunk with the captured options.
+
+        Test scenario:
+            `read_array(chunks=...)` builds a dask array whose per-chunk opener is
+            a `CachingFileManager` fed the captured options; the graph must build
+            and compute back to the raster's values without losing them.
+        """
+        dataset = Dataset.read_file(
+            georeferenced_tif, open_options={"GEOREF_SOURCES": "NONE"}
+        )
+        lazy = dataset.read_array(chunks=4)
+        assert hasattr(lazy, "dask"), "expected a lazy dask array"
+        result = np.asarray(lazy.compute())
+        assert result.shape == (8, 8), f"unexpected shape {result.shape}"
+        assert np.allclose(result, 1.0), "lazy chunked read altered the values"
+
     def test_two_opens_different_options_do_not_share_a_handle(self, georeferenced_tif):
         """The shared cache keys on the options, so the two reads differ.
 
@@ -126,25 +158,205 @@ class TestReadFileOpenOptions:
         assert first.geotransform == _IDENTITY_GT
         assert second.geotransform == _REAL_GT
 
+    def test_no_options_dataset_survives_pickle(self, georeferenced_tif):
+        """A plain (no-options) dataset still round-trips through pickle.
+
+        Test scenario:
+            The pickle recipe grew a fifth element (the captured options); an
+            ordinary dataset must still carry an empty tuple through it and
+            reopen with no options and the real georef — i.e. the reconstruct
+            path's `open_options is None` branch.
+        """
+        dataset = Dataset.read_file(georeferenced_tif)
+        reopened = pickle.loads(pickle.dumps(dataset))
+        assert reopened.open_options == [], "a plain dataset must capture nothing"
+        assert reopened.geotransform == _REAL_GT, "georef lost on plain reopen"
+
+
+class TestReadFileLowLevel:
+    """Tests for `_io.read_file` open branches not reachable via the wrapper.
+
+    `Dataset.read_file` always opens read-only, so the update-mode and
+    multidimensional open branches of the low-level `_io.read_file` are covered
+    here directly.
+    """
+
+    def test_update_mode_with_options_reaches_gdal(self, georeferenced_tif):
+        """Update-mode + options goes through `OpenEx(OF_UPDATE)` carrying them.
+
+        Test scenario:
+            `read_only=False` with `GEOREF_SOURCES=NONE` must still forward the
+            option to the driver — the returned handle reports the identity
+            geotransform, proving the update branch passed the option through.
+        """
+        src = io_read_file(
+            georeferenced_tif,
+            read_only=False,
+            open_options={"GEOREF_SOURCES": "NONE"},
+        )
+        try:
+            assert src is not None, "update-mode open with options returned nothing"
+            assert src.GetGeoTransform() == _IDENTITY_GT, "option lost in update mode"
+        finally:
+            src = None
+
+    def test_multidim_with_options_opens(self):
+        """Multidimensional open forwards options through `OpenEx`.
+
+        Test scenario:
+            Opening a NetCDF with `open_as_multi_dimensional=True` and a
+            recognised NetCDF open option must return a live handle, exercising
+            the `open_options=options or []` multidim branch with a non-empty
+            option list.
+        """
+        assert _NETCDF_FIXTURE.exists(), f"missing fixture: {_NETCDF_FIXTURE}"
+        src = io_read_file(
+            str(_NETCDF_FIXTURE),
+            open_as_multi_dimensional=True,
+            open_options=["HONOUR_VALID_RANGE=YES"],
+        )
+        try:
+            assert src is not None, "multidim open with options returned nothing"
+        finally:
+            src = None
+
+
+class TestGdalRasterOpen:
+    """Tests for `gdal_raster_open` — the file managers' reopen opener."""
+
+    def test_no_options_uses_plain_open(self, georeferenced_tif):
+        """With no options the opener takes the plain `gdal.Open` path.
+
+        Test scenario:
+            The falsy-options branch keeps the real georef (no option applied).
+        """
+        src = gdal_raster_open(georeferenced_tif)
+        try:
+            assert src.GetGeoTransform() == _REAL_GT, "plain open must not alter georef"
+        finally:
+            src = None
+
+    def test_read_options_take_effect(self, georeferenced_tif):
+        """Read-only + options reopens via `OpenEx` (flags 0) carrying them."""
+        src = gdal_raster_open(
+            georeferenced_tif, open_options=("GEOREF_SOURCES=NONE",)
+        )
+        try:
+            assert src.GetGeoTransform() == _IDENTITY_GT, "read option not applied"
+        finally:
+            src = None
+
+    def test_update_access_with_options(self, georeferenced_tif):
+        """Update access + options selects the `OF_UPDATE` flag and applies them.
+
+        Test scenario:
+            `access="update"` with an option must resolve to the `OF_UPDATE`
+            ternary branch and still forward the option (identity geotransform).
+        """
+        src = gdal_raster_open(
+            georeferenced_tif,
+            access="update",
+            open_options=("GEOREF_SOURCES=NONE",),
+        )
+        try:
+            assert src is not None, "update-access open with options returned nothing"
+            assert src.GetGeoTransform() == _IDENTITY_GT, "update-mode option lost"
+        finally:
+            src = None
+
 
 class TestCollectionOpenOptions:
     """Tests for `DatasetCollection.from_files(open_options=...)`."""
 
-    def test_from_files_threads_the_option(self, tmp_path):
-        """The option reaches every per-file open in the collection.
+    @pytest.fixture
+    def two_files(self, tmp_path):
+        """Two georeferenced GeoTIFFs sharing one header.
 
-        Test scenario:
-            `GEOREF_SOURCES=NONE` on a two-file collection must drop the georef
-            on the eagerly-opened template.
+        Returns:
+            list[str]: Paths to two 8x8 rasters with the same `_REAL_GT`.
         """
-        paths = [
+        return [
             write_raster(
                 tmp_path / f"g{i}.tif", np.ones((8, 8), "float32"), (100.0, 200.0)
             )
             for i in range(2)
         ]
+
+    def test_from_files_threads_the_option(self, two_files):
+        """The option reaches the eagerly-opened template.
+
+        Test scenario:
+            `GEOREF_SOURCES=NONE` on a two-file collection must drop the georef
+            on the template and be exposed on the `open_options` property.
+        """
         collection = DatasetCollection.from_files(
-            paths, open_options={"GEOREF_SOURCES": "NONE"}
+            two_files, open_options={"GEOREF_SOURCES": "NONE"}
         )
         assert collection.open_options == ["GEOREF_SOURCES=NONE"]
         assert collection.base.geotransform == _IDENTITY_GT
+
+    def test_from_files_validate_threads_the_option(self, two_files):
+        """`validate=True` threads the option into the header check.
+
+        Test scenario:
+            The per-file `_validate_headers` open must carry the option too — all
+            files then report the identity georef, so the headers still agree and
+            validation passes.
+        """
+        collection = DatasetCollection.from_files(
+            two_files, open_options={"GEOREF_SOURCES": "NONE"}, validate=True
+        )
+        assert collection.open_options == ["GEOREF_SOURCES=NONE"]
+        assert collection.base.geotransform == _IDENTITY_GT
+
+    def test_datasets_property_threads_the_option(self, two_files):
+        """Each eagerly-materialised per-timestep handle carries the option.
+
+        Test scenario:
+            The `datasets` property opens every file; each `Dataset` must both
+            apply the option (identity georef) and capture it.
+        """
+        collection = DatasetCollection.from_files(
+            two_files, open_options={"GEOREF_SOURCES": "NONE"}
+        )
+        handles = collection.datasets
+        assert len(handles) == 2, f"expected two handles, got {len(handles)}"
+        for handle in handles:
+            assert handle.geotransform == _IDENTITY_GT, "option not applied per-file"
+            assert handle.open_options == ["GEOREF_SOURCES=NONE"], "option not captured"
+
+    def test_dataset_at_threads_the_option(self, two_files):
+        """The single-timestep accessor opens one file with the option.
+
+        Test scenario:
+            `_dataset_at` opens only index 0; that handle must apply and capture
+            the option without materialising the whole set.
+        """
+        collection = DatasetCollection.from_files(
+            two_files, open_options={"GEOREF_SOURCES": "NONE"}
+        )
+        handle = collection._dataset_at(0)
+        assert handle.geotransform == _IDENTITY_GT, "option not applied at index"
+        assert handle.open_options == ["GEOREF_SOURCES=NONE"], "option not captured"
+
+    @requires_dask
+    def test_lazy_data_forwards_the_option(self, two_files, mocker):
+        """The lazy `.data` graph threads the option into every per-timestep open.
+
+        Test scenario:
+            Building the dask stack calls `_lazy_timestep` once per file; each
+            call must receive the captured options as the hashable tuple form.
+        """
+        collection = DatasetCollection.from_files(
+            two_files, open_options={"GEOREF_SOURCES": "NONE"}
+        )
+        real = collection_module._lazy_timestep
+        seen: list = []
+
+        def spy(path, meta, gdal_env, lock, **kwargs):
+            seen.append(kwargs.get("open_options"))
+            return real(path, meta, gdal_env, lock, **kwargs)
+
+        mocker.patch.object(collection_module, "_lazy_timestep", side_effect=spy)
+        _ = collection.data
+        assert seen == [("GEOREF_SOURCES=NONE",), ("GEOREF_SOURCES=NONE",)], seen
