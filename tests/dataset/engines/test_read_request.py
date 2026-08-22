@@ -174,7 +174,7 @@ class TestReadRequest:
         """
         with pytest.raises(NotImplementedError, match="out_shape") as exc:
             make_request(boundless=True, out_shape=(4, 4), threadsafe=True)
-        assert "threadsafe" not in str(exc.value) or "out_shape" in str(exc.value), (
+        assert "threadsafe" not in str(exc.value), (
             f"guard 3 (out_shape) must fire before guard 4 (threadsafe): {exc.value}"
         )
 

@@ -354,6 +354,28 @@ class TestEagerRead:
         assert result.mask[0, 0], "the nodata cell must be masked"
         assert not result.mask[1, 1], "a real-data cell must not be masked"
 
+    def test_multiband_masked_wrap_passes_band_none(self):
+        """``band=None`` + ``masked=True`` masks the stacked multiband read.
+
+        Test scenario:
+            The multiband branch feeds ``band=None`` (not ``0``) to ``_to_masked``;
+            the result is a masked array with the band axis preserved and the nodata
+            cell masked — pinning the ``band=None``-to-``_to_masked`` contract at the
+            unit boundary (also covered at the integration level).
+        """
+        bands = np.stack(
+            [np.arange(4 * 5, dtype="float32").reshape(4, 5) + b * 1000 for b in range(2)],
+            axis=0,
+        )
+        bands[0, 0, 0] = -9999.0
+        ds = Dataset.create_from_array(
+            bands, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        result = EagerRead().read(ds.io, make_request(band=None, masked=True), None)
+        assert isinstance(result, np.ma.MaskedArray), "multiband masked read must return a MaskedArray"
+        assert result.shape == (2, 4, 5), f"expected (2, 4, 5), got {result.shape}"
+        assert result.mask[0, 0, 0], "the nodata cell must be masked in the multiband result"
+
 
 class TestStrategySelection:
     """``READ_STRATEGIES`` order reproduces the original if/elif ladder."""
