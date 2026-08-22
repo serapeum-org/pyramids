@@ -121,10 +121,17 @@ def _read_source_nbits(band: Any) -> int | None:
 
     Returns:
         The declared width in bits, or ``None`` when the band carries no
-        ``NBITS`` (its samples then use the dtype's natural width).
+        ``NBITS`` or a non-integer value (its samples then use the dtype's
+        natural width). A malformed value is ignored rather than raised, mirroring
+        the defensive parse in :func:`_reconcile_predictor_with_nbits`.
     """
     raw = band.GetMetadataItem("NBITS", "IMAGE_STRUCTURE")
-    return int(raw) if raw else None
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _promote_nbits(nbits: int | None) -> int | None:

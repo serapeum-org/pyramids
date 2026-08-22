@@ -20,6 +20,7 @@ from pyramids.dataset import Dataset
 from pyramids.dataset.cog import Compression
 from pyramids.dataset.cog.options import (
     _promote_nbits,
+    _read_source_nbits,
     _reconcile_predictor_with_nbits,
 )
 
@@ -66,6 +67,32 @@ class TestResolveCogPredictor:
         """
         got = resolve_cog_predictor(gdal.GDT_Float32, nbits)
         assert got == 3, f"expected 3 for float, got {got}"
+
+
+class TestReadSourceNbits:
+    """Reading ``NBITS`` from a band in :func:`_read_source_nbits`."""
+
+    def test_reads_integer_nbits(self):
+        """A well-formed ``NBITS`` string is returned as an int."""
+        _ds, band = _mem_band(gdal.GDT_UInt16, nbits=12)
+        assert _read_source_nbits(band) == 12, "should read NBITS=12"
+
+    def test_missing_nbits_is_none(self):
+        """A band with no ``NBITS`` metadata returns ``None``."""
+        _ds, band = _mem_band(gdal.GDT_UInt16, nbits=None)
+        assert _read_source_nbits(band) is None, "no NBITS should read None"
+
+    def test_non_integer_nbits_is_ignored(self):
+        """A malformed ``NBITS`` value returns ``None`` rather than raising.
+
+        Test scenario:
+            A hand-set non-integer width must not abort the read path.
+        """
+        ds = gdal.GetDriverByName("MEM").Create("", 4, 4, 1, gdal.GDT_UInt16)
+        ds.GetRasterBand(1).SetMetadataItem("NBITS", "not-a-number", "IMAGE_STRUCTURE")
+        assert _read_source_nbits(ds.GetRasterBand(1)) is None, (
+            "malformed NBITS -> None"
+        )
 
 
 class TestPromoteNbits:
