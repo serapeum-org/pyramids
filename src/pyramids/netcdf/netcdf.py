@@ -5266,10 +5266,10 @@ class NetCDF(Dataset):
         ``_raster`` (#143). The caller mutates the returned copy and swaps it in via
         :meth:`_replace_raster`, so external handles keep the pre-mutation state.
 
-        For a `get_group()` view (`_group_path` set) the returned group is the
+        For a ``get_group()`` view (``_group_path`` set) the returned group is the
         **sub-group** inside the writable copy, not its root — so
         ``set_variable`` / ``add_variable`` / ``rename_variable`` mutate the group
-        the view reads from rather than the store root (ARC-12). `_group_path` is
+        the view reads from rather than the store root (ARC-12). ``_group_path`` is
         preserved across :meth:`_replace_raster`, so reads stay consistent with the
         write.
 

@@ -217,6 +217,10 @@ class Variables(_Engine["NetCDF"]):
                 carry loop) to mutate it in place and avoid a per-call copy.
                 Ignored (a copy is always made) for file-backed containers and
                 for a `get_group()` view. Defaults to True.
+
+        Raises:
+            ValueError: If called on a dataset without a root group
+                (not opened in multidimensional mode).
         """
         # Local import breaks the netcdf.py <-> engines.variables import cycle
         # (netcdf.py imports this module at top level for wiring).
