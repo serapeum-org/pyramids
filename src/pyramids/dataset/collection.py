@@ -678,8 +678,11 @@ class DatasetCollection:
         self._meta = meta if meta is not None else RasterMeta.from_dataset(src)
         self._gdal_env: dict[str, str] = dict(gdal_env) if gdal_env else {}
         # GDAL open options every per-file open in this collection carries,
-        # mirroring _gdal_env (#1025).
-        self._open_options: list[str] = list(open_options) if open_options else []
+        # mirroring _gdal_env (#1025). Stored as a tuple for parity with
+        # RasterBase._open_options (hashable, stable) — it is only ever read.
+        self._open_options: tuple[str, ...] = (
+            tuple(open_options) if open_options else ()
+        )
         # When set (by from_zarr), the lazy `data` cube reads directly from this
         # resolved Zarr store instead of stacking per-file reads.
         self._zarr_store = zarr_store
@@ -1270,7 +1273,7 @@ class DatasetCollection:
                 meta,
                 self._gdal_env,
                 path_locks.setdefault(str(path), default_lock(f"data:{path}")),
-                open_options=tuple(self._open_options) or None,
+                open_options=self._open_options or None,
             )
             for path in self._files
         ]
