@@ -47,6 +47,53 @@ def dst_srs_arg(dst_sr: osr.SpatialReference) -> str:
     return srs_arg
 
 
+def carry_raster_metadata(
+    source: gdal.Dataset,
+    dest: gdal.Dataset,
+    *,
+    categories_only: bool = False,
+) -> None:
+    """Carry a raster's descriptive metadata from `source` onto `dest`.
+
+    Two operations move pixels without their descriptive metadata and need this:
+    GDAL's warper drops per-band **category names** (the class legend), and
+    :func:`gdal.ReprojectImage` (used by :meth:`Spatial.align`) copies only pixels
+    onto a freshly built raster, so its output starts blank. The warp path already
+    keeps dataset/band metadata and the raster attribute table, so it asks for
+    `categories_only`; `align` copies everything.
+
+    A straight positional band copy is safe because every caller keeps the band
+    count; it is guarded on matching counts anyway and is a no-op otherwise.
+
+    Args:
+        source: The raster to read descriptive metadata from.
+        dest: The warped or rebuilt raster to stamp it onto.
+        categories_only: When `True`, copy only per-band category names (the warp
+            path keeps everything else); when `False`, also copy the dataset
+            metadata, per-band metadata, and each band's raster attribute table.
+    """
+    if not categories_only:
+        dataset_md = source.GetMetadata()
+        if dataset_md:
+            dest.SetMetadata(dataset_md)
+    if source.RasterCount != dest.RasterCount:
+        return
+    for i in range(1, source.RasterCount + 1):
+        s_band = source.GetRasterBand(i)
+        d_band = dest.GetRasterBand(i)
+        names = s_band.GetCategoryNames()
+        if names:
+            d_band.SetCategoryNames(names)
+        if categories_only:
+            continue
+        band_md = s_band.GetMetadata()
+        if band_md:
+            d_band.SetMetadata(band_md)
+        rat = s_band.GetDefaultRAT()
+        if rat is not None:
+            d_band.SetDefaultRAT(rat)
+
+
 def warp_to_dataset(
     source: Dataset,
     options: gdal.WarpOptions,
@@ -88,6 +135,11 @@ def warp_to_dataset(
     warped = gdal.Warp("", source.raster, options=options)
     if warped is None:
         raise RuntimeError(error_message)
+    # GDAL's warper carries dataset/band metadata and the RAT across but drops
+    # per-band category names, so a classified raster loses its legend on every
+    # warp (to_crs / warped_view / cutline crop / orthorectify / georeference).
+    # Re-attach them here, the one place every warp routes through (#1024).
+    carry_raster_metadata(source.raster, warped, categories_only=True)
     cls = source.__class__ if dataset_class is None else dataset_class
     result = cls(warped, access=access)
     if pin:
