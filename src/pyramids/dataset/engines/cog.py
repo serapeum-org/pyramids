@@ -39,6 +39,7 @@ from pyramids.dataset.cog import (
     validate,
     validate_profile,
 )
+from pyramids.dataset.cog.options import _reconcile_predictor_with_nbits
 from pyramids.dataset.cog.validate import _resolve_read_config, config_context
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines._validate import world_to_pixel
@@ -363,6 +364,10 @@ class COG(_Engine["Dataset"]):
             )
 
         options = merge_options(defaults, extra)
+        # If a caller forced a sub-byte-aligned NBITS through `extra`, the
+        # promoted-width predictor computed above would make GDAL reject the
+        # write — drop the predictor so the caller's explicit width is honoured.
+        _reconcile_predictor_with_nbits(options)
         with config_context(config):
             self._translate_with_statistics_retry(path, options, src=source_ds)
         return Path(path)
