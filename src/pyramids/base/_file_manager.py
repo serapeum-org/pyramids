@@ -129,7 +129,12 @@ def gdal_raster_open(
     """
     vsi = _to_vsi(path)
     if open_options:
-        flags = gdal.OF_UPDATE if _resolve_access(access) == gdal.GA_Update else 0
+        # OF_RASTER | OF_VERBOSE_ERROR restore the raster-only kind restriction
+        # and verbose diagnostics gdal.Open implies; bare OpenEx would open
+        # OF_ALL and could hand back a vector handle for a dual-nature source.
+        flags = gdal.OF_RASTER | gdal.OF_VERBOSE_ERROR
+        if _resolve_access(access) == gdal.GA_Update:
+            flags |= gdal.OF_UPDATE
         return gdal.OpenEx(vsi, flags, open_options=list(open_options))
     return gdal.Open(vsi, _resolve_access(access))
 

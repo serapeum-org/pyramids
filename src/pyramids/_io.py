@@ -693,7 +693,14 @@ def read_file(
             # one path with different options are not handed the same handle —
             # they simply do not share. Same options still share, keeping the
             # frequently-accessed-raster benefit the OpenShared branch is for.
-            src = gdal.OpenEx(path, access | gdal.OF_SHARED, open_options=options)
+            # OF_RASTER | OF_VERBOSE_ERROR restore the driver-kind restriction and
+            # verbose diagnostics that gdal.OpenShared implies but bare OpenEx
+            # (OF_ALL, terse errors) drops — this is a raster reader.
+            src = gdal.OpenEx(
+                path,
+                access | gdal.OF_SHARED | gdal.OF_RASTER | gdal.OF_VERBOSE_ERROR,
+                open_options=options,
+            )
         elif not options:
             # Update mode must NOT share: GDAL returns one handle per
             # path+access+thread, so two update-mode Datasets on the same file
@@ -704,8 +711,13 @@ def read_file(
             src = gdal.Open(path, access)
         else:
             # Same no-share intent, but OpenEx is the only entry that carries
-            # open options; OF_SHARED is deliberately absent here.
-            src = gdal.OpenEx(path, access | gdal.OF_UPDATE, open_options=options)
+            # open options; OF_SHARED is deliberately absent here. OF_RASTER |
+            # OF_VERBOSE_ERROR keep parity with the gdal.Open this replaces.
+            src = gdal.OpenEx(
+                path,
+                access | gdal.OF_UPDATE | gdal.OF_RASTER | gdal.OF_VERBOSE_ERROR,
+                open_options=options,
+            )
     except Exception as e:
         _raise_open_error(e, path)
     return src
