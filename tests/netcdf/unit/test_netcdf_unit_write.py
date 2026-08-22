@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -92,8 +93,82 @@ class TestMetaDataSetter:
         )
 
 
+def _prepare_elevation_copy():
+    """Build ``make_2d_nc``'s ``elevation`` source and a matching empty MEM destination.
+
+    Returns:
+        A ``(src_arr, dst_rg)`` pair: the source ``elevation`` MDArray and a fresh
+        in-memory root group carrying its dimensions, ready to be passed to
+        ``NetCDF._add_md_array_to_group``.
+    """
+    nc = make_2d_nc()
+    src_arr = nc._raster.GetRootGroup().OpenMDArray("elevation")
+    dst_rg = gdal.GetDriverByName("MEM").CreateMultiDimensional("dst").GetRootGroup()
+    dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    for d in src_arr.GetDimensions():
+        iv = d.GetIndexingVariable()
+        NetCDF.create_main_dimension(dst_rg, d.GetName(), dtype, iv.ReadAsArray())
+    return src_arr, dst_rg
+
+
 class TestAddMdArrayToGroupFallback:
     """Tests for _add_md_array_to_group NoData handling."""
+
+    @staticmethod
+    def _copy_elevation_with_nodata(nodata, *, set_raises=False):
+        """Copy ``make_2d_nc``'s ``elevation`` into a fresh MEM group.
+
+        The source's ``GetNoDataValue`` is patched to ``nodata`` for the copy, so
+        the caller controls whether the source appears to define a no-data value.
+        Patches are lifted before the copy is re-opened, so the returned array's
+        ``GetNoDataValue`` reports whatever ``_add_md_array_to_group`` actually set.
+
+        Args:
+            nodata: The value ``GetNoDataValue`` should report on the source
+                (``None`` for a source with no no-data defined).
+            set_raises: When ``True``, the MDArray ``SetNoDataValueDouble`` is
+                patched to raise ``RuntimeError`` during the copy, exercising the
+                error-handling branch. The patch targets the shared ``gdal.MDArray``
+                class, so it also covers the destination array — whose
+                ``SetNoDataValueDouble`` is the call that actually raises. Defaults
+                to ``False``.
+
+        Returns:
+            The copied ``copied_var`` MDArray in the destination group.
+        """
+        src_arr, dst_rg = _prepare_elevation_copy()
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch.object(type(src_arr), "GetNoDataValue", return_value=nodata)
+            )
+            if set_raises:
+                stack.enter_context(
+                    patch.object(
+                        type(src_arr),
+                        "SetNoDataValueDouble",
+                        side_effect=RuntimeError("simulated GDAL failure"),
+                    )
+                )
+            NetCDF._add_md_array_to_group(dst_rg, "copied_var", src_arr)
+
+        return dst_rg.OpenMDArray("copied_var")
+
+    def test_preserves_real_nodata_without_mocking(self):
+        """The real GDAL get/set round-trip carries the source's -9999.0 onto the copy.
+
+        Test scenario:
+            ``make_2d_nc``'s ``elevation`` carries a genuine ``no_data_value`` of
+            -9999.0. Copying it with no patching at all must preserve that exact value
+            on the copy, proving the real GetNoDataValue -> SetNoDataValueDouble
+            plumbing end to end rather than only the mocked contract.
+        """
+        src_arr, dst_rg = _prepare_elevation_copy()
+        NetCDF._add_md_array_to_group(dst_rg, "copied_var", src_arr)
+        copied = dst_rg.OpenMDArray("copied_var")
+        assert copied is not None, "Copied variable should exist"
+        ndv = copied.GetNoDataValue()
+        assert ndv == pytest.approx(-9999.0), f"Expected real nodata -9999.0, got {ndv}"
 
     def test_no_nodata_when_source_has_none(self):
         """When source has no nodata, the copy should also have no nodata.
@@ -102,25 +177,38 @@ class TestAddMdArrayToGroupFallback:
             Source variable with GetNoDataValue() returning None should
             not produce a phantom -9999 sentinel on the copy.
         """
-        nc = make_2d_nc()
-        src_rg = nc._raster.GetRootGroup()
-        src_arr = src_rg.OpenMDArray("elevation")
-
-        dst = gdal.GetDriverByName("MEM").CreateMultiDimensional("dst")
-        dst_rg = dst.GetRootGroup()
-        dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
-        for d in src_arr.GetDimensions():
-            iv = d.GetIndexingVariable()
-            NetCDF.create_main_dimension(dst_rg, d.GetName(), dtype, iv.ReadAsArray())
-
-        # Patch GetNoDataValue to return None (no nodata on source)
-        with patch.object(type(src_arr), "GetNoDataValue", return_value=None):
-            NetCDF._add_md_array_to_group(dst_rg, "copied_var", src_arr)
-
-        copied = dst_rg.OpenMDArray("copied_var")
+        copied = self._copy_elevation_with_nodata(None)
         assert copied is not None, "Copied variable should exist"
         ndv = copied.GetNoDataValue()
         assert ndv is None, f"Expected no nodata (None), got {ndv}"
+
+    def test_preserves_nodata_when_source_has_value(self):
+        """When source defines a nodata value, the copy should preserve it.
+
+        Test scenario:
+            Source variable with GetNoDataValue() returning a concrete value
+            (255.0) should carry that exact value onto the copy, not drop it
+            or replace it with a sentinel.
+        """
+        copied = self._copy_elevation_with_nodata(255.0)
+        assert copied is not None, "Copied variable should exist"
+        ndv = copied.GetNoDataValue()
+        assert ndv == pytest.approx(255.0), f"Expected nodata 255.0, got {ndv}"
+
+    def test_set_nodata_error_is_swallowed(self):
+        """A GDAL error while setting the source no-data is swallowed, not propagated.
+
+        Test scenario:
+            The source reports a no-data value but SetNoDataValueDouble raises a
+            RuntimeError (a genuine GDAL failure). _add_md_array_to_group catches it
+            in its ``except (RuntimeError, TypeError, ValueError)`` branch, so the copy
+            is simply left with no no-data value instead of the error escaping. (Also
+            guards against a future regression that adds a sentinel fallback there.)
+        """
+        copied = self._copy_elevation_with_nodata(255.0, set_raises=True)
+        assert copied is not None, "Copied variable should exist"
+        ndv = copied.GetNoDataValue()
+        assert ndv is None, f"Expected no nodata after a swallowed error, got {ndv}"
 
 
 class TestSetVariableAttributes:
