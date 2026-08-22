@@ -163,6 +163,7 @@ def _reconstruct_netcdf(
     is_subset: bool,
     source_var_name: str | None,
     group_path: str | None = None,
+    open_options: tuple[str, ...] | None = None,
 ) -> NetCDF:
     """Re-open a :class:`NetCDF` from its pickle recipe tuple.
 
@@ -192,6 +193,10 @@ def _reconstruct_netcdf(
         group_path: Sub-group path for a group view; when set, the
             rebuilt container is drilled into via
             :meth:`NetCDF.get_group`. Defaults to None.
+        open_options: GDAL open options captured on the originating container,
+            forwarded to :meth:`NetCDF.read_file` so the worker reopens with the
+            same driver behaviour. Defaults to None so a six-element recipe from
+            an older pickle (with no options) still loads (#1025).
 
     Returns:
         NetCDF: Container, group view, or variable-subset instance.
@@ -203,6 +208,7 @@ def _reconstruct_netcdf(
         path,
         read_only=True,
         open_as_multi_dimensional=is_md_array,
+        open_options=list(open_options) if open_options else None,
     )
     if group_path:
         result = container.get_group(group_path)
@@ -530,6 +536,7 @@ class NetCDF(Dataset):
                 bool(self._is_subset),
                 self._source_var_name,
                 self._group_path,
+                tuple(self._open_options),
             ),
         )
 
@@ -538,6 +545,8 @@ class NetCDF(Dataset):
         src: gdal.Dataset,
         access: str = "read_only",
         open_as_multi_dimensional: bool = True,
+        *,
+        open_options: tuple[str, ...] | list[str] | None = None,
     ):
         """Initialize a NetCDF dataset wrapper.
 
@@ -549,6 +558,10 @@ class NetCDF(Dataset):
                 `gdal.OF_MULTIDIM_RASTER` and supports groups, MDArrays,
                 and dimensions. If False it was opened in classic raster
                 mode (subdatasets, bands). Defaults to True.
+            open_options: GDAL open options this store was opened with,
+                captured so the base reopen paths (per-thread handles,
+                lazy `chunks=` reads) reapply them. `None` (default)
+                captures nothing (#1025).
         """
         if type(self) is NetCDF:
             # API-1 (#614): NetCDF is now the base of Container / Variable.
@@ -564,7 +577,7 @@ class NetCDF(Dataset):
                 DeprecationWarning,
                 stacklevel=2,
             )
-        super().__init__(src, access=access)
+        super().__init__(src, access=access, open_options=open_options)
         # set the is_subset to false before retrieving the variables
         if open_as_multi_dimensional:
             self._is_md_array = True
@@ -3682,6 +3695,7 @@ class NetCDF(Dataset):
         file_i: int = 0,
         *,
         vsi: str | None = None,
+        open_options: dict[str, str] | list[str] | None = None,
     ) -> NetCDF:
         """Open a NetCDF file from a path, URL, or archive member.
 
@@ -3715,6 +3729,11 @@ class NetCDF(Dataset):
                 download URL must first be fetched and saved with a
                 ``.zip`` name (or written to ``/vsimem/<name>.zip`` via
                 :func:`osgeo.gdal.FileFromMemBuffer`).
+            open_options: GDAL open options as a mapping
+                (``{"HONOUR_VALID_RANGE": "NO"}``) or GDAL's native
+                ``["KEY=VALUE"]`` list, forwarded to the netCDF driver and
+                captured on the returned container so the reopen paths reapply
+                them. Default ``None`` — no options (#1025).
 
                 **Platform caveat for NetCDF:** GDAL's netCDF driver
                 requires Linux ``userfaultfd`` to open a ``.nc`` from
@@ -3769,16 +3788,21 @@ class NetCDF(Dataset):
             - :meth:`pyramids.dataset.Dataset.read_file`: the same
               ``vsi=`` / ``file_i=`` surface for GeoTIFFs.
         """
+        options = _io.normalize_open_options(open_options)
         src = _io.read_file(
             path,
             read_only,
             open_as_multi_dimensional,
             file_i=file_i,
             vsi=vsi,
+            open_options=options,
         )
         access = "read_only" if read_only else "write"
         return Container(
-            src, access=access, open_as_multi_dimensional=open_as_multi_dimensional
+            src,
+            access=access,
+            open_as_multi_dimensional=open_as_multi_dimensional,
+            open_options=options,
         )
 
     @classmethod

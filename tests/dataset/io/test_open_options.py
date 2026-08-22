@@ -22,6 +22,7 @@ from pyramids._io import read_file as io_read_file
 from pyramids.base._file_manager import gdal_raster_open
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset import collection as collection_module
+from pyramids.netcdf import NetCDF
 from tests._helpers import write_raster
 from tests._marks import requires_dask
 
@@ -360,3 +361,32 @@ class TestCollectionOpenOptions:
         mocker.patch.object(collection_module, "_lazy_timestep", side_effect=spy)
         _ = collection.data
         assert seen == [("GEOREF_SOURCES=NONE",), ("GEOREF_SOURCES=NONE",)], seen
+
+
+class TestNetCDFOpenOptions:
+    """`NetCDF.read_file` honours the widened `open_options` contract (M2)."""
+
+    def test_read_file_accepts_and_captures(self):
+        """A `dict` option is accepted (no `TypeError`) and captured on the container."""
+        nc = NetCDF.read_file(
+            str(_NETCDF_FIXTURE), open_options={"HONOUR_VALID_RANGE": "NO"}
+        )
+        assert nc.open_options == ["HONOUR_VALID_RANGE=NO"], "option not captured"
+
+    def test_default_captures_nothing(self):
+        """An ordinary NetCDF open captures no options (backward-compatible)."""
+        nc = NetCDF.read_file(str(_NETCDF_FIXTURE))
+        assert nc.open_options == [], "a plain NetCDF open must capture nothing"
+
+    def test_options_survive_pickle_reopen(self):
+        """The captured options round-trip through the NetCDF pickle recipe.
+
+        Test scenario:
+            The recipe grew a seventh element (the captured options); a worker
+            reopen (unpickle) must reapply them rather than silently dropping.
+        """
+        nc = NetCDF.read_file(
+            str(_NETCDF_FIXTURE), open_options={"HONOUR_VALID_RANGE": "NO"}
+        )
+        reopened = pickle.loads(pickle.dumps(nc))
+        assert reopened.open_options == ["HONOUR_VALID_RANGE=NO"], "options lost on reopen"
