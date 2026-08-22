@@ -320,45 +320,46 @@ class TestRasterizeRoundTrip:
             "a feature touching the template edge (zero overlap) is treated as outside"
         )
 
-    def test_from_features_warns_and_returns_all_nodata_for_empty_collection(self):
-        """An empty FeatureCollection warns and returns an all-nodata raster, not a crash (#46)."""
+    @pytest.mark.parametrize(
+        "class_ids, geometry",
+        [
+            (pd.Series([], dtype="int32"), []),  # truly empty (len 0)
+            ([7], [None]),  # rows with null geometry (len>0, NaN bounds)
+        ],
+        ids=["empty_collection", "null_geometry_rows"],
+    )
+    def test_from_features_warns_and_returns_all_nodata_without_geometry(
+        self, class_ids, geometry
+    ):
+        """Empty or null-geometry collections warn and return an all-nodata raster (#46).
+
+        Args:
+            class_ids: Burn-column values — empty for the zero-row case, one value for the
+                null-geometry row.
+            geometry: The geometry column — empty, or a single ``None``.
+
+        Test scenario:
+            Both an empty FeatureCollection (len 0, which skips the burn) and rows with null
+            geometry (len>0, NaN bounds, which burns nothing) warn and yield an all-nodata
+            raster on the template grid, without the cryptic GDAL "field not found" crash.
+        """
         template = _make_dataset(
             rows=5, cols=5, epsg=4326, cell_size=1.0, top_left=(0.0, 5.0)
         )
-        empty = FeatureCollection(
+        fc = FeatureCollection(
             gpd.GeoDataFrame(
-                {"class_id": pd.Series([], dtype="int32")},
-                geometry=[],
-                crs="EPSG:4326",
+                {"class_id": class_ids}, geometry=geometry, crs="EPSG:4326"
             )
         )
 
         with pytest.warns(UserWarning, match="empty or falls entirely outside"):
             raster = Dataset.from_features(
-                empty, template=template, column_name="class_id"
+                fc, template=template, column_name="class_id"
             )
 
         arr = raster.read_array()
-        assert arr.shape == (5, 5), "output should still adopt the template grid"
-        assert not np.any(np.isclose(arr, 1.0)), "an empty collection burns nothing"
-
-    def test_from_features_warns_and_returns_all_nodata_for_null_geometry_rows(self):
-        """Rows with null geometry (len>0, NaN bounds) warn and return all-nodata (#46 S2)."""
-        template = _make_dataset(
-            rows=5, cols=5, epsg=4326, cell_size=1.0, top_left=(0.0, 5.0)
-        )
-        null_geom = FeatureCollection(
-            gpd.GeoDataFrame({"class_id": [7]}, geometry=[None], crs="EPSG:4326")
-        )
-
-        with pytest.warns(UserWarning, match="empty or falls entirely outside"):
-            raster = Dataset.from_features(
-                null_geom, template=template, column_name="class_id"
-            )
-
-        arr = raster.read_array()
-        assert arr.shape == (5, 5), "output should still adopt the template grid"
-        assert not np.any(np.isclose(arr, 7.0)), "null geometry burns nothing"
+        assert arr.shape == (5, 5), "output should adopt the template grid"
+        assert not np.any(np.isclose(arr, 7.0)), "no geometry burns nothing"
 
     def test_interior_zero_area_point_is_not_flagged(self):
         """A zero-area point inside the template is not flagged as outside (#46).
