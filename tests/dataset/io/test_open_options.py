@@ -27,9 +27,10 @@ from pyramids.netcdf import NetCDF
 from tests._helpers import write_raster
 from tests._marks import requires_dask
 
-_NETCDF_FIXTURE = (
-    Path(__file__).resolve().parents[2] / "data" / "netcdf" / "none__1v__1d1.nc"
-)
+_NETCDF_DIR = Path(__file__).resolve().parents[2] / "data" / "netcdf"
+_NETCDF_FIXTURE = _NETCDF_DIR / "none__1v__1d1.nc"
+_NETCDF_MULTIVAR = _NETCDF_DIR / "cf__6v__1d2-2d4__geog__y-asc.nc"
+_NETCDF_GROUPS = _NETCDF_DIR / "none__35v__1d35__groups-nc4.nc"
 
 pytestmark = pytest.mark.core
 
@@ -426,3 +427,32 @@ class TestNetCDFOpenOptions:
         )
         reopened = pickle.loads(pickle.dumps(nc))
         assert reopened.open_options == ["HONOUR_VALID_RANGE=NO"], "options lost on reopen"
+
+    def test_variable_subset_inherits_and_survives_pickle(self):
+        """A `get_variable` subset inherits the container's options and reopens with them.
+
+        Test scenario:
+            A subset's pickle recipe reopens the *parent* file and drills back in,
+            so a worker must reapply the captured options — dropping them would
+            silently read different data for a value-affecting option (M1).
+        """
+        nc = NetCDF.read_file(
+            str(_NETCDF_MULTIVAR), open_options={"HONOUR_VALID_RANGE": "NO"}
+        )
+        var = nc.get_variable(nc.variable_names[0])
+        assert var.open_options == ["HONOUR_VALID_RANGE=NO"], "subset dropped the option"
+        reopened = pickle.loads(pickle.dumps(var))
+        assert reopened.open_options == ["HONOUR_VALID_RANGE=NO"], "subset lost it on reopen"
+
+    def test_group_view_inherits_options(self):
+        """A `get_group` view inherits the container's captured options (M1).
+
+        Test scenario:
+            A group view shares the parent's dataset and reopens the parent on
+            unpickle, so it must carry the parent's options.
+        """
+        nc = NetCDF.read_file(
+            str(_NETCDF_GROUPS), open_options={"HONOUR_VALID_RANGE": "NO"}
+        )
+        group = nc.get_group(nc.group_names[0])
+        assert group.open_options == ["HONOUR_VALID_RANGE=NO"], "group view dropped it"

@@ -2582,6 +2582,9 @@ class NetCDF(Dataset):
         wrapped._offset = self._offset
         wrapped._parent_nc = self._parent_nc
         wrapped._source_var_name = self._source_var_name
+        # A wrapped subset reopens the parent file on unpickle, so it must carry
+        # the parent's captured GDAL open options too (#1025).
+        wrapped._open_options = self._open_options
         wrapped._gdal_md_arr_ref = None
         wrapped._gdal_rg_ref = None
         return wrapped
@@ -4661,6 +4664,9 @@ class NetCDF(Dataset):
         # Pin the parent so the shared dataset (and its SWIG wrappers) outlive the
         # view even if the caller drops the parent reference.
         view._parent_nc = self
+        # A group view's pickle recipe reopens the parent file, so it inherits the
+        # parent's captured GDAL open options (#1025).
+        view._open_options = self._open_options
         return view
 
     def get_variable_names(self) -> list[str]:
@@ -5003,6 +5009,9 @@ class NetCDF(Dataset):
         # --- RT-4: Track variable origin for round-trip ---
         cube._parent_nc = self
         cube._source_var_name = variable_name
+        # A variable subset's pickle recipe reopens the parent file, so it inherits
+        # the parent's captured GDAL open options (#1025).
+        cube._open_options = self._open_options
 
         # Geostationary (GOES) scan-angle x/y come through the MDIM read path in
         # radians; rescale them to projected metres so the cube is correctly
