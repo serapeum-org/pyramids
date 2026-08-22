@@ -768,7 +768,10 @@ class IO(_Engine["Dataset"]):
         # attribute read — on a NetCDF it can trigger a state-mutating full-variable
         # CRS scan — so evaluating it eagerly on every read would change behaviour on
         # the bbox=None path (the original only read it inside `if bbox is not None`).
-        crs = None if bbox is None else (epsg if epsg is not None else self._ds.epsg)
+        if bbox is None:
+            crs = None
+        else:
+            crs = epsg if epsg is not None else self._ds.epsg
         window = resolve_read_window(window, bbox, crs=crs)
         # Resolve a geometry window (from `bbox=` or a polygon `window=`) to an integer pixel window
         # once, up front, so `bbox_rounding` applies uniformly no matter which read path runs. The
