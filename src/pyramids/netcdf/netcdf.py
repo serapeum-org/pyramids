@@ -36,7 +36,7 @@ from pyramids.base.remote import is_remote
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import nonnull_group_kwargs
 from pyramids.dataset.dataset import _COLLABORATOR_ATTRS
-from pyramids.feature import FeatureCollection
+from pyramids.dataset.engines._read_window import resolve_read_window
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
@@ -2393,6 +2393,11 @@ class NetCDF(Dataset):
                     "read lazily and slice the resulting dask array instead."
                 )
             return window
+        # The bbox/window exclusivity check stays here, ahead of the chunks and
+        # no-CRS guards, so an invalid combination raises the same "not both"
+        # message it always has (the shared resolve_read_window would otherwise
+        # only see it last). resolve_read_window's own exclusivity guard is then
+        # dormant below (window is None past this point).
         if window is not None:
             raise ValueError("read_array accepts either `window` or `bbox`, not both")
         if chunks is not None:
@@ -2408,7 +2413,9 @@ class NetCDF(Dataset):
                 "read_array(bbox=…) requires an explicit `epsg=` when the "
                 "NetCDF has no CRS at all — a bbox without a CRS is ambiguous"
             )
-        return FeatureCollection.from_bbox(bbox, epsg=crs)
+        # The bbox -> FeatureCollection build is shared with Dataset.read_array via
+        # the injected, already-resolved CRS.
+        return resolve_read_window(window, bbox, crs=crs)
 
     def _read_array_eager(
         self,

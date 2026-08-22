@@ -427,6 +427,27 @@ class TestNetCDFReadArrayBbox:
                 chunks="auto",
             )
 
+    def test_window_bbox_chunks_together_raises_not_both_first(self, root_nc: NetCDF):
+        """Test the window/bbox exclusivity fires before the ``chunks=`` + ``bbox=`` guard.
+
+        Args:
+            root_nc: Module-scope root NetCDF fixture.
+
+        Test scenario:
+            With ``window`` + ``bbox`` + ``chunks`` all set (multiply invalid), the
+            "not both" exclusivity message must win, matching the historical order where
+            the exclusivity check precedes the ``chunks=`` + ``bbox=`` guard. Pins the
+            precedence so the shared ``resolve_read_window`` refactor cannot silently
+            demote the exclusivity check below the ``chunks``/no-CRS guards.
+        """
+        with pytest.raises(ValueError, match="not both"):
+            root_nc.read_array(
+                variable="Band1",
+                window=[0, 0, 10, 10],
+                bbox=(10.0, -50.0, 50.0, -20.0),
+                chunks="auto",
+            )
+
     def test_crs_less_netcdf_without_epsg_raises(self, root_nc: NetCDF, mocker):
         """Test ``read_array(bbox=…)`` on a CRS-less NetCDF raises ``ValueError``.
 

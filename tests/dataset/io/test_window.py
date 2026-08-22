@@ -488,3 +488,25 @@ class TestWindowConveniences:
             Window(0,0,4,4).crop(0, 0) -> None.
         """
         assert Window(0, 0, 4, 4).crop(rows=0, cols=0) is None
+
+
+class TestBboxlessReadDoesNotResolveEpsg:
+    """A bbox-less read must not evaluate `epsg` (read_array decomposition review L1)."""
+
+    def test_full_read_does_not_touch_epsg(self, ramp_dataset, mocker):
+        """A ``bbox=None`` read resolves no CRS, so ``epsg`` is never accessed.
+
+        Test scenario:
+            ``epsg`` is not always a free attribute read — on a ``NetCDF`` it can
+            trigger a state-mutating full-variable CRS scan. Make the property raise
+            and confirm a plain full read still succeeds, proving ``read_array`` does
+            not evaluate ``epsg`` when no ``bbox`` is given.
+        """
+        mocker.patch.object(
+            Dataset,
+            "epsg",
+            new_callable=mocker.PropertyMock,
+            side_effect=AssertionError("epsg must not be read for a bbox-less read"),
+        )
+        result = ramp_dataset.read_array(band=0)
+        assert result.shape == (6, 6), f"expected a full 6x6 read, got {result.shape}"

@@ -65,6 +65,9 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._read_request import ReadRequest
+from pyramids.dataset.engines._read_strategies import READ_STRATEGIES
+from pyramids.dataset.engines._read_window import resolve_read_window
 from pyramids.dataset.engines._validate import (
     validate_band_index,
     window_out_of_bounds,
@@ -749,163 +752,40 @@ class IO(_Engine["Dataset"]):
             - Dataset.get_tile: Read the dataset in chunks.
             - Dataset.get_block_arrangement: Get block arrangement to read the dataset in chunks.
         """
-        if fill_value is not None and not boundless:
-            raise ValueError(
-                "read_array(fill_value=...) only applies to boundless reads; "
-                "pass boundless=True as well."
-            )
-        if boundless and chunks is not None:
-            raise ValueError(
-                "read_array(chunks=..., boundless=True) is not supported; "
-                "boundless fills apply to eager windowed reads only."
-            )
-        if boundless and out_shape is not None:
-            raise NotImplementedError(
-                "read_array(out_shape=...) is not supported together with "
-                "boundless=True; decimated boundless reads are not combined "
-                "yet. Read boundless at native resolution and decimate the "
-                "result yourself."
-            )
-        if boundless and threadsafe:
-            raise NotImplementedError(
-                "read_array(boundless=True) is not supported together with "
-                "threadsafe=True; the boundless read uses the shared handle, "
-                "defeating the per-thread isolation. Read boundless without "
-                "threadsafe, or pad the result yourself."
-            )
-        if out_shape is not None and threadsafe:
-            raise NotImplementedError(
-                "read_array(out_shape=...) is not supported together with "
-                "threadsafe=True; the decimated read uses the shared handle, "
-                "defeating the per-thread isolation. Read decimated without "
-                "threadsafe, or decimate a threadsafe full read yourself."
-            )
-        if (
-            out_shape is None
-            and isinstance(resampling, str)
-            and (resampling.strip().lower() != "nearest")
-        ):
-            raise ValueError(
-                "read_array(resampling=...) only applies to out_shape reads; "
-                "pass out_shape=(rows, cols) as well."
-            )
-        if bbox is not None:
-            if window is not None:
-                raise ValueError(
-                    "read_array accepts either `window` or `bbox`, not both"
-                )
+        req = ReadRequest(
+            band=band,
+            chunks=chunks,
+            lock=lock,
+            out_shape=out_shape,
+            resampling=resampling,
+            boundless=boundless,
+            fill_value=fill_value,
+            masked=masked,
+            threadsafe=threadsafe,
+        )
+        # Resolve the bbox CRS only when a bbox is actually given. resolve_read_window
+        # ignores `crs` for a bbox-less read, and `self._ds.epsg` is not always a free
+        # attribute read — on a NetCDF it can trigger a state-mutating full-variable
+        # CRS scan — so evaluating it eagerly on every read would change behaviour on
+        # the bbox=None path (the original only read it inside `if bbox is not None`).
+        if bbox is None:
+            crs = None
+        else:
             crs = epsg if epsg is not None else self._ds.epsg
-            window = FeatureCollection.from_bbox(bbox, epsg=crs)
+        window = resolve_read_window(window, bbox, crs=crs)
         # Resolve a geometry window (from `bbox=` or a polygon `window=`) to an integer pixel window
         # once, up front, so `bbox_rounding` applies uniformly no matter which read path runs. The
-        # boundless branch below deliberately rejects geometry windows (they are clipped by
-        # definition), so leave those unconverted for it to reject.
+        # boundless strategy deliberately rejects geometry windows (they are clipped by definition),
+        # so leave those unconverted for it to reject.
         if isinstance(window, GeoDataFrame) and not boundless:
             window = self._convert_polygon_to_window(window, rounding=bbox_rounding)
-        if chunks is not None:
-            if window is not None:
-                raise ValueError(
-                    "read_array(chunks=..., window=...) is not supported; "
-                    "read lazily and slice the resulting dask array instead."
-                )
-            if out_shape is not None:
-                raise NotImplementedError(
-                    "read_array(out_shape=...) is not supported together with "
-                    "chunks=; decimate eagerly, or coarsen the dask array."
-                )
-            if masked:
-                raise NotImplementedError(
-                    "read_array(masked=True) is not supported together with "
-                    "chunks=; read eagerly, or mask the dask array yourself."
-                )
-            arr = self._lazy_read_array(
-                band=band, chunks=chunks, lock=lock, threadsafe=threadsafe
-            )
-            self._ds._backend = "dask"
-        elif out_shape is not None:
-            if masked:
-                raise NotImplementedError(
-                    "read_array(out_shape=...) is not supported together with "
-                    "masked=True; decimation and masking are not combined yet. "
-                    "Read decimated without masked, or mask the result yourself."
-                )
-            arr = self._decimated_read(band, window, out_shape, resampling)
-            self._ds._backend = "numpy"
-        elif boundless:
-            if masked:
-                raise NotImplementedError(
-                    "read_array(boundless=True) is not supported together "
-                    "with masked=True; boundless fills and masking are not "
-                    "combined yet. Read boundless without masked, or mask the "
-                    "result yourself."
-                )
-            if window is None:
-                raise ValueError(
-                    "read_array(boundless=True) requires a window; a full read "
-                    "cannot extend past the raster."
-                )
-            if isinstance(window, GeoDataFrame):
-                raise ValueError(
-                    "boundless reads need a pixel window (Window or "
-                    "[col_off, row_off, cols, rows] list); geometry windows "
-                    "are clipped by definition."
-                )
-            arr = self._boundless_read(band, window, fill_value)
-            self._ds._backend = "numpy"
-        elif threadsafe:
-            if masked:
-                raise NotImplementedError(
-                    "read_array(threadsafe=True) is not supported together "
-                    "with masked=True; the mask band would be read from the "
-                    "shared handle, defeating the per-thread isolation. Read "
-                    "masked without threadsafe, or mask the result yourself."
-                )
-            arr = self._threadsafe_eager_read(band=band, window=window)
-            self._ds._backend = "numpy"
-        else:
-            # The shared handle is used directly here; the captured cloud config is
-            # already installed by read_array's @under_gdal_env decorator.
-            if band is None and self._ds.band_count > 1:
-                if window is None:
-                    arr = np.ones(
-                        (
-                            self._ds.band_count,
-                            self._ds.rows,
-                            self._ds.columns,
-                        ),
-                        dtype=self._ds.numpy_dtype[0],
-                    )
-                    for i in range(self._ds.band_count):
-                        arr[i, :, :] = self._ds._raster.GetRasterBand(
-                            i + 1
-                        ).ReadAsArray()
-                else:
-                    # ``window`` here is a resolved pixel window (``Window``
-                    # or a ``[col_off, row_off, cols, rows]`` list — any
-                    # geometry window was converted to one above). Stack
-                    # per-band block reads so ``_read_block`` applies the
-                    # identical window to every band without re-parsing its
-                    # dimensions here.
-                    arr = np.stack(
-                        [
-                            self._read_block(i, window)
-                            for i in range(self._ds.band_count)
-                        ],
-                        axis=0,
-                    )
-            else:
-                validate_band_index(band, self._ds.band_count)
-                if band is None:
-                    band = 0
-                if window is None:
-                    arr = self._ds._iloc(band).ReadAsArray()
-                else:
-                    arr = self._read_block(band, window)
-            self._ds._backend = "numpy"
-            if masked:
-                arr = self._to_masked(arr, band, window=window)
-        # arr is assembled through many untyped GDAL/dask branches above; this
-        # is the method's own declared contract.
+        # Pick the one read path this request selects (first match wins, in the same
+        # order as the historical if/elif ladder), read, and record its backend.
+        strategy = next(s for s in READ_STRATEGIES if s.matches(req))
+        arr = strategy.read(self, req, window)
+        self._ds._backend = strategy.backend
+        # arr is assembled through many untyped GDAL/dask branches inside the
+        # strategy; this is the method's own declared contract.
         return cast("ArrayLike", arr)
 
     def _require_reopenable_path(self) -> str:
