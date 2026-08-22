@@ -60,7 +60,9 @@ def resolve_read_window(window: Any, bbox: Any, *, crs: Any) -> Any:
             ```
     """
     if bbox is None:
-        return window
-    if window is not None:
+        result = window
+    elif window is not None:
         raise ValueError("read_array accepts either `window` or `bbox`, not both")
-    return FeatureCollection.from_bbox(bbox, epsg=crs)
+    else:
+        result = FeatureCollection.from_bbox(bbox, epsg=crs)
+    return result
