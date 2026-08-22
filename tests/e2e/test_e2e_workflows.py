@@ -23,6 +23,7 @@ from osgeo import gdal
 from shapely.geometry import box
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.ops.vectorize import _features_outside_template
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
@@ -236,6 +237,42 @@ class TestRasterizeRoundTrip:
 
         outside = [w for w in caught if "outside the template extent" in str(w.message)]
         assert not outside, f"an overlapping polygon must not warn; got: {outside}"
+
+    @pytest.mark.parametrize(
+        "feature_box, expected",
+        [
+            ((20.0, 2.0, 30.0, 8.0), True),  # east of the template
+            ((-30.0, 2.0, -20.0, 8.0), True),  # west of the template
+            ((2.0, 20.0, 8.0, 30.0), True),  # north of the template
+            ((2.0, -30.0, 8.0, -20.0), True),  # south of the template
+            ((2.0, 2.0, 8.0, 8.0), False),  # inside the template
+            ((5.0, 5.0, 15.0, 15.0), False),  # partial overlap (not flagged)
+        ],
+    )
+    def test_features_outside_template_by_direction(self, feature_box, expected):
+        """`_features_outside_template` flags a disjoint bbox in every direction (#46).
+
+        Args:
+            feature_box: `(minx, miny, maxx, maxy)` of the feature relative to a template
+                covering x[0, 10], y[0, 10].
+            expected: Whether the helper should report the feature as fully outside.
+
+        Test scenario:
+            A template at origin (0, 10), 10x10, cell size 1 covers x[0, 10] and y[0, 10].
+            Boxes to the east/west/north/south are disjoint (`True`); an inside box and a
+            partially overlapping box are not flagged (`False`).
+        """
+        minx, miny, maxx, maxy = feature_box
+        gdf = gpd.GeoDataFrame(
+            {"v": [1]}, geometry=[box(minx, miny, maxx, maxy)], crs="EPSG:4326"
+        )
+        fc = FeatureCollection(gdf)
+        result = _features_outside_template(
+            fc, xmin=0.0, ymax=10.0, rows=10, columns=10, cell_size=1.0
+        )
+        assert result is expected, (
+            f"box {feature_box} outside-template should be {expected}, got {result}"
+        )
 
     def test_from_features_rejects_non_positive_cell_size(self):
         """D-M2: cell_size=0 and negative values raise ``ValueError``."""
