@@ -483,13 +483,85 @@ class TestRasterizeRoundTrip:
                 crs="EPSG:32636",
             )
         )
-        with pytest.raises(ValueError, match="non-empty FeatureCollection"):
+        with pytest.raises(ValueError, match=r"valid \(non-NaN\) geometry bounds"):
             Dataset.from_features(
                 empty,
                 template=utm_template,
                 snap_to_template=True,
                 column_name="class_id",
             )
+
+    def test_snap_to_template_degenerate_point_yields_covering_pixel(
+        self, utm_template
+    ):
+        """A point exactly on a grid corner snaps to a 1x1 pixel that covers it (#46).
+
+        Test scenario:
+            A zero-area `Point` on a template grid corner collapses the snapped span to
+            zero cells; the `max(1, ...)` clamp keeps a single covering pixel.
+        """
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        corner = Point(x0 + 2 * cell, y0 - 3 * cell)
+        out = Dataset.from_features(
+            self._fc_32636(corner),
+            template=utm_template,
+            snap_to_template=True,
+            column_name="class_id",
+        )
+        assert out.rows == 1, f"degenerate point should give one row, got {out.rows}"
+        assert out.columns == 1, (
+            f"degenerate point should give one column, got {out.columns}"
+        )
+        assert np.any(np.isclose(out.read_array(), 42.0)), (
+            "the point's pixel must be burned"
+        )
+
+    def test_snap_to_template_fractional_grid_is_tight(self):
+        """Grid-aligned bounds on a fractional-coordinate template give tight dims (#46).
+
+        Test scenario:
+            A WGS84 template with 0.001 cells and a feature whose bounds are exactly 37→60
+            cells in X and 12→40 in Y must snap to exactly 23x28 — no float off-by-one.
+        """
+        template = self._mem_template((-123.456, 0.001, 0.0, 45.678, 0.0, -0.001))
+        xmin = -123.456 + 37 * 0.001
+        xmax = -123.456 + 60 * 0.001
+        ymax = 45.678 - 12 * 0.001
+        ymin = 45.678 - 40 * 0.001
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": [42]},
+                geometry=[box(xmin, ymin, xmax, ymax)],
+                crs="EPSG:4326",
+            )
+        )
+        out = Dataset.from_features(
+            fc, template=template, snap_to_template=True, column_name="class_id"
+        )
+        assert (out.rows, out.columns) == (28, 23), (
+            f"snap should be tight (28, 23), got {(out.rows, out.columns)}"
+        )
+
+    def test_snap_to_template_supports_south_up_template(self):
+        """A south-up template (positive Y pixel) snaps onto the same lattice (#46).
+
+        Test scenario:
+            north-up is not required — a south-up template still covers the feature in a
+            correct north-up output.
+        """
+        template = self._mem_template((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"class_id": [42]}, geometry=[box(1.0, 1.0, 4.0, 4.0)], crs="EPSG:4326"
+            )
+        )
+        out = Dataset.from_features(
+            fc, template=template, snap_to_template=True, column_name="class_id"
+        )
+        assert np.any(np.isclose(out.read_array(), 42.0)), (
+            "a south-up template should still cover the feature"
+        )
 
     def test_from_features_rejects_non_positive_cell_size(self):
         """D-M2: cell_size=0 and negative values raise ``ValueError``."""
