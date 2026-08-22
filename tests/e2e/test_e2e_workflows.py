@@ -267,9 +267,10 @@ class TestRasterizeRoundTrip:
             {"v": [1]}, geometry=[box(minx, miny, maxx, maxy)], crs="EPSG:4326"
         )
         fc = FeatureCollection(gdf)
-        result = _features_outside_template(
-            fc, xmin=0.0, ymax=10.0, rows=10, columns=10, cell_size=1.0
+        template = _make_dataset(
+            rows=10, cols=10, epsg=4326, cell_size=1.0, top_left=(0.0, 10.0)
         )
+        result = _features_outside_template(fc, template)
         assert result is expected, (
             f"box {feature_box} outside-template should be {expected}, got {result}"
         )

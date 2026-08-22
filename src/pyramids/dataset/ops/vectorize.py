@@ -77,9 +77,7 @@ def rasterize_features(
         features, dataset_cls, template, cell_size, ds_epsg
     )
 
-    if template is not None and _features_outside_template(
-        features, xmin, ymax, rows, columns, cell_size
-    ):
+    if template is not None and _features_outside_template(features, template):
         warnings.warn(
             "FeatureCollection falls entirely outside the template extent; the output "
             "raster will be all-nodata. Check that the template covers the features and "
@@ -200,14 +198,7 @@ def _resolve_raster_geometry(
     return xmin, ymax, rows, columns, cell_size, no_data_value
 
 
-def _features_outside_template(
-    features: FeatureCollection,
-    xmin: float,
-    ymax: float,
-    rows: int,
-    columns: int,
-    cell_size: Any,
-) -> bool:
+def _features_outside_template(features: FeatureCollection, template: Dataset) -> bool:
     """Whether the feature bounds fall entirely outside the template extent (issue #46).
 
     A template rasterisation burns onto the template's fixed grid, so features that lie
@@ -216,26 +207,20 @@ def _features_outside_template(
     partial overlap is not flagged — clipping features to the template grid is the
     intended behaviour of a template.
 
+    The template extent comes from :attr:`Dataset.bbox`, which uses the separate X and Y
+    pixel sizes, so the check is correct for non-square grids (a single ``cell_size``
+    would mis-measure the Y extent).
+
     Args:
         features: The vector being rasterised.
-        xmin: Template origin x (left edge).
-        ymax: Template origin y (top edge).
-        rows: Template row count.
-        columns: Template column count.
-        cell_size: Template cell size.
+        template: The template raster whose extent the features are tested against.
 
     Returns:
         bool: ``True`` when the feature bounds and the template extent are disjoint.
     """
-    template_xmax = xmin + columns * cell_size
-    template_ymin = ymax - rows * cell_size
+    txmin, tymin, txmax, tymax = template.bbox
     fxmin, fymin, fxmax, fymax = features.total_bounds
-    return bool(
-        fxmax <= xmin
-        or fxmin >= template_xmax
-        or fymax <= template_ymin
-        or fymin >= ymax
-    )
+    return bool(fxmax <= txmin or fxmin >= txmax or fymax <= tymin or fymin >= tymax)
 
 
 def _resolve_burn_columns(
