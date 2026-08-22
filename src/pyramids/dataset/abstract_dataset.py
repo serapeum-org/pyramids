@@ -360,10 +360,12 @@ class RasterBase(ABC):
         a mixed-version cluster has to upgrade the workers, not only the client.
 
         Security:
-            The recipe carries :attr:`gdal_env` verbatim, so pickling a dataset
-            opened with credentials serialises them. `dask.distributed` spills
-            graphs to disk and quotes task keys in error reports — treat such a
-            pickle as a secret, and prefer a short-lived token.
+            The recipe carries :attr:`gdal_env` **and** :attr:`open_options`
+            verbatim, so pickling a dataset opened with credentials — whether in
+            the config or as a driver open option that some drivers accept a
+            secret through — serialises them. `dask.distributed` spills graphs to
+            disk and quotes task keys in error reports — treat such a pickle as a
+            secret, and prefer a short-lived token.
 
         Raises:
             TypeError: The dataset has no on-disk path (empty
@@ -1048,6 +1050,13 @@ class RasterBase(ABC):
                 Path of file to open.
             read_only (bool):
                 File mode, set as False, to open in "update" mode.
+            file_i (int):
+                Which member to open when ``path`` is a multi-file archive.
+                Default ``0``.
+            open_options (dict | list | tuple | None):
+                GDAL open options as a mapping or ``["KEY=VALUE"]`` sequence,
+                forwarded to the driver and captured on the returned instance so
+                the reopen paths reapply them. Default ``None`` — no options.
 
         Returns:
             Dataset: The opened dataset instance.

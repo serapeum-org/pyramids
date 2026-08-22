@@ -501,15 +501,22 @@ class NetCDF(Dataset):
         """Emit the extended recipe tuple carrying NetCDF mode flags.
 
         Overrides :meth:`RasterBase.__reduce__` to include
-        `_is_md_array`, `_is_subset`, and `_source_var_name`,
-        which are required to reconstruct a container vs a
-        variable-subset with matching identity.
+        `_is_md_array`, `_is_subset`, `_source_var_name`, `_group_path`,
+        and `_open_options` (the seven-element recipe), which are
+        required to reconstruct a container, group view, or
+        variable-subset with matching identity and driver options.
 
         For variable-subset instances the `_file_name` attribute
         reflects the subset's GDAL description, which is typically
         empty or driver-specific. We therefore fall back to the
         parent container's `_file_name` when reconstructing a
         subset.
+
+        Security:
+            The recipe carries `_open_options` verbatim, so any secret a
+            driver accepts as an open option is serialised into the pickle
+            (spilled to disk / quoted in dask error reports). Treat such a
+            pickle as a secret.
 
         Raises:
             TypeError: The NetCDF has no on-disk path (empty
