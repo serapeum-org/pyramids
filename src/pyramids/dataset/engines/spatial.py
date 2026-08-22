@@ -39,9 +39,8 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
-from pyramids.dataset.engines._warp import carry_raster_metadata
+from pyramids.dataset.engines._warp import carry_raster_metadata, warp_to_dataset
 from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
-from pyramids.dataset.engines._warp import warp_to_dataset
 from pyramids.dataset.engines.vectorize import Vectorize
 
 
