@@ -39,8 +39,8 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines._warp import carry_raster_metadata, warp_to_dataset
 from pyramids.dataset.engines._warp import dst_srs_arg as _dst_srs_arg
-from pyramids.dataset.engines._warp import warp_to_dataset
 from pyramids.dataset.engines.vectorize import Vectorize
 
 
@@ -1575,6 +1575,10 @@ class Spatial(_Engine["Dataset"]):
             src.crs,
             method,
         )
+        # ReprojectImage moves only pixels onto the freshly built grid, so the
+        # output would otherwise lose the class legend, RAT, and band/dataset
+        # metadata. Carry them over from the (possibly reprojected) source (#1029).
+        carry_raster_metadata(reprojected_raster_b.raster, dst_obj.raster)
 
         return dst_obj
 
