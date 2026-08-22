@@ -175,6 +175,26 @@ def _reconcile_predictor_with_nbits(options: dict[str, Any]) -> None:
 
     Args:
         options: The merged GDAL creation-option dict (post :func:`merge_options`).
+
+    Examples:
+        - A caller-forced narrow width drops the predictor:
+            ```python
+            >>> from pyramids.dataset.cog.options import _reconcile_predictor_with_nbits
+            >>> opts = {"NBITS": 12, "PREDICTOR": 2}
+            >>> _reconcile_predictor_with_nbits(opts)
+            >>> "PREDICTOR" in opts
+            False
+
+            ```
+        - A predictor-safe width leaves the predictor in place:
+            ```python
+            >>> from pyramids.dataset.cog.options import _reconcile_predictor_with_nbits
+            >>> opts = {"NBITS": 16, "PREDICTOR": 2}
+            >>> _reconcile_predictor_with_nbits(opts)
+            >>> opts["PREDICTOR"]
+            2
+
+            ```
     """
     nbits = options.get("NBITS")
     if nbits is None:

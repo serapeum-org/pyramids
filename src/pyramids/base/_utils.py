@@ -402,6 +402,34 @@ def resolve_cog_predictor(gdal_dtype: int, nbits: int | None = None) -> int:
     Returns:
         int: ``3`` for floating-point types; for integer types, ``2`` when the
         width is predictor-safe (``None``/8/16/32/64) else ``1`` (no predictor).
+
+    Examples:
+        - An integer raster at its natural width uses the horizontal predictor:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import resolve_cog_predictor
+            >>> resolve_cog_predictor(gdal.GDT_UInt16)
+            2
+
+            ```
+        - A float raster uses the floating-point predictor:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import resolve_cog_predictor
+            >>> resolve_cog_predictor(gdal.GDT_Float32)
+            3
+
+            ```
+        - A sub-byte-aligned integer width falls back to no predictor:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import resolve_cog_predictor
+            >>> resolve_cog_predictor(gdal.GDT_UInt16, nbits=12)
+            1
+            >>> resolve_cog_predictor(gdal.GDT_UInt16, nbits=16)
+            2
+
+            ```
     """
     if gdal_dtype in INTEGER_GDAL_DTYPES:
         return 2 if nbits in (None, 8, 16, 32, 64) else 1
