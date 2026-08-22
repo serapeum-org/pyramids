@@ -137,6 +137,17 @@ class TestDatasetCollectionRoundTrip:
 class TestRasterizeRoundTrip:
     """Rasterize a FeatureCollection and verify the burned values."""
 
+    @pytest.fixture
+    def utm_template(self):
+        """A 10x10 UTM (EPSG:32636) template at a fixed origin, shared by template tests."""
+        return _make_dataset(
+            rows=10,
+            cols=10,
+            cell_size=1000.0,
+            top_left=(500000.0, 3400000.0),
+            epsg=32636,
+        )
+
     def test_rasterize_polygon(self):
         """Burn a polygon attribute into a raster and verify the value."""
         epsg = 32636
@@ -160,83 +171,50 @@ class TestRasterizeRoundTrip:
             f"Rasterized EPSG should be {epsg}, got {raster.epsg}"
         )
 
-    def test_rasterize_with_reference_dataset(self):
-        """Burn using a reference Dataset for geotransform."""
-        epsg = 32636
-        cell_size = 1000.0
-        rows, cols = 10, 10
-        top_left = (500000.0, 3400000.0)
-
-        # Reference raster
-        ref = _make_dataset(
-            rows=rows, cols=cols, cell_size=cell_size, top_left=top_left, epsg=epsg
+    def test_rasterize_with_reference_dataset(self, utm_template):
+        """Burn an inside polygon onto a template; it appears and emits no outside warning."""
+        x0, y0 = utm_template.top_left_corner
+        cell = utm_template.cell_size
+        inside = box(x0, y0 - 3 * cell, x0 + 3 * cell, y0)
+        fc = FeatureCollection(
+            gpd.GeoDataFrame({"class_id": [42]}, geometry=[inside], crs="EPSG:32636")
         )
-
-        # Create a polygon inside the raster extent
-        x0, y0 = top_left
-        poly = box(x0, y0 - 3 * cell_size, x0 + 3 * cell_size, y0)
-        gdf = gpd.GeoDataFrame({"class_id": [42]}, geometry=[poly], crs=f"EPSG:{epsg}")
-        fc = FeatureCollection(gdf)
-
-        raster = Dataset.from_features(fc, template=ref, column_name="class_id")
-        arr = raster.read_array()
-
-        # Same dimensions as reference
-        assert arr.shape == (
-            rows,
-            cols,
-        ), f"Rasterized shape should match reference ({rows},{cols}), got {arr.shape}"
-        # Burned value should appear
-        burned = arr[np.isclose(arr, 42.0)]
-        assert burned.size > 0, "Burned value 42 should appear in the raster"
-
-    def test_from_features_warns_when_features_outside_template(self):
-        """Features disjoint from the template warn and yield an all-nodata raster (#46)."""
-        epsg = 32636
-        cell_size = 1000.0
-        rows, cols = 10, 10
-        top_left = (500000.0, 3400000.0)
-        ref = _make_dataset(
-            rows=rows, cols=cols, cell_size=cell_size, top_left=top_left, epsg=epsg
-        )
-
-        # Polygon shifted 100 cells east — entirely outside the template extent.
-        x0, y0 = top_left
-        far_x = x0 + 100 * cell_size
-        poly = box(far_x, y0 - 3 * cell_size, far_x + 3 * cell_size, y0)
-        gdf = gpd.GeoDataFrame({"class_id": [42]}, geometry=[poly], crs=f"EPSG:{epsg}")
-        fc = FeatureCollection(gdf)
-
-        with pytest.warns(UserWarning, match="outside the template extent"):
-            raster = Dataset.from_features(fc, template=ref, column_name="class_id")
-
-        arr = raster.read_array()
-        assert arr.shape == (rows, cols), "output should still adopt the template grid"
-        assert not np.any(np.isclose(arr, 42.0)), (
-            "no template cell should hold the burned value — the polygon is outside it"
-        )
-
-    def test_from_features_does_not_warn_when_features_overlap_template(self):
-        """A polygon inside the template rasterizes without the outside-extent warning (#46)."""
-        epsg = 32636
-        cell_size = 1000.0
-        rows, cols = 10, 10
-        top_left = (500000.0, 3400000.0)
-        ref = _make_dataset(
-            rows=rows, cols=cols, cell_size=cell_size, top_left=top_left, epsg=epsg
-        )
-
-        x0, y0 = top_left
-        poly = box(x0, y0 - 3 * cell_size, x0 + 3 * cell_size, y0)
-        gdf = gpd.GeoDataFrame({"class_id": [42]}, geometry=[poly], crs=f"EPSG:{epsg}")
-        fc = FeatureCollection(gdf)
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            Dataset.from_features(fc, template=ref, column_name="class_id")
+            raster = Dataset.from_features(
+                fc, template=utm_template, column_name="class_id"
+            )
 
-        outside = [w for w in caught if "outside the template extent" in str(w.message)]
-        assert not outside, f"an overlapping polygon must not warn; got: {outside}"
+        arr = raster.read_array()
+        assert arr.shape == (10, 10), (
+            f"shape should match the template, got {arr.shape}"
+        )
+        assert np.any(np.isclose(arr, 42.0)), (
+            "burned value 42 should appear in the raster"
+        )
+        assert not [w for w in caught if "template extent" in str(w.message)], (
+            "an inside polygon must not emit the outside-template warning"
+        )
+
+    def test_from_features_warns_when_features_outside_template(self, utm_template):
+        """Features disjoint from the template warn and yield an all-nodata raster (#46)."""
+        x0, y0 = utm_template.top_left_corner
+        far = box(
+            x0 + 100000.0, y0 - 3000.0, x0 + 103000.0, y0
+        )  # ~100 km east, outside
+        fc = FeatureCollection(
+            gpd.GeoDataFrame({"class_id": [42]}, geometry=[far], crs="EPSG:32636")
+        )
+
+        with pytest.warns(UserWarning, match="outside the template extent"):
+            raster = Dataset.from_features(
+                fc, template=utm_template, column_name="class_id"
+            )
+
+        assert not np.any(np.isclose(raster.read_array(), 42.0)), (
+            "a polygon outside the template burns nothing"
+        )
 
     @pytest.mark.parametrize(
         "feature_box, expected",
