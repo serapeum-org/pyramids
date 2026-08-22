@@ -37,7 +37,6 @@ from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import nonnull_group_kwargs
 from pyramids.dataset.dataset import _COLLABORATOR_ATTRS
 from pyramids.dataset.engines._read_window import resolve_read_window
-from pyramids.feature import FeatureCollection
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import apply_unpack, build_lazy_array

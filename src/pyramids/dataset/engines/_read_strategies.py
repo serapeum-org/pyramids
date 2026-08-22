@@ -75,7 +75,7 @@ class ReadStrategy(ABC):
         """Return whether this strategy handles ``req``'s option combination."""
 
     @abstractmethod
-    def read(self, io: "IO", req: ReadRequest, window: Any) -> Any:
+    def read(self, io: IO, req: ReadRequest, window: Any) -> Any:
         """Validate this path's preconditions and read through ``io``.
 
         Args:
@@ -97,7 +97,7 @@ class LazyRead(ReadStrategy):
         """Match when a dask ``chunks`` spec was given."""
         return req.chunks is not None
 
-    def read(self, io: "IO", req: ReadRequest, window: Any) -> Any:
+    def read(self, io: IO, req: ReadRequest, window: Any) -> Any:
         """Reject eager-only pairings, then build the lazy array."""
         if window is not None:
             raise ValueError(
@@ -130,7 +130,7 @@ class DecimatedRead(ReadStrategy):
         """Match when a decimated ``out_shape`` was given."""
         return req.out_shape is not None
 
-    def read(self, io: "IO", req: ReadRequest, window: Any) -> Any:
+    def read(self, io: IO, req: ReadRequest, window: Any) -> Any:
         """Reject masked decimation, then read at the requested shape."""
         if req.masked:
             raise NotImplementedError(
@@ -152,7 +152,7 @@ class BoundlessRead(ReadStrategy):
         """Match when boundless padding was requested."""
         return req.boundless
 
-    def read(self, io: "IO", req: ReadRequest, window: Any) -> Any:
+    def read(self, io: IO, req: ReadRequest, window: Any) -> Any:
         """Require a pixel window, reject masked boundless, then pad-read."""
         if req.masked:
             raise NotImplementedError(
@@ -184,7 +184,7 @@ class ThreadsafeRead(ReadStrategy):
         """Match when a per-thread isolated read was requested."""
         return req.threadsafe
 
-    def read(self, io: "IO", req: ReadRequest, window: Any) -> Any:
+    def read(self, io: IO, req: ReadRequest, window: Any) -> Any:
         """Reject masked thread-safe reads, then read via the per-thread handle."""
         if req.masked:
             raise NotImplementedError(
@@ -205,7 +205,7 @@ class EagerRead(ReadStrategy):
         """Always match — this is the fallback path."""
         return True
 
-    def read(self, io: "IO", req: ReadRequest, window: Any) -> Any:
+    def read(self, io: IO, req: ReadRequest, window: Any) -> Any:
         """Read all bands or a single band directly, optionally masking the result."""
         band = req.band
         arr: Any
