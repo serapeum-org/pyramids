@@ -146,3 +146,13 @@ class TestSelectNetCDF:
         sub = var.bands.select([1])
         assert type(sub) is Dataset, f"expected a base Dataset, got {type(sub)}"
         assert sub.band_count == 1
+
+    def test_container_gives_clear_error(self):
+        """Selecting bands on a 0-band NetCDF container points at get_variable."""
+        from pyramids.netcdf import NetCDF
+
+        container = NetCDF.read_file(
+            "tests/data/netcdf/none__4v__1d1-2d2-3d1__curv.nc"
+        )
+        with pytest.raises(ValueError, match="container"):
+            container.select_bands([1])

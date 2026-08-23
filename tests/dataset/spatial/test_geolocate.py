@@ -112,6 +112,17 @@ class TestGeolocate:
         with pytest.raises(ValueError):
             _make_geoloc_dataset(tmp_path).geolocate(to_epsg="not-a-crs")
 
+    def test_bad_method_raises(self, tmp_path):
+        """An unknown resampling method raises ValueError."""
+        with pytest.raises(ValueError):
+            _make_geoloc_dataset(tmp_path).geolocate(to_epsg=4326, method="bogus")
+
+    def test_lazy_pins_source_on_base_dataset(self, tmp_path):
+        """A lazy geolocate on a base Dataset pins its source and reads through."""
+        out = _make_geoloc_dataset(tmp_path).geolocate(to_epsg=4326, lazy=True)
+        assert out._warp_source is not None
+        assert out.read_array().size > 0
+
 
 class TestGeolocateNetCDF:
     """The classic-handle nuance: a NetCDF swath variable geolocates."""

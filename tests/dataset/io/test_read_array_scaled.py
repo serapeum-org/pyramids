@@ -102,6 +102,39 @@ class TestReadArrayScaled:
         out = scaled_single.read_array(band=0, out_shape=(1, 1), scaled=True)
         assert out.shape == (1, 1) and out.dtype == np.float64
 
+    def test_window_then_scaled(self, scaled_single):
+        """A windowed read is scaled over just the window."""
+        out = scaled_single.read_array(band=0, window=[0, 0, 2, 1], scaled=True)
+        raw = scaled_single.read_array(band=0, window=[0, 0, 2, 1])
+        assert out.dtype == np.float64
+        np.testing.assert_allclose(out, raw * 0.1 + 5.0)
+
+    def test_boundless_scaled(self, scaled_single):
+        """A boundless scaled read scales the whole padded window (fill included)."""
+        out = scaled_single.read_array(
+            band=0, window=[-1, -1, 2, 2], boundless=True, fill_value=0, scaled=True
+        )
+        assert out.dtype == np.float64 and out.shape == (2, 2)
+
+    def test_masked_3d_scaled(self, scaled_multi):
+        """An all-bands masked scaled read keeps the 3-D mask and scales the data."""
+        scaled_multi.no_data_value = [0, 0, 0]
+        out = scaled_multi.read_array(masked=True, scaled=True)
+        assert isinstance(out, np.ma.MaskedArray) and out.ndim == 3
+        assert out.dtype == np.float64
+        np.testing.assert_array_equal(
+            out.mask, scaled_multi.read_array(masked=True).mask
+        )
+
+    def test_threadsafe_scaled(self, scaled_single, tmp_path):
+        """A threadsafe scaled read returns scaled float64."""
+        path = tmp_path / "ts.tif"
+        scaled_single.to_file(str(path))
+        ds = Dataset.read_file(str(path))
+        out = ds.read_array(band=0, threadsafe=True, scaled=True)
+        assert out.dtype == np.float64
+        np.testing.assert_allclose(out, ds.read_array(band=0) * 0.1 + 5.0)
+
     def test_scaled_false_is_unchanged(self, scaled_single, scaled_multi):
         """`scaled=False` (default) is byte-identical to a plain read."""
         for ds in (scaled_single, scaled_multi):

@@ -1,7 +1,8 @@
 """Tests for helpers in :mod:`pyramids.base._utils`.
 
-Currently covers :func:`lazy_extra_hint`, the single source of the optional
-``[lazy]`` extra install hint reused by the zarr / dask call sites.
+Covers :func:`lazy_extra_hint` (the single source of the optional ``[lazy]`` extra
+install hint) and :func:`apply_unpack` (the shared scale/offset primitive behind both
+the NetCDF CF unpack path and the raster ``read_array(scaled=True)`` path).
 """
 
 from __future__ import annotations
