@@ -33,10 +33,13 @@ Config()
 # stays light — that heavy stack is only pulled in when these symbols are first
 # accessed, not at package import time.
 _LAZY_RESOURCE_EXPORTS = frozenset({"read_resource", "sniff_kind", "ResourceKind"})
+# `register_dataset_accessor` lives in the heavy Dataset stack; expose it lazily too
+# so a bare `import pyramids` does not pull that stack in just to reach the hook.
+_LAZY_DATASET_EXPORTS = frozenset({"register_dataset_accessor"})
 
 
 def __getattr__(name: str):
-    """Lazily import the resource-reader exports on first access (PEP 562)."""
+    """Lazily import the resource-reader / accessor exports on first access (PEP 562)."""
     if name in _LAZY_RESOURCE_EXPORTS:
         from pyramids._resource import ResourceKind, read_resource, sniff_kind
 
@@ -46,18 +49,24 @@ def __getattr__(name: str):
             ResourceKind=ResourceKind,
         )
         return globals()[name]
+    if name in _LAZY_DATASET_EXPORTS:
+        from pyramids.dataset import register_dataset_accessor
+
+        globals()["register_dataset_accessor"] = register_dataset_accessor
+        return globals()[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__() -> list[str]:
     """Include the lazily-exported names in ``dir(pyramids)``."""
-    return sorted(set(globals()) | _LAZY_RESOURCE_EXPORTS)
+    return sorted(set(globals()) | _LAZY_RESOURCE_EXPORTS | _LAZY_DATASET_EXPORTS)
 
 
 __all__ = [
     "configure",
     "configure_lazy_vector",
     "read_resource",
+    "register_dataset_accessor",
     "sniff_kind",
     "ResourceKind",
     "__version__",
