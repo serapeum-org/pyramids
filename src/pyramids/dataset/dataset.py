@@ -2074,6 +2074,114 @@ class Dataset(RasterBase):
         self.__dict__.pop("_cf_crs_cache", None)
         self._epsg = self._get_epsg()
 
+    def set_meta_data(
+        self, value: dict[str, str] | list[str], domain: str = ""
+    ) -> None:
+        """Replace a *named* GDAL metadata domain.
+
+        Writes ``value`` into ``domain`` with ``SetMetadata`` — a **replace**, not a
+        merge (the replace semantics match the band-level
+        :meth:`Bands.set_metadata <pyramids.dataset.engines.Bands.set_metadata>`;
+        unlike it, this method **refuses the default domain** — see below). Assigning
+        ``{}`` (or ``[]``) empties the domain's keys, though the domain name itself may
+        still be listed by :attr:`meta_data_domains`.
+
+        Most domains take a ``KEY=VALUE`` mapping; an ``xml:*`` domain instead takes a
+        single-element ``list[str]`` of one XML document, mirroring what
+        :meth:`get_meta_data` returns for it (passing a ``dict`` to an ``xml:*`` domain
+        is a mistake — GDAL flattens it to ``["KEY=VALUE"]``).
+
+        The **default** domain (``""``) is deliberately rejected: it holds
+        GDAL/CF-managed keys — ``AREA_OR_POINT`` and the CF axis metadata that drives
+        CRS inference — and a whole-domain replace would silently drop them (and the
+        CRS/EPSG caches would then re-derive from the corrupted state). Use the
+        :attr:`meta_data` setter for the default domain; it merges per key and
+        refreshes those caches.
+
+        Args:
+            value: The metadata to write into ``domain`` — a ``dict[str, str]``
+                mapping for a ``KEY=VALUE`` domain, or a single-element ``list[str]``
+                for an ``xml:*`` domain.
+            domain: The named GDAL metadata domain to write (for example
+                ``"IMAGE_STRUCTURE"``, ``"RPC"``, or a custom domain). The empty
+                default domain is not accepted.
+
+        Raises:
+            ValueError: ``domain`` is the empty default domain — use the
+                :attr:`meta_data` setter instead.
+            ReadOnlyError: The dataset is a read-only on-disk file.
+        """
+        if not domain:
+            raise ValueError(
+                "set_meta_data writes named domains only; use the `meta_data` setter "
+                "for the default domain (it merges per key and refreshes CRS caches)."
+            )
+        self._require_writable("set metadata")
+        self._raster.SetMetadata(value, domain)
+
+    def open_subdataset(self, key: int | str) -> Dataset:
+        """Open one of this container's subdatasets, carrying its open context.
+
+        Resolves ``key`` against :attr:`subdatasets` and reopens the chosen nested
+        raster with this dataset's access mode, GDAL environment, and open options.
+
+        The result is a **base** :class:`Dataset`: a subdataset connection string is
+        a classic-mode raster reference, so it is opened as an ordinary raster
+        (unlike :meth:`SubDataset.open`, this carries the parent's access mode, GDAL
+        env, and open options). The parent's open options are reapplied verbatim to
+        the child open. If the parent is open in update mode the child is opened in
+        update mode too; not every driver supports updating a subdataset connection
+        string, so a write-mode open can fail for some containers. For a ``NetCDF``
+        container, use
+        :meth:`~pyramids.netcdf.netcdf.NetCDF.get_variable` / ``NetCDF.variables``
+        instead when you want the multidimensional, ``NetCDF``-preserving view of a
+        variable — those handle the multidim open a raw subdataset string cannot.
+
+        Args:
+            key: An index into :attr:`subdatasets` (0-based; negative indices count
+                from the end, per Python list semantics), or a subdataset's full
+                ``name`` (its GDAL connection string).
+
+        Returns:
+            Dataset: The opened subdataset as a base ``Dataset``.
+
+        Raises:
+            TypeError: ``key`` is neither an ``int`` index nor a ``str`` name.
+            IndexError: ``key`` is an out-of-range index.
+            ValueError: ``key`` is a name that is not among this container's
+                subdatasets.
+        """
+        subs = self.subdatasets
+        if isinstance(key, bool):
+            raise TypeError(
+                f"key must be an int index or a str name, not bool: {key!r}"
+            )
+        if isinstance(key, int):
+            name = subs[key].name  # negative indices follow Python list semantics
+        elif isinstance(key, str):
+            if key not in {sub.name for sub in subs}:
+                # Connection strings can embed credentials (signed URLs, SAS tokens);
+                # redact before echoing them in the error.
+                available = [redact_credentials(sub.name) for sub in subs]
+                raise ValueError(
+                    f"{redact_credentials(key)!r} is not a subdataset of this "
+                    f"dataset; available: {available}"
+                )
+            name = key
+        else:
+            raise TypeError(
+                f"key must be an int index or a str name, got {type(key).__name__}"
+            )
+        # Open the classic-mode subdataset string as a base Dataset. read_file both
+        # installs the captured GDAL env around the open (so remote credentials apply)
+        # and re-attaches it to the result, so no separate context/attach is needed.
+        return Dataset.read_file(
+            name,
+            read_only=self.access == "read_only",
+            gdal_env=self._gdal_env or None,
+            open_options=list(self._open_options) or None,
+        )
+
     @property
     def band_meta_data(self) -> list[dict[str, str]]:
         """Per-band metadata, one mapping per band, in band order.

@@ -36,6 +36,7 @@ from pyramids.base._utils import (
 from pyramids.base.crs import epsg_of_crs, sr_from_epsg
 from pyramids.base.protocols import ArrayLike, FloatArray
 from pyramids.base.remote import cloud_config_from_env
+from pyramids.dataset._subdataset import SubDataset
 from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.window import Window
 
@@ -784,6 +785,89 @@ class RasterBase(ABC):
         """Meta data."""
         self._require_open()
         return self._raster.GetMetadata()
+
+    @property
+    def subdatasets(self) -> list[SubDataset]:
+        """The container's subdatasets (nested rasters), in GDAL's order.
+
+        A normal raster returns ``[]``. A *container* — a NetCDF/HDF/Zarr store, a
+        Sentinel-1/-2 product, a WMS endpoint — returns one entry per nested
+        raster. Open one with
+        :meth:`~pyramids.dataset.dataset.Dataset.open_subdataset` (keeps this
+        class) or :meth:`SubDataset.open` (a base ``Dataset``).
+
+        Returns:
+            list[SubDataset]: One :class:`~pyramids.dataset._subdataset.SubDataset`
+            per nested raster, in the order GDAL lists them; ``[]`` for a raster
+            that has none.
+
+        Examples:
+            - A plain raster has no subdatasets:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ... )
+                >>> ds.subdatasets
+                []
+
+                ```
+        """
+        self._require_open()
+        return [
+            SubDataset(name, description, i)
+            for i, (name, description) in enumerate(self._raster.GetSubDatasets())
+        ]
+
+    @property
+    def meta_data_domains(self) -> list[str]:
+        """The GDAL metadata domains this dataset actually exposes.
+
+        Returns:
+            list[str]: Domain names — ``""`` is the default domain, and named
+            domains such as ``"IMAGE_STRUCTURE"``, ``"SUBDATASETS"``, ``"RPC"`` or
+            an ``xml:*`` product-XML domain appear when present. ``[]`` when the
+            handle exposes none (GDAL's ``None`` is normalised away).
+        """
+        self._require_open()
+        return cast("list[str]", self._raster.GetMetadataDomainList() or [])
+
+    def get_meta_data(self, domain: str = "") -> dict[str, str] | list[str]:
+        """Read this dataset's metadata from a specific GDAL domain.
+
+        The domain-aware companion to :attr:`meta_data`. On a base :class:`Dataset`,
+        ``get_meta_data("")`` returns the same mapping as :attr:`meta_data`; on a
+        ``NetCDF`` the two differ — there :attr:`meta_data` is a processed
+        ``NetCDFMetadata`` while this returns the raw default-domain dict. Other
+        domains expose GDAL's named metadata, e.g. ``"IMAGE_STRUCTURE"``
+        (``COMPRESSION`` / ``INTERLEAVE`` / ``NBITS``) or ``"RPC"``. Use
+        :attr:`meta_data_domains` to see which domains exist.
+
+        Args:
+            domain: The GDAL metadata domain to read; ``""`` (default) is the
+                default domain.
+
+        Returns:
+            dict[str, str] | list[str]: The domain's metadata. Most domains return a
+            ``KEY=VALUE`` mapping (``{}`` when the domain is absent); an ``xml:*``
+            domain returns a list of one XML string, mirroring GDAL's ``GetMetadata``.
+
+        Examples:
+            - The default domain matches :attr:`meta_data` on a base ``Dataset``:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 2)), top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+                ... )
+                >>> ds.get_meta_data() == ds.meta_data
+                True
+
+                ```
+        """
+        self._require_open()
+        return cast("dict[str, str] | list[str]", self._raster.GetMetadata(domain))
 
     @staticmethod
     def get_x_lon_dimension_array(pivot_x, cell_size, columns) -> FloatArray:
