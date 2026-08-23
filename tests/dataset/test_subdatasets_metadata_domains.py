@@ -67,6 +67,12 @@ class TestSubDataset:
         sd = SubDataset("N", "d", 2)
         assert pickle.loads(pickle.dumps(sd)) == sd, "pickle must round-trip"
 
+    def test_exported_from_package(self):
+        """SubDataset is importable from the public pyramids.dataset namespace."""
+        from pyramids.dataset import SubDataset as Exported
+
+        assert Exported is SubDataset, "SubDataset must be re-exported from the package"
+
 
 class TestSubdatasetsProperty:
     """`RasterBase.subdatasets` enumeration."""
@@ -122,6 +128,17 @@ class TestOpenSubdataset:
         assert type(sub) is Dataset, f"expected a base Dataset, got {type(sub)}"
         assert sub.band_count == 1, "the Band1 subdataset has one band"
 
+    def test_bool_index_raises(self, container):
+        """A bool key is rejected, not silently treated as index 0/1."""
+        with pytest.raises(TypeError, match="not bool"):
+            container.open_subdataset(True)
+
+    def test_negative_index_opens_from_end(self, container):
+        """A negative index counts from the end, per Python list semantics."""
+        last = container.open_subdataset(-1)
+        assert type(last) is Dataset, f"expected a base Dataset, got {type(last)}"
+        assert last.band_count == 1, "the last subdataset has one band"
+
 
 class TestNetCDFRegression:
     """A NetCDF container inherits `subdatasets` without losing its own surface."""
@@ -164,11 +181,21 @@ class TestMetadataDomains:
         plain.set_meta_data({"C": "3"}, domain="D")
         assert plain.get_meta_data("D") == {"C": "3"}, "set_meta_data must replace"
 
-    def test_set_meta_data_default_domain_writes_and_refreshes(self, plain):
-        """Writing the default domain updates it and refreshes the CF/EPSG caches."""
-        plain.set_meta_data({"X": "1"})
-        assert plain.get_meta_data() == {"X": "1"}, "default domain must be written"
-        assert plain.epsg == 4326, "CRS must survive the default-domain write"
+    def test_set_meta_data_rejects_default_domain(self, plain):
+        """set_meta_data refuses the default domain (it would drop GDAL-managed keys).
+
+        The default domain holds georeferencing keys (AREA_OR_POINT, CF axis
+        metadata); a whole-domain replace would silently wipe them, so the setter
+        points callers at the merging meta_data setter instead.
+        """
+        with pytest.raises(ValueError, match="named domains only"):
+            plain.set_meta_data({"X": "1"})
+
+    def test_get_meta_data_xml_domain_returns_list(self, plain):
+        """An xml:* domain returns a list of XML strings, mirroring GDAL."""
+        plain._raster.SetMetadata(["<root>hi</root>"], "xml:TEST")
+        result = plain.get_meta_data("xml:TEST")
+        assert result == ["<root>hi</root>"], f"xml domain must be a list, got {result!r}"
 
     def test_metadata_domains_normalizes_none(self, plain, mocker):
         """A GDAL handle returning None for the domain list normalises to []."""
