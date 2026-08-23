@@ -497,8 +497,10 @@ class Georef(_Engine["Dataset"]):
         pointing at the coordinate arrays, ``SRS``, band/offset/step keys) or
         ``None`` when the dataset carries no such domain. Built on
         :meth:`~pyramids.dataset.Dataset.get_meta_data`; on a ``NetCDF`` variable
-        the domain is read from the classic GDAL handle (see
-        :meth:`Dataset._geolocation_source`).
+        the domain is read from the classic **on-disk** GDAL handle (see
+        :meth:`Dataset._geolocation_source`), so it reflects the source file, not
+        any in-place edits, and is unavailable for an in-memory (``/vsimem``) NetCDF
+        — geolocate before other spatial operations.
 
         Returns:
             dict[str, str] | None: The ``GEOLOCATION`` domain, or ``None``.
@@ -523,6 +525,10 @@ class Georef(_Engine["Dataset"]):
     @property
     def has_geolocation(self) -> bool:
         """Whether the dataset carries geolocation arrays (a ``GEOLOCATION`` domain).
+
+        ``True`` means a ``GEOLOCATION`` domain *exists*, not that :meth:`geolocate`
+        will succeed: a degenerate domain missing the required ``X_DATASET`` /
+        ``Y_DATASET`` coordinate arrays reports ``True`` here yet cannot be warped.
 
         Returns:
             bool: ``True`` when :attr:`geolocation` is present, else ``False``.
