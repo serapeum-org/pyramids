@@ -203,10 +203,7 @@ class TestAlign:
     ):
         """`method=` is forwarded to every timestep while still hitting the template grid."""
         mask_obj = Dataset(src)
-        cube = DatasetCollection.read_multiple_files(
-            match_alignment_multi_dataset, with_order=False
-        )
-        cube.open_multi_dataset()
+        cube = DatasetCollection.from_files(match_alignment_multi_dataset)
         aligned = cube.align(mask_obj, method="bilinear")
         assert aligned.base.rows == mask_obj.rows
         assert aligned.base.columns == mask_obj.columns
@@ -218,10 +215,7 @@ class TestAlign:
     ):
         """A bad method name is rejected (same validator as `Dataset.align`)."""
         mask_obj = Dataset(src)
-        cube = DatasetCollection.read_multiple_files(
-            match_alignment_multi_dataset, with_order=False
-        )
-        cube.open_multi_dataset()
+        cube = DatasetCollection.from_files(match_alignment_multi_dataset)
         with pytest.raises(ValueError):
             cube.align(mask_obj, method="not-a-real-method")
 
