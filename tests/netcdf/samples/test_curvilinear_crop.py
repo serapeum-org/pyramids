@@ -96,6 +96,25 @@ def test_rasm_curvilinear_geotransform_is_geographic_not_index(sample):
         nc.close()
 
 
+def test_curvilinear_georeference_emits_no_deprecation_warning(sample):
+    """Deriving a curvilinear geotransform must not surface the plot-side deprecation (#1039 M1).
+
+    ROMS resolves its 2-D coords via the model-name fallback, whose plot-side ``coords=``
+    DeprecationWarning does not apply on the read path — get_variable must not raise it.
+    """
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            salt = nc.get_variable("salt")
+            gt = salt.geotransform
+        assert salt.epsg == 4326 and gt[0] < -87.0, (
+            "must still be georeferenced geographically"
+        )
+    finally:
+        nc.close()
+
+
 def test_none5v_not_confidently_curvilinear_stays_index_and_ungeoreferenced(sample):
     """A file whose 2-D lat/lon don't resolve as curvilinear keeps the index grid + no CRS (#1039).
 
