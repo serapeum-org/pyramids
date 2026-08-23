@@ -5218,9 +5218,12 @@ class NetCDF(Dataset):
             cube: The variable subset whose 2-D coordinates georeference the grid.
 
         Returns:
-            tuple | None: The ``(x_min, x_cell, 0, y_max, 0, -y_cell)`` bounding-box affine,
-            or ``None`` when the variable is not curvilinear or its 2-D coordinates are
-            unreadable, mis-shaped, or degenerate — leaving the caller's fallback in place.
+            tuple | None: The north-up bounding-box affine
+            ``(x_min - x_cell/2, x_cell, 0, y_max + y_cell/2, 0, -y_cell)`` — the origin is the
+            north-west pixel *edge*, half a cell out from the extreme coordinate centres. Or
+            ``None`` when the CRS is not geographic, the variable is not curvilinear, its 2-D
+            coordinates are unreadable / mis-shaped / degenerate / out of geographic range, or
+            the grid crosses the antimeridian — leaving the caller's fallback in place.
         """
         # A degrees bounding box is only meaningful under a geographic CRS. A projected or
         # rotated grid whose 2-D aux coords are lon/lat would otherwise get a degrees affine
