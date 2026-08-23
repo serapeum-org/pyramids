@@ -779,6 +779,8 @@ class NetCDF(Dataset):
         # Drop cached registered accessors so they rebuild against the new raster
         # (this override does not chain `super()`, so the call is repeated here).
         _invalidate_cached_accessors(self)
+        # Drop the memoised classic geolocation handle so it is re-resolved.
+        self.__dict__.pop("_geolocation_source_memo", None)
 
     def __str__(self):
         """Return a human-readable summary, or a `<Dataset: closed>` sentinel when closed.
@@ -1515,16 +1517,26 @@ class NetCDF(Dataset):
         Returns:
             Dataset: a base ``Dataset`` over the classic handle, or ``self``.
         """
-        var = self._source_var_name
-        parent = self._parent_nc
-        path = parent.file_name if parent is not None else self.file_name
-        handle = None
-        if var is not None and path and not str(path).startswith("/vsimem"):
-            try:
-                handle = gdal.Open(f'NETCDF:"{path}":{var}')
-            except RuntimeError:
-                handle = None
-        source = self if handle is None else Dataset(handle, access="read_only")
+        # Memoise the reopened handle (the classic source is a stable file property)
+        # so a common `if var.has_geolocation: var.geolocate(...)` flow does not
+        # reopen `NETCDF:<file>:<var>` two or three times, mirroring the memoisation
+        # of the sibling `_classic_geotransform`. `_update_inplace` clears it.
+        source = self.__dict__.get("_geolocation_source_memo")
+        if source is None:
+            var = self._source_var_name
+            parent = self._parent_nc
+            path = parent.file_name if parent is not None else self.file_name
+            handle = None
+            if var is not None and path and not str(path).startswith("/vsimem"):
+                try:
+                    handle = gdal.Open(f'NETCDF:"{path}":{var}')
+                except RuntimeError:
+                    handle = None
+            source = self if handle is None else Dataset(handle, access="read_only")
+            # Only cache a genuinely reopened handle; caching the `self` fallback
+            # would create a pointless self-reference and re-resolving it is cheap.
+            if source is not self:
+                self.__dict__["_geolocation_source_memo"] = source
         return source
 
     def _normalize_geostationary_geotransform(self) -> None:
