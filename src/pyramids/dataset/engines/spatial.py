@@ -1483,15 +1483,23 @@ class Spatial(_Engine["Dataset"]):
             Dataset: A new aligned Dataset.
 
         Note:
+            - **`method` is keyword-only.** Pass it by name (`align(template, method="bilinear")`), matching
+              :meth:`DatasetCollection.align`. This deliberately differs from :meth:`Spatial.to_crs` /
+              :meth:`Spatial.resample`, which accept `method` positionally — a bare positional resampling name
+              after a `Dataset` template reads poorly and would collide with the collection API's `inplace` slot.
             - **Output dtype follows the template, not the source.** The aligned raster is built with
               `alignment_src`'s data type, so resampling a floating-point source onto an integer-typed template
-              with an interpolating `method` ("bilinear"/"cubic"/...) silently truncates the fractional results to
-              the template's integer type. Match the template dtype to the source, or use "nearest", to avoid it.
+              with an interpolating `method` ("bilinear"/"cubic"/...) silently drops the fractional part (the
+              interpolated values are cast to the template's integer type). Match the template dtype to the
+              source, or use "nearest", to avoid it.
             - **Cross-CRS aligns resample twice.** When the source and `alignment_src` CRSes differ, the data is
               first reprojected onto an intermediate grid and then resampled onto the template grid, so a
-              non-nearest `method` is applied twice and the result is slightly more smoothed than a same-CRS align
-              with the identical `method`. The output grid is always exact; only pixel values differ. Reproject the
-              source to the template CRS first if a single-pass warp is needed.
+              non-nearest `method` is applied twice. For interpolating kernels ("bilinear"/"cubic") that means the
+              result is a little more smoothed than a same-CRS align with the identical `method`; for aggregating
+              kernels it changes the statistic itself — "sum" double-aggregates and inflates the total, and
+              "average"/"mode"/... become differently weighted, not smoother. The output grid is always exact;
+              only pixel values differ. Reproject the source to the template CRS first when an aggregating `method`
+              must be exact (a single-pass warp).
 
         Examples:
             - The source dataset has a `top_left_corner` at (0, 0) with a 5*5 alignment, and a 0.05 degree cell size.
