@@ -68,7 +68,8 @@ def test_roms_curvilinear_geotransform_is_geographic_not_index(sample):
         xmax = xmin + dx * salt.columns
         ymin = ymax + dy * salt.rows
         assert salt.epsg == 4326, f"curvilinear CRS must stay WGS84, got {salt.epsg}"
-        assert dx > 0 and dy < 0, f"must be a north-up affine, got dx={dx} dy={dy}"
+        assert dx > 0, f"x pixel width must be positive, got dx={dx}"
+        assert dy < 0, f"y pixel height must be negative (north-up), got dy={dy}"
         assert -95.0 <= xmin < xmax <= -87.0, f"lon not geographic: [{xmin}, {xmax}]"
         assert 27.0 <= ymin < ymax <= 31.0, f"lat not geographic: [{ymin}, {ymax}]"
     finally:
@@ -108,9 +109,8 @@ def test_curvilinear_georeference_emits_no_deprecation_warning(sample):
             warnings.simplefilter("error", DeprecationWarning)
             salt = nc.get_variable("salt")
             gt = salt.geotransform
-        assert salt.epsg == 4326 and gt[0] < -87.0, (
-            "must still be georeferenced geographically"
-        )
+        assert salt.epsg == 4326, f"CRS must stay WGS84, got {salt.epsg}"
+        assert gt[0] < -87.0, f"must be georeferenced geographically, got x_min={gt[0]}"
     finally:
         nc.close()
 
