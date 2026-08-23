@@ -2074,6 +2074,82 @@ class Dataset(RasterBase):
         self.__dict__.pop("_cf_crs_cache", None)
         self._epsg = self._get_epsg()
 
+    def set_meta_data(self, value: dict[str, str], domain: str = "") -> None:
+        """Replace this dataset's metadata in a specific GDAL domain.
+
+        The domain-aware companion to the :attr:`meta_data` setter. Unlike that
+        setter (which *merges* per key via ``SetMetadataItem``), this **replaces**
+        the whole domain (``SetMetadata``), consistent with the band-level
+        :meth:`Bands.set_metadata <pyramids.dataset.engines.Bands.set_metadata>`.
+        Assigning ``{}`` clears the domain. Writing the default domain (``""``) also
+        refreshes the CF/EPSG caches, exactly like the :attr:`meta_data` setter.
+
+        Args:
+            value: The metadata mapping to write into ``domain``.
+            domain: The GDAL metadata domain to write; ``""`` (default) is the
+                default domain.
+
+        Raises:
+            ReadOnlyError: The dataset is a read-only on-disk file.
+        """
+        self._require_writable("set metadata")
+        self._raster.SetMetadata(value, domain)
+        if domain == "":
+            # Default-domain metadata feeds CF CRS inference (axis units); drop the
+            # memoised answers so they re-derive, matching the meta_data setter.
+            self.__dict__.pop("_cf_crs_cache", None)
+            self._epsg = self._get_epsg()
+
+    def open_subdataset(self, key: int | str) -> Dataset:
+        """Open one of this container's subdatasets, carrying its open context.
+
+        Resolves ``key`` against :attr:`subdatasets` and reopens the chosen nested
+        raster with this dataset's access mode, GDAL environment, and open options.
+
+        The result is a **base** :class:`Dataset`: a subdataset connection string is
+        a classic-mode raster reference, so it is opened as an ordinary raster
+        (unlike :meth:`SubDataset.open`, this carries the parent's access mode, GDAL
+        env, and open options). For a ``NetCDF`` container, use
+        :meth:`~pyramids.netcdf.netcdf.NetCDF.get_variable` / ``NetCDF.variables``
+        instead when you want the multidimensional, ``NetCDF``-preserving view of a
+        variable — those handle the multidim open a raw subdataset string cannot.
+
+        Args:
+            key: A 0-based index into :attr:`subdatasets`, or a subdataset's full
+                ``name`` (its GDAL connection string).
+
+        Returns:
+            Dataset: The opened subdataset as a base ``Dataset``.
+
+        Raises:
+            IndexError: ``key`` is an out-of-range index.
+            ValueError: ``key`` is a name that is not among this container's
+                subdatasets.
+        """
+        subs = self.subdatasets
+        if isinstance(key, int):
+            name = subs[key].name
+        else:
+            match = next((sub.name for sub in subs if sub.name == key), None)
+            if match is None:
+                available = [sub.name for sub in subs]
+                raise ValueError(
+                    f"{key!r} is not a subdataset of this dataset; "
+                    f"available: {available}"
+                )
+            name = match
+        # Open the classic-mode subdataset string as a base Dataset, applying the
+        # captured GDAL env via the context manager (the __reduce__ idiom) so remote
+        # credentials still apply at open time, then re-attach it to the result.
+        with cloud_config_from_env(self._gdal_env, path=name):
+            result = Dataset.read_file(
+                name,
+                read_only=self.access == "read_only",
+                open_options=list(self._open_options) or None,
+            )
+        result.attach_gdal_env(self._gdal_env)
+        return result
+
     @property
     def band_meta_data(self) -> list[dict[str, str]]:
         """Per-band metadata, one mapping per band, in band order.
