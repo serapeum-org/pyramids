@@ -524,13 +524,28 @@ class TestAlign:
 
     @pytest.mark.parametrize(
         "method",
-        ["nearest", "bilinear", "cubic", "cubic_spline", "lanczos", "average", "mode"],
+        [
+            "nearest",
+            "bilinear",
+            "cubic",
+            "cubic_spline",
+            "lanczos",
+            "average",
+            "mode",
+            "min",
+            "max",
+            "med",
+            "q1",
+            "q3",
+        ],
     )
     def test_align_supported_methods_land_on_template_grid(self, method):
         """Every supported (non version-gated) method lands on the template grid.
 
         Args:
-            method: A resampling-method name accepted by `resolve_resampling`.
+            method: A resampling-method name accepted by `resolve_resampling`
+                (every key of `INTERPOLATION_METHODS` except the version-gated
+                "sum"/"rms").
 
         Test scenario:
             For each algorithm, `align` must run without error and return a raster
@@ -621,6 +636,64 @@ class TestAlign:
         )
         assert aligned.geotransform == template.geotransform, (
             "aligned raster must copy the template geotransform exactly"
+        )
+
+    def test_align_cross_crs_values_depend_on_method(self):
+        """Cross-CRS align actually resamples values by `method`, not just the grid.
+
+        Test scenario:
+            Aligning a EPSG:4326 gradient onto a EPSG:3857 template with "bilinear"
+            must yield pixel values that differ from the "nearest" result (both land
+            on the same template grid), pinning that `method` is honoured across the
+            CRS boundary and not silently dropped to nearest.
+        """
+        source, _ = self._gradient_source_and_template()
+        template = source.to_crs(to_epsg=3857)
+        bilinear = source.align(template, method="bilinear").read_array()
+        nearest = source.align(template, method="nearest").read_array()
+        assert bilinear.shape == nearest.shape, "both must share the template grid"
+        assert not np.allclose(bilinear, nearest, equal_nan=True), (
+            "cross-CRS bilinear must differ from nearest — method must affect values"
+        )
+
+    def test_align_aggregating_method_honors_no_data(self):
+        """Aggregating kernels exclude a declared no-data value, but not an undeclared one.
+
+        Test scenario:
+            Downsample (2x2 -> 1) a source whose top-left cell holds the sentinel
+            9999 with "average". When the raster *declares* 9999 as its no-data
+            value GDAL excludes it, so the output stays 1.0; when no no-data value
+            is set the sentinel is real data and is averaged in, pulling the cell
+            far above 1.0. This pins the documented no-data behaviour of the
+            `ReprojectImage` warp path.
+        """
+        arr = np.ones((4, 4), dtype=np.float32)
+        arr[0, 0] = 9999.0
+        template = Dataset.create_from_array(
+            np.zeros((2, 2), dtype=np.float32),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.5,
+            epsg=4326,
+        )
+
+        with_nodata = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.25,
+            epsg=4326,
+            no_data_value=9999.0,
+        )
+        aligned = with_nodata.align(template, method="average").read_array()
+        assert np.isclose(aligned.max(), 1.0), (
+            f"a declared no-data 9999 must be excluded from the average, got {aligned.max()}"
+        )
+
+        without_nodata = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 0.0), cell_size=0.25, epsg=4326
+        )
+        mixed = without_nodata.align(template, method="average").read_array()
+        assert mixed.max() > 100.0, (
+            f"an undeclared 9999 is valid data and must mix in, got {mixed.max()}"
         )
 
     def test_align_bilinear_template_crs_no_epsg(self):
