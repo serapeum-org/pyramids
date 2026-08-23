@@ -5210,9 +5210,12 @@ class NetCDF(Dataset):
         approximation of the curved grid — for a non-wrapping grid the bounding box is placed
         correctly, individual cells only approximately — but it reflects the data's real
         location instead of pixel indices, and pairs honestly with the WGS 84 CRS the
-        coordinates already imply. A grid crossing the antimeridian declines instead (the raw
-        min/max would span nearly the whole globe); its per-cell answer is the GEOLOCATION
-        domain (#1033).
+        coordinates already imply. A grid that *narrowly* straddles the antimeridian — its
+        longitudes leave a >180° gap, so raw min/max would span nearly the whole globe —
+        declines instead. A *wide* dateline-crossing grid (>180° of coverage, hence no such
+        gap) cannot be told apart from a legitimate wide grid by coordinates alone, so it is
+        approximated like any other and may be misplaced in longitude; its exact answer is the
+        GEOLOCATION domain (#1033).
 
         Args:
             cube: The variable subset whose 2-D coordinates georeference the grid.
@@ -5271,12 +5274,15 @@ class NetCDF(Dataset):
             or y_max > 90.0
         ):
             return None
-        # A grid crossing the antimeridian stores longitudes clustered at both ends of the
-        # range with a wide empty gap between, so raw min/max span nearly the whole globe and
+        # A grid that narrowly straddles the antimeridian stores longitudes clustered at both
+        # ends with a wide empty gap between, so raw min/max span nearly the whole globe and
         # misplace the domain in x. Decline (leave the index-space placeholder) rather than
         # fabricate a globe-spanning affine. A contiguous grid — including a genuinely
-        # circumpolar one whose longitudes fill the circle without a gap — has no such gap. The
-        # cheap span pre-check keeps the sort off the common (narrow-domain) path (#1039).
+        # circumpolar one whose longitudes fill the circle without a gap — has no such gap and
+        # is kept. This gap test cannot catch a *wide* dateline crossing (>180° coverage, gap
+        # <180°) without also falsely declining a polar grid whose meridians converge, so that
+        # rarer case is approximated rather than declined (#1039; GEOLOCATION is #1033). The
+        # cheap span pre-check keeps the sort off the common narrow-domain path.
         if (x_max - x_min) > 180.0:
             finite_lon = np.sort(lon2d[np.isfinite(lon2d)].ravel())
             if finite_lon.size >= 2 and float(np.max(np.diff(finite_lon))) > 180.0:
